@@ -595,6 +595,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         return matrix::user_lookup::localpartOrUserId(e.replyToSender);
     }
     case ReplyToPreviewRole:     return e.replyToPreview;
+    case ReplyToMediaKeyRole:    return e.replyToMediaKey;
     case MediaMxcUrlRole:        return e.mediaMxcUrl;
     case MediaHttpUrlRole:       return mediaHttp(e.mediaMxcUrl);
     case MediaThumbnailHttpUrlRole: {
@@ -767,6 +768,7 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { ReplyToEventIdRole,      "replyToEventId" },
         { ReplyToSenderRole,       "replyToSender" },
         { ReplyToPreviewRole,      "replyToPreview" },
+        { ReplyToMediaKeyRole,      "replyToMediaKey" },
         { MediaMxcUrlRole,         "mediaMxc" },
         { MediaHttpUrlRole,        "mediaUrl" },
         { MediaThumbnailHttpUrlRole,"mediaThumbUrl" },
@@ -1462,6 +1464,14 @@ QString TimelineModel::visibleTextForEvent(const QString &eventId) const
         || event->redacted)
         return {};
     return event->body;
+}
+
+QString TimelineModel::mediaKeyForEvent(const QString &eventId) const
+{
+    const auto *event = eventForId(eventId);
+    if (!event || event->type != TimelineEvent::Image)
+        return {};
+    return event->mediaKey;
 }
 
 QString TimelineModel::sanitizedHtmlForEvent(const QString &eventId) const

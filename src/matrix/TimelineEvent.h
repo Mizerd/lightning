@@ -90,6 +90,10 @@ struct TimelineEvent {
     QString replyToEventId;
     QString replyToSender;
     QString replyToPreview;    // Short preview of the replied-to body, best-effort.
+    // 2026-08-18: media-bridge key for an IMAGE reply target (empty
+    // otherwise) — the embedded event's media is registered in the Rust
+    // registry under this key, exactly like a row's own media.
+    QString replyToMediaKey;
 
     // v0.6.0: SDK-provided thread summary on thread ROOT events. The reply
     // count is the server's bundled aggregation (authoritative, kept live by

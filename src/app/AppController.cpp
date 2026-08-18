@@ -45,6 +45,9 @@
 #include "storage/AppDataPaths.h"
 
 #include <QClipboard>
+#include <QMimeData>
+
+#include <cstring>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -275,7 +278,21 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         // export the user chose. Forwarding is not that choice: it would
         // persist decrypted media nobody asked to keep, consume the store's
         // 200-item budget, and render the row's star as filled.
-        if (!m_pendingStarKeys.remove(mediaKey))
+        // Copy-to-clipboard consumer (2026-08-18 tester report #2): a
+        // TRANSIENT export on explicit user action — nothing persists, so
+        // the saved-GIF store's deletion machinery does not apply; the
+        // pending-key discipline (the same one that keeps forwards out of
+        // the star store) still does.
+        // The bridge dedups in-flight fetches purely by key, so when a
+        // star and a copy race on the SAME image exactly ONE signal
+        // arrives — it must service BOTH claims, or the loser is left
+        // stuck pending with no result and no feedback (review find,
+        // 2026-08-18). Never an early return between the two branches.
+        const bool wasCopy = m_pendingCopyKeys.remove(mediaKey);
+        const bool wasStar = m_pendingStarKeys.remove(mediaKey);
+        if (wasCopy)
+            copyImageBytesToClipboard(mediaKey, ok, bytes, category);
+        if (!wasStar)
             return;
         if (ok)
             m_gif->starredStore()->starBytes(mediaKey, bytes);
@@ -2148,6 +2165,73 @@ void AppController::reloadCurrentRoomTimeline(int limit)
 #endif
 }
 
+void AppController::copyImageToClipboard(const QString &mediaKey)
+{
+    if (mediaKey.isEmpty() || !m_mediaBridge)
+        return;
+    // Claim BEFORE dispatching: the bridge answers synchronously from its
+    // RAM cache in the common already-rendered case.
+    m_pendingCopyKeys.insert(mediaKey);
+    m_mediaBridge->fetchFullForStar(mediaKey);
+}
+
+void AppController::copyImageBytesToClipboard(const QString &mediaKey,
+                                              bool ok,
+                                              const QByteArray &bytes,
+                                              const QString &category)
+{
+    Q_UNUSED(mediaKey); // never logged — the key names the media
+    if (!ok || bytes.isEmpty()) {
+        Q_EMIT copyImageFinished(false, tr("Couldn't load the image (%1).")
+                                            .arg(category));
+        return;
+    }
+    // Identify by MAGIC BYTES (never a claimed MIME — the forward path's
+    // rule): the same signatures rooms::sniff_image_mime accepts, so a
+    // mislabelled or SVG payload never reaches the clipboard as "image".
+    const auto starts = [&bytes](const char *magic, int len) {
+        return bytes.size() >= len
+            && std::memcmp(bytes.constData(), magic, len) == 0;
+    };
+    QString identified;
+    if (starts("\x89PNG\r\n\x1a\n", 8))
+        identified = QStringLiteral("image/png");
+    else if (starts("\xff\xd8\xff", 3))
+        identified = QStringLiteral("image/jpeg");
+    else if (starts("GIF87a", 6) || starts("GIF89a", 6))
+        identified = QStringLiteral("image/gif");
+    else if (bytes.size() >= 12
+             && std::memcmp(bytes.constData(), "RIFF", 4) == 0
+             && std::memcmp(bytes.constData() + 8, "WEBP", 4) == 0)
+        identified = QStringLiteral("image/webp");
+    else if (starts("BM", 2))
+        identified = QStringLiteral("image/bmp");
+    if (identified.isEmpty()) {
+        Q_EMIT copyImageFinished(false, tr("This isn't a copyable image."));
+        return;
+    }
+    QImage image;
+    if (!image.loadFromData(bytes) || image.isNull()) {
+        Q_EMIT copyImageFinished(false, tr("Couldn't decode the image."));
+        return;
+    }
+    // Both representations: a decoded raster (universal paste) AND the
+    // original bytes under their true MIME (byte-exact paste for targets
+    // that accept the format, e.g. an animated GIF stays animated).
+    auto *guiApp =
+        qobject_cast<QGuiApplication *>(QCoreApplication::instance());
+    if (!guiApp) {
+        // Guiless harnesses have no clipboard; production always does.
+        Q_EMIT copyImageFinished(false, tr("Clipboard unavailable."));
+        return;
+    }
+    auto *mime = new QMimeData;
+    mime->setImageData(image);
+    mime->setData(identified, bytes);
+    guiApp->clipboard()->setMimeData(mime); // clipboard takes ownership
+    Q_EMIT copyImageFinished(true, QString());
+}
+
 void AppController::starChatGif(const QString &mediaKey)
 {
     if (mediaKey.isEmpty())
@@ -2839,6 +2923,7 @@ void AppController::clearCrossAccountCaches()
     // that same media would then have its answer claimed and written to the
     // saved-media store, which is exactly what the claim set prevents.
     m_pendingStarKeys.clear();
+    m_pendingCopyKeys.clear();
     m_notifications->clearPending();
     m_knownInvites.clear();
     // Encrypted-room drafts are memory-only and account-scoped; the next

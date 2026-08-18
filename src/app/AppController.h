@@ -428,6 +428,13 @@ public:
     // carries it and its runtime elements resolve. Called by main.cpp for
     // the real application only; tests opt in explicitly.
     void enableCallMediaEngine();
+
+private:
+    void copyImageBytesToClipboard(const QString &mediaKey, bool ok,
+                                   const QByteArray &bytes,
+                                   const QString &category);
+
+public:
     // Test seam: integration tests drive/inspect notification glue (the
     // DBus daemon is absent under offscreen runs).
     NotificationManager *notificationsForTest() const
@@ -642,6 +649,10 @@ public Q_SLOTS:
     // is observable via app.gif.starredStore.starFinished. This is the ONLY
     // place MediaBridge and the gif:: local-star store meet, so neither
     // gains a dependency on the other.
+    // 2026-08-18: Copy image (Discord-style) — a transient clipboard
+    // export of the decrypted bytes on explicit user action (Save-As
+    // precedent; nothing persists). Result on copyImageFinished.
+    Q_INVOKABLE void copyImageToClipboard(const QString &mediaKey);
     Q_INVOKABLE void starChatGif(const QString &mediaKey);
     // v0.6.6 fix: the two QML-facing entry points for the hover star's
     // filled/outline state and its unstar action. Both are two-tier — a
@@ -780,6 +791,7 @@ Q_SIGNALS:
     // v0.6.0 checkpoint 11: a notification was clicked — QML raises the
     // window, selects the room, opens the thread, and locates the event.
     // Identity only, never tokens.
+    void copyImageFinished(bool ok, const QString &message);
     void notificationOpenRequested(const QString &roomId,
                                    const QString &eventId,
                                    const QString &threadRootId);
@@ -927,6 +939,7 @@ private:
     // claimed rather than assumed — see the handler in setClient(). Cleared
     // on sign-out with the rest of the account-scoped state.
     QSet<QString> m_pendingStarKeys;
+    QSet<QString> m_pendingCopyKeys;
     std::unique_ptr<RoomInfoController> m_roomInfo;
     std::unique_ptr<MediaBridge> m_mediaBridge;
     std::unique_ptr<VoiceRecorder> m_voiceRecorder; // lazy — see getter

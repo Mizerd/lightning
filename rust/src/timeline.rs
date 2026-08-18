@@ -2507,6 +2507,38 @@ fn event_item_to_json(
                 if let TimelineDetails::Ready(embedded) = &reply.event {
                     out["reply_to_sender"] = embedded.sender.to_string().into();
                     out["reply_to_preview"] = content_preview(&embedded.content).into();
+                    // 2026-08-18 tester report #2: reply-to-IMAGE quotes
+                    // show a thumbnail. The embedded event carries the
+                    // FULL media content (encrypted sources included), so
+                    // register it in the media registry under the reply
+                    // target's own event id — exactly the row mechanism —
+                    // and cross only the retrieval key. Images only
+                    // (stickers are MsgLikeKind::Sticker and fall through
+                    // untouched): a filename row already serves files,
+                    // and video posters are a separate concern.
+                    if let TimelineItemContent::MsgLike(embedded_kind) =
+                        &embedded.content
+                    {
+                        if let MsgLikeKind::Message(message) =
+                            &embedded_kind.kind
+                        {
+                            if matches!(message.msgtype(),
+                                        MessageType::Image(_))
+                            {
+                                let mut scratch = serde_json::json!({});
+                                if let Some(media) = fill_message_content(
+                                    &mut scratch, message.msgtype())
+                                {
+                                    let reply_key =
+                                        reply.event_id.to_string();
+                                    out["reply_to_media_key"] =
+                                        reply_key.clone().into();
+                                    registry.remember_media(
+                                        reply_key, media);
+                                }
+                            }
+                        }
+                    }
                 }
             }
             if let Some(root) = &msg_like.thread_root {

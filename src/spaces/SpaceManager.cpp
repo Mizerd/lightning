@@ -226,6 +226,29 @@ QVariantList SpaceManager::childRoomsDetailed(const QString &spaceId) const
     return out;
 }
 
+QVariantList SpaceManager::childSpacesDetailed(const QString &spaceId) const
+{
+    QVariantList out;
+    if (!m_client || spaceId.isEmpty())
+        return out;
+    const auto rooms = m_client->rooms();
+    for (const RoomInfo &room : rooms) {
+        if (!room.isSpace || room.membership != RoomInfo::Joined)
+            continue;
+        if (!room.parentSpaceIds.contains(spaceId))
+            continue;
+        const int childRooms = m_membership.value(room.id).size();
+        out.append(QVariantMap{
+            { QStringLiteral("roomId"), room.id },
+            { QStringLiteral("name"), room.name },
+            { QStringLiteral("avatarUrl"), room.avatarUrl },
+            { QStringLiteral("identityColorKey"), identityColorKey(room) },
+            { QStringLiteral("childCount"), childRooms },
+        });
+    }
+    return out;
+}
+
 QVariantList SpaceManager::addableRooms(const QString &spaceId,
                                         const QString &filter) const
 {

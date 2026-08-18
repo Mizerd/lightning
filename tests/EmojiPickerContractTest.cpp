@@ -26,6 +26,21 @@ class EmojiPickerContractTest : public QObject
 {
     Q_OBJECT
 private Q_SLOTS:
+    // 2026-08-18 tester report #2 (screenshot-proven): a right-click on a
+    // tone-capable tile in the reaction picker ALSO opened the message
+    // context menu underneath — TapHandlers are non-exclusive across
+    // subtrees, so the picker must be MODAL (input barrier) while keeping
+    // dim off and close-on-press-outside.
+    void pickerIsAModalInputBarrier()
+    {
+        QFile f(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(f.readAll());
+        QVERIFY(src.contains(QStringLiteral("modal: true")));
+        QVERIFY(src.contains(QStringLiteral("dim: false")));
+        QVERIFY(!src.contains(QStringLiteral("modal: false")));
+    }
+
     void widthAndPaddingMatchSpec()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));

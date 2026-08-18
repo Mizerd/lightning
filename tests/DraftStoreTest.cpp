@@ -304,13 +304,18 @@ private Q_SLOTS:
         composer.setRoomId(kPlainRoom);
         composer.beginReply(QStringLiteral("$target"),
                             QStringLiteral("Bob"),
-                            QStringLiteral("the original"));
+                            QStringLiteral("the original"),
+                            QStringLiteral("$target"));
         composer.setText(QStringLiteral("replying to that"));
         composer.setRoomId(QString());
         composer.setRoomId(kPlainRoom);
         QCOMPARE(composer.text(), QStringLiteral("replying to that"));
         QCOMPARE(composer.replyingToEventId(), QStringLiteral("$target"));
         QCOMPARE(composer.replyingToSender(), QStringLiteral("Bob"));
+        // 2026-08-18 review find: the banner thumbnail's media key must
+        // survive the same round trip the text fields do — restore used
+        // to drop it, silently hiding the thumbnail after a room switch.
+        QCOMPARE(composer.replyingToMediaKey(), QStringLiteral("$target"));
 
         // Entering edit mode replaces the text with the edited event's
         // body; leaving the room in that state must NOT save the edit body

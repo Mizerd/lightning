@@ -266,6 +266,81 @@ Rectangle {
     // timeline (previously every message row eagerly built its own picker
     // popup — dozens of live instances per screen). The target event id is
     // snapshotted at open; a room or account switch closes both.
+    // 2026-08-18 tester report #2: clicking the read-by chips lists the
+    // readers. ONE shared popover (sharedReactionPicker precedent) —
+    // rows hand it plain data, never object references. Honesty rule:
+    // the bridge delivers the newest 16 readers with a truthful
+    // uncapped total, so beyond 16 the list ends with "+N more" and
+    // never fabricates names.
+    AnchoredPopup {
+        id: receiptListPopover
+        objectName: "receiptListPopover"
+        property var readers: []
+        property int totalOthers: 0
+        readonly property int unnamed:
+            Math.max(0, totalOthers - readers.length)
+        modal: true
+        dim: false
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        widthFraction: 0.22
+        heightFraction: 0.4
+        minWidth: 220
+        minHeight: 160
+        padding: AppTheme.spacing8
+        contentItem: ColumnLayout {
+            spacing: AppTheme.spacing4
+            Label {
+                text: qsTr("Read by %n other(s)", "",
+                           receiptListPopover.totalOthers)
+                color: AppTheme.textSecondary
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+            }
+            ListView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 2
+                model: receiptListPopover.readers
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                delegate: RowLayout {
+                    required property var modelData
+                    width: ListView.view.width
+                    spacing: AppTheme.spacing6
+                    Avatar {
+                        size: 20
+                        name: modelData.displayName || modelData.userId
+                        mxc: modelData.avatarMxc || ""
+                        colorKey: modelData.userId || ""
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: modelData.displayName || modelData.userId
+                        color: AppTheme.text
+                        font.pixelSize: 12
+                        elide: Label.ElideRight
+                    }
+                }
+                footer: Label {
+                    visible: receiptListPopover.unnamed > 0
+                    width: ListView.view ? ListView.view.width : 0
+                    text: qsTr("…and %n more (names not loaded)", "",
+                               receiptListPopover.unnamed)
+                    color: AppTheme.textMuted
+                    font.pixelSize: 11
+                    topPadding: 4
+                }
+            }
+        }
+    }
+    function openReceiptList(readers, totalOthers, point) {
+        receiptListPopover.readers = readers || []
+        receiptListPopover.totalOthers = totalOthers
+        receiptListPopover.anchorPoint = point
+        receiptListPopover.open()
+    }
+
     EmojiPicker {
         id: sharedReactionPicker
         mode: "reaction"
@@ -291,14 +366,17 @@ Rectangle {
         function onCurrentRoomIdChanged() {
             sharedReactionPicker.close()
             senderProfilePopover.close()
+            receiptListPopover.close()
             // The viewer holds decoded pixels and a stale entries snapshot;
             // it must never survive into another room or account (account
             // switches also change the current room).
             imageViewer.close()
         }
         function onAccountSwitchingChanged() {
-            if (app.accountSwitching)
+            if (app.accountSwitching) {
                 imageViewer.close()
+                receiptListPopover.close()
+            }
         }
     }
     // Development-only: screenshot-demo popup hooks (see
@@ -1865,7 +1943,8 @@ Rectangle {
                     var previewText = timelineModel.visibleTextForEvent(eventId)
                     app.composer.beginReply(eventId,
                         details.senderName || details.senderId,
-                        (previewText || "").substring(0, 80))
+                        (previewText || "").substring(0, 80),
+                        timelineModel.mediaKeyForEvent(eventId))
                 }
                 property var openThreadForEvent: function(eventId) {
                     if (!eventId || eventId.length === 0) return
@@ -3511,15 +3590,51 @@ Rectangle {
                 app.spaces ? app.spaces.activeSpaceId : ""
             property var info: ({})
             property var childRooms: []
+            // 2026-08-18 ("Land of the Insane"): JOINED sub-spaces of this
+            // space, shown nested above the room list; clicking one drills
+            // into its own Space Home.
+            property var childSpaces: []
             // v0.7.x: /hierarchy children the account has not joined
             // (join offers). Refreshed through RoomDiscoveryController.
             property var unjoinedChildren: []
             property string addNotice: ""
             property bool settingsOpen: false
+
+            InvitePeopleDialog {
+                id: spaceInviteDialog
+                parent: Overlay.overlay
+            }
+
+            Connections {
+                target: app.discovery
+                // Joining a sub-space from the offers below drills straight
+                // into it: its rooms live nested under ITS Home (Element's
+                // behavior for the same layout). The signal is GLOBAL —
+                // every successful space join through the discovery
+                // controller emits it (the Discover dialog included) — so
+                // only drill when the joined space is one of THIS space's
+                // own offers; an unrelated join must never yank the user
+                // out of the Home they are looking at (review find,
+                // 2026-08-18).
+                function onSpaceJoined(joinedId) {
+                    if (!app.spaces)
+                        return
+                    var offers = spaceHome.unjoinedChildren || []
+                    for (var i = 0; i < offers.length; ++i) {
+                        if (offers[i].roomId === joinedId) {
+                            app.spaces.activeSpaceId = joinedId
+                            return
+                        }
+                    }
+                }
+            }
+
             function refresh() {
                 info = app.spaces ? app.spaces.spaceInfo(spaceId) : {}
                 childRooms = app.spaces
                            ? app.spaces.childRoomsDetailed(spaceId) : []
+                childSpaces = app.spaces
+                            ? app.spaces.childSpacesDetailed(spaceId) : []
                 refreshUnjoined()
             }
             function refreshUnjoined() {
@@ -3540,11 +3655,19 @@ Rectangle {
                 refresh()
                 if (spaceId !== "" && app.discovery.supported)
                     app.discovery.refreshSpaceChildren(spaceId)
+                // Point RoomInfoController at the space while its Home is
+                // on screen: the Invite button's canInvite gate and the
+                // settings card both read it (a Space never becomes
+                // app.currentRoomId, so nothing contends here).
+                if (spaceId !== "" && app.roomInfo)
+                    app.roomInfo.roomId = spaceId
             }
             Component.onCompleted: {
                 refresh()
                 if (spaceId !== "" && app.discovery.supported)
                     app.discovery.refreshSpaceChildren(spaceId)
+                if (spaceId !== "" && app.roomInfo)
+                    app.roomInfo.roomId = spaceId
             }
             Connections {
                 target: app.discovery
@@ -3614,7 +3737,6 @@ Rectangle {
                             name: spaceHome.info.name || ""
                             mxc: spaceHome.info.avatarUrl || ""
                             colorKey: spaceHome.spaceId
-                            roomGlyph: true
                         }
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -3668,6 +3790,19 @@ Rectangle {
                                            "room", { addToSpace: true })
                         }
                         AppButton {
+                            objectName: "spaceInviteButton"
+                            // A Space IS a Matrix room: same invite path,
+                            // same server-side permission gate, surfaced
+                            // only when the roster says we may invite
+                            // (2026-08-18 tester report #2, MEDIUM).
+                            visible: app.roomInfo
+                                     && app.roomInfo.roomId === spaceHome.spaceId
+                                     && app.roomInfo.canInvite
+                            text: qsTr("Invite")
+                            onClicked: spaceInviteDialog.openFor(
+                                           spaceHome.spaceId)
+                        }
+                        AppButton {
                             objectName: "spaceAddRoomButton"
                             text: qsTr("Add existing room")
                             onClicked: {
@@ -3706,10 +3841,9 @@ Rectangle {
                         border.width: 1
                         implicitHeight: settingsCol.implicitHeight
                                         + AppTheme.spacing16 * 2
-                        onVisibleChanged: {
-                            if (visible && app.roomInfo)
-                                app.roomInfo.roomId = spaceHome.spaceId
-                        }
+                        // roomInfo now binds to the space for the whole
+                        // Space Home lifetime (see Component.onCompleted
+                        // below) — the card no longer needs its own bind.
                         FileDialog {
                             id: spaceAvatarDialog
                             title: qsTr("Choose Space avatar")
@@ -3843,6 +3977,78 @@ Rectangle {
                     }
 
                     Label {
+                        visible: spaceHome.childSpaces.length > 0
+                        text: qsTr("SPACES IN THIS SPACE")
+                        color: AppTheme.textMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: 11
+                        font.weight: Font.ExtraBold
+                        font.letterSpacing: 0.8
+                        Layout.topMargin: AppTheme.spacingS
+                    }
+                    Repeater {
+                        model: spaceHome.childSpaces
+                        delegate: Rectangle {
+                            id: childSpaceRow
+                            required property var modelData
+                            objectName: "spaceChildSpaceRow"
+                            Layout.fillWidth: true
+                            implicitHeight: 46
+                            radius: AppTheme.radiusMd
+                            color: childSpaceHover.hovered
+                                   ? AppTheme.hover : "transparent"
+                            HoverHandler { id: childSpaceHover }
+                            TapHandler {
+                                // Drill into the sub-space's own Home —
+                                // never a join (already joined).
+                                onTapped: app.spaces.activeSpaceId
+                                          = childSpaceRow.modelData.roomId
+                            }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: AppTheme.spacing8
+                                anchors.rightMargin: AppTheme.spacing8
+                                spacing: AppTheme.spacing8
+                                Avatar {
+                                    size: 30
+                                    circle: false
+                                    name: childSpaceRow.modelData.name
+                                          || childSpaceRow.modelData.roomId
+                                    mxc: childSpaceRow.modelData.avatarUrl
+                                         || ""
+                                    colorKey: childSpaceRow.modelData
+                                                  .identityColorKey || ""
+                                }
+                                ColumnLayout {
+                                    spacing: 0
+                                    Layout.fillWidth: true
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: childSpaceRow.modelData.name
+                                              || childSpaceRow.modelData.roomId
+                                        color: AppTheme.text
+                                        font.pixelSize: 14
+                                        font.weight: Font.DemiBold
+                                        elide: Label.ElideRight
+                                    }
+                                    Label {
+                                        text: qsTr("Space · %n room(s)", "",
+                                                   childSpaceRow.modelData
+                                                       .childCount || 0)
+                                        color: AppTheme.textMuted
+                                        font.pixelSize: 11
+                                    }
+                                }
+                                Icon {
+                                    name: "chevron_right"
+                                    size: 16
+                                    color: AppTheme.textMuted
+                                }
+                            }
+                        }
+                    }
+
+                    Label {
                         text: qsTr("ROOMS IN THIS SPACE")
                         color: AppTheme.textMuted
                         font.family: AppTheme.uiFont
@@ -3906,7 +4112,6 @@ Rectangle {
                                     mxc: modelData.avatarUrl || ""
                                     colorKey: modelData.identityColorKey || modelData.roomId || ""
                                     circle: modelData.isDirect === true
-                                    roomGlyph: modelData.isDirect !== true
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -4030,7 +4235,6 @@ Rectangle {
                                     name: unjoinedRow.modelData.name || ""
                                     mxc: unjoinedRow.modelData.avatarUrl || ""
                                     colorKey: unjoinedRow.modelData.roomId || ""
-                                    roomGlyph: true
                                 }
                                 ColumnLayout {
                                     Layout.fillWidth: true
@@ -4048,9 +4252,20 @@ Rectangle {
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        text: qsTr("%n member(s)", "",
-                                            Number(unjoinedRow.modelData.members
-                                                   || 0))
+                                        // A sub-space says WHAT it is and
+                                        // how much it holds — joining it
+                                        // reveals its rooms nested here
+                                        // (2026-08-18, "Land of the
+                                        // Insane" layout).
+                                        text: unjoinedRow.modelData.isSpace
+                                                  === true
+                                              ? qsTr("Space · %n room(s) inside",
+                                                     "",
+                                                     Number(unjoinedRow.modelData
+                                                          .childrenCount || 0))
+                                              : qsTr("%n member(s)", "",
+                                                     Number(unjoinedRow.modelData
+                                                          .members || 0))
                                         color: AppTheme.textMuted
                                         font.pixelSize: 11
                                         elide: Label.ElideRight
@@ -4285,7 +4500,6 @@ Rectangle {
                                     mxc: modelData.avatarUrl || ""
                                     colorKey: modelData.identityColorKey || modelData.roomId || ""
                                     circle: modelData.isDirect === true
-                                    roomGlyph: modelData.isDirect !== true
                                 }
                                 Label {
                                     Layout.fillWidth: true

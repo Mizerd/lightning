@@ -90,7 +90,6 @@ Item {
             // Design shell: people are circles, rooms and Spaces are
             // rounded squares that show a "#" glyph until the avatar loads.
             circle: model.isDirect === true
-            roomGlyph: model.isDirect !== true
             // Invite rows grow a third line (Accept/Reject): keep the
             // avatar with the room name at the top instead of letting it
             // float between the text lines.

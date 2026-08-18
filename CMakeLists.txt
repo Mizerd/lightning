@@ -2090,6 +2090,21 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME gui-stall-trace COMMAND gui-stall-trace-test)
 
+    # 2026-08-18 tester report #2: contract pins for the round's QML
+    # surfaces (copy image, reply thumbs, receipt popover honesty, space
+    # invite + nested subspaces, rail indent, initial avatars).
+    qt_add_executable(tester-report-2-contract-test
+        tests/TesterReport2ContractTest.cpp
+    )
+    target_compile_definitions(tester-report-2-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(tester-report-2-contract-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME tester-report-2-contract
+             COMMAND tester-report-2-contract-test)
+    set_tests_properties(tester-report-2-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # 2026-08-18 voice-call signaling pipes: MSC2746 state machine —
     # ringing, glare, busy auto-reject, cross-device settlement, invite
     # lifetime, LRU absorption, honest placeCall refusal, logout reset.

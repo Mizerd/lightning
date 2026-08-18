@@ -127,6 +127,8 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.replyToPreview = rawReplyPreview.isEmpty()
         ? rawReplyPreview
         : matrix::preview::normalizePreviewText(rawReplyPreview);
+    e.replyToMediaKey =
+        item.value(QStringLiteral("reply_to_media_key")).toString();
     e.threadRootId = item.value(QStringLiteral("thread_root_id")).toString();
 
     // v0.6.0: SDK thread summary on thread root events (absent fields keep

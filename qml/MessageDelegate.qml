@@ -410,7 +410,8 @@ Item {
         }
         var previewText = root.timelineModel.visibleTextForEvent(eventId)
         app.composer.beginReply(eventId, details.senderName || details.senderId,
-                                (previewText || "").substring(0, 80))
+                                (previewText || "").substring(0, 80),
+                                root.timelineModel.mediaKeyForEvent(eventId))
     }
     activeFocusOnTab: !isVirtualRow && !isStateActivity
     Keys.onPressed: (event) => {
@@ -752,7 +753,25 @@ Item {
                 // which have their own handlers on top.
                 TapHandler {
                     acceptedButtons: Qt.LeftButton
-                    onTapped: root.toggleActionsPin()
+                    onTapped: (eventPoint) => {
+                        // The receipt facepile paints upward from a
+                        // zero-height boundary and can overlap this
+                        // bubble's bottom edge (flush in bubbleMode on
+                        // own messages). TapHandlers are non-exclusive
+                        // across subtrees — the EmojiPicker lesson from
+                        // this same round — so a tap in the facepile's
+                        // band must not ALSO pin the action toolbar.
+                        if (receiptRow.visible) {
+                            var rp = bubble.mapToItem(
+                                        receiptRow,
+                                        eventPoint.position.x,
+                                        eventPoint.position.y)
+                            if (rp.x >= 0 && rp.x <= receiptRow.width
+                                && rp.y >= 0 && rp.y <= receiptRow.height)
+                                return
+                        }
+                        root.toggleActionsPin()
+                    }
                 }
 
                 ColumnLayout {
@@ -850,8 +869,8 @@ Item {
                             anchors.bottom: parent.bottom
                             color: AppTheme.borderStrong
                         }
-                        ColumnLayout {
-                            id: replyLayout
+                        RowLayout {
+                            id: replyRowWrap
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.top: parent.top
@@ -860,6 +879,46 @@ Item {
                             anchors.rightMargin: 8
                             anchors.topMargin: 4
                             anchors.bottomMargin: 4
+                            spacing: 6
+                            // 2026-08-18 tester report #2: an image reply
+                            // target shows a small thumbnail — same media
+                            // bridge, same registry, keyed by the reply
+                            // target's own event id.
+                            Image {
+                                id: replyThumb
+                                visible: (model.replyToMediaKey || "").length > 0
+                                         && status !== Image.Error
+                                         && app.mediaBridge.supported
+                                Layout.preferredWidth: 34
+                                Layout.preferredHeight: 34
+                                Layout.alignment: Qt.AlignVCenter
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                sourceSize.width: 68
+                                source: visible && model.replyToMediaKey
+                                        ? app.mediaBridge.mediaSource(
+                                              model.replyToMediaKey, "thumb")
+                                        : ""
+                                Connections {
+                                    target: app.mediaBridge
+                                    enabled: (model.replyToMediaKey || "")
+                                                 .length > 0
+                                    function onMediaCached(key) {
+                                        // The first mediaSource() call may
+                                        // return "" while bytes fetch;
+                                        // re-ask once the cache fills.
+                                        if (replyThumb.source.toString()
+                                                .length === 0)
+                                            replyThumb.source =
+                                                app.mediaBridge.mediaSource(
+                                                    model.replyToMediaKey,
+                                                    "thumb")
+                                    }
+                                }
+                            }
+                        ColumnLayout {
+                            id: replyLayout
+                            Layout.fillWidth: true
                             spacing: 0
                             Label {
                                 text: model.replyToSender
@@ -879,6 +938,7 @@ Item {
                                 Layout.fillWidth: true
                                 maximumLineCount: 1
                             }
+                        }
                         }
                     }
 
@@ -1795,6 +1855,29 @@ Item {
                     }
                 }
 
+                TapHandler {
+                    // Click → the full reader list (2026-08-18 tester report #2):
+                    // everything the bridge delivered (up to 16, newest first)
+                    // plus a truthful "+N more" tail — never fabricated names.
+                    onTapped: (eventPoint) => {
+                        if (!root.timelineView
+                            || !root.timelineView.openReceiptList)
+                            return
+                        // eventPoint.position is local to the handler's
+                        // PARENT — receiptRow, not the strip. The row is
+                        // offset from the strip by its right-alignment x
+                        // and its own -height y, so mapping from the
+                        // strip would misplace the popover by exactly
+                        // that offset (review find, 2026-08-18).
+                        var p = receiptRow.mapToItem(
+                                    Overlay.overlay,
+                                    eventPoint.position.x,
+                                    eventPoint.position.y)
+                        root.timelineView.openReceiptList(
+                            model.readReceipts || [],
+                            readReceiptStrip.totalOthers, Qt.point(p.x, p.y))
+                    }
+                }
                 HoverHandler { id: receiptHover }
                 ToolTip.text: readReceiptStrip.summary
                 ToolTip.visible: receiptHover.hovered
@@ -2091,6 +2174,17 @@ Item {
                         root.timelineView.saveMedia(
                             model.mediaKey || "",
                             model.mediaFilename || "download")
+                }
+                AppMenuItem {
+                    objectName: "copyImageMenuItem"
+                    iconName: "content_copy"
+                    text: qsTr("Copy image")
+                    // Images only (the raster clipboard is meaningless for video/
+                    // files), same availability gates as Save as.
+                    visible: model.isImage === true
+                             && model.mediaSourceAvailable === true
+                             && app.mediaBridge.supported
+                    onTriggered: app.copyImageToClipboard(model.mediaKey || "")
                 }
             }
             // v0.6.6 UX rework: GIF starring moved OFF this

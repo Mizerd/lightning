@@ -29,6 +29,11 @@ Rectangle {
     // room list, 9 in the room header, 12 on the rail, 14 on the room card).
     property int squareRadius: AppTheme.radiusMd
     // Rooms render a "#" glyph instead of initials (design handoff).
+    // 2026-08-18 tester report #2: rooms now fall back to their INITIAL
+    // (Element style — "T" for Testroom) instead of a generic '#'. The
+    // property is retained as an inert compatibility knob: _initials()
+    // already strips a leading #/!/@/+ sigil, so unnamed rooms still get
+    // a sensible letter.
     property bool roomGlyph: false
     // Stable identity key for the fallback colour (roomId/userId); the
     // display name is used when no key is given so renames keep a colour
@@ -217,7 +222,7 @@ Rectangle {
         anchors.centerIn: parent
         visible: root.presentationState === "missing"
                  || root.presentationState === "failed"
-        text: root.roomGlyph ? "#" : root._initials(root.name)
+        text: root._initials(root.name)
         // White 800-weight glyph on the palette colour per the handoff;
         // neutral ink only on the colourless fallback surface.
         color: root._paletteKey.length > 0 ? "#FFFFFF" : AppTheme.textSecondary

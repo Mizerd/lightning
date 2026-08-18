@@ -84,6 +84,14 @@ public:
     // the "Add existing room" picker.
     Q_INVOKABLE QVariantMap spaceInfo(const QString &spaceId) const;
     Q_INVOKABLE QVariantList childRoomsDetailed(const QString &spaceId) const;
+    // 2026-08-18 tester report #2 ("Land of the Insane"): JOINED child
+    // sub-spaces of a space, in room-list order (the Rust spaces event's
+    // ordering — m.space.child order keys are NOT honored here). rebuild()
+    // deliberately flattens subspace ROOMS into the ancestor's membership;
+    // this surfaces the subspaces THEMSELVES so Space Home can nest them
+    // (unjoined subspaces come from /hierarchy via RoomDiscoveryController
+    // and are rendered as join offers).
+    Q_INVOKABLE QVariantList childSpacesDetailed(const QString &spaceId) const;
     Q_INVOKABLE QVariantList addableRooms(const QString &spaceId,
                                           const QString &filter) const;
     // Sends the real m.space.child state event through the backend. The

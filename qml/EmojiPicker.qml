@@ -76,7 +76,18 @@ AnchoredPopup {
     minHeight: 320
     sizeSettingsKey: "picker"
     padding: 0
-    modal: false
+    // MODAL, deliberately (2026-08-18 tester report #2, screenshot-proven):
+    // as the reaction picker this popup floats directly over the message
+    // row that opened it, and a non-modal popup lets a right-click on an
+    // emoji tile ALSO reach the row's own context-menu TapHandler
+    // underneath — the skin-tone popup and the message menu opened
+    // together. Qt Quick TapHandlers are non-exclusive across unrelated
+    // subtrees, so the only robust barrier is popup modality. dim: false
+    // keeps the previous look; CloseOnPressOutside still closes on an
+    // outside click — that click is now consumed instead of falling
+    // through, which is the standard picker behavior everywhere else.
+    modal: true
+    dim: false
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 

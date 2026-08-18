@@ -1306,6 +1306,58 @@ after the tester-report fixes shipped as 0.7.3:
   trees** after this round — the first fully green complete run since the
   timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
 
+**2026-08-18 tester report #2 round (same day, 0.7.3 Win11 report).**
+Fixed, each with regression coverage: the emoji picker is now MODAL
+(dim:false) — a right-click on a tone-capable tile ALSO opened the
+message context menu through the non-modal popup (TapHandlers are
+non-exclusive across subtrees; screenshot-proven); **Copy image** on
+image rows (fetch via the star/save MediaBridge path with pending-key
+discipline, magic-sniffed — SVG refused — clipboard gets raster +
+original bytes; transient export, Save-As precedent; the tester's
+"paste sends a link" was the absence of this — paste itself already
+prefers image data); the GIF settings "reset" was a DISPLAY bug — the
+only combos using creation-time `indexOfValue()` bindings (evaluates
+before valueRole/model settle, -1 masked by Math.max) now sync
+explicitly (regression test runs first-open with non-default values);
+room/space avatars fall back to letter INITIALS (the `#` glyph is
+retired; identity colors unchanged); Space Home gains **Invite**
+(canInvite-gated, same dialog/permission path); **nested subspaces**
+("Land of the Insane") — Space Home lists joined child spaces
+(SpaceManager::childSpacesDetailed; click drills in), unjoined
+/hierarchy children label themselves `Space · N rooms inside` and Join
+drills in via spaceJoined, and the rail indents nested spaces using the
+always-computed-never-rendered `level` role; **reply-to-image
+thumbnails** in the quote block AND the composer banner (the embedded
+reply event's media registers in the Rust media registry under the
+reply target's event id — the row mechanism, so encrypted rooms work
+identically; `reply_to_media_key` crosses, never media bytes);
+**clickable read-by** — the chip strip opens a reader-list popover
+showing the delivered 16 newest + a truthful "…and N more (names not
+loaded)" (the bridge caps at 16 by design; names are never fabricated).
+Assessed + deferred with reasons in
+`docs/tester-report-2026-08-18-2.md`: spellcheck (engine + dictionary
+packaging round; the MentionHighlighter QSyntaxHighlighter hook is the
+proven attach point), rail reorder/folders, update dev-channel (needs a
+second signed manifest slot in lightning-deploy first), Win11 emoji
+tofu (no bundled emoji font; bundling Noto Color Emoji is a size
+decision for Rokas). A three-lens §18 review ran before commit; all
+findings fixed: the receipt popover mapped its tap point from the wrong
+item (the handler lives in receiptRow, whose offset from the strip is
+exactly the right-alignment gap — the popover opened displaced by it);
+a facepile tap could ALSO pin the bubble's action toolbar (the same
+non-exclusive-TapHandler class the picker fix names — the bubble handler
+now excludes the facepile band); the reader popover now closes on
+room/account switch like its sibling popovers; Space Home's
+`spaceJoined` drill-in was an UNFILTERED global listener (joining any
+space from Discover yanked the user out of whatever Home they were on —
+now scoped to the space's own offers); a star and a copy racing on the
+same not-yet-cached image left the star stranded forever (the bridge
+dedups by key, so ONE broadcast must service BOTH claims); and the
+reply-banner thumbnail key now survives the draft round trip. Both
+handler fixes carry regression tests proven to fail pre-fix. Full
+registered CTest after the fixes: **132/132 on both trees**; cargo 123/0.
+Everything user-visible: **NOT TESTED** live on Windows.
+
 **2026-08-18 voice-calls round 3 (same day): the REAL media engine.**
 `GstCallMediaBackend` — GStreamer webrtcbin (ICE/libnice, DTLS-SRTP,
 Opus, audio-only) behind the round-2 seam. Optional at BUILD time

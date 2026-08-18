@@ -52,6 +52,7 @@ public:
         ReplyToEventIdRole,
         ReplyToSenderRole,
         ReplyToPreviewRole,
+        ReplyToMediaKeyRole,
         MediaMxcUrlRole,
         MediaHttpUrlRole,
         MediaThumbnailHttpUrlRole,
@@ -200,6 +201,9 @@ public:
     // Stable-id message action helpers. Each call re-resolves the event in
     // the current room so a recycled QML delegate cannot act on another row.
     Q_INVOKABLE QString visibleTextForEvent(const QString &eventId) const;
+    // Media-bridge key for replying TO an image event (empty otherwise) —
+    // lets the composer banner show the same thumbnail the quote will.
+    Q_INVOKABLE QString mediaKeyForEvent(const QString &eventId) const;
     // The event's sanitized formatted body (same output as
     // FormattedBodyRole), for the edit flow: display-text plain bodies
     // carry no mention markdown, so the composer recovers mention refs

@@ -186,6 +186,42 @@ private slots:
         delete m_controller;
     }
 
+    // 2026-08-18 tester report #2: "GIF settings reset every close/launch"
+    // (Win11). The persisted VALUES were fine; the suspicion is the
+    // combos' creation-time indexOfValue binding showing defaults. This
+    // case runs FIRST among the slots so the Settings screen instantiates
+    // fresh with non-default values already stored — exactly the relaunch
+    // shape the tester saw.
+    void gifSettingsCombosDisplayPersistedValuesOnFirstOpen()
+    {
+        m_controller->settings()->setGifAutoplay(2);        // Never
+        m_controller->settings()->setGifSafeSearch(0);      // G — strict
+        m_controller->settings()->setGifPreferredProvider(
+            QStringLiteral("klipy"));
+        m_controller->showSettings();
+        m_controller->showSettingsSection(QStringLiteral("privacy"));
+        QCoreApplication::processEvents();
+        auto *autoplay = item("gifAutoplayCombo");
+        auto *rating = item("gifRatingCombo");
+        auto *provider = item("gifProviderCombo");
+        QVERIFY(autoplay && rating && provider);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            autoplay->property("currentValue").toInt(), 2, 3000);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            rating->property("currentValue").toInt(), 0, 3000);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            provider->property("currentValue").toString(),
+            QStringLiteral("klipy"), 3000);
+        // Restore the shared shell state for the section-sensitive tests
+        // that follow (they expect a fresh Settings open on the default
+        // section with the chat shell visible beneath).
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        m_controller->showMain();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            item("spacesRail") && item("spacesRail")->isVisible(), 3000);
+    }
+
     void settingsTakesOverTheFullContentArea()
     {
         auto *rail = item("spacesRail");

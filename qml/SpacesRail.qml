@@ -73,10 +73,24 @@ Rectangle {
                     anchors.bottomMargin: 2
                 }
 
+                // Nested sub-space: a subtle indent + connector notch so
+                // the rail mirrors the space hierarchy ("Land of the
+                // Insane" layout, 2026-08-18) — level was computed by
+                // SpaceManager all along and rendered nowhere.
+                Rectangle {
+                    visible: !spaceItem.isPseudo && (model.level || 0) > 0
+                    width: 6; height: 2; radius: 1
+                    color: AppTheme.border
+                    anchors.verticalCenter: spaceTile.verticalCenter
+                    anchors.right: spaceTile.left
+                    anchors.rightMargin: 1
+                }
                 Rectangle {
                     id: spaceTile
                     width: 40; height: 40
                     anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.horizontalCenterOffset:
+                        !spaceItem.isPseudo && (model.level || 0) > 0 ? 5 : 0
                     y: 4
                     radius: AppTheme.radiusLg
                     // Home is a persistent accent tile per the handoff; the

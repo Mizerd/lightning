@@ -2007,6 +2007,7 @@ Item {
                                 AppComboBox {
                                     storm: true
                                     id: gifAutoplayCombo
+                                    objectName: "gifAutoplayCombo"
                                     Layout.fillWidth: true
                                     textRole: "label"; valueRole: "value"
                                     Accessible.name: qsTr("Autoplay and prefetch media")
@@ -2015,7 +2016,24 @@ Item {
                                         { label: qsTr("On hover"), value: 1 },
                                         { label: qsTr("Never"),    value: 2 },
                                     ]
-                                    currentIndex: Math.max(0, indexOfValue(app.settings.gifAutoplay))
+                                    // NOT a currentIndex binding: at
+                                    // creation, indexOfValue() runs before
+                                    // valueRole/model settle and returns -1,
+                                    // so every relaunch DISPLAYED the
+                                    // default while the stored value was
+                                    // fine (2026-08-18 tester report #2,
+                                    // "GIF settings reset every launch").
+                                    function syncFromSettings() {
+                                        currentIndex = Math.max(0,
+                                            indexOfValue(app.settings.gifAutoplay))
+                                    }
+                                    Component.onCompleted: syncFromSettings()
+                                    Connections {
+                                        target: app.settings
+                                        function onGifAutoplayChanged() {
+                                            gifAutoplayCombo.syncFromSettings()
+                                        }
+                                    }
                                     onActivated: app.settings.gifAutoplay = currentValue
                                 }
                                 Label {
@@ -2030,6 +2048,7 @@ Item {
                                 AppComboBox {
                                     storm: true
                                     id: gifRatingCombo
+                                    objectName: "gifRatingCombo"
                                     Layout.fillWidth: true
                                     textRole: "label"; valueRole: "value"
                                     Accessible.name: qsTr("GIF safe search rating")
@@ -2040,7 +2059,17 @@ Item {
                                         { label: qsTr("PG-13"),       value: 2 },
                                         { label: qsTr("R — all"),     value: 3 },
                                     ]
-                                    currentIndex: Math.max(0, indexOfValue(app.settings.gifSafeSearch))
+                                    function syncFromSettings() {
+                                        currentIndex = Math.max(0,
+                                            indexOfValue(app.settings.gifSafeSearch))
+                                    }
+                                    Component.onCompleted: syncFromSettings()
+                                    Connections {
+                                        target: app.settings
+                                        function onGifSafeSearchChanged() {
+                                            gifRatingCombo.syncFromSettings()
+                                        }
+                                    }
                                     onActivated: app.settings.gifSafeSearch = currentValue
                                 }
 
@@ -2048,6 +2077,7 @@ Item {
                                 AppComboBox {
                                     storm: true
                                     id: gifProviderCombo
+                                    objectName: "gifProviderCombo"
                                     Layout.fillWidth: true
                                     textRole: "label"; valueRole: "value"
                                     Accessible.name: qsTr("Preferred GIF provider")
@@ -2055,7 +2085,17 @@ Item {
                                         { label: "GIPHY", value: "giphy" },
                                         { label: "KLIPY", value: "klipy" },
                                     ]
-                                    currentIndex: Math.max(0, indexOfValue(app.settings.gifPreferredProvider))
+                                    function syncFromSettings() {
+                                        currentIndex = Math.max(0,
+                                            indexOfValue(app.settings.gifPreferredProvider))
+                                    }
+                                    Component.onCompleted: syncFromSettings()
+                                    Connections {
+                                        target: app.settings
+                                        function onGifPreferredProviderChanged() {
+                                            gifProviderCombo.syncFromSettings()
+                                        }
+                                    }
                                     onActivated: app.settings.gifPreferredProvider = currentValue
                                 }
                                 // Honest per-provider availability.

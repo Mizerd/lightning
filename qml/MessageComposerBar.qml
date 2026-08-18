@@ -741,6 +741,27 @@ Item {
                     Layout.rightMargin: AppTheme.spacing8
                     Layout.topMargin: AppTheme.spacing4
                     spacing: AppTheme.spacing6
+                    // 2026-08-18 tester report #2: replying to an image
+                    // shows its thumbnail while typing too — same bridge
+                    // key the timeline quote uses.
+                    Image {
+                        visible: app.composer.isReplying
+                                 && (app.composer.replyingToMediaKey || "")
+                                        .length > 0
+                                 && status !== Image.Error
+                                 && app.mediaBridge.supported
+                        Layout.preferredWidth: 22
+                        Layout.preferredHeight: 22
+                        Layout.alignment: Qt.AlignVCenter
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        sourceSize.width: 44
+                        source: visible
+                                ? app.mediaBridge.mediaSource(
+                                      app.composer.replyingToMediaKey,
+                                      "thumb")
+                                : ""
+                    }
                     Label {
                         text: {
                             if (app.composer.isEditing)

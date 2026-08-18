@@ -297,7 +297,6 @@ Item {
                                 colorKey: modelData.identityColorKey
                                           || modelData.roomId || ""
                                 circle: modelData.isDirect === true
-                                roomGlyph: modelData.isDirect !== true
                             }
                             Label {
                                 Layout.fillWidth: true
@@ -404,7 +403,6 @@ Item {
                                     name: modelData.name || ""
                                     mxc: modelData.avatarUrl || ""
                                     colorKey: modelData.roomId || ""
-                                    roomGlyph: true
                                 }
                                 Label {
                                     text: modelData.name || qsTr("Space")

@@ -24,6 +24,7 @@ class MessageComposer : public QObject
     Q_PROPERTY(QString replyingToEventId READ replyingToEventId NOTIFY replyStateChanged)
     Q_PROPERTY(QString replyingToSender READ replyingToSender NOTIFY replyStateChanged)
     Q_PROPERTY(QString replyingToPreview READ replyingToPreview NOTIFY replyStateChanged)
+    Q_PROPERTY(QString replyingToMediaKey READ replyingToMediaKey NOTIFY replyStateChanged)
     Q_PROPERTY(QString editingEventId READ editingEventId NOTIFY editStateChanged)
     Q_PROPERTY(bool isReplying READ isReplying NOTIFY replyStateChanged)
     Q_PROPERTY(bool isEditing READ isEditing NOTIFY editStateChanged)
@@ -57,6 +58,7 @@ public:
     QString replyingToEventId() const { return m_replyingToEventId; }
     QString replyingToSender()  const { return m_replyingToSender; }
     QString replyingToPreview() const { return m_replyingToPreview; }
+    QString replyingToMediaKey() const { return m_replyingToMediaKey; }
     QString editingEventId()    const { return m_editingEventId; }
     QString threadRootId()      const { return m_threadRootId; }
     QString threadPreview()     const { return m_threadPreview; }
@@ -82,7 +84,8 @@ public:
     Q_INVOKABLE void clear();
     Q_INVOKABLE void beginReply(const QString &eventId,
                                 const QString &sender,
-                                const QString &preview);
+                                const QString &preview,
+                                const QString &mediaKey = QString());
     // sanitizedHtml (optional): the event's sanitized formatted body, used
     // to recover mention refs when the plain body carries display text
     // (sends after the plain-body reduction have no markdown to parse).
@@ -199,6 +202,7 @@ private:
     QString m_replyingToEventId;
     QString m_replyingToSender;
     QString m_replyingToPreview;
+    QString m_replyingToMediaKey;
     QString m_editingEventId;
     QString m_threadRootId;
     QString m_threadPreview;

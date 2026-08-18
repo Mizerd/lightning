@@ -36,6 +36,10 @@
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
 
+#include <QBuffer>
+#include <QClipboard>
+#include <QMimeData>
+
 namespace {
 
 // Mirrors AccountSwitchTest.cpp's own FakeSecretStore: an in-memory,
@@ -338,11 +342,136 @@ private Q_SLOTS:
         QVERIFY(starFinished.at(0).at(1).toBool());
     }
 
+    // 2026-08-18 tester report #2: Copy image. Same broadcast signal, a
+    // THIRD consumer — the pending-key discipline must hold in both
+    // directions (a copy fetch must not star, a star fetch must not
+    // copy), a real image must land on the clipboard in both
+    // representations, and junk bytes must be refused by magic sniffing.
+    void copyImagePutsBothRepresentationsOnTheClipboard()
+    {
+        FakeClient fake;
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_VERIFY(app.gif()->starredStore()->isOpen());
+        app.mediaBridge()->setClient(&fake);
+
+        // A real 1x1 PNG so QImage decodes it.
+        QImage pixel(1, 1, QImage::Format_ARGB32);
+        pixel.fill(Qt::red);
+        QByteArray png;
+        {
+            QBuffer buffer(&png);
+            buffer.open(QIODevice::WriteOnly);
+            QVERIFY(pixel.save(&buffer, "PNG"));
+        }
+
+        QSignalSpy copied(&app, &AppController::copyImageFinished);
+        QSignalSpy starFinished(app.gif()->starredStore(),
+                                &GifStarredStore::starFinished);
+        const int starsBefore = app.gif()->starredStore()->count();
+
+        app.copyImageToClipboard(QStringLiteral("mk-copy"));
+        QVERIFY(!fake.fetches.isEmpty());
+        fake.succeed(fake.fetches.last().opId, png);
+        QCoreApplication::processEvents();
+
+        QTRY_COMPARE(copied.count(), 1);
+        QVERIFY(copied.at(0).at(0).toBool());
+        // The copy fetch did NOT star anything.
+        QCOMPARE(app.gif()->starredStore()->count(), starsBefore);
+        QCOMPARE(starFinished.count(), 0);
+        // Clipboard carries the decoded raster AND the original bytes.
+        const QMimeData *mime =
+            QGuiApplication::clipboard()->mimeData();
+        QVERIFY(mime);
+        QVERIFY(mime->hasImage());
+        QCOMPARE(mime->data(QStringLiteral("image/png")), png);
+    }
+
+    // 2026-08-18 review find: the bridge dedups in-flight fetches by
+    // key, so starring and copying the SAME not-yet-cached image yields
+    // exactly ONE broadcast — the handler must service BOTH claims. The
+    // pre-fix handler consumed the copy claim and returned, leaving the
+    // star stranded pending forever with no result and no feedback.
+    void starAndCopyRacingOnOneKeyBothComplete()
+    {
+        FakeClient fake;
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_VERIFY(app.gif()->starredStore()->isOpen());
+        app.mediaBridge()->setClient(&fake);
+
+        QImage pixel(1, 1, QImage::Format_ARGB32);
+        pixel.fill(Qt::blue);
+        QByteArray png;
+        {
+            QBuffer buffer(&png);
+            buffer.open(QIODevice::WriteOnly);
+            QVERIFY(pixel.save(&buffer, "PNG"));
+        }
+
+        QSignalSpy copied(&app, &AppController::copyImageFinished);
+        QSignalSpy starFinished(app.gif()->starredStore(),
+                                &GifStarredStore::starFinished);
+
+        app.starChatGif(QStringLiteral("mk-race"));
+        const int fetchesAfterStar = fake.fetches.size();
+        QVERIFY(fetchesAfterStar >= 1);
+        app.copyImageToClipboard(QStringLiteral("mk-race"));
+        // Deduped: the copy rides the star's in-flight fetch.
+        QCOMPARE(fake.fetches.size(), fetchesAfterStar);
+
+        fake.succeed(fake.fetches.last().opId, png);
+        QCoreApplication::processEvents();
+
+        QTRY_COMPARE(copied.count(), 1);
+        QVERIFY(copied.at(0).at(0).toBool());
+        QTRY_COMPARE(starFinished.count(), 1);
+        QVERIFY(starFinished.at(0).at(1).toBool());
+    }
+
+    void copyImageRefusesNonRasterBytes()
+    {
+        FakeClient fake;
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        app.mediaBridge()->setClient(&fake);
+
+        QSignalSpy copied(&app, &AppController::copyImageFinished);
+        app.copyImageToClipboard(QStringLiteral("mk-svg"));
+        QVERIFY(!fake.fetches.isEmpty());
+        fake.succeed(fake.fetches.last().opId,
+                     QByteArray("<svg onload=alert(1)></svg>"));
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(copied.count(), 1);
+        QVERIFY(!copied.at(0).at(0).toBool()); // refused by magic sniffing
+    }
+
 private:
     QTemporaryDir m_configHome;
     QTemporaryDir m_dataHome;
 
 };
 
-QTEST_GUILESS_MAIN(AppControllerChatGifStarredTest)
+// QTEST_MAIN (QGuiApplication, offscreen): the copy-image cases assert on
+// the real clipboard, which a guiless QCoreApplication does not have.
+QTEST_MAIN(AppControllerChatGifStarredTest)
 #include "AppControllerChatGifStarredTest.moc"

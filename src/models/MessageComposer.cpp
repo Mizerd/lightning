@@ -63,6 +63,13 @@ void MessageComposer::saveDraftNow()
         draft.insert(QStringLiteral("replyToEventId"), m_replyingToEventId);
         draft.insert(QStringLiteral("replyToSender"), m_replyingToSender);
         draft.insert(QStringLiteral("replyToPreview"), m_replyingToPreview);
+        // The banner thumbnail's key (the reply target's event id — a
+        // stable public identifier, never media bytes). Without it a
+        // room switch restored the text preview but silently dropped
+        // the thumbnail (review find, 2026-08-18).
+        if (!m_replyingToMediaKey.isEmpty())
+            draft.insert(QStringLiteral("replyToMediaKey"),
+                         m_replyingToMediaKey);
     }
     if (!m_mentionRefs.isEmpty()) {
         QVariantList refs;
@@ -115,6 +122,8 @@ void MessageComposer::restoreDraft()
         draft.value(QStringLiteral("replyToSender")).toString();
     m_replyingToPreview =
         draft.value(QStringLiteral("replyToPreview")).toString();
+    m_replyingToMediaKey =
+        draft.value(QStringLiteral("replyToMediaKey")).toString();
     m_restoringDraft = false;
     Q_EMIT textChanged();
     Q_EMIT mentionRangesChanged();
@@ -535,13 +544,15 @@ int MessageComposer::insertMention(const QString &userId,
 
 void MessageComposer::beginReply(const QString &eventId,
                                   const QString &sender,
-                                  const QString &preview)
+                                  const QString &preview,
+                                  const QString &mediaKey)
 {
     m_editingEventId.clear();
     Q_EMIT editStateChanged();
     m_replyingToEventId = eventId;
     m_replyingToSender  = sender;
     m_replyingToPreview = preview;
+    m_replyingToMediaKey = mediaKey;
     Q_EMIT replyStateChanged();
     // The reply target is part of the draft.
     if (m_drafts && !m_restoringDraft && !m_roomId.isEmpty())
@@ -555,6 +566,7 @@ void MessageComposer::beginEdit(const QString &eventId,
     m_replyingToEventId.clear();
     m_replyingToSender.clear();
     m_replyingToPreview.clear();
+    m_replyingToMediaKey.clear();
     Q_EMIT replyStateChanged();
     m_threadRootId.clear();
     m_threadPreview.clear();
@@ -586,6 +598,7 @@ void MessageComposer::beginThreadReply(const QString &rootEventId,
     m_replyingToEventId.clear();
     m_replyingToSender.clear();
     m_replyingToPreview.clear();
+    m_replyingToMediaKey.clear();
     Q_EMIT replyStateChanged();
     m_threadRootId  = rootEventId;
     m_threadPreview = preview;
@@ -600,6 +613,7 @@ void MessageComposer::cancelReplyOrEdit()
     m_replyingToEventId.clear();
     m_replyingToSender.clear();
     m_replyingToPreview.clear();
+    m_replyingToMediaKey.clear();
     m_editingEventId.clear();
     m_threadRootId.clear();
     m_threadPreview.clear();
