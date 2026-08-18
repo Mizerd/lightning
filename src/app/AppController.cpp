@@ -516,6 +516,121 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_threads->setClient(m_client.get());
     m_presence->setClient(m_client.get());
     m_calls->setClient(m_client.get());
+    // ── Voice-call ring policy, wired to its real owners (round 2) ──
+    // State truth stays in CallController; these close the policy gates
+    // shouldRing() consults. The functors capture `this` and read live
+    // state, so account switches need no rewiring.
+    m_calls->setSenderIgnoredCheck([this](const QString &userId) {
+        return m_moderation && m_moderation->isIgnored(userId);
+    });
+    m_calls->setRoomMutedCheck([this](const QString &roomId) {
+        return m_settings->roomNotificationMode(roomId)
+            == static_cast<int>(NotificationManager::Muted);
+    });
+    // Cold-start backlog: never ring for history. Mirrors the
+    // initialSyncComplete gate NotificationManager applies to messages.
+    m_calls->setBacklogSuppressed(!m_client->initialSyncDone());
+    connect(m_client.get(), &MatrixClient::initialSyncDoneChanged, this,
+            [this] {
+                m_calls->setBacklogSuppressed(!m_client->initialSyncDone());
+            });
+
+    // ── Incoming-call notification + ring ──
+    connect(m_calls.get(), &CallController::incomingCallStarted, this,
+            [this](const QString &roomId, const QString &callId,
+                   const QString &senderId, qint64 remainingMs) {
+                if (!m_settings->notificationsEnabled())
+                    return;
+                if (!m_calls->shouldRing())
+                    return; // backlog, ignored sender, or muted room
+                // Per-sender cooldown: an untrusted room member must not
+                // be able to pump critical-urgency ring notifications by
+                // minting fresh call ids. State/banner are unaffected —
+                // this bounds only the OS-level announcement.
+                const qint64 now = QDateTime::currentMSecsSinceEpoch();
+                const qint64 lastRing = m_lastCallRingBySender.value(
+                    senderId, 0);
+                if (now - lastRing < 30000)
+                    return;
+                m_lastCallRingBySender.insert(senderId, now);
+                while (m_lastCallRingBySender.size() > 64) {
+                    // Bounded: drop an arbitrary entry (cooldown is a
+                    // heuristic, not bookkeeping worth an LRU).
+                    m_lastCallRingBySender.erase(
+                        m_lastCallRingBySender.begin());
+                }
+                const bool privatePreview =
+                    m_settings->notificationPreview() == 2;
+                const QVariantMap room = m_roomList->findRoom(roomId);
+                // Room names and (historical) localparts are member-chosen
+                // text: escaped, because freedesktop bodies may render
+                // markup on daemons that advertise it.
+                const QString roomName = room.value(QStringLiteral("name"))
+                                             .toString()
+                                             .toHtmlEscaped();
+                // Localpart only — same restraint as the timeline's
+                // unresolved-profile fallback; never the bare full MXID.
+                const QString caller = senderId.mid(1)
+                                           .section(QLatin1Char(':'), 0, 0)
+                                           .toHtmlEscaped();
+                const QString body = privatePreview
+                    ? tr("Incoming voice call")
+                    : (roomName.isEmpty()
+                           ? tr("%1 is calling").arg(caller)
+                           : tr("%1 is calling in %2")
+                                 .arg(caller, roomName));
+                // Ring exactly as long as the invite stays valid; the
+                // sound repeat is additionally gated on the user's
+                // switches.
+                const bool sound = m_settings->ringForCalls()
+                    && m_settings->notificationSound()
+                        != 0 /* SoundOff */;
+                m_announcedCallId = callId;
+                m_notifications->showIncomingCall(
+                    roomId, callId, tr("Incoming call"), body, sound,
+                    static_cast<int>(qBound<qint64>(
+                        qint64(5), remainingMs / 1000, qint64(300))));
+            });
+    connect(m_calls.get(), &CallController::incomingCallEnded, this,
+            [this](const QString &roomId, const QString &callId,
+                   int reason, bool missed) {
+                Q_UNUSED(reason);
+                m_notifications->stopIncomingCall(callId);
+                const bool wasAnnounced = m_announcedCallId == callId;
+                if (m_announcedCallId == callId)
+                    m_announcedCallId.clear();
+                // Missed-call notice: only for a call that (a) the
+                // controller classified missed from its pre-end state —
+                // an answered call the peer hung up is COMPLETED — and
+                // (b) was actually announced to the user; a ring the
+                // backlog/mute/ignore gates suppressed must not resurface
+                // as "missed" later (review round 2).
+                if (!missed || !wasAnnounced)
+                    return;
+                if (!m_settings->notificationsEnabled())
+                    return;
+                const bool privatePreview =
+                    m_settings->notificationPreview() == 2;
+                const QVariantMap room = m_roomList->findRoom(roomId);
+                const QString roomName = room.value(QStringLiteral("name"))
+                                             .toString()
+                                             .toHtmlEscaped();
+                m_notifications->showGeneric(
+                    tr("Missed call"),
+                    privatePreview || roomName.isEmpty()
+                        ? tr("You missed a voice call")
+                        : tr("You missed a voice call in %1").arg(roomName),
+                    roomId,
+                    privatePreview
+                        ? QString()
+                        : room.value(QStringLiteral("avatarUrl")).toString());
+            });
+    connect(m_notifications.get(),
+            &NotificationManager::callDeclineRequested, this,
+            [this](const QString &callId) {
+                if (m_calls->activeCallId() == callId)
+                    m_calls->rejectIncoming();
+            });
     m_pinned->setClient(m_client.get());
     m_roomUpgrade->setClient(m_client.get());
     m_thread->setClient(m_client.get());

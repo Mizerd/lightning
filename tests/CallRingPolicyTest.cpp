@@ -1,0 +1,264 @@
+// 2026-08-18 round 2: the voice-call ring policy wired to its REAL owners
+// on a full AppController (mock backend) — ignored senders, muted rooms,
+// backlog suppression from the sync lifecycle, and the ringForCalls
+// setting's plumbing. The prior round proved these gates inside
+// CallController with hand-injected functors; this suite proves the
+// production wiring exists (the review lesson: a policy hook nobody wires
+// is dead code covered by a passing test).
+#include <QtTest/QtTest>
+
+#include <QSignalSpy>
+
+#include "app/AppController.h"
+#include "app/ModerationController.h"
+#include "app/SettingsManager.h"
+#include "auth/AuthManager.h"
+#include "calls/CallController.h"
+#include "matrix/CallSignal.h"
+#include "matrix/MockMatrixClient.h"
+#include "notifications/NotificationManager.h"
+
+namespace {
+constexpr int kSignalTimeoutMs = 3000;
+const QString kRoom = QStringLiteral("!general:mock.local");
+
+CallSignal invite(const QString &callId,
+                  const QString &sender = QStringLiteral("@peer:mock.local"))
+{
+    CallSignal s;
+    s.kind = CallSignal::Kind::Invite;
+    s.roomId = kRoom;
+    s.eventId = QStringLiteral("$invite-") + callId;
+    s.sender = sender;
+    s.callId = callId;
+    s.partyId = QStringLiteral("peer-party");
+    s.lifetimeMs = 60000;
+    s.originServerTs = QDateTime::currentMSecsSinceEpoch();
+    s.version = QStringLiteral("1");
+    s.sessionType = QStringLiteral("offer");
+    s.hasDescription = true;
+    return s;
+}
+} // namespace
+
+class CallRingPolicyTest : public QObject
+{
+    Q_OBJECT
+
+private:
+    static bool login(AppController &controller)
+    {
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        return loginSpy.wait(kSignalTimeoutMs);
+    }
+
+    static MockMatrixClient *mock(AppController &controller)
+    {
+        return controller.findChild<MockMatrixClient *>();
+    }
+
+private Q_SLOTS:
+    void initTestCase()
+    {
+        QVERIFY(m_configHome.isValid());
+        qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+        QCoreApplication::setOrganizationName(
+            QStringLiteral("MatrixClientTests"));
+        QCoreApplication::setApplicationName(
+            QStringLiteral("call-ring-policy-test"));
+    }
+
+    void init()
+    {
+        QSettings settings;
+        settings.clear();
+        settings.sync();
+    }
+
+    void backlogGateFollowsInitialSyncState()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *client = mock(controller);
+        QVERIFY(client);
+        client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        // The mock reports initialSyncDone true after login, so the wired
+        // backlog gate must be OPEN — the prior round's default-closed
+        // behavior would keep shouldRing false forever here.
+        QVERIFY(controller.calls()->shouldRing());
+    }
+
+    void mutedRoomRingsStateButNotPolicy()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *client = mock(controller);
+        QVERIFY(client);
+        controller.settings()->setRoomNotificationMode(kRoom, 2 /*Muted*/);
+        client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        QVERIFY(!controller.calls()->shouldRing());
+        // Un-muting reopens the gate live (functor reads current state).
+        controller.settings()->setRoomNotificationMode(kRoom, 0);
+        QVERIFY(controller.calls()->shouldRing());
+    }
+
+    void ignoredSenderNeverEvenRings()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *client = mock(controller);
+        QVERIFY(client);
+        // Seed the moderation cache the way the SDK list arrival does.
+        Q_EMIT client->ignoredUsersChanged(
+            QStringList{ QStringLiteral("@peer:mock.local") });
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.moderation()->isIgnored(
+                QStringLiteral("@peer:mock.local")),
+            kSignalTimeoutMs);
+        client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
+        // Dropped before any state: the wired ignore check reached
+        // CallController.
+        QCOMPARE(controller.calls()->state(), CallController::State::Idle);
+    }
+
+    void ringForCallsSettingRoundTrips()
+    {
+        AppController controller(AppController::MockBackend);
+        QCOMPARE(controller.settings()->ringForCalls(), true); // default ON
+        QSignalSpy changed(controller.settings(),
+                           &SettingsManager::ringForCallsChanged);
+        controller.settings()->setRingForCalls(false);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(controller.settings()->ringForCalls(), false);
+        controller.settings()->setRingForCalls(false); // no-op
+        QCOMPARE(changed.count(), 1);
+    }
+
+    void missedCallClassificationIsExact()
+    {
+        using ER = CallController::EndReason;
+        QVERIFY(CallController::isMissedCallReason(ER::InviteTimeout));
+        QVERIFY(CallController::isMissedCallReason(ER::RemoteHangup));
+        QVERIFY(!CallController::isMissedCallReason(ER::LocalReject));
+        QVERIFY(!CallController::isMissedCallReason(ER::AnsweredElsewhere));
+        QVERIFY(!CallController::isMissedCallReason(ER::DeclinedElsewhere));
+        QVERIFY(!CallController::isMissedCallReason(ER::SessionLost));
+        QVERIFY(!CallController::isMissedCallReason(ER::GlareReplaced));
+        QVERIFY(!CallController::isMissedCallReason(ER::MediaFailed));
+    }
+
+    // Missed-call notices require the ring to have been ANNOUNCED: a call
+    // suppressed by mute (or backlog/ignore) must never resurface later
+    // as "missed" (review round 2).
+    void missedNoticeOnlyForAnnouncedRings()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *client = mock(controller);
+        QVERIFY(client);
+        auto *notices = controller.notificationsForTest();
+
+        // Announced ring, caller gives up → exactly one missed notice.
+        client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        const int before = notices->genericNoticeCountForTest();
+        CallSignal hangup;
+        hangup.kind = CallSignal::Kind::Hangup;
+        hangup.roomId = kRoom;
+        hangup.eventId = QStringLiteral("$hangup-1");
+        hangup.sender = QStringLiteral("@peer:mock.local");
+        hangup.callId = QStringLiteral("call-1");
+        hangup.partyId = QStringLiteral("peer-party");
+        hangup.reason = QStringLiteral("user_hangup");
+        client->emitCallSignalForTest(hangup);
+        QCOMPARE(notices->genericNoticeCountForTest(), before + 1);
+
+        // Muted room: the ring is never announced, so its end must raise
+        // NO missed notice.
+        controller.settings()->setRoomNotificationMode(kRoom, 2 /*Muted*/);
+        // Fresh sender, so the ring cooldown cannot be the reason the
+        // announcement is absent — only the mute is.
+        client->emitCallSignalForTest(
+            invite(QStringLiteral("call-2"),
+                   QStringLiteral("@peer2:mock.local")));
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        const int muted = notices->genericNoticeCountForTest();
+        CallSignal hangup2 = hangup;
+        hangup2.eventId = QStringLiteral("$hangup-2");
+        hangup2.callId = QStringLiteral("call-2");
+        hangup2.sender = QStringLiteral("@peer2:mock.local");
+        client->emitCallSignalForTest(hangup2);
+        QCOMPARE(notices->genericNoticeCountForTest(), muted);
+    }
+
+    // The per-sender ring cooldown bounds OS-level announcements: a
+    // sender re-ringing within the window still produces call STATE, but
+    // no second notification and therefore no later missed notice.
+    void senderRingCooldownBoundsAnnouncements()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *client = mock(controller);
+        QVERIFY(client);
+        auto *notices = controller.notificationsForTest();
+
+        client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
+        QVERIFY(controller.calls()->rejectIncoming());
+        const int before = notices->genericNoticeCountForTest();
+
+        // Same sender rings again immediately: state rings, announcement
+        // suppressed by the cooldown, so an abandoned ring raises no
+        // missed notice either.
+        client->emitCallSignalForTest(invite(QStringLiteral("call-2")));
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        CallSignal hangup;
+        hangup.kind = CallSignal::Kind::Hangup;
+        hangup.roomId = kRoom;
+        hangup.eventId = QStringLiteral("$hangup-x");
+        hangup.sender = QStringLiteral("@peer:mock.local");
+        hangup.callId = QStringLiteral("call-2");
+        hangup.partyId = QStringLiteral("peer-party");
+        hangup.reason = QStringLiteral("user_hangup");
+        client->emitCallSignalForTest(hangup);
+        QCOMPARE(notices->genericNoticeCountForTest(), before);
+    }
+
+    void declineFromNotificationReachesTheCall()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *client = mock(controller);
+        QVERIFY(client);
+        client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        // The DBus daemon is absent under offscreen tests, so drive the
+        // decline signal directly: the AppController glue must route it to
+        // rejectIncoming for the MATCHING call only.
+        Q_EMIT controller.notificationsForTest()->callDeclineRequested(
+            QStringLiteral("some-other-call"));
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        Q_EMIT controller.notificationsForTest()->callDeclineRequested(
+            QStringLiteral("call-1"));
+        QCOMPARE(controller.calls()->state(), CallController::State::Ended);
+        QCOMPARE(controller.calls()->endReason(),
+                 CallController::EndReason::LocalReject);
+    }
+
+private:
+    QTemporaryDir m_configHome;
+};
+
+QTEST_MAIN(CallRingPolicyTest)
+#include "CallRingPolicyTest.moc"

@@ -185,6 +185,9 @@ void RustSdkMatrixClient::setInitialSyncDone(bool done)
 
 void RustSdkMatrixClient::clearLocalState()
 {
+    // SDP store: remote session descriptions must never outlive their
+    // session on ANY teardown path (review 2026-08-18 round 2 M1).
+    m_callSdpStore.clear();
     clearTimelineInsertBatch();
     m_loggedIn = false;
     m_homeserver.clear();
@@ -298,6 +301,12 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
 
     m_storePath = storePath;
     m_handleGeneration = m_lifecycle.beginSession();
+    // Re-apply media-capable mode: the Rust-side flag defaults OFF on a
+    // fresh handle, and a registered media backend must survive account
+    // switches (review 2026-08-18 round 2 L4).
+    if (m_callMediaCapable)
+        mx_rust_calls_set_media_capable(m_rustHandle,
+                                        static_cast<unsigned char>(1));
 
     if (!m_sessionFilePath.isEmpty()) {
         const QByteArray sessionPath = m_sessionFilePath.toUtf8();
@@ -610,6 +619,7 @@ bool RustSdkMatrixClient::detachSession()
     // deliberately untouched — restoreSession() reactivates it later.
     qCInfo(lcRust) << "detaching local session"
                    << "slug=" << matrix::app_data::safeUserSlug(m_userId);
+    m_callSdpStore.clear();
     // Stale callbacks from this session become unobservable immediately;
     // releaseRustHandle() then cancels/joins every managed task before the
     // handle is destroyed.
@@ -2975,6 +2985,7 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("logged_out")) {
+        m_callSdpStore.clear();
         finishSignOut(event.value(QStringLiteral("result")).toString(
                           QStringLiteral("ok")),
                       event.value(QStringLiteral("message")).toString());
@@ -5006,6 +5017,25 @@ quint64 RustSdkMatrixClient::callRtcDecline(const QString &roomId,
     return result.isEmpty() ? opId : 0;
 }
 
+void RustSdkMatrixClient::setCallMediaCapable(bool capable)
+{
+    // Cached so a recreated Rust handle (sign-out → sign-in, account
+    // switch) re-learns the mode instead of silently reverting to OFF
+    // while a media backend is still registered (review L4).
+    m_callMediaCapable = capable;
+    if (m_rustHandle)
+        mx_rust_calls_set_media_capable(
+            m_rustHandle, capable ? static_cast<unsigned char>(1)
+                                  : static_cast<unsigned char>(0));
+    if (!capable)
+        m_callSdpStore.clear();
+}
+
+QString RustSdkMatrixClient::takeCallSessionDescription(const QString &eventId)
+{
+    return m_callSdpStore.take(eventId);
+}
+
 quint64 RustSdkMatrixClient::setUserIgnored(const QString &userId,
                                             bool ignored)
 {
@@ -5624,6 +5654,21 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("target_event_id")).toString();
         if (signal.roomId.isEmpty() || signal.eventId.isEmpty())
             return true; // malformed — drop, never dispatch a partial signal
+        // Media-capable mode only: the Rust side includes the remote SDP
+        // for invites/answers. It goes into the bounded single-shot store,
+        // NEVER onto the signal (CallSignal is structurally SDP-free) and
+        // never into a log.
+        if (m_callMediaCapable) {
+            if (signal.kind == CallSignal::Kind::Invite) {
+                m_callSdpStore.insert(
+                    signal.eventId,
+                    event.value(QStringLiteral("offer_sdp")).toString());
+            } else if (signal.kind == CallSignal::Kind::Answer) {
+                m_callSdpStore.insert(
+                    signal.eventId,
+                    event.value(QStringLiteral("answer_sdp")).toString());
+            }
+        }
         Q_EMIT callSignalReceived(signal);
         return true;
     }

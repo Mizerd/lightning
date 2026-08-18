@@ -20,6 +20,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -28,6 +29,7 @@
 
 #include "matrix/CallSignal.h"
 
+class CallMediaBackend;
 class MatrixClient;
 
 class CallController : public QObject
@@ -36,6 +38,8 @@ class CallController : public QObject
     Q_PROPERTY(int state READ stateInt NOTIFY stateChanged)
     Q_PROPERTY(bool ringing READ ringing NOTIFY stateChanged)
     Q_PROPERTY(QString activeRoomId READ activeRoomId NOTIFY stateChanged)
+    Q_PROPERTY(QString callerUserId READ activeSenderId NOTIFY stateChanged)
+    Q_PROPERTY(QString activeCallId READ activeCallId NOTIFY stateChanged)
 
 public:
     enum class State { Idle, Inviting, Ringing, Connecting, Active, Ended };
@@ -53,6 +57,7 @@ public:
         GlareReplaced,
         Busy,
         SendFailed,
+        MediaFailed,
         SessionLost,
     };
     Q_ENUM(EndReason)
@@ -75,11 +80,18 @@ public:
     QString activeSenderId() const;
     bool sessionLive() const;
 
-    // UI-facing entry once a media backend exists. Refuses today: there is
-    // no implementation that can produce an offer SDP, and a stubbed offer
-    // would place a call that dies at the peer.
+    // The media-engine seam (see CallMediaBackend.h). NOT owned; nullptr
+    // (the production state — no engine exists in the tree) keeps
+    // placeCall()/answer() refusing honestly. Registering also tells the
+    // backend bridge to start carrying SDP for this client (C++ memory
+    // only, never QML, never logs).
+    void setMediaBackend(CallMediaBackend *backend);
+    bool mediaBackendAvailable() const { return m_mediaBackend != nullptr; }
+
+    // UI-facing entries. Both refuse without a media backend: a stubbed
+    // offer/answer would place or accept a call that dies at the peer.
     Q_INVOKABLE bool placeCall(const QString &roomId);
-    bool mediaBackendAvailable() const { return false; }
+    Q_INVOKABLE bool answer();
     QString lastRefusal() const { return m_lastRefusal; }
 
     // The complete outbound pipe, fed by a future media backend (tests feed
@@ -93,6 +105,16 @@ public:
     // Hang up our own outbound call (Inviting/Connecting/Active).
     Q_INVOKABLE bool hangup();
 
+    // Missed-REASON subset. NOT sufficient alone: a completed (answered)
+    // call also ends RemoteHangup, so endSession additionally requires the
+    // call to still have been RINGING — the `missed` flag on
+    // incomingCallEnded is the authoritative answer (review round 2).
+    static bool isMissedCallReason(EndReason reason)
+    {
+        return reason == EndReason::InviteTimeout
+            || reason == EndReason::RemoteHangup;
+    }
+
     // Ring policy inputs. Backlog suppression defaults TRUE — a freshly
     // started app must never ring for cold-start backlog; the sync
     // lifecycle owner lowers it once live (NotificationManager pattern).
@@ -103,9 +125,14 @@ public:
 
 Q_SIGNALS:
     void stateChanged();
+    // remainingMs is the invite's real remaining validity, so the ring's
+    // duration can follow the call instead of a hardcoded window.
     void incomingCallStarted(const QString &roomId, const QString &callId,
-                             const QString &senderId);
-    void incomingCallEnded(const QString &callId, int reason);
+                             const QString &senderId, qint64 remainingMs);
+    // `missed` is decided where the pre-end state is known: inbound, still
+    // Ringing, and ended by timeout or the caller giving up.
+    void incomingCallEnded(const QString &roomId, const QString &callId,
+                           int reason, bool missed);
     // A dispatched signaling send was rejected by the server. Category is
     // the coarse classify_room_error set; never raw error text.
     void sendFailed(const QString &category);
@@ -125,6 +152,14 @@ private:
         bool rtc = false;
         qint64 lifetimeMs = 0;
         bool selectAnswerSent = false;
+        // Outbound: the media backend is producing the offer; the invite
+        // has not been dispatched yet.
+        bool offerPending = false;
+        // Inbound: the media backend is producing the answer.
+        bool answerPending = false;
+        // Outbound: the invite send was dispatched (used to decide whether
+        // a media failure needs a wire hangup or only a local end).
+        bool inviteDispatched = false;
     };
 
     void onCallSignal(const CallSignal &signal);
@@ -139,6 +174,13 @@ private:
     void handleSelectAnswer(const CallSignal &signal);
     void handleRtcNotification(const CallSignal &signal);
     void handleRtcDecline(const CallSignal &signal);
+    // Slot (not inline lambda) so tests can drive expiry via
+    // QMetaObject::invokeMethod instead of waiting out real timers.
+    Q_SLOT void onLifetimeExpired();
+    void onMediaOfferReady(const QString &callId, const QString &sdp);
+    void onMediaAnswerReady(const QString &callId, const QString &sdp);
+    void onMediaConnected(const QString &callId);
+    void onMediaFailed(const QString &callId, const QString &category);
 
     bool matchesSession(const CallSignal &signal) const;
     bool recentlyEnded(const QString &callId) const;
@@ -153,6 +195,9 @@ private:
     static QString freshPartyId();
 
     MatrixClient *m_client = nullptr;
+    // QPointer: the backend is NOT owned, and a destroyed backend must
+    // read as absent, never as a dangling pointer in endSession's close().
+    QPointer<CallMediaBackend> m_mediaBackend;
     State m_state = State::Idle;
     EndReason m_endReason = EndReason::None;
     Session m_session;

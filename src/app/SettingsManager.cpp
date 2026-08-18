@@ -837,6 +837,20 @@ void SettingsManager::setNotificationSound(int mode)
     Q_EMIT notificationSoundChanged();
 }
 
+bool SettingsManager::ringForCalls() const
+{
+    return m_store->value(QStringLiteral("notifications/ringForCalls"), true)
+        .toBool();
+}
+
+void SettingsManager::setRingForCalls(bool enabled)
+{
+    if (ringForCalls() == enabled)
+        return;
+    m_store->setValue(QStringLiteral("notifications/ringForCalls"), enabled);
+    Q_EMIT ringForCallsChanged();
+}
+
 // The per-room mode became account-derived state when the Rust backend's
 // server push-rule sync landed, so it is stored per account
 // (accounts/<slug>/notifications/room-mode/<roomId>) like the appearance

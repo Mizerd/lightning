@@ -751,6 +751,10 @@ char *mx_rust_calls_rtc_decline(void *client,
                                 const char *room_id,
                                 const char *notification_event_id,
                                 unsigned long long op_id);
+/* Media-capable mode: only when enabled do call_invite/call_answer poll
+ * events carry offer_sdp/answer_sdp (bounded; C++ stores them memory-only
+ * and single-shot, never logs, never exposes to QML). Off by default. */
+char *mx_rust_calls_set_media_capable(void *client, unsigned char capable);
 /* v0.7.x UIA + device sign-out. delete may raise a uia_required challenge
  * event ({op_id, flows, completed, has_password_stage, wrong_password});
  * answer with mx_rust_uia_submit_password (the password transit buffer is

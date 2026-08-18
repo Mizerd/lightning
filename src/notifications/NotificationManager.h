@@ -127,6 +127,20 @@ public:
                      const QString &roomId = QString(),
                      const QString &avatarMxc = QString());
 
+    // 2026-08-18 round 2: incoming voice call. One notification with a
+    // Decline action; while ringing it is re-delivered every few seconds
+    // (replacing itself) so the themed call sound repeats — the closest
+    // honest "ring" the freedesktop notification API offers, since
+    // Lightning bundles no audio and plays none itself. `sound` false
+    // shows a silent card (ringForCalls off / sound mode off). Bounded by
+    // `ringSeconds`, and stopped by stopIncomingCall().
+    void showIncomingCall(const QString &roomId, const QString &callId,
+                          const QString &title, const QString &safeBody,
+                          bool sound, int ringSeconds);
+    // Retire the incoming-call notification (call ended or was handled on
+    // another device). Safe to call when nothing is showing.
+    void stopIncomingCall(const QString &callId);
+
     // Logout/account switch: forget queued click payloads.
     void clearPending();
 
@@ -136,16 +150,29 @@ public:
     void recordPayloadForTest(quint32 id, const QVariantMap &payload)
     { recordPayload(id, payload); }
     int pendingPayloadCountForTest() const { return m_pendingPayloads.size(); }
+    bool callRingActiveForTest() const { return m_callRingTimer.isActive(); }
+    QString activeCallIdForTest() const { return m_activeCallId; }
+    // The DBus daemon is absent under offscreen tests: this stands in for
+    // the Notify() reply so the id-matched decline/closed branches can be
+    // driven (they key on the delivered notification id).
+    void setActiveCallNotificationIdForTest(quint32 id)
+    { m_activeCallNotificationId = id; }
+    // Count of generic notices raised (missed calls, invites, ...): lets
+    // integration tests observe the AppController gating without a daemon.
+    int genericNoticeCountForTest() const { return m_genericNoticeCount; }
 
 Q_SIGNALS:
     // The user activated a notification. Identity only — no tokens.
     void openRequested(const QString &roomId, const QString &eventId,
                        const QString &threadRootId);
+    // The user pressed Decline on the incoming-call notification.
+    void callDeclineRequested(const QString &callId);
 
 private Q_SLOTS:
     // DBus signal receivers (freedesktop Notifications).
     void onActionInvoked(quint32 id, const QString &action);
     void onNotificationClosed(quint32 id, quint32 reason);
+    void onCallRingTick();
 
 private:
     // `fallback` is shown when the avatar is absent or cannot be fetched;
@@ -157,6 +184,9 @@ private:
     void deliverNow(const QString &title, const QString &body,
                     const QVariantMap &payload, bool sound,
                     const QImage &avatar);
+    // One re-delivery of the active incoming-call notification (replacing
+    // the previous one via replaces_id so cards never stack).
+    void deliverCallNotification();
     void flushAvatarWaits(bool fallbackAll);
     // Store one click payload, evicting the oldest when the bounded cap is
     // exceeded (a desktop only keeps a handful visible). FIFO eviction keeps
@@ -174,6 +204,18 @@ private:
     // Monotonic time (ms) of the last sound played; a short window coalesces
     // notification bursts into a single alert.
     qint64 m_lastSoundMs = 0;
+
+    // Incoming-call ring state: the active call, its notification id (for
+    // replaces_id and CloseNotification), the repeat timer and deadline.
+    QString m_activeCallId;
+    QString m_activeCallRoomId;
+    QString m_activeCallTitle;
+    QString m_activeCallBody;
+    bool m_activeCallSound = false;
+    quint32 m_activeCallNotificationId = 0;
+    qint64 m_callRingDeadlineMs = 0;
+    QTimer m_callRingTimer;
+    int m_genericNoticeCount = 0;
     struct WaitingDelivery {
         QString title;
         QString body;

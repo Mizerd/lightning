@@ -9,6 +9,8 @@
 #include <QSignalSpy>
 
 #include "calls/CallController.h"
+#include "calls/CallMediaBackend.h"
+#include "calls/SdpStore.h"
 #include "matrix/CallSignal.h"
 #include "matrix/MockMatrixClient.h"
 
@@ -45,11 +47,6 @@ public:
         sent.append({QStringLiteral("invite"), roomId, callId, partyId, {}});
         return ++opCounter;
     }
-    quint64 callAnswer(const QString &, const QString &, const QString &,
-                       const QString &, const QString &) override
-    {
-        return 0; // unreachable this round — nothing can produce an answer
-    }
     quint64 callReject(const QString &roomId, const QString &callId,
                        const QString &partyId) override
     {
@@ -80,6 +77,31 @@ public:
         return ++opCounter;
     }
 
+    quint64 callAnswer(const QString &roomId, const QString &callId,
+                       const QString &partyId, const QString &answerType,
+                       const QString &answerSdp) override
+    {
+        Q_UNUSED(answerType);
+        // Record that an answer was dispatched WITHOUT retaining the SDP —
+        // mirrors production's no-echo rule; the test only needs the fact.
+        sent.append({QStringLiteral("answer"), roomId, callId, partyId,
+                     answerSdp.isEmpty() ? QString()
+                                         : QStringLiteral("<sdp>")});
+        return ++opCounter;
+    }
+    void setCallMediaCapable(bool capable) override
+    {
+        mediaCapable = capable;
+    }
+    QString takeCallSessionDescription(const QString &eventId) override
+    {
+        takenDescriptions.append(eventId);
+        return storedDescriptions.take(eventId);
+    }
+    bool mediaCapable = false;
+    QHash<QString, QString> storedDescriptions;
+    QStringList takenDescriptions;
+
     void emitSignal(const CallSignal &signal)
     {
         Q_EMIT callSignalReceived(signal);
@@ -92,6 +114,56 @@ public:
 
     QList<SentEvent> sent;
     quint64 opCounter = 100;
+};
+
+// State-only media double (FakeRecorder pattern): records the calls the
+// controller makes and lets the test drive the async results by hand.
+class FakeMediaBackend : public CallMediaBackend
+{
+public:
+    using CallMediaBackend::CallMediaBackend;
+
+    void createOffer(const QString &callId) override
+    {
+        offerRequests.append(callId);
+    }
+    void createAnswer(const QString &callId,
+                      const QString &remoteOfferSdp) override
+    {
+        answerRequests.append(callId);
+        lastRemoteOffer = remoteOfferSdp;
+    }
+    void setRemoteAnswer(const QString &callId,
+                         const QString &remoteAnswerSdp) override
+    {
+        remoteAnswers.append(callId);
+        lastRemoteAnswer = remoteAnswerSdp;
+    }
+    void close(const QString &callId) override { closed.append(callId); }
+
+    void deliverOffer(const QString &callId, const QString &sdp)
+    {
+        Q_EMIT offerReady(callId, sdp);
+    }
+    void deliverAnswer(const QString &callId, const QString &sdp)
+    {
+        Q_EMIT answerReady(callId, sdp);
+    }
+    void deliverConnected(const QString &callId)
+    {
+        Q_EMIT connected(callId);
+    }
+    void deliverFailure(const QString &callId, const QString &category)
+    {
+        Q_EMIT failed(callId, category);
+    }
+
+    QStringList offerRequests;
+    QStringList answerRequests;
+    QStringList remoteAnswers;
+    QStringList closed;
+    QString lastRemoteOffer;
+    QString lastRemoteAnswer;
 };
 
 CallSignal freshInvite(const QString &callId,
@@ -548,6 +620,361 @@ private Q_SLOTS:
         forUs.invitee = QStringLiteral("@me:x");
         client.emitSignal(forUs);
         QCOMPARE(calls.state(), CallController::State::Ringing);
+    }
+
+    // ── media-seam round (2026-08-18 round 2) ─────────────────────────
+
+    void placeCallWithBackendRunsTheFullOutboundCycle()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        QVERIFY(client.mediaCapable); // registering enabled SDP transport
+
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        QCOMPARE(calls.state(), CallController::State::Inviting);
+        QCOMPARE(media.offerRequests.size(), 1);
+        QVERIFY(client.sent.isEmpty()); // nothing on the wire pre-offer
+
+        const QString callId = calls.activeCallId();
+        media.deliverOffer(callId, QStringLiteral("v=0 offer"));
+        QCOMPARE(client.sent.size(), 1);
+        QCOMPARE(client.sent.first().kind, QStringLiteral("invite"));
+
+        // Peer answers; the bridge stored their answer SDP.
+        CallSignal answer;
+        answer.kind = CallSignal::Kind::Answer;
+        answer.roomId = QStringLiteral("!r:x");
+        answer.eventId = QStringLiteral("$answer-1");
+        answer.sender = QStringLiteral("@peer:x");
+        answer.callId = callId;
+        answer.partyId = QStringLiteral("peer-party");
+        client.storedDescriptions.insert(QStringLiteral("$answer-1"),
+                                         QStringLiteral("v=0 answer"));
+        client.emitSignal(answer);
+
+        QCOMPARE(calls.state(), CallController::State::Connecting);
+        QCOMPARE(media.remoteAnswers, QStringList{callId});
+        QCOMPARE(media.lastRemoteAnswer, QStringLiteral("v=0 answer"));
+        // select_answer was named exactly once.
+        int selects = 0;
+        for (const auto &event : client.sent)
+            if (event.kind == QLatin1String("select_answer"))
+                ++selects;
+        QCOMPARE(selects, 1);
+
+        media.deliverConnected(callId);
+        QCOMPARE(calls.state(), CallController::State::Active);
+
+        QVERIFY(calls.hangup());
+        QCOMPARE(calls.state(), CallController::State::Ended);
+        QCOMPARE(calls.endReason(), CallController::EndReason::LocalHangup);
+        QCOMPARE(media.closed, QStringList{callId});
+    }
+
+    void answerRunsTheFullInboundCycle()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+
+        CallSignal invite = freshInvite(QStringLiteral("call-1"));
+        client.storedDescriptions.insert(invite.eventId,
+                                         QStringLiteral("v=0 remote-offer"));
+        client.emitSignal(invite);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+
+        QVERIFY(calls.answer());
+        QCOMPARE(media.answerRequests, QStringList{QStringLiteral("call-1")});
+        QCOMPARE(media.lastRemoteOffer, QStringLiteral("v=0 remote-offer"));
+
+        media.deliverAnswer(QStringLiteral("call-1"),
+                            QStringLiteral("v=0 our-answer"));
+        QCOMPARE(calls.state(), CallController::State::Connecting);
+        QCOMPARE(client.sent.size(), 1);
+        QCOMPARE(client.sent.first().kind, QStringLiteral("answer"));
+        QVERIFY(!client.sent.first().partyId.isEmpty());
+
+        media.deliverConnected(QStringLiteral("call-1"));
+        QCOMPARE(calls.state(), CallController::State::Active);
+    }
+
+    void answerRefusesWithoutBackendOfferOrOnRtc()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        client.emitSignal(freshInvite(QStringLiteral("call-1")));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        // No media backend.
+        QVERIFY(!calls.answer());
+        QCOMPARE(calls.lastRefusal(), QStringLiteral("no_media_backend"));
+
+        FakeMediaBackend media;
+        calls.setMediaBackend(&media);
+        // Backend present but the bridge holds no remote offer (production
+        // without media-capable mode, or the store already consumed).
+        QVERIFY(!calls.answer());
+        QCOMPARE(calls.lastRefusal(), QStringLiteral("no_remote_offer"));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QVERIFY(client.sent.isEmpty());
+    }
+
+    void rtcRingCannotBeAnswered()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        CallSignal notify;
+        notify.kind = CallSignal::Kind::RtcNotification;
+        notify.roomId = QStringLiteral("!r:x");
+        notify.eventId = QStringLiteral("$notify-1");
+        notify.sender = QStringLiteral("@peer:x");
+        notify.lifetimeMs = 30000;
+        notify.senderTs = QDateTime::currentMSecsSinceEpoch();
+        notify.originServerTs = notify.senderTs;
+        client.emitSignal(notify);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QVERIFY(!calls.answer());
+        QCOMPARE(calls.lastRefusal(), QStringLiteral("rtc_unsupported"));
+    }
+
+    void mediaFailureDuringInviteAnnouncesAndEnds()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        const QString callId = calls.activeCallId();
+
+        // Failure BEFORE the offer: nothing reached the wire, so nothing
+        // is announced.
+        media.deliverFailure(callId, QStringLiteral("device"));
+        QCOMPARE(calls.state(), CallController::State::Ended);
+        QCOMPARE(calls.endReason(), CallController::EndReason::MediaFailed);
+        QVERIFY(client.sent.isEmpty());
+        QCOMPARE(media.closed, QStringList{callId});
+
+        // Failure AFTER the invite went out: the peer is waiting, so a
+        // user_media_failed hangup announces it.
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        const QString second = calls.activeCallId();
+        media.deliverOffer(second, QStringLiteral("v=0 offer"));
+        media.deliverFailure(second, QStringLiteral("device"));
+        QCOMPARE(calls.endReason(), CallController::EndReason::MediaFailed);
+        bool announced = false;
+        for (const auto &event : client.sent)
+            if (event.kind == QLatin1String("hangup")
+                && event.callId == second
+                && event.extra == QLatin1String("user_media_failed"))
+                announced = true;
+        QVERIFY(announced);
+    }
+
+    void staleMediaSignalsForOtherCallsAreIgnored()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        const QString callId = calls.activeCallId();
+        // A late offer for a PREVIOUS call id must not dispatch an invite.
+        media.deliverOffer(QStringLiteral("stale-call"),
+                           QStringLiteral("v=0 stale"));
+        QVERIFY(client.sent.isEmpty());
+        QCOMPARE(calls.state(), CallController::State::Inviting);
+        // And a connected() for another call must not activate this one.
+        media.deliverOffer(callId, QStringLiteral("v=0 offer"));
+        media.deliverConnected(QStringLiteral("stale-call"));
+        QCOMPARE(calls.state(), CallController::State::Inviting);
+    }
+
+    void mediaProductionTimeoutEndsLocally()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        QCOMPARE(calls.state(), CallController::State::Inviting);
+        // The backend never answers; drive the bounded production window's
+        // expiry directly instead of waiting out the real 15s timer. The
+        // session must end locally as MediaFailed with NO wire traffic —
+        // in particular no invite_timeout hangup for an invite that was
+        // never dispatched.
+        QVERIFY(QMetaObject::invokeMethod(&calls, "onLifetimeExpired"));
+        QCOMPARE(calls.state(), CallController::State::Ended);
+        QCOMPARE(calls.endReason(), CallController::EndReason::MediaFailed);
+        QVERIFY(client.sent.isEmpty());
+    }
+
+    void sdpStoreIsBoundedSingleShotAndClearable()
+    {
+        calls::SdpStore store;
+        store.insert(QStringLiteral("$e1"), QStringLiteral("v=0 one"));
+        // Single-shot: the second take is empty.
+        QCOMPARE(store.take(QStringLiteral("$e1")), QStringLiteral("v=0 one"));
+        QCOMPARE(store.take(QStringLiteral("$e1")), QString());
+        // Empty ids/values are refused.
+        store.insert(QString(), QStringLiteral("x"));
+        store.insert(QStringLiteral("$e"), QString());
+        QCOMPARE(store.size(), 0);
+        // FIFO bound: the oldest entry is evicted past capacity.
+        for (int i = 0; i < calls::SdpStore::kCapacity + 2; ++i)
+            store.insert(QStringLiteral("$evt-%1").arg(i),
+                         QStringLiteral("sdp-%1").arg(i));
+        QCOMPARE(store.size(), calls::SdpStore::kCapacity);
+        QCOMPARE(store.take(QStringLiteral("$evt-0")), QString());
+        QCOMPARE(store.take(QStringLiteral("$evt-1")), QString());
+        QVERIFY(!store.take(QStringLiteral("$evt-2")).isEmpty());
+        // Re-inserting an existing id must not double-count in the order
+        // list (otherwise the cap would evict early).
+        store.clear();
+        store.insert(QStringLiteral("$dup"), QStringLiteral("a"));
+        store.insert(QStringLiteral("$dup"), QStringLiteral("b"));
+        QCOMPARE(store.size(), 1);
+        QCOMPARE(store.take(QStringLiteral("$dup")), QStringLiteral("b"));
+        // clear() empties everything.
+        store.insert(QStringLiteral("$x"), QStringLiteral("y"));
+        store.clear();
+        QCOMPARE(store.size(), 0);
+    }
+
+    // ── review-round corrections (2026-08-18 round 2) ─────────────────
+
+    void hangupEndsAnsweredInboundCall()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        CallSignal invite = freshInvite(QStringLiteral("call-1"));
+        client.storedDescriptions.insert(invite.eventId,
+                                         QStringLiteral("v=0 offer"));
+        client.emitSignal(invite);
+        // Pre-answer, hangup still refuses: rejectIncoming is the honest
+        // action for a ringing inbound call.
+        QVERIFY(!calls.hangup());
+        QVERIFY(calls.answer());
+        media.deliverAnswer(QStringLiteral("call-1"),
+                            QStringLiteral("v=0 answer"));
+        QCOMPARE(calls.state(), CallController::State::Connecting);
+        // Answered: the local user must be able to end their own call.
+        QVERIFY(calls.hangup());
+        QCOMPARE(calls.state(), CallController::State::Ended);
+        QCOMPARE(calls.endReason(), CallController::EndReason::LocalHangup);
+        bool hungUp = false;
+        for (const auto &event : client.sent)
+            if (event.kind == QLatin1String("hangup")
+                && event.extra == QLatin1String("user_hangup"))
+                hungUp = true;
+        QVERIFY(hungUp);
+    }
+
+    void completedInboundCallIsNotMissed()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        QSignalSpy ended(&calls, &CallController::incomingCallEnded);
+
+        // Answered call, peer hangs up: reason RemoteHangup, missed FALSE.
+        CallSignal invite = freshInvite(QStringLiteral("call-1"));
+        client.storedDescriptions.insert(invite.eventId,
+                                         QStringLiteral("v=0 offer"));
+        client.emitSignal(invite);
+        QVERIFY(calls.answer());
+        media.deliverAnswer(QStringLiteral("call-1"),
+                            QStringLiteral("v=0 answer"));
+        CallSignal hangup;
+        hangup.kind = CallSignal::Kind::Hangup;
+        hangup.roomId = QStringLiteral("!r:x");
+        hangup.eventId = QStringLiteral("$hangup-1");
+        hangup.sender = QStringLiteral("@peer:x");
+        hangup.callId = QStringLiteral("call-1");
+        hangup.partyId = QStringLiteral("peer-party");
+        hangup.reason = QStringLiteral("user_hangup");
+        client.emitSignal(hangup);
+        QCOMPARE(ended.count(), 1);
+        QCOMPARE(ended.at(0).at(3).toBool(), false); // NOT missed
+
+        // Pure ring the caller abandons: missed TRUE.
+        client.emitSignal(freshInvite(QStringLiteral("call-2")));
+        CallSignal hangup2 = hangup;
+        hangup2.eventId = QStringLiteral("$hangup-2");
+        hangup2.callId = QStringLiteral("call-2");
+        client.emitSignal(hangup2);
+        QCOMPARE(ended.count(), 2);
+        QCOMPARE(ended.at(1).at(3).toBool(), true); // missed
+    }
+
+    void offerProductionPhaseNeverTouchesTheWire()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        // hangup() while the offer is still in production ends the call
+        // locally and sends NOTHING — no peer was ever invited.
+        QVERIFY(calls.hangup());
+        QCOMPARE(calls.state(), CallController::State::Ended);
+        QVERIFY(client.sent.isEmpty());
+
+        // Glare against a pending-offer call likewise retires ours with
+        // no wire hangup (only the reject of... nothing here: theirs
+        // wins, ours was never announced).
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        CallSignal theirs = freshInvite(QStringLiteral("0000-smaller"));
+        client.emitSignal(theirs);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        for (const auto &event : client.sent)
+            QVERIFY(event.kind != QLatin1String("hangup"));
+    }
+
+    void endedCallDropsItsUnconsumedOffer()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        CallSignal invite = freshInvite(QStringLiteral("call-1"));
+        client.storedDescriptions.insert(invite.eventId,
+                                         QStringLiteral("v=0 offer"));
+        client.emitSignal(invite);
+        QVERIFY(calls.rejectIncoming());
+        // endSession issued the discard-take for the invite's event id.
+        QVERIFY(client.takenDescriptions.contains(invite.eventId));
+        QVERIFY(!client.storedDescriptions.contains(invite.eventId));
+    }
+
+    void incomingCallStartedCarriesTheRealRemainingLifetime()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        QSignalSpy started(&calls, &CallController::incomingCallStarted);
+        CallSignal invite = freshInvite(QStringLiteral("call-1"));
+        invite.lifetimeMs = 90000;
+        client.emitSignal(invite);
+        QCOMPARE(started.count(), 1);
+        const qint64 remaining = started.at(0).at(3).toLongLong();
+        QVERIFY(remaining > 80000);
+        QVERIFY(remaining <= 90000);
     }
 
     void loggedOutClearsSessionTimersAndOps()

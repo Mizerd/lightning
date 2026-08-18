@@ -4,6 +4,7 @@
 #include <QLoggingCategory>
 #include <QUuid>
 
+#include "CallMediaBackend.h"
 #include "matrix/MatrixClient.h"
 
 Q_LOGGING_CATEGORY(lcCalls, "matrix.calls")
@@ -22,6 +23,9 @@ constexpr qint64 kMaxLifetimeMs = 300000;
 // change) so a hostile sender cannot pump outbound sends.
 constexpr int kMaxBusyRejectsPerSession = 8;
 constexpr int kMaxPendingOps = 64;
+// Bound on the media backend producing an offer/answer: a hung engine must
+// not wedge the session in Inviting/Ringing forever.
+constexpr qint64 kMediaProductionTimeoutMs = 15000;
 
 QString glareWinner(const QString &a, const QString &b)
 {
@@ -36,20 +40,31 @@ CallController::CallController(QObject *parent)
     : QObject(parent)
 {
     m_lifetimeTimer.setSingleShot(true);
-    connect(&m_lifetimeTimer, &QTimer::timeout, this, [this] {
-        if (!sessionLive())
-            return;
-        if (m_state == State::Inviting && m_client) {
-            // Outbound expiry announces itself on the wire.
-            trackOp(m_client->callHangup(m_session.roomId, m_session.callId,
-                                         m_session.ourPartyId,
-                                         QStringLiteral("invite_timeout")),
-                    m_session.callId);
-        }
-        // Inbound expiry just stops ringing — the caller's own timer is
-        // authoritative for the wire.
-        endSession(EndReason::InviteTimeout);
-    });
+    connect(&m_lifetimeTimer, &QTimer::timeout, this,
+            &CallController::onLifetimeExpired);
+}
+
+void CallController::onLifetimeExpired()
+{
+    if (!sessionLive())
+        return;
+    // Media production timed out before anything reached the wire: purely
+    // local failure, nothing to announce.
+    if (m_session.offerPending || m_session.answerPending) {
+        endSession(EndReason::MediaFailed);
+        return;
+    }
+    if (m_state == State::Inviting && m_session.inviteDispatched
+        && m_client) {
+        // Outbound expiry announces itself on the wire.
+        trackOp(m_client->callHangup(m_session.roomId, m_session.callId,
+                                     m_session.ourPartyId,
+                                     QStringLiteral("invite_timeout")),
+                m_session.callId);
+    }
+    // Inbound expiry just stops ringing — the caller's own timer is
+    // authoritative for the wire.
+    endSession(EndReason::InviteTimeout);
 }
 
 void CallController::setClient(MatrixClient *client)
@@ -67,6 +82,36 @@ void CallController::setClient(MatrixClient *client)
             &CallController::onCallSendFinished);
     connect(m_client, &MatrixClient::loggedOut, this,
             &CallController::onLoggedOut);
+    // Tell the bridge whether SDP transport is wanted. With no backend
+    // (production today) the Rust side never puts an SDP on the poll lane
+    // at all.
+    m_client->setCallMediaCapable(m_mediaBackend != nullptr);
+}
+
+void CallController::setMediaBackend(CallMediaBackend *backend)
+{
+    if (m_mediaBackend == backend)
+        return;
+    if (m_mediaBackend) {
+        // A live call's media job belongs to the OLD backend — close it
+        // there; endSession later must not close it on the new one.
+        if (sessionLive())
+            m_mediaBackend->close(m_session.callId);
+        disconnect(m_mediaBackend, nullptr, this, nullptr);
+    }
+    m_mediaBackend = backend;
+    if (m_mediaBackend) {
+        connect(m_mediaBackend, &CallMediaBackend::offerReady, this,
+                &CallController::onMediaOfferReady);
+        connect(m_mediaBackend, &CallMediaBackend::answerReady, this,
+                &CallController::onMediaAnswerReady);
+        connect(m_mediaBackend, &CallMediaBackend::connected, this,
+                &CallController::onMediaConnected);
+        connect(m_mediaBackend, &CallMediaBackend::failed, this,
+                &CallController::onMediaFailed);
+    }
+    if (m_client)
+        m_client->setCallMediaCapable(m_mediaBackend != nullptr);
 }
 
 void CallController::setOwnUserId(const QString &userId)
@@ -106,12 +151,80 @@ bool CallController::sessionLive() const
 
 bool CallController::placeCall(const QString &roomId)
 {
-    Q_UNUSED(roomId);
-    // Honest refusal: no media backend exists in the tree, so there is
-    // nothing that can produce an offer SDP. A stubbed offer would place a
-    // call that dies at the peer — worse than refusing.
-    m_lastRefusal = QStringLiteral("no_media_backend");
-    return false;
+    m_lastRefusal.clear();
+    if (!m_mediaBackend) {
+        // Honest refusal: no media backend exists in the tree, so there is
+        // nothing that can produce an offer SDP. A stubbed offer would
+        // place a call that dies at the peer — worse than refusing.
+        m_lastRefusal = QStringLiteral("no_media_backend");
+        return false;
+    }
+    if (!m_client || !m_client->supportsCallSignaling()) {
+        m_lastRefusal = QStringLiteral("unsupported_backend");
+        return false;
+    }
+    if (roomId.isEmpty()) {
+        m_lastRefusal = QStringLiteral("invalid_arguments");
+        return false;
+    }
+    if (sessionLive()) {
+        m_lastRefusal = QStringLiteral("call_in_progress");
+        return false;
+    }
+    Session session;
+    session.roomId = roomId;
+    session.callId = freshPartyId() + freshPartyId();
+    session.ourPartyId = freshPartyId();
+    session.direction = Direction::Outbound;
+    session.lifetimeMs = 60000;
+    session.offerPending = true;
+    m_session = session;
+    m_busyRejectsThisSession = 0;
+    m_endReason = EndReason::None;
+    setState(State::Inviting);
+    // The invite is dispatched when the backend delivers the offer; until
+    // then the timer bounds offer PRODUCTION, and re-arms for the wire
+    // lifetime once the invite is out.
+    armLifetimeTimer(kMediaProductionTimeoutMs);
+    m_mediaBackend->createOffer(m_session.callId);
+    return true;
+}
+
+bool CallController::answer()
+{
+    m_lastRefusal.clear();
+    if (m_state != State::Ringing) {
+        m_lastRefusal = QStringLiteral("not_ringing");
+        return false;
+    }
+    if (!m_mediaBackend) {
+        m_lastRefusal = QStringLiteral("no_media_backend");
+        return false;
+    }
+    if (m_session.rtc) {
+        // A MatrixRTC ring needs SFU membership we deliberately do not
+        // publish (see docs/voice-calls.md).
+        m_lastRefusal = QStringLiteral("rtc_unsupported");
+        return false;
+    }
+    if (!m_client) {
+        m_lastRefusal = QStringLiteral("unsupported_backend");
+        return false;
+    }
+    // Single-shot take: the remote offer exists in C++ memory only for the
+    // duration of answer production.
+    const QString remoteOffer =
+        m_client->takeCallSessionDescription(m_session.inviteEventId);
+    if (remoteOffer.trimmed().isEmpty()) {
+        m_lastRefusal = QStringLiteral("no_remote_offer");
+        return false;
+    }
+    m_session.answerPending = true;
+    // The user acted, so invite expiry no longer applies; the timer now
+    // bounds answer production instead.
+    armLifetimeTimer(kMediaProductionTimeoutMs);
+    m_mediaBackend->createAnswer(m_session.callId, remoteOffer);
+    return true;
 }
 
 bool CallController::placeCallWithOffer(const QString &roomId,
@@ -149,6 +262,7 @@ bool CallController::placeCallWithOffer(const QString &roomId,
         return false;
     }
     trackOp(opId, session.callId);
+    session.inviteDispatched = true; // the invite went out synchronously
     m_session = session;
     m_busyRejectsThisSession = 0;
     m_endReason = EndReason::None;
@@ -178,12 +292,26 @@ bool CallController::rejectIncoming()
 
 bool CallController::hangup()
 {
-    if (!m_client || !sessionLive() || m_session.direction != Direction::Outbound)
+    if (!m_client || !sessionLive())
         return false;
-    trackOp(m_client->callHangup(m_session.roomId, m_session.callId,
-                                 m_session.ourPartyId,
-                                 QStringLiteral("user_hangup")),
-            m_session.callId);
+    // Outbound calls are hangup-able from Inviting on; an INBOUND call
+    // becomes hangup-able once answered (Connecting/Active) — before that
+    // the honest action is rejectIncoming() (review round 2: an answered
+    // inbound call previously could not be ended locally at all).
+    const bool answerable = m_session.direction == Direction::Outbound
+        || m_state == State::Connecting || m_state == State::Active;
+    if (!answerable)
+        return false;
+    // Nothing was ever put on the wire for an offer still in production:
+    // a hangup would name a call no peer was invited to.
+    const bool announced = m_session.inviteDispatched
+        || m_session.direction == Direction::Inbound;
+    if (announced) {
+        trackOp(m_client->callHangup(m_session.roomId, m_session.callId,
+                                     m_session.ourPartyId,
+                                     QStringLiteral("user_hangup")),
+                m_session.callId);
+    }
     endSession(EndReason::LocalHangup);
     return true;
 }
@@ -317,8 +445,10 @@ void CallController::handleInvite(const CallSignal &signal)
             // Glare: both sides invited each other. Smaller call id wins.
             if (glareWinner(m_session.callId, signal.callId)
                 == signal.callId) {
-                // Theirs survives: retire ours on the wire, adopt theirs.
-                if (m_client) {
+                // Theirs survives: retire ours on the wire — but only if
+                // our invite actually went out; an offer still in
+                // production never reached any peer (review round 2).
+                if (m_client && m_session.inviteDispatched) {
                     trackOp(m_client->callHangup(
                                 m_session.roomId, m_session.callId,
                                 m_session.ourPartyId,
@@ -366,7 +496,8 @@ void CallController::handleInvite(const CallSignal &signal)
     m_endReason = EndReason::None;
     setState(State::Ringing);
     armLifetimeTimer(remaining);
-    Q_EMIT incomingCallStarted(signal.roomId, signal.callId, signal.sender);
+    Q_EMIT incomingCallStarted(signal.roomId, signal.callId, signal.sender,
+                               remaining);
 }
 
 void CallController::handleAnswer(const CallSignal &signal)
@@ -395,6 +526,16 @@ void CallController::handleAnswer(const CallSignal &signal)
         }
         m_lifetimeTimer.stop();
         setState(State::Connecting);
+        // Hand the peer's answer to the media backend (single-shot take
+        // from the bridge's bounded store; empty without a backend, since
+        // the bridge only carries SDP in media-capable mode).
+        if (m_mediaBackend && m_client) {
+            const QString remoteAnswer =
+                m_client->takeCallSessionDescription(signal.eventId);
+            if (!remoteAnswer.trimmed().isEmpty())
+                m_mediaBackend->setRemoteAnswer(m_session.callId,
+                                                remoteAnswer);
+        }
         return;
     }
     // A later answer from a different party is ignored; the lock stands.
@@ -471,7 +612,8 @@ void CallController::handleRtcNotification(const CallSignal &signal)
     m_endReason = EndReason::None;
     setState(State::Ringing);
     armLifetimeTimer(remaining);
-    Q_EMIT incomingCallStarted(signal.roomId, session.callId, signal.sender);
+    Q_EMIT incomingCallStarted(signal.roomId, session.callId, signal.sender,
+                               remaining);
 }
 
 void CallController::handleRtcDecline(const CallSignal &signal)
@@ -481,6 +623,81 @@ void CallController::handleRtcDecline(const CallSignal &signal)
     if (m_state == State::Ringing && m_session.rtc
         && signal.targetEventId == m_session.inviteEventId)
         endSession(EndReason::DeclinedElsewhere);
+}
+
+void CallController::onMediaOfferReady(const QString &callId,
+                                       const QString &sdp)
+{
+    if (!sessionLive() || m_state != State::Inviting
+        || callId != m_session.callId || !m_session.offerPending)
+        return;
+    m_session.offerPending = false;
+    if (!m_client || sdp.trimmed().isEmpty()) {
+        endSession(EndReason::MediaFailed);
+        return;
+    }
+    const quint64 opId = m_client->callInvite(
+        m_session.roomId, m_session.callId, m_session.ourPartyId,
+        QStringLiteral("offer"), sdp,
+        static_cast<quint64>(m_session.lifetimeMs), m_session.invitee);
+    if (opId == 0) {
+        endSession(EndReason::SendFailed);
+        return;
+    }
+    trackOp(opId, m_session.callId);
+    m_session.inviteDispatched = true;
+    armLifetimeTimer(m_session.lifetimeMs);
+}
+
+void CallController::onMediaAnswerReady(const QString &callId,
+                                        const QString &sdp)
+{
+    if (m_state != State::Ringing || callId != m_session.callId
+        || !m_session.answerPending)
+        return;
+    m_session.answerPending = false;
+    if (!m_client || sdp.trimmed().isEmpty()) {
+        endSession(EndReason::MediaFailed);
+        return;
+    }
+    const quint64 opId = m_client->callAnswer(
+        m_session.roomId, m_session.callId, m_session.ourPartyId,
+        QStringLiteral("answer"), sdp);
+    if (opId == 0) {
+        endSession(EndReason::SendFailed);
+        return;
+    }
+    trackOp(opId, m_session.callId);
+    m_lifetimeTimer.stop();
+    setState(State::Connecting);
+}
+
+void CallController::onMediaConnected(const QString &callId)
+{
+    if (m_state != State::Connecting || callId != m_session.callId)
+        return;
+    setState(State::Active);
+}
+
+void CallController::onMediaFailed(const QString &callId,
+                                   const QString &category)
+{
+    Q_UNUSED(category); // coarse label; the end reason is the record
+    if (!sessionLive() || callId != m_session.callId)
+        return;
+    // Announce on the wire when the peer could still be waiting on us: an
+    // outbound invite already sent, or an inbound call we started to
+    // answer. user_media_failed is MSC2746's reason for exactly this.
+    const bool announced = m_session.inviteDispatched
+        || m_state == State::Connecting || m_state == State::Active
+        || (m_state == State::Ringing && m_session.answerPending);
+    if (announced && m_client && !m_session.rtc) {
+        trackOp(m_client->callHangup(m_session.roomId, m_session.callId,
+                                     m_session.ourPartyId,
+                                     QStringLiteral("user_media_failed")),
+                m_session.callId);
+    }
+    endSession(EndReason::MediaFailed);
 }
 
 bool CallController::matchesSession(const CallSignal &signal) const
@@ -512,11 +729,23 @@ void CallController::endSession(EndReason reason)
     m_lifetimeTimer.stop();
     rememberEnded(m_session.callId);
     const QString callId = m_session.callId;
+    const QString roomId = m_session.roomId;
     const bool wasInbound = m_session.direction == Direction::Inbound;
+    // Decided HERE, where the pre-end state is known: an answered call
+    // that the peer hung up is a completed call, never a missed one.
+    const bool missed = wasInbound && m_state == State::Ringing
+        && isMissedCallReason(reason);
+    // Drop any unconsumed remote offer: the description must not outlive
+    // the call it belonged to (single-shot take doubles as discard).
+    if (m_client && !m_session.inviteEventId.isEmpty())
+        m_client->takeCallSessionDescription(m_session.inviteEventId);
+    if (m_mediaBackend)
+        m_mediaBackend->close(callId);
     m_endReason = reason;
     setState(State::Ended);
     if (wasInbound)
-        Q_EMIT incomingCallEnded(callId, static_cast<int>(reason));
+        Q_EMIT incomingCallEnded(roomId, callId, static_cast<int>(reason),
+                                 missed);
     qCInfo(lcCalls) << "call ended reason=" << static_cast<int>(reason);
 }
 

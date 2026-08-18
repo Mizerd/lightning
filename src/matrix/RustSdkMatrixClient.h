@@ -1,6 +1,7 @@
 #pragma once
 
 #include "matrix/MatrixClient.h"
+#include "calls/SdpStore.h"
 #include "matrix/RustSessionPolicy.h"
 #include "matrix/RustTimelineIngest.h"
 #include "matrix/SessionLifecycleGuard.h"
@@ -385,6 +386,8 @@ public:
                              const QString &selectedPartyId) override;
     quint64 callRtcDecline(const QString &roomId,
                            const QString &notificationEventId) override;
+    void setCallMediaCapable(bool capable) override;
+    QString takeCallSessionDescription(const QString &eventId) override;
     quint64 setUserIgnored(const QString &userId, bool ignored) override;
     quint64 requestIgnoredUsers() override;
     bool supportsEventReporting() const override { return true; }
@@ -699,6 +702,12 @@ private:
 
     // v0.5.9: new-command plumbing. nextOpId() never returns 0 (0 means
     // "unsupported" at the interface level).
+    // Media-capable SDP store (see MatrixClient::setCallMediaCapable and
+    // calls::SdpStore): populated ONLY while media-capable mode is on,
+    // wiped with the session.
+    calls::SdpStore m_callSdpStore;
+    bool m_callMediaCapable = false;
+
     quint64 nextOpId() { return ++m_opCounter; }
     // Dispatch one Rust "command result" event to the matching signal.
     // Returns true when the event type was consumed.

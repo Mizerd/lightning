@@ -1306,6 +1306,45 @@ after the tester-report fixes shipped as 0.7.3:
   trees** after this round — the first fully green complete run since the
   timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
 
+**2026-08-18 voice-calls round 2 (same day as the round above).** The
+call backend grew its user-facing half and its media seam, still with NO
+media engine and none addable under the locked deps:
+- Ring policy wired to its real owners in AppController (ignored senders
+  via ModerationController, muted rooms via roomNotificationMode, backlog
+  from initialSyncDone edges) — the round-1 hooks are no longer inert.
+- Incoming-call notification with a Decline ACTION (freedesktop actions +
+  `replaces_id` re-delivery every 5 s carrying the themed
+  `phone-incoming-call` sound — Lightning still bundles/plays no audio),
+  missed-call notices, and the global `ringForCalls` setting (default ON,
+  Settings → Notifications). Dismissing the notification stops the local
+  re-ring only; Decline is the wire action.
+- `qml/IncomingCallPrompt.qml` corner card (above the passive prompts):
+  call STATE, caller localpart, Decline/Dismiss, and the honest
+  "answering isn't supported on this device yet" line. Contract-enforced:
+  no answer affordance until a media engine exists.
+- Media seam complete: `CallMediaBackend.h` (FakeRecorder-pattern seam) +
+  `answer()` + full outbound/inbound cycles; SDP transport is OPT-IN end
+  to end (`mx_rust_calls_set_media_capable`, only flipped when a backend
+  registers — never in production today), bounded 128 KiB at the Rust
+  edge, landing in the single-shot memory-only `calls::SdpStore` (cap 8,
+  wiped on sign-out/detach), never on CallSignal, never logged, never QML.
+- A second four-lens §18 review ran before commit; all findings were
+  fixed (ring duration follows the real invite lifetime; missed = prior
+  state Ringing AND announced; answered-inbound hangup; no wire hangup
+  for undispatched invites; SDP wipe on every teardown incl. local reset;
+  C++-side media-capable gate + re-push on handle recreation; QPointer
+  backend; payload-FIFO promotion for the re-delivered call card;
+  per-sender 30 s ring cooldown; HTML-escaped new notification bodies).
+  Accepted follow-up: the PRE-EXISTING invite/verification notification
+  bodies also carry unescaped member-chosen text — same fix belongs
+  there.
+- New suites: `call-ring-policy` (10), `call-ui-contract` (6, incl. real
+  offscreen instantiation through a live ring/decline);
+  `call-controller` grew to 35, `notification-manager` to 26 (7 call-ring
+  cases); `calls::tests` 10.
+Everything user-visible is **NOT TESTED** live (ring sound behavior is
+notification-daemon-dependent by design).
+
 **2026-08-17/18 post-0.7.2 round** (`4f74eb4..8da2e81`) — **shipped as
 0.7.3.** The first REAL upgrade test drove all of it. Windows MSI failed
 with 1619 because msiexec has its own argument parser and rejects Qt's

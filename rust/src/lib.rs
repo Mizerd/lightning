@@ -140,6 +140,11 @@ struct RustClient {
     runtime: Arc<tokio::runtime::Runtime>,
     // v0.5.7: live timeline registry (single active room timeline).
     timelines: Arc<timeline::TimelineRegistry>,
+    // Media-capable mode (2026-08-18 round 2): only when the C++ side has
+    // a registered media backend do inbound call handlers include the
+    // remote SDP in their poll payloads. Default OFF — production carries
+    // no SDP across the FFI at all.
+    call_media_capable: Arc<std::sync::atomic::AtomicBool>,
     // v0.7.x: the sliding-sync RoomListService, published by the running
     // modern sync loop and withdrawn on every exit path (RAII guard in
     // `run_modern_sync`). Room opens use it to carry exactly ONE room
@@ -279,6 +284,8 @@ impl RustClient {
             sync_mode: Arc::new(Mutex::new(SyncMode::Stopped)),
             runtime: Arc::new(runtime),
             timelines: Arc::new(timeline::TimelineRegistry::new(events)),
+            call_media_capable: Arc::new(
+                std::sync::atomic::AtomicBool::new(false)),
             room_list_service: Arc::new(Mutex::new(None)),
             active_room_subscription: Arc::new(Mutex::new(None)),
             uia_pending: Arc::new(Mutex::new(None)),
@@ -1152,6 +1159,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         let room_list_slot = Arc::clone(&bridge.room_list_service);
         let active_subscription = Arc::clone(&bridge.active_room_subscription);
         let sync_timelines = Arc::clone(&bridge.timelines);
+        let sync_media_capable = Arc::clone(&bridge.call_media_capable);
         bridge.enqueue(json!({ "type": "status", "state": "syncing" }));
 
         let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
@@ -1161,7 +1169,8 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
             run_async(runtime_events, "sync", async move {
                 run_authoritative_sync(
                     sync_client, events, sync_mode, room_list_slot,
-                    active_subscription, sync_timelines, cancel_rx,
+                    active_subscription, sync_timelines, sync_media_capable,
+                    cancel_rx,
                 ).await;
             });
         });
@@ -5997,6 +6006,24 @@ pub unsafe extern "C" fn mx_rust_calls_select_answer(
     })
 }
 
+/// Toggle media-capable mode: whether inbound call handlers include the
+/// remote SDP in poll payloads (C++ memory only — the C++ side stores it
+/// bounded and single-shot, never logs it, never exposes it to QML).
+/// Production leaves this OFF until a media backend is registered.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_calls_set_media_capable(
+    ptr: *mut c_void,
+    capable: u8,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        bridge
+            .call_media_capable
+            .store(capable != 0, std::sync::atomic::Ordering::Relaxed);
+        Ok(String::new())
+    })
+}
+
 /// Decline an `m.rtc.notification` ring (SDK-built decline content).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_rtc_decline(
@@ -7118,12 +7145,14 @@ async fn run_authoritative_sync(
     room_list_slot: Arc<Mutex<Option<Arc<RoomListService>>>>,
     active_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
     timelines: Arc<timeline::TimelineRegistry>,
+    call_media_capable: Arc<std::sync::atomic::AtomicBool>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
     // Inbound call-signaling observers live exactly as long as this sync
     // loop: the drop guards unregister every handler on ANY exit path, so
     // an orphaned handler can never fire into a later account's queue.
-    let _call_guards = calls::register_handlers(&client, &events, &timelines);
+    let _call_guards = calls::register_handlers(
+        &client, &events, &timelines, &call_media_capable);
 
     set_sync_mode(&sync_mode, &events, SyncMode::Probing, None);
 

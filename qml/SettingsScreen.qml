@@ -2244,6 +2244,21 @@ Item {
                                                + "active rooms stay silent. Bursts are "
                                                + "coalesced into a single alert.")
                                 }
+                                CheckBox {
+                                    objectName: "ringForCallsCheck"
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("Ring for incoming voice calls")
+                                    enabled: app.settings.notificationsEnabled
+                                    checked: app.settings.ringForCalls
+                                    onToggled:
+                                        app.settings.ringForCalls = checked
+                                    Accessible.description:
+                                        qsTr("Repeat the call sound while an "
+                                             + "incoming voice call is "
+                                             + "ringing. Turning this off "
+                                             + "still shows the call — it "
+                                             + "only silences the ring.")
+                                }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap

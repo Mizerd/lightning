@@ -31,6 +31,7 @@
 //! rendered on the C++ side.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -379,20 +380,41 @@ pub(crate) struct CallHandlerGuards {
 /// `call_sync_response_handlers`), independent of any timeline being open.
 /// The existing timeline "call event" state row is untouched — call STATE
 /// is fed only from here.
+/// Bound the SDP we are willing to carry into C++ memory: a legitimate
+/// session description is a few KB; the homeserver caps events at 64 KiB.
+const MAX_CARRIED_SDP_LEN: usize = 128 * 1024;
+
+/// The remote SDP for the C++ store — ONLY in media-capable mode, never
+/// oversized, and only when actually present. `None` means the payload
+/// simply omits the field.
+fn carried_sdp(media_capable: &AtomicBool, sdp: &str) -> Option<String> {
+    if !media_capable.load(Ordering::Relaxed) {
+        return None;
+    }
+    let trimmed = sdp.trim();
+    if trimmed.is_empty() || trimmed.len() > MAX_CARRIED_SDP_LEN {
+        return None;
+    }
+    Some(trimmed.to_owned())
+}
+
 pub(crate) fn register_handlers(
     client: &Client,
     events: &EventQueue,
     timelines: &Arc<TimelineRegistry>,
+    media_capable: &Arc<AtomicBool>,
 ) -> CallHandlerGuards {
     let mut guards = Vec::new();
 
     {
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
+        let media_capable = Arc::clone(media_capable);
         let handle = client.add_event_handler(
             move |ev: OriginalSyncCallInviteEvent, room: Room, client: Client| {
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
+                let media_capable = Arc::clone(&media_capable);
                 async move {
                     let own = client
                         .user_id()
@@ -406,8 +428,9 @@ pub(crate) fn register_handlers(
                     else {
                         return;
                     };
-                    // has_offer only — the SDP itself must not cross.
-                    enqueue(&events, json!({
+                    // The SDP crosses ONLY in media-capable mode (see
+                    // carried_sdp); otherwise has_offer alone.
+                    let mut payload = json!({
                         "type": "call_invite",
                         "lifecycle": timelines.lifecycle(),
                         "room_id": room.room_id().to_string(),
@@ -425,7 +448,13 @@ pub(crate) fn register_handlers(
                         "offer_type":
                             session_type_str(&ev.content.offer.session_type),
                         "has_offer": !ev.content.offer.sdp.trim().is_empty(),
-                    }));
+                    });
+                    if let Some(sdp) =
+                        carried_sdp(&media_capable, &ev.content.offer.sdp)
+                    {
+                        payload["offer_sdp"] = json!(sdp);
+                    }
+                    enqueue(&events, payload);
                 }
             },
         );
@@ -435,10 +464,12 @@ pub(crate) fn register_handlers(
     {
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
+        let media_capable = Arc::clone(media_capable);
         let handle = client.add_event_handler(
             move |ev: OriginalSyncCallAnswerEvent, room: Room, client: Client| {
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
+                let media_capable = Arc::clone(&media_capable);
                 async move {
                     let own = client
                         .user_id()
@@ -452,7 +483,7 @@ pub(crate) fn register_handlers(
                     else {
                         return;
                     };
-                    enqueue(&events, json!({
+                    let mut payload = json!({
                         "type": "call_answer",
                         "lifecycle": timelines.lifecycle(),
                         "room_id": room.room_id().to_string(),
@@ -464,7 +495,13 @@ pub(crate) fn register_handlers(
                         "answer_type":
                             session_type_str(&ev.content.answer.session_type),
                         "has_answer": !ev.content.answer.sdp.trim().is_empty(),
-                    }));
+                    });
+                    if let Some(sdp) =
+                        carried_sdp(&media_capable, &ev.content.answer.sdp)
+                    {
+                        payload["answer_sdp"] = json!(sdp);
+                    }
+                    enqueue(&events, payload);
                 }
             },
         );
@@ -728,6 +765,17 @@ mod tests {
         assert_eq!(optional_wire_id(None), Some(String::new()));
         assert_eq!(optional_wire_id(Some("ok")), Some("ok".to_owned()));
         assert_eq!(optional_wire_id(Some("bad\nid")), None);
+    }
+
+    #[test]
+    fn sdp_crosses_only_in_media_capable_mode() {
+        let off = AtomicBool::new(false);
+        let on = AtomicBool::new(true);
+        assert_eq!(carried_sdp(&off, "v=0 valid"), None);
+        assert_eq!(carried_sdp(&on, "v=0 valid"), Some("v=0 valid".into()));
+        assert_eq!(carried_sdp(&on, "   "), None);
+        let oversized = "x".repeat(MAX_CARRIED_SDP_LEN + 1);
+        assert_eq!(carried_sdp(&on, &oversized), None);
     }
 
     #[test]

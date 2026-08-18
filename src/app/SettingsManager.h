@@ -62,6 +62,12 @@ class SettingsManager : public QObject
     // suppression suppresses the sound too.
     Q_PROPERTY(int notificationSound READ notificationSound
                    WRITE setNotificationSound NOTIFY notificationSoundChanged)
+    // 2026-08-18 round 2: whether an incoming voice call rings (the
+    // repeating call notification sound). Device-wide like the other
+    // notification switches. The call BANNER and the plain notification
+    // are governed by notificationsEnabled; this only silences the ring.
+    Q_PROPERTY(bool ringForCalls READ ringForCalls WRITE setRingForCalls
+                   NOTIFY ringForCallsChanged)
     // v0.5.11: link previews. Encrypted-room previews default OFF (privacy).
     Q_PROPERTY(bool autoLoadLinkPreviews READ autoLoadLinkPreviews
                    WRITE setAutoLoadLinkPreviews NOTIFY autoLoadLinkPreviewsChanged)
@@ -210,6 +216,8 @@ public:
     int notificationPreview() const;
     int notificationSound() const;
     void setNotificationSound(int mode);
+    bool ringForCalls() const;
+    void setRingForCalls(bool enabled);
     void setNotificationPreview(int mode);
     // v0.6.0 checkpoint 11: per-room notification mode (0 = all messages,
     // 1 = mentions & keywords, 2 = mute). On backends WITHOUT server
@@ -511,6 +519,7 @@ Q_SIGNALS:
     void notificationsEnabledChanged();
     void notificationPreviewChanged();
     void notificationSoundChanged();
+    void ringForCallsChanged();
     void roomNotificationModeChanged(const QString &roomId);
     void autoLoadLinkPreviewsChanged();
     void loadPreviewsInEncryptedRoomsChanged();

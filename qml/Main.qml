@@ -509,6 +509,11 @@ ApplicationWindow {
         // Update first (above), verification nearest the corner: the
         // security prompt is the more important of the two and keeps the
         // anchored position it already had.
+        // A live ring outranks the passive prompts: first in the column,
+        // so it renders above them while they keep their corner spots.
+        IncomingCallPrompt {
+            objectName: "incomingCallPromptHost"
+        }
         UpdateAvailablePrompt {
             objectName: "updateAvailablePromptHost"
             onDetailsRequested: updateAvailableDialog.open()

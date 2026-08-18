@@ -286,6 +286,10 @@ set(APP_SOURCES
 
     src/calls/CallController.h
     src/calls/CallController.cpp
+    # Header only: AUTOMOC supplies the CallMediaBackend metaobject; no
+    # implementation exists in the tree (the media seam — tests use a fake).
+    src/calls/CallMediaBackend.h
+    src/calls/SdpStore.h
     src/app/SettingsManager.h
     src/app/SettingsManager.cpp
 
@@ -554,6 +558,7 @@ set(APP_QML_FILES
     qml/ReportMessageDialog.qml
     qml/ForwardMessageDialog.qml
     qml/UpdateAvailablePrompt.qml
+    qml/IncomingCallPrompt.qml
     qml/VerifySessionPrompt.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
@@ -2062,6 +2067,8 @@ if(BUILD_TESTING)
         tests/CallControllerTest.cpp
         src/calls/CallController.h
         src/calls/CallController.cpp
+        src/calls/CallMediaBackend.h
+        src/calls/SdpStore.h
         src/matrix/CallSignal.h
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
@@ -2080,6 +2087,33 @@ if(BUILD_TESTING)
     target_link_libraries(call-controller-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME call-controller COMMAND call-controller-test)
+
+    # 2026-08-18 round 2: the ring policy wired to its real owners on a
+    # full AppController — ignore/mute/backlog gates, ringForCalls, missed
+    # classification, notification-decline routing.
+    qt_add_executable(call-ring-policy-test
+        tests/CallRingPolicyTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(call-ring-policy-test)
+    target_link_libraries(call-ring-policy-test PRIVATE Qt6::Test)
+    add_test(NAME call-ring-policy COMMAND call-ring-policy-test)
+    set_tests_properties(call-ring-policy PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # 2026-08-18 round 2: incoming-call corner card contracts + a real
+    # offscreen instantiation against a live ringing CallController.
+    qt_add_executable(call-ui-contract-test
+        tests/CallUiContractTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(call-ui-contract-test)
+    target_link_libraries(call-ui-contract-test PRIVATE Qt6::Test)
+    target_compile_definitions(call-ui-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    add_test(NAME call-ui-contract COMMAND call-ui-contract-test)
+    set_tests_properties(call-ui-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # v0.6.0: SDK-backed thread foundation — lifecycle (open/close/switch),
     # root/reply identity via the composite timeline id, failure states,

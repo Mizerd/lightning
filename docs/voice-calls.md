@@ -113,14 +113,81 @@ end to end through Lightning's normal backend architecture:
   `(room, call_id, party_id)`, so a MatrixRTC session lane can be attached
   under it without rebuilding the machine.
 
+## Round 2 (same day): policy wiring, the incoming-call experience, and the media seam
+
+- **Ring policy is wired to its real owners** (`AppController`): ignored
+  senders via `ModerationController::isIgnored`, muted rooms via
+  `SettingsManager::roomNotificationMode == Muted`, and backlog
+  suppression from `MatrixClient::initialSyncDone` (edge-connected). The
+  hooks are no longer inert defaults.
+- **Incoming-call notification + ring** (`NotificationManager`): one
+  freedesktop notification with a **Decline action** (routed back to
+  `CallController::rejectIncoming`), re-delivered every 5 s via
+  `replaces_id` with the themed `phone-incoming-call` sound while ringing
+  — the closest honest "ring" the notification API offers; Lightning
+  bundles no audio and plays none itself. Dismissing the card stops the
+  local re-ring but declines nothing. Stopped on call end; a missed ring
+  (`InviteTimeout` / `RemoteHangup` while ringing) raises a "Missed call"
+  notice routed to the room, respecting mute/preview-privacy/enablement.
+  The ring sound is gated by the new global setting
+  `Settings → Notifications → "Ring for incoming voice calls"`
+  (`SettingsManager::ringForCalls`, default ON) and the existing sound
+  mode; the notification itself only by `notificationsEnabled`.
+- **Incoming-call corner card** (`qml/IncomingCallPrompt.qml`, hosted
+  above the passive prompts in Main.qml's corner column): shows call
+  STATE (`app.calls.ringing`) regardless of sound policy, names the
+  caller (localpart only), offers **Decline** (the wire action) and
+  Dismiss (local hide), and honestly says answering on this device isn't
+  supported yet. No answer affordance may appear until a media engine
+  exists (contract-tested).
+- **The media seam is complete** (`CallMediaBackend.h` + `SdpStore.h`):
+  `placeCall()` runs the full outbound pipe when a backend is registered
+  (offer production bounded at 15 s → invite → answer → `select_answer` →
+  `setRemoteAnswer` → Connecting → `connected()` → Active), `answer()`
+  exists and runs the inbound pipe (remote-offer take → answer production
+  → `m.call.answer` → Connecting → Active), and media failure announces
+  `user_media_failed` on the wire only when the peer could be waiting.
+  **SDP transport is opt-in end to end**: only
+  `mx_rust_calls_set_media_capable(true)` — called exactly when a backend
+  registers, which production never does today — makes the Rust handlers
+  attach `offer_sdp`/`answer_sdp` (bounded 128 KiB) to the poll payloads,
+  where the bridge moves them into the bounded (8), single-shot,
+  memory-only `calls::SdpStore`, wiped on sign-out/detach. CallSignal
+  stays structurally SDP-free; nothing logs any of it (the `login_ok`
+  access-token discipline applies).
+- Review corrections folded in before commit: the ring's duration follows
+  the invite's real remaining lifetime (no fixed 60 s window); missed
+  classification happens at end-of-session from the PRIOR state (an
+  answered call the peer hung up is completed, never "missed") and
+  additionally requires the ring to have been announced; hangup() can end
+  an answered inbound call; an offer still in production never produces a
+  wire hangup (glare or local); the SDP store wipes on EVERY teardown
+  path via clearLocalState and drops a call's unconsumed offer at end;
+  media-capable mode survives handle recreation and gates the C++ insert
+  side too; the backend pointer is a QPointer and a live call's job is
+  closed on backend swap; ring announcements have a 30 s per-sender
+  cooldown; the new notification bodies HTML-escape member-chosen text
+  (the pre-existing invite/verification bodies are a recorded follow-up).
+- Still absent, still deliberate: any real media engine, candidates/ICE,
+  MatrixRTC membership, answering in production (the card says so).
+
 ## Validation
 
-- Rust: `calls::tests` (closed-set sanitizers, SDP requirement, clamps).
-- C++: `call-controller` suite (20 cases: ringing, glare both directions,
-  bounded busy auto-reject, idempotent re-delivery, ignored-sender drop,
-  stale-op isolation, live targeted-invite filter, expiry, cross-device
-  settlement, LRU absorption, refusals, logout).
-- Live interoperability (Element rings Lightning, Lightning's decline
-  stops it, encrypted-room call events decrypt at the peer): **NOT
+- Rust: `calls::tests` (closed-set sanitizers, SDP requirement, clamps,
+  media-capable gating of carried SDP).
+- C++: `call-controller` (state machine incl. the full outbound and
+  inbound media cycles under a FakeMediaBackend, answered-inbound hangup,
+  prior-state missed classification, undispatched-invite silence, media
+  timeouts/failures, SdpStore bounds), `call-ring-policy` (the production
+  wiring of every ring gate on a full AppController, the announced-ring
+  gate on missed notices, the per-sender ring cooldown),
+  `call-ui-contract` (corner-card contracts + a real offscreen
+  instantiation driven through a live ring/decline), and the
+  `notification-manager` call-ring cases (timer lifecycle, id-matched
+  decline/closed handling, replacement, deadline, payload promotion).
+- Live interoperability (Element rings Lightning, the desktop
+  notification and corner card appear, Decline stops Element's ring,
+  missed-call notices, the themed ring sound on a real notification
+  daemon, encrypted-room call events decrypting at the peer): **NOT
   TESTED** — no live pass has been run; see
   `docs/element-interop-checklist.md` for where such a pass gets recorded.

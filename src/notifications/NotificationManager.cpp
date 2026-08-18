@@ -176,6 +176,20 @@ NotificationManager::NotificationManager(QObject *parent)
     m_avatarWaitTimer.setInterval(kAvatarWaitMs);
     connect(&m_avatarWaitTimer, &QTimer::timeout, this,
             [this] { flushAvatarWaits(/*fallbackAll=*/true); });
+    // Incoming-call ring: re-deliver (replacing) every few seconds while
+    // ringing so the themed call sound repeats.
+    m_callRingTimer.setInterval(5000);
+    connect(&m_callRingTimer, &QTimer::timeout, this,
+            &NotificationManager::onCallRingTick);
+}
+
+void NotificationManager::onCallRingTick()
+{
+    if (QDateTime::currentMSecsSinceEpoch() >= m_callRingDeadlineMs) {
+        stopIncomingCall(m_activeCallId);
+        return;
+    }
+    deliverCallNotification();
 }
 
 void NotificationManager::setAvatarProvider(
@@ -344,6 +358,7 @@ void NotificationManager::showGeneric(const QString &title,
                                       const QString &roomId,
                                       const QString &avatarMxc)
 {
+    ++m_genericNoticeCount;
     QVariantMap payload;
     payload.insert(QStringLiteral("roomId"), roomId);
     payload.insert(QStringLiteral("eventId"), QString{});
@@ -353,6 +368,7 @@ void NotificationManager::showGeneric(const QString &title,
 
 void NotificationManager::clearPending()
 {
+    stopIncomingCall(QString());
     m_pendingPayloads.clear();
     m_payloadOrder.clear();
     m_avatarWaits.clear();
@@ -361,8 +377,12 @@ void NotificationManager::clearPending()
 
 void NotificationManager::recordPayload(quint32 id, const QVariantMap &payload)
 {
-    if (!m_pendingPayloads.contains(id))
-        m_payloadOrder.append(id);
+    // Re-recording an id promotes it to most-recent: a notification being
+    // actively refreshed (the call card's replaces_id re-delivery) must
+    // not sit at the FRONT of the eviction queue just because it was first
+    // shown long ago (review round 2).
+    m_payloadOrder.removeOne(id);
+    m_payloadOrder.append(id);
     m_pendingPayloads.insert(id, payload);
     // Evict the oldest entries once over the cap so the most recent
     // notifications stay clickable (the 0.6.0 code cleared the whole map,
@@ -479,6 +499,15 @@ void NotificationManager::deliverNow(const QString &title,
 
 void NotificationManager::onActionInvoked(quint32 id, const QString &action)
 {
+    if (action == QLatin1String("decline")) {
+        if (id != 0 && id == m_activeCallNotificationId
+            && !m_activeCallId.isEmpty()) {
+            const QString callId = m_activeCallId;
+            stopIncomingCall(callId);
+            Q_EMIT callDeclineRequested(callId);
+        }
+        return;
+    }
     if (action != QLatin1String("default"))
         return;
     const QVariantMap payload = m_pendingPayloads.value(id);
@@ -494,5 +523,103 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
 void NotificationManager::onNotificationClosed(quint32 id, quint32 reason)
 {
     Q_UNUSED(reason);
+    if (id != 0 && id == m_activeCallNotificationId) {
+        // The user (or daemon) dismissed the call card: stop re-ringing,
+        // but do NOT decline — dismissing a notification is not an answer,
+        // and other devices keep ringing.
+        m_activeCallNotificationId = 0;
+        m_callRingTimer.stop();
+    }
     forgetPayload(id);
+}
+
+void NotificationManager::showIncomingCall(const QString &roomId,
+                                           const QString &callId,
+                                           const QString &title,
+                                           const QString &safeBody,
+                                           bool sound, int ringSeconds)
+{
+    if (callId.isEmpty())
+        return;
+    // One ring at a time — a newer call replaces the previous card.
+    if (!m_activeCallId.isEmpty() && m_activeCallId != callId)
+        stopIncomingCall(m_activeCallId);
+    m_activeCallId = callId;
+    m_activeCallRoomId = roomId;
+    m_activeCallTitle = title;
+    m_activeCallBody = safeBody;
+    m_activeCallSound = sound;
+    m_callRingDeadlineMs = QDateTime::currentMSecsSinceEpoch()
+        + qint64(qBound(5, ringSeconds, 300)) * 1000;
+    deliverCallNotification();
+    if (sound)
+        m_callRingTimer.start();
+}
+
+void NotificationManager::stopIncomingCall(const QString &callId)
+{
+    if (m_activeCallId.isEmpty()
+        || (!callId.isEmpty() && callId != m_activeCallId))
+        return;
+    m_callRingTimer.stop();
+#ifdef HAVE_QT_DBUS
+    if (m_activeCallNotificationId != 0) {
+        QDBusInterface notifications(kService, kPath, kInterface,
+                                     QDBusConnection::sessionBus());
+        if (notifications.isValid())
+            notifications.call(QStringLiteral("CloseNotification"),
+                               m_activeCallNotificationId);
+        forgetPayload(m_activeCallNotificationId);
+    }
+#endif
+    m_activeCallNotificationId = 0;
+    m_activeCallId.clear();
+    m_activeCallRoomId.clear();
+    m_activeCallTitle.clear();
+    m_activeCallBody.clear();
+    m_activeCallSound = false;
+}
+
+void NotificationManager::deliverCallNotification()
+{
+#ifdef HAVE_QT_DBUS
+    if (m_activeCallId.isEmpty())
+        return;
+    QDBusInterface notifications(kService, kPath, kInterface,
+                                 QDBusConnection::sessionBus());
+    if (!notifications.isValid()) {
+        qCInfo(lcNotify) << "notification service unavailable";
+        return;
+    }
+    const QStringList actions{ QStringLiteral("default"), tr("Open"),
+                               QStringLiteral("decline"), tr("Decline") };
+    const NotificationIdentity identity = notificationIdentity();
+    QVariantMap hints{
+        { QStringLiteral("desktop-entry"), identity.desktopEntry },
+        { QStringLiteral("urgency"), quint8(2) }, // critical: a live ring
+    };
+    if (m_activeCallSound) {
+        // Themed freedesktop call sound — the notification server plays
+        // it; Lightning bundles no audio. Deliberately NOT coalesced with
+        // message sounds: the repeat IS the ring.
+        hints.insert(QStringLiteral("sound-name"),
+                     QStringLiteral("phone-incoming-call"));
+    }
+    const QDBusReply<quint32> reply = notifications.call(
+        QStringLiteral("Notify"), QStringLiteral("Lightning"),
+        m_activeCallNotificationId, identity.appIcon, m_activeCallTitle,
+        m_activeCallBody, actions, hints, int(-1));
+    if (reply.isValid()) {
+        if (m_activeCallNotificationId != 0
+            && reply.value() != m_activeCallNotificationId)
+            forgetPayload(m_activeCallNotificationId);
+        m_activeCallNotificationId = reply.value();
+        recordPayload(m_activeCallNotificationId,
+                      QVariantMap{
+                          { QStringLiteral("roomId"), m_activeCallRoomId },
+                          { QStringLiteral("eventId"), QString() },
+                          { QStringLiteral("threadRootId"), QString() },
+                      });
+    }
+#endif
 }

@@ -224,6 +224,12 @@ public:
     void resetTimelineForTest(const QString &roomId,
                               const QList<TimelineEvent> &events,
                               int paginationPages);
+    // 2026-08-18 round 2: drive the wired call stack (AppController →
+    // CallController → NotificationManager) from integration tests.
+    void emitCallSignalForTest(const CallSignal &signal)
+    {
+        Q_EMIT callSignalReceived(signal);
+    }
     void changeEventAtForTest(const QString &roomId, int index,
                               const TimelineEvent &event);
     void appendEventForTest(const QString &roomId, const TimelineEvent &event);

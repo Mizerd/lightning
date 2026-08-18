@@ -399,6 +399,157 @@ private Q_SLOTS:
         manager.clearPending();
         QCOMPARE(manager.pendingPayloadCountForTest(), 0);
     }
+
+    // ── 2026-08-18 round 2: the incoming-call ring mechanism ─────────────
+    // The DBus daemon is absent here, so Notify() never runs — these cases
+    // pin the STATE machine around it: timer lifecycle, id-matched decline
+    // and closed handling, replacement, deadline, and teardown.
+
+    void callRingTimerFollowsSoundAndStops()
+    {
+        NotificationManager manager;
+        manager.showIncomingCall(QStringLiteral("!r:x"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"),
+                                 /*sound=*/true, /*ringSeconds=*/60);
+        QCOMPARE(manager.activeCallIdForTest(), QStringLiteral("call-1"));
+        QVERIFY(manager.callRingActiveForTest());
+        // Mismatched id is a no-op; empty id retires whatever is active.
+        manager.stopIncomingCall(QStringLiteral("other-call"));
+        QVERIFY(manager.callRingActiveForTest());
+        manager.stopIncomingCall(QString());
+        QVERIFY(!manager.callRingActiveForTest());
+        QCOMPARE(manager.activeCallIdForTest(), QString());
+
+        // Silent card (ringForCalls off): no repeat timer.
+        manager.showIncomingCall(QStringLiteral("!r:x"),
+                                 QStringLiteral("call-2"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"),
+                                 /*sound=*/false, /*ringSeconds=*/60);
+        QVERIFY(!manager.callRingActiveForTest());
+        manager.stopIncomingCall(QStringLiteral("call-2"));
+    }
+
+    void newerCallReplacesTheOlderRing()
+    {
+        NotificationManager manager;
+        manager.showIncomingCall(QStringLiteral("!a:x"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"), true, 60);
+        manager.showIncomingCall(QStringLiteral("!b:x"),
+                                 QStringLiteral("call-2"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"), true, 60);
+        QCOMPARE(manager.activeCallIdForTest(), QStringLiteral("call-2"));
+        // Stopping the OLD id no longer touches the new ring.
+        manager.stopIncomingCall(QStringLiteral("call-1"));
+        QCOMPARE(manager.activeCallIdForTest(), QStringLiteral("call-2"));
+        QVERIFY(manager.callRingActiveForTest());
+        manager.stopIncomingCall(QStringLiteral("call-2"));
+    }
+
+    void ringDeadlineRetiresTheCard()
+    {
+        NotificationManager manager;
+        // ringSeconds is clamped to >= 5; drive the tick with a deadline
+        // already in the past by using the minimum and invoking the slot
+        // (the timer interval is 5 s — the first tick lands at/after the
+        // 5 s deadline).
+        manager.showIncomingCall(QStringLiteral("!r:x"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"), true,
+                                 /*ringSeconds=*/-100 /* clamps to 5 */);
+        QVERIFY(manager.callRingActiveForTest());
+        // First tick at t≈5s: at/after the deadline — must retire.
+        QTest::qWait(5100);
+        QTRY_VERIFY_WITH_TIMEOUT(!manager.callRingActiveForTest(), 7000);
+        QCOMPARE(manager.activeCallIdForTest(), QString());
+    }
+
+    void declineActionMatchesTheDeliveredId()
+    {
+        NotificationManager manager;
+        QSignalSpy declined(&manager,
+                            &NotificationManager::callDeclineRequested);
+        manager.showIncomingCall(QStringLiteral("!r:x"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"), true, 60);
+        manager.setActiveCallNotificationIdForTest(42);
+        // A decline on some other notification id is not ours.
+        QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                  Q_ARG(quint32, 7u),
+                                  Q_ARG(QString, QStringLiteral("decline")));
+        QCOMPARE(declined.count(), 0);
+        QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                  Q_ARG(quint32, 42u),
+                                  Q_ARG(QString, QStringLiteral("decline")));
+        QCOMPARE(declined.count(), 1);
+        QCOMPARE(declined.first().at(0).toString(),
+                 QStringLiteral("call-1"));
+        // The ring is retired BEFORE the signal, so reentrant stop calls
+        // are no-ops.
+        QVERIFY(!manager.callRingActiveForTest());
+        QCOMPARE(manager.activeCallIdForTest(), QString());
+    }
+
+    void daemonClosingTheCardStopsReRingWithoutDeclining()
+    {
+        NotificationManager manager;
+        QSignalSpy declined(&manager,
+                            &NotificationManager::callDeclineRequested);
+        manager.showIncomingCall(QStringLiteral("!r:x"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"), true, 60);
+        manager.setActiveCallNotificationIdForTest(42);
+        QMetaObject::invokeMethod(&manager, "onNotificationClosed",
+                                  Q_ARG(quint32, 42u), Q_ARG(quint32, 2u));
+        QVERIFY(!manager.callRingActiveForTest());
+        QCOMPARE(declined.count(), 0); // dismissal is not an answer
+        manager.stopIncomingCall(QString());
+    }
+
+    void clearPendingRetiresTheRing()
+    {
+        NotificationManager manager;
+        manager.showIncomingCall(QStringLiteral("!r:x"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"), true, 60);
+        QVERIFY(manager.callRingActiveForTest());
+        manager.clearPending();
+        QVERIFY(!manager.callRingActiveForTest());
+        QCOMPARE(manager.activeCallIdForTest(), QString());
+    }
+
+    void recordPayloadPromotesRefreshedIds()
+    {
+        NotificationManager manager;
+        QVariantMap p;
+        p.insert(QStringLiteral("roomId"), QStringLiteral("!call:x"));
+        p.insert(QStringLiteral("eventId"), QString());
+        p.insert(QStringLiteral("threadRootId"), QString());
+        // The call card's id is recorded FIRST, then 63 message payloads
+        // arrive, then the card re-delivers (same id). The re-record must
+        // promote it so the NEXT eviction takes a stale message payload,
+        // not the actively refreshed call card (review round 2).
+        manager.recordPayloadForTest(100, p);
+        for (quint32 id = 1; id <= 63; ++id)
+            manager.recordPayloadForTest(id, p);
+        manager.recordPayloadForTest(100, p); // the 5s re-delivery
+        manager.recordPayloadForTest(200, p); // one more: evicts id 1
+        QCOMPARE(manager.pendingPayloadCountForTest(), 64);
+        QSignalSpy spy(&manager, &NotificationManager::openRequested);
+        QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                  Q_ARG(quint32, 100u),
+                                  Q_ARG(QString, QStringLiteral("default")));
+        QCOMPARE(spy.count(), 1); // the call card survived the eviction
+    }
 };
 
 QTEST_MAIN(NotificationManagerTest)

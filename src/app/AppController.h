@@ -424,6 +424,10 @@ public:
     ThreadManager *threads() const;
     PresenceManager *presence() const;
     CallController *calls() const;
+    // Test seam: integration tests drive/inspect notification glue (the
+    // DBus daemon is absent under offscreen runs).
+    NotificationManager *notificationsForTest() const
+    { return m_notifications.get(); }
     PinnedMessagesController *pinned() const { return m_pinned.get(); }
     RoomUpgradeController *roomUpgrade() const { return m_roomUpgrade.get(); }
     ThreadController *thread() const { return m_thread.get(); }
@@ -900,6 +904,11 @@ private:
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<PresenceManager> m_presence;
     std::unique_ptr<CallController> m_calls;
+    // The one call whose ring was actually announced (notification shown):
+    // the missed-call notice requires it, so suppressed rings never
+    // resurface as "missed". Bounded per-sender ring cooldown alongside.
+    QString m_announcedCallId;
+    QHash<QString, qint64> m_lastCallRingBySender;
     std::unique_ptr<PinnedMessagesController> m_pinned;
     std::unique_ptr<RoomUpgradeController> m_roomUpgrade;
     std::unique_ptr<ThreadController> m_thread;

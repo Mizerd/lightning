@@ -638,6 +638,14 @@ public:
     virtual quint64 callRtcDecline(const QString &roomId,
                                    const QString &notificationEventId)
     { Q_UNUSED(roomId); Q_UNUSED(notificationEventId); return 0; }
+    // Media-capable mode (2026-08-18 round 2): ONLY when a media backend
+    // is registered does the backend carry remote SDP into a bounded
+    // C++-memory-only store — production today never enables it, so no
+    // SDP crosses the FFI at all. The store is single-shot: take removes.
+    // SDP must never reach QML, logs, or persistence.
+    virtual void setCallMediaCapable(bool capable) { Q_UNUSED(capable); }
+    virtual QString takeCallSessionDescription(const QString &eventId)
+    { Q_UNUSED(eventId); return {}; }
     // v0.7.x device sign-out through reusable UIA. The flow: deleteDevices
     // → (server may answer with a challenge → uiaRequired) →
     // uiaSubmitPassword / uiaCancel → deviceDeleteFinished. Credentials
