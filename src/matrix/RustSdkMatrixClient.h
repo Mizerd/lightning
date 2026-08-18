@@ -388,6 +388,10 @@ public:
                            const QString &notificationEventId) override;
     void setCallMediaCapable(bool capable) override;
     QString takeCallSessionDescription(const QString &eventId) override;
+    quint64 callCandidates(const QString &roomId, const QString &callId,
+                           const QString &partyId,
+                           const QVariantList &candidates) override;
+    quint64 requestCallTurnServers() override;
     quint64 setUserIgnored(const QString &userId, bool ignored) override;
     quint64 requestIgnoredUsers() override;
     bool supportsEventReporting() const override { return true; }

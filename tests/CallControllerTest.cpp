@@ -93,6 +93,34 @@ public:
     {
         mediaCapable = capable;
     }
+    quint64 callCandidates(const QString &roomId, const QString &callId,
+                           const QString &partyId,
+                           const QVariantList &candidates) override
+    {
+        Q_UNUSED(roomId); Q_UNUSED(partyId);
+        candidateBatches.append(qMakePair(callId, candidates));
+        return ++opCounter;
+    }
+    quint64 requestCallTurnServers() override
+    {
+        lastTurnOp = ++opCounter;
+        return lastTurnOp;
+    }
+    void emitCandidates(const QString &roomId, const QString &callId,
+                        bool own, const QVariantList &candidates)
+    {
+        Q_EMIT callCandidatesReceived(roomId, callId,
+                                      QStringLiteral("peer-party"), own,
+                                      candidates);
+    }
+    void emitTurnServers(quint64 opId, bool ok, const QStringList &uris)
+    {
+        Q_EMIT callTurnServersReceived(opId, ok, QStringLiteral("u"),
+                                       QStringLiteral("p"), uris, 600,
+                                       QString());
+    }
+    QList<QPair<QString, QVariantList>> candidateBatches;
+    quint64 lastTurnOp = 0;
     QString takeCallSessionDescription(const QString &eventId) override
     {
         takenDescriptions.append(eventId);
@@ -139,6 +167,18 @@ public:
         remoteAnswers.append(callId);
         lastRemoteAnswer = remoteAnswerSdp;
     }
+    void addRemoteCandidate(const QString &callId, const QString &candidate,
+                            const QString &sdpMid, int sdpMLineIndex) override
+    {
+        Q_UNUSED(sdpMid); Q_UNUSED(sdpMLineIndex);
+        remoteCandidates.append(callId + QLatin1Char('|') + candidate);
+    }
+    void setIceServers(const QStringList &uris, const QString &username,
+                       const QString &password) override
+    {
+        Q_UNUSED(username); Q_UNUSED(password);
+        iceServerApplications.append(uris);
+    }
     void close(const QString &callId) override { closed.append(callId); }
 
     void deliverOffer(const QString &callId, const QString &sdp)
@@ -157,7 +197,17 @@ public:
     {
         Q_EMIT failed(callId, category);
     }
+    void deliverLocalCandidate(const QString &callId, const QString &line)
+    {
+        Q_EMIT localCandidate(callId, line, QStringLiteral("0"), 0);
+    }
+    void deliverGatheringComplete(const QString &callId)
+    {
+        Q_EMIT gatheringComplete(callId);
+    }
 
+    QStringList remoteCandidates;
+    QList<QStringList> iceServerApplications;
     QStringList offerRequests;
     QStringList answerRequests;
     QStringList remoteAnswers;
@@ -975,6 +1025,176 @@ private Q_SLOTS:
         const qint64 remaining = started.at(0).at(3).toLongLong();
         QVERIFY(remaining > 80000);
         QVERIFY(remaining <= 90000);
+    }
+
+    // ── ICE candidates + TURN (round 3: the real engine's transport) ──
+
+    void localCandidatesAreBatchedWithEndMarker()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        const QString callId = calls.activeCallId();
+        media.deliverOffer(callId, QStringLiteral("v=0 offer"));
+
+        media.deliverLocalCandidate(callId,
+                                    QStringLiteral("candidate:0 1 UDP a"));
+        media.deliverLocalCandidate(callId,
+                                    QStringLiteral("candidate:1 1 UDP b"));
+        QCOMPARE(client.candidateBatches.size(), 0); // batching window open
+        QTest::qWait(250);
+        QCOMPARE(client.candidateBatches.size(), 1);
+        QCOMPARE(client.candidateBatches.first().second.size(), 2);
+
+        // Gathering completion flushes immediately with the MSC2746 empty
+        // end-of-candidates marker appended.
+        media.deliverLocalCandidate(callId,
+                                    QStringLiteral("candidate:2 1 UDP c"));
+        media.deliverGatheringComplete(callId);
+        QCOMPARE(client.candidateBatches.size(), 2);
+        const QVariantList last = client.candidateBatches.last().second;
+        QCOMPARE(last.size(), 2);
+        QCOMPARE(last.last().toMap()
+                     .value(QStringLiteral("candidate")).toString(),
+                 QString());
+    }
+
+    void remoteCandidatesReachTheBackendForTheLiveCallOnly()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        // OUTBOUND call: the engine session exists from placeCall, so the
+        // peer's candidates forward immediately (the inbound pre-answer
+        // BUFFERING path has its own test).
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        const QString callId = calls.activeCallId();
+        media.deliverOffer(callId, QStringLiteral("v=0 offer"));
+        QVariantList batch;
+        QVariantMap entry;
+        entry.insert(QStringLiteral("candidate"),
+                     QStringLiteral("candidate:0 1 UDP x"));
+        batch.append(entry);
+        // Wrong call id: dropped.
+        client.emitCandidates(QStringLiteral("!r:x"),
+                              QStringLiteral("other"), false, batch);
+        QVERIFY(media.remoteCandidates.isEmpty());
+        // Our own device's candidates: dropped.
+        client.emitCandidates(QStringLiteral("!r:x"), callId, true, batch);
+        QVERIFY(media.remoteCandidates.isEmpty());
+        // The live call's: forwarded.
+        client.emitCandidates(QStringLiteral("!r:x"), callId, false, batch);
+        QCOMPARE(media.remoteCandidates.size(), 1);
+    }
+
+    void turnServersFlowToTheEngineOnceFetched()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        // PRODUCTION order: AppController registers the engine BEFORE the
+        // client. The pre-fetch must fire once the PAIR completes — this
+        // exact ordering is what previously masked the first-call TURN
+        // gap (review round 3 HIGH).
+        calls.setMediaBackend(&media);
+        QCOMPARE(client.lastTurnOp, quint64(0)); // no client yet: no fetch
+        calls.setClient(&client);
+        QVERIFY(client.lastTurnOp != 0);
+        // A stale/foreign op id is ignored.
+        client.emitTurnServers(client.lastTurnOp + 999, true,
+                               { QStringLiteral("turn:one") });
+        QVERIFY(media.iceServerApplications.isEmpty());
+        client.emitTurnServers(client.lastTurnOp, true,
+                               { QStringLiteral("turn:one"),
+                                 QStringLiteral("stun:two") });
+        QCOMPARE(media.iceServerApplications.size(), 1);
+        QCOMPARE(media.iceServerApplications.first().size(), 2);
+        // A fresh call within the TTL re-applies the cache, no new fetch.
+        const quint64 fetchOp = client.lastTurnOp;
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        QCOMPARE(client.lastTurnOp, fetchOp);
+        QCOMPARE(media.iceServerApplications.size(), 2);
+    }
+
+    // Round-3 recheck corrections.
+
+    void preAnswerCandidatesAreBufferedThenDrained()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        CallSignal invite = freshInvite(QStringLiteral("call-1"));
+        client.storedDescriptions.insert(invite.eventId,
+                                         QStringLiteral("v=0 offer"));
+        client.emitSignal(invite);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+
+        // The caller trickles WHILE we ring — the engine has no session
+        // yet, so these must be buffered, not dropped (they used to be).
+        QVariantList batch;
+        for (int i = 0; i < 3; ++i) {
+            QVariantMap entry;
+            entry.insert(QStringLiteral("candidate"),
+                         QStringLiteral("candidate:%1 1 UDP x").arg(i));
+            batch.append(entry);
+        }
+        client.emitCandidates(QStringLiteral("!r:x"),
+                              QStringLiteral("call-1"), false, batch);
+        QVERIFY(media.remoteCandidates.isEmpty());
+
+        QVERIFY(calls.answer());
+        // Drained into the engine right after createAnswer.
+        QCOMPARE(media.answerRequests.size(), 1);
+        QCOMPARE(media.remoteCandidates.size(), 3);
+    }
+
+    void localCandidateFloodIsChunkedToTheWireCap()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        const QString callId = calls.activeCallId();
+        media.deliverOffer(callId, QStringLiteral("v=0 offer"));
+        // 40 candidates in one burst: the Rust side rejects >32 per event
+        // WHOLE, so the flush must chunk (40 -> 32 + 8, or with the end
+        // marker on completion, 32 + 9).
+        for (int i = 0; i < 40; ++i)
+            media.deliverLocalCandidate(
+                callId, QStringLiteral("candidate:%1 1 UDP x").arg(i));
+        media.deliverGatheringComplete(callId);
+        QCOMPARE(client.candidateBatches.size(), 2);
+        QVERIFY(client.candidateBatches.at(0).second.size() <= 32);
+        QVERIFY(client.candidateBatches.at(1).second.size() <= 32);
+        int total = 0;
+        for (const auto &batch : client.candidateBatches)
+            total += batch.second.size();
+        QCOMPARE(total, 41); // 40 + the end-of-candidates marker
+    }
+
+    void turnResponseIsBoundedDefensively()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setMediaBackend(&media);
+        calls.setClient(&client);
+        QVERIFY(client.lastTurnOp != 0);
+        QStringList many;
+        for (int i = 0; i < 40; ++i)
+            many.append(QStringLiteral("turn:host%1:3478").arg(i));
+        client.emitTurnServers(client.lastTurnOp, true, many);
+        QCOMPARE(media.iceServerApplications.size(), 1);
+        QCOMPARE(media.iceServerApplications.first().size(), 16); // capped
     }
 
     void loggedOutClearsSessionTimersAndOps()

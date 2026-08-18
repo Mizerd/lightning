@@ -252,6 +252,25 @@ else()
     message(STATUS "pkg-config not found — cannot probe libsecret; using insecure fallback")
 endif()
 
+# Optional GStreamer webrtcbin voice-call media engine (v0.7.x round 3).
+# AUTO: built when the GStreamer WebRTC dev files are present. Packaged
+# builds without them keep CallController's honest no-media refusal — the
+# engine additionally re-probes its element factories at RUNTIME before it
+# is ever registered.
+option(LIGHTNING_ENABLE_WEBRTC
+    "Build the GStreamer webrtcbin voice-call media engine when available" ON)
+set(HAVE_LIGHTNING_WEBRTC OFF)
+if(LIGHTNING_ENABLE_WEBRTC AND PkgConfig_FOUND)
+    pkg_check_modules(GSTWEBRTC IMPORTED_TARGET
+        gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0)
+    if(GSTWEBRTC_FOUND)
+        set(HAVE_LIGHTNING_WEBRTC ON)
+        message(STATUS "GStreamer WebRTC found (${GSTWEBRTC_gstreamer-webrtc-1.0_VERSION}) — building the voice-call media engine")
+    else()
+        message(STATUS "GStreamer WebRTC not found — voice calls stay signaling-only (honest refusal)")
+    endif()
+endif()
+
 set(APP_SOURCES
     src/main.cpp
 
@@ -489,6 +508,12 @@ endif()
 # construct a real AppController and load the real QML module instead of
 # re-declaring a parallel object graph. Keeps mock/http so mock-based tests
 # still build even in a LIGHTNING_RUST_ONLY configuration.
+if(HAVE_LIGHTNING_WEBRTC)
+    list(APPEND APP_SOURCES
+        src/calls/GstCallMediaBackend.h
+        src/calls/GstCallMediaBackend.cpp)
+endif()
+
 set(APP_LIB_SOURCES ${APP_SOURCES})
 list(REMOVE_ITEM APP_LIB_SOURCES src/main.cpp)
 
@@ -680,7 +705,7 @@ function(_lightning_configure_qml_module target _scope)
     # bare filename, not the "models/HeaderName.h" path used by quoted
     # includes elsewhere. Add each subdirectory holding a QML-registered type
     # so that angle-bracket lookup resolves.
-    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update)
+    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update src/calls)
     # Build-only GIF key header (may be keyless); include path only, no values.
     target_include_directories(${target} ${_scope} "${LIGHTNING_GENERATED_DIR}")
 
@@ -730,6 +755,11 @@ function(_lightning_configure_qml_module target _scope)
     if(HAVE_LIBSECRET)
         target_link_libraries(${target} ${_scope} PkgConfig::LIBSECRET)
         target_compile_definitions(${target} ${_scope} HAVE_LIBSECRET=1)
+    endif()
+
+    if(HAVE_LIGHTNING_WEBRTC)
+        target_link_libraries(${target} ${_scope} PkgConfig::GSTWEBRTC)
+        target_compile_definitions(${target} ${_scope} HAVE_LIGHTNING_WEBRTC=1)
     endif()
 
     # Windows Credential Manager backend for SecretStore (CredWriteW/ReadW/
@@ -2114,6 +2144,24 @@ if(BUILD_TESTING)
     add_test(NAME call-ui-contract COMMAND call-ui-contract-test)
     set_tests_properties(call-ui-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # 2026-08-18 round 3: the REAL WebRTC handshake — two GstCallMediaBackend
+    # instances in one process (test-tone mode, no audio devices) complete a
+    # full ICE + DTLS-SRTP negotiation over loopback host candidates.
+    if(HAVE_LIGHTNING_WEBRTC)
+        qt_add_executable(call-media-loopback-test
+            tests/CallMediaLoopbackTest.cpp
+            src/calls/CallMediaBackend.h
+            src/calls/GstCallMediaBackend.h
+            src/calls/GstCallMediaBackend.cpp
+        )
+        target_include_directories(call-media-loopback-test PRIVATE src)
+        target_link_libraries(call-media-loopback-test PRIVATE
+            Qt6::Core Qt6::Test PkgConfig::GSTWEBRTC)
+        add_test(NAME call-media-loopback COMMAND call-media-loopback-test)
+        # A real ICE+DTLS handshake needs a little longer than unit suites.
+        set_tests_properties(call-media-loopback PROPERTIES TIMEOUT 120)
+    endif()
 
     # v0.6.0: SDK-backed thread foundation — lifecycle (open/close/switch),
     # root/reply identity via the composite timeline id, failure states,

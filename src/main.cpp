@@ -832,6 +832,11 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle("Basic");
 
     AppController controller(pf.backend, pf.screenshotDemo);
+    // The real WebRTC voice-call engine (webrtcbin), when built + its
+    // runtime elements resolve. Deliberately here and not in the
+    // AppController constructor: the offscreen test fleet must not
+    // gst_init or register a media engine it never asked for.
+    controller.enableCallMediaEngine();
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
     // Development screenshot mode: enrich the mock scene and auto-login into the

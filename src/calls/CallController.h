@@ -1,4 +1,4 @@
-// Voice-call signaling state machine (2026-08-18) — backend pipes only.
+// Voice-call state machine (2026-08-18 rounds 1-3).
 //
 // Consumes SDP-free CallSignal observations from the backend (see
 // CallSignal.h) and drives one MSC2746-shaped call session: glare
@@ -6,21 +6,25 @@
 // answered/declined-elsewhere, busy auto-reject, and a bounded LRU of
 // finished call ids so a late event can never resurrect an ended call.
 //
-// THERE IS NO MEDIA STACK. placeCall() refuses (no media backend exists in
-// the tree); placeCallWithOffer() is the complete outbound pipe a future
-// media backend feeds with a real SDP — tests exercise it with a synthetic
-// one. Inbound calls can be observed, ring-gated, and declined/hung up;
-// they can never be answered, so Connecting/Active are reachable only
-// through the outbound path. No QML surface consumes this yet.
+// MEDIA comes through the CallMediaBackend seam. WITH a registered engine
+// (GstCallMediaBackend — webrtcbin — when built and its runtime elements
+// resolve) placeCall()/answer() run real calls: offer/answer production,
+// trickled ICE both ways (batched sends with MSC2746's end marker), and
+// homeserver-provided TURN. WITHOUT one (packaged builds today) both
+// refuse honestly and inbound calls can only be observed/declined.
+// QML consumes this via app.calls (IncomingCallPrompt — the call card —
+// and the DM-gated startVoiceCallButton); SDP/candidates are structurally
+// unreachable from QML.
 //
 // Ring POLICY and ring STATE are separate: a muted room still produces
-// Ringing; only shouldRing() is false. NotificationManager subscribes in a
-// later round.
+// Ringing; only shouldRing() is false (NotificationManager's ring and the
+// missed-call notices consume it via AppController).
 #pragma once
 
 #include <QHash>
 #include <QObject>
 #include <QPointer>
+#include <QtQml/qqmlregistration.h>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -35,11 +39,19 @@ class MatrixClient;
 class CallController : public QObject
 {
     Q_OBJECT
+    // Registered so QML compares states SYMBOLICALLY
+    // (CallController.Ringing) instead of magic ints — the
+    // PaginationController precedent. Never creatable: app.calls is the
+    // one instance.
+    QML_ELEMENT
+    QML_UNCREATABLE("CallController is exposed via app.calls")
     Q_PROPERTY(int state READ stateInt NOTIFY stateChanged)
     Q_PROPERTY(bool ringing READ ringing NOTIFY stateChanged)
     Q_PROPERTY(QString activeRoomId READ activeRoomId NOTIFY stateChanged)
     Q_PROPERTY(QString callerUserId READ activeSenderId NOTIFY stateChanged)
     Q_PROPERTY(QString activeCallId READ activeCallId NOTIFY stateChanged)
+    Q_PROPERTY(bool mediaBackendAvailable READ mediaBackendAvailable
+                   NOTIFY mediaBackendAvailableChanged)
 
 public:
     enum class State { Idle, Inviting, Ringing, Connecting, Active, Ended };
@@ -125,6 +137,7 @@ public:
 
 Q_SIGNALS:
     void stateChanged();
+    void mediaBackendAvailableChanged();
     // remainingMs is the invite's real remaining validity, so the ring's
     // duration can follow the call instead of a hardcoded window.
     void incomingCallStarted(const QString &roomId, const QString &callId,
@@ -160,6 +173,13 @@ private:
         // Outbound: the invite send was dispatched (used to decide whether
         // a media failure needs a wire hangup or only a local end).
         bool inviteDispatched = false;
+        // Inbound: candidates the caller trickled while we were RINGING —
+        // the engine has no session until answer(), and the caller starts
+        // trickling the moment they place the call, so dropping these
+        // loses most usable candidates whenever a human takes time to
+        // accept (review round 3 HIGH). Bounded; drained into the engine
+        // right after createAnswer().
+        QVariantList earlyRemoteCandidates;
     };
 
     void onCallSignal(const CallSignal &signal);
@@ -181,6 +201,18 @@ private:
     void onMediaAnswerReady(const QString &callId, const QString &sdp);
     void onMediaConnected(const QString &callId);
     void onMediaFailed(const QString &callId, const QString &category);
+    void onMediaLocalCandidate(const QString &callId,
+                               const QString &candidate,
+                               const QString &sdpMid, int sdpMLineIndex);
+    void onMediaGatheringComplete(const QString &callId);
+    void onRemoteCandidates(const QString &roomId, const QString &callId,
+                            const QString &partyId, bool own,
+                            const QVariantList &candidates);
+    void onTurnServers(quint64 opId, bool ok, const QString &username,
+                       const QString &password, const QStringList &uris,
+                       qint64 ttlSeconds, const QString &category);
+    void flushLocalCandidates();
+    void requestTurnServersIfStale();
 
     bool matchesSession(const CallSignal &signal) const;
     bool recentlyEnded(const QString &callId) const;
@@ -214,6 +246,20 @@ private:
     int m_busyRejectsThisSession = 0;
     QString m_ownUserId;
     QString m_lastRefusal;
+    // Locally gathered candidates, batched (150 ms) into one
+    // m.call.candidates event; MSC2746's empty end-of-candidates marker
+    // rides the final batch.
+    QVariantList m_pendingLocalCandidates;
+    bool m_gatheringComplete = false;
+    QTimer m_candidateFlushTimer;
+    // Homeserver TURN credentials cache for the engine's ICE config —
+    // memory only, refreshed before expiry, never logged.
+    quint64 m_turnOp = 0;
+    qint64 m_turnRequestedAtMs = 0;
+    qint64 m_turnExpiryMs = 0;
+    QStringList m_turnUris;
+    QString m_turnUsername;
+    QString m_turnPassword;
     bool m_backlogSuppressed = true;
     std::function<bool(const QString &)> m_senderIgnoredCheck;
     std::function<bool(const QString &)> m_roomMutedCheck;

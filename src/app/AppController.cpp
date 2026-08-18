@@ -27,6 +27,9 @@
 #include "app/ScreenshotDemoController.h"
 #endif
 #include "calls/CallController.h"
+#ifdef HAVE_LIGHTNING_WEBRTC
+#include "calls/GstCallMediaBackend.h"
+#endif
 #include "presence/PresenceManager.h"
 #include "threads/ThreadManager.h"
 
@@ -183,8 +186,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_threads      = std::make_unique<ThreadManager>(this);
     m_presence     = std::make_unique<PresenceManager>(this);
     m_presence->setSettings(m_settings.get());
-    // Voice-call signaling pipes (2026-08-18): state machine only, no UI
-    // and no media stack. See src/calls/CallController.h.
+    // Voice calls (2026-08-18 rounds 1-3): the signaling state machine,
+    // and — when the build carries the GStreamer webrtcbin engine AND its
+    // element factories resolve at runtime — the real media backend that
+    // makes placing/answering calls possible. Absent engine = the honest
+    // refusal path, exactly as before. LIGHTNING_DISABLE_WEBRTC=1 is the
+    // kill switch (diagnosis, or a machine whose plugins misbehave).
     m_calls        = std::make_unique<CallController>(this);
     // Application updates. Constructed once and never rebuilt: it holds no
     // Matrix state, is not account-scoped, and signing in, signing out or
@@ -1709,6 +1716,31 @@ SpaceManager *AppController::spaces() const { return m_spaces.get(); }
 ThreadManager *AppController::threads() const { return m_threads.get(); }
 PresenceManager *AppController::presence() const { return m_presence.get(); }
 CallController *AppController::calls() const { return m_calls.get(); }
+
+void AppController::enableCallMediaEngine()
+{
+    // Called from main.cpp for the REAL application run only — never from
+    // the AppController constructor, so the offscreen test fleet is not
+    // at the mercy of ambient GStreamer plugin availability (review round
+    // 3), and gst_init never runs under a test that didn't ask for it.
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (qEnvironmentVariableIsSet("LIGHTNING_DISABLE_WEBRTC")) {
+        qCInfo(lcApp) << "voice-call media engine disabled by environment";
+        return;
+    }
+    QString whyNot;
+    if (GstCallMediaBackend::runtimeAvailable(&whyNot)) {
+        auto *engine = new GstCallMediaBackend(this);
+        m_calls->setMediaBackend(engine);
+        qCInfo(lcApp) << "voice-call media engine active (webrtcbin)";
+    } else {
+        // Coarse reason only (element name), safe to log.
+        qCInfo(lcApp) << "voice-call media engine unavailable:" << whyNot;
+    }
+#else
+    qCInfo(lcApp) << "voice-call media engine not built into this binary";
+#endif
+}
 
 bool AppController::sessionVerificationNeeded() const
 {

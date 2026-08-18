@@ -77,6 +77,18 @@
             libsecret
             glib
             xkeyboard_config
+            # v0.7.x voice calls: the WebRTC media engine is GStreamer's
+            # webrtcbin (gst-plugins-bad) — ICE via libnice, DTLS-SRTP,
+            # Opus. Listed explicitly (not just ridden in transitively via
+            # qtmultimedia's GStreamer backend) because the app itself now
+            # links gstreamer-webrtc-1.0/gstreamer-sdp-1.0. libnice
+            # provides the nicesrc/nicesink elements webrtcbin requires;
+            # its plugin dir joins GST_PLUGIN_SYSTEM_PATH_1_0 below.
+            gst_all_1.gstreamer
+            gst_all_1.gst-plugins-base
+            gst_all_1.gst-plugins-good
+            gst_all_1.gst-plugins-bad
+            libnice
           ];
 
           shellHook = ''
@@ -119,6 +131,10 @@
             # back to the PulseAudio client (see the pipewire buildInputs
             # comment; the captured FLAC crash aborted in that fallback).
             export LD_LIBRARY_PATH="${pkgs.pipewire}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            # webrtcbin needs the libnice GStreamer plugin (nicesrc/
+            # nicesink); nixpkgs ships it in libnice's own output, which
+            # the gst hook does not add on its own.
+            export GST_PLUGIN_SYSTEM_PATH_1_0="${pkgs.libnice.out}/lib/gstreamer-1.0''${GST_PLUGIN_SYSTEM_PATH_1_0:+:$GST_PLUGIN_SYSTEM_PATH_1_0}"
 
             echo "matrix-client dev shell — Qt ${qt.qtbase.version}"
             echo "Configure (mock/http):  cmake -S . -B build -G Ninja"

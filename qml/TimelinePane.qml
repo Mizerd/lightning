@@ -518,6 +518,25 @@ Rectangle {
                 Item { Layout.fillWidth: true }
                 RowLayout {
                     spacing: AppTheme.spacing6
+                    IconButton {
+                        objectName: "startVoiceCallButton"
+                        // 1:1 DMs only: a legacy m.call.invite rings every
+                        // member of the room, so a group room must never
+                        // get this button. Idle/Ended only — one call at a
+                        // time, and the corner card owns a live one.
+                        visible: app.currentRoomId !== ""
+                                 && app.calls.mediaBackendAvailable
+                                 && root.currentRoom.isDirect === true
+                                 && (app.calls.state === CallController.Idle
+                                     || app.calls.state
+                                        === CallController.Ended)
+                        iconName: "call"
+                        Accessible.name: qsTr("Start voice call")
+                        ToolTip.text: qsTr("Start voice call")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: app.calls.placeCall(app.currentRoomId)
+                    }
                     // Pinned-messages shortcut: shown only when the room
                     // actually has pins, so users reach the list in one
                     // click instead of Room Information → Pinned.

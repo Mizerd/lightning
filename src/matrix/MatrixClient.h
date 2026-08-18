@@ -646,6 +646,18 @@ public:
     virtual void setCallMediaCapable(bool capable) { Q_UNUSED(capable); }
     virtual QString takeCallSessionDescription(const QString &eventId)
     { Q_UNUSED(eventId); return {}; }
+    // Trickle our locally gathered ICE candidates (media engine present
+    // only). `candidates` entries: {candidate, sdpMid, sdpMLineIndex}.
+    virtual quint64 callCandidates(const QString &roomId,
+                                   const QString &callId,
+                                   const QString &partyId,
+                                   const QVariantList &candidates)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(callId); Q_UNUSED(partyId);
+        Q_UNUSED(candidates); return 0;
+    }
+    // Homeserver TURN credentials for the engine's ICE config.
+    virtual quint64 requestCallTurnServers() { return 0; }
     // v0.7.x device sign-out through reusable UIA. The flow: deleteDevices
     // → (server may answer with a challenge → uiaRequired) →
     // uiaSubmitPassword / uiaCancel → deviceDeleteFinished. Credentials
@@ -1084,6 +1096,17 @@ Q_SIGNALS:
     void callSignalReceived(const CallSignal &signal);
     void callSendFinished(quint64 opId, bool ok, const QString &category,
                           const QString &callId, const QString &eventId);
+    // Remote trickled ICE (media-capable mode only; entries as above).
+    // Pure transport data for the engine: never logged, never rendered.
+    void callCandidatesReceived(const QString &roomId, const QString &callId,
+                                const QString &partyId, bool own,
+                                const QVariantList &candidates);
+    // Short-lived TURN credentials: engine-only, never logged.
+    void callTurnServersReceived(quint64 opId, bool ok,
+                                 const QString &username,
+                                 const QString &password,
+                                 const QStringList &uris, qint64 ttlSeconds,
+                                 const QString &category);
     // v0.7.x UIA: the server requires interactive auth before the pending
     // privileged operation completes. `stages` carries the flow stage
     // names for the honest "unsupported stage" surface; only the password

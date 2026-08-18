@@ -51,12 +51,17 @@ use matrix_sdk::ruma::events::call::reject::{
 use matrix_sdk::ruma::events::call::select_answer::{
     CallSelectAnswerEventContent, OriginalSyncCallSelectAnswerEvent,
 };
+use matrix_sdk::ruma::api::client::voip::get_turn_server_info;
+use matrix_sdk::ruma::events::call::candidates::{
+    CallCandidatesEventContent, Candidate, OriginalSyncCallCandidatesEvent,
+};
 use matrix_sdk::ruma::events::call::SessionDescription;
 use matrix_sdk::ruma::events::rtc::decline::OriginalSyncRtcDeclineEvent;
 use matrix_sdk::ruma::events::rtc::notification::{
     CallIntent, OriginalSyncRtcNotificationEvent,
 };
 use matrix_sdk::ruma::{EventId, OwnedVoipId, UInt, UserId, VoipVersionId};
+use matrix_sdk::config::RequestConfig;
 use matrix_sdk::{Client, Room};
 use serde_json::json;
 
@@ -398,6 +403,129 @@ fn carried_sdp(media_capable: &AtomicBool, sdp: &str) -> Option<String> {
     Some(trimmed.to_owned())
 }
 
+/// Bounds for ICE candidates crossing in either direction: a legitimate
+/// call gathers a handful; anything beyond is hostile or broken.
+const MAX_CANDIDATES_PER_EVENT: usize = 32;
+const MAX_CANDIDATE_LINE_LEN: usize = 1024;
+const MAX_SDP_MID_LEN: usize = 64;
+
+/// A candidate "a"-line safe to carry: bounded and control-free. Empty is
+/// legal — MSC2746 v1 ends gathering with an empty candidate.
+fn carried_candidate_line(line: &str) -> Option<&str> {
+    if line.len() > MAX_CANDIDATE_LINE_LEN
+        || line.chars().any(char::is_control)
+    {
+        return None;
+    }
+    Some(line)
+}
+
+/// Send `m.call.candidates`. The list arrives from C++ as JSON (our OWN
+/// locally gathered candidates); it is re-validated and bounded anyway.
+pub(crate) fn send_candidates(
+    bridge: &RustClient,
+    room_id: String,
+    call_id: String,
+    party_id: String,
+    candidates_json: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let call = parse_voip_id(&call_id, "call id")?;
+    let party = parse_voip_id(&party_id, "party id")?;
+    let parsed: serde_json::Value = serde_json::from_str(&candidates_json)
+        .map_err(|_| "invalid candidate list".to_owned())?;
+    let Some(entries) = parsed.as_array() else {
+        return Err("invalid candidate list".to_owned());
+    };
+    if entries.is_empty() || entries.len() > MAX_CANDIDATES_PER_EVENT {
+        return Err("invalid candidate count".to_owned());
+    }
+    let mut candidates = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let line = entry
+            .get("candidate")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let Some(line) = carried_candidate_line(line) else {
+            return Err("invalid candidate".to_owned());
+        };
+        let mut candidate = Candidate::new(line.to_owned());
+        if let Some(mid) = entry.get("sdp_mid").and_then(|value| value.as_str())
+        {
+            if mid.len() > MAX_SDP_MID_LEN || mid.chars().any(char::is_control)
+            {
+                return Err("invalid candidate".to_owned());
+            }
+            candidate.sdp_mid = Some(mid.to_owned());
+        }
+        if let Some(index) =
+            entry.get("sdp_m_line_index").and_then(|value| value.as_u64())
+        {
+            candidate.sdp_m_line_index =
+                Some(UInt::try_from(index.min(255)).unwrap_or_default());
+        }
+        candidates.push(candidate);
+    }
+    let content = CallCandidatesEventContent::version_1(call, party, candidates);
+    spawn_call_send(bridge, op_id, call_id, async move {
+        room.send(content).await.map(|result| result.response.event_id)
+    });
+    Ok(())
+}
+
+/// Fetch the homeserver's TURN servers (`/voip/turnServer`). The response
+/// carries short-lived CREDENTIALS: they cross the FFI once, feed the
+/// media engine's ICE config, and are never logged or persisted. Policy:
+/// Lightning contacts ONLY servers the homeserver names — no third-party
+/// STUN fallback that would leak the user's IP elsewhere.
+pub(crate) fn fetch_turn_servers(
+    bridge: &RustClient,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let config = RequestConfig::new()
+            .disable_retry()
+            .timeout(CALL_SEND_TIMEOUT);
+        let result = client
+            .send(get_turn_server_info::v3::Request::new())
+            .with_request_config(config)
+            .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        match result {
+            Ok(response) => {
+                enqueue(&events, json!({
+                    "type": "call_turn_servers",
+                    "op_id": op_id,
+                    "lifecycle": lifecycle,
+                    "ok": true,
+                    "username": response.username,
+                    "password": response.password,
+                    "uris": response.uris,
+                    "ttl_seconds": response.ttl.as_secs().min(86400),
+                }));
+            }
+            Err(err) => {
+                enqueue(&events, json!({
+                    "type": "call_turn_servers",
+                    "op_id": op_id,
+                    "lifecycle": lifecycle,
+                    "ok": false,
+                    "category": classify_room_error(&err.to_string()),
+                }));
+            }
+        }
+    });
+    Ok(())
+}
+
 pub(crate) fn register_handlers(
     client: &Client,
     events: &EventQueue,
@@ -628,6 +756,82 @@ pub(crate) fn register_handlers(
     {
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
+        let media_capable = Arc::clone(media_capable);
+        let handle = client.add_event_handler(
+            move |ev: OriginalSyncCallCandidatesEvent,
+                  room: Room,
+                  client: Client| {
+                let events = Arc::clone(&events);
+                let timelines = Arc::clone(&timelines);
+                let media_capable = Arc::clone(&media_capable);
+                async move {
+                    // Candidates are pure ICE (host IPs). Without a media
+                    // engine there is no consumer, so nothing crosses at
+                    // all outside media-capable mode.
+                    if !media_capable.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let own = client
+                        .user_id()
+                        .is_some_and(|user| user == ev.sender);
+                    let Some(call_id) = wire_id(ev.content.call_id.as_str())
+                    else {
+                        return;
+                    };
+                    let Some(party_id) = optional_wire_id(
+                        ev.content.party_id.as_deref().map(AsRef::as_ref))
+                    else {
+                        return;
+                    };
+                    let mut entries = Vec::new();
+                    for candidate in
+                        ev.content.candidates.iter().take(MAX_CANDIDATES_PER_EVENT)
+                    {
+                        let Some(line) =
+                            carried_candidate_line(&candidate.candidate)
+                        else {
+                            continue; // hostile line: skip, keep the rest
+                        };
+                        let mut entry = json!({ "candidate": line });
+                        if let Some(mid) = candidate
+                            .sdp_mid
+                            .as_deref()
+                            .filter(|mid| {
+                                mid.len() <= MAX_SDP_MID_LEN
+                                    && !mid.chars().any(char::is_control)
+                            })
+                        {
+                            entry["sdp_mid"] = json!(mid);
+                        }
+                        if let Some(index) = candidate.sdp_m_line_index {
+                            entry["sdp_m_line_index"] =
+                                json!(u64::from(index).min(255));
+                        }
+                        entries.push(entry);
+                    }
+                    if entries.is_empty() {
+                        return;
+                    }
+                    enqueue(&events, json!({
+                        "type": "call_candidates",
+                        "lifecycle": timelines.lifecycle(),
+                        "room_id": room.room_id().to_string(),
+                        "event_id": ev.event_id.to_string(),
+                        "sender": ev.sender.to_string(),
+                        "own": own,
+                        "call_id": call_id,
+                        "party_id": party_id,
+                        "candidates": entries,
+                    }));
+                }
+            },
+        );
+        guards.push(client.event_handler_drop_guard(handle));
+    }
+
+    {
+        let events = Arc::clone(events);
+        let timelines = Arc::clone(timelines);
         let handle = client.add_event_handler(
             move |ev: OriginalSyncRtcNotificationEvent,
                   room: Room,
@@ -776,6 +980,16 @@ mod tests {
         assert_eq!(carried_sdp(&on, "   "), None);
         let oversized = "x".repeat(MAX_CARRIED_SDP_LEN + 1);
         assert_eq!(carried_sdp(&on, &oversized), None);
+    }
+
+    #[test]
+    fn candidate_lines_are_bounded_and_control_free() {
+        assert!(carried_candidate_line(
+            "candidate:0 1 UDP 2122252543 192.168.1.4 47279 typ host")
+            .is_some());
+        assert!(carried_candidate_line("").is_some()); // end-of-candidates
+        assert!(carried_candidate_line("evil\nline").is_none());
+        assert!(carried_candidate_line(&"x".repeat(2000)).is_none());
     }
 
     #[test]

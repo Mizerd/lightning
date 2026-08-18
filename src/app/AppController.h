@@ -424,6 +424,10 @@ public:
     ThreadManager *threads() const;
     PresenceManager *presence() const;
     CallController *calls() const;
+    // Registers the real WebRTC media engine (webrtcbin) when the build
+    // carries it and its runtime elements resolve. Called by main.cpp for
+    // the real application only; tests opt in explicitly.
+    void enableCallMediaEngine();
     // Test seam: integration tests drive/inspect notification glue (the
     // DBus daemon is absent under offscreen runs).
     NotificationManager *notificationsForTest() const

@@ -171,6 +171,85 @@ end to end through Lightning's normal backend architecture:
 - Still absent, still deliberate: any real media engine, candidates/ICE,
   MatrixRTC membership, answering in production (the card says so).
 
+## Round 3 (same day): the REAL media engine — GStreamer webrtcbin
+
+Voice calls now actually place, ring, answer, and carry audio, on builds
+that have the engine.
+
+- **Engine**: `src/calls/GstCallMediaBackend.{h,cpp}` implements the
+  `CallMediaBackend` seam over GStreamer's `webrtcbin` — full WebRTC (ICE
+  via libnice, DTLS-SRTP, Opus), audio-only. One pipeline per call:
+  `autoaudiosrc → opusenc → rtpopuspay → webrtcbin`, receive pads →
+  `rtpopusdepay → opusdec → autoaudiosink`. Test-tone mode substitutes
+  `audiotestsrc`/`fakesink` so headless CI runs REAL handshakes with no
+  audio devices. GStreamer callbacks marshal onto the Qt thread behind an
+  alive-registry; promise contexts pin the webrtcbin and the call id, and
+  every Qt-side handler re-checks the live session, so late callbacks for
+  closed calls are silent no-ops.
+- **Build/runtime gating**: `LIGHTNING_ENABLE_WEBRTC` (AUTO — pkg-config
+  probe for gstreamer-1.0/webrtc/sdp; `HAVE_LIGHTNING_WEBRTC`). The engine
+  additionally re-probes its ~17 required element factories at RUNTIME
+  (`runtimeAvailable`) before AppController ever registers it, and
+  `LIGHTNING_DISABLE_WEBRTC=1` is a kill switch. A build or machine
+  without the plugins keeps the honest signaling-only refusal. The dev
+  shell now carries gst-plugins-base/good/bad and libnice (whose
+  GStreamer plugin joins `GST_PLUGIN_SYSTEM_PATH_1_0`). **Packaging
+  follow-up (lightning-deploy)**: official packages do not yet declare
+  the GStreamer/libnice runtime deps, so packaged builds stay
+  signaling-only until that lands — by design, not by accident.
+- **ICE candidates** (`m.call.candidates`) now flow BOTH ways, media-capable
+  mode only (pure ICE = host IPs; without an engine nothing crosses):
+  inbound handler → bounded entries (32/event, 1024/line, control-free) →
+  `callCandidatesReceived` → CallController → engine (buffered until the
+  remote description applies); outbound engine candidates are batched
+  (150 ms) into `m.call.candidates` sends with MSC2746's empty
+  end-of-candidates marker on gathering completion.
+- **TURN**: `/voip/turnServer` via ruma `get_turn_server_info`; the
+  short-lived credentials cross the FFI once, cached in CallController
+  (memory only, TTL-refreshed), and applied to the engine
+  (`stun-server` / `add-turn-server`, credentials percent-encoded). The
+  engine contacts ONLY servers the homeserver names — no third-party STUN
+  that would leak the user's IP. No TURN answer = host candidates only.
+- **UI**: the corner card is now the whole call surface — Calling…/
+  Incoming/Connecting…/In-call forms with Accept (ONLY when the engine is
+  registered), Decline, Hang up, Dismiss; states are compared
+  symbolically (`CallController.Ringing` — QML_ELEMENT/UNCREATABLE, the
+  PaginationController precedent) and the accessible name follows the
+  visible title. The room header gains a `startVoiceCallButton` gated to
+  **1:1 DMs** (a legacy invite rings every room member) plus the engine
+  gate, contract-enforced.
+- **Review corrections folded in before commit** (four-lens §18 pass):
+  every GStreamer callback carries the EMITTING element's pointer as a
+  session token checked against the live session on delivery — the
+  engine is one object reused call after call, and a queued event from a
+  closed call must never be attributed to the next one (offers,
+  candidates, gathering-complete, connection state, bus errors alike);
+  the TURN pre-fetch fires when the client/backend PAIR completes (the
+  registration-order gap meant the FIRST call of a session ran without
+  relay servers, masked by a test using the reverse order — both fixed);
+  the TURN cache resets on client change; homeserver-supplied ICE uris
+  are sanity-filtered (length, control chars, '@', '/') before being
+  assembled into credential-bearing URIs; the bus sync handler DROPS
+  messages after inspection (nothing drained the async queue); engine
+  registration moved out of the AppController constructor into
+  `enableCallMediaEngine()`, called only by main.cpp, so the offscreen
+  test fleet never gst_inits or gains a media engine it didn't ask for.
+- **Recheck corrections (second §18 pass, GStreamer 1.26.11 sources
+  consulted)**: the ANSWER path now reuses the OFFERER's Opus payload
+  number (RFC 3264) extracted from the remote offer's rtpmap — our own
+  offers keep 111, the ecosystem convention; candidates the caller
+  trickles while the callee is still RINGING are buffered in the
+  controller and drained into the engine at Accept (previously dropped —
+  the realistic inbound-call killer, since callers trickle immediately
+  and humans answer slowly); local candidate bursts are chunked to the
+  wire cap (32/event) so a fat burst is never rejected whole; a TURN
+  fetch stranded by poll-queue overflow times out and retries; the TURN
+  response is defensively bounded (16 uris, 1 KiB credentials) and the
+  ttl clamped at both ends of the FFI; gst_bin_add's failure mode
+  (element finalized) is handled; the in-call card (the app's only Hang
+  Up) now follows the user into Settings — only the RINGING form stays
+  chat-shell-scoped.
+
 ## Validation
 
 - Rust: `calls::tests` (closed-set sanitizers, SDP requirement, clamps,
@@ -185,9 +264,16 @@ end to end through Lightning's normal backend architecture:
   instantiation driven through a live ring/decline), and the
   `notification-manager` call-ring cases (timer lifecycle, id-matched
   decline/closed handling, replacement, deadline, payload promotion).
-- Live interoperability (Element rings Lightning, the desktop
-  notification and corner card appear, Decline stops Element's ring,
-  missed-call notices, the themed ring sound on a real notification
-  daemon, encrypted-room call events decrypting at the peer): **NOT
-  TESTED** — no live pass has been run; see
-  `docs/element-interop-checklist.md` for where such a pass gets recorded.
+- **`call-media-loopback` (round 3): a REAL WebRTC call in-process** —
+  two engines exchange SDP + trickled candidates exactly as
+  CallController wires them over Matrix and reach CONNECTED: genuine ICE
+  over loopback host candidates, genuine DTLS-SRTP, Opus RTP flowing;
+  plus clean teardown/recycling and honest failure on garbage SDP. SKIPs
+  (never fails) on trees without the plugins.
+- Live interoperability (Element ⇄ Lightning ringing, ANSWERING a real
+  call across the network with audible audio both ways, TURN traversal on
+  a real homeserver, Decline stopping Element's ring, missed-call
+  notices, the ring sound on a real daemon, encrypted-room call events
+  decrypting at the peer): **NOT TESTED** — the loopback suite proves the
+  engine and the handshake, not the network or another client; see
+  `docs/element-interop-checklist.md`.

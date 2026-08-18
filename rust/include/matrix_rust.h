@@ -755,6 +755,18 @@ char *mx_rust_calls_rtc_decline(void *client,
  * events carry offer_sdp/answer_sdp (bounded; C++ stores them memory-only
  * and single-shot, never logs, never exposes to QML). Off by default. */
 char *mx_rust_calls_set_media_capable(void *client, unsigned char capable);
+/* ICE candidates (media-capable mode only in BOTH directions; pure ICE —
+ * host IPs — so nothing crosses without an engine to consume it). */
+char *mx_rust_calls_candidates(void *client,
+                               const char *room_id,
+                               const char *call_id,
+                               const char *party_id,
+                               const char *candidates_json,
+                               unsigned long long op_id);
+/* Homeserver TURN servers (/voip/turnServer). Result event
+ * call_turn_servers {op_id, ok, username, password, uris[], ttl_seconds}
+ * carries short-lived credentials: engine-only, never logged. */
+char *mx_rust_calls_turn_servers(void *client, unsigned long long op_id);
 /* v0.7.x UIA + device sign-out. delete may raise a uia_required challenge
  * event ({op_id, flows, completed, has_password_stage, wrong_password});
  * answer with mx_rust_uia_submit_password (the password transit buffer is

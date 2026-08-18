@@ -5017,6 +5017,50 @@ quint64 RustSdkMatrixClient::callRtcDecline(const QString &roomId,
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::callCandidates(const QString &roomId,
+                                            const QString &callId,
+                                            const QString &partyId,
+                                            const QVariantList &candidates)
+{
+    if (!m_rustHandle || roomId.isEmpty() || callId.isEmpty()
+        || partyId.isEmpty() || candidates.isEmpty())
+        return 0;
+    QJsonArray entries;
+    for (const QVariant &value : candidates) {
+        const QVariantMap map = value.toMap();
+        QJsonObject entry;
+        entry.insert(QStringLiteral("candidate"),
+                     map.value(QStringLiteral("candidate")).toString());
+        if (map.contains(QStringLiteral("sdpMid")))
+            entry.insert(QStringLiteral("sdp_mid"),
+                         map.value(QStringLiteral("sdpMid")).toString());
+        if (map.contains(QStringLiteral("sdpMLineIndex")))
+            entry.insert(QStringLiteral("sdp_m_line_index"),
+                         map.value(QStringLiteral("sdpMLineIndex")).toInt());
+        entries.append(entry);
+    }
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray call = callId.toUtf8();
+    const QByteArray party = partyId.toUtf8();
+    const QByteArray json =
+        QJsonDocument(entries).toJson(QJsonDocument::Compact);
+    const QString result = takeRustString(mx_rust_calls_candidates(
+        m_rustHandle, room.constData(), call.constData(), party.constData(),
+        json.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::requestCallTurnServers()
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QString result =
+        takeRustString(mx_rust_calls_turn_servers(m_rustHandle, opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 void RustSdkMatrixClient::setCallMediaCapable(bool capable)
 {
     // Cached so a recreated Rust handle (sign-out → sign-in, account
@@ -5584,6 +5628,57 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return static_cast<quint64>(
             event.value(QStringLiteral("op_id")).toDouble());
     };
+
+    if (type == QLatin1String("call_candidates")) {
+        // Media-capable mode only (gated in Rust AND here): pure ICE for
+        // the engine. Never logged, never rendered.
+        if (!m_callMediaCapable)
+            return true;
+        QVariantList candidates;
+        const QJsonArray rows =
+            event.value(QStringLiteral("candidates")).toArray();
+        for (const QJsonValue &value : rows) {
+            const QJsonObject row = value.toObject();
+            QVariantMap entry;
+            entry.insert(QStringLiteral("candidate"),
+                         row.value(QStringLiteral("candidate")).toString());
+            if (row.contains(QStringLiteral("sdp_mid")))
+                entry.insert(QStringLiteral("sdpMid"),
+                             row.value(QStringLiteral("sdp_mid")).toString());
+            if (row.contains(QStringLiteral("sdp_m_line_index")))
+                entry.insert(QStringLiteral("sdpMLineIndex"),
+                             row.value(QStringLiteral("sdp_m_line_index"))
+                                 .toInt());
+            candidates.append(entry);
+        }
+        if (candidates.isEmpty())
+            return true;
+        Q_EMIT callCandidatesReceived(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("call_id")).toString(),
+            event.value(QStringLiteral("party_id")).toString(),
+            event.value(QStringLiteral("own")).toBool(), candidates);
+        return true;
+    }
+    if (type == QLatin1String("call_turn_servers")) {
+        // SENSITIVE: username/password are live TURN credentials. Never
+        // pass `event` or these fields to a log stream (login_ok rule).
+        QStringList uris;
+        const QJsonArray rows = event.value(QStringLiteral("uris")).toArray();
+        for (const QJsonValue &value : rows)
+            uris.append(value.toString());
+        Q_EMIT callTurnServersReceived(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("username")).toString(),
+            event.value(QStringLiteral("password")).toString(), uris,
+            // Clamp BEFORE narrowing: an out-of-range double→int64 cast is
+            // UB; Rust already bounds this at the source, this is belt.
+            static_cast<qint64>(qBound(
+                0.0, event.value(QStringLiteral("ttl_seconds")).toDouble(),
+                86400.0)),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
 
     // 2026-08-18 voice-call signaling. One decoder per inbound kind; a
     // field is a stable public Matrix identifier, a closed-set string

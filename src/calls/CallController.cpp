@@ -42,6 +42,10 @@ CallController::CallController(QObject *parent)
     m_lifetimeTimer.setSingleShot(true);
     connect(&m_lifetimeTimer, &QTimer::timeout, this,
             &CallController::onLifetimeExpired);
+    m_candidateFlushTimer.setSingleShot(true);
+    m_candidateFlushTimer.setInterval(150);
+    connect(&m_candidateFlushTimer, &QTimer::timeout, this,
+            &CallController::flushLocalCandidates);
 }
 
 void CallController::onLifetimeExpired()
@@ -74,6 +78,14 @@ void CallController::setClient(MatrixClient *client)
     if (m_client)
         disconnect(m_client, nullptr, this, nullptr);
     m_client = client;
+    // A different client means a different homeserver relationship: the
+    // TURN cache and any in-flight fetch belong to the old one (review
+    // round 3 — a stranded m_turnOp would block every future fetch).
+    m_turnOp = 0;
+    m_turnExpiryMs = 0;
+    m_turnUris.clear();
+    m_turnUsername.clear();
+    m_turnPassword.clear();
     if (!m_client)
         return;
     connect(m_client, &MatrixClient::callSignalReceived, this,
@@ -82,10 +94,22 @@ void CallController::setClient(MatrixClient *client)
             &CallController::onCallSendFinished);
     connect(m_client, &MatrixClient::loggedOut, this,
             &CallController::onLoggedOut);
+    connect(m_client, &MatrixClient::callCandidatesReceived, this,
+            &CallController::onRemoteCandidates);
+    connect(m_client, &MatrixClient::callTurnServersReceived, this,
+            &CallController::onTurnServers);
     // Tell the bridge whether SDP transport is wanted. With no backend
     // (production today) the Rust side never puts an SDP on the poll lane
     // at all.
     m_client->setCallMediaCapable(m_mediaBackend != nullptr);
+    // Registration order is not guaranteed (AppController registers the
+    // engine BEFORE the client): whichever of setClient/setMediaBackend
+    // completes the pair kicks the TURN pre-fetch, so the FIRST call of a
+    // session already has relay servers (review round 3 HIGH — without
+    // this, a cold cache meant host-candidates-only for the whole first
+    // call, with no ICE restart to recover).
+    if (m_mediaBackend)
+        requestTurnServersIfStale();
 }
 
 void CallController::setMediaBackend(CallMediaBackend *backend)
@@ -109,9 +133,159 @@ void CallController::setMediaBackend(CallMediaBackend *backend)
                 &CallController::onMediaConnected);
         connect(m_mediaBackend, &CallMediaBackend::failed, this,
                 &CallController::onMediaFailed);
+        connect(m_mediaBackend, &CallMediaBackend::localCandidate, this,
+                &CallController::onMediaLocalCandidate);
+        connect(m_mediaBackend, &CallMediaBackend::gatheringComplete, this,
+                &CallController::onMediaGatheringComplete);
     }
     if (m_client)
         m_client->setCallMediaCapable(m_mediaBackend != nullptr);
+    if (m_mediaBackend)
+        requestTurnServersIfStale();
+    Q_EMIT mediaBackendAvailableChanged();
+}
+
+void CallController::requestTurnServersIfStale()
+{
+    if (!m_client || !m_mediaBackend)
+        return;
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    if (m_turnOp != 0) {
+        // A dropped result event (poll-queue overflow) must not strand
+        // the op forever and silently disable TURN for the session.
+        if (nowMs - m_turnRequestedAtMs < 30000)
+            return; // one fetch in flight
+        m_turnOp = 0;
+    }
+    if (m_turnExpiryMs > nowMs + 60000) {
+        // Cache still comfortably valid: (re)apply it to the engine.
+        m_mediaBackend->setIceServers(m_turnUris, m_turnUsername,
+                                      m_turnPassword);
+        return;
+    }
+    m_turnOp = m_client->requestCallTurnServers();
+    m_turnRequestedAtMs = nowMs;
+}
+
+void CallController::onTurnServers(quint64 opId, bool ok,
+                                   const QString &username,
+                                   const QString &password,
+                                   const QStringList &uris,
+                                   qint64 ttlSeconds,
+                                   const QString &category)
+{
+    if (opId != m_turnOp)
+        return;
+    m_turnOp = 0;
+    if (!ok) {
+        // Honest degradation: host candidates only. Never a third-party
+        // STUN fallback. Category only — never credentials — may be
+        // logged.
+        qCInfo(lcCalls) << "TURN fetch failed category=" << category;
+        return;
+    }
+    // Defensive bounds on the homeserver's answer (same philosophy as the
+    // candidate caps): a hostile/broken server must not stall the GUI
+    // thread with a giant list or oversized credentials.
+    m_turnUris = uris.mid(0, 16);
+    m_turnUsername = username.left(1024);
+    m_turnPassword = password.left(1024);
+    m_turnExpiryMs = QDateTime::currentMSecsSinceEpoch()
+        + qBound<qint64>(qint64(60), ttlSeconds, qint64(86400)) * 1000;
+    if (m_mediaBackend)
+        m_mediaBackend->setIceServers(m_turnUris, m_turnUsername,
+                                      m_turnPassword);
+}
+
+void CallController::onRemoteCandidates(const QString &roomId,
+                                        const QString &callId,
+                                        const QString &partyId, bool own,
+                                        const QVariantList &candidates)
+{
+    Q_UNUSED(partyId);
+    if (own)
+        return; // our other device's candidates are not for our engine
+    if (!m_mediaBackend || !sessionLive() || m_session.rtc
+        || roomId != m_session.roomId || callId != m_session.callId)
+        return;
+    // Inbound + still ringing: the engine has no session yet (it starts
+    // in answer()); hold the caller's trickle until then. Bounded.
+    if (m_session.direction == Direction::Inbound
+        && m_state == State::Ringing && !m_session.answerPending) {
+        for (const QVariant &value : candidates) {
+            if (m_session.earlyRemoteCandidates.size() >= 64)
+                break;
+            m_session.earlyRemoteCandidates.append(value);
+        }
+        return;
+    }
+    for (const QVariant &value : candidates) {
+        const QVariantMap entry = value.toMap();
+        m_mediaBackend->addRemoteCandidate(
+            callId, entry.value(QStringLiteral("candidate")).toString(),
+            entry.value(QStringLiteral("sdpMid")).toString(),
+            entry.contains(QStringLiteral("sdpMLineIndex"))
+                ? entry.value(QStringLiteral("sdpMLineIndex")).toInt()
+                : 0);
+    }
+}
+
+void CallController::onMediaLocalCandidate(const QString &callId,
+                                           const QString &candidate,
+                                           const QString &sdpMid,
+                                           int sdpMLineIndex)
+{
+    if (!sessionLive() || callId != m_session.callId)
+        return;
+    if (candidate.trimmed().isEmpty())
+        return; // completion is signalled separately
+    QVariantMap entry;
+    entry.insert(QStringLiteral("candidate"), candidate);
+    if (!sdpMid.isEmpty())
+        entry.insert(QStringLiteral("sdpMid"), sdpMid);
+    entry.insert(QStringLiteral("sdpMLineIndex"), sdpMLineIndex);
+    m_pendingLocalCandidates.append(entry);
+    // Bounded: a runaway engine cannot queue unbounded batches.
+    while (m_pendingLocalCandidates.size() > 64)
+        m_pendingLocalCandidates.removeFirst();
+    if (!m_candidateFlushTimer.isActive())
+        m_candidateFlushTimer.start();
+}
+
+void CallController::onMediaGatheringComplete(const QString &callId)
+{
+    if (!sessionLive() || callId != m_session.callId)
+        return;
+    m_gatheringComplete = true;
+    m_candidateFlushTimer.stop();
+    flushLocalCandidates();
+}
+
+void CallController::flushLocalCandidates()
+{
+    if (!m_client || !sessionLive())
+        return;
+    if (m_gatheringComplete) {
+        // MSC2746 v1: an empty candidate ends the trickle.
+        QVariantMap end;
+        end.insert(QStringLiteral("candidate"), QString());
+        m_pendingLocalCandidates.append(end);
+        m_gatheringComplete = false;
+    }
+    if (m_pendingLocalCandidates.isEmpty())
+        return;
+    // The Rust side rejects batches over 32 entries WHOLE (its
+    // hostile-input bound); chunk so a fat gathering burst can never be
+    // silently lost (review round 3).
+    constexpr int kMaxPerEvent = 32;
+    while (!m_pendingLocalCandidates.isEmpty()) {
+        const QVariantList chunk = m_pendingLocalCandidates.mid(0, kMaxPerEvent);
+        m_pendingLocalCandidates =
+            m_pendingLocalCandidates.mid(chunk.size());
+        trackOp(m_client->callCandidates(m_session.roomId, m_session.callId,
+                                         m_session.ourPartyId, chunk),
+                m_session.callId);
+    }
 }
 
 void CallController::setOwnUserId(const QString &userId)
@@ -182,6 +356,7 @@ bool CallController::placeCall(const QString &roomId)
     m_busyRejectsThisSession = 0;
     m_endReason = EndReason::None;
     setState(State::Inviting);
+    requestTurnServersIfStale();
     // The invite is dispatched when the backend delivers the offer; until
     // then the timer bounds offer PRODUCTION, and re-arms for the wire
     // lifetime once the invite is out.
@@ -220,10 +395,26 @@ bool CallController::answer()
         return false;
     }
     m_session.answerPending = true;
+    requestTurnServersIfStale();
     // The user acted, so invite expiry no longer applies; the timer now
     // bounds answer production instead.
     armLifetimeTimer(kMediaProductionTimeoutMs);
     m_mediaBackend->createAnswer(m_session.callId, remoteOffer);
+    // Now the engine has a session: drain everything the caller trickled
+    // while we were ringing (the engine buffers internally until the
+    // remote description is applied).
+    const QVariantList early = m_session.earlyRemoteCandidates;
+    m_session.earlyRemoteCandidates.clear();
+    for (const QVariant &value : early) {
+        const QVariantMap entry = value.toMap();
+        m_mediaBackend->addRemoteCandidate(
+            m_session.callId,
+            entry.value(QStringLiteral("candidate")).toString(),
+            entry.value(QStringLiteral("sdpMid")).toString(),
+            entry.contains(QStringLiteral("sdpMLineIndex"))
+                ? entry.value(QStringLiteral("sdpMLineIndex")).toInt()
+                : 0);
+    }
     return true;
 }
 
@@ -397,6 +588,14 @@ void CallController::onLoggedOut()
     m_pendingOpOrder.clear();
     m_busyRejectsThisSession = 0;
     m_lifetimeTimer.stop();
+    m_candidateFlushTimer.stop();
+    m_pendingLocalCandidates.clear();
+    m_gatheringComplete = false;
+    m_turnOp = 0;
+    m_turnExpiryMs = 0;
+    m_turnUris.clear();
+    m_turnUsername.clear();
+    m_turnPassword.clear();
     if (sessionLive())
         endSession(EndReason::SessionLost);
     else {
@@ -572,8 +771,9 @@ void CallController::handleSelectAnswer(const CallSignal &signal)
 {
     if (!matchesSession(signal))
         return;
-    // The caller locked onto some party's answer. If we are ringing and it
-    // is not us (it never is — we cannot answer), the call is settled
+    // The caller locked onto some party's answer. If we are STILL ringing
+    // it cannot have been us — answering moves this device to Connecting
+    // atomically with sending its m.call.answer — so the call settled
     // elsewhere.
     if (m_state == State::Ringing
         && signal.selectedPartyId != m_session.ourPartyId)
@@ -739,6 +939,9 @@ void CallController::endSession(EndReason reason)
     // the call it belonged to (single-shot take doubles as discard).
     if (m_client && !m_session.inviteEventId.isEmpty())
         m_client->takeCallSessionDescription(m_session.inviteEventId);
+    m_candidateFlushTimer.stop();
+    m_pendingLocalCandidates.clear();
+    m_gatheringComplete = false;
     if (m_mediaBackend)
         m_mediaBackend->close(callId);
     m_endReason = reason;

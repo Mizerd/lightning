@@ -37,6 +37,23 @@ public:
     virtual void setRemoteAnswer(const QString &callId,
                                  const QString &remoteAnswerSdp) = 0;
 
+    // Feed one remote ICE candidate (trickled via m.call.candidates). The
+    // implementation buffers candidates that arrive before the remote
+    // description is applied. An empty `candidate` is MSC2746's
+    // end-of-candidates marker.
+    virtual void addRemoteCandidate(const QString &callId,
+                                    const QString &candidate,
+                                    const QString &sdpMid,
+                                    int sdpMLineIndex) = 0;
+
+    // ICE server configuration from the HOMESERVER's /voip/turnServer —
+    // policy: Lightning's engine contacts only servers the homeserver
+    // names (no third-party STUN that would leak the user's IP). The
+    // credentials are short-lived TURN secrets: apply, never log/persist.
+    virtual void setIceServers(const QStringList &uris,
+                               const QString &username,
+                               const QString &password) = 0;
+
     // Tear down all session state for the call. Must be idempotent and
     // must not emit further signals for this callId afterwards.
     virtual void close(const QString &callId) = 0;
@@ -44,6 +61,12 @@ public:
 Q_SIGNALS:
     void offerReady(const QString &callId, const QString &sdp);
     void answerReady(const QString &callId, const QString &sdp);
+    // A locally gathered ICE candidate to trickle to the peer.
+    void localCandidate(const QString &callId, const QString &candidate,
+                        const QString &sdpMid, int sdpMLineIndex);
+    // Local gathering finished: the controller sends MSC2746's empty
+    // end-of-candidates marker.
+    void gatheringComplete(const QString &callId);
     // Media is flowing — the call is Active.
     void connected(const QString &callId);
     // Terminal failure for this call. `category` is a coarse label safe to

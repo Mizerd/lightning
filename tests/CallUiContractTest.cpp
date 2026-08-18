@@ -44,14 +44,14 @@ private Q_SLOTS:
         const QString norm = normalized(
             read(QStringLiteral(QML_DIR "/IncomingCallPrompt.qml")));
         QVERIFY(!norm.isEmpty());
-        // Visibility is call STATE (ringing), gated to the chat shell, with
-        // per-call dismissal — never the sound-policy gates.
-        QVERIFY(norm.contains(QStringLiteral("app.calls.ringing")));
+        // Visibility is call STATE, gated to the chat shell, with per-call
+        // dismissal for the RINGING form — never the sound-policy gates.
         QVERIFY(norm.contains(
             QStringLiteral("app.calls.activeCallId !== dismissedCallId")));
         QVERIFY(norm.contains(QStringLiteral("app.currentScreen === 1")));
         QVERIFY(!norm.contains(QStringLiteral("shouldRing")));
-        // Decline is the real wire action; Dismiss is local-only.
+        // Decline is the real wire action; Dismiss is local-only; Hang up
+        // owns the in-call form.
         QVERIFY(norm.contains(
             QStringLiteral("onClicked: app.calls.rejectIncoming()")));
         QVERIFY(norm.contains(QStringLiteral(
@@ -60,13 +60,39 @@ private Q_SLOTS:
             QStringLiteral("objectName: \"incomingCallPromptDecline\"")));
         QVERIFY(norm.contains(
             QStringLiteral("objectName: \"incomingCallPromptDismiss\"")));
-        // Honesty: the card admits this device cannot answer.
+        QVERIFY(norm.contains(
+            QStringLiteral("objectName: \"incomingCallPromptHangup\"")));
+        QVERIFY(norm.contains(
+            QStringLiteral("onClicked: app.calls.hangup()")));
+        // Accept exists ONLY behind the media-engine gate (round 3), and
+        // the no-engine honesty line survives for engineless builds.
+        QVERIFY(norm.contains(QStringLiteral(
+            "visible: root.ringing && app.calls.mediaBackendAvailable")));
+        QVERIFY(norm.contains(
+            QStringLiteral("onClicked: app.calls.answer()")));
         QVERIFY(norm.contains(QStringLiteral("isn't supported yet")));
-        // No answer/accept affordance may exist until a media engine does.
-        QVERIFY(!norm.contains(QStringLiteral("app.calls.answer")));
         // And nothing SDP-shaped belongs anywhere near QML.
         QVERIFY(!norm.contains(QStringLiteral("sdp"),
                                Qt::CaseInsensitive));
+    }
+
+    void placeCallEntryIsDmAndEngineGated()
+    {
+        const QString norm = normalized(
+            read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
+        QVERIFY(!norm.isEmpty());
+        const int button = norm.indexOf(
+            QStringLiteral("objectName: \"startVoiceCallButton\""));
+        QVERIFY(button >= 0);
+        const QString scope = norm.mid(button, 700);
+        // A legacy m.call.invite rings EVERY member of a room: the entry
+        // point must be gated to 1:1 DMs and to a registered engine.
+        QVERIFY(scope.contains(
+            QStringLiteral("root.currentRoom.isDirect === true")));
+        QVERIFY(scope.contains(
+            QStringLiteral("app.calls.mediaBackendAvailable")));
+        QVERIFY(scope.contains(QStringLiteral(
+            "onClicked: app.calls.placeCall(app.currentRoomId)")));
     }
 
     void mainHostsTheCallPromptAboveThePassiveOnes()

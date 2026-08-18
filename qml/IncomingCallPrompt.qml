@@ -3,19 +3,19 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// 2026-08-18 round 2: the incoming voice-call corner card. STATE surface,
-// not policy: it shows whenever a call is genuinely ringing
-// (app.calls.ringing), independent of the ring-sound gates — a muted room
-// silences the sound, it does not hide the fact of the call (matching
-// Element). Dismissing hides the card only; the caller keeps ringing on
-// their side and our other devices keep ringing too. Decline is the real
-// action: it sends the wire event that stops the ring everywhere.
+// 2026-08-18 rounds 2-3: the voice-call corner card — Lightning's whole
+// call surface. STATE, not policy: it shows whenever a call is live
+// (ringing, dialing, connecting or active), independent of the ring-sound
+// gates — a muted room silences the sound, it does not hide the fact of
+// the call (matching Element). Dismissing hides a RINGING card only; the
+// caller keeps ringing on their side and our other devices keep ringing
+// too. Decline is the real action: it sends the wire event that stops the
+// ring everywhere.
 //
-// Honesty: this device cannot ANSWER a call — there is no media engine in
-// the tree (see docs/voice-calls.md) — and the card says so rather than
-// offering a button that could not work. When a media backend lands,
-// app.calls.mediaBackendAvailable flips and an Accept button can be added
-// against the already-plumbed answer() path.
+// Accept exists only when a media engine is registered
+// (app.calls.mediaBackendAvailable — the GStreamer webrtcbin engine,
+// round 3); without one the card honestly says answering is unsupported
+// rather than offering a button that could not work.
 Rectangle {
     id: root
 
@@ -23,11 +23,23 @@ Rectangle {
     // shows again.
     property string dismissedCallId: ""
 
+    readonly property bool ringing:
+        app.calls.state === CallController.Ringing
+    readonly property bool inCall:
+        app.calls.state === CallController.Inviting
+        || app.calls.state === CallController.Connecting
+        || app.calls.state === CallController.Active
+
     readonly property bool shouldShow:
-        app.calls.ringing
-        && app.calls.activeCallId !== dismissedCallId
-        // The chat shell only — never over login/boot/Settings.
-        && app.currentScreen === 1
+        // A LIVE call (dialing/connecting/active) follows the user
+        // everywhere — this card carries the only Hang Up in the app, and
+        // opening Settings mid-call must not hide it (review round 3). A
+        // RING stays chat-shell-only (currentScreen 1): the desktop
+        // notification covers the user elsewhere, and never over
+        // login/boot where there is no account to act on.
+        inCall
+        || (ringing && app.calls.activeCallId !== dismissedCallId
+            && app.currentScreen === 1)
 
     objectName: "incomingCallPrompt"
     visible: opacity > 0
@@ -44,8 +56,20 @@ Rectangle {
     border.color: AppTheme.bolt
     border.width: 1
 
+    // One title for the visible header AND the accessible name, so a
+    // screen reader follows the state the way sighted users do.
+    readonly property string titleText: {
+        if (app.calls.state === CallController.Inviting)
+            return qsTr("Calling…")
+        if (app.calls.state === CallController.Connecting)
+            return qsTr("Voice call — connecting…")
+        if (app.calls.state === CallController.Active)
+            return qsTr("Voice call")
+        return qsTr("Incoming voice call")
+    }
+
     Accessible.role: Accessible.AlertMessage
-    Accessible.name: qsTr("Incoming voice call")
+    Accessible.name: titleText
 
     ColumnLayout {
         id: promptColumn
@@ -67,7 +91,7 @@ Rectangle {
             }
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Incoming voice call")
+                text: root.titleText
                 color: AppTheme.stormText
                 font.pixelSize: AppTheme.fontSecondary
                 font.weight: Font.Bold
@@ -77,6 +101,7 @@ Rectangle {
 
         Label {
             Layout.fillWidth: true
+            visible: root.ringing
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextMuted
             font.pixelSize: AppTheme.fontCaption
@@ -85,6 +110,10 @@ Rectangle {
                 var caller = app.calls.callerUserId
                 if (caller.length > 1 && caller.charAt(0) === "@")
                     caller = caller.substring(1).split(":")[0]
+                if (app.calls.mediaBackendAvailable)
+                    return caller.length > 0
+                        ? qsTr("%1 is calling.").arg(caller)
+                        : qsTr("Incoming voice call.")
                 return caller.length > 0
                     ? qsTr("%1 is calling. Answering on this device isn't "
                            + "supported yet — decline to stop the ring "
@@ -98,7 +127,18 @@ Rectangle {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
             AppButton {
+                objectName: "incomingCallPromptAccept"
+                // Only with a real media engine — the honest gate.
+                visible: root.ringing && app.calls.mediaBackendAvailable
+                storm: true
+                kind: "primary"
+                Layout.fillWidth: true
+                text: qsTr("Accept")
+                onClicked: app.calls.answer()
+            }
+            AppButton {
                 objectName: "incomingCallPromptDecline"
+                visible: root.ringing
                 storm: true
                 kind: "danger"
                 Layout.fillWidth: true
@@ -106,7 +146,17 @@ Rectangle {
                 onClicked: app.calls.rejectIncoming()
             }
             AppButton {
+                objectName: "incomingCallPromptHangup"
+                visible: root.inCall
+                storm: true
+                kind: "danger"
+                Layout.fillWidth: true
+                text: qsTr("Hang up")
+                onClicked: app.calls.hangup()
+            }
+            AppButton {
                 objectName: "incomingCallPromptDismiss"
+                visible: root.ringing
                 storm: true
                 Layout.fillWidth: true
                 text: qsTr("Dismiss")

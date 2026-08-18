@@ -6024,6 +6024,43 @@ pub unsafe extern "C" fn mx_rust_calls_set_media_capable(
     })
 }
 
+/// Send `m.call.candidates` (locally gathered ICE; re-validated/bounded).
+/// `candidates_json` is a JSON array of {candidate, sdp_mid,
+/// sdp_m_line_index} objects.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_calls_candidates(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    call_id: *const c_char,
+    party_id: *const c_char,
+    candidates_json: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let call_id = unsafe { cstr_arg(call_id) }?;
+        let party_id = unsafe { cstr_arg(party_id) }?;
+        let candidates = unsafe { cstr_arg(candidates_json) }?;
+        calls::send_candidates(bridge, room_id, call_id, party_id,
+                               candidates, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// Fetch the homeserver's TURN servers (short-lived credentials; result
+/// event call_turn_servers, consumed only by the media engine).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_calls_turn_servers(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        calls::fetch_turn_servers(bridge, op_id).map(|_| String::new())
+    })
+}
+
 /// Decline an `m.rtc.notification` ring (SDK-built decline content).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_rtc_decline(

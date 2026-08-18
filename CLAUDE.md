@@ -1306,6 +1306,43 @@ after the tester-report fixes shipped as 0.7.3:
   trees** after this round — the first fully green complete run since the
   timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
 
+**2026-08-18 voice-calls round 3 (same day): the REAL media engine.**
+`GstCallMediaBackend` — GStreamer webrtcbin (ICE/libnice, DTLS-SRTP,
+Opus, audio-only) behind the round-2 seam. Optional at BUILD time
+(`LIGHTNING_ENABLE_WEBRTC`, pkg-config AUTO), re-probed at RUNTIME
+(element factories) before registration, `LIGHTNING_DISABLE_WEBRTC=1`
+kill switch; without it the honest signaling-only refusal stands.
+`m.call.candidates` flows both ways (media-capable-gated, bounded), TURN
+comes from `/voip/turnServer` only (credentials cross once, engine-only,
+never logged; no third-party STUN). UI: the corner card is the full call
+surface (Accept gated on the engine; Calling/Connecting/In-call + Hang
+up), and the room header gains `startVoiceCallButton` — contract-enforced
+**1:1-DM-only** (a legacy invite rings every room member). Flake dev
+shell adds gst-plugins-base/good/bad + libnice (plugin path in
+`GST_PLUGIN_SYSTEM_PATH_1_0`). The `call-media-loopback` suite runs a
+REAL in-process WebRTC call headless (two engines, genuine ICE +
+DTLS-SRTP + Opus, CONNECTED both ways, teardown/recycle, garbage-SDP
+refusal) and SKIPs where the plugins are absent. A four-lens §18 review
+ran; all findings fixed pre-commit (session-identity tokens on every
+GStreamer callback — the reused engine must never attribute a closed
+call's queued event to the next call; the first-call TURN gap — the
+pre-fetch now fires when the client/backend pair completes, and the
+masking test was rewritten to production order; ICE-uri sanitization;
+bus-queue drop; engine registration moved to main.cpp's explicit
+enableCallMediaEngine() so the test fleet never gains an engine it
+didn't ask for; QML symbolic enums via QML_ELEMENT). Deliberate gaps:
+official PACKAGES don't yet declare the GStreamer/libnice runtime deps
+(lightning-deploy follow-up — packaged builds stay signaling-only), no
+video, no MatrixRTC/group calls, no mid-call renegotiation
+(`m.call.negotiate` still unhandled). A second recheck pass (GStreamer
+sources consulted) landed: RFC 3264 answer-side Opus pt reuse,
+pre-answer candidate buffering (callers trickle immediately; humans
+answer slowly — these were dropped), 32/event candidate chunking,
+TURN-fetch overflow timeout + bounded TURN responses, and the in-call
+card following the user into Settings. Live network/Element interop of
+an ANSWERED call: **NOT TESTED** (the loopback suite proves the engine,
+not the network or another client).
+
 **2026-08-18 voice-calls round 2 (same day as the round above).** The
 call backend grew its user-facing half and its media seam, still with NO
 media engine and none addable under the locked deps:
