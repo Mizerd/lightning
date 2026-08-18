@@ -9,6 +9,7 @@
 #include "gif/GifProviderSelfTest.h"
 #include "app/StormBandPainter.h"
 #include "media/MediaImageProvider.h"
+#include "app/GuiStallTracer.h"
 #include "media/VaapiLogGate.h"
 #include "storage/AppDataPaths.h"
 
@@ -728,6 +729,11 @@ int main(int argc, char *argv[])
 #endif
 
     QGuiApplication app(argc, argv);
+    // Opt-in GUI-thread stall tracing (LIGHTNING_GUI_STALL_TRACE): a
+    // heartbeat + watchdog that logs any event-loop stall over the
+    // threshold with a coarse category. Duration and category literal
+    // only — see GuiStallTracer.h.
+    stalltrace::install();
     // Qt has read the scale factor now; drop it from the environment so it
     // does not leak into child processes (the OAuth system browser,
     // xdg-open) and zoom THEIR UI too (review L2). A user-set env var is

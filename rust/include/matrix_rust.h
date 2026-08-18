@@ -706,6 +706,51 @@ char *mx_rust_report_message(void *client,
                              const char *event_id,
                              const char *reason,
                              unsigned long long op_id);
+/* 2026-08-18 voice-call signaling pipes (MSC2746 m.call.* v1 + the
+ * m.rtc.notification/decline lane). Signaling only — no media stack exists;
+ * SDP parameters are opaque required inputs and NEVER appear in poll
+ * events, which carry only has_offer/has_answer booleans. Results arrive
+ * later through mx_rust_poll_event() as call_send_result {op_id, ok,
+ * category, call_id, event_id}; inbound observations arrive as
+ * call_invite / call_answer / call_hangup / call_reject /
+ * call_select_answer / call_rtc_notification / call_rtc_decline. */
+char *mx_rust_calls_invite(void *client,
+                           const char *room_id,
+                           const char *call_id,
+                           const char *party_id,
+                           const char *offer_type,
+                           const char *offer_sdp,
+                           unsigned long long lifetime_ms,
+                           const char *invitee_or_empty,
+                           unsigned long long op_id);
+char *mx_rust_calls_answer(void *client,
+                           const char *room_id,
+                           const char *call_id,
+                           const char *party_id,
+                           const char *answer_type,
+                           const char *answer_sdp,
+                           unsigned long long op_id);
+char *mx_rust_calls_reject(void *client,
+                           const char *room_id,
+                           const char *call_id,
+                           const char *party_id,
+                           unsigned long long op_id);
+char *mx_rust_calls_hangup(void *client,
+                           const char *room_id,
+                           const char *call_id,
+                           const char *party_id,
+                           const char *reason,
+                           unsigned long long op_id);
+char *mx_rust_calls_select_answer(void *client,
+                                  const char *room_id,
+                                  const char *call_id,
+                                  const char *party_id,
+                                  const char *selected_party_id,
+                                  unsigned long long op_id);
+char *mx_rust_calls_rtc_decline(void *client,
+                                const char *room_id,
+                                const char *notification_event_id,
+                                unsigned long long op_id);
 /* v0.7.x UIA + device sign-out. delete may raise a uia_required challenge
  * event ({op_id, flows, completed, has_password_stage, wrong_password});
  * answer with mx_rust_uia_submit_password (the password transit buffer is

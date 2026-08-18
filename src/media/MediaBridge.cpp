@@ -1,5 +1,7 @@
 #include "media/MediaBridge.h"
 
+#include "app/GuiStallTracer.h"
+
 #include "matrix/MatrixClient.h"
 #include "media/VideoPosterExtractor.h"
 
@@ -1209,6 +1211,9 @@ QString MediaBridge::writePlayableFile(const QString &cacheKey,
                                        const QByteArray &bytes,
                                        const QString &mimetype)
 {
+    // Known residual synchronous cost: up to 32 MiB written on the GUI
+    // thread. Attribute it when stall tracing is on (no-op otherwise).
+    stalltrace::Scope stallScope("playable-write");
     if (bytes.isEmpty() || bytes.size() > m_playableMaxBytes
         || !m_animatedDir || !m_animatedDir->isValid())
         return {};

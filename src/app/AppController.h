@@ -36,6 +36,7 @@
 #include "models/TimelineScrollController.h"
 #include "spaces/SpaceManager.h"
 #include "threads/ThreadController.h"
+#include "calls/CallController.h"
 #include "presence/PresenceManager.h"
 #include "update/UpdateManager.h"
 #include "threads/ThreadManager.h"
@@ -212,6 +213,7 @@ class AppController : public QObject
     Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
     Q_PROPERTY(ThreadManager* threads READ threads CONSTANT)
     Q_PROPERTY(PresenceManager* presence READ presence CONSTANT)
+    Q_PROPERTY(CallController* calls READ calls CONSTANT)
     // v0.7.x pinned messages for the ACTIVE room (not the Room Information
     // panel's room): the message-action menu asks it whether the message
     // under the cursor is pinned.
@@ -421,6 +423,7 @@ public:
     SpaceManager *spaces() const;
     ThreadManager *threads() const;
     PresenceManager *presence() const;
+    CallController *calls() const;
     PinnedMessagesController *pinned() const { return m_pinned.get(); }
     RoomUpgradeController *roomUpgrade() const { return m_roomUpgrade.get(); }
     ThreadController *thread() const { return m_thread.get(); }
@@ -896,6 +899,7 @@ private:
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<PresenceManager> m_presence;
+    std::unique_ptr<CallController> m_calls;
     std::unique_ptr<PinnedMessagesController> m_pinned;
     std::unique_ptr<RoomUpgradeController> m_roomUpgrade;
     std::unique_ptr<ThreadController> m_thread;

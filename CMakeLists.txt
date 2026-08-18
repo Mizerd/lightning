@@ -281,6 +281,11 @@ set(APP_SOURCES
     src/app/DraftStore.cpp
     src/app/SessionDiagnostics.h
     src/app/SessionDiagnostics.cpp
+    src/app/GuiStallTracer.h
+    src/app/GuiStallTracer.cpp
+
+    src/calls/CallController.h
+    src/calls/CallController.cpp
     src/app/SettingsManager.h
     src/app/SettingsManager.cpp
 
@@ -294,6 +299,7 @@ set(APP_SOURCES
     src/auth/OAuthCallbackServer.h
     src/auth/OAuthCallbackServer.cpp
 
+    src/matrix/CallSignal.h
     src/matrix/MatrixClient.h
     src/matrix/MatrixClient.cpp
     src/matrix/MockMatrixClient.h
@@ -1870,6 +1876,7 @@ if(BUILD_TESTING)
         src/app/ForwardController.cpp
         src/media/MediaBridge.h
         src/media/MediaBridge.cpp
+        src/app/GuiStallTracer.cpp
         src/media/VideoPosterExtractor.h
         src/media/VideoPosterExtractor.cpp
         src/matrix/MatrixClient.h
@@ -2034,6 +2041,45 @@ if(BUILD_TESTING)
     target_link_libraries(draft-store-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Qml Qt6::Test)
     add_test(NAME draft-store COMMAND draft-store-test)
+
+    # 2026-08-18: opt-in GUI stall heartbeat (LIGHTNING_GUI_STALL_TRACE) —
+    # detection, duration measurement, Scope attribution, healthy-loop
+    # silence.
+    qt_add_executable(gui-stall-trace-test
+        tests/GuiStallTraceTest.cpp
+        src/app/GuiStallTracer.h
+        src/app/GuiStallTracer.cpp
+    )
+    target_include_directories(gui-stall-trace-test PRIVATE src)
+    target_link_libraries(gui-stall-trace-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME gui-stall-trace COMMAND gui-stall-trace-test)
+
+    # 2026-08-18 voice-call signaling pipes: MSC2746 state machine —
+    # ringing, glare, busy auto-reject, cross-device settlement, invite
+    # lifetime, LRU absorption, honest placeCall refusal, logout reset.
+    qt_add_executable(call-controller-test
+        tests/CallControllerTest.cpp
+        src/calls/CallController.h
+        src/calls/CallController.cpp
+        src/matrix/CallSignal.h
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        # Header only (settings-session-test precedent): AUTOMOC supplies
+        # the SecretStore metaobject; the .cpp would drag in the real
+        # backends this suite must not depend on.
+        src/storage/SecretStore.h
+    )
+    target_include_directories(call-controller-test PRIVATE src)
+    target_link_libraries(call-controller-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME call-controller COMMAND call-controller-test)
 
     # v0.6.0: SDK-backed thread foundation — lifecycle (open/close/switch),
     # root/reply identity via the composite timeline id, failure states,
@@ -2238,6 +2284,7 @@ if(BUILD_TESTING)
         tests/MediaBridgeTest.cpp
         src/media/MediaBridge.h
         src/media/MediaBridge.cpp
+        src/app/GuiStallTracer.cpp
         src/media/VideoPosterExtractor.h
         src/media/VideoPosterExtractor.cpp
         src/media/MediaImageProvider.h

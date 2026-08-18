@@ -1,5 +1,6 @@
 #pragma once
 
+#include "matrix/CallSignal.h"
 #include "matrix/RoomInfo.h"
 #include "matrix/TimelineEvent.h"
 
@@ -592,6 +593,51 @@ public:
                                   const QString &eventId,
                                   const QString &reason)
     { Q_UNUSED(roomId); Q_UNUSED(eventId); Q_UNUSED(reason); return 0; }
+    // 2026-08-18 voice-call signaling pipes (MSC2746 m.call.* v1 + the
+    // m.rtc.notification/decline lane). Signaling only: SDP strings are
+    // opaque required inputs supplied by a (future) media backend, never
+    // logged and never echoed; there is no media transport in the tree.
+    // Non-capable backends return 0 (the mock and HTTP backends stay
+    // buildable per architecture rule 5 without claiming parity).
+    virtual bool supportsCallSignaling() const { return false; }
+    virtual quint64 callInvite(const QString &roomId, const QString &callId,
+                               const QString &partyId,
+                               const QString &offerType,
+                               const QString &offerSdp, quint64 lifetimeMs,
+                               const QString &invitee)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(callId); Q_UNUSED(partyId);
+        Q_UNUSED(offerType); Q_UNUSED(offerSdp); Q_UNUSED(lifetimeMs);
+        Q_UNUSED(invitee); return 0;
+    }
+    virtual quint64 callAnswer(const QString &roomId, const QString &callId,
+                               const QString &partyId,
+                               const QString &answerType,
+                               const QString &answerSdp)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(callId); Q_UNUSED(partyId);
+        Q_UNUSED(answerType); Q_UNUSED(answerSdp); return 0;
+    }
+    virtual quint64 callReject(const QString &roomId, const QString &callId,
+                               const QString &partyId)
+    { Q_UNUSED(roomId); Q_UNUSED(callId); Q_UNUSED(partyId); return 0; }
+    virtual quint64 callHangup(const QString &roomId, const QString &callId,
+                               const QString &partyId, const QString &reason)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(callId); Q_UNUSED(partyId);
+        Q_UNUSED(reason); return 0;
+    }
+    virtual quint64 callSelectAnswer(const QString &roomId,
+                                     const QString &callId,
+                                     const QString &partyId,
+                                     const QString &selectedPartyId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(callId); Q_UNUSED(partyId);
+        Q_UNUSED(selectedPartyId); return 0;
+    }
+    virtual quint64 callRtcDecline(const QString &roomId,
+                                   const QString &notificationEventId)
+    { Q_UNUSED(roomId); Q_UNUSED(notificationEventId); return 0; }
     // v0.7.x device sign-out through reusable UIA. The flow: deleteDevices
     // → (server may answer with a challenge → uiaRequired) →
     // uiaSubmitPassword / uiaCancel → deviceDeleteFinished. Credentials
@@ -1025,6 +1071,11 @@ Q_SIGNALS:
     void reportMessageFinished(quint64 opId, const QString &roomId,
                                const QString &eventId, bool ok,
                                const QString &category);
+    // 2026-08-18 voice-call signaling: one inbound observation (SDP-free —
+    // see CallSignal.h) and one terminal send result per dispatched op.
+    void callSignalReceived(const CallSignal &signal);
+    void callSendFinished(quint64 opId, bool ok, const QString &category,
+                          const QString &callId, const QString &eventId);
     // v0.7.x UIA: the server requires interactive auth before the pending
     // privileged operation completes. `stages` carries the flow stage
     // names for the honest "unsupported stage" surface; only the password

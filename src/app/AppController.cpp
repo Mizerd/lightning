@@ -26,6 +26,7 @@
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
 #include "app/ScreenshotDemoController.h"
 #endif
+#include "calls/CallController.h"
 #include "presence/PresenceManager.h"
 #include "threads/ThreadManager.h"
 
@@ -182,6 +183,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_threads      = std::make_unique<ThreadManager>(this);
     m_presence     = std::make_unique<PresenceManager>(this);
     m_presence->setSettings(m_settings.get());
+    // Voice-call signaling pipes (2026-08-18): state machine only, no UI
+    // and no media stack. See src/calls/CallController.h.
+    m_calls        = std::make_unique<CallController>(this);
     // Application updates. Constructed once and never rebuilt: it holds no
     // Matrix state, is not account-scoped, and signing in, signing out or
     // switching account must not disturb an update check or download.
@@ -511,6 +515,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_spaces->setClient(m_client.get());
     m_threads->setClient(m_client.get());
     m_presence->setClient(m_client.get());
+    m_calls->setClient(m_client.get());
     m_pinned->setClient(m_client.get());
     m_roomUpgrade->setClient(m_client.get());
     m_thread->setClient(m_client.get());
@@ -1588,6 +1593,7 @@ CryptoManager *AppController::crypto() const { return m_crypto.get(); }
 SpaceManager *AppController::spaces() const { return m_spaces.get(); }
 ThreadManager *AppController::threads() const { return m_threads.get(); }
 PresenceManager *AppController::presence() const { return m_presence.get(); }
+CallController *AppController::calls() const { return m_calls.get(); }
 
 bool AppController::sessionVerificationNeeded() const
 {

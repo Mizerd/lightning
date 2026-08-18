@@ -1,5 +1,7 @@
 #include "matrix/RustSdkMatrixClient.h"
 
+#include "app/GuiStallTracer.h"
+
 #include "app/SettingsManager.h"
 #include "auth/OAuthCallbackServer.h"
 #include "crypto/E2eeDiagnostics.h"
@@ -2627,6 +2629,11 @@ void RustSdkMatrixClient::refuseSend(const char *op)
 
 void RustSdkMatrixClient::pollRustEvents()
 {
+    // Stall attribution only — a no-op unless LIGHTNING_GUI_STALL_TRACE is
+    // on. The poll drain applies every queued backend diff on the GUI
+    // thread, so it is the prime suspect for any unexplained freeze.
+    stalltrace::Scope stallScope("rust-poll-drain");
+
     // Phase A events first, and unconditionally: a browser sign-in normally
     // runs from the login screen, where there is no session handle at all, so
     // this must not sit behind the m_rustHandle guard below.
@@ -4880,6 +4887,125 @@ quint64 RustSdkMatrixClient::cancelKnock(const QString &roomId)
     return result.isEmpty() ? opId : 0;
 }
 
+// ── 2026-08-18 voice-call signaling sends ─────────────────────────────
+// SDP parameters cross exactly once, into the FFI call, and are never
+// logged, stored, or echoed. Results arrive as call_send_result on the
+// poll lane; inbound observations as call_* events (see CallSignal.h).
+
+quint64 RustSdkMatrixClient::callInvite(const QString &roomId,
+                                        const QString &callId,
+                                        const QString &partyId,
+                                        const QString &offerType,
+                                        const QString &offerSdp,
+                                        quint64 lifetimeMs,
+                                        const QString &invitee)
+{
+    if (!m_rustHandle || roomId.isEmpty() || callId.isEmpty()
+        || partyId.isEmpty() || offerSdp.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray call = callId.toUtf8();
+    const QByteArray party = partyId.toUtf8();
+    const QByteArray type = offerType.toUtf8();
+    const QByteArray sdp = offerSdp.toUtf8();
+    const QByteArray target = invitee.toUtf8();
+    const QString result = takeRustString(mx_rust_calls_invite(
+        m_rustHandle, room.constData(), call.constData(), party.constData(),
+        type.constData(), sdp.constData(), lifetimeMs, target.constData(),
+        opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::callAnswer(const QString &roomId,
+                                        const QString &callId,
+                                        const QString &partyId,
+                                        const QString &answerType,
+                                        const QString &answerSdp)
+{
+    if (!m_rustHandle || roomId.isEmpty() || callId.isEmpty()
+        || partyId.isEmpty() || answerSdp.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray call = callId.toUtf8();
+    const QByteArray party = partyId.toUtf8();
+    const QByteArray type = answerType.toUtf8();
+    const QByteArray sdp = answerSdp.toUtf8();
+    const QString result = takeRustString(mx_rust_calls_answer(
+        m_rustHandle, room.constData(), call.constData(), party.constData(),
+        type.constData(), sdp.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::callReject(const QString &roomId,
+                                        const QString &callId,
+                                        const QString &partyId)
+{
+    if (!m_rustHandle || roomId.isEmpty() || callId.isEmpty()
+        || partyId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray call = callId.toUtf8();
+    const QByteArray party = partyId.toUtf8();
+    const QString result = takeRustString(mx_rust_calls_reject(
+        m_rustHandle, room.constData(), call.constData(), party.constData(),
+        opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::callHangup(const QString &roomId,
+                                        const QString &callId,
+                                        const QString &partyId,
+                                        const QString &reason)
+{
+    if (!m_rustHandle || roomId.isEmpty() || callId.isEmpty()
+        || partyId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray call = callId.toUtf8();
+    const QByteArray party = partyId.toUtf8();
+    const QByteArray reasonBytes = reason.toUtf8();
+    const QString result = takeRustString(mx_rust_calls_hangup(
+        m_rustHandle, room.constData(), call.constData(), party.constData(),
+        reasonBytes.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::callSelectAnswer(const QString &roomId,
+                                              const QString &callId,
+                                              const QString &partyId,
+                                              const QString &selectedPartyId)
+{
+    if (!m_rustHandle || roomId.isEmpty() || callId.isEmpty()
+        || partyId.isEmpty() || selectedPartyId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray call = callId.toUtf8();
+    const QByteArray party = partyId.toUtf8();
+    const QByteArray selected = selectedPartyId.toUtf8();
+    const QString result = takeRustString(mx_rust_calls_select_answer(
+        m_rustHandle, room.constData(), call.constData(), party.constData(),
+        selected.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::callRtcDecline(const QString &roomId,
+                                            const QString &notificationEventId)
+{
+    if (!m_rustHandle || roomId.isEmpty() || notificationEventId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray event = notificationEventId.toUtf8();
+    const QString result = takeRustString(mx_rust_calls_rtc_decline(
+        m_rustHandle, room.constData(), event.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::setUserIgnored(const QString &userId,
                                             bool ignored)
 {
@@ -5428,6 +5554,79 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return static_cast<quint64>(
             event.value(QStringLiteral("op_id")).toDouble());
     };
+
+    // 2026-08-18 voice-call signaling. One decoder per inbound kind; a
+    // field is a stable public Matrix identifier, a closed-set string
+    // sanitized in Rust, a boolean — or a SENDER-CHOSEN opaque id
+    // (call/party ids: bounded in Rust, never logged or rendered). Never
+    // an SDP (see CallSignal.h).
+    if (type == QLatin1String("call_send_result")) {
+        Q_EMIT callSendFinished(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString(),
+            event.value(QStringLiteral("call_id")).toString(),
+            event.value(QStringLiteral("event_id")).toString());
+        return true;
+    }
+    if (type == QLatin1String("call_invite")
+        || type == QLatin1String("call_answer")
+        || type == QLatin1String("call_hangup")
+        || type == QLatin1String("call_reject")
+        || type == QLatin1String("call_select_answer")
+        || type == QLatin1String("call_rtc_notification")
+        || type == QLatin1String("call_rtc_decline")) {
+        CallSignal signal;
+        if (type == QLatin1String("call_invite"))
+            signal.kind = CallSignal::Kind::Invite;
+        else if (type == QLatin1String("call_answer"))
+            signal.kind = CallSignal::Kind::Answer;
+        else if (type == QLatin1String("call_hangup"))
+            signal.kind = CallSignal::Kind::Hangup;
+        else if (type == QLatin1String("call_reject"))
+            signal.kind = CallSignal::Kind::Reject;
+        else if (type == QLatin1String("call_select_answer"))
+            signal.kind = CallSignal::Kind::SelectAnswer;
+        else if (type == QLatin1String("call_rtc_notification"))
+            signal.kind = CallSignal::Kind::RtcNotification;
+        else
+            signal.kind = CallSignal::Kind::RtcDecline;
+        signal.roomId = event.value(QStringLiteral("room_id")).toString();
+        signal.eventId = event.value(QStringLiteral("event_id")).toString();
+        signal.sender = event.value(QStringLiteral("sender")).toString();
+        signal.own = event.value(QStringLiteral("own")).toBool();
+        signal.callId = event.value(QStringLiteral("call_id")).toString();
+        signal.partyId = event.value(QStringLiteral("party_id")).toString();
+        signal.invitee = event.value(QStringLiteral("invitee")).toString();
+        signal.lifetimeMs = static_cast<qint64>(
+            event.value(QStringLiteral("lifetime_ms")).toDouble());
+        signal.originServerTs = static_cast<qint64>(
+            event.value(QStringLiteral("origin_server_ts")).toDouble());
+        signal.senderTs = static_cast<qint64>(
+            event.value(QStringLiteral("sender_ts")).toDouble());
+        signal.version = event.value(QStringLiteral("version")).toString();
+        if (signal.kind == CallSignal::Kind::Invite) {
+            signal.sessionType =
+                event.value(QStringLiteral("offer_type")).toString();
+            signal.hasDescription =
+                event.value(QStringLiteral("has_offer")).toBool();
+        } else if (signal.kind == CallSignal::Kind::Answer) {
+            signal.sessionType =
+                event.value(QStringLiteral("answer_type")).toString();
+            signal.hasDescription =
+                event.value(QStringLiteral("has_answer")).toBool();
+        }
+        signal.reason = event.value(QStringLiteral("reason")).toString();
+        signal.selectedPartyId =
+            event.value(QStringLiteral("selected_party_id")).toString();
+        signal.callIntent =
+            event.value(QStringLiteral("call_intent")).toString();
+        signal.targetEventId =
+            event.value(QStringLiteral("target_event_id")).toString();
+        if (signal.roomId.isEmpty() || signal.eventId.isEmpty())
+            return true; // malformed — drop, never dispatch a partial signal
+        Q_EMIT callSignalReceived(signal);
+        return true;
+    }
 
     if (type == QLatin1String("user_search_result")) {
         QVariantList results;

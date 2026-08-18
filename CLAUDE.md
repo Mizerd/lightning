@@ -144,7 +144,10 @@ claimed 85/87, then 86/91, then 92/94; the pessimistic drift entries
 (`settings-shell-qml`, `design-acceptance`, `verification-qr-qml`) were
 offscreen pixel sampling and a host KDE style leak — exactly why these
 numbers are flagged as describing one desktop on one day. Run the suites
-yourself rather than trusting this paragraph.
+yourself rather than trusting this paragraph. UPDATE 2026-08-18: both
+timeline suites were repaired (one real gate defect, one fixture bug, two
+tests inverted — see §16) and the registered tree measured fully green
+offscreen on that day.
 
 Run `git log --oneline v0.6.6..HEAD` rather than trusting this list; it will
 go stale the same way the narrative below did.
@@ -1242,6 +1245,66 @@ direct merge-request submission may not be enabled on this GitLab instance.
 ## 16. Current active development areas
 
 Keep this list grounded in source and recent history:
+
+**2026-08-18 post-0.7.3 round (handoff top tasks + call pipes).** Landed
+after the tester-report fixes shipped as 0.7.3:
+- **Both stale timeline suites are GREEN for the first time since
+  `1e50f6a`**: `timeline-hydration-qml` 8/0, `timeline-pane-qml` 63/0
+  (offscreen, one desktop, one day — run them yourself).
+  Two distinct root causes, neither what the fixtures assumed:
+  * `initialHydrationGateHoldsThenOpensAtLatest` exposed a REAL production
+    defect: after a timeline reset, `fillsViewport` trusted a `contentHeight`
+    still reading the OUTGOING content's height (old delegates linger until
+    deferred destruction) — measured `count=1 ch=3601 h=404` at gate-open —
+    and `contentHeight >= height-1` is degenerately true while `height==0`
+    pre-layout. Fixed in TimelinePane.qml: `presentationGeometryStale` (set
+    on model reset, cleared by the first Column relayout) plus a `height>0`
+    guard; the settled/guard paths still open the gate if geometry never
+    moves.
+  * `scrolledUpAnchorHoldsThroughGrowthAndAppends` was a FIXTURE bug: view
+    rows count from the newest message, so a live append shifts every
+    event's view row by one and the test kept measuring view row 15 — a
+    different event after the append. The production anchor held within
+    2px once the test tracked the event. The two dead eviction tests were
+    INVERTED per the standing note (delegates are never evicted in the
+    un-virtualized Column): they now pin "the evicted/displaced branches
+    must not fire while the delegate is alive" — if eviction is ever
+    reintroduced, they fail and the pre-8f84d18 fixtures in history are
+    the re-porting start point.
+- **GUI stall tracing** (`LIGHTNING_GUI_STALL_TRACE`, src/app/GuiStallTracer)
+  for the still-unreproduced tester freeze after hammering reactions:
+  heartbeat + watchdog thread, logs one line per stall > threshold
+  (default 250 ms, env value >= 50 overrides) with a coarse category from
+  RAII scopes (`rust-poll-drain`, `playable-write`; literal strings only,
+  never content). New suite `gui-stall-trace` (6 cases). Hand the tester a
+  build with it enabled — one capture beats three theories.
+- **Element interop checklist**: `docs/element-interop-checklist.md` — the
+  scripted PASS/FAIL pass (encrypted both directions, threads, voice,
+  video+poster, reactions incl. the D3 hammer test, pins, edit, redaction,
+  key-recovery cycle). Running it live is the highest-value next block.
+- **Voice-call signaling pipes** (backend only, NO UI): MSC2746 `m.call.*`
+  v1 + `m.rtc.notification`/`m.rtc.decline` lane. `rust/src/calls.rs`
+  (sends via ruma version-1 constructors + SDK `make_decline_call_event`;
+  typed event handlers behind `EventHandlerDropGuard`s bound to
+  `run_authoritative_sync`), `mx_rust_calls_*` FFI, SDP-free `CallSignal`,
+  `src/calls/CallController` state machine (glare = smaller call_id wins,
+  party-id locking + single `select_answer`, cross-device settlement,
+  clamped lifetime timers, BOUNDED busy auto-reject with idempotent
+  re-delivery, per-call-scoped send-op results, bounded ended-call LRU,
+  ignored-sender drop before any state or send, ring-policy/ring-state
+  separation, backlog suppression defaults CLOSED; inbound call/party ids
+  are sender-chosen text — bounded in Rust, never logged).
+  placeCall() REFUSES (`no_media_backend`); `placeCallWithOffer` is the
+  future media backend's entry. SDP never crosses the FFI/logs — see
+  `docs/voice-calls.md` for the full contract and the deliberate absences
+  (no candidates/negotiate, no `m.call.member`, no answering, no media).
+  New suite `call-controller` (20 cases) + `calls::tests` in Rust (9). A
+  four-lens independent review (§18) ran before commit; its must-fix
+  findings (bounded busy auto-reject, live own-user filter, sender-chosen
+  id bounding, idempotent re-delivery, per-call op scoping, tracer
+  lifecycle) are in. The full registered CTest measured **128/128 on both
+  trees** after this round — the first fully green complete run since the
+  timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
 
 **2026-08-17/18 post-0.7.2 round** (`4f74eb4..8da2e81`) — **shipped as
 0.7.3.** The first REAL upgrade test drove all of it. Windows MSI failed

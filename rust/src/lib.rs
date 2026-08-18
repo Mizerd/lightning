@@ -65,6 +65,7 @@ use matrix_sdk_ui::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+mod calls;
 mod discover;
 mod gifs;
 mod ignore;
@@ -1150,6 +1151,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         let sync_mode = Arc::clone(&bridge.sync_mode);
         let room_list_slot = Arc::clone(&bridge.room_list_service);
         let active_subscription = Arc::clone(&bridge.active_room_subscription);
+        let sync_timelines = Arc::clone(&bridge.timelines);
         bridge.enqueue(json!({ "type": "status", "state": "syncing" }));
 
         let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
@@ -1159,7 +1161,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
             run_async(runtime_events, "sync", async move {
                 run_authoritative_sync(
                     sync_client, events, sync_mode, room_list_slot,
-                    active_subscription, cancel_rx,
+                    active_subscription, sync_timelines, cancel_rx,
                 ).await;
             });
         });
@@ -5874,6 +5876,144 @@ pub unsafe extern "C" fn mx_rust_list_ignored_users(
     })
 }
 
+/// Send `m.call.invite`. The offer SDP is required and opaque; it is never
+/// logged or echoed back. Result: call_send_result via mx_rust_poll_event.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_calls_invite(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    call_id: *const c_char,
+    party_id: *const c_char,
+    offer_type: *const c_char,
+    offer_sdp: *const c_char,
+    lifetime_ms: u64,
+    invitee: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let call_id = unsafe { cstr_arg(call_id) }?;
+        let party_id = unsafe { cstr_arg(party_id) }?;
+        let offer_type = unsafe { cstr_arg(offer_type) }?;
+        let offer_sdp = unsafe { cstr_arg(offer_sdp) }?;
+        let invitee = unsafe { cstr_arg(invitee) }?;
+        calls::send_invite(
+            bridge, room_id, call_id, party_id, offer_type, offer_sdp,
+            lifetime_ms, invitee, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
+/// Send `m.call.answer`. Plumbed for signaling completeness; no production
+/// caller exists until a media backend can produce an answer SDP.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_calls_answer(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    call_id: *const c_char,
+    party_id: *const c_char,
+    answer_type: *const c_char,
+    answer_sdp: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let call_id = unsafe { cstr_arg(call_id) }?;
+        let party_id = unsafe { cstr_arg(party_id) }?;
+        let answer_type = unsafe { cstr_arg(answer_type) }?;
+        let answer_sdp = unsafe { cstr_arg(answer_sdp) }?;
+        calls::send_answer(
+            bridge, room_id, call_id, party_id, answer_type, answer_sdp, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
+/// Send `m.call.reject` for an inbound VoIP-v1 invite.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_calls_reject(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    call_id: *const c_char,
+    party_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let call_id = unsafe { cstr_arg(call_id) }?;
+        let party_id = unsafe { cstr_arg(party_id) }?;
+        calls::send_reject(bridge, room_id, call_id, party_id, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// Send `m.call.hangup` with a reason from the closed outbound set
+/// (user_hangup, invite_timeout, user_busy, user_media_failed,
+/// unknown_error, replaced).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_calls_hangup(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    call_id: *const c_char,
+    party_id: *const c_char,
+    reason: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let call_id = unsafe { cstr_arg(call_id) }?;
+        let party_id = unsafe { cstr_arg(party_id) }?;
+        let reason = unsafe { cstr_arg(reason) }?;
+        calls::send_hangup(bridge, room_id, call_id, party_id, reason, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// Send `m.call.select_answer` naming the locked answering party.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_calls_select_answer(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    call_id: *const c_char,
+    party_id: *const c_char,
+    selected_party_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let call_id = unsafe { cstr_arg(call_id) }?;
+        let party_id = unsafe { cstr_arg(party_id) }?;
+        let selected = unsafe { cstr_arg(selected_party_id) }?;
+        calls::send_select_answer(
+            bridge, room_id, call_id, party_id, selected, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
+/// Decline an `m.rtc.notification` ring (SDK-built decline content).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_calls_rtc_decline(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    notification_event_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let event_id = unsafe { cstr_arg(notification_event_id) }?;
+        calls::rtc_decline(bridge, room_id, event_id, op_id)
+            .map(|_| String::new())
+    })
+}
+
 /// Report one event to the homeserver administrator (stable /v3 endpoint).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_report_message(
@@ -6977,8 +7117,14 @@ async fn run_authoritative_sync(
     sync_mode: Arc<Mutex<SyncMode>>,
     room_list_slot: Arc<Mutex<Option<Arc<RoomListService>>>>,
     active_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
+    timelines: Arc<timeline::TimelineRegistry>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
+    // Inbound call-signaling observers live exactly as long as this sync
+    // loop: the drop guards unregister every handler on ANY exit path, so
+    // an orphaned handler can never fire into a later account's queue.
+    let _call_guards = calls::register_handlers(&client, &events, &timelines);
+
     set_sync_mode(&sync_mode, &events, SyncMode::Probing, None);
 
     // Probe the exact capability consumed by matrix-sdk 0.18's native

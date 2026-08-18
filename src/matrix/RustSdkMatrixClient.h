@@ -368,6 +368,23 @@ public:
                            const QString &nextBatch, int limit,
                            const QVariantMap &filters = {}) override;
     bool supportsIgnoredUsers() const override { return true; }
+    bool supportsCallSignaling() const override { return true; }
+    quint64 callInvite(const QString &roomId, const QString &callId,
+                       const QString &partyId, const QString &offerType,
+                       const QString &offerSdp, quint64 lifetimeMs,
+                       const QString &invitee) override;
+    quint64 callAnswer(const QString &roomId, const QString &callId,
+                       const QString &partyId, const QString &answerType,
+                       const QString &answerSdp) override;
+    quint64 callReject(const QString &roomId, const QString &callId,
+                       const QString &partyId) override;
+    quint64 callHangup(const QString &roomId, const QString &callId,
+                       const QString &partyId, const QString &reason) override;
+    quint64 callSelectAnswer(const QString &roomId, const QString &callId,
+                             const QString &partyId,
+                             const QString &selectedPartyId) override;
+    quint64 callRtcDecline(const QString &roomId,
+                           const QString &notificationEventId) override;
     quint64 setUserIgnored(const QString &userId, bool ignored) override;
     quint64 requestIgnoredUsers() override;
     bool supportsEventReporting() const override { return true; }
