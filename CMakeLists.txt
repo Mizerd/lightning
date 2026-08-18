@@ -2528,6 +2528,36 @@ if(BUILD_TESTING)
     set_tests_properties(composer-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # 2026-08-18 tester report (Element chat export): the Home surface's
+    # buttons actually fire, reactions wrap, a redacted message cannot be
+    # pinned, Alt+V opens skin tones, a clicked room link does not flash a
+    # modal, voice recording has pause/done/preview, the timeline has
+    # middle-click autoscroll, and the audio card fits and remembers.
+    qt_add_executable(tester-report-fixes-test
+        tests/TesterReportFixesTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(tester-report-fixes-test)
+    target_compile_definitions(tester-report-fixes-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(tester-report-fixes-test PRIVATE Qt6::Test)
+    add_test(NAME tester-report-fixes COMMAND tester-report-fixes-test)
+    set_tests_properties(tester-report-fixes PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # 2026-08-18 tester report: the shell must stay usable at the app's own
+    # minimum window size — the composer keeps a readable width and still
+    # grows with a multi-line draft in a short window.
+    qt_add_executable(narrow-shell-layout-test
+        tests/NarrowShellLayoutTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(narrow-shell-layout-test)
+    target_link_libraries(narrow-shell-layout-test PRIVATE Qt6::Test)
+    add_test(NAME narrow-shell-layout COMMAND narrow-shell-layout-test)
+    set_tests_properties(narrow-shell-layout PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Creation UX (New Conversation / Create Room / Create Space dialog):
     # per-tab instantiation (the Space tab must instantiate NO encryption
     # control), shared-search clearing + focus handoff on tab switch, name

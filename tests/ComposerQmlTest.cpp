@@ -18,6 +18,7 @@
 #include <QQuickWindow>
 
 #include "app/AppController.h"
+#include "app/SettingsManager.h"
 #include "matrix/MockMatrixClient.h"
 
 namespace {
@@ -469,6 +470,109 @@ private slots:
         QVERIFY(!mock->lastSentBodyForTest().contains(
             QStringLiteral("matrix.to")));
         input->setProperty("text", QString());
+    }
+
+    // ── 2026-08-18 tester report probes ──────────────────────────────────
+    // "kai darai shift+enter max praleidzia tik viena eilute" — the composer
+    // must keep growing with the draft, up to its scroll cap.
+    // Shift+Enter must insert a newline every time, not only once.
+    void shiftEnterInsertsEveryNewline()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *input = item("composerInput");
+        QVERIFY(input);
+        input->setProperty("text", QString());
+        QMetaObject::invokeMethod(input, "forceActiveFocus");
+        QTest::qWait(30);
+        QTest::keyClick(m_window, Qt::Key_A);
+        QTest::keyClick(m_window, Qt::Key_Return, Qt::ShiftModifier);
+        QTest::keyClick(m_window, Qt::Key_B);
+        QTest::keyClick(m_window, Qt::Key_Return, Qt::ShiftModifier);
+        QTest::keyClick(m_window, Qt::Key_C);
+        QTest::qWait(50);
+        const QString typed = input->property("text").toString();
+        QCOMPARE(typed, QStringLiteral("a\nb\nc"));
+        input->setProperty("text", QString());
+    }
+
+    void composerGrowsWithEveryAddedLine()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *input = item("composerInput");
+        auto *flick = item("composerInputFlick");
+        QVERIFY(input);
+        QVERIFY2(flick, "the composer input needs a named scroll surface");
+        input->setProperty("text", QStringLiteral("one"));
+        QTest::qWait(60);
+        const qreal oneLine = flick->height();
+        input->setProperty("text", QStringLiteral("one\ntwo"));
+        QTest::qWait(60);
+        const qreal twoLines = flick->height();
+        input->setProperty("text", QStringLiteral("one\ntwo\nthree\nfour"));
+        QTest::qWait(60);
+        const qreal fourLines = flick->height();
+        QVERIFY2(twoLines > oneLine + 4, "two lines must be taller than one");
+        QVERIFY2(fourLines > twoLines + 4,
+                 "the composer stopped growing after the second line");
+        input->setProperty("text", QString());
+    }
+
+    // "kai sushrinkini app iki max net nematai pilnos vienos raides ka
+    // typini" — at the narrowest supported window the input must still be
+    // wide enough to read what is being typed.
+    void narrowWindowKeepsTheInputUsable()
+    {
+        const int restoreWidth = m_window->width();
+        m_window->setWidth(300);
+        QTest::qWait(120);
+        auto *flick = item("composerInputFlick");
+        QVERIFY(flick);
+        QVERIFY2(flick->width() >= 96,
+                 "the composer input collapses at a narrow window width");
+        m_window->setWidth(restoreWidth);
+        QTest::qWait(120);
+    }
+
+    // "kai iseini ir grizti i chat tavo typewriteri numeti i gala o ne i
+    // prieki" — a draft restored on room switch must come back intact with
+    // the caret at its end, ready to continue typing.
+    void restoredDraftKeepsTextAndPlacesCaretAtTheEnd()
+    {
+        // Drafts are only stored for a live session (DraftStore refuses a
+        // save without a logged-in client), so sign the mock backend in.
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        if (!mock->isLoggedIn()) {
+            QSignalSpy spy(mock, &MatrixClient::loginSucceeded);
+            mock->login(QStringLiteral("https://mock.local"),
+                        QStringLiteral("alice"), QStringLiteral("x"));
+            QVERIFY(spy.wait(4000));
+            QTest::qWait(50);
+        }
+        // A persisted draft is account-scoped; without an active account
+        // record SettingsManager writes nothing at all.
+        if (auto *settings = m_controller->settings()) {
+            settings->saveSession(QStringLiteral("https://mock.local"),
+                                  QStringLiteral("@alice:mock.local"),
+                                  QStringLiteral("DEVICE"),
+                                  QStringLiteral("token-fixture"));
+        }
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *input = item("composerInput");
+        QVERIFY(input);
+        input->setProperty("text", QStringLiteral("half a sentence"));
+        QTest::qWait(80);
+        m_controller->setCurrentRoomId(QStringLiteral("!devs:mock.local"));
+        QTest::qWait(80);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(120);
+        const QString restored = input->property("text").toString();
+        const int caret = input->property("cursorPosition").toInt();
+        QCOMPARE(restored, QStringLiteral("half a sentence"));
+        QCOMPARE(caret, restored.length());
+        // Leave no stored draft behind for the next case.
+        input->setProperty("text", QString());
+        QTest::qWait(1200);
     }
 
     void escapeClosesPopupWithoutCancellingReply()
