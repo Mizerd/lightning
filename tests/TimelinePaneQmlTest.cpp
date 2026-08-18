@@ -5760,15 +5760,19 @@ private Q_SLOTS:
                  baseDragDeferrals);
     }
 
-    // Per-branch counter (L1 split, evicted-no-insert half): the SAME real
-    // eviction geometry as diagDisplacedBranchCountersTrackFiringsAndMagnitude
-    // below, but WITHOUT injecting a displaced viewAnchorRow — so row ===
-    // viewAnchorRow (no proof of an insertion) and the call falls through to
-    // the fallback with a perfectly valid, still-resolving stable id. This is
-    // expected to be the DOMINANT fallback cause in a real media-heavy room:
-    // ordinary scrolling evicts delegates from cacheBuffer constantly, with
-    // no pagination or insertion involved at all.
-    void diagEvictedNoInsertFallbackCountsCacheEvictionWithoutProvenInsert()
+    // INVERTED from the pre-1e50f6a suite (2026-08-18). The original test
+    // asserted the evicted-no-insert fallback FIRING after real ListView
+    // cache eviction. The rotated Flickable + Column instantiates every
+    // loaded row and never evicts a delegate, so that fixture aborted on its
+    // own precondition ("fixture no longer evicts...") from 8f84d18 onward.
+    // The preserved invariant is the structural fact itself: a loaded row's
+    // delegate SURVIVES arbitrary scrolling, so maintainViewAnchor() must
+    // always resolve the anchor's item and must never take the
+    // evicted-no-insert fallback (nor the unresolved-id one) for an anchor
+    // whose event is still loaded. If a future timeline change reintroduces
+    // delegate eviction, this fails and the ported eviction fixtures in Git
+    // history (pre-8f84d18) are the starting point for re-porting.
+    void anchorDelegateSurvivesDistantScrollNeverEvictedFallback()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
@@ -5787,11 +5791,9 @@ private Q_SLOTS:
             e.sender = QStringLiteral("@alice:mock.local");
             e.senderDisplayName = QStringLiteral("Alice");
             e.body = QStringLiteral(
-                "message %1 — deliberately long enough to wrap across "
-                "several lines so a handful of rows already exceeds the "
-                "ListView cache buffer, reproducing the real geometry "
-                "where a delegate is evicted purely by ordinary scrolling")
-                .arg(i);
+                "message %1 — long enough to wrap across several lines so "
+                "sixty rows vastly exceed any plausible delegate cache, the "
+                "geometry that USED to evict the anchor delegate").arg(i);
             e.timestamp =
                 QDateTime::currentDateTimeUtc().addSecs(-(600 - i) * 60);
             e.type = TimelineEvent::TextMessage;
@@ -5835,22 +5837,18 @@ private Q_SLOTS:
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(anchorRow >= 0);
 
+        // Jump far away. Under the old virtualized view this destroyed the
+        // anchor delegate; the whole point now is that it MUST NOT.
         QVERIFY(positionAtSourceRow(timeline, 50));
         QCoreApplication::processEvents();
-        QQuickItem *evicted = nullptr;
-        evicted = itemForSourceRow(timeline, anchorRow);
-        QVERIFY2(evicted == nullptr,
-                 "fixture no longer evicts the anchor's delegate — this "
-                 "test would pass on broken code");
+        QVERIFY2(itemForSourceRow(timeline, anchorRow) != nullptr,
+                 "the un-virtualized Column must keep every loaded row's "
+                 "delegate alive — eviction has been reintroduced");
         QVERIFY2(!timeline->property("moving").toBool(),
-                 "positionViewAtIndex must not leave Flickable.moving true");
-        // Pin the id back (see the same race documented in the displaced
-        // test below) but deliberately leave viewAnchorRow ALONE — it
-        // already equals anchorRow from the real captureViewAnchor() call
-        // above, so row === viewAnchorRow and the displaced branch's
-        // `row > viewAnchorRow` guard is false: no insertion is provable.
+                 "programmatic positioning must not leave Flickable.moving");
+        // Pin the id back in case a queued maintainViewAnchorCoalesced()
+        // re-captured onto the row now at the top of the viewport.
         QVERIFY(timeline->setProperty("viewAnchorId", anchorId));
-        QCOMPARE(timeline->property("viewAnchorRow").toInt(), anchorRow);
 
         const QPointF pos(320, 300);
         bool opened = false;
@@ -5866,249 +5864,174 @@ private Q_SLOTS:
                 QTest::qWait(10);
         }
         QVERIFY2(opened, "a touchpad delta must open the scroll session");
-        QCOMPARE(timeline->property("viewAnchorId").toString(), anchorId);
-        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
-        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
-
-        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
-
-        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 1);
-        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
-        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
-        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
-        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
-    }
-
-    // Per-branch counter (displaced): discriminates the reviewer's H1 —
-    // whether this branch fires at all during a driven scenario, and
-    // whether its magnitude/insertedRows bookkeeping is recorded correctly.
-    // Reuses topEdgePrependKeepsReaderOnTheSameRowMidGesture's real-
-    // eviction geometry (a handful of long-bodied rows exceeds cacheBuffer)
-    // rather than reproducing ListView's own internal estimate churn, which
-    // no offscreen test can control. Deliberately injects
-    // viewAnchorRow/viewAnchorContentHeight (same technique the withdrawn
-    // tests used) so the exact grew/insertedRows values are known — this
-    // pins ONLY that the counters record what maintainViewAnchor() already
-    // (and unchanged) computes, not any claim about what a real gesture's
-    // numbers would be.
-    void diagDisplacedBranchCountersTrackFiringsAndMagnitude()
-    {
-        qputenv("LIGHTNING_SCROLL_TRACE", "1");
-        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
-
-        AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
-        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
-        const QString roomId = QStringLiteral("!general:mock.local");
-        controller.setCurrentRoomId(roomId);
-        auto *mock = controller.findChild<MockMatrixClient *>();
-        QVERIFY(mock != nullptr);
-
-        QList<TimelineEvent> events;
-        for (int i = 0; i < 60; ++i) {
-            TimelineEvent e;
-            e.sender = QStringLiteral("@alice:mock.local");
-            e.senderDisplayName = QStringLiteral("Alice");
-            e.body = QStringLiteral(
-                "message %1 — deliberately long enough to wrap across "
-                "several lines so a handful of rows already exceeds the "
-                "ListView cache buffer, reproducing the real geometry "
-                "where a displaced anchor's delegate is destroyed").arg(i);
-            e.timestamp =
-                QDateTime::currentDateTimeUtc().addSecs(-(600 - i) * 60);
-            e.type = TimelineEvent::TextMessage;
-            e.status = TimelineEvent::Sent;
-            events.append(e);
-        }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
-
-        QQmlApplicationEngine engine;
-        engine.rootContext()->setContextProperty("app", &controller);
-        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
-        engine.loadFromModule(QStringLiteral("MatrixClient"),
-                              QStringLiteral("TimelinePane"));
-        if (createdSpy.isEmpty())
-            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
-        auto *root = qobject_cast<QQuickItem *>(
-            createdSpy.at(0).at(0).value<QObject *>());
-        QVERIFY(root != nullptr);
-
-        QQuickWindow window;
-        window.resize(760, 620);
-        root->setParentItem(window.contentItem());
-        root->setSize(QSizeF(window.width(), window.height()));
-        window.show();
-        QCoreApplication::processEvents();
-
-        auto *timeline = root->findChild<QQuickItem *>(
-            QStringLiteral("timelineListView"));
-        QVERIFY(timeline != nullptr);
-        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 60,
-                                 kSignalTimeoutMs);
-        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
-                                 kSignalTimeoutMs);
-
-        QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(positionAtSourceRow(timeline, 15));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
-        const QString anchorId = timeline->property("viewAnchorId").toString();
-        QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
-        const int anchorRow = controller.timeline()->rowForStableId(anchorId);
-        QVERIFY(anchorRow >= 0);
-
-        // Jump far away so the anchor's delegate falls outside cacheBuffer
-        // and is destroyed — the precondition the displaced branch needs.
-        QVERIFY(positionAtSourceRow(timeline, 50));
-        QCoreApplication::processEvents();
-        QQuickItem *evicted = nullptr;
-        evicted = itemForSourceRow(timeline, anchorRow);
-        QVERIFY2(evicted == nullptr,
-                 "fixture no longer evicts the anchor's delegate — this "
-                 "test would pass on broken code");
-        QVERIFY2(!timeline->property("moving").toBool(),
-                 "positionViewAtIndex must not leave Flickable.moving true");
-        // The processEvents() above can let a queued
-        // maintainViewAnchorCoalesced() fire and silently re-capture the
-        // anchor onto whatever row is CURRENTLY at the top of the viewport
-        // (the delegate is already evicted, so that call's own `if (!it)`
-        // fallback runs) — pin viewAnchorId back to the row-5 anchor this
-        // test needs before opening the diag session below.
+        // A coalesced maintainViewAnchorCoalesced() during the wheel loop
+        // can legitimately re-capture the anchor onto the row now at the
+        // top of the viewport. The invariant under test does not depend on
+        // WHICH loaded event is the anchor — re-pin the row-15 id and
+        // verify its delegate is (still) alive right before the driven
+        // call.
         QVERIFY(timeline->setProperty("viewAnchorId", anchorId));
-
-        // Open the diag session AFTER the eviction dance above, so its own
-        // (harmless) contentY nudge cannot race the eviction check.
-        // diagNoteEvent() only resets the gesture-input group (diagEvents/
-        // diagPixelEvents/diagAngleEvents/diagStartY/diagStartHeight) — the
-        // outcome/cross-branch counters asserted below are untouched by it
-        // and only reset at the NEXT diagFlushGesture(), so wherever the
-        // fixture's own eviction-dance setup above could have driven one of
-        // them nonzero, it is baseline-captured rather than assumed 0 (see
-        // baseEvicted/baseMaterialized/baseUnresolvedId/baseDragDeferrals
-        // below).
-        const QPointF pos(320, 300);
-        bool opened = false;
-        for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
-            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
-                              QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
-                              Qt::NoModifier, Qt::ScrollUpdate,
-                              /*inverted=*/false);
-            QCoreApplication::sendEvent(&window, &wheel);
-            QCoreApplication::processEvents();
-            opened = timeline->property("userScrollActive").toBool();
-            if (!opened)
-                QTest::qWait(10);
-        }
-        QVERIFY2(opened, "a touchpad delta must open the scroll session");
-        QCOMPARE(timeline->property("viewAnchorId").toString(), anchorId);
-        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
-        // Cross-branch purity is asserted for the DRIVEN step below, not
-        // for the whole run: this fixture's tall media rows force real
-        // delegate eviction, and an evicted-no-insert fallback firing
-        // during the fixture's own setup is a legitimate timing-dependent
-        // occurrence (observed deterministically in one tree's binary
-        // after an unrelated per-delegate QML addition changed pooling
-        // timing). Baseline-capture, then assert no INCREASE across the
-        // driven maintainViewAnchor call.
+        QVERIFY2(itemForSourceRow(timeline, anchorRow) != nullptr,
+                 "the anchor's delegate must be alive for this invariant");
+        // The fixture's own setup can legitimately drive counters; assert
+        // no INCREASE across the driven call, never a hardcoded total.
         const int baseEvicted =
             timeline->property("diagEvictedNoInsertFallbacks").toInt();
-        if (baseEvicted != 0)
-            qWarning("diag fixture non-quiescent: evictedNoInsert=%d "
-                     "(timing-dependent eviction during setup)", baseEvicted);
-        // Same honesty for the other three cross-branch counters: the
-        // fixture's own eviction dance can drive any of them nonzero before
-        // the driven call below ever runs, exactly like evictedNoInsert
-        // above — assert no INCREASE, never a hardcoded 0.
+        const int baseUnresolved =
+            timeline->property("diagUnresolvedIdFallbacks").toInt();
         const int baseMaterialized =
             timeline->property("diagMaterializedFirings").toInt();
-        const int baseUnresolvedId =
-            timeline->property("diagUnresolvedIdFallbacks").toInt();
-        const int baseDragDeferrals =
-            timeline->property("diagDragDeferrals").toInt();
-
-        // Two firings whose maxima deliberately DISAGREE. The first is the
-        // live defect's shape: a large negative whole-content delta (skipped
-        // by production correction) with a smaller origin candidate. The
-        // second has a small positive content delta but the larger origin
-        // candidate. A trace that stores independent maxima without pairing
-        // them cannot tell which origin shift accompanied the skipped -3582
-        // firing and this test fails.
-        constexpr double firstContentDelta = -3582.0;
-        constexpr double firstOriginShift = 300.0;
-        constexpr int firstInsertedRows = 3;
-        const double contentHeightNow =
-            timeline->property("contentHeight").toDouble();
-        const double originYNow = timeline->property("originY").toDouble();
-        QVERIFY(timeline->setProperty("viewAnchorRow",
-                                      anchorRow - firstInsertedRows));
-        QVERIFY(timeline->setProperty("viewAnchorContentHeight",
-                                      contentHeightNow - firstContentDelta));
-        QVERIFY(timeline->setProperty("viewAnchorOriginY",
-                                      originYNow + firstOriginShift));
+        const int baseDisplaced =
+            timeline->property("diagDisplacedFirings").toInt();
 
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
 
-        constexpr double secondContentDelta = 100.0;
-        constexpr double secondOriginShift = 500.0;
-        constexpr int secondInsertedRows = 2;
-        QVERIFY(timeline->setProperty("viewAnchorRow",
-                                      anchorRow - secondInsertedRows));
-        QVERIFY(timeline->setProperty("viewAnchorContentHeight",
-                                      contentHeightNow - secondContentDelta));
-        QVERIFY(timeline->setProperty("viewAnchorOriginY",
-                                      originYNow + secondOriginShift));
-
-        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
-
-        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 2);
-        QVERIFY2(qAbs(timeline->property("diagDisplacedMaxAbsGrew").toDouble()
-                     - firstContentDelta) < 1.0,
-                 "diagDisplacedMaxAbsGrew did not record the grew value");
-        QCOMPARE(timeline->property("diagDisplacedMaxAbsGrewRows").toInt(),
-                 firstInsertedRows);
-        QVERIFY2(qAbs(timeline->property(
-                         "diagDisplacedMaxAbsGrewOriginShift").toDouble()
-                     - firstOriginShift) < 1.0,
-                 "largest content delta lost its paired origin shift");
-        QVERIFY2(qAbs(timeline->property(
-                         "diagDisplacedMaxAbsOriginShift").toDouble()
-                     - secondOriginShift) < 1.0,
-                 "largest origin shift was not retained");
-        QVERIFY2(qAbs(timeline->property(
-                         "diagDisplacedMaxAbsOriginShiftContentDelta").toDouble()
-                     - secondContentDelta) < 1.0,
-                 "largest origin shift lost its paired content delta");
-        QCOMPARE(timeline->property(
-                     "diagDisplacedMaxAbsOriginShiftRows").toInt(),
-                 secondInsertedRows);
-        QVERIFY2(qAbs(timeline->property("diagDisplacedAppliedSum").toDouble()
-                     - secondContentDelta) < 1.0,
-                 "diagDisplacedAppliedSum did not record the applied amount");
-        QCOMPARE(timeline->property("diagPrependFirings").toInt(), 2);
-        QVERIFY2(qAbs(timeline->property("diagPrependOriginShiftSum").toDouble()
-                     - firstOriginShift - secondOriginShift) < 1.0,
-                 "diagPrependOriginShiftSum did not record the candidate");
-        QVERIFY2(qAbs(timeline->property("diagPrependMaxAbsOriginShift").toDouble()
-                     - secondOriginShift) < 1.0,
-                 "diagPrependMaxAbsOriginShift did not record the candidate");
-        QCOMPARE(timeline->property("diagPrependMaxAbsOriginShiftRows").toInt(),
-                 secondInsertedRows);
-        QVERIFY2(qAbs(timeline->property(
-                         "diagPrependMaxAbsOriginShiftContentDelta").toDouble()
-                     - secondContentDelta) < 1.0,
-                 "origin candidate was not paired with its content-height delta");
-        QCOMPARE(timeline->property(
-                     "diagPrependMaxAbsOriginShiftPath").toString(),
-                 QStringLiteral("displaced"));
-        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(),
-                 baseMaterialized);
-        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(),
-                 baseUnresolvedId);
         QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(),
                  baseEvicted);
-        QCOMPARE(timeline->property("diagDragDeferrals").toInt(),
-                 baseDragDeferrals);
+        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(),
+                 baseUnresolved);
+        // With the delegate alive and input active, the materialized
+        // measurement branch is the one that must own this geometry. A
+        // coalesced maintainViewAnchor can legitimately fire alongside the
+        // driven call, so assert growth, not an exact total.
+        QVERIFY2(timeline->property("diagMaterializedFirings").toInt()
+                     > baseMaterialized,
+                 "the driven call must take the materialized branch");
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(),
+                 baseDisplaced);
     }
+
+    // INVERTED from the pre-1e50f6a suite (2026-08-18). The original test
+    // injected displaced anchor bookkeeping onto an evicted delegate and
+    // asserted the displaced branch's counters recorded the exact grew/
+    // origin-shift pairs. Without eviction the displaced branch requires a
+    // precondition (`!it`) that a loaded row can never satisfy, so the
+    // preserved invariant is the inverse: even when the anchor bookkeeping
+    // CLAIMS rows were inserted above the reader (row > viewAnchorRow), a
+    // live delegate must route the correction through the idle absolute
+    // restore — the estimate-based displaced arithmetic must not fire.
+    // This is the same invariant the 2026-08-12 physical capture recorded
+    // as displacedFirings=0/evictedNoInsert=0 across ~28 real pagination
+    // batches; here it is pinned deterministically.
+    void displacedBranchDoesNotFireWhileAnchorDelegateAlive()
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 60; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral(
+                "message %1 — long enough to wrap so the geometry matches "
+                "the displaced fixture this test inverts").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(600 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 60,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(positionAtSourceRow(timeline, 15));
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
+        const int sourceRow = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY(sourceRow >= 0);
+        // Ask the pane for the anchor's view row: the paced proxy means a
+        // hand-computed count-1-source mapping can be off while rows are
+        // still releasing.
+        QVariant viewRowOut;
+        QVERIFY(QMetaObject::invokeMethod(
+            timeline, "viewRowForStableId", Q_RETURN_ARG(QVariant, viewRowOut),
+            Q_ARG(QVariant, anchorId)));
+        const int anchorViewRow = viewRowOut.toInt();
+        QVERIFY(anchorViewRow >= 0);
+        QVERIFY2(itemForSourceRow(timeline, sourceRow) != nullptr,
+                 "the anchor's delegate must be alive for this invariant");
+        QVERIFY(!timeline->property("moving").toBool());
+        QVERIFY(!timeline->property("userScrollActive").toBool());
+
+        const int baseDisplaced =
+            timeline->property("diagDisplacedFirings").toInt();
+        const int basePrepend =
+            timeline->property("diagPrependFirings").toInt();
+
+        // Inject the exact bookkeeping the displaced branch keys on: the
+        // anchor's recorded row three below its real one (as if three rows
+        // were inserted above the reader) with a matching content-height
+        // delta. Idle, delegate alive: the displaced arithmetic must NOT
+        // run — the idle branch restores from the live measurement instead.
+        constexpr double injectedContentDelta = -3582.0;
+        constexpr int injectedInsertedRows = 3;
+        const double contentHeightNow =
+            timeline->property("contentHeight").toDouble();
+        QVERIFY(timeline->setProperty("viewAnchorRow",
+                                      anchorViewRow - injectedInsertedRows));
+        QVERIFY(timeline->setProperty("viewAnchorContentHeight",
+                                      contentHeightNow
+                                          - injectedContentDelta));
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(),
+                 baseDisplaced);
+        // The prepend DIAGNOSTIC still records the firing (row rose above
+        // the recorded anchor row) and must attribute it to the idle path,
+        // proving which branch actually handled it.
+        QCOMPARE(timeline->property("diagPrependFirings").toInt(),
+                 basePrepend + 1);
+        QCOMPARE(timeline->property(
+                     "diagPrependMaxAbsOriginShiftPath").toString(),
+                 QStringLiteral("idle"));
+        // The idle branch re-based the bookkeeping to reality: the recorded
+        // row is the anchor's real view row again (re-resolved after the
+        // call — the paced proxy may have released rows in between).
+        QVERIFY(QMetaObject::invokeMethod(
+            timeline, "viewRowForStableId", Q_RETURN_ARG(QVariant, viewRowOut),
+            Q_ARG(QVariant, anchorId)));
+        QCOMPARE(timeline->property("viewAnchorRow").toInt(),
+                 viewRowOut.toInt());
+    }
+
 
     // M2: an all-zero line does not distinguish "the mechanism ran and had
     // nothing to correct" from "the mechanism never engaged at all"

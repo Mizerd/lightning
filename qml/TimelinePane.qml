@@ -1199,6 +1199,15 @@ Rectangle {
                 // updated a turn later, so the deferred recompute was enough on
                 // its own. It no longer is.
                 property bool presentationResetPending: false
+                // True from a model reset until the first contentHeight
+                // change afterwards — i.e. until the Column has produced a
+                // geometry that reflects the NEW snapshot rather than the
+                // outgoing room's rows. While stale, fillsViewport is not
+                // trustworthy; the settled/guard paths still open the gate.
+                property bool presentationGeometryStale: false
+                // Whether the view held any rows when the last model reset
+                // was announced — see onModelAboutToBeReset.
+                property bool presentationResetHadRows: false
                 function recomputePresentationReady() {
                     if (presentationReady || presentationResetPending)
                         return
@@ -1207,7 +1216,16 @@ Rectangle {
                         presentationGuard.stop()
                         return
                     }
-                    var fillsViewport = count > 0
+                    // contentHeight is only meaningful once the pane has a
+                    // real height AND the Column has re-laid-out since the
+                    // last model reset: right after a reset it still reads
+                    // the OUTGOING content's height (old delegates linger
+                    // until their deferred destruction), so trusting it
+                    // opened the gate on a one-item partial snapshot — the
+                    // exact defect this gate exists to prevent. With height
+                    // 0 the >= comparison is degenerately true as well.
+                    var fillsViewport = count > 0 && height > 0
+                                        && !presentationGeometryStale
                                         && contentHeight >= height - 1
                     if (fillsViewport || app.pagination.initialContentSettled) {
                         presentationReady = true
@@ -2685,6 +2703,10 @@ Rectangle {
                 // keep the newest event pinned while following the bottom,
                 // otherwise hold the reader's anchor steady.
                 onContentHeightChanged: {
+                    // Any Column relayout after the reset reflects the new
+                    // model's delegates (old ones are gone once anything
+                    // moves), so contentHeight is meaningful again.
+                    presentationGeometryStale = false
                     scheduleVisibleRowRange()
                     maybeFillViewport()
                     recomputePresentationReady()
@@ -2857,6 +2879,18 @@ Rectangle {
                 // scrolling up in the previous room).
                 Connections {
                     target: app.timeline
+                    // Captured BEFORE the reset dispatch reaches the proxy/
+                    // Repeater: were there any old rows whose delegates
+                    // could linger and leave contentHeight reading the
+                    // OUTGOING content after the reset? When the previous
+                    // state was empty (first room of the session), nothing
+                    // can linger, the Column's rebuild is the only
+                    // geometry, and arming the staleness gate would only
+                    // delay the fast fillsViewport open until the settled/
+                    // guard fallbacks (review 2026-08-18).
+                    function onModelAboutToBeReset() {
+                        timeline.presentationResetHadRows = timeline.count > 0
+                    }
                     function onModelReset() {
                         // A room switch / fresh snapshot must cancel any
                         // in-flight wheel motion from the previous room.
@@ -2883,6 +2917,8 @@ Rectangle {
                         // gate on the same deferred turn (sub-frame).
                         timeline.presentationReady = false
                         timeline.presentationResetPending = true
+                        timeline.presentationGeometryStale =
+                                timeline.presentationResetHadRows
                         presentationGuard.restart()
                         Qt.callLater(function() {
                             app.pagination.restoreScrollAnchor(app.currentRoomId)

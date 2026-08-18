@@ -19,6 +19,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QElapsedTimer>
 #include <QSignalSpy>
 
 #include "app/AppController.h"
@@ -195,6 +196,47 @@ private Q_SLOTS:
         QCOMPARE(pane.warnings, QStringList{});
     }
 
+    // The presentation gate's FAST path: opening the first room of a
+    // session with warm content that already fills the viewport must
+    // present via fillsViewport — not wait for the pagination settle
+    // signal (blocked here by a 3s page delay) or the 2.5s guard timer.
+    // Regression coverage for the 2026-08-18 review finding that the
+    // geometry-staleness gate, armed unconditionally, made this exact
+    // path silently fall back to the guard.
+    void firstRoomOpenWithWarmContentPresentsFast()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        // Stage plenty of content BEFORE the room is ever opened, and make
+        // the pagination settle path too slow to win.
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 16; ++i) {
+            events.append(makeText(QStringLiteral("@alice:mock.local"),
+                                   QStringLiteral("warm message %1\nsecond line")
+                                       .arg(i),
+                                   (30 - i) * 60));
+        }
+        mock->resetTimelineForTest(kRoom, events, /*paginationPages=*/1);
+        mock->setPaginationDelayForTest(3000);
+
+        Pane pane;
+        QVERIFY(createPane(controller, pane));
+        QElapsedTimer clock;
+        clock.start();
+        controller.setCurrentRoomId(kRoom);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            pane.timeline->property("presentationReady").toBool(), 5000);
+        const qint64 openedAfterMs = clock.elapsed();
+        QVERIFY(controller.timeline()->rowCount() >= 16);
+        QVERIFY2(openedAfterMs < 1500,
+                 qPrintable(QStringLiteral(
+                     "gate opened only after %1 ms — the fast fillsViewport "
+                     "path did not run (guard fires at 2500, settle at 3000)")
+                                .arg(openedAfterMs)));
+    }
+
     // While pinned to the bottom, asynchronous row growth above the newest
     // message (image hydration, late decryption, link previews) must keep
     // the newest message visible — the regression was a growing gap that
@@ -279,6 +321,20 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             !pane.timeline->property("viewAnchorId").toString().isEmpty(),
             2000);
+        // The measurement tracks one EVENT, not one view slot. View rows
+        // count from the newest message, so a live append shifts every
+        // existing event's view row by one — remember the anchor's SOURCE
+        // row and re-derive its view row at each read, through the pane's
+        // own mapping functions (never a hand-rolled count-1-row formula:
+        // the paced proxy's local count can disagree with the source total
+        // while rows are still releasing).
+        const int anchorSourceRow =
+            callQml(pane.timeline, "sourceRowForViewRow", anchorRow).toInt();
+        QVERIFY(anchorSourceRow >= 0);
+        auto anchorViewRow = [&]() {
+            return callQml(pane.timeline, "viewRowForSourceRow",
+                           anchorSourceRow).toInt();
+        };
         const qreal anchorViewportY = viewportYForRow(pane.timeline, anchorRow);
         QVERIFY(!qIsNaN(anchorViewportY));
 
@@ -327,7 +383,8 @@ private Q_SLOTS:
         QTest::qWait(60);
         QVERIFY(!pane.timeline->property("stickToBottom").toBool());
         QTRY_VERIFY_WITH_TIMEOUT(
-            qAbs(viewportYForRow(pane.timeline, anchorRow) - anchorViewportY)
+            qAbs(viewportYForRow(pane.timeline, anchorViewRow())
+                 - anchorViewportY)
                 <= 2.0,
             5000);
         QCOMPARE(pane.warnings, QStringList{});
