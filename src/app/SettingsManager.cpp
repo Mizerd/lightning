@@ -35,6 +35,8 @@ constexpr auto kSharePresence = "presence/shareOwn";
 // there is deliberately no global fallback key.
 constexpr auto kVerifyWarningDismissed = "security/verifyWarningDismissed";
 // v0.6.1: GIF browser policy.
+constexpr auto kMediaVolume         = "media/volume";       // 0..1
+constexpr auto kMediaPlaybackRate   = "media/playbackRate";  // 0.25..4.0
 constexpr auto kGifAutoplay         = "gif/autoplay";       // 0/1/2
 constexpr auto kGifSafeSearch       = "gif/safeSearch";     // gif::Rating id
 constexpr auto kGifStoreRecent      = "gif/storeRecent";    // bool
@@ -1220,6 +1222,43 @@ void SettingsManager::setVerificationWarningDismissed(bool v)
         return;
     m_store->setValue(accountKey(slug, kVerifyWarningDismissed), v);
     Q_EMIT verificationWarningDismissedChanged();
+}
+
+qreal SettingsManager::mediaVolume() const
+{
+    bool ok = false;
+    const qreal v = m_store->value(kMediaVolume, 0.8).toDouble(&ok);
+    if (!ok || !(v >= 0.0) || !(v <= 1.0))
+        return 0.8;
+    return v;
+}
+
+void SettingsManager::setMediaVolume(qreal v)
+{
+    const qreal clamped = v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
+    // Slider drags emit continuously; only a real change is written.
+    if (qFuzzyCompare(mediaVolume() + 1.0, clamped + 1.0))
+        return;
+    m_store->setValue(kMediaVolume, clamped);
+    Q_EMIT mediaVolumeChanged();
+}
+
+qreal SettingsManager::mediaPlaybackRate() const
+{
+    bool ok = false;
+    const qreal v = m_store->value(kMediaPlaybackRate, 1.0).toDouble(&ok);
+    if (!ok || !(v >= 0.25) || !(v <= 4.0))
+        return 1.0;
+    return v;
+}
+
+void SettingsManager::setMediaPlaybackRate(qreal v)
+{
+    const qreal clamped = v < 0.25 ? 0.25 : (v > 4.0 ? 4.0 : v);
+    if (qFuzzyCompare(mediaPlaybackRate() + 1.0, clamped + 1.0))
+        return;
+    m_store->setValue(kMediaPlaybackRate, clamped);
+    Q_EMIT mediaPlaybackRateChanged();
 }
 
 int SettingsManager::gifAutoplay() const

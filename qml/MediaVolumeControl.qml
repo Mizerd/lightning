@@ -32,6 +32,16 @@ IconButton {
             audio.userUnmuted = true
     }
 
+    // 2026-08-18 tester report ("neatsimena audio preferencu uzdeda default
+    // visada"): a level the user chose is remembered for the next card and
+    // the next session. Only an explicit user gesture writes it — never the
+    // player's own state changes, so a video card starting muted by policy
+    // cannot silently rewrite the stored level.
+    function rememberVolume(v) {
+        if (v > 0)
+            app.settings.mediaVolume = v
+    }
+
     function toggleMute() {
         if (!audio)
             return
@@ -116,6 +126,7 @@ IconButton {
                 root.audio.muted = value <= 0
                 if (value > 0)
                     root.lastAudibleVolume = value
+                root.rememberVolume(value)
             }
             // Track and handle MUST use the same horizontal expression or
             // they visibly disagree. The handle previously added

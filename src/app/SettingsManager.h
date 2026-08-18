@@ -116,6 +116,16 @@ class SettingsManager : public QObject
     // (0=Standard, 1=Fast, 2=Very fast). Default and safe fallback: Fast.
     Q_PROPERTY(int timelineWheelSpeed READ timelineWheelSpeed
                    WRITE setTimelineWheelSpeed NOTIFY timelineWheelSpeedChanged)
+    // 2026-08-18 tester report ("neatsimena audio preferencu uzdeda default
+    // visada"): inline media playback volume and speed are remembered across
+    // cards, rooms and restarts. GLOBAL, like the other playback policy
+    // settings — a per-account playback volume is not a thing users expect.
+    // Volume is a linear 0..1 factor; the rate is clamped to the same
+    // 0.25..4.0 band the player UI offers.
+    Q_PROPERTY(qreal mediaVolume READ mediaVolume WRITE setMediaVolume
+                   NOTIFY mediaVolumeChanged)
+    Q_PROPERTY(qreal mediaPlaybackRate READ mediaPlaybackRate
+                   WRITE setMediaPlaybackRate NOTIFY mediaPlaybackRateChanged)
     // Whole-interface zoom percent (75..150). GLOBAL: main() turns it into
     // QT_SCALE_FACTOR before the app object exists, so it cannot be
     // per-account and only takes effect on the next launch — Qt reads the
@@ -301,6 +311,11 @@ public:
 
     int timelineWheelSpeed() const;
     void setTimelineWheelSpeed(int v);
+
+    qreal mediaVolume() const;
+    void setMediaVolume(qreal v);
+    qreal mediaPlaybackRate() const;
+    void setMediaPlaybackRate(qreal v);
 
     QStringList recentEmoji() const;
     void recordRecentEmoji(const QString &emoji);
@@ -508,6 +523,8 @@ Q_SIGNALS:
     void gifPreferredProviderChanged();
     void showRoomActivityChanged();
     void timelineWheelSpeedChanged();
+    void mediaVolumeChanged();
+    void mediaPlaybackRateChanged();
     void interfaceZoomChanged();
     void sessionChanged();
     void secretBackendChanged();

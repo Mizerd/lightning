@@ -161,12 +161,32 @@ Item {
             }
         }
     }
+    // One toggle, so the tap handler, the control bar and the Space key all
+    // do the same thing (and all of them go through the audibility claim).
+    function togglePlayPause() {
+        if (player.playbackState === MediaPlayer.PlayingState) {
+            player.pause()
+            return
+        }
+        app.playback.acquire(root.ownerKey)
+        player.play()
+    }
+
     Connections {
         target: app.playback
         function onAudibleOwnerChanged() {
             if (!app.playback.owns(root.ownerKey)
                 && player.playbackState === MediaPlayer.PlayingState)
                 player.pause()
+        }
+        // 2026-08-18: Space toggles whatever is audible. A video card holds
+        // audibility exactly like an audio card does, so it has to answer
+        // this too — without it the key would be swallowed by a player that
+        // never reacts.
+        function onTogglePlayPauseRequested(ownerKey) {
+            if (ownerKey !== root.ownerKey || !root.ready)
+                return
+            root.togglePlayPause()
         }
     }
     // A forced stop (room/account switch, sign-out) must drop the source —
@@ -256,11 +276,7 @@ Item {
         TapHandler {
             id: videoTap
             enabled: root.ready && root.fetchState !== "failed"
-            onTapped: {
-                player.playbackState === MediaPlayer.PlayingState
-                    ? player.pause()
-                    : (app.playback.acquire(root.ownerKey), player.play())
-            }
+            onTapped: root.togglePlayPause()
             onDoubleTapped: videoOverlay.openFor(player, output)
         }
 

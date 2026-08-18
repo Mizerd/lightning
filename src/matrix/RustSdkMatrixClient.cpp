@@ -1783,6 +1783,26 @@ void RustSdkMatrixClient::toggleReaction(const QString &roomId,
     }
 }
 
+void RustSdkMatrixClient::removeMessageEdits(const QString &roomId,
+                                             const QString &eventId)
+{
+    // Deliberately NOT gated on timelineActiveFor(): this reads the event's
+    // relations through the room, not through the open timeline, and the
+    // menu that offers it can be open over a room whose timeline is being
+    // rebuilt. The Rust side re-validates the room and the event id.
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty() || eventId.isEmpty())
+        return;
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray eventBytes = eventId.toUtf8();
+    const QString result = takeRustString(mx_rust_remove_message_edits(
+        m_rustHandle, roomBytes.constData(), eventBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
 // v0.7 polls. Votes and ends act on a poll visible in the CURRENT room (or
 // one of its threads), so the room-timeline-active guard applies to all
 // three actions; the thread target is resolved Rust-side (open panel
@@ -5546,6 +5566,17 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                                    event.value(QStringLiteral("room_id")).toString(),
                                    event.value(QStringLiteral("ok_count")).toInt(),
                                    event.value(QStringLiteral("fail_count")).toInt());
+        return true;
+    }
+
+    if (type == QLatin1String("message_edits_removed")) {
+        Q_EMIT messageEditsRemoved(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("event_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("removed")).toInt(),
+            event.value(QStringLiteral("failed")).toInt(),
+            event.value(QStringLiteral("truncated")).toBool());
         return true;
     }
 

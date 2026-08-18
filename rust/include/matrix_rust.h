@@ -164,6 +164,16 @@ char *mx_rust_clear_room_notification_mode(void *client, const char *room_id);
 char *mx_rust_thread_participants(void *client,
                                   const char *room_id,
                                   const char *root_event_id);
+/* 2026-08-18: redact this message's OWN m.replace edits, returning it to its
+ * original text (the "edited" marker is derived from those events, so it goes
+ * with them). Cache-first relation lookup, own edits only, bounded at 50 per
+ * pass. Answers asynchronously with
+ *   {"type":"message_edits_removed","room_id","event_id","ok":bool,
+ *    "removed":n,"failed":n,"truncated":bool}
+ * Counts only — no event content crosses. */
+char *mx_rust_remove_message_edits(void *client,
+                                   const char *room_id,
+                                   const char *event_id);
 char *mx_rust_get_room_notification_mode(void *client, const char *room_id);
 char *mx_rust_accept_invite(void *client, const char *room_id);
 char *mx_rust_reject_invite(void *client, const char *room_id);

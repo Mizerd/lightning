@@ -149,6 +149,31 @@ ApplicationWindow {
     Loader {
         id: pageLoader
         anchors.fill: parent
+
+        // 2026-08-18 tester report ("tarpas neveikia pause ir unpause"):
+        // Space toggles whatever inline media is currently audible.
+        //
+        // Deliberately a Keys handler on an ANCESTOR, not a window
+        // Shortcut. A Shortcut is consumed before the focused item ever
+        // sees the key, which would silently take Space away from every
+        // control that already uses it — the timeline's page-down, the
+        // emoji and GIF grids, the focused player button itself. Key
+        // events instead bubble UP the parent chain, so this only ever
+        // sees a Space that nothing else wanted, and typing a space in
+        // the composer is untouched.
+        Keys.onSpacePressed: (event) => {
+            // Held Space would otherwise toggle on every auto-repeat.
+            if (event.isAutoRepeat) {
+                event.accepted = false
+                return
+            }
+            if (app.playback.audibleOwner.length > 0) {
+                app.playback.requestTogglePlayPause()
+                event.accepted = true
+            } else {
+                event.accepted = false
+            }
+        }
         // Hidden (not unloaded) while the full-view Settings covers the
         // content area: chat state survives without being visible,
         // interactive, or part of active layout.
@@ -287,6 +312,7 @@ ApplicationWindow {
         sequences: ["Ctrl+0"]
         onActivated: window._adjustZoom(0)
     }
+
     Rectangle {
         id: zoomNotice
         function show() { visible = true; zoomNoticeTimer.restart() }
@@ -360,6 +386,34 @@ ApplicationWindow {
             id: pinNoticeTimer
             interval: 4000
             onTriggered: pinNotice.visible = false
+        }
+        // 2026-08-18 "Remove edits": the message menu is closed by the time
+        // the server answers, so the outcome is reported here. Removing
+        // nothing is a real outcome and is stated as such rather than being
+        // passed off as success.
+        Connections {
+            target: app.composer
+            function onEditsRemoved(eventId, ok, removed, failed, truncated) {
+                // ok == false with nothing attempted means the edits could
+                // not be READ at all (offline, cache miss). Saying "there
+                // are none" there would be a lie about the message.
+                if (!ok && removed === 0 && failed === 0) {
+                    // One literal: qsTr() on a concatenation is not
+                    // extractable by lupdate, so a split string would never
+                    // be translatable.
+                    pinNotice.show(qsTr("This message's edits could not be read. Check your connection and try again."))
+                } else if (failed > 0) {
+                    pinNotice.show(
+                        qsTr("Removed %1 edit(s); %2 could not be removed.")
+                            .arg(removed).arg(failed))
+                } else if (removed === 0) {
+                    pinNotice.show(qsTr("No edits could be found to remove."))
+                } else if (truncated) {
+                    pinNotice.show(
+                        qsTr("Removed %1 edits. More remain — run it again.")
+                            .arg(removed))
+                }
+            }
         }
         Connections {
             target: app.pinned

@@ -30,6 +30,13 @@ bool MediaPlaybackController::owns(const QString &ownerKey) const
     return !ownerKey.isEmpty() && ownerKey == m_audibleOwner;
 }
 
+void MediaPlaybackController::requestTogglePlayPause()
+{
+    if (m_audibleOwner.isEmpty())
+        return;
+    Q_EMIT togglePlayPauseRequested(m_audibleOwner);
+}
+
 void MediaPlaybackController::stopAll()
 {
     // Counts only — never event ids in logs.

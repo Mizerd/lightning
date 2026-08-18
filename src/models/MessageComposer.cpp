@@ -131,6 +131,17 @@ void MessageComposer::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::attachmentQueueFinished,
                 this, &MessageComposer::onAttachmentQueueFinished);
+        // Scoped to the room the composer is in: a late answer for a room
+        // the user has already left must not report over the new one (the
+        // same rule the attachment-failure notice follows).
+        connect(m_client, &MatrixClient::messageEditsRemoved, this,
+                [this](const QString &roomId, const QString &eventId, bool ok,
+                       int removed, int failed, bool truncated) {
+                    if (roomId != m_roomId)
+                        return;
+                    Q_EMIT editsRemoved(eventId, ok, removed, failed,
+                                        truncated);
+                });
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
             m_attachments->clearAll();
             // Unresolved voice recordings must not outlive the session on
@@ -619,6 +630,18 @@ void MessageComposer::redact(const QString &eventId)
 {
     if (!m_client || m_roomId.isEmpty()) return;
     m_client->redactEvent(m_roomId, eventId, {});
+}
+
+bool MessageComposer::canRemoveEdits() const
+{
+    return m_client && m_client->supportsRemovingEdits();
+}
+
+void MessageComposer::removeEdits(const QString &eventId)
+{
+    if (!m_client || m_roomId.isEmpty() || eventId.isEmpty()) return;
+    if (!m_client->supportsRemovingEdits()) return;
+    m_client->removeMessageEdits(m_roomId, eventId);
 }
 
 bool MessageComposer::pollsSupported() const

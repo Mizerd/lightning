@@ -112,6 +112,12 @@ pub struct StoredMedia {
     pub declared_size: Option<u64>,
 }
 
+/// Upper bound on how long one reaction toggle may hold its in-flight guard
+/// slot. Long enough that a normal round trip never trips it, short enough
+/// that a send stuck behind a dead connection cannot leave one reaction
+/// permanently unclickable for the rest of the session.
+const REACTION_GUARD_TIMEOUT_SECS: u64 = 30;
+
 /// Bound for the per-room media source map. A timeline view never holds
 /// anywhere near this many media items; the cap only guards runaway growth.
 const MEDIA_SOURCE_CAP: usize = 4096;
@@ -180,6 +186,17 @@ pub struct TimelineRegistry {
     /// v0.5.9: media sources for the currently open room's items. Cleared
     /// on every room open and on shutdown. Never crosses the FFI.
     media_sources: Mutex<HashMap<String, StoredMedia>>,
+    /// 2026-08-18 tester report ("jeigu labai greitai paremovini reactionus
+    /// nuo message pradeda tweakinti ir spaminti juos auto grazinti ir
+    /// naikinti at the same time"): every click used to spawn its own
+    /// independent `Timeline::toggle_reaction` task, and concurrent toggles
+    /// for the SAME (room, event, key) each read the state the others were
+    /// still changing — so a fast series of clicks raced itself into a storm
+    /// of add/remove echoes. One toggle per target at a time; a click that
+    /// arrives while its own target is still resolving is DROPPED, because a
+    /// toggle is a request for a state flip, and queueing flips would just
+    /// replay the same race a moment later. Cleared on shutdown.
+    reaction_inflight: Mutex<std::collections::HashSet<String>>,
     /// v0.7 recovery supervisor: backup key-download attempts made this
     /// lifecycle ("<room>" for whole-room passes, "<room>\x1f<session>" for
     /// per-session downloads), so verified-session recovery never polls the
@@ -201,6 +218,7 @@ impl TimelineRegistry {
             room_gen: AtomicU64::new(0),
             lifecycle_gen: AtomicU64::new(1),
             media_sources: Mutex::new(HashMap::new()),
+            reaction_inflight: Mutex::new(std::collections::HashSet::new()),
             backup_download_attempts: Mutex::new(std::collections::HashSet::new()),
         }
     }
@@ -989,6 +1007,11 @@ impl TimelineRegistry {
         if let Ok(mut guard) = self.backup_download_attempts.lock() {
             guard.clear();
         }
+        // A toggle spawned by the departing session can never complete into
+        // the next one; leaving its key behind would block that reaction.
+        if let Ok(mut guard) = self.reaction_inflight.lock() {
+            guard.clear();
+        }
         if let Some((task, _room, _root)) = self.take_active_thread() {
             if let Some(task) = task {
                 let _ = runtime.block_on(async {
@@ -1406,13 +1429,59 @@ impl TimelineRegistry {
         };
         let event_id = EventId::parse(&target_event_id)
             .map_err(|_| "Invalid reaction target event id.".to_owned())?;
+        // One in-flight toggle per (room, event, key). A second click while
+        // the first is still resolving is dropped rather than raced.
+        //
+        // The key carries the LIFECYCLE generation: shutdown() clears the
+        // set, and a task spawned by the departed session still runs its
+        // release afterwards. Without the stamp that release would free a
+        // slot the NEXT session had just claimed, re-opening the very race
+        // this guard exists to close.
+        let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
+        let guard_key =
+            format!("{lifecycle}\u{1f}{room_id}\u{1f}{target_event_id}\u{1f}{key}");
+        if !self.begin_reaction(&guard_key) {
+            return Ok(());
+        }
+        let registry = Arc::clone(self);
         runtime.spawn(async move {
             let item_id = TimelineEventItemId::EventId(event_id);
             // Failures surface as the reaction simply not appearing; the SDK
             // logs details. Nothing sensitive to forward.
-            let _ = timeline.toggle_reaction(&item_id, &key).await;
+            //
+            // The await is bounded and the send is NOT cancelled by the
+            // bound: a queued send that is waiting for the network can take
+            // arbitrarily long, and a slot held for that whole time would
+            // leave the reaction silently unclickable. The inner task keeps
+            // running; only the guard is released.
+            let send = tokio::spawn(async move {
+                let _ = timeline.toggle_reaction(&item_id, &key).await;
+            });
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(REACTION_GUARD_TIMEOUT_SECS),
+                send,
+            )
+            .await;
+            registry.end_reaction(&guard_key);
         });
         Ok(())
+    }
+
+    /// Claim the single in-flight slot for one reaction target. Returns
+    /// false when a toggle for the same target is already running (the
+    /// caller must then drop the request). A poisoned lock fails CLOSED:
+    /// refusing a reaction is recoverable, racing one is not.
+    fn begin_reaction(&self, key: &str) -> bool {
+        match self.reaction_inflight.lock() {
+            Ok(mut guard) => guard.insert(key.to_owned()),
+            Err(_) => false,
+        }
+    }
+
+    fn end_reaction(&self, key: &str) {
+        if let Ok(mut guard) = self.reaction_inflight.lock() {
+            guard.remove(key);
+        }
     }
 
     /// Redact an event through the SDK timeline.
@@ -3218,8 +3287,53 @@ pub fn sessions_by_room_from_import(
 
 #[cfg(test)]
 mod tests {
-    use super::{sessions_by_room_from_import, state_row_text};
-    use std::collections::{BTreeMap, BTreeSet};
+    use super::{sessions_by_room_from_import, state_row_text, TimelineRegistry};
+    use std::collections::{BTreeMap, BTreeSet, VecDeque};
+    use std::sync::{Arc, Mutex};
+
+    // 2026-08-18 tester report: rapid reaction clicks used to spawn one
+    // independent SDK toggle per click for the SAME target, and those raced
+    // each other into an add/remove storm. Exactly one toggle per
+    // (room, event, key) may be in flight; the rest are dropped, and the
+    // slot is reusable as soon as the first one finishes.
+    #[test]
+    fn only_one_reaction_toggle_per_target_is_in_flight() {
+        let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
+        let target = "!room\u{1f}$event\u{1f}\u{1f44d}";
+        assert!(registry.begin_reaction(target), "the first click must run");
+        assert!(
+            !registry.begin_reaction(target),
+            "a second click while the first is in flight must be dropped"
+        );
+        // A different key on the same message is a different target.
+        let other = "!room\u{1f}$event\u{1f}\u{2764}";
+        assert!(registry.begin_reaction(other));
+
+        registry.end_reaction(target);
+        assert!(
+            registry.begin_reaction(target),
+            "the slot must be reusable once the toggle has completed"
+        );
+    }
+
+    // A session change must not strand a claimed slot: the toggle it
+    // belonged to can never complete into the next session, and leaving the
+    // key behind would make that reaction permanently unclickable.
+    #[test]
+    fn shutdown_releases_in_flight_reaction_slots() {
+        let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
+        let target = "!room\u{1f}$event\u{1f}\u{1f44d}";
+        assert!(registry.begin_reaction(target));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        registry.shutdown(&runtime);
+        assert!(
+            registry.begin_reaction(target),
+            "shutdown must clear the in-flight set"
+        );
+    }
 
     // v0.7.x room upgrades: a tombstone used to fall into the catch-all and
     // render as the generic "updated room settings", which told the reader

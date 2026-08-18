@@ -1238,6 +1238,36 @@ Rectangle {
                                     font.pixelSize: 11
                                     font.weight: Font.DemiBold
                                 }
+                                // Pause / resume and Done — the same three
+                                // controls the room composer gained in the
+                                // 2026-08-18 round; a thread recording must
+                                // not be a lesser one.
+                                IconButton {
+                                    objectName: "threadVoicePauseButton"
+                                    implicitWidth: 22; implicitHeight: 22
+                                    iconName: threadVoicePill.rec
+                                              && threadVoicePill.rec.paused
+                                              ? "play_arrow" : "pause"
+                                    iconSize: 14
+                                    enabled: threadVoicePill.rec
+                                             && threadVoicePill.rec.recording
+                                    Accessible.name:
+                                        threadVoicePill.rec
+                                        && threadVoicePill.rec.paused
+                                        ? qsTr("Resume recording")
+                                        : qsTr("Pause recording")
+                                    ToolTip.text: Accessible.name
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    onClicked: {
+                                        if (!threadVoicePill.rec)
+                                            return
+                                        if (threadVoicePill.rec.paused)
+                                            threadVoicePill.rec.resume()
+                                        else
+                                            threadVoicePill.rec.pause()
+                                    }
+                                }
                                 IconButton {
                                     objectName: "threadVoiceCancelButton"
                                     implicitWidth: 22; implicitHeight: 22
@@ -1248,6 +1278,22 @@ Rectangle {
                                     ToolTip.visible: hovered
                                     ToolTip.delay: 500
                                     onClicked: app.cancelVoiceRecording()
+                                }
+                                IconButton {
+                                    objectName: "threadVoiceDoneButton"
+                                    implicitWidth: 22; implicitHeight: 22
+                                    iconName: "check"
+                                    iconSize: 14
+                                    enabled: threadVoicePill.rec
+                                             && threadVoicePill.rec.recording
+                                    Accessible.name: qsTr("Finish and review")
+                                    ToolTip.text: qsTr("Done")
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    onClicked: {
+                                        panel.voiceWantsPreview = true
+                                        app.voiceRecorder.stop()
+                                    }
                                 }
                                 IconButton {
                                     objectName: "threadVoiceSendButton"
@@ -1267,6 +1313,23 @@ Rectangle {
                                 }
                             }
                         }
+                        VoicePreviewBar {
+                            objectName: "threadVoicePreview"
+                            compact: true
+                            Layout.alignment: Qt.AlignVCenter
+                            visible: panel.pendingVoice !== null
+                            filePath: panel.pendingVoice
+                                      ? panel.pendingVoice.filePath : ""
+                            mime: panel.pendingVoice
+                                  ? panel.pendingVoice.mime : ""
+                            durationMs: panel.pendingVoice
+                                        ? panel.pendingVoice.durationMs : 0
+                            waveform: panel.pendingVoice
+                                      ? panel.pendingVoice.waveform : []
+                            onSendRequested: panel.sendPendingVoice()
+                            onDiscardRequested: panel.discardPendingVoice()
+                        }
+
                         // Accent-fill thread send: 28×28, radius 7, 16px icon.
                         IconButton {
                             objectName: "threadSendButton"
@@ -1328,9 +1391,14 @@ Rectangle {
     Connections {
         target: app.thread
         function onStateChanged() {
-            if (panel.voiceActive
-                && app.thread.state !== ThreadController.Ready)
+            if (app.thread.state === ThreadController.Ready)
+                return
+            if (panel.voiceActive)
                 app.cancelVoiceRecording()
+            // A finished-but-unsent recording belongs to the thread it was
+            // made in; leaving deletes its file rather than stranding it.
+            panel.voiceWantsPreview = false
+            panel.discardPendingVoice()
         }
     }
     Connections {
@@ -1338,6 +1406,8 @@ Rectangle {
         function onCurrentRoomIdChanged() {
             if (panel.voiceActive)
                 app.cancelVoiceRecording()
+            panel.voiceWantsPreview = false
+            panel.discardPendingVoice()
         }
     }
     // Recorder results. target uses the lazy getter only while this panel
@@ -1348,13 +1418,45 @@ Rectangle {
             // Release ownership FIRST: the send is this panel's, and a
             // re-entrant signal must not find us still armed.
             app.endVoiceRecording()
+            if (panel.voiceWantsPreview) {
+                panel.voiceWantsPreview = false
+                // A preview that was never answered is replaced, not
+                // stacked: its file is deleted before the new one takes the
+                // slot, or it would sit in the temp dir until sign-out.
+                panel.discardPendingVoice()
+                panel.pendingVoice = { filePath: filePath, mime: mime,
+                                       durationMs: durationMs,
+                                       waveform: waveform }
+                return
+            }
             app.thread.sendVoiceMessage(filePath, mime, durationMs, waveform)
         }
         function onFailed(message) {
             app.endVoiceRecording()
+            panel.voiceWantsPreview = false
             panel.attachmentNotice = message
             threadNoticeTimer.restart()
         }
+    }
+
+    // A finished recording awaiting review (see VoicePreviewBar). The file
+    // belongs to this panel until it is sent or deleted.
+    property var pendingVoice: null
+    property bool voiceWantsPreview: false
+    function sendPendingVoice() {
+        if (!panel.pendingVoice)
+            return
+        var v = panel.pendingVoice
+        panel.pendingVoice = null
+        app.thread.sendVoiceMessage(v.filePath, v.mime, v.durationMs,
+                                    v.waveform)
+    }
+    function discardPendingVoice() {
+        if (!panel.pendingVoice)
+            return
+        var v = panel.pendingVoice
+        panel.pendingVoice = null
+        app.discardPreparedVoice(v.filePath)
     }
 
     EmojiPicker {

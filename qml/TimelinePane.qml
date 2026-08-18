@@ -3115,9 +3115,35 @@ Rectangle {
                 objectName: "homePane"
                 anchors.fill: parent
                 visible: app.currentRoomId === "" && !parent.spaceViewActive
-                onNewMessageRequested: root.newConversationRequested("dm")
-                onCreateRoomRequested: root.newConversationRequested("room")
-                onCreateSpaceRequested: root.newConversationRequested("space")
+                onNewMessageRequested: root.newConversationRequested("dm", undefined)
+                onCreateRoomRequested: root.newConversationRequested("room", undefined)
+                onCreateSpaceRequested: root.newConversationRequested("space", undefined)
+            }
+
+            // 2026-08-18 tester report ("still no middle click scrol"):
+            // desktop autoscroll over the timeline. It is a SIBLING of the
+            // Flickable, not a child: `timeline` is rotated 180 degrees, so
+            // anything inside it would receive mirrored coordinates. It
+            // therefore drives contentY through the same wheelMinY/wheelMaxY
+            // bounds the wheel handler uses, with `inverted` set because a
+            // rotated view scrolls towards newer messages as contentY FALLS.
+            MiddleClickScroller {
+                objectName: "timelineMiddleClickScroller"
+                anchors.fill: parent
+                z: 2
+                visible: app.currentRoomId !== "" && timeline.presentationReady
+                view: timeline
+                inverted: true
+                minYFunc: function() { return timeline.wheelMinY() }
+                maxYFunc: function() { return timeline.wheelMaxY() }
+                // A wheel glide still in flight would fight the gesture, so
+                // it is cancelled once when the gesture starts rather than on
+                // every tick. stickToBottom is NOT forced false here:
+                // updateStickAndPaginate() derives it from the real position,
+                // so autoscrolling back down to the newest message re-arms
+                // follow-latest exactly as the wheel does.
+                onActiveChanged: if (active) timeline.cancelWheelMotion()
+                onScrolled: timeline.updateStickAndPaginate()
             }
 
             // v0.7: Space Home — never an ordinary room timeline/composer.

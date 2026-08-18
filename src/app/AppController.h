@@ -473,6 +473,12 @@ public:
     Q_INVOKABLE void endVoiceRecording();
     // Discard an in-progress recording and release ownership.
     Q_INVOKABLE void cancelVoiceRecording();
+    // 2026-08-18: delete a FINALIZED recording the user decided not to send.
+    // ready() transfers file ownership to the composer, so a discarded
+    // preview would otherwise leave the audio on disk until the session
+    // ends. Deletes only a file the recorder itself produced (the recorder
+    // answers that), never an arbitrary path handed over from QML.
+    Q_INVOKABLE bool discardPreparedVoice(const QString &localPath);
     MediaPlaybackController *playback() const { return m_playback.get(); }
     PaginationController *pagination() const { return m_pagination.get(); }
     ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }

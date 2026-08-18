@@ -42,6 +42,7 @@
 
 #include <QClipboard>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QIcon>
@@ -1443,6 +1444,15 @@ void AppController::endVoiceRecording()
         return;
     m_voiceOwner.clear();
     Q_EMIT voiceOwnerChanged();
+}
+
+bool AppController::discardPreparedVoice(const QString &localPath)
+{
+    if (localPath.isEmpty() || !m_voiceRecorder)
+        return false;
+    if (!m_voiceRecorder->ownsPath(localPath))
+        return false;
+    return QFile::remove(localPath);
 }
 
 void AppController::cancelVoiceRecording()

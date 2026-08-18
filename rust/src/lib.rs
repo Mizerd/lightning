@@ -2339,6 +2339,23 @@ pub unsafe extern "C" fn mx_rust_thread_participants(
     })
 }
 
+/// 2026-08-18: redact this message's OWN `m.replace` edits, returning it to
+/// its original text. Answers asynchronously with a `message_edits_removed`
+/// poll event carrying counts only. See rooms::remove_message_edits.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_remove_message_edits(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let event_id = unsafe { cstr_arg(event_id) }?;
+        rooms::remove_message_edits(bridge, room_id, event_id).map(|_| String::new())
+    })
+}
+
 /// v0.7: "follow account default" — REMOVE the room's user-defined push
 /// rules so the account's own rules decide again.
 ///

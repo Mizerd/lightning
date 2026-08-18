@@ -34,6 +34,10 @@ AnchoredPopup {
     // falls back to the static keyboard hint).
     property string previewEmoji: ""
     property string previewName: ""
+    // The cell the preview belongs to (hovered, or keyboard-focused). The
+    // shared Alt+V shortcut needs the ITEM, not just its emoji: the tone
+    // popup is positioned at the cell it was asked for.
+    property Item previewCell: null
 
     // Category -> Material Symbols glyph, keyed by EmojiCatalog's exact
     // category strings (verified against EmojiCatalog.cpp's kCategories).
@@ -99,6 +103,26 @@ AnchoredPopup {
         tonePopup.open()
     }
 
+    // 2026-08-18 tester report ("alt+v emoji bar neveikia"): the shortcut was
+    // implemented only as a Keys handler on a grid CELL, and the picker opens
+    // with the keyboard focus in its search field — so the cell never saw the
+    // key and the footer advertised a shortcut that could not fire. It now
+    // lives on the picker, targeting whichever cell the user is actually on:
+    // the hovered one, else the keyboard-current one.
+    Shortcut {
+        sequences: ["Alt+V"]
+        enabled: picker.visible
+        onActivated: picker.openTonesForCurrentCell()
+    }
+    function openTonesForCurrentCell() {
+        var cell = picker.previewCell
+        if (!cell || !cell.hasSkinTones)
+            cell = emojiGrid.currentItem
+        if (!cell || !cell.hasSkinTones)
+            return
+        picker.openTonePopupFor(cell, cell.baseEmoji)
+    }
+
     // placeInsideWindow()/reanchor() are AnchoredPopup's, and AnchoredPopup's
     // own onAboutToShow already performs the initial placement.
     onAboutToShow: {
@@ -106,6 +130,7 @@ AnchoredPopup {
         app.emojiCatalog.searchText = ""
         previewEmoji = ""
         previewName = ""
+        previewCell = null
         Qt.callLater(search.forceActiveFocus)
     }
 
@@ -276,6 +301,11 @@ AnchoredPopup {
                             width: emojiGrid.cellWidth
                             height: emojiGrid.cellHeight
                             activeFocusOnTab: true
+                            // Keyboard navigation moves GridView.currentIndex;
+                            // without this the current cell never took active
+                            // focus, so its Keys handlers (and the focus ring)
+                            // were unreachable by arrow keys.
+                            focus: GridView.isCurrentItem
                             Accessible.name: accessibleLabel
                             Accessible.role: Accessible.Button
 
@@ -283,9 +313,12 @@ AnchoredPopup {
                                 if (activeFocus) {
                                     picker.previewEmoji = cell.emoji
                                     picker.previewName = cell.name
+                                    picker.previewCell = cell
                                 } else if (picker.previewEmoji === cell.emoji) {
                                     picker.previewEmoji = ""
                                     picker.previewName = ""
+                                    if (picker.previewCell === cell)
+                                        picker.previewCell = null
                                 }
                             }
 
@@ -317,9 +350,12 @@ AnchoredPopup {
                                     if (hovered) {
                                         picker.previewEmoji = cell.emoji
                                         picker.previewName = cell.name
+                                        picker.previewCell = cell
                                     } else if (picker.previewEmoji === cell.emoji) {
                                         picker.previewEmoji = ""
                                         picker.previewName = ""
+                                        if (picker.previewCell === cell)
+                                            picker.previewCell = null
                                     }
                                 }
                             }

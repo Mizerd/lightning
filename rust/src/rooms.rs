@@ -1115,6 +1115,117 @@ pub(crate) fn thread_participants(
     Ok(())
 }
 
+/// How many edit events one "remove edits" pass will redact. An edit chain
+/// this long is already pathological; the report says honestly how many were
+/// removed, so a longer chain simply needs a second pass rather than an
+/// unbounded burst of redactions.
+const EDIT_REDACTION_CAP: usize = 50;
+
+/// 2026-08-18 tester request ("add function remove all edits").
+///
+/// Matrix has no "unedit" primitive: an edit is a separate `m.replace` event,
+/// and the ONLY way to take one back is to redact it. So this collects the
+/// message's replacement events through
+/// `Room::load_or_fetch_event_with_relations` (cache-first, exactly like the
+/// thread facepile above) and redacts them, which returns the message to its
+/// ORIGINAL text — including dropping the "edited" marker, since the marker
+/// is derived from the presence of those events, not stored anywhere.
+///
+/// Only the caller's OWN edits are touched. A homeserver accepts a redaction
+/// of someone else's event only with the redact power level, and quietly
+/// redacting another person's edits from a message-menu entry is not what
+/// this action says it does.
+///
+/// The result crosses as counts only — never event content.
+pub(crate) fn remove_message_edits(
+    bridge: &RustClient,
+    room_id: String,
+    target_event_id: String,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::events::relation::RelationType;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let target = EventId::parse(&target_event_id)
+        .map_err(|_| "invalid message event id".to_owned())?;
+    let own_user_id = client
+        .user_id()
+        .ok_or_else(|| "no active Matrix session".to_owned())?
+        .to_owned();
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let loaded = room
+            .load_or_fetch_event_with_relations(
+                &target,
+                Some(vec![RelationType::Replacement]),
+                None,
+            )
+            .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return; // the account moved on
+        }
+        let Ok((_original, relations)) = loaded else {
+            enqueue(&events, json!({
+                "type": "message_edits_removed",
+                "lifecycle": lifecycle,
+                "room_id": room_id,
+                "event_id": target_event_id,
+                "ok": false,
+                "removed": 0,
+                "failed": 0,
+                "truncated": false,
+            }));
+            return;
+        };
+
+        // Own replacement events only, newest-first order is irrelevant: all
+        // of them go. The original event is never in this list.
+        let mut edit_ids: Vec<matrix_sdk::ruma::OwnedEventId> = Vec::new();
+        for related in &relations {
+            let Ok(parsed) = related.raw().deserialize() else {
+                continue;
+            };
+            if parsed.sender() != own_user_id {
+                continue;
+            }
+            let id = parsed.event_id().to_owned();
+            if id == target {
+                continue; // never redact the message itself
+            }
+            edit_ids.push(id);
+        }
+        let found = edit_ids.len();
+        let truncated = found > EDIT_REDACTION_CAP;
+        edit_ids.truncate(EDIT_REDACTION_CAP);
+
+        let mut removed = 0usize;
+        let mut failed = 0usize;
+        for id in edit_ids {
+            match room.redact(&id, None, None).await {
+                Ok(_) => removed += 1,
+                Err(_) => failed += 1,
+            }
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+        }
+        enqueue(&events, json!({
+            "type": "message_edits_removed",
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "event_id": target_event_id,
+            // The lookup succeeded; `removed`/`failed` say what happened.
+            "ok": failed == 0,
+            "removed": removed,
+            "failed": failed,
+            "truncated": truncated,
+        }));
+    });
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Member snapshot + permissions
 // ---------------------------------------------------------------------------

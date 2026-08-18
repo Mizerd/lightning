@@ -97,6 +97,12 @@ public:
     Q_INVOKABLE void cancelReplyOrEdit();
     Q_INVOKABLE void reactTo(const QString &targetEventId, const QString &key);
     Q_INVOKABLE void redact(const QString &eventId);
+    // 2026-08-18 tester request ("add function remove all edits"): redact the
+    // m.replace events attached to one of the user's own messages so it
+    // returns to its original text. Backend-gated — the relations are only
+    // reachable through the SDK.
+    Q_INVOKABLE bool canRemoveEdits() const;
+    Q_INVOKABLE void removeEdits(const QString &eventId);
 
     // v0.7 outgoing @-mentions. `mentionTokenAt` reports the active @-token at
     // the cursor ({active, start, query}); it is ref-aware, so a cursor sitting
@@ -169,6 +175,9 @@ Q_SIGNALS:
     void editStateChanged();
     void threadStateChanged();
     void attachmentsChanged();
+    // Result of removeEdits(), for the room it was issued in. Counts only.
+    void editsRemoved(const QString &eventId, bool ok, int removed,
+                      int failed, bool truncated);
     void attachmentRejected(const QString &reason);
 
 private Q_SLOTS:

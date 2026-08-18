@@ -1514,6 +1514,7 @@ Item {
         // Reactions row
         Flow {
             id: reactionsFlow
+            objectName: "reactionsFlow"
             // Identity-guarded projection (same pattern as the read-receipt
             // strip below): ReactionsRole builds a fresh QVariantList on
             // every read, and a Repeater bound to it tore down and rebuilt
@@ -1530,6 +1531,17 @@ Item {
             onLiveReactionsChanged: refreshReactions()
             Component.onCompleted: refreshReactions()
             visible: !model.redacted && shownReactions.length > 0
+            // 2026-08-18 tester report ("infinite reactions eina i sona"):
+            // a Flow only wraps if it HAS a width, and without fillWidth its
+            // width was its own implicit single-row width — so a busy message
+            // ran its chips straight off the right edge of the window, out of
+            // reach, and over the row's hover action bar. Filling the row
+            // gives the Flow a real width to wrap inside; the right margin
+            // keeps the last chip clear of the read-receipt rail, which is
+            // painted upward from the row's bottom edge at the same corner.
+            Layout.fillWidth: true
+            Layout.rightMargin: readReceiptStrip.visible
+                                ? receiptRow.width + AppTheme.spacingXS : 0
             Layout.alignment: Qt.AlignLeft
             // Align with the message body across every layout mode (Modern 40,
             // compact 8, bubble 44) instead of a fixed 36; add a deliberate
@@ -2020,7 +2032,15 @@ Item {
                 text: qsTr("Pin message")
                 // `revision` is the re-evaluation dependency: canTogglePin
                 // is a Q_INVOKABLE and a binding cannot observe its inputs.
+                //
+                // 2026-08-18 tester report ("you can pin 'message deleted'
+                // useless"): a redacted event has no content left to pin, so
+                // pinning one only adds a dead entry to
+                // m.room.pinned_events. UNPIN below stays offered for a
+                // redacted event on purpose — a message pinned before it was
+                // deleted must still be removable.
                 visible: !root.inThreadPanel && app.pinned
+                         && model.redacted !== true
                          && app.pinned.revision >= 0
                          && app.pinned.canTogglePin(root.menuEventId, true)
                 onTriggered: app.pinned.pin(root.menuEventId)
@@ -2117,6 +2137,22 @@ Item {
                     root.menuEventId,
                     root.timelineModel.visibleTextForEvent(root.menuEventId),
                     root.timelineModel.sanitizedHtmlForEvent(root.menuEventId))
+            }
+            // 2026-08-18 tester request ("add function remove all edits").
+            // Matrix has no unedit: the edits are separate m.replace events
+            // and taking them back means redacting them, which is what this
+            // does — the message returns to its original text and stops
+            // being marked as edited. Own, edited, editable messages only,
+            // and only on a backend that can reach the relations.
+            AppMenuItem {
+                objectName: "removeEditsMenuItem"
+                iconName: "undo"
+                text: qsTr("Remove edits")
+                enabled: model.edited === true
+                         && root.timelineModel.canEditEvent(root.menuEventId)
+                         && app.composer.canRemoveEdits()
+                visible: enabled
+                onTriggered: app.composer.removeEdits(root.menuEventId)
             }
             // v0.7 polls: conservative rule — own running
             // polls only. The server and receiving clients

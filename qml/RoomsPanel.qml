@@ -562,6 +562,14 @@ Rectangle {
             color: AppTheme.textMuted
             font.pixelSize: AppTheme.fontSizeS
         }
+        // Desktop autoscroll (2026-08-18 tester report). Sibling of the
+        // view, middle button only, so row clicks and hover are untouched.
+        MiddleClickScroller {
+            objectName: "roomListMiddleClickScroller"
+            anchors.fill: parent
+            z: 1
+            view: roomList
+        }
         } // room-list wrapper Item
 
         // The account entry point lives on the SpacesRail (design shell);

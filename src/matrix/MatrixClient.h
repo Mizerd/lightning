@@ -278,6 +278,18 @@ public:
                                 const QString &targetEventId,
                                 const QString &key) = 0;
 
+    // 2026-08-18: "Remove edits" — redact the OWN m.replace events attached
+    // to a message so it returns to its original text. Matrix has no unedit
+    // primitive, and a backend that cannot reach the relations honestly
+    // reports it as unsupported rather than pretending the edits are gone.
+    virtual bool supportsRemovingEdits() const { return false; }
+    virtual void removeMessageEdits(const QString &roomId,
+                                    const QString &eventId)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(eventId);
+    }
+
     // v0.7: MSC3381 polls (Rust backend only; mock/HTTP keep the honest
     // false default and the poll actions stay hidden/disabled in the UI).
     // threadRootId empty targets the room's live timeline, otherwise the
@@ -937,6 +949,14 @@ Q_SIGNALS:
                                     const QString &rootEventId,
                                     const QVariantList &participants,
                                     int distinct, bool truncated);
+    // 2026-08-18 "Remove edits" result. Counts only: `removed` edits were
+    // redacted, `failed` were refused by the server, `truncated` means the
+    // chain was longer than one pass removes. ok == "nothing failed", which
+    // is not the same as "something was removed" — a message with no edits
+    // reports ok with removed 0, and the UI must not claim otherwise.
+    void messageEditsRemoved(const QString &roomId, const QString &eventId,
+                             bool ok, int removed, int failed,
+                             bool truncated);
     // v0.7.x Matrix presence: one polling round's answers. `entries` is a
     // QVariantList of maps — userId, ok, state ("online" / "unavailable" /
     // "offline" / "unknown"), currentlyActive, lastActiveAgoMs (qlonglong,

@@ -26,6 +26,16 @@ Item {
     // keyboard shortcuts still apply regardless of visibility.
     property bool toolbarExpanded: false
 
+    // 2026-08-18 tester report: at a narrow window the fixed-width buttons in
+    // the input row left the text field ~10px wide ("net nematai pilnos
+    // vienos raides ka typini"), which also made editing a message through
+    // the composer impossible in a half-screen window. Below this width the
+    // OPTIONAL controls (formatting toggle, emoji, GIF) leave the row and are
+    // offered from the attach menu instead, so the field keeps a usable
+    // width and no action is lost. Measured against this bar's own width, not
+    // the input row's, so hiding a child can never feed back into the test.
+    readonly property bool compactInputRow: root.width > 0 && root.width < 460
+
     // v0.7: a voice recording (or its finalization) is in progress — the
     // mic slot shows the recording pill instead of the idle button.
     //
@@ -247,6 +257,11 @@ Item {
             // away discards it rather than sending into the wrong room.
             if (root.voiceActive)
                 app.cancelVoiceRecording()
+            // Same rule for one that is finished but not sent: it belongs to
+            // the room it was recorded in, and its file is deleted rather
+            // than left on disk.
+            root.voiceWantsPreview = false
+            root.discardPendingVoice()
         }
     }
     // Recorder results. target uses the lazy getter only while a recording
@@ -257,14 +272,52 @@ Item {
             // Release ownership FIRST: the send is this composer's, and a
             // re-entrant signal must not find us still armed.
             app.endVoiceRecording()
+            // "Done" finalizes into the preview bar instead of sending; the
+            // pill's own send button keeps the one-press path.
+            if (root.voiceWantsPreview) {
+                root.voiceWantsPreview = false
+                // A preview that was never answered is replaced, not
+                // stacked: its file is deleted before the new one takes the
+                // slot, or it would sit in the temp dir until sign-out.
+                root.discardPendingVoice()
+                root.pendingVoice = { filePath: filePath, mime: mime,
+                                      durationMs: durationMs,
+                                      waveform: waveform }
+                return
+            }
             app.composer.sendVoiceMessage(filePath, mime, durationMs,
                                           waveform)
         }
         function onFailed(message) {
             app.endVoiceRecording()
+            root.voiceWantsPreview = false
             root.attachmentNotice = message
             noticeTimer.restart()
         }
+    }
+
+    // A finalized recording awaiting the user's decision, or null. Holding
+    // it here means THIS composer owns the file: it is either handed to the
+    // send queue or deleted, never left behind.
+    property var pendingVoice: null
+    // Set by "Done" so the next ready() lands in the preview rather than
+    // going straight out.
+    property bool voiceWantsPreview: false
+
+    function sendPendingVoice() {
+        if (!root.pendingVoice)
+            return
+        var v = root.pendingVoice
+        root.pendingVoice = null
+        app.composer.sendVoiceMessage(v.filePath, v.mime, v.durationMs,
+                                      v.waveform)
+    }
+    function discardPendingVoice() {
+        if (!root.pendingVoice)
+            return
+        var v = root.pendingVoice
+        root.pendingVoice = null
+        app.discardPreparedVoice(v.filePath)
     }
 
     function openGifPicker() {
@@ -343,6 +396,21 @@ Item {
             text: qsTr("Send file…")
             onTriggered: pickFileDialog.open()
         }
+        // Displaced by a narrow window, exactly as in the Rust-backend menu.
+        AppMenuItem {
+            objectName: "composerLegacyEmojiMenuItem"
+            iconName: "mood"
+            text: qsTr("Emoji…")
+            visible: root.compactInputRow
+            onTriggered: root.openEmojiPicker()
+        }
+        AppMenuItem {
+            objectName: "composerLegacyGifMenuItem"
+            iconName: "gif_box"
+            text: qsTr("GIF…")
+            visible: root.compactInputRow && app.gif.available
+            onTriggered: root.openGifPicker()
+        }
     }
 
     // Rust-backend attach menu (v0.7): files plus poll creation. The
@@ -361,6 +429,22 @@ Item {
             text: qsTr("Create poll…")
             visible: app.composer.pollsSupported()
             onTriggered: createPollDialog.openDialog()
+        }
+        // Only while the input row is too narrow to carry these as their own
+        // buttons — the action is displaced, never removed.
+        AppMenuItem {
+            objectName: "composerEmojiMenuItem"
+            iconName: "mood"
+            text: qsTr("Emoji…")
+            visible: root.compactInputRow
+            onTriggered: root.openEmojiPicker()
+        }
+        AppMenuItem {
+            objectName: "composerGifMenuItem"
+            iconName: "gif_box"
+            text: qsTr("GIF…")
+            visible: root.compactInputRow && app.gif.available
+            onTriggered: root.openGifPicker()
         }
     }
     CreatePollDialog {
@@ -802,8 +886,14 @@ Item {
                                 return
                             }
                             // Polls available → offer the menu; otherwise
-                            // keep the direct one-click file picker.
-                            if (app.composer.pollsSupported())
+                            // keep the direct one-click file picker. In a
+                            // narrow window the menu is also where the
+                            // displaced emoji/GIF actions live, so it has to
+                            // open there regardless of poll support — without
+                            // this they would be unreachable on a backend
+                            // that has no polls.
+                            if (app.composer.pollsSupported()
+                                    || root.compactInputRow)
                                 attachMenu.popup()
                             else
                                 pickAttachmentsDialog.open()
@@ -817,6 +907,9 @@ Item {
                     IconButton {
                         objectName: "composerFormatToggleButton"
                         Layout.alignment: Qt.AlignVCenter
+                        // Narrow window: the optional controls yield their
+                        // width to the text field (see inputFlick).
+                        visible: !root.compactInputRow
                         implicitWidth: 28; implicitHeight: 28
                         radius: 6
                         iconName: "edit_square"
@@ -837,7 +930,19 @@ Item {
 
                     Flickable {
                         id: inputFlick
+                        objectName: "composerInputFlick"
                         Layout.fillWidth: true
+                        // 2026-08-18 tester report ("kai sushrinkini app iki
+                        // max net nematai pilnos vienos raides ka typini"):
+                        // every other control in this row has a fixed width,
+                        // so the text field was the only item left to absorb
+                        // a narrow window and collapsed to ~10px at the
+                        // application's own 640px minimum. It now keeps a
+                        // readable floor and the OPTIONAL controls step aside
+                        // instead (root.compactInputRow below), which is also
+                        // what makes editing a message usable in a half-screen
+                        // window.
+                        Layout.minimumWidth: 120
                         Layout.alignment: Qt.AlignVCenter
                         // Grows with content up to ~6 lines (at the current
                         // text scale), then scrolls. The cap alone used to
@@ -981,6 +1086,9 @@ Item {
                         id: emojiButton
                         objectName: "composerEmojiButton"
                         Layout.alignment: Qt.AlignVCenter
+                        // Narrow window: moves into the attach menu, which
+                        // keeps the action reachable rather than dropping it.
+                        visible: !root.compactInputRow
                         implicitWidth: 28; implicitHeight: 28
                         radius: 6
                         iconName: "mood"
@@ -999,6 +1107,8 @@ Item {
                         id: gifButton
                         objectName: "composerGifButton"
                         Layout.alignment: Qt.AlignVCenter
+                        // Narrow window: moves into the attach menu.
+                        visible: !root.compactInputRow
                         implicitWidth: gifCap.implicitWidth + AppTheme.spacing8
                         implicitHeight: 28
                         hoverEnabled: true
@@ -1149,6 +1259,34 @@ Item {
                                 font.pixelSize: 12
                                 font.weight: Font.DemiBold
                             }
+                            // Pause / resume (2026-08-18 tester report).
+                            // A paused recording keeps the microphone and
+                            // the file; only the capture is suspended, and
+                            // the elapsed time freezes with it.
+                            IconButton {
+                                objectName: "composerVoicePauseButton"
+                                implicitWidth: 24; implicitHeight: 24
+                                iconName: voicePill.rec && voicePill.rec.paused
+                                          ? "play_arrow" : "pause"
+                                iconSize: 15
+                                enabled: voicePill.rec
+                                         && voicePill.rec.recording
+                                Accessible.name:
+                                    voicePill.rec && voicePill.rec.paused
+                                    ? qsTr("Resume recording")
+                                    : qsTr("Pause recording")
+                                ToolTip.text: Accessible.name
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 500
+                                onClicked: {
+                                    if (!voicePill.rec)
+                                        return
+                                    if (voicePill.rec.paused)
+                                        voicePill.rec.resume()
+                                    else
+                                        voicePill.rec.pause()
+                                }
+                            }
                             IconButton {
                                 objectName: "composerVoiceCancelButton"
                                 implicitWidth: 24; implicitHeight: 24
@@ -1159,6 +1297,24 @@ Item {
                                 ToolTip.visible: hovered
                                 ToolTip.delay: 500
                                 onClicked: app.cancelVoiceRecording()
+                            }
+                            // Done: finish the recording and review it
+                            // before deciding, instead of sending blind.
+                            IconButton {
+                                objectName: "composerVoiceDoneButton"
+                                implicitWidth: 24; implicitHeight: 24
+                                iconName: "check"
+                                iconSize: 15
+                                enabled: voicePill.rec
+                                         && voicePill.rec.recording
+                                Accessible.name: qsTr("Finish and review")
+                                ToolTip.text: qsTr("Done")
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 500
+                                onClicked: {
+                                    root.voiceWantsPreview = true
+                                    app.voiceRecorder.stop()
+                                }
                             }
                             IconButton {
                                 objectName: "composerVoiceSendButton"
@@ -1177,6 +1333,21 @@ Item {
                                 onClicked: app.voiceRecorder.stop()
                             }
                         }
+                    }
+
+                    VoicePreviewBar {
+                        objectName: "composerVoicePreview"
+                        Layout.alignment: Qt.AlignVCenter
+                        visible: root.pendingVoice !== null
+                        filePath: root.pendingVoice
+                                  ? root.pendingVoice.filePath : ""
+                        mime: root.pendingVoice ? root.pendingVoice.mime : ""
+                        durationMs: root.pendingVoice
+                                    ? root.pendingVoice.durationMs : 0
+                        waveform: root.pendingVoice
+                                  ? root.pendingVoice.waveform : []
+                        onSendRequested: root.sendPendingVoice()
+                        onDiscardRequested: root.discardPendingVoice()
                     }
 
                     // Accent-fill send (34px, radius 9 — a rounded square).
@@ -1229,9 +1400,25 @@ Item {
             if (app.composer.isEditing)
                 Qt.callLater(root.placeEditCaret)
         }
+        // 2026-08-18 tester report ("kai iseini ir grizti i chat tavo
+        // typewriteri numeti i gala o ne i prieki"): leaving a room and
+        // coming back restored the draft text but left the caret at
+        // position 0, so the next character typed landed in FRONT of what
+        // was already written. A restored draft comes back ready to
+        // continue, exactly like the edit path above. Focus is deliberately
+        // NOT taken here — switching rooms must not steal the keyboard from
+        // wherever the user actually is.
+        function onRoomIdChanged() {
+            Qt.callLater(root.placeDraftCaret)
+        }
     }
     function placeEditCaret() {
         input.cursorPosition = input.length
         input.forceActiveFocus()
+    }
+    function placeDraftCaret() {
+        if (app.composer.isEditing)
+            return
+        input.cursorPosition = input.length
     }
 }

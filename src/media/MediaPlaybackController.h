@@ -43,9 +43,17 @@ public:
     Q_INVOKABLE bool owns(const QString &ownerKey) const;
     // Stop everything (room/account switch, sign-out, shutdown).
     Q_INVOKABLE void stopAll();
+    // 2026-08-18 tester report ("tarpas neveikia pause ir unpause"): ask the
+    // card that currently holds audibility to toggle play/pause. This object
+    // owns no player, so it can only broadcast the intent; the cards ignore
+    // it unless they own audibility. A no-op when nothing is playing.
+    Q_INVOKABLE void requestTogglePlayPause();
 
 Q_SIGNALS:
     void audibleOwnerChanged();
+    // Carries the owner key the request was made for, so a card that lost
+    // audibility between the key press and the delivery cannot act on it.
+    void togglePlayPauseRequested(const QString &ownerKey);
 
 private:
     QString m_audibleOwner;

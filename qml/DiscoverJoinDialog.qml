@@ -70,17 +70,56 @@ Dialog {
         Qt.callLater(focusCurrent)
     }
 
+    // 2026-08-18 tester report ("kai spaudi link atsidaro pop up langas
+    // milisekundei cant do anything with it"): a clicked room link opened
+    // this dialog immediately and then closed it again the moment the link
+    // resolved to a room the user is already in — a modal that flashed for a
+    // frame and could not be used. The resolve now runs FIRST and the dialog
+    // is only shown when it has something to ask the user: a room that needs
+    // joining or knocking, a failure, or a resolve slow enough
+    // (linkResolveGrace) that silence would look like a dead click.
     function openForLink(link) {
         resetAll()
         mode = "address"
         addressText = link
         autoOpenJoined = true
         activatedLink = link
-        open()
+        linkResolveGrace.restart()
         app.discovery.resolve(link)
     }
 
+    // Show the dialog for a link only once it is clear the user is needed.
+    function revealForLink() {
+        linkResolveGrace.stop()
+        if (root.autoOpenJoined && !root.visible) {
+            root.open()
+            Qt.callLater(focusCurrent)
+        }
+    }
+
+    // A link flow that finished without needing the dialog: stop the grace
+    // timer so it cannot pop the modal open after the fact, and clear the
+    // link state by hand — onClosed does not run for a dialog that was
+    // never shown.
+    function finishLinkFlow() {
+        linkResolveGrace.stop()
+        var wasVisible = root.visible
+        root.close()
+        if (!wasVisible)
+            resetAll()
+    }
+
+    Timer {
+        id: linkResolveGrace
+        interval: 400
+        repeat: false
+        onTriggered: root.revealForLink()
+    }
+
     function resetAll() {
+        // Any pending link flow ends here: a grace timer left running could
+        // otherwise pop this dialog open over an unrelated later state.
+        linkResolveGrace.stop()
         mode = "browse"
         addressText = ""
         knockReasonText = ""
@@ -117,8 +156,12 @@ Dialog {
         function onSpaceJoined() { root.close() }
         function onKnockSent() { root.pendingJoinRoomId = "" }
         function onErrorMessageChanged() {
-            if (app.discovery.errorMessage.length > 0)
+            if (app.discovery.errorMessage.length > 0) {
                 root.pendingJoinRoomId = ""
+                // A link that failed must say so somewhere the user can see.
+                if (root.autoOpenJoined)
+                    root.revealForLink()
+            }
         }
         function onResolveChanged() {
             // A clicked link that turns out not to be a room (e.g. an
@@ -129,16 +172,27 @@ Dialog {
                 && root.resolved.category === "not_a_room"
                 && root.activatedLink.indexOf("matrix.to") !== -1) {
                 app.media.openWebUrl(root.activatedLink)
-                root.close()
+                root.finishLinkFlow()
                 return
             }
-            if (!root.autoOpenJoined || !root.resolvedOk)
+            if (!root.autoOpenJoined)
                 return
-            if (root.resolvedMembership !== "joined")
+            // Anything the user has to answer — a room to join or knock, or
+            // a resolve that failed — needs the dialog on screen.
+            if (!root.resolvedOk) {
+                if (app.discovery.resolveState === "failed")
+                    root.revealForLink()
                 return
+            }
+            if (root.resolvedMembership !== "joined") {
+                root.revealForLink()
+                return
+            }
             var roomId = root.resolved.roomId || ""
-            if (roomId === "")
+            if (roomId === "") {
+                root.revealForLink()
                 return
+            }
             var eventId = root.resolved.eventId || ""
             app.openRoom(roomId)
             if (eventId !== "") {
@@ -148,7 +202,7 @@ Dialog {
                     app.pagination.jumpToEvent(eventId)
                 })
             }
-            root.close()
+            root.finishLinkFlow()
         }
     }
 

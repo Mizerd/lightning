@@ -227,6 +227,13 @@ public:
                         const QString &targetEventId,
                         const QString &key) override;
 
+    // 2026-08-18: redact this message's own m.replace events (see
+    // rooms::remove_message_edits). Rust backend only: it needs the event
+    // relations, which only the SDK exposes.
+    bool supportsRemovingEdits() const override { return true; }
+    void removeMessageEdits(const QString &roomId,
+                            const QString &eventId) override;
+
     // v0.7: MSC3381 polls through the SDK timeline (room or thread target).
     bool supportsPolls() const override { return true; }
     void sendPollResponse(const QString &roomId,

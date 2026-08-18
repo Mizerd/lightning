@@ -226,6 +226,15 @@ Rectangle {
             if (!app.playback.owns(root.ownerKey) && root.playing)
                 player.pause()
         }
+        // Space toggles whatever is currently audible (2026-08-18 tester
+        // report "tarpas neveikia pause ir unpause"). The owner key is
+        // re-checked here: a card that lost audibility between the key press
+        // and this delivery must not react.
+        function onTogglePlayPauseRequested(ownerKey) {
+            if (ownerKey !== root.ownerKey || !root.engaged)
+                return
+            root.togglePlay()
+        }
     }
 
     Loader {
@@ -236,8 +245,17 @@ Rectangle {
                 id: audioOut
                 property bool userUnmuted: false
                 muted: false
-                volume: 0.8
+                // 2026-08-18 tester report ("neatsimena audio preferencu
+                // uzdeda default visada"): the remembered level, not a fixed
+                // 0.8 every time. This is a live binding, so changing the
+                // volume on one card moves every other card with it; the
+                // slider's own direct write breaks the binding on THAT card
+                // only, to the same value it just stored.
+                volume: app.settings.mediaVolume
             }
+            // The remembered speed applies to every card, including one
+            // opened long after the choice was made.
+            playbackRate: app.settings.mediaPlaybackRate
             onErrorOccurred: root.fetchState = "failed"
             onMetaDataChanged: root.refreshArtwork()
             // Resume after an offscreen engine unload: seek once the media
@@ -339,6 +357,10 @@ Rectangle {
         IconButton {
             objectName: "audioPlayPauseButton"
             fill: true
+            // Click focus (IconButton defaults to Tab-only): pressing Play
+            // then pressing Space toggles the clip, which is what a desktop
+            // player does, and it needs no global key grab to work.
+            focusPolicy: Qt.StrongFocus
             implicitWidth: 30; implicitHeight: 30
             // Always a play glyph when idle — the accent-filled button with
             // a mic read as "record", not "play" (maintainer feedback
@@ -427,6 +449,7 @@ Rectangle {
                 }
 
                 Slider {
+                    id: seekSlider
                     anchors.fill: parent
                     visible: !waveRow.visible
                     from: 0
@@ -437,6 +460,40 @@ Rectangle {
                                    : (root.player ? root.player.position : 0)
                     Accessible.name: qsTr("Seek position")
                     onMoved: if (root.player) root.player.position = value
+                    // 2026-08-18 tester report ("audio slider klipinasi
+                    // biski"): the default Basic-style handle is 28px tall
+                    // inside an 18px seek row, so its top and bottom were cut
+                    // off. A slim track with a 12px handle fits the row it
+                    // actually lives in.
+                    padding: 0
+                    background: Rectangle {
+                        x: seekSlider.leftPadding
+                        y: seekSlider.topPadding
+                            + seekSlider.availableHeight / 2 - height / 2
+                        width: seekSlider.availableWidth
+                        height: 4
+                        radius: 2
+                        color: AppTheme.borderStrong
+                        Rectangle {
+                            width: seekSlider.visualPosition * parent.width
+                            height: parent.height
+                            radius: parent.radius
+                            color: AppTheme.accent
+                        }
+                    }
+                    handle: Rectangle {
+                        x: seekSlider.leftPadding
+                           + seekSlider.visualPosition
+                             * (seekSlider.availableWidth - width)
+                        y: seekSlider.topPadding
+                            + seekSlider.availableHeight / 2 - height / 2
+                        width: 12
+                        height: 12
+                        radius: 6
+                        color: AppTheme.accent
+                        border.width: 2
+                        border.color: AppTheme.surfaceElevated
+                    }
                 }
             }
 
@@ -455,27 +512,54 @@ Rectangle {
                     }
                     return line
                 }
+                // Elides inside the card. Without this the position/duration
+                // (plus the file size on a music file) simply ran past the
+                // card's right edge and was cut mid-character.
+                Layout.fillWidth: true
+                elide: Label.ElideRight
                 color: AppTheme.textMuted
                 font.pixelSize: 10
             }
         }
 
-        // Playback speed — voice messages benefit most. Cycles the standard
-        // rates; per-session only, resets to 1x with the card.
+        // Playback speed. 2026-08-18 tester report ("kai keiti audio garso
+        // greiti nera kaip grizti ... turi visa rata prasukti"): the button
+        // used to CYCLE one way only, so overshooting 1x meant walking the
+        // whole list around again. It now opens the list and the choice is
+        // remembered (app.settings.mediaPlaybackRate), so it also survives
+        // the next card, room and restart.
         AbstractButton {
             id: audioSpeedButton
             objectName: "audioSpeedButton"
-            readonly property var rates: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
-            property int rateIndex: 2
+            readonly property var rates: [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+            readonly property real rate: app.settings.mediaPlaybackRate
             visible: root.ready
-            implicitWidth: 32; implicitHeight: 24
+            implicitWidth: 34; implicitHeight: 24
             focusPolicy: Qt.TabFocus
             Accessible.role: Accessible.Button
-            Accessible.name: qsTr("Playback speed %1x").arg(rates[rateIndex])
-            onClicked: {
-                rateIndex = (rateIndex + 1) % rates.length
-                if (root.player)
-                    root.player.playbackRate = rates[rateIndex]
+            Accessible.name: qsTr("Playback speed %1x").arg(rate)
+            ToolTip.text: qsTr("Playback speed")
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
+            onClicked: speedMenu.popup()
+            AppMenu {
+                id: speedMenu
+                objectName: "audioSpeedMenu"
+                menuWidth: 140
+                Repeater {
+                    model: audioSpeedButton.rates
+                    AppMenuItem {
+                        required property real modelData
+                        text: modelData + "\u00d7"
+                        iconName: Math.abs(modelData - audioSpeedButton.rate)
+                                  < 0.001 ? "check" : ""
+                        // Writing the SETTING is enough: playbackRate is
+                        // bound to it above, so this card and every other one
+                        // follow. Assigning the player directly as well would
+                        // break that binding for this card.
+                        onTriggered: app.settings.mediaPlaybackRate = modelData
+                    }
+                }
             }
             background: Rectangle {
                 radius: AppTheme.radiusSm
@@ -484,8 +568,8 @@ Rectangle {
                 border.color: AppTheme.focusRing
             }
             contentItem: Label {
-                text: audioSpeedButton.rates[audioSpeedButton.rateIndex] + "×"
-                color: audioSpeedButton.rateIndex === 2
+                text: audioSpeedButton.rate + "×"
+                color: Math.abs(audioSpeedButton.rate - 1.0) < 0.001
                        ? AppTheme.textMuted : AppTheme.accent
                 font.pixelSize: 10
                 font.weight: Font.DemiBold

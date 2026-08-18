@@ -6,6 +6,7 @@
 #include <QAudioInput>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QLoggingCategory>
 #include <QMediaCaptureSession>
 #include <QMediaDevices>
@@ -207,6 +208,10 @@ bool VoiceRecorder::start()
         return false;
     }
     m_state = State::Recording;
+    m_paused = false;
+    // A previous resume may have shortened the interval to the time that
+    // was left; a new recording gets the full cap back.
+    m_maxDurationGuard.setInterval(static_cast<int>(kMaxDurationMs));
     m_maxDurationGuard.start();
     Q_EMIT stateChanged();
     Q_EMIT durationChanged();
@@ -214,11 +219,59 @@ bool VoiceRecorder::start()
     return true;
 }
 
+bool VoiceRecorder::pause()
+{
+    if (m_state != State::Recording || m_paused || !m_recorder)
+        return false;
+    m_recorder->pause();
+    if (m_recorder->error() != QMediaRecorder::NoError)
+        return false;
+    m_paused = true;
+    // The 15-minute cap measures RECORDED audio, so it is suspended too;
+    // a paused recorder holds no microphone input.
+    m_maxDurationGuard.stop();
+    Q_EMIT stateChanged();
+    qCDebug(lcVoice, "recording paused");
+    return true;
+}
+
+bool VoiceRecorder::resume()
+{
+    if (m_state != State::Recording || !m_paused || !m_recorder)
+        return false;
+    m_recorder->record();
+    if (m_recorder->error() != QMediaRecorder::NoError)
+        return false;
+    m_paused = false;
+    // Restart with the time that is LEFT, not a fresh 15 minutes: the cap
+    // bounds recorded audio, and a pause/resume cycle must not extend it.
+    const qint64 remaining =
+        std::max<qint64>(1000, kMaxDurationMs - m_recorder->duration());
+    m_maxDurationGuard.start(static_cast<int>(remaining));
+    Q_EMIT stateChanged();
+    qCDebug(lcVoice, "recording resumed");
+    return true;
+}
+
+bool VoiceRecorder::ownsPath(const QString &path) const
+{
+    if (path.isEmpty() || !m_dir || !m_dir->isValid())
+        return false;
+    const QFileInfo info(path);
+    if (!info.isFile())
+        return false;
+    const QString dir = QFileInfo(m_dir->path()).canonicalFilePath();
+    if (dir.isEmpty())
+        return false;
+    return info.canonicalPath() == dir;
+}
+
 void VoiceRecorder::cancel()
 {
     if (m_state == State::Idle)
         return;
     m_maxDurationGuard.stop();
+    m_paused = false;
     m_processingGuard.stop();
     m_cancelRequested = true;
     if (m_decoder) {
@@ -247,6 +300,7 @@ void VoiceRecorder::stop()
     if (m_state != State::Recording)
         return;
     m_maxDurationGuard.stop();
+    m_paused = false;
     m_state = State::Processing;
     m_processingGuard.start();
     Q_EMIT stateChanged();
@@ -321,6 +375,7 @@ void VoiceRecorder::finishWithWaveform(const QList<int> &waveform)
 {
     m_decoder.reset();
     m_processingGuard.stop();
+    m_paused = false;
     if (m_cancelRequested) {
         discardActiveFile();
         m_state = State::Idle;

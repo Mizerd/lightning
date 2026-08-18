@@ -120,12 +120,17 @@ Popup {
     // `ink` is the highlight colour: bolt on THE selected row only (yellow
     // discipline), a brightened stormText prefix on resting rows.
     function highlightedName(name, q, ink) {
-        const escaped = escapeHtml(name)
+        // A row can legitimately arrive without a display name (the model
+        // falls back to the localpart elsewhere); calling String methods on
+        // undefined threw a TypeError that killed the whole binding, so the
+        // row rendered nothing at all.
+        const safeName = name === undefined || name === null ? "" : String(name)
+        const escaped = escapeHtml(safeName)
         if (!q || q.length === 0
-                || name.toLowerCase().indexOf(q.toLowerCase()) !== 0)
+                || safeName.toLowerCase().indexOf(String(q).toLowerCase()) !== 0)
             return escaped
-        const prefix = escapeHtml(name.substring(0, q.length))
-        const rest = escapeHtml(name.substring(q.length))
+        const prefix = escapeHtml(safeName.substring(0, q.length))
+        const rest = escapeHtml(safeName.substring(q.length))
         return "<font color=\"%1\">%2</font>%3".arg(ink)
                                                 .arg(prefix).arg(rest)
     }

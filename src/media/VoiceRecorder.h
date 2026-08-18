@@ -32,6 +32,12 @@ class VoiceRecorder : public QObject
     Q_OBJECT
     Q_PROPERTY(bool recording READ recording NOTIFY stateChanged)
     Q_PROPERTY(bool processing READ processing NOTIFY stateChanged)
+    // 2026-08-18 tester report ("kai sendini audio messages nera pause arba
+    // done mygtuko"). A paused recording is still a RECORDING — it holds the
+    // capture chain, the owner and the file — so `recording` stays true and
+    // this is a separate bit rather than a fourth state the ownership rules
+    // would have to learn.
+    Q_PROPERTY(bool paused READ paused NOTIFY stateChanged)
     Q_PROPERTY(qint64 durationMs READ durationMs NOTIFY durationChanged)
 
 public:
@@ -51,7 +57,19 @@ public:
     // hardware. Production has exactly one implementation.
     virtual bool recording() const { return m_state == State::Recording; }
     virtual bool processing() const { return m_state == State::Processing; }
+    virtual bool paused() const { return m_paused; }
     qint64 durationMs() const;
+
+    // Suspend/continue capture. Both are no-ops (returning false) unless the
+    // recorder is in the matching state; the elapsed duration freezes while
+    // paused because QMediaRecorder stops advancing it.
+    Q_INVOKABLE virtual bool pause();
+    Q_INVOKABLE virtual bool resume();
+    // True when `path` is a file this recorder produced (i.e. lives in its
+    // own temp dir). The preview flow hands a finalized file to the UI, and
+    // the UI may discard it — this is the gate that keeps that deletion
+    // pointed at the recorder's own directory and nowhere else.
+    Q_INVOKABLE bool ownsPath(const QString &path) const;
 
     // Begin a new recording. Returns false — WITHOUT emitting failed() —
     // when the recorder is not Idle, i.e. a recording is already running or
@@ -110,6 +128,7 @@ private:
     QString m_activeMime;
     qint64 m_finalDurationMs = 0;
     bool m_cancelRequested = false;
+    bool m_paused = false;
     bool m_decodeFormatMismatch = false;
     int m_fileSerial = 0;
     // Per-chunk absolute peaks accumulated during waveform decode.
