@@ -447,16 +447,25 @@ Rectangle {
         anchors.centerIn: parent
     }
 
+    // Every floating surface that is anchored to, or snapshotted from, a
+    // timeline row. ONE helper so the callers cannot drift: a room/account
+    // switch closes them, and so does anything else that discards timeline
+    // content — notably the jump-to-live history trim, which resets the
+    // model WITHOUT changing the room, so none of the signal-driven cleanup
+    // below would fire for it (review finding, 2026-08-19).
+    function closeRowAnchoredSurfaces() {
+        sharedReactionPicker.close()
+        senderProfilePopover.close()
+        receiptListPopover.close()
+        // The viewer holds decoded pixels and a stale entries snapshot; it
+        // must never survive content it was opened from.
+        imageViewer.close()
+    }
+
     Connections {
         target: app
         function onCurrentRoomIdChanged() {
-            sharedReactionPicker.close()
-            senderProfilePopover.close()
-            receiptListPopover.close()
-            // The viewer holds decoded pixels and a stale entries snapshot;
-            // it must never survive into another room or account (account
-            // switches also change the current room).
-            imageViewer.close()
+            root.closeRowAnchoredSurfaces()
         }
         function onAccountSwitchingChanged() {
             if (app.accountSwitching) {
@@ -2744,6 +2753,32 @@ Rectangle {
                         scrollSettleTimer.restart()
                         return
                     }
+                    // FAR: beyond the glide threshold. Element's own answer to
+                    // this case is not a faster scroll — it is to stop
+                    // carrying the backlog at all: jumpToLiveTimeline()
+                    // rebuilds the timeline at the live edge and DISCARDS
+                    // everything paginated. Do the same, and only here: the
+                    // trim is an explicit user action, never a side effect of
+                    // scrolling. It refuses on its own (wrong backend, no
+                    // room, mid-pagination, too few rows to be worth a reset)
+                    // and then this falls through to the ordinary jump.
+                    //
+                    // No anchor work is needed for it, which is exactly why
+                    // this is the safe place to do it: the reader ends up
+                    // pinned at the newest row, where there is no scroll
+                    // position to preserve. onModelReset() handles the
+                    // landing — the same path a room open already uses.
+                    // Only commit to the trim when the dispatch actually
+                    // succeeded. It returns false for a refusal AND for a
+                    // failed send, and in the latter case no reset will ever
+                    // arrive — persisting follow-latest there would teleport
+                    // the reader on the next live message while they are
+                    // still mid-history (review finding).
+                    if (app.trimHistoryAndJumpToLive()) {
+                        stickToBottom = true
+                        app.pagination.saveFollowingLatest(app.currentRoomId)
+                        return
+                    }
                     settleAtLatest()
                 }
                 activeFocusOnTab: true
@@ -3172,6 +3207,11 @@ Rectangle {
                         // A room switch / fresh snapshot must cancel any
                         // in-flight wheel motion from the previous room.
                         timeline.cancelWheelMotion()
+                        // Any reset discards the rows these surfaces were
+                        // opened from — including a same-room jump-to-live
+                        // trim, which changes no room id and so fires none
+                        // of the switch-driven cleanup.
+                        root.closeRowAnchoredSurfaces()
                         timeline.stickToBottom = true
                         timeline.pinnedActionsKey = ""
                         timeline.emojiPickerOpen = false

@@ -930,6 +930,151 @@ private Q_SLOTS:
         QVERIFY(timeline->property("stickToBottom").toBool());
     }
 
+    // ── 2026-08-19 jump-to-live history trim ───────────────────────────
+    //
+    // Element's jumpToLiveTimeline() does not scroll a large backlog — it
+    // rebuilds the timeline at the live edge and drops what was paginated.
+    // Lightning does the same, but ONLY as an explicit user action.
+    //
+    // WHAT THIS TEST DOES AND DOES NOT ESTABLISH (review finding — an
+    // earlier name overclaimed). On the mock backend
+    // trimHistoryAndJumpToLive() short-circuits on its FIRST clause
+    // (m_backend != RustBackend), so C++ short-circuit evaluation means the
+    // pagination-busy, thread-open and row-threshold clauses are never
+    // evaluated here. This case therefore pins exactly two things, both of
+    // which protect the reader:
+    //   * a backend with no event cache to release refuses — belt and
+    //     braces, since the qobject_cast at the end of the function is a
+    //     second independent net;
+    //   * a refused trim is a COMPLETE no-op: the timeline is untouched and
+    //     the far jump still lands the reader at the newest row.
+    // The ACCEPT path cannot be reached offline at all, and neither can the
+    // Rust helper that does the actual releasing — await_event_cache_shrink
+    // has NO automated coverage at any layer (there is no mock-room harness
+    // in rust/), which is a stronger admission than "live interop not
+    // tested". One live capture of the `timeline live-trim` log line
+    // (cachedBefore / released / reloadedItems) is what would confirm it.
+    // Every clause of the trim's refusal policy, exhaustively — reachable
+    // offline precisely because the policy is a pure predicate rather than a
+    // short-circuit chain buried behind the backend check (review finding).
+    void historyTrimPolicyRefusesEveryUnsafeCombination()
+    {
+        const int rows = 500;
+        const int threshold = 400;
+        // The one combination that may proceed.
+        QVERIFY(AppController::historyTrimAllowed(
+            /*rustBackend=*/true, /*roomOpen=*/true, /*paginationBusy=*/false,
+            /*threadOpen=*/false, rows, threshold));
+        // ...and each clause on its own must veto it.
+        QVERIFY(!AppController::historyTrimAllowed(false, true, false, false,
+                                                  rows, threshold));
+        QVERIFY(!AppController::historyTrimAllowed(true, false, false, false,
+                                                  rows, threshold));
+        QVERIFY(!AppController::historyTrimAllowed(true, true, true, false,
+                                                  rows, threshold));
+        // A thread panel or Threads view holds its own event-cache
+        // subscriber: the SDK could not shrink, and the reload would tear
+        // that panel's live subscription out from under it.
+        QVERIFY(!AppController::historyTrimAllowed(true, true, false, true,
+                                                  rows, threshold));
+        // The threshold is exclusive: exactly-at is not "more than".
+        QVERIFY(!AppController::historyTrimAllowed(true, true, false, false,
+                                                  threshold, threshold));
+        QVERIFY(AppController::historyTrimAllowed(true, true, false, false,
+                                                 threshold + 1, threshold));
+        // A short timeline is never worth a reset.
+        QVERIFY(!AppController::historyTrimAllowed(true, true, false, false,
+                                                  12, threshold));
+    }
+
+    void jumpToLiveTrimIsRefusedByABackendWithNoEventCacheAndIsThenANoOp()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        QVERIFY(!roomId.isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        controller.setCurrentRoomId(roomId);
+
+        // One value, read by both QML and this test.
+        QVERIFY(controller.historyTrimRowThreshold() > 0);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(700, 400);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-9000);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 220; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$trim%1").arg(i);
+            e.itemId = QStringLiteral("uid-trim%1").arg(i);
+            e.roomId = roomId;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("trim probe %1").arg(i);
+            e.timestamp = base.addSecs(i * 30);
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() > 200,
+                                 5000);
+        const int rowsBefore = controller.timeline()->rowCount();
+        QVERIFY(rowsBefore > 200);
+
+        // Refuses on a backend with no event cache to release. (Both this
+        // and the no-room case below refuse for the SAME reason here — the
+        // backend clause — so the second call is not independent evidence;
+        // it is kept only to pin that a missing room can never dispatch.)
+        QVERIFY(!controller.trimHistoryAndJumpToLive());
+        const QString openRoom = controller.currentRoomId();
+        controller.setCurrentRoomId(QString());
+        QVERIFY(!controller.trimHistoryAndJumpToLive());
+        controller.setCurrentRoomId(openRoom);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.timeline()->rowCount() > 0, 5000);
+
+        // A refused trim must leave the timeline completely untouched, and
+        // the FAR jump must still land the reader at the newest row.
+        const int smoothViewports =
+            timeline->property("smoothJumpViewports").toInt();
+        const qreal viewportHeight = timeline->property("height").toReal();
+        QQmlExpression minY(qmlContext(timeline), timeline,
+                            QStringLiteral("wheelMinY()"));
+        const qreal bottomY = minY.evaluate().toReal();
+        QVERIFY(!minY.hasError());
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        timeline->setProperty(
+            "contentY",
+            bottomY + viewportHeight * (smoothViewports + 0.5));
+        QCoreApplication::processEvents();
+        QQmlExpression jumpFar(qmlContext(timeline), timeline,
+                               QStringLiteral("goToLatest()"));
+        jumpFar.evaluate();
+        QVERIFY2(!jumpFar.hasError(),
+                 jumpFar.error().toString().toUtf8().constData());
+        QVERIFY(timeline->property("stickToBottom").toBool());
+        QCOMPARE(controller.timeline()->rowCount(), rowsBefore);
+    }
+
     // 0.5.17: controller state changes alter the pagination header height,
     // which alters ListView contentHeight. Dispatching viewport fill directly
     // from that geometry notification re-entered the header state binding.

@@ -1306,6 +1306,71 @@ after the tester-report fixes shipped as 0.7.3:
   trees** after this round — the first fully green complete run since the
   timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
 
+**2026-08-19 jump-to-live history trim — the answer to "does it unload
+old messages?" (it did not).** Rows were never released: the un-virtualized
+Column instantiates every paginated event, permanently. This adds Element
+classic's policy — `TimelinePanel.jumpToLiveTimeline()` rebuilds the
+timeline at the live edge and DISCARDS the backlog rather than scrolling
+through it — for one explicit gesture only.
+- **Lightning implements no unloading of its own.** matrix-sdk 0.18 already
+  has it: `RoomEventCache::subscribe()` bumps a `subscriber_count`, and when
+  that count reaches zero the SDK's `auto_shrink_linked_chunk_task` calls
+  `shrink_to_last_chunk()` ("unload all the chunks, then reload only the
+  last one"). All this round adds is ORDERING — verified against the
+  vendored crate, not assumed.
+- **Two things make it work rather than silently no-op.** `abort()` only
+  REQUESTS cancellation, so the old task still owns the `Arc<Timeline>`
+  whose subscriber holds the count up; `await_event_cache_shrink` therefore
+  awaits that handle (a `Cancelled` join IS the success signal), bounded so
+  a slow task degrades to no-trim instead of stalling the room. The shrink
+  then runs on the SDK's own task via a channel ping, so there is nothing to
+  await: it polls the public `events()` until the count drops. Never
+  `RoomEventCache::clear()` — that wipes PERSISTED events too, forcing even
+  the live tail to be refetched.
+- **Refuses more than it accepts, and the policy is a PURE predicate**
+  (`AppController::historyTrimAllowed`) so every clause is testable offline
+  rather than unreachable behind a short-circuit: Rust backend, room open,
+  not mid-pagination, **no thread panel / Threads view open**, and more than
+  400 loaded rows. The thread clause is load-bearing twice over — a thread
+  timeline holds its OWN event-cache subscriber (TimelineBuilder subscribes
+  for a Thread focus exactly as for Live, and ThreadListService again), so
+  the shrink could not fire, AND the reload would tear that panel's live
+  subscription out from under it while it stayed on screen.
+- **One call site, contract-pinned**: the FAR branch of `goToLatest()`.
+  Wiring it to scrolling or pagination would reset a reader's timeline out
+  from under them. It commits (`stickToBottom`, `saveFollowingLatest`) ONLY
+  on a REAL dispatch success — a swallowed failure would leave follow-latest
+  persisted with no reset coming, and the next live message would teleport a
+  reader still mid-history. The landing needs no anchor work at all, which
+  is exactly why this is the safe place: the reader ends at the newest row,
+  where there is no scroll position to preserve. `onModelReset` already
+  pins, re-arms backfill and re-engages the presentation gate — and now also
+  closes the row-anchored surfaces (reaction picker, profile/reader
+  popovers, image viewer) through one shared helper, because a same-room
+  reset fires none of the switch-driven cleanup. Deliberate side effect
+  worth knowing: that helper now runs on EVERY model reset, so the
+  same-room recovery reload (`reloadCurrentRoomTimeline`, used after
+  decryption retry / backup recovery) also closes those surfaces where it
+  previously left them open. A reset rebuilds every row, so closing is the
+  safe direction — but it is a new, visible behaviour.
+- **NOT TESTED, stated at full strength**: `await_event_cache_shrink`
+  has NO automated coverage at ANY layer (there is no mock-room harness in
+  `rust/`), and the accept path is unreachable offline because the mock
+  backend has no event cache. The reset payload carries `trimmed_from` AND
+  `trim_shrunk` — a timed-out wait must never look like a successful trim —
+  and `handleTimelineReset` LOGS them (`timeline live-trim … cachedBefore=
+  … released= … reloadedItems=`), because a field nothing consumes verifies
+  nothing. One live capture of that line is what closes this gap — and the
+  baseline is sampled BEFORE the release for that capture to mean anything:
+  taken afterwards, a fast shrink could land first and a genuine trim would
+  report `released=false`. Compare `cachedBefore` against `reloadedItems`
+  too; `released=true` with both counts equal would be contradictory.
+- Deliberately NOT done: incremental unfilling while scrolling. Element's
+  version works because DOM removal is nearly free; Lightning's closest
+  attempt (the bounded retained window) was implemented and REVERTED. This
+  round is materially different — one user-initiated action, no continuous
+  release machinery, no height pinning, no anchor arithmetic.
+
 **2026-08-19 scroll performance round — the polish/sync cost is
 ROOT-CAUSED, and it was not layouts.** §16's standing instruction was
 "profile what `polish` spends time on before changing anything"; that

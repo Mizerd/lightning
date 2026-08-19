@@ -2154,6 +2154,35 @@ void AppController::openSpaceHome(const QString &spaceId)
         setCurrentRoomId(QString());
 }
 
+bool AppController::trimHistoryAndJumpToLive()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    // Gather the state; the POLICY lives in historyTrimAllowed() so each
+    // clause is testable on its own (see that predicate's note).
+    if (!historyTrimAllowed(
+            m_backend == RustBackend, m_client && !m_currentRoomId.isEmpty(),
+            m_pagination && m_pagination->busy(),
+            m_thread && (m_thread->active() || m_thread->listOpen()),
+            m_timeline ? m_timeline->rowCount() : 0,
+            historyTrimRowThreshold())) {
+        return false;
+    }
+    auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get());
+    if (!rust)
+        return false;
+    qCInfo(lcApp) << "jump-to-live history trim rows="
+                  << m_timeline->rowCount();
+    // Report what actually happened. A swallowed dispatch failure would
+    // leave the caller in "trim succeeded" state — follow-latest persisted
+    // and stickToBottom true — while no reset ever arrives, so the next
+    // live message would teleport a reader who is still mid-history
+    // (review finding, 2026-08-19).
+    return rust->reloadRoomTimelineAtLive(m_currentRoomId);
+#else
+    return false;
+#endif
+}
+
 void AppController::reloadCurrentRoomTimeline(int limit)
 {
 #ifdef ENABLE_RUST_SDK_BACKEND

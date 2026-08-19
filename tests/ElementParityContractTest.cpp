@@ -127,6 +127,40 @@ private Q_SLOTS:
             "if (spaceItem.isRealSpace) app.openSpaceHome(spaceItem.ownSpaceId)")));
     }
 
+    // 2026-08-19: the jump-to-live history trim is Element's
+    // jumpToLiveTimeline() policy — rebuild at the live edge instead of
+    // scrolling a huge backlog. It is an EXPLICIT user action and must be
+    // reachable from exactly one place: the far branch of goToLatest().
+    // Wiring it to scrolling or pagination would reset a reader's timeline
+    // out from under them, so this pins the single call site.
+    void historyTrimFiresOnlyFromTheFarJumpToLatest()
+    {
+        const QString pane = normalized(
+            read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
+        QVERIFY(!pane.isEmpty());
+        // Exactly ONE call site in the whole pane.
+        QCOMPARE(pane.count(QStringLiteral("app.trimHistoryAndJumpToLive()")),
+                 1);
+        // ...and it sits inside goToLatest(), AFTER the near-glide branch
+        // returns — i.e. it is the far case only.
+        const int jump = pane.indexOf(QStringLiteral("function goToLatest()"));
+        QVERIFY(jump >= 0);
+        const int call =
+            pane.indexOf(QStringLiteral("app.trimHistoryAndJumpToLive()"),
+                         jump);
+        QVERIFY(call > jump);
+        const QString scope = pane.mid(jump, call - jump);
+        QVERIFY(scope.contains(QStringLiteral("smoothJumpViewports")));
+        QVERIFY(scope.contains(QStringLiteral("animateTo(")));
+        // A refusal must fall through to the ordinary landing.
+        QVERIFY(pane.indexOf(QStringLiteral("settleAtLatest()"), call) > call);
+        // The wheel handler must never reach it.
+        const int wheel =
+            pane.indexOf(QStringLiteral("objectName: \"timelineWheelHandler\""));
+        QVERIFY(wheel >= 0);
+        QVERIFY(wheel > call);
+    }
+
     void receiptPopoverCarriesElementLook()
     {
         const QString pane = normalized(

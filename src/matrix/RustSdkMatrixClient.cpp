@@ -2187,6 +2187,32 @@ void RustSdkMatrixClient::openRoomTimeline(const QString &roomId)
     Q_EMIT paginationStateChanged(roomId);
 }
 
+bool RustSdkMatrixClient::reloadRoomTimelineAtLive(const QString &roomId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return false;
+    // Same local bookkeeping an open does — the reload produces a genuine
+    // timeline_reset under a NEW room generation, so pagination state must
+    // start clean or a stale "reached start" would suppress the backfill the
+    // reader gets when they scroll up again.
+    clearThreadTimelineState();
+    m_timelineTracker.request(roomId);
+    m_pagination.insert(roomId, PaginationState{});
+    qCInfo(lcRust) << "timeline reload at live room=" << roomId.right(12);
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_timeline_reload_at_live(m_rustHandle, roomBytes.constData()));
+    if (!result.isEmpty()) {
+        m_timelineTracker.reset();
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+        return false;
+    }
+    Q_EMIT paginationStateChanged(roomId);
+    return true;
+}
+
 // ── v0.6.0: SDK-backed thread timelines ─────────────────────────────────
 
 void RustSdkMatrixClient::openThread(const QString &roomId,
@@ -3881,6 +3907,21 @@ void RustSdkMatrixClient::handleTimelineReset(const QJsonObject &event)
     }
 
     const QJsonArray items = event.value(QStringLiteral("items")).toArray();
+    // A jump-to-live history trim reports its outcome here (counts only, no
+    // content). Logged rather than merely emitted: a field nothing consumes
+    // cannot verify anything, and "we waited and nothing was released" must
+    // be legible in a capture — not inferred (review finding, 2026-08-19).
+    if (event.contains(QStringLiteral("trimmed_from"))
+        && !event.value(QStringLiteral("trimmed_from")).isNull()) {
+        const int before =
+            event.value(QStringLiteral("trimmed_from")).toInt(0);
+        const bool shrunk =
+            event.value(QStringLiteral("trim_shrunk")).toBool(false);
+        qCInfo(lcRust) << "timeline live-trim room=" << roomId.right(12)
+                       << "cachedBefore=" << before
+                       << "released=" << shrunk
+                       << "reloadedItems=" << items.size();
+    }
     m_timelines[roomId] =
         matrix::rust_timeline::eventsFromItemArray(items, roomId);
     qCInfo(lcRust) << "timeline subscription started"

@@ -4759,6 +4759,37 @@ pub unsafe extern "C" fn mx_rust_timeline_open(
     })
 }
 
+/// 2026-08-19: re-open the ACTIVE room's live timeline after letting the SDK's
+/// event cache release everything the reader paginated in — Lightning's
+/// equivalent of Element's `jumpToLiveTimeline()` rebuilding at the live edge
+/// rather than scrolling a huge backlog. One caller only: an explicit
+/// user-initiated jump to the newest message from far back. Emits the ordinary
+/// `timeline_reset` (a new room generation, so stale diffs are rejected) with
+/// a `trimmed_from` count so the trim can be verified rather than assumed.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_reload_at_live(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        if room_id.trim().is_empty() {
+            return Err("empty room id".to_owned());
+        }
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        bridge
+            .timelines
+            .reload_room_at_live(&bridge.runtime, client, room_id.clone());
+        // The room stays THE sliding-sync subscription across a reload — the
+        // subscription is per-room, not per-timeline-generation, so it is
+        // deliberately left exactly as the open established it.
+        Ok(String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_timeline_close(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {

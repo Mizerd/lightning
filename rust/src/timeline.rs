@@ -328,6 +328,41 @@ impl TimelineRegistry {
         client: Client,
         room_id: String,
     ) {
+        self.open_room_inner(runtime, client, room_id, /*shrink_first=*/ false)
+    }
+
+    /// Re-open the live timeline for `room_id`, first letting the SDK's event
+    /// cache SHRINK back to its last chunk — i.e. releasing everything the
+    /// reader paginated in. This is Lightning's equivalent of Element's
+    /// `TimelinePanel.jumpToLiveTimeline()` rebuilding its `TimelineWindow` at
+    /// the live edge instead of scrolling through the backlog, and it exists
+    /// for exactly one caller: an explicit user-initiated jump to the newest
+    /// message from far back. It must never be wired to ordinary scrolling or
+    /// pagination.
+    ///
+    /// The shrink itself is the SDK's, not ours: dropping the last
+    /// `RoomEventCacheSubscriber` pings matrix-sdk's auto-shrink task, which
+    /// calls `shrink_to_last_chunk()` when the subscriber count reaches zero.
+    /// The only thing this adds is ORDERING — waiting for our own timeline to
+    /// be gone, and for the shrink to actually land, before building the
+    /// replacement. Without that wait the new subscription wins the race and
+    /// the reopened timeline inherits the whole backlog again.
+    pub fn reload_room_at_live(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+    ) {
+        self.open_room_inner(runtime, client, room_id, /*shrink_first=*/ true)
+    }
+
+    fn open_room_inner(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+        shrink_first: bool,
+    ) {
         // A thread panel / Threads view never survives into another room.
         self.close_thread();
         self.close_thread_list();
@@ -335,7 +370,14 @@ impl TimelineRegistry {
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
         self.clear_media();
 
-        if let Some((_task, old_room)) = self.take_active() {
+        // Keep the previous task's handle when we intend to shrink: the
+        // event-cache subscriber lives inside it, so the shrink cannot happen
+        // until it is genuinely gone (abort() only *requests* cancellation).
+        let mut previous_task: Option<tokio::task::JoinHandle<()>> = None;
+        if let Some((task, old_room)) = self.take_active() {
+            if shrink_first {
+                previous_task = task;
+            }
             enqueue(
                 &self.events,
                 json!({
@@ -367,6 +409,8 @@ impl TimelineRegistry {
             room_gen,
             lifecycle,
             events,
+            shrink_first,
+            previous_task,
         ));
 
         if let Ok(mut guard) = self.active.lock() {
@@ -1725,6 +1769,92 @@ impl TimelineRegistry {
 
 /// Builds the SDK timeline, installs it in the registry, emits the initial
 /// snapshot, then forwards every diff batch until cancelled or stale.
+/// Total time EITHER half of the shrink wait may take — the join and the poll
+/// loop are bounded separately, so the worst case for the whole helper is
+/// twice this (~1.2 s) before it gives up and reopens without trimming.
+/// Reached only when a task will not cancel AND the shrink never fires.
+const SHRINK_WAIT_BUDGET_MS: u64 = 600;
+/// Poll step for observing the shrink. `RoomEventCache::events()` clones every
+/// event, so this is deliberately coarse.
+const SHRINK_POLL_STEP_MS: u64 = 60;
+
+/// Wait for the SDK's event cache to release the paginated backlog for
+/// `room_ref`, and report how many events it held beforehand plus whether the
+/// release was actually OBSERVED.
+///
+/// Sequence, and every step of it matters:
+///   1. AWAIT the previous timeline task. `abort()` only requests
+///      cancellation; until the task actually stops it still owns the
+///      `Arc<Timeline>` whose internal `RoomEventCacheSubscriber` keeps the
+///      cache's subscriber count above zero. A cancelled task's join returns
+///      `Err(JoinError::Cancelled)` — that error IS the success signal here.
+///   2. Poll the cache's event count. matrix-sdk's auto-shrink runs on its own
+///      task (a channel ping from the subscriber's Drop), so there is nothing
+///      to await directly; polling the PUBLIC `events()` is the only honest
+///      way to know it landed. Bounded — a shrink that never happens must
+///      degrade to "reopened without trimming", never to a hang.
+/// Never calls `RoomEventCache::clear()`: that would also wipe the room's
+/// PERSISTED events, forcing the live tail itself to be refetched.
+async fn await_event_cache_shrink(
+    room: &matrix_sdk::Room,
+    previous_task: Option<tokio::task::JoinHandle<()>>,
+) -> Option<(usize, bool)> {
+    // BASELINE FIRST, while the old subscriber is still alive and the cache
+    // therefore still holds the whole backlog. Sampling it after the release
+    // would race the SDK's auto-shrink task: a FAST shrink could land before
+    // the baseline was taken, and the poll below would then see no further
+    // decrease and report `trim_shrunk: false` for a trim that in fact
+    // succeeded (recheck observation, 2026-08-19).
+    //
+    // Room::event_cache() is the public accessor; the drop handles it returns
+    // are deliberately dropped — they keep the cache's own listener tasks
+    // alive, which the client already owns for the session.
+    let (cache, _drop_handles) = room.event_cache().await.ok()?;
+    let before = cache.events().await.ok()?.len();
+    if before == 0 {
+        return None;
+    }
+    if let Some(task) = previous_task {
+        // Ignore the outcome: Ok means it finished, Err(Cancelled) means the
+        // abort landed. Both mean its Arc is released, which is all we need.
+        // BOUNDED (review finding): abort() cancels at the next await point,
+        // and nothing downstream of this helper has a timeout — the FFI is
+        // fire-and-forget and the caller has already committed to the trim.
+        // A task slow to reach cancellation must degrade to "reopened
+        // without trimming", never stall the room indefinitely.
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_millis(SHRINK_WAIT_BUDGET_MS),
+            task,
+        )
+        .await;
+    }
+    // The release may already have landed while we awaited the task above, so
+    // check ONCE before sleeping — otherwise the fastest, most common case
+    // would be reported as a 60 ms-late detection at best.
+    if let Ok(events) = cache.events().await {
+        if events.len() < before {
+            return Some((before, true));
+        }
+    }
+    // The shrink is a channel ping plus a state write-lock acquisition, so it
+    // is normally immediate; this bound exists for the pathological case.
+    // NOTE `events()` CLONES every event, so poll sparingly rather than
+    // tightly — the whole point is a large backlog (review finding).
+    let steps = SHRINK_WAIT_BUDGET_MS / SHRINK_POLL_STEP_MS;
+    for _ in 0..steps {
+        tokio::time::sleep(std::time::Duration::from_millis(SHRINK_POLL_STEP_MS))
+            .await;
+        let Ok(events) = cache.events().await else { return Some((before, false)) };
+        if events.len() < before {
+            return Some((before, true));
+        }
+    }
+    // Timed out: the cache still holds everything. Reported as NOT shrunk —
+    // "we waited and nothing happened" and "we released the backlog" must
+    // never be indistinguishable in the emitted data (review finding).
+    Some((before, false))
+}
+
 async fn open_room_task(
     registry: Arc<TimelineRegistry>,
     client: Client,
@@ -1732,6 +1862,8 @@ async fn open_room_task(
     room_gen: u64,
     lifecycle: u64,
     events: EventQueue,
+    shrink_first: bool,
+    previous_task: Option<tokio::task::JoinHandle<()>>,
 ) {
     let own_user = client.user_id().map(|u| u.to_string()).unwrap_or_default();
 
@@ -1739,9 +1871,21 @@ async fn open_room_task(
         emit_timeline_error(&events, &room_id, room_gen, lifecycle, "invalid_room_id");
         return;
     };
+
+
     let Some(room) = client.get_room(&room_ref) else {
         emit_timeline_error(&events, &room_id, room_gen, lifecycle, "unknown_room");
         return;
+    };
+
+    // Release the paginated backlog before rebuilding (jump-to-live only).
+    // Reported honestly in the reset payload below: `trimmed_from` is the
+    // event count the cache held before, so a live capture can show whether
+    // the shrink actually landed rather than us assuming it did.
+    let trim_report: Option<(usize, bool)> = if shrink_first {
+        await_event_cache_shrink(&room, previous_task).await
+    } else {
+        None
     };
 
     // TimelineBuilder::new (not RoomExt::timeline_builder) with read-receipt
@@ -1809,6 +1953,13 @@ async fn open_room_task(
             "room_generation": room_gen,
             "lifecycle": lifecycle,
             "items": snapshot,
+            // Counts only, never content: how many events the cache held
+            // before a jump-to-live trim, and whether the release was
+            // actually observed (both absent for an ordinary open). The
+            // pair matters — a timed-out wait must not look like a
+            // successful trim.
+            "trimmed_from": trim_report.map(|(before, _)| before),
+            "trim_shrunk": trim_report.map(|(_, shrunk)| shrunk),
         }),
     );
 

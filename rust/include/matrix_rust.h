@@ -396,6 +396,11 @@ int mx_rust_room_key_import_active(void *client);
  * never ciphertext, keys, or raw event JSON.
  */
 char *mx_rust_timeline_open(void *client, const char *room_id);
+/* 2026-08-19: re-open the live timeline after letting the SDK event cache
+ * release the paginated backlog (Element's jump-to-live-rebuilds behaviour).
+ * Explicit user-initiated jump-to-latest ONLY — never scrolling/pagination.
+ * Emits the ordinary timeline_reset, plus a `trimmed_from` count. */
+char *mx_rust_timeline_reload_at_live(void *client, const char *room_id);
 char *mx_rust_timeline_close(void *client);
 char *mx_rust_timeline_paginate_back(void *client,
                                      const char *room_id,

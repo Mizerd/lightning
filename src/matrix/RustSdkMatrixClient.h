@@ -109,6 +109,12 @@ public:
     // pagination prepends. Safe to call repeatedly; each call advances
     // the Rust room generation and stale callbacks are rejected.
     void openRoomTimeline(const QString &roomId);
+    // 2026-08-19: re-open the live timeline after the SDK event cache has
+    // released the paginated backlog. Explicit jump-to-latest from far back
+    // ONLY — see mx_rust_timeline_reload_at_live.
+    // Returns false when the dispatch itself failed, so the caller never
+    // commits to a reset that will not arrive.
+    bool reloadRoomTimelineAtLive(const QString &roomId);
     void closeRoomTimeline();
 
     // v0.5.0. SAS emoji verification (receive-first). Drives

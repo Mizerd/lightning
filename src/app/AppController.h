@@ -640,6 +640,48 @@ public Q_SLOTS:
     // time — the wrapper dedupes by event_id. No-op on non-Rust.
     Q_INVOKABLE void reloadCurrentRoomTimeline(int limit = 30);
 
+    // 2026-08-19 jump-to-live history trim. Releases the paginated backlog
+    // and re-opens the live timeline at the newest message — Element's
+    // jumpToLiveTimeline() policy, which rebuilds at the live edge rather
+    // than scrolling through thousands of retained rows.
+    //
+    // Returns TRUE only when a trim was actually dispatched, so the caller
+    // can fall back to its ordinary jump. It refuses (returns false) unless
+    // ALL of these hold, because an un-asked-for timeline reset is a far
+    // worse outcome than a large but correct timeline:
+    //   * the Rust backend is active (the mock/HTTP backends have no event
+    //     cache to release);
+    //   * a room is open and not mid-pagination;
+    //   * the loaded row count exceeds `historyTrimRowThreshold()` — below
+    //     that the reset costs more than the rows it would release.
+    // NEVER call this from scrolling or pagination: it is for one explicit
+    // user action.
+    Q_INVOKABLE bool trimHistoryAndJumpToLive();
+    // The refusal policy as a PURE predicate, so every clause is testable
+    // without a live Rust event cache. trimHistoryAndJumpToLive() gathers
+    // the state and calls this; the offline suites drive it directly
+    // (short-circuit evaluation inside the gatherer otherwise makes the
+    // later clauses unreachable on the mock backend — review finding).
+    static bool historyTrimAllowed(bool rustBackend, bool roomOpen,
+                                   bool paginationBusy, bool threadOpen,
+                                   int loadedRows, int rowThreshold)
+    {
+        if (!rustBackend || !roomOpen)
+            return false;
+        if (paginationBusy)
+            return false;
+        // A thread panel / Threads view holds its own event-cache
+        // subscriber for this room, so the SDK's auto-shrink cannot fire
+        // while either is open — and the reload would tear the panel's live
+        // subscription out from under it.
+        if (threadOpen)
+            return false;
+        return loadedRows > rowThreshold;
+    }
+    // The loaded-row count above which a jump-to-live trims. Exposed so QML
+    // and the tests read ONE value.
+    Q_INVOKABLE int historyTrimRowThreshold() const { return 400; }
+
     // v0.6.6: "Star GIF" — the Discord-style hover star overlaid on GIF
     // media in the timeline (see MessageDelegate.qml's imageComponent).
     // Fetches `mediaKey`'s decrypted bytes through the existing controlled
