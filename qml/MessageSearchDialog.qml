@@ -159,7 +159,8 @@ Dialog {
                                       ? resultRow.senderDisplayName
                                       : resultRow.sender
                                 color: AppTheme.stormText
-                                font.pixelSize: 12
+                                font.family: AppTheme.menuFont
+                                font.pixelSize: AppTheme.scaled(12)
                                 font.weight: Font.DemiBold
                                 elide: Label.ElideRight
                                 Layout.maximumWidth: 180
@@ -167,6 +168,7 @@ Dialog {
                             Label {
                                 text: qsTr("in %1").arg(resultRow.roomName)
                                 color: AppTheme.stormTextMuted
+                                font.family: AppTheme.menuFont
                                 font.pixelSize: 11
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
@@ -179,6 +181,7 @@ Dialog {
                                         Qt.locale(), Locale.ShortFormat)
                                 }
                                 color: AppTheme.stormTextMuted
+                                font.family: AppTheme.menuFont
                                 font.pixelSize: 11
                             }
                         }
@@ -186,7 +189,8 @@ Dialog {
                             Layout.fillWidth: true
                             text: resultRow.body
                             color: AppTheme.stormTextSecondary
-                            font.pixelSize: 12
+                            font.family: AppTheme.menuFont
+                            font.pixelSize: AppTheme.scaled(12)
                             wrapMode: Text.Wrap
                             maximumLineCount: 2
                             elide: Label.ElideRight

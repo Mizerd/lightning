@@ -17,6 +17,9 @@ Dialog {
     id: root
     objectName: "discoverJoinDialog"
     modal: true
+    // The shared navy modal scrim (QuickSwitcher convention) —
+    // never the Basic style default dim (2026-08-19 audit).
+    Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     focus: true
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside

@@ -510,6 +510,63 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
+    // 2026-08-19 regression: delegates reach the pane ONLY through their
+    // `timelineView` (the rotated Flickable), so the reader-list opener
+    // must be a property-function ON that Flickable — as a pane-root
+    // function it was unreachable and the delegate's existence guard
+    // silently swallowed every click on the receipt facepile. This case
+    // fails on that tree: the property did not exist on the view.
+    void receiptListOpenerIsReachableFromDelegatesAndOpens()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        // A Popup needs a real window/overlay to open.
+        QQuickWindow window;
+        window.resize(680, 480);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        // The opener exists on the view the delegates actually hold...
+        const QVariant opener = timeline->property("openReceiptList");
+        QVERIFY(opener.isValid());
+        QVERIFY(qvariant_cast<QJSValue>(opener).isCallable());
+
+        // ...and invoking it exactly as the delegate does opens the ONE
+        // shared popover with the handed data.
+        auto *popover =
+            root->findChild<QObject *>(QStringLiteral("receiptListPopover"));
+        QVERIFY(popover != nullptr);
+        QVERIFY(!popover->property("visible").toBool());
+        QQmlExpression call(
+            qmlContext(timeline), timeline,
+            QStringLiteral(
+                "openReceiptList([{userId: \"@a:mock.local\","
+                " displayName: \"A\", avatarMxc: \"\", tsMs: 0}],"
+                " 3, Qt.point(40, 40))"));
+        call.evaluate();
+        QVERIFY2(!call.hasError(),
+                 call.error().toString().toUtf8().constData());
+        QTRY_VERIFY_WITH_TIMEOUT(popover->property("visible").toBool(), 5000);
+        QCOMPARE(popover->property("totalOthers").toInt(), 3);
+        QCOMPARE(popover->property("readers").toList().size(), 1);
+    }
+
     // 0.5.17: controller state changes alter the pagination header height,
     // which alters ListView contentHeight. Dispatching viewport fill directly
     // from that geometry notification re-entered the header state binding.

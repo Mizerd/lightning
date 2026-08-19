@@ -56,7 +56,9 @@ Rectangle {
     width: implicitWidth
 
     color: AppTheme.stormPanel
-    radius: AppTheme.radiusCard
+    // radiusLg like its corner-card siblings (VerifySessionPrompt,
+    // IncomingCallPrompt) — they stack in the same corner column.
+    radius: AppTheme.radiusLg
     border.width: 1
     border.color: AppTheme.stormBorder
 
@@ -74,25 +76,21 @@ Rectangle {
             // Warning-toned, not danger: a pending update is not a security
             // failure, and colouring it like one would devalue the red badge
             // an unverified session actually needs.
-            Rectangle {
+            // The corner-card icon vocabulary its siblings use
+            // (VerifySessionPrompt's Icon + Bold title) — the bespoke
+            // "!"-in-a-circle sat directly above them looking foreign.
+            Icon {
                 Layout.alignment: Qt.AlignVCenter
-                width: 20
-                height: 20
-                radius: 10
+                name: "download"
+                size: 18
                 color: AppTheme.warning
-                Label {
-                    anchors.centerIn: parent
-                    text: "!"
-                    color: AppTheme.boltInk
-                    font.pixelSize: AppTheme.fontCaption
-                    font.weight: Font.Bold
-                }
             }
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormText
-                font.weight: Font.DemiBold
+                font.pixelSize: AppTheme.fontSecondary
+                font.weight: Font.Bold
                 text: qsTr("Lightning %1 is available")
                       .arg(root.um ? root.um.latestVersion : "")
             }
@@ -111,6 +109,7 @@ Rectangle {
             spacing: AppTheme.spacing8
             Item { Layout.fillWidth: true }
             AppButton {
+                storm: true
                 objectName: "updatePromptDismissButton"
                 text: qsTr("Not now")
                 onClicked: {
@@ -121,6 +120,7 @@ Rectangle {
             }
             AppButton {
                 storm: true
+                kind: "primary"
                 objectName: "updatePromptOpenButton"
                 text: qsTr("Update")
                 onClicked: {

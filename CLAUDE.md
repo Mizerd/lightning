@@ -1306,6 +1306,38 @@ after the tester-report fixes shipped as 0.7.3:
   trees** after this round — the first fully green complete run since the
   timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
 
+**2026-08-19 design-deficit pass (same day, after live feedback).** The
+maintainer's screenshots exposed two real defects and a design gap:
+- **The reader popover's click was DEAD**: delegates reach the pane only
+  through their `timelineView` (the rotated Flickable), and
+  `openReceiptList` was a pane-root function — the delegate's existence
+  guard silently swallowed every click. It is now a property-function ON
+  the Flickable (the `openSenderProfile` pattern), with a behavioral
+  timeline-pane-qml case proven to fail pre-fix. The popover also had NO
+  themed background (fell through to the flat Basic-style box) — now the
+  shared storm popover surface with menuFont ink and hover rows.
+- **The rail chevron** (third pass): a quiet tree-expander glyph living
+  entirely in the gutter left of the tile (chevron_right collapsed →
+  expand_more expanded), never touching the accent ring — the badge disc
+  floated over the ring and read as a misplaced blob.
+- **A three-lens design audit** (round surfaces / message search /
+  dialog sweep) drove ~18 consistency fixes: Space Home's filter field
+  gained searchIcon/clear/a11y and a no-matches empty state; unified-row
+  hover gated on actionability; keycap tokens on the Suggested chip;
+  nested rail-room indent derives from the owning tile; "+N" pill
+  tooltip + badge weight; SearchPanel's raw CheckBox got palette ink;
+  search sender/body text now respects AppTheme.scaled() in all three
+  search surfaces; MessageSearchDialog rows carry menuFont; find-bar
+  history rows carry sender-specific Accessible.names;
+  UpdateAvailablePrompt matches its corner-card siblings (primary CTA,
+  storm buttons, Icon + Bold title, radiusLg); InvitePeopleDialog's
+  native Dialog.title replaced with the themed header; the shared
+  modalScrim override added to DiscoverJoin/Report/Uia/InvitePeople/
+  UpdateAvailable dialogs; and Space Home's three popups
+  (removeChildConfirm/leaveSpaceConfirm/addRoomPopup) moved to the
+  storm dialect every other confirm uses. Full CTest after: 134/134
+  both trees. All NOT TESTED live.
+
 **2026-08-19 Element-parity round (follow-up to tester report #2).**
 Three explicit requests, each Element-screenshot-anchored:
 - **Space Home unified "Rooms and spaces" list**: joined subspaces,

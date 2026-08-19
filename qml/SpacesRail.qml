@@ -154,32 +154,33 @@ Rectangle {
                     anchors.rightMargin: 1
                 }
 
-                // 2026-08-19 tester request (revised same day): the ONLY
-                // expansion trigger — a small arrow badge riding the space
-                // tile's left edge. It is a rail-ringed disc (the unread
-                // badge idiom, mirrored left) so the active accent outline
-                // never clips through the glyph. Hover- or expanded-only,
-                // real spaces only — the pseudo rows have no children.
-                Rectangle {
+                // 2026-08-19 (third pass, screenshot-driven): the ONLY
+                // expansion trigger — a quiet tree-expander glyph living
+                // ENTIRELY in the gutter left of the tile, never touching
+                // the active accent outline (the disc badge floated over
+                // the ring and read as a misplaced blob; the bare glyph
+                // before it clipped INTO the ring). Right-pointing when
+                // collapsed, down when expanded — the tree convention.
+                // Hover- or expanded-only; real spaces only.
+                Item {
                     id: expandChevronArea
                     objectName: "railSpaceExpandChevron"
                     visible: spaceItem.isRealSpace
                              && (spaceHover.hovered
                                  || spaceItem.revealCount > 0)
-                    width: 18; height: 18; radius: 9
-                    color: chevronHover.hovered ? AppTheme.hover
-                                                : AppTheme.cardElevated
-                    border.color: AppTheme.rail
-                    border.width: 2
-                    z: 2
-                    anchors.horizontalCenter: spaceTile.left
+                    anchors.left: parent.left
+                    // Up to the accent ring's outer edge (tile - 4px) —
+                    // the glyph can never overlap it.
+                    width: Math.max(0, spaceTile.x - 4)
+                    height: 40
                     anchors.verticalCenter: spaceTile.verticalCenter
                     Icon {
                         anchors.centerIn: parent
-                        name: spaceItem.revealCount > 0 ? "expand_less"
-                                                        : "expand_more"
-                        size: 12
-                        color: AppTheme.textSecondary
+                        name: spaceItem.revealCount > 0 ? "expand_more"
+                                                        : "chevron_right"
+                        size: 10
+                        color: chevronHover.hovered ? AppTheme.text
+                                                    : AppTheme.textMuted
                     }
                     HoverHandler { id: chevronHover }
                     TapHandler {
@@ -350,7 +351,12 @@ Rectangle {
                                 color: "transparent"
                                 anchors.horizontalCenter:
                                     parent.horizontalCenter
-                                anchors.horizontalCenterOffset: 5
+                                // One level deeper than the OWNING tile —
+                                // a nested space's rooms step in further,
+                                // not back to the flat +5 (audit find).
+                                anchors.horizontalCenterOffset:
+                                    spaceTile.anchors.horizontalCenterOffset
+                                    + 5
                                 anchors.verticalCenter: parent.verticalCenter
                                 Avatar {
                                     anchors.fill: parent
@@ -425,7 +431,8 @@ Rectangle {
                             border.color: AppTheme.border
                             border.width: 1
                             anchors.horizontalCenter: parent.horizontalCenter
-                            anchors.horizontalCenterOffset: 5
+                            anchors.horizontalCenterOffset:
+                                spaceTile.anchors.horizontalCenterOffset + 5
                             anchors.verticalCenter: parent.verticalCenter
                             Label {
                                 anchors.centerIn: parent
@@ -434,7 +441,7 @@ Rectangle {
                                           spaceItem.revealedRooms.length
                                           - spaceItem.revealCount)
                                 font.pixelSize: 10
-                                font.weight: Font.Bold
+                                font.weight: Font.ExtraBold
                                 color: AppTheme.textSecondary
                             }
                         }
@@ -442,6 +449,11 @@ Rectangle {
                         TapHandler {
                             onTapped:
                                 root.showMoreRooms(spaceItem.ownSpaceId)
+                        }
+                        ToolTip {
+                            visible: moreHover.hovered
+                            text: qsTr("Show more rooms")
+                            delay: 300
                         }
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Show more rooms")

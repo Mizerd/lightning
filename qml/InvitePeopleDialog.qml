@@ -18,9 +18,9 @@ Dialog {
     id: root
     objectName: "invitePeopleDialog"
     modal: true
-    title: roomDisplayName.length > 0
-           ? qsTr("Invite to %1").arg(roomDisplayName)
-           : qsTr("Invite people")
+    // The shared navy modal scrim (QuickSwitcher convention) —
+    // never the Basic style default dim (2026-08-19 audit).
+    Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     width: Math.min(480, parent ? parent.width - AppTheme.spacing24 * 2 : 480)
@@ -156,6 +156,21 @@ Dialog {
 
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
+
+        // Themed header, never Dialog.title — the Basic style renders
+        // that as its own unthemed bar glued onto the storm surface
+        // (2026-08-19 audit; the DiscoverJoinDialog convention).
+        Label {
+            Layout.fillWidth: true
+            text: root.roomDisplayName.length > 0
+                  ? qsTr("Invite to %1").arg(root.roomDisplayName)
+                  : qsTr("Invite people")
+            color: AppTheme.stormText
+            font.family: AppTheme.menuFont
+            font.pixelSize: 16
+            font.weight: Font.Bold
+            elide: Label.ElideRight
+        }
 
         // Mono room address under the title (SPEC 1t), only when real.
         Label {

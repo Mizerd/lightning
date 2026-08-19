@@ -336,7 +336,7 @@ Rectangle {
                                     text: resultDelegate.senderDisplayName
                                           || resultDelegate.sender
                                     color: AppTheme.textPrimary
-                                    font.pixelSize: 12
+                                    font.pixelSize: AppTheme.scaled(12)
                                     font.weight: Font.DemiBold
                                     elide: Label.ElideRight
                                     Layout.fillWidth: true
@@ -352,7 +352,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: resultDelegate.body
                                 color: AppTheme.textSecondary
-                                font.pixelSize: 12
+                                font.pixelSize: AppTheme.scaled(12)
                                 wrapMode: Text.Wrap
                                 maximumLineCount: 3
                                 elide: Label.ElideRight
@@ -491,6 +491,11 @@ Rectangle {
                             model: ["image", "video", "audio", "file", "link", "sticker"]
                             CheckBox {
                                 required property string modelData
+                                // Native control on a themed surface — the
+                                // label ink must follow the app palette
+                                // (SettingsScreen convention), or it
+                                // renders OS-default gray on dark themes.
+                                palette.windowText: AppTheme.textPrimary
                                 text: root.typeLabel(modelData)
                                 checked: root.contains(root.draftTypes, modelData)
                                 onClicked: root.toggleValue("draftTypes", modelData)

@@ -288,6 +288,15 @@ Rectangle {
         minWidth: 240
         minHeight: 160
         padding: AppTheme.spacing12
+        // The shared floating-popover surface (EmojiPicker/GifPicker
+        // precedent) — without it the popup fell through to the Basic
+        // style's flat unthemed box (2026-08-19 design audit P0).
+        background: Rectangle {
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorder
+            border.width: 2
+            radius: AppTheme.menuRadius + 6
+        }
         // Element-parity read time (2026-08-19 request): today -> time,
         // this week -> weekday + time, older -> date + time. tsMs 0 means
         // the receipt carried no timestamp — render nothing, never a
@@ -315,47 +324,70 @@ Rectangle {
                       ? qsTr("Seen by 1 person")
                       : qsTr("Seen by %1 people")
                             .arg(receiptListPopover.totalOthers)
-                color: AppTheme.text
+                color: AppTheme.stormText
+                font.family: AppTheme.menuFont
                 font.pixelSize: 15
-                font.weight: Font.DemiBold
+                font.weight: Font.Bold
             }
             ListView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                spacing: AppTheme.spacing6
+                spacing: 2
                 model: receiptListPopover.readers
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                delegate: RowLayout {
+                delegate: Item {
+                    id: readerDelegate
                     required property var modelData
                     width: ListView.view.width
-                    spacing: AppTheme.spacing8
-                    Avatar {
-                        size: 28
-                        onScreen: true
-                        name: modelData.displayName || modelData.userId
-                        mxc: modelData.avatarMxc || ""
-                        colorKey: modelData.userId || ""
+                    height: readerRow.implicitHeight + AppTheme.spacing8
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.stormSelection
+                        visible: readerHover.hovered
                     }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-                        Label {
-                            Layout.fillWidth: true
-                            text: modelData.displayName || modelData.userId
-                            color: AppTheme.text
-                            font.pixelSize: 14
-                            font.weight: Font.Medium
-                            elide: Label.ElideRight
+                    HoverHandler { id: readerHover }
+                    RowLayout {
+                        id: readerRow
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.leftMargin: AppTheme.spacing4
+                        anchors.rightMargin: AppTheme.spacing4
+                        spacing: AppTheme.spacing8
+                        Avatar {
+                            size: 28
+                            onScreen: true
+                            name: readerDelegate.modelData.displayName
+                                  || readerDelegate.modelData.userId
+                            mxc: readerDelegate.modelData.avatarMxc || ""
+                            colorKey: readerDelegate.modelData.userId || ""
                         }
-                        Label {
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            visible: text.length > 0
-                            text: receiptListPopover.formatReadTime(
-                                      modelData.tsMs)
-                            color: AppTheme.textMuted
-                            font.pixelSize: 12
-                            elide: Label.ElideRight
+                            spacing: 0
+                            Label {
+                                Layout.fillWidth: true
+                                text: readerDelegate.modelData
+                                          .displayName
+                                      || readerDelegate.modelData.userId
+                                color: AppTheme.stormText
+                                font.family: AppTheme.menuFont
+                                font.pixelSize: 14
+                                font.weight: Font.Medium
+                                elide: Label.ElideRight
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: text.length > 0
+                                text: receiptListPopover.formatReadTime(
+                                          readerDelegate.modelData.tsMs)
+                                color: AppTheme.stormTextMuted
+                                font.family: AppTheme.menuFont
+                                font.pixelSize: 12
+                                elide: Label.ElideRight
+                            }
                         }
                     }
                 }
@@ -364,18 +396,13 @@ Rectangle {
                     width: ListView.view ? ListView.view.width : 0
                     text: qsTr("…and %n more (names not loaded)", "",
                                receiptListPopover.unnamed)
-                    color: AppTheme.textMuted
+                    color: AppTheme.stormTextMuted
+                    font.family: AppTheme.menuFont
                     font.pixelSize: 11
                     topPadding: 4
                 }
             }
         }
-    }
-    function openReceiptList(readers, totalOthers, point) {
-        receiptListPopover.readers = readers || []
-        receiptListPopover.totalOthers = totalOthers
-        receiptListPopover.anchorPoint = point
-        receiptListPopover.open()
     }
 
     EmojiPicker {
@@ -1025,7 +1052,10 @@ Rectangle {
                         }
                     }
                     Accessible.role: Accessible.Button
-                    Accessible.name: qsTr("Jump to message")
+                    Accessible.name: qsTr("Jump to message from %1").arg(
+                        historyRow.senderDisplayName.length > 0
+                            ? historyRow.senderDisplayName
+                            : historyRow.sender)
                     ColumnLayout {
                         id: historyRowCol
                         anchors.left: parent.left
@@ -1041,7 +1071,7 @@ Rectangle {
                                       ? historyRow.senderDisplayName
                                       : historyRow.sender
                                 color: AppTheme.text
-                                font.pixelSize: 12
+                                font.pixelSize: AppTheme.scaled(12)
                                 font.weight: Font.DemiBold
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
@@ -1061,7 +1091,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: historyRow.body
                             color: AppTheme.textSecondary
-                            font.pixelSize: 12
+                            font.pixelSize: AppTheme.scaled(12)
                             elide: Label.ElideRight
                             maximumLineCount: 1
                         }
@@ -1971,6 +2001,18 @@ Rectangle {
                 }
                 property var openSenderProfile: function(member) {
                     senderProfilePopover.openFor(member)
+                }
+                // 2026-08-19 fix: delegates reach the pane ONLY through
+                // this Flickable (their `timelineView`), so the reader
+                // list opener must live here — as a pane-root function it
+                // was unreachable and the delegate's existence guard
+                // silently swallowed every click.
+                property var openReceiptList: function(readers, totalOthers,
+                                                       point) {
+                    receiptListPopover.readers = readers || []
+                    receiptListPopover.totalOthers = totalOthers
+                    receiptListPopover.anchorPoint = point
+                    receiptListPopover.open()
                 }
 
                 property var beginReplyForEvent: function(eventId) {
@@ -4237,14 +4279,29 @@ Rectangle {
                     AppTextField {
                         objectName: "spaceChildFilterField"
                         Layout.fillWidth: true
+                        searchIcon: true
+                        clearButton: true
                         placeholderText:
                             qsTr("Search names and descriptions")
+                        Accessible.name: qsTr("Search rooms and spaces")
                         text: spaceHome.childFilter
                         onTextChanged: spaceHome.childFilter = text
                     }
 
-                    // Empty state for a fresh Space (a filter with no
-                    // matches is not "no rooms" — the field says why).
+                    // A filter with no matches says so — a silently
+                    // blank list reads as stuck (2026-08-19 audit).
+                    Label {
+                        visible: spaceHome.unifiedRows.length === 0
+                                 && spaceHome.childFilter !== ""
+                        Layout.fillWidth: true
+                        text: qsTr("No rooms or spaces match “%1”.")
+                                  .arg(spaceHome.childFilter)
+                        color: AppTheme.textMuted
+                        font.pixelSize: 12
+                        wrapMode: Text.Wrap
+                    }
+
+                    // Empty state for a fresh Space.
                     Rectangle {
                         visible: spaceHome.unifiedRows.length === 0
                                  && spaceHome.childFilter === ""
@@ -4293,7 +4350,11 @@ Rectangle {
                             Layout.fillWidth: true
                             implicitHeight: 50
                             radius: AppTheme.radiusMd
+                            // Hover feedback only where a click acts —
+                            // offers act through their Join button alone
+                            // (the pin-row rule in RoomInfoPanel).
                             color: unifiedHover.hovered
+                                   && unifiedRow.modelData.joined === true
                                    ? AppTheme.hover : "transparent"
                             HoverHandler { id: unifiedHover }
                             TapHandler {
@@ -4391,10 +4452,14 @@ Rectangle {
                                             text: qsTr("Suggested")
                                             color: AppTheme.textMuted
                                             font.pixelSize: 10
-                                            leftPadding: 5
-                                            rightPadding: 5
-                                            topPadding: 1
-                                            bottomPadding: 1
+                                            leftPadding:
+                                                AppTheme.keycapPaddingH
+                                            rightPadding:
+                                                AppTheme.keycapPaddingH
+                                            topPadding:
+                                                AppTheme.keycapPaddingV
+                                            bottomPadding:
+                                                AppTheme.keycapPaddingV
                                             background: Rectangle {
                                                 radius: AppTheme.radiusPill
                                                 color: AppTheme.cardElevated
@@ -4579,10 +4644,14 @@ Rectangle {
                 modal: true
                 focus: true
                 padding: AppTheme.spacing16
+                // The app's floating-dialog dialect (2026-08-19 audit):
+                // storm surface + the shared navy modal scrim, like every
+                // other confirm in the app.
+                Overlay.modal: Rectangle { color: AppTheme.modalScrim }
                 background: Rectangle {
-                    color: AppTheme.surface
-                    radius: AppTheme.radiusMd
-                    border.color: AppTheme.borderStrong
+                    color: AppTheme.stormPanel
+                    radius: AppTheme.radiusLg
+                    border.color: AppTheme.stormBorder
                     border.width: 1
                 }
                 contentItem: ColumnLayout {
@@ -4590,15 +4659,17 @@ Rectangle {
                     Label {
                         text: qsTr("Remove %n room(s) from this Space?", "",
                                    removeChildConfirm.roomIds.length)
-                        color: AppTheme.text
+                        color: AppTheme.stormText
+                        font.family: AppTheme.menuFont
                         font.pixelSize: 14
-                        font.weight: Font.DemiBold
+                        font.weight: Font.Bold
                     }
                     Label {
                         text: qsTr("The rooms keep existing and you stay "
                                    + "in them — they just leave this "
                                    + "Space's list.")
-                        color: AppTheme.textSecondary
+                        color: AppTheme.stormTextSecondary
+                        font.family: AppTheme.menuFont
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
@@ -4607,11 +4678,13 @@ Rectangle {
                         spacing: AppTheme.spacingS
                         Item { Layout.fillWidth: true }
                         AppButton {
+                            storm: true
                             text: qsTr("Cancel")
                             onClicked: removeChildConfirm.close()
                         }
                         AppButton {
                             objectName: "spaceChildRemoveConfirmButton"
+                            storm: true
                             kind: "danger"
                             text: qsTr("Remove")
                             onClicked: {
@@ -4635,10 +4708,11 @@ Rectangle {
                 modal: true
                 focus: true
                 padding: AppTheme.spacing16
+                Overlay.modal: Rectangle { color: AppTheme.modalScrim }
                 background: Rectangle {
-                    color: AppTheme.surface
-                    radius: AppTheme.radiusMd
-                    border.color: AppTheme.borderStrong
+                    color: AppTheme.stormPanel
+                    radius: AppTheme.radiusLg
+                    border.color: AppTheme.stormBorder
                     border.width: 1
                 }
                 contentItem: ColumnLayout {
@@ -4646,24 +4720,28 @@ Rectangle {
                     Label {
                         text: qsTr("Leave %1?")
                             .arg(spaceHome.info.name || qsTr("this Space"))
-                        color: AppTheme.text
+                        color: AppTheme.stormText
+                        font.family: AppTheme.menuFont
                         font.pixelSize: 14
-                        font.weight: Font.DemiBold
+                        font.weight: Font.Bold
                     }
                     Label {
                         text: qsTr("The rooms inside stay untouched.")
-                        color: AppTheme.textSecondary
+                        color: AppTheme.stormTextSecondary
+                        font.family: AppTheme.menuFont
                         font.pixelSize: 12
                     }
                     RowLayout {
                         spacing: AppTheme.spacingS
                         Item { Layout.fillWidth: true }
                         AppButton {
+                            storm: true
                             text: qsTr("Cancel")
                             onClicked: leaveSpaceConfirm.close()
                         }
                         AppButton {
                             objectName: "spaceLeaveConfirmButton"
+                            storm: true
                             kind: "danger"
                             text: qsTr("Leave Space")
                             onClicked: {
@@ -4698,10 +4776,11 @@ Rectangle {
                               ? app.spaces.addableRooms(spaceHome.spaceId, query)
                               : []
                 }
+                Overlay.modal: Rectangle { color: AppTheme.modalScrim }
                 background: Rectangle {
-                    color: AppTheme.surface
+                    color: AppTheme.stormPanel
                     radius: AppTheme.radiusLg
-                    border.color: AppTheme.border
+                    border.color: AppTheme.stormBorder
                     border.width: 1
                 }
                 contentItem: ColumnLayout {
@@ -4709,15 +4788,17 @@ Rectangle {
                     Label {
                         text: qsTr("Add a room to %1")
                             .arg(spaceHome.info.name || qsTr("this Space"))
-                        color: AppTheme.text
+                        color: AppTheme.stormText
+                        font.family: AppTheme.menuFont
                         font.pixelSize: 15
-                        font.weight: Font.DemiBold
+                        font.weight: Font.Bold
                     }
                     AppTextField {
                         objectName: "spaceAddRoomSearch"
                         Layout.fillWidth: true
                         searchIcon: true
                         clearButton: true
+                        storm: true
                         placeholderText: qsTr("Search your rooms…")
                         Accessible.name: qsTr("Search rooms to add")
                         onTextChanged: {
@@ -4728,7 +4809,8 @@ Rectangle {
                     Label {
                         visible: addRoomPopup.results.length === 0
                         text: qsTr("No rooms to add.")
-                        color: AppTheme.textMuted
+                        color: AppTheme.stormTextMuted
+                        font.family: AppTheme.menuFont
                         font.pixelSize: 12
                     }
                     ListView {
@@ -4743,7 +4825,7 @@ Rectangle {
                             height: 40
                             radius: AppTheme.radiusSm
                             color: addHover.hovered
-                                   ? AppTheme.hover : "transparent"
+                                   ? AppTheme.stormSelection : "transparent"
                             HoverHandler { id: addHover }
                             RowLayout {
                                 anchors.fill: parent
@@ -4760,18 +4842,21 @@ Rectangle {
                                 Label {
                                     Layout.fillWidth: true
                                     text: modelData.name || qsTr("Room")
-                                    color: AppTheme.text
+                                    color: AppTheme.stormText
+                                    font.family: AppTheme.menuFont
                                     font.pixelSize: 13
                                     elide: Label.ElideRight
                                 }
                                 Label {
                                     visible: modelData.alreadyChild === true
                                     text: qsTr("Already added")
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
+                                    font.family: AppTheme.menuFont
                                     font.pixelSize: 11
                                 }
                                 AppButton {
                                     visible: modelData.alreadyChild !== true
+                                    storm: true
                                     text: qsTr("Add")
                                     Accessible.name: qsTr("Add %1 to the Space")
                                         .arg(modelData.name || "")
@@ -4789,6 +4874,7 @@ Rectangle {
                         Layout.fillWidth: true
                         Item { Layout.fillWidth: true }
                         AppButton {
+                            storm: true
                             text: qsTr("Close")
                             onClicked: addRoomPopup.close()
                         }
