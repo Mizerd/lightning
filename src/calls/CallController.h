@@ -98,7 +98,15 @@ public:
     // backend bridge to start carrying SDP for this client (C++ memory
     // only, never QML, never logs).
     void setMediaBackend(CallMediaBackend *backend);
-    bool mediaBackendAvailable() const { return m_mediaBackend != nullptr; }
+    // Defined in the .cpp DELIBERATELY. CallMediaBackend is only
+    // forward-declared here (that is the point of the seam), and comparing a
+    // QPointer<T> against nullptr instantiates QPointer<T>::data(), whose
+    // static_cast<T*> requires T to be COMPLETE. Qt 6.11 does not reach that
+    // path for this comparison; Qt 6.8 — which the Debian package build uses
+    // — does, and it failed the 0.7.4 release build with "invalid
+    // static_cast from QObject* to CallMediaBackend*". Keeping the body in
+    // the .cpp, where CallMediaBackend.h is included, is version-independent.
+    bool mediaBackendAvailable() const;
 
     // UI-facing entries. Both refuse without a media backend: a stubbed
     // offer/answer would place or accept a call that dies at the peer.

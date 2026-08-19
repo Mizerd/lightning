@@ -1427,6 +1427,33 @@ is in [[offscreen-perf-vs-gpu-2026-08-19]].
   the judge is a fresh `QSG_RENDER_TIMING` capture showing median frame
   cost deep in history falling toward the 3 ms figure.
 
+**2026-08-19 the 0.7.4 release build failed on a Qt VERSION difference the
+dev shell cannot show you.** Pipeline 105's `build-deb` died compiling
+`AppController.cpp`: `CallController.h` held
+`return m_mediaBackend != nullptr;` INLINE, where `m_mediaBackend` is a
+`QPointer<CallMediaBackend>` and that class is only forward-declared (the
+whole point of the media seam). Comparing a `QPointer<T>` against `nullptr`
+instantiates `QPointer<T>::data()`, whose `static_cast<T*>` requires T to be
+COMPLETE. **Qt 6.11 (nix dev shell) never reaches that path; Qt 6.8.2
+(Debian, every deb/rpm/AppImage job) does.** Fixed by moving the accessor
+into the `.cpp` where the type is complete — version-independent, rather
+than depending on which Qt versions instantiate what.
+- Generalize: a `QPointer<T>` MEMBER of an incomplete type is fine; any
+  inline comparison or dereference of it in the header is not. Raw
+  `T *p = nullptr` comparisons are always fine.
+- **The verification method is the reusable part.** `docker run
+  debian:13.6-slim` + `qt6-base-dev` + `-fsyntax-only` reproduced the exact
+  error from the committed header and showed the fix clean, and a sweep of
+  ALL 104 translation units proved it was the only occurrence in the tree.
+  The failing build had stopped at file 97 of 269, so ~170 files were
+  unchecked; finding the rest one 30-minute pipeline at a time is the
+  alternative. Two apparent sweep failures were missing dev packages and one
+  was a file only compiled under `LIGHTNING_ENABLE_SCREENSHOT_DEMO` — check
+  CMake conditionals before believing a sweep hit.
+- Cancel a doomed pipeline immediately: it keeps running its other jobs and
+  HOLDS the runners, so a retry sits pending (this is the third time that
+  note has earned its place).
+
 **2026-08-19 scroll round 2, part 4 — the window shipped as a PERMANENT
 NO-OP in `b74b518`, and a live capture caught it. Read this alongside part
 3.** Rokas reported "better by a lot, but if i scroll to start the lag

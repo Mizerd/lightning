@@ -112,6 +112,11 @@ void CallController::setClient(MatrixClient *client)
         requestTurnServersIfStale();
 }
 
+bool CallController::mediaBackendAvailable() const
+{
+    return !m_mediaBackend.isNull();
+}
+
 void CallController::setMediaBackend(CallMediaBackend *backend)
 {
     if (m_mediaBackend == backend)
