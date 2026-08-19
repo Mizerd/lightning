@@ -548,11 +548,68 @@ private Q_SLOTS:
         QVERIFY(qvariant_cast<QJSValue>(opener).isCallable());
 
         // ...and invoking it exactly as the delegate does opens the ONE
-        // shared popover with the handed data.
+        // shared popover with the handed data. The FIRST-ever open is the
+        // hard case (2026-08-19 screenshot): placeAtPoint() runs before
+        // the list materializes its rows, so a click near the window
+        // bottom used to decide placement against the header-only height
+        // and the settled card then clipped out of view. Thirty readers,
+        // point at the bottom edge: the card must grow, cap at half the
+        // window, scroll inside, and stay fully inside the window.
         auto *popover =
             root->findChild<QObject *>(QStringLiteral("receiptListPopover"));
         QVERIFY(popover != nullptr);
         QVERIFY(!popover->property("visible").toBool());
+        QQmlExpression bottomCall(
+            qmlContext(timeline), timeline,
+            QStringLiteral(
+                "openReceiptList([{userId: \"@u0:mock.local\","
+                " displayName: \"User 0\", avatarMxc: \"\","
+                " tsMs: 1000}], 30,"
+                " Qt.point(40, Overlay.overlay.height - 12))"));
+        bottomCall.evaluate();
+        QVERIFY2(!bottomCall.hasError(),
+                 bottomCall.error().toString().toUtf8().constData());
+        QTRY_VERIFY_WITH_TIMEOUT(popover->property("visible").toBool(), 5000);
+        QCOMPARE(popover->property("totalOthers").toInt(), 30);
+        const qreal placedHeight = popover->property("height").toReal();
+        // Grow IN PLACE: the rows land after placement (exactly what the
+        // desktop does on the first-ever open — the fixture's synchronous
+        // materialization can't reproduce that timing, so the growth is
+        // driven explicitly while the card is visible and already placed).
+        QQmlExpression grow(
+            qmlContext(timeline), timeline,
+            QStringLiteral(
+                "receiptListPopover.readers ="
+                " Array.from({length: 30}, function(v, i) {"
+                " return {userId: \"@u\" + i + \":mock.local\","
+                " displayName: \"User \" + i, avatarMxc: \"\","
+                " tsMs: 1000 + i}; })"));
+        grow.evaluate();
+        QVERIFY2(!grow.hasError(),
+                 grow.error().toString().toUtf8().constData());
+        QTRY_VERIFY_WITH_TIMEOUT(
+            popover->property("height").toReal() > placedHeight + 40, 5000);
+        const qreal manyHeight = popover->property("height").toReal();
+        QVERIFY(manyHeight <= window.height() * 0.5 + 1.0);
+        auto *readerList = popover->findChild<QQuickItem *>(
+            QStringLiteral("receiptReaderList"));
+        QVERIFY(readerList != nullptr);
+        // Capped: the rows genuinely overflow and scroll inside.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            readerList->property("contentHeight").toReal()
+                > readerList->height() + 1.0, 5000);
+        // Fully inside the window even though it grew after placement.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            popover->property("y").toReal()
+                    + popover->property("height").toReal()
+                <= window.height() + 0.5, 5000);
+
+        // Reopened with ONE reader, the card hugs its single row — the
+        // share-sized version floored at 160 here, so <140 discriminates.
+        QQmlExpression closeCall(qmlContext(timeline), timeline,
+                                 QStringLiteral("receiptListPopover.close()"));
+        closeCall.evaluate();
+        QVERIFY(!closeCall.hasError());
         QQmlExpression call(
             qmlContext(timeline), timeline,
             QStringLiteral(
@@ -565,43 +622,8 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(popover->property("visible").toBool(), 5000);
         QCOMPARE(popover->property("totalOthers").toInt(), 3);
         QCOMPARE(popover->property("readers").toList().size(), 1);
-
-        // 2026-08-19 feedback: the card is content-sized, never a fixed
-        // window share — one reader gets a small card (the share-sized
-        // version measured >=160 here), and a long list caps at half the
-        // window with the list scrolling inside.
-        const qreal oneReaderHeight = popover->property("height").toReal();
-        QVERIFY2(oneReaderHeight < 140,
-                 qPrintable(QStringLiteral("h=%1").arg(oneReaderHeight)));
-
-        QQmlExpression closeCall(qmlContext(timeline), timeline,
-                                 QStringLiteral("receiptListPopover.close()"));
-        closeCall.evaluate();
-        QVERIFY(!closeCall.hasError());
-        QQmlExpression bigCall(
-            qmlContext(timeline), timeline,
-            QStringLiteral(
-                "openReceiptList(Array.from({length: 30}, function(v, i) {"
-                " return {userId: \"@u\" + i + \":mock.local\","
-                " displayName: \"User \" + i, avatarMxc: \"\","
-                " tsMs: 1000 + i}; }), 30, Qt.point(40, 40))"));
-        bigCall.evaluate();
-        QVERIFY2(!bigCall.hasError(),
-                 bigCall.error().toString().toUtf8().constData());
-        QTRY_VERIFY_WITH_TIMEOUT(popover->property("visible").toBool(), 5000);
-        // The 30 delegates instantiate asynchronously; the content-driven
-        // height follows the list's contentHeight, so poll for it.
         QTRY_VERIFY_WITH_TIMEOUT(
-            popover->property("height").toReal() > oneReaderHeight, 5000);
-        const qreal manyHeight = popover->property("height").toReal();
-        QVERIFY(manyHeight <= window.height() * 0.5 + 1.0);
-        auto *readerList = popover->findChild<QQuickItem *>(
-            QStringLiteral("receiptReaderList"));
-        QVERIFY(readerList != nullptr);
-        // Capped: the rows genuinely overflow and scroll inside.
-        QTRY_VERIFY_WITH_TIMEOUT(
-            readerList->property("contentHeight").toReal()
-                > readerList->height() + 1.0, 5000);
+            popover->property("height").toReal() < 140, 5000);
     }
 
     // 0.5.17: controller state changes alter the pagination header height,

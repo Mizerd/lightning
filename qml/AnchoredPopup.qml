@@ -156,6 +156,11 @@ Popup {
     // ── Point placement, for callers with no anchor item ─────────────────
     // Clamped fully inside the overlay: horizontally centred on the point,
     // vertically below it when it fits and above it when it does not.
+    // preferAbove flips that order — for popovers whose trigger sits at
+    // the BOTTOM of its own content (the read-receipt chips), opening
+    // upward is the natural direction and keeps a card that grows after
+    // placement away from the window's bottom edge.
+    property bool preferAbove: false
     function placeAtPoint() {
         if (!overlayItem)
             return
@@ -163,10 +168,17 @@ Popup {
                      Math.min(anchorPoint.x - width / 2,
                               overlayItem.width - width - AppTheme.spacingS))
         var below = anchorPoint.y + AppTheme.spacingXS
+        var above = anchorPoint.y - height - AppTheme.spacingXS
+        if (preferAbove) {
+            y = above >= AppTheme.spacingS
+                ? above
+                : Math.min(below,
+                           overlayItem.height - height - AppTheme.spacingS)
+            return
+        }
         y = below + height <= overlayItem.height - AppTheme.spacingS
             ? below
-            : Math.max(AppTheme.spacingS,
-                       anchorPoint.y - height - AppTheme.spacingXS)
+            : Math.max(AppTheme.spacingS, above)
     }
 
     // The one correction a point-placed popup gets: keep it inside a window
@@ -186,6 +198,16 @@ Popup {
         function onWidthChanged() { root.clampInsideWindow() }
         function onHeightChanged() { root.clampInsideWindow() }
     }
+    // A content-sized popup can GROW after placement: placeAtPoint() runs
+    // in onAboutToShow, before a list's delegates have materialized, so
+    // the placement decision is made against the header-only height and
+    // the settled card can extend past the window's bottom edge
+    // (2026-08-19, reader card — screenshot-confirmed on the desktop;
+    // the offscreen fixture is rescued by Qt's own popup positioner, so
+    // this clamp is the explicit guarantee). Same clamp, keyed on the
+    // popup's own size — still never a re-place.
+    onWidthChanged: clampInsideWindow()
+    onHeightChanged: clampInsideWindow()
 
     // ── Resize, driven by PopupResizeGrip ───────────────────────────────
     //

@@ -284,6 +284,10 @@ Rectangle {
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         padding: AppTheme.spacing12
+        // The chips sit at a message's BOTTOM edge — open upward, so a
+        // card that grows after placement grows away from the window's
+        // bottom edge instead of past it.
+        preferAbove: true
         // Content-sized, never share-sized (2026-08-19 feedback): this is
         // a small info card, not a picker — two readers must not get a
         // 40%-of-the-window box of empty space. The card hugs its rows
