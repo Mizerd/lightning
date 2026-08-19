@@ -403,6 +403,9 @@ public:
     void uiaCancel(quint64 uiaId) override;
     quint64 requestOAuthManagementUrl(const QString &deviceId) override;
     quint64 addRoomToSpace(const QString &spaceId, const QString &roomId) override;
+    quint64 setSpaceChildSuggested(const QString &spaceId,
+                                   const QString &roomId,
+                                   bool suggested) override;
     quint64 removeRoomFromSpace(const QString &spaceId,
                                 const QString &roomId) override;
     quint64 sendAttachment(const QString &roomId, const QString &localPath,

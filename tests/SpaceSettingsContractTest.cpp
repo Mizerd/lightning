@@ -41,7 +41,7 @@ class SpaceSettingsContractTest : public QObject
         const int start = pane.indexOf(QStringLiteral("id: settingsCol"));
         if (start < 0)
             return {};
-        const int end = pane.indexOf(QStringLiteral("ROOMS IN THIS SPACE"), start);
+        const int end = pane.indexOf(QStringLiteral("ROOMS AND SPACES"), start);
         if (end < 0)
             return {};
         return pane.mid(start, end - start);

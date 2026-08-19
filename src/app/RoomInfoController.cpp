@@ -96,6 +96,7 @@ void RoomInfoController::clearSnapshot()
     m_canPinMessages = false;
     m_canChangeJoinRule = false;
     m_canChangeAlias = false;
+    m_canManageSpaceChildren = false;
     m_usersDefaultPowerLevel = 0;
     m_joinRule.clear();
     m_canonicalAlias.clear();
@@ -157,6 +158,8 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
         snapshot.value(QStringLiteral("canChangeJoinRule")).toBool();
     m_canChangeAlias =
         snapshot.value(QStringLiteral("canChangeAlias")).toBool();
+    m_canManageSpaceChildren =
+        snapshot.value(QStringLiteral("canManageSpaceChildren")).toBool();
     m_usersDefaultPowerLevel =
         snapshot.value(QStringLiteral("usersDefaultPowerLevel")).toLongLong();
     m_joinRule = snapshot.value(QStringLiteral("joinRule")).toString();

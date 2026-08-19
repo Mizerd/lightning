@@ -5214,6 +5214,21 @@ quint64 RustSdkMatrixClient::addRoomToSpace(const QString &spaceId,
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::setSpaceChildSuggested(const QString &spaceId,
+                                                    const QString &roomId,
+                                                    bool suggested)
+{
+    if (!m_rustHandle || spaceId.isEmpty() || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray space = spaceId.toUtf8();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_set_space_child_suggested(
+        m_rustHandle, space.constData(), room.constData(),
+        suggested ? 1 : 0, opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::removeRoomFromSpace(const QString &spaceId,
                                                  const QString &roomId)
 {
@@ -6043,6 +6058,10 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             QStringLiteral("canChangeAlias"),
             event.value(QStringLiteral("own_can_change_alias")).toBool());
         snapshot.insert(
+            QStringLiteral("canManageSpaceChildren"),
+            event.value(QStringLiteral("own_can_manage_space_children"))
+                .toBool());
+        snapshot.insert(
             QStringLiteral("usersDefaultPowerLevel"),
             static_cast<qlonglong>(
                 event.value(QStringLiteral("users_default_power_level"))
@@ -6245,6 +6264,16 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                                   event.value(QStringLiteral("space_id")).toString(),
                                   event.value(QStringLiteral("room_id")).toString(),
                                   event.value(QStringLiteral("ok")).toBool());
+        return true;
+    }
+
+    if (type == QLatin1String("space_child_suggested_result")) {
+        Q_EMIT spaceChildSuggestedFinished(
+            opId(),
+            event.value(QStringLiteral("space_id")).toString(),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("suggested")).toBool(),
+            event.value(QStringLiteral("ok")).toBool());
         return true;
     }
 

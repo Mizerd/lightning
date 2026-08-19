@@ -285,41 +285,73 @@ Rectangle {
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         widthFraction: 0.22
         heightFraction: 0.4
-        minWidth: 220
+        minWidth: 240
         minHeight: 160
-        padding: AppTheme.spacing8
+        padding: AppTheme.spacing12
+        // Element-parity read time (2026-08-19 request): today -> time,
+        // this week -> weekday + time, older -> date + time. tsMs 0 means
+        // the receipt carried no timestamp — render nothing, never a
+        // fabricated time.
+        function formatReadTime(tsMs) {
+            if (!tsMs || tsMs <= 0)
+                return ""
+            var d = new Date(tsMs)
+            var now = new Date()
+            var startOfToday = new Date(now.getFullYear(), now.getMonth(),
+                                        now.getDate())
+            if (d >= startOfToday)
+                return Qt.formatTime(d, "hh:mm")
+            if (startOfToday - d < 6 * 86400000)
+                return Qt.formatDateTime(d, "ddd hh:mm")
+            return Qt.formatDateTime(d, "MMM d, hh:mm")
+        }
         contentItem: ColumnLayout {
-            spacing: AppTheme.spacing4
+            spacing: AppTheme.spacing8
             Label {
-                text: qsTr("Read by %n other(s)", "",
+                text: qsTr("Seen by %n person(s)", "",
                            receiptListPopover.totalOthers)
-                color: AppTheme.textSecondary
-                font.pixelSize: 12
+                color: AppTheme.text
+                font.pixelSize: 14
                 font.weight: Font.DemiBold
             }
             ListView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                spacing: 2
+                spacing: AppTheme.spacing6
                 model: receiptListPopover.readers
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 delegate: RowLayout {
                     required property var modelData
                     width: ListView.view.width
-                    spacing: AppTheme.spacing6
+                    spacing: AppTheme.spacing8
                     Avatar {
-                        size: 20
+                        size: 28
+                        onScreen: true
                         name: modelData.displayName || modelData.userId
                         mxc: modelData.avatarMxc || ""
                         colorKey: modelData.userId || ""
                     }
-                    Label {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        text: modelData.displayName || modelData.userId
-                        color: AppTheme.text
-                        font.pixelSize: 12
-                        elide: Label.ElideRight
+                        spacing: 0
+                        Label {
+                            Layout.fillWidth: true
+                            text: modelData.displayName || modelData.userId
+                            color: AppTheme.text
+                            font.pixelSize: 13
+                            font.weight: Font.Medium
+                            elide: Label.ElideRight
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: text.length > 0
+                            text: receiptListPopover.formatReadTime(
+                                      modelData.tsMs)
+                            color: AppTheme.textMuted
+                            font.pixelSize: 11
+                            elide: Label.ElideRight
+                        }
                     }
                 }
                 footer: Label {
@@ -3597,6 +3629,9 @@ Rectangle {
             // v0.7.x: /hierarchy children the account has not joined
             // (join offers). Refreshed through RoomDiscoveryController.
             property var unjoinedChildren: []
+            // Full /hierarchy snapshot (joined rows included) — the
+            // unified list's source for suggested flags + member counts.
+            property var hierarchyRows: []
             property string addNotice: ""
             property bool settingsOpen: false
 
@@ -3639,10 +3674,15 @@ Rectangle {
             }
             function refreshUnjoined() {
                 if (spaceId === "" || !app.discovery.supported) {
+                    hierarchyRows = []
                     unjoinedChildren = []
                     return
                 }
                 var rows = app.discovery.spaceChildren(spaceId)
+                // The full /hierarchy snapshot annotates JOINED rows too
+                // (suggested flag, member counts) — the unified list
+                // reads both slices of it.
+                hierarchyRows = rows
                 var out = []
                 for (var i = 0; i < rows.length; ++i) {
                     if (rows[i].membership !== "joined")
@@ -3650,8 +3690,140 @@ Rectangle {
                 }
                 unjoinedChildren = out
             }
+            // ELEMENT-PARITY unified child list (2026-08-19): joined
+            // subspaces, joined rooms and unjoined /hierarchy offers in
+            // ONE "Rooms and spaces" list — each row states its own
+            // membership ("Joined" badge) instead of three separate
+            // headers. suggested/members ride the hierarchy rows and are
+            // shown only when KNOWN, never fabricated.
+            function buildUnifiedRows(subspaces, rooms, offers, hrows,
+                                      filter) {
+                var meta = {}
+                var i
+                for (i = 0; i < hrows.length; ++i)
+                    meta[hrows[i].roomId] = hrows[i]
+                var f = (filter || "").toLowerCase()
+                function matches(name, topic) {
+                    if (f === "")
+                        return true
+                    return (name || "").toLowerCase().indexOf(f) >= 0
+                           || (topic || "").toLowerCase().indexOf(f) >= 0
+                }
+                var out = []
+                var seen = {}
+                for (i = 0; i < subspaces.length; ++i) {
+                    var cs = subspaces[i]
+                    var csm = meta[cs.roomId] || {}
+                    seen[cs.roomId] = true
+                    if (!matches(cs.name, csm.topic))
+                        continue
+                    out.push({
+                        roomId: cs.roomId, name: cs.name || "",
+                        avatarUrl: cs.avatarUrl || "",
+                        identityColorKey: cs.identityColorKey || "",
+                        isSpace: true, joined: true, isDirect: false,
+                        suggested: csm.suggested === true,
+                        suggestedKnown: csm.suggested !== undefined,
+                        members: Number(csm.members || 0),
+                        childCount: Number(cs.childCount || 0),
+                        childrenCount: 0, hasUnread: false,
+                        unreadCount: 0, highlightCount: 0,
+                        membership: "joined", joinRule: "", via: []
+                    })
+                }
+                for (i = 0; i < rooms.length; ++i) {
+                    var cr = rooms[i]
+                    var crm = meta[cr.roomId] || {}
+                    seen[cr.roomId] = true
+                    if (!matches(cr.name, crm.topic))
+                        continue
+                    out.push({
+                        roomId: cr.roomId, name: cr.name || "",
+                        avatarUrl: cr.avatarUrl || "",
+                        identityColorKey: cr.identityColorKey || "",
+                        isSpace: false, joined: true,
+                        isDirect: cr.isDirect === true,
+                        suggested: crm.suggested === true,
+                        suggestedKnown: crm.suggested !== undefined,
+                        members: Number(crm.members || 0),
+                        childCount: 0, childrenCount: 0,
+                        hasUnread: cr.hasUnread === true,
+                        unreadCount: Number(cr.unreadCount || 0),
+                        highlightCount: Number(cr.highlightCount || 0),
+                        membership: "joined", joinRule: "", via: []
+                    })
+                }
+                for (i = 0; i < offers.length; ++i) {
+                    var uo = offers[i]
+                    // Dedup by room id (review find): right after a Join
+                    // succeeds, sync marks the room joined FAST while the
+                    // /hierarchy refetch is still in flight — without
+                    // this, the same room renders both "Joined" and as a
+                    // stale Join offer for one network round trip. The
+                    // joined arrays are authoritative sync state and win.
+                    if (seen[uo.roomId] === true)
+                        continue
+                    if (!matches(uo.name, uo.topic))
+                        continue
+                    out.push({
+                        roomId: uo.roomId, name: uo.name || "",
+                        avatarUrl: uo.avatarUrl || "",
+                        identityColorKey: "",
+                        isSpace: uo.isSpace === true, joined: false,
+                        isDirect: false,
+                        suggested: uo.suggested === true,
+                        suggestedKnown: uo.suggested !== undefined,
+                        members: Number(uo.members || 0),
+                        childCount: 0,
+                        childrenCount: Number(uo.childrenCount || 0),
+                        hasUnread: false, unreadCount: 0,
+                        highlightCount: 0,
+                        membership: uo.membership || "",
+                        joinRule: uo.joinRule || "", via: uo.via || []
+                    })
+                }
+                return out
+            }
+            property string childFilter: ""
+            property var selectedChildIds: ({})
+            readonly property int selectedCount:
+                Object.keys(selectedChildIds).length
+            readonly property var unifiedRows:
+                buildUnifiedRows(childSpaces, childRooms, unjoinedChildren,
+                                 hierarchyRows, childFilter)
+            readonly property bool canManageChildren:
+                app.roomInfo.roomId === spaceHome.spaceId
+                && app.roomInfo.canManageSpaceChildren
+            function toggleChildSelected(roomId) {
+                var next = {}
+                for (var k in selectedChildIds)
+                    next[k] = true
+                if (next[roomId])
+                    delete next[roomId]
+                else
+                    next[roomId] = true
+                selectedChildIds = next
+            }
+            // The suggest toggle mirrors Element: one button whose action
+            // follows the selection — all-suggested flips off, otherwise on.
+            function selectedAllSuggested() {
+                var rows = unifiedRows
+                var any = false
+                for (var i = 0; i < rows.length; ++i) {
+                    if (selectedChildIds[rows[i].roomId] !== true)
+                        continue
+                    any = true
+                    if (rows[i].suggested !== true)
+                        return false
+                }
+                return any
+            }
             onSpaceIdChanged: {
                 addNotice = ""
+                selectedChildIds = ({})
+                childFilter = ""
+                removeChildConfirm.close()
+                removeChildConfirm.roomIds = []
                 refresh()
                 if (spaceId !== "" && app.discovery.supported)
                     app.discovery.refreshSpaceChildren(spaceId)
@@ -3693,6 +3865,15 @@ Rectangle {
                 repeat: false
                 onTriggered: spaceHome.refresh()
             }
+            Timer {
+                id: suggestRefreshCoalesce
+                interval: 400
+                repeat: false
+                onTriggered: {
+                    if (spaceHome.spaceId !== "" && app.discovery.supported)
+                        app.discovery.refreshSpaceChildren(spaceHome.spaceId)
+                }
+            }
             Connections {
                 target: app.spaces
                 function onSpacesChanged() { spaceRefreshCoalesce.restart() }
@@ -3712,6 +3893,22 @@ Rectangle {
                         : qsTr("The room could not be removed — you may "
                                + "not have permission.")
                     spaceHome.refresh()
+                }
+                function onChildSuggestedFinished(spaceId, roomId,
+                                                  suggested, ok) {
+                    if (spaceId !== spaceHome.spaceId) return
+                    if (!ok)
+                        spaceHome.addNotice =
+                            qsTr("The suggested flag could not be changed "
+                                 + "— you may not have permission.")
+                    // The flag lives on the /hierarchy rows — refetch so
+                    // the badges follow the server's answer, success and
+                    // rejection alike (never applied optimistically).
+                    // COALESCED (review find): refreshSpaceChildren is
+                    // single-flight with no queue, so a multi-select
+                    // toggle firing N refetches would drop all but the
+                    // first — one refetch after the burst instead.
+                    suggestRefreshCoalesce.restart()
                 }
             }
 
@@ -3976,91 +4173,76 @@ Rectangle {
                         }
                     }
 
-                    Label {
-                        visible: spaceHome.childSpaces.length > 0
-                        text: qsTr("SPACES IN THIS SPACE")
-                        color: AppTheme.textMuted
-                        font.family: AppTheme.uiFont
-                        font.pixelSize: 11
-                        font.weight: Font.ExtraBold
-                        font.letterSpacing: 0.8
+                    // ELEMENT-PARITY (2026-08-19): ONE "Rooms and
+                    // spaces" list — joined subspaces, joined rooms and
+                    // unjoined /hierarchy offers together, each row
+                    // carrying its own "Joined" badge, with Element's
+                    // selection UI (checkboxes + Remove + the suggested
+                    // toggle) gated on the REAL m.space.child send level.
+                    RowLayout {
+                        Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacingS
-                    }
-                    Repeater {
-                        model: spaceHome.childSpaces
-                        delegate: Rectangle {
-                            id: childSpaceRow
-                            required property var modelData
-                            objectName: "spaceChildSpaceRow"
-                            Layout.fillWidth: true
-                            implicitHeight: 46
-                            radius: AppTheme.radiusMd
-                            color: childSpaceHover.hovered
-                                   ? AppTheme.hover : "transparent"
-                            HoverHandler { id: childSpaceHover }
-                            TapHandler {
-                                // Drill into the sub-space's own Home —
-                                // never a join (already joined).
-                                onTapped: app.spaces.activeSpaceId
-                                          = childSpaceRow.modelData.roomId
+                        spacing: AppTheme.spacing8
+                        Label {
+                            text: qsTr("ROOMS AND SPACES")
+                            color: AppTheme.textMuted
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: 11
+                            font.weight: Font.ExtraBold
+                            font.letterSpacing: 0.8
+                        }
+                        Label {
+                            visible: spaceHome.selectedCount > 0
+                            text: qsTr("%n selected", "",
+                                       spaceHome.selectedCount)
+                            color: AppTheme.textSecondary
+                            font.pixelSize: 11
+                        }
+                        Item { Layout.fillWidth: true }
+                        AppButton {
+                            objectName: "spaceChildRemoveSelectedButton"
+                            visible: spaceHome.canManageChildren
+                            kind: "danger"
+                            enabled: spaceHome.selectedCount > 0
+                            text: qsTr("Remove")
+                            onClicked: {
+                                removeChildConfirm.roomIds =
+                                    Object.keys(spaceHome.selectedChildIds)
+                                removeChildConfirm.open()
                             }
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: AppTheme.spacing8
-                                anchors.rightMargin: AppTheme.spacing8
-                                spacing: AppTheme.spacing8
-                                Avatar {
-                                    size: 30
-                                    circle: false
-                                    name: childSpaceRow.modelData.name
-                                          || childSpaceRow.modelData.roomId
-                                    mxc: childSpaceRow.modelData.avatarUrl
-                                         || ""
-                                    colorKey: childSpaceRow.modelData
-                                                  .identityColorKey || ""
-                                }
-                                ColumnLayout {
-                                    spacing: 0
-                                    Layout.fillWidth: true
-                                    Label {
-                                        Layout.fillWidth: true
-                                        text: childSpaceRow.modelData.name
-                                              || childSpaceRow.modelData.roomId
-                                        color: AppTheme.text
-                                        font.pixelSize: 14
-                                        font.weight: Font.DemiBold
-                                        elide: Label.ElideRight
-                                    }
-                                    Label {
-                                        text: qsTr("Space · %n room(s)", "",
-                                                   childSpaceRow.modelData
-                                                       .childCount || 0)
-                                        color: AppTheme.textMuted
-                                        font.pixelSize: 11
-                                    }
-                                }
-                                Icon {
-                                    name: "chevron_right"
-                                    size: 16
-                                    color: AppTheme.textMuted
-                                }
+                        }
+                        AppButton {
+                            objectName: "spaceChildSuggestToggleButton"
+                            visible: spaceHome.canManageChildren
+                            enabled: spaceHome.selectedCount > 0
+                            text: spaceHome.selectedAllSuggested()
+                                  ? qsTr("Mark as not suggested")
+                                  : qsTr("Mark as suggested")
+                            onClicked: {
+                                var want = !spaceHome.selectedAllSuggested()
+                                var ids = Object.keys(
+                                    spaceHome.selectedChildIds)
+                                for (var i = 0; i < ids.length; ++i)
+                                    app.spaces.setSpaceChildSuggested(
+                                        spaceHome.spaceId, ids[i], want)
+                                spaceHome.selectedChildIds = ({})
                             }
                         }
                     }
-
-                    Label {
-                        text: qsTr("ROOMS IN THIS SPACE")
-                        color: AppTheme.textMuted
-                        font.family: AppTheme.uiFont
-                        font.pixelSize: 11
-                        font.weight: Font.ExtraBold
-                        font.letterSpacing: 0.8
-                        Layout.topMargin: AppTheme.spacingS
+                    AppTextField {
+                        objectName: "spaceChildFilterField"
+                        Layout.fillWidth: true
+                        placeholderText:
+                            qsTr("Search names and descriptions")
+                        text: spaceHome.childFilter
+                        onTextChanged: spaceHome.childFilter = text
                     }
 
-                    // Empty state for a fresh Space.
+                    // Empty state for a fresh Space (a filter with no
+                    // matches is not "no rooms" — the field says why).
                     Rectangle {
-                        visible: spaceHome.childRooms.length === 0
+                        visible: spaceHome.unifiedRows.length === 0
+                                 && spaceHome.childFilter === ""
                         Layout.fillWidth: true
                         radius: AppTheme.radiusMd
                         color: AppTheme.cardElevated
@@ -4092,15 +4274,57 @@ Rectangle {
                     }
 
                     Repeater {
-                        model: spaceHome.childRooms
+                        model: spaceHome.unifiedRows
                         delegate: Rectangle {
+                            id: unifiedRow
                             required property var modelData
+                            objectName: "spaceUnifiedChildRow"
+                            readonly property bool rowSelected:
+                                spaceHome.selectedChildIds[
+                                    modelData.roomId] === true
+                            readonly property bool rowKnocks:
+                                modelData.joinRule === "knock"
+                                || modelData.joinRule === "knock_restricted"
                             Layout.fillWidth: true
-                            implicitHeight: 46
+                            implicitHeight: 50
                             radius: AppTheme.radiusMd
-                            color: childHover.hovered
+                            color: unifiedHover.hovered
                                    ? AppTheme.hover : "transparent"
-                            HoverHandler { id: childHover }
+                            HoverHandler { id: unifiedHover }
+                            TapHandler {
+                                // Joined rows open; a joined sub-space
+                                // drills into its own Home (its rooms are
+                                // nested there — never a join). Offers act
+                                // only through their Join button. The
+                                // selection checkbox's band is excluded:
+                                // TapHandlers are non-exclusive across
+                                // subtrees, so without the guard a select
+                                // tap would ALSO open the row.
+                                onTapped: (eventPoint) => {
+                                    if (selectBox.visible) {
+                                        var sp = unifiedRow.mapToItem(
+                                            selectBox,
+                                            eventPoint.position.x,
+                                            eventPoint.position.y)
+                                        if (sp.x >= 0
+                                            && sp.x <= selectBox.width
+                                            && sp.y >= 0
+                                            && sp.y <= selectBox.height)
+                                            return
+                                    }
+                                    if (unifiedRow.modelData.joined !== true)
+                                        return
+                                    if (unifiedRow.modelData.isSpace)
+                                        app.spaces.activeSpaceId =
+                                            unifiedRow.modelData.roomId
+                                    else
+                                        app.openRoom(
+                                            unifiedRow.modelData.roomId)
+                                }
+                            }
+                            Accessible.role: Accessible.Button
+                            Accessible.name: unifiedRow.modelData.name
+                                             || unifiedRow.modelData.roomId
                             RowLayout {
                                 anchors.fill: parent
                                 anchors.leftMargin: AppTheme.spacingS
@@ -4108,24 +4332,102 @@ Rectangle {
                                 spacing: AppTheme.spacingS
                                 Avatar {
                                     size: 32
-                                    name: modelData.name || ""
-                                    mxc: modelData.avatarUrl || ""
-                                    colorKey: modelData.identityColorKey || modelData.roomId || ""
-                                    circle: modelData.isDirect === true
+                                    circle: unifiedRow.modelData.isDirect
+                                            === true
+                                    name: unifiedRow.modelData.name || ""
+                                    mxc: unifiedRow.modelData.avatarUrl || ""
+                                    colorKey: unifiedRow.modelData
+                                                  .identityColorKey
+                                              || unifiedRow.modelData.roomId
+                                              || ""
                                 }
-                                Label {
+                                ColumnLayout {
                                     Layout.fillWidth: true
-                                    text: modelData.name || qsTr("Room")
-                                    color: AppTheme.text
-                                    font.family: AppTheme.uiFont
-                                    font.pixelSize: AppTheme.scaled(
-                                        AppTheme.fontBody)
-                                    font.weight: modelData.hasUnread
-                                                 ? Font.Bold : Font.Medium
-                                    elide: Label.ElideRight
+                                    spacing: 0
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing6
+                                        Label {
+                                            text: unifiedRow.modelData.name
+                                                  || qsTr("Room")
+                                            color: AppTheme.text
+                                            font.family: AppTheme.uiFont
+                                            font.pixelSize: AppTheme.scaled(
+                                                AppTheme.fontBody)
+                                            font.weight:
+                                                unifiedRow.modelData.hasUnread
+                                                ? Font.Bold : Font.Medium
+                                            elide: Label.ElideRight
+                                            Layout.maximumWidth:
+                                                parent.width * 0.7
+                                        }
+                                        // Element parity: the row itself
+                                        // says whether the account is in
+                                        // it — one list, honest badges.
+                                        RowLayout {
+                                            visible: unifiedRow.modelData
+                                                         .joined === true
+                                            spacing: 2
+                                            Icon {
+                                                name: "check"
+                                                size: 12
+                                                color: AppTheme.success
+                                            }
+                                            Label {
+                                                text: qsTr("Joined")
+                                                color: AppTheme.success
+                                                font.pixelSize: 11
+                                                font.weight: Font.DemiBold
+                                            }
+                                        }
+                                        Label {
+                                            visible: unifiedRow.modelData
+                                                         .suggested === true
+                                            text: qsTr("Suggested")
+                                            color: AppTheme.textMuted
+                                            font.pixelSize: 10
+                                            leftPadding: 5
+                                            rightPadding: 5
+                                            topPadding: 1
+                                            bottomPadding: 1
+                                            background: Rectangle {
+                                                radius: AppTheme.radiusPill
+                                                color: AppTheme.cardElevated
+                                                border.color: AppTheme.border
+                                                border.width: 1
+                                            }
+                                        }
+                                        Item { Layout.fillWidth: true }
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        visible: text.length > 0
+                                        text: {
+                                            var d = unifiedRow.modelData
+                                            if (d.isSpace && d.joined)
+                                                return qsTr(
+                                                    "Space · %n room(s)", "",
+                                                    Number(d.childCount || 0))
+                                            if (d.isSpace)
+                                                return qsTr(
+                                                    "Space · %n room(s) inside",
+                                                    "",
+                                                    Number(d.childrenCount
+                                                           || 0))
+                                            if (d.members > 0)
+                                                return qsTr("%n member(s)",
+                                                            "",
+                                                            Number(d.members))
+                                            return ""
+                                        }
+                                        color: AppTheme.textMuted
+                                        font.pixelSize: 11
+                                        elide: Label.ElideRight
+                                    }
                                 }
                                 Rectangle {
-                                    visible: (modelData.highlightCount || 0) > 0
+                                    visible: (unifiedRow.modelData
+                                                  .highlightCount || 0) > 0
                                     radius: height / 2
                                     color: AppTheme.danger
                                     implicitHeight: 18
@@ -4140,16 +4442,9 @@ Rectangle {
                                         font.weight: Font.ExtraBold
                                     }
                                 }
-                                // v0.6.5: Space child-room unread badge —
-                                // the same token every other unread badge in
-                                // the app already reads (RoomDelegate,
-                                // SpacesRail); this one was missed when
-                                // unreadBadge was split off from accent, so
-                                // it still rendered bolt-yellow under Storm
-                                // while every other unread badge is
-                                // periwinkle.
                                 Rectangle {
-                                    visible: modelData.hasUnread === true
+                                    visible: unifiedRow.modelData.hasUnread
+                                             === true
                                     radius: height / 2
                                     color: AppTheme.unreadBadge
                                     implicitHeight: 18
@@ -4158,153 +4453,105 @@ Rectangle {
                                     Label {
                                         id: childCount
                                         anchors.centerIn: parent
-                                        visible: (modelData.unreadCount || 0) > 0
-                                        text: modelData.unreadCount > 99
-                                              ? "99+" : modelData.unreadCount
+                                        visible: (unifiedRow.modelData
+                                                      .unreadCount || 0) > 0
+                                        text: unifiedRow.modelData.unreadCount
+                                              > 99
+                                              ? "99+"
+                                              : unifiedRow.modelData
+                                                    .unreadCount
                                         color: AppTheme.accentText
                                         font.pixelSize: 11
                                         font.weight: Font.ExtraBold
                                     }
                                 }
-                                // MSC1772 child removal — the room itself
-                                // stays; server-side permissions decide.
-                                IconButton {
-                                    objectName: "spaceChildRemoveButton"
-                                    visible: childHover.hovered
-                                    iconName: "close"
-                                    iconSize: 14
-                                    implicitWidth: 24; implicitHeight: 24
-                                    Accessible.name: qsTr("Remove %1 from "
-                                        + "this Space").arg(modelData.name || "")
-                                    ToolTip.text: qsTr("Remove from Space")
-                                    ToolTip.visible: hovered
-                                    ToolTip.delay: 600
-                                    onClicked: {
-                                        removeChildConfirm.roomId =
-                                            modelData.roomId || ""
-                                        removeChildConfirm.roomName =
-                                            modelData.name || ""
-                                        removeChildConfirm.open()
-                                    }
-                                }
-                            }
-                            TapHandler {
-                                onTapped: if (modelData.roomId)
-                                              app.openRoom(modelData.roomId)
-                            }
-                            Accessible.role: Accessible.Button
-                            Accessible.name: qsTr("Open %1")
-                                .arg(modelData.name || "")
-                        }
-                    }
-
-                    // v0.7.x Discover: children of this Space the account
-                    // has NOT joined, from the server's /hierarchy (SDK
-                    // SpaceRoomList). The joined list above stays
-                    // authoritative sync state; these rows are join offers.
-                    Label {
-                        visible: spaceHome.unjoinedChildren.length > 0
-                        text: qsTr("MORE ROOMS IN THIS SPACE")
-                        color: AppTheme.textMuted
-                        font.pixelSize: 11
-                        font.weight: Font.ExtraBold
-                        font.letterSpacing: 0.8
-                        Layout.topMargin: AppTheme.spacingS
-                    }
-                    Repeater {
-                        model: spaceHome.unjoinedChildren
-                        delegate: Rectangle {
-                            id: unjoinedRow
-                            required property var modelData
-                            readonly property bool rowKnocks:
-                                modelData.joinRule === "knock"
-                                || modelData.joinRule === "knock_restricted"
-                            Layout.fillWidth: true
-                            implicitHeight: 46
-                            radius: AppTheme.radiusMd
-                            color: unjoinedHover.hovered
-                                   ? AppTheme.hover : "transparent"
-                            HoverHandler { id: unjoinedHover }
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: AppTheme.spacingS
-                                anchors.rightMargin: AppTheme.spacingS
-                                spacing: AppTheme.spacingS
-                                Avatar {
-                                    size: 32
-                                    name: unjoinedRow.modelData.name || ""
-                                    mxc: unjoinedRow.modelData.avatarUrl || ""
-                                    colorKey: unjoinedRow.modelData.roomId || ""
-                                }
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 0
-                                    Label {
-                                        Layout.fillWidth: true
-                                        text: unjoinedRow.modelData.name
-                                              || qsTr("Room")
-                                        color: AppTheme.text
-                                        font.family: AppTheme.uiFont
-                                        font.pixelSize: AppTheme.scaled(
-                                            AppTheme.fontBody)
-                                        font.weight: Font.Medium
-                                        elide: Label.ElideRight
-                                    }
-                                    Label {
-                                        Layout.fillWidth: true
-                                        // A sub-space says WHAT it is and
-                                        // how much it holds — joining it
-                                        // reveals its rooms nested here
-                                        // (2026-08-18, "Land of the
-                                        // Insane" layout).
-                                        text: unjoinedRow.modelData.isSpace
-                                                  === true
-                                              ? qsTr("Space · %n room(s) inside",
-                                                     "",
-                                                     Number(unjoinedRow.modelData
-                                                          .childrenCount || 0))
-                                              : qsTr("%n member(s)", "",
-                                                     Number(unjoinedRow.modelData
-                                                          .members || 0))
-                                        color: AppTheme.textMuted
-                                        font.pixelSize: 11
-                                        elide: Label.ElideRight
-                                    }
-                                }
                                 Label {
-                                    visible: unjoinedRow.modelData.membership
+                                    visible: unifiedRow.modelData.membership
                                              === "knocked"
                                     text: qsTr("Request pending")
                                     color: AppTheme.textMuted
                                     font.pixelSize: 11
                                 }
                                 AppButton {
-                                    visible: unjoinedRow.modelData.membership
-                                             !== "knocked"
+                                    visible: unifiedRow.modelData.joined
+                                             !== true
+                                             && unifiedRow.modelData
+                                                    .membership !== "knocked"
                                     kind: "primary"
                                     enabled: !app.discovery.busy
-                                    text: unjoinedRow.rowKnocks
+                                    text: unifiedRow.rowKnocks
                                           ? qsTr("Ask to join") : qsTr("Join")
                                     onClicked: {
-                                        var via = unjoinedRow.modelData.via || []
-                                        if (unjoinedRow.rowKnocks)
+                                        var via = unifiedRow.modelData.via
+                                                  || []
+                                        if (unifiedRow.rowKnocks)
                                             app.discovery.knock(
-                                                unjoinedRow.modelData.roomId,
+                                                unifiedRow.modelData.roomId,
                                                 via, "")
                                         else
                                             app.discovery.join(
-                                                unjoinedRow.modelData.roomId,
+                                                unifiedRow.modelData.roomId,
                                                 via,
-                                                unjoinedRow.modelData.isSpace
+                                                unifiedRow.modelData.isSpace
                                                 === true)
                                     }
+                                }
+                                Icon {
+                                    visible: unifiedRow.modelData.isSpace
+                                             === true
+                                             && unifiedRow.modelData.joined
+                                                === true
+                                    name: "chevron_right"
+                                    size: 16
+                                    color: AppTheme.textMuted
+                                }
+                                // Element's selection UI: a per-row
+                                // checkbox shown only when the account can
+                                // actually send m.space.child here. The
+                                // row handler excludes this band — two
+                                // TapHandlers in unrelated subtrees BOTH
+                                // fire on one tap (this round's lesson).
+                                Item {
+                                    id: selectBox
+                                    objectName: "spaceChildSelectBox"
+                                    visible: spaceHome.canManageChildren
+                                    Layout.preferredWidth: 26
+                                    Layout.preferredHeight: 26
+                                    Rectangle {
+                                        anchors.centerIn: parent
+                                        width: 18; height: 18
+                                        radius: 4
+                                        color: unifiedRow.rowSelected
+                                               ? AppTheme.accent
+                                               : "transparent"
+                                        border.color: unifiedRow.rowSelected
+                                                      ? AppTheme.accent
+                                                      : AppTheme.borderStrong
+                                        border.width: 1
+                                        Icon {
+                                            anchors.centerIn: parent
+                                            visible: unifiedRow.rowSelected
+                                            name: "check"
+                                            size: 13
+                                            color: AppTheme.accentText
+                                        }
+                                    }
+                                    TapHandler {
+                                        onTapped:
+                                            spaceHome.toggleChildSelected(
+                                                unifiedRow.modelData.roomId)
+                                    }
+                                    Accessible.role: Accessible.CheckBox
+                                    Accessible.name:
+                                        qsTr("Select %1").arg(
+                                            unifiedRow.modelData.name || "")
                                 }
                             }
                         }
                     }
                     Label {
                         visible: app.discovery.errorMessage.length > 0
-                                 && spaceHome.unjoinedChildren.length > 0
+                                 && spaceHome.unifiedRows.length > 0
                         Layout.fillWidth: true
                         text: app.discovery.errorMessage
                         color: AppTheme.danger
@@ -4318,8 +4565,10 @@ Rectangle {
             // hierarchy relation — never the room.
             Popup {
                 id: removeChildConfirm
-                property string roomId: ""
-                property string roomName: ""
+                // 2026-08-19: driven by the unified list's SELECTION —
+                // one confirm for N rooms. Destructive only for the
+                // hierarchy relation, never the rooms themselves.
+                property var roomIds: []
                 parent: Overlay.overlay
                 anchors.centerIn: parent
                 modal: true
@@ -4334,16 +4583,16 @@ Rectangle {
                 contentItem: ColumnLayout {
                     spacing: AppTheme.spacing12
                     Label {
-                        text: qsTr("Remove %1 from this Space?")
-                            .arg(removeChildConfirm.roomName || qsTr("room"))
+                        text: qsTr("Remove %n room(s) from this Space?", "",
+                                   removeChildConfirm.roomIds.length)
                         color: AppTheme.text
                         font.pixelSize: 14
                         font.weight: Font.DemiBold
                     }
                     Label {
-                        text: qsTr("The room keeps existing and you stay "
-                                   + "in it — it just leaves this Space's "
-                                   + "list.")
+                        text: qsTr("The rooms keep existing and you stay "
+                                   + "in them — they just leave this "
+                                   + "Space's list.")
                         color: AppTheme.textSecondary
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap
@@ -4361,9 +4610,11 @@ Rectangle {
                             kind: "danger"
                             text: qsTr("Remove")
                             onClicked: {
-                                app.spaces.removeRoomFromSpace(
-                                    spaceHome.spaceId,
-                                    removeChildConfirm.roomId)
+                                var ids = removeChildConfirm.roomIds
+                                for (var i = 0; i < ids.length; ++i)
+                                    app.spaces.removeRoomFromSpace(
+                                        spaceHome.spaceId, ids[i])
+                                spaceHome.selectedChildIds = ({})
                                 removeChildConfirm.close()
                             }
                         }

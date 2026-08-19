@@ -694,6 +694,13 @@ public:
     virtual quint64 removeRoomFromSpace(const QString &spaceId,
                                         const QString &roomId)
     { Q_UNUSED(spaceId); Q_UNUSED(roomId); return 0; }
+    // 2026-08-19: toggles the MSC1772 `suggested` flag on an EXISTING
+    // child (via list and order key preserved; a non-child is refused,
+    // never promoted to a child as a side effect).
+    virtual quint64 setSpaceChildSuggested(const QString &spaceId,
+                                           const QString &roomId,
+                                           bool suggested)
+    { Q_UNUSED(spaceId); Q_UNUSED(roomId); Q_UNUSED(suggested); return 0; }
 
     // Attachment sending (Rust: SDK send queue with local echo). `mime` is
     // detected by the caller from file content, not just the extension.
@@ -1132,6 +1139,9 @@ Q_SIGNALS:
                             const QString &roomId, bool ok);
     void spaceChildRemoveFinished(quint64 opId, const QString &spaceId,
                                   const QString &roomId, bool ok);
+    void spaceChildSuggestedFinished(quint64 opId, const QString &spaceId,
+                                     const QString &roomId, bool suggested,
+                                     bool ok);
     // Queue acceptance only — delivery state flows through the timeline
     // item's send state like any other local echo.
     void attachmentQueueFinished(quint64 opId, const QString &roomId,

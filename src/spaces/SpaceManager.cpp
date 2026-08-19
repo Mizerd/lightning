@@ -23,6 +23,7 @@ void SpaceManager::setClient(MatrixClient *client)
                 this, [this] {
             m_pendingChildAdds.clear(); // account isolation
             m_pendingChildRemovals.clear();
+            m_pendingChildSuggests.clear();
             rebuild();
         });
         connect(m_client, &MatrixClient::spaceChildFinished,
@@ -45,9 +46,19 @@ void SpaceManager::setClient(MatrixClient *client)
             m_pendingChildRemovals.erase(it);
             Q_EMIT childRemoveFinished(spaceId, roomId, ok);
         });
+        connect(m_client, &MatrixClient::spaceChildSuggestedFinished,
+                this, [this](quint64 opId, const QString &spaceId,
+                             const QString &roomId, bool suggested, bool ok) {
+            const auto it = m_pendingChildSuggests.constFind(opId);
+            if (it == m_pendingChildSuggests.constEnd())
+                return;
+            m_pendingChildSuggests.erase(it);
+            Q_EMIT childSuggestedFinished(spaceId, roomId, suggested, ok);
+        });
     }
     m_pendingChildAdds.clear();
     m_pendingChildRemovals.clear();
+    m_pendingChildSuggests.clear();
     rebuild();
 }
 
@@ -409,4 +420,23 @@ void SpaceManager::removeRoomFromSpace(const QString &spaceId,
         return;
     }
     m_pendingChildRemovals.insert(opId, { spaceId, roomId });
+}
+
+void SpaceManager::setSpaceChildSuggested(const QString &spaceId,
+                                          const QString &roomId,
+                                          bool suggested)
+{
+    if (!m_client || spaceId.isEmpty() || roomId.isEmpty())
+        return;
+    // No membership pre-check here: the backend reads the CURRENT
+    // m.space.child and refuses a non-child itself — the local graph only
+    // tracks joined children, and the suggested flag is equally valid on
+    // an unjoined child the /hierarchy lists.
+    const quint64 opId =
+        m_client->setSpaceChildSuggested(spaceId, roomId, suggested);
+    if (opId == 0) {
+        Q_EMIT childSuggestedFinished(spaceId, roomId, suggested, false);
+        return;
+    }
+    m_pendingChildSuggests.insert(opId, { spaceId, roomId });
 }

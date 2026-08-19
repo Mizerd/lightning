@@ -155,6 +155,7 @@ QVariantMap adminSnapshot(qlonglong ownPl, const QVariantList &members,
     s.insert(QStringLiteral("canPinMessages"), true);
     s.insert(QStringLiteral("canChangeJoinRule"), true);
     s.insert(QStringLiteral("canChangeAlias"), true);
+    s.insert(QStringLiteral("canManageSpaceChildren"), true);
     s.insert(QStringLiteral("usersDefaultPowerLevel"), usersDefault);
     s.insert(QStringLiteral("joinRule"), joinRule);
     s.insert(QStringLiteral("canonicalAlias"), alias);
@@ -208,6 +209,7 @@ private Q_SLOTS:
         QVERIFY(ctl.canPinMessages());
         QVERIFY(ctl.canChangeJoinRule());
         QVERIFY(ctl.canChangeAlias());
+        QVERIFY(ctl.canManageSpaceChildren());
         QCOMPARE(ctl.usersDefaultPowerLevel(), 5);
         QCOMPARE(ctl.joinRule(), QStringLiteral("knock"));
         QCOMPARE(ctl.canonicalAlias(), QStringLiteral("#room:example.org"));

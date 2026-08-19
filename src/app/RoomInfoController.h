@@ -45,6 +45,10 @@ class RoomInfoController : public QObject
     Q_PROPERTY(bool canChangeJoinRule READ canChangeJoinRule
                    NOTIFY membersChanged)
     Q_PROPERTY(bool canChangeAlias READ canChangeAlias NOTIFY membersChanged)
+    // 2026-08-19: m.space.child management (add/remove/suggest) — the
+    // SDK's can_send_state against the room's REAL required level.
+    Q_PROPERTY(bool canManageSpaceChildren READ canManageSpaceChildren
+               NOTIFY membersChanged)
     // The room's default user level. Needed to render "Member" honestly:
     // a room may set it to anything, and update_power_levels treats a
     // set-to-default as removal from the users map.
@@ -90,6 +94,7 @@ public:
     bool canPinMessages() const { return m_canPinMessages; }
     bool canChangeJoinRule() const { return m_canChangeJoinRule; }
     bool canChangeAlias() const { return m_canChangeAlias; }
+    bool canManageSpaceChildren() const { return m_canManageSpaceChildren; }
     qlonglong usersDefaultPowerLevel() const { return m_usersDefaultPowerLevel; }
     QString joinRule() const { return m_joinRule; }
     QString canonicalAlias() const { return m_canonicalAlias; }
@@ -257,6 +262,7 @@ private:
     bool m_canPinMessages = false;
     bool m_canChangeJoinRule = false;
     bool m_canChangeAlias = false;
+    bool m_canManageSpaceChildren = false;
     qlonglong m_usersDefaultPowerLevel = 0;
     QString m_joinRule;
     QString m_canonicalAlias;

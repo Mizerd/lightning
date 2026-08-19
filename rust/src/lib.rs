@@ -6202,6 +6202,28 @@ pub unsafe extern "C" fn mx_rust_add_room_to_space(
     })
 }
 
+/// 2026-08-19 Space management: toggles the MSC1772 `suggested` flag on an
+/// EXISTING m.space.child (the event's via list and order key are
+/// preserved; a non-child is refused, never promoted). Result event:
+/// space_child_suggested_result { op_id, space_id, room_id, suggested, ok }.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_space_child_suggested(
+    ptr: *mut c_void,
+    space_id: *const c_char,
+    room_id: *const c_char,
+    suggested: c_int,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let space_id = unsafe { cstr_arg(space_id) }?;
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        rooms::set_space_child_suggested(bridge, space_id, room_id,
+                                         suggested != 0, op_id)
+            .map(|_| String::new())
+    })
+}
+
 /// v0.7 Space management: MSC1772 child removal (empty-via m.space.child).
 /// Never leaves or deletes the child room itself. Result event:
 /// space_child_removed_result { op_id, space_id, room_id, ok }.

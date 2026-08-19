@@ -805,6 +805,14 @@ char *mx_rust_add_room_to_space(void *client,
                                 const char *space_id,
                                 const char *room_id,
                                 unsigned long long op_id);
+/* 2026-08-19: toggles the MSC1772 `suggested` flag on an EXISTING child
+ * (via list and order key preserved; a non-child is refused). Result:
+ * space_child_suggested_result { op_id, space_id, room_id, suggested, ok }. */
+char *mx_rust_set_space_child_suggested(void *client,
+                                        const char *space_id,
+                                        const char *room_id,
+                                        int suggested,
+                                        unsigned long long op_id);
 /* v0.7: MSC1772 child removal (empty-via m.space.child); never leaves or
  * deletes the child room. Result: space_child_removed_result. */
 char *mx_rust_remove_room_from_space(void *client,

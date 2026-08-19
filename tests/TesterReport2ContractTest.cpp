@@ -84,11 +84,12 @@ private Q_SLOTS:
             QStringLiteral("app.roomInfo.canInvite")));
         QVERIFY(inviteScope.contains(QStringLiteral(
             "app.roomInfo.roomId === spaceHome.spaceId")));
-        // Nested subspaces: the joined section drills, the unjoined offer
-        // names itself a Space, and a successful sub-space join drills in.
-        QVERIFY(pane.contains(QStringLiteral("SPACES IN THIS SPACE")));
+        // Nested subspaces (2026-08-19: now rows of the unified
+        // "Rooms and spaces" list): joined sub-space rows drill in, the
+        // unjoined offer names itself a Space, and a successful
+        // sub-space join drills in.
         QVERIFY(pane.contains(
-            QStringLiteral("objectName: \"spaceChildSpaceRow\"")));
+            QStringLiteral("objectName: \"spaceUnifiedChildRow\"")));
         QVERIFY(pane.contains(
             QStringLiteral("app.spaces.childSpacesDetailed(spaceId)")));
         QVERIFY(pane.contains(QStringLiteral("function onSpaceJoined(")));

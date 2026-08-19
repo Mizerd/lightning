@@ -1306,6 +1306,44 @@ after the tester-report fixes shipped as 0.7.3:
   trees** after this round — the first fully green complete run since the
   timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
 
+**2026-08-19 Element-parity round (follow-up to tester report #2).**
+Three explicit requests, each Element-screenshot-anchored:
+- **Space Home unified "Rooms and spaces" list**: joined subspaces,
+  joined rooms and unjoined /hierarchy offers in ONE list (the three
+  section headers are gone) — each row states its own membership with a
+  "Joined" badge and a "Suggested" tag (only when the hierarchy KNOWS,
+  never fabricated), searchable by name/description, plus Element's
+  selection UI: per-row checkboxes gated on the NEW
+  `canManageSpaceChildren` capability (the SDK's `can_send_state` for
+  `m.space.child`, crossing the member snapshot like its siblings),
+  multi-select Remove (one confirm for N rooms), and a suggest toggle —
+  all-suggested flips off, otherwise on. The toggle is NEW Rust:
+  `mx_rust_set_space_child_suggested` reads the CURRENT m.space.child
+  (`get_state_event_static_for_key`), preserves via/order, flips only
+  `suggested`, and REFUSES a non-child (empty-via included) — never
+  promotes one. Nothing applies optimistically: completion refetches the
+  hierarchy. New suites: `space-child-suggest` (4),
+  `element-parity-contract` (5).
+- **Rail inline space expansion**: a chevron left of the space tile
+  (hover/expanded-only) and double-click expand the space's top 5 joined
+  rooms as 28px tiles under the tile, "+N" pill reveals 5 more;
+  activity-ordered; opening one activates the space FIRST (the room list
+  filters by activeSpaceId — openRoom never touches it). Expansion state
+  lives on the rail root keyed by spaceId (delegate recycling amnesia),
+  cleared on account switch. Double-click on a space with no joined
+  child rooms still opens Space Home (the offers live there). The tile's
+  own tap/double-tap handlers are scoped to the tile band — the
+  expansion rows carry their own handlers and TapHandlers are
+  non-exclusive across subtrees (same class as the picker/facepile
+  fixes; the unified list's checkbox has the same guard).
+- **Reader popover Element look**: "Seen by N person(s)" header, 28px
+  avatars, per-reader read TIME from the receipt's own `tsMs` (which
+  already crossed Rust→C++→QML unused since the receipts round — today
+  → time, this week → weekday+time, older → date; tsMs 0 renders
+  nothing, never a fabricated time). The truthful "+N more (names not
+  loaded)" tail survives.
+Everything user-visible: **NOT TESTED** live.
+
 **2026-08-18 tester report #2 round (same day, 0.7.3 Win11 report).**
 Fixed, each with regression coverage: the emoji picker is now MODAL
 (dim:false) — a right-click on a tone-capable tile ALSO opened the

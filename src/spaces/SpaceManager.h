@@ -103,6 +103,11 @@ public:
     // left or deleted. Permission failures surface as ok=false.
     Q_INVOKABLE void removeRoomFromSpace(const QString &spaceId,
                                          const QString &roomId);
+    // 2026-08-19: toggles the `suggested` flag on an existing child (via
+    // list and order preserved by the backend; a non-child is refused).
+    Q_INVOKABLE void setSpaceChildSuggested(const QString &spaceId,
+                                            const QString &roomId,
+                                            bool suggested);
 
 Q_SIGNALS:
     void activeSpaceIdChanged();
@@ -112,6 +117,8 @@ Q_SIGNALS:
                           bool ok);
     void childRemoveFinished(const QString &spaceId, const QString &roomId,
                              bool ok);
+    void childSuggestedFinished(const QString &spaceId, const QString &roomId,
+                                bool suggested, bool ok);
 
 private Q_SLOTS:
     void rebuild();
@@ -138,6 +145,7 @@ private:
     // v0.7: pending m.space.child sends, opId → (spaceId, roomId).
     QHash<quint64, QPair<QString, QString>> m_pendingChildAdds;
     QHash<quint64, QPair<QString, QString>> m_pendingChildRemovals;
+    QHash<quint64, QPair<QString, QString>> m_pendingChildSuggests;
 
     QString m_activeSpaceId; // Empty means "All rooms".
 };

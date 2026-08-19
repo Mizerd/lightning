@@ -16,6 +16,60 @@ Rectangle {
     // it into the creation dialog's Space mode.
     signal createSpaceRequested()
 
+    // 2026-08-19 tester request: inline space expansion — spaceId -> how
+    // many child rooms are revealed under the tile (absent = collapsed;
+    // reveals grow in steps of 5). State lives on the rail root, not the
+    // delegate, so ListView recycling and model resets never forget what
+    // the user expanded. Cleared on account switch.
+    property var railExpansion: ({})
+    // Bumped on every SpaceManager change so the revealed-rooms bindings
+    // (function calls, which QML tracks through this read) re-evaluate.
+    property int spacesRevision: 0
+    function expandedCount(spaceId) {
+        return railExpansion[spaceId] || 0
+    }
+    function toggleSpaceExpansion(spaceId) {
+        var next = {}
+        for (var k in railExpansion)
+            next[k] = railExpansion[k]
+        if (next[spaceId])
+            delete next[spaceId]
+        else
+            next[spaceId] = 5
+        railExpansion = next
+    }
+    function showMoreRooms(spaceId) {
+        var next = {}
+        for (var k in railExpansion)
+            next[k] = railExpansion[k]
+        next[spaceId] = (next[spaceId] || 0) + 5
+        railExpansion = next
+    }
+    // The space's joined child rooms, most recently active first — the
+    // quick-access reading of "top rooms". Unjoined children are join
+    // offers, not rooms this rail can open; they live on Space Home.
+    function topRoomsInSpace(spaceId) {
+        void spacesRevision
+        if (!app.spaces || !spaceId || spaceId.charAt(0) !== "!")
+            return []
+        var rooms = app.spaces.childRoomsDetailed(spaceId)
+        rooms.sort(function(a, b) {
+            return (b.lastActivity || 0) - (a.lastActivity || 0)
+        })
+        return rooms
+    }
+    Connections {
+        target: app.spaces
+        function onSpacesChanged() { root.spacesRevision++ }
+    }
+    Connections {
+        target: app
+        function onAccountSwitchingChanged() {
+            if (app.accountSwitching)
+                root.railExpansion = ({})
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.topMargin: AppTheme.spacing12 + 2
@@ -39,13 +93,26 @@ Rectangle {
                 // outline (drawn at -4px margins) is never clipped by the
                 // list bounds — this was the Home-icon clipping defect.
                 // Home carries the handoff divider (32×2) below its tile.
-                height: isHome ? 58 : 48
+                // The inline expansion (2026-08-19) grows the row below
+                // the tile band; tileBandHeight is the original height.
+                readonly property int tileBandHeight: isHome ? 58 : 48
+                height: tileBandHeight
+                        + (expansionCol.visible ? expansionCol.height + 2 : 0)
 
                 property bool isActive: app.spaces
                                         && app.spaces.activeSpaceId === model.spaceId
                 property bool isPseudo: model.spaceId === ""
                                         || model.spaceId === "@orphans"
                 property bool isHome: model.spaceId === ""
+                // Captured for the expansion rows below: inside their
+                // Repeater the outer ListView's `model` is shadowed.
+                readonly property string ownSpaceId: model.spaceId || ""
+                readonly property bool isRealSpace:
+                    !isPseudo && ownSpaceId.charAt(0) === "!"
+                readonly property int revealCount:
+                    root.expandedCount(ownSpaceId)
+                readonly property var revealedRooms:
+                    revealCount > 0 ? root.topRoomsInSpace(ownSpaceId) : []
 
                 Accessible.role: Accessible.Button
                 Accessible.name: isHome ? qsTr("All rooms")
@@ -79,11 +146,44 @@ Rectangle {
                 // SpaceManager all along and rendered nowhere.
                 Rectangle {
                     visible: !spaceItem.isPseudo && (model.level || 0) > 0
+                             && !expandChevronArea.visible
                     width: 6; height: 2; radius: 1
                     color: AppTheme.border
                     anchors.verticalCenter: spaceTile.verticalCenter
                     anchors.right: spaceTile.left
                     anchors.rightMargin: 1
+                }
+
+                // 2026-08-19 tester request: a small arrow left of the
+                // space tile expands the space's top rooms inline
+                // (double-click does the same). Hover- or expanded-only,
+                // real spaces only — the pseudo rows have no children.
+                Item {
+                    id: expandChevronArea
+                    objectName: "railSpaceExpandChevron"
+                    visible: spaceItem.isRealSpace
+                             && (spaceHover.hovered
+                                 || spaceItem.revealCount > 0)
+                    width: 16
+                    height: 40
+                    anchors.verticalCenter: spaceTile.verticalCenter
+                    anchors.right: spaceTile.left
+                    anchors.rightMargin: -2
+                    Icon {
+                        anchors.centerIn: parent
+                        name: spaceItem.revealCount > 0 ? "expand_less"
+                                                        : "expand_more"
+                        size: 14
+                        color: AppTheme.textSecondary
+                    }
+                    TapHandler {
+                        onTapped:
+                            root.toggleSpaceExpansion(spaceItem.ownSpaceId)
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: spaceItem.revealCount > 0
+                                     ? qsTr("Collapse space rooms")
+                                     : qsTr("Expand space rooms")
                 }
                 Rectangle {
                     id: spaceTile
@@ -168,17 +268,50 @@ Rectangle {
 
                 TapHandler {
                     // Single tap filters the room list to the Space;
-                    // double tap additionally opens the Space Home
-                    // overview (the sub-room front page). Only REAL
-                    // Spaces have an overview — a double-tap on the
-                    // Home/"Other rooms" pseudo tiles must not tear
-                    // down the open room for a surface that does not
-                    // exist (review L3).
-                    onTapped: if (app.spaces) app.spaces.activeSpaceId = model.spaceId
-                    onDoubleTapped: {
-                        if (model.spaceId.length > 0
-                                && model.spaceId.charAt(0) === "!")
-                            app.openSpaceHome(model.spaceId)
+                    // double tap expands the space's top rooms inline
+                    // (2026-08-19 tester request) — a space with no
+                    // joined child rooms has nothing to expand, so it
+                    // falls through to Space Home, where the join
+                    // offers live. Only REAL Spaces — a double-tap on
+                    // the Home/"Other rooms" pseudo tiles must not
+                    // tear down the open room (review L3). Both are
+                    // scoped to the tile band: the expansion rows
+                    // below carry their own handlers, and TapHandlers
+                    // are non-exclusive across subtrees.
+                    // The chevron sits INSIDE the tile band and owns its
+                    // taps alone — without this exclusion a chevron click
+                    // would also select the space, and a chevron
+                    // double-click would net-toggle the expansion three
+                    // times (review find; the selectBox pattern).
+                    function pointOnChevron(eventPoint) {
+                        if (!expandChevronArea.visible)
+                            return false
+                        var cp = spaceItem.mapToItem(expandChevronArea,
+                                                     eventPoint.position.x,
+                                                     eventPoint.position.y)
+                        return cp.x >= 0 && cp.x <= expandChevronArea.width
+                               && cp.y >= 0
+                               && cp.y <= expandChevronArea.height
+                    }
+                    onTapped: (eventPoint) => {
+                        if (eventPoint.position.y > spaceItem.tileBandHeight)
+                            return
+                        if (pointOnChevron(eventPoint))
+                            return
+                        if (app.spaces)
+                            app.spaces.activeSpaceId = model.spaceId
+                    }
+                    onDoubleTapped: (eventPoint) => {
+                        if (eventPoint.position.y > spaceItem.tileBandHeight)
+                            return
+                        if (pointOnChevron(eventPoint))
+                            return
+                        if (!spaceItem.isRealSpace)
+                            return
+                        if (root.topRoomsInSpace(spaceItem.ownSpaceId).length > 0)
+                            root.toggleSpaceExpansion(spaceItem.ownSpaceId)
+                        else
+                            app.openSpaceHome(spaceItem.ownSpaceId)
                     }
                 }
 
@@ -186,6 +319,139 @@ Rectangle {
                     visible: spaceHover.hovered
                     text: spaceItem.Accessible.name
                     delay: 500
+                }
+
+                // Inline expansion: up to revealCount of the space's top
+                // rooms as 28px tiles, then a "+N" pill revealing 5 more.
+                // Tiles indent like a nested space so the hierarchy reads.
+                Column {
+                    id: expansionCol
+                    visible: spaceItem.revealCount > 0
+                             && spaceItem.revealedRooms.length > 0
+                    y: spaceItem.tileBandHeight
+                    width: parent.width
+                    spacing: 2
+
+                    Repeater {
+                        model: expansionCol.visible
+                               ? spaceItem.revealedRooms.slice(
+                                     0, spaceItem.revealCount)
+                               : []
+                        delegate: Item {
+                            id: expansionRoomRow
+                            required property var modelData
+                            width: expansionCol.width
+                            height: 32
+                            Rectangle {
+                                anchors.fill: roomTile
+                                anchors.margins: -2
+                                radius: 10
+                                color: AppTheme.hover
+                                visible: roomHover.hovered
+                            }
+                            Rectangle {
+                                id: roomTile
+                                width: 28; height: 28
+                                radius: 8
+                                color: "transparent"
+                                anchors.horizontalCenter:
+                                    parent.horizontalCenter
+                                anchors.horizontalCenterOffset: 5
+                                anchors.verticalCenter: parent.verticalCenter
+                                Avatar {
+                                    anchors.fill: parent
+                                    size: 28
+                                    circle: expansionRoomRow.modelData
+                                                .isDirect === true
+                                    squareRadius: 8
+                                    labelSize: 11
+                                    name: expansionRoomRow.modelData
+                                              .name || ""
+                                    colorKey: expansionRoomRow.modelData
+                                                  .identityColorKey
+                                              || expansionRoomRow.modelData
+                                                     .roomId
+                                    mxc: expansionRoomRow.modelData
+                                             .avatarUrl || ""
+                                }
+                                Rectangle {
+                                    visible: expansionRoomRow.modelData
+                                                 .hasUnread === true
+                                    width: 10; height: 10; radius: 5
+                                    color: (expansionRoomRow.modelData
+                                                .highlightCount || 0) > 0
+                                           ? AppTheme.mentionBadge
+                                           : AppTheme.unreadBadge
+                                    border.color: AppTheme.rail
+                                    border.width: 2
+                                    anchors.top: parent.top
+                                    anchors.right: parent.right
+                                    anchors.topMargin: -2
+                                    anchors.rightMargin: -2
+                                }
+                            }
+                            HoverHandler { id: roomHover }
+                            TapHandler {
+                                // Opening from the rail also activates
+                                // the space so the room-list column
+                                // follows — openRoom itself never
+                                // touches activeSpaceId.
+                                onTapped: {
+                                    if (app.spaces)
+                                        app.spaces.activeSpaceId =
+                                            spaceItem.ownSpaceId
+                                    app.openRoom(
+                                        expansionRoomRow.modelData.roomId)
+                                }
+                            }
+                            ToolTip {
+                                visible: roomHover.hovered
+                                text: expansionRoomRow.modelData.name
+                                      || expansionRoomRow.modelData.roomId
+                                delay: 300
+                            }
+                            Accessible.role: Accessible.Button
+                            Accessible.name: expansionRoomRow.modelData.name
+                                             || expansionRoomRow.modelData
+                                                    .roomId
+                        }
+                    }
+
+                    Item {
+                        visible: spaceItem.revealedRooms.length
+                                 > spaceItem.revealCount
+                        width: expansionCol.width
+                        height: 22
+                        Rectangle {
+                            id: morePill
+                            objectName: "railSpaceMoreButton"
+                            width: 32; height: 18; radius: 9
+                            color: moreHover.hovered ? AppTheme.hover
+                                                     : AppTheme.cardElevated
+                            border.color: AppTheme.border
+                            border.width: 1
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.horizontalCenterOffset: 5
+                            anchors.verticalCenter: parent.verticalCenter
+                            Label {
+                                anchors.centerIn: parent
+                                text: "+" + Math.min(
+                                          5,
+                                          spaceItem.revealedRooms.length
+                                          - spaceItem.revealCount)
+                                font.pixelSize: 10
+                                font.weight: Font.Bold
+                                color: AppTheme.textSecondary
+                            }
+                        }
+                        HoverHandler { id: moreHover }
+                        TapHandler {
+                            onTapped:
+                                root.showMoreRooms(spaceItem.ownSpaceId)
+                        }
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("Show more rooms")
+                    }
                 }
             }
 

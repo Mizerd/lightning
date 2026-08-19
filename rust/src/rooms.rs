@@ -31,7 +31,7 @@ use matrix_sdk::{
             room::encryption::RoomEncryptionEventContent,
             room::power_levels::PowerLevelAction,
             space::child::SpaceChildEventContent,
-            InitialStateEvent, StateEventType,
+            InitialStateEvent, StateEventType, SyncStateEvent,
         },
         room::RoomType,
         serde::Raw,
@@ -39,6 +39,7 @@ use matrix_sdk::{
     },
     RoomMemberships, RoomState,
 };
+use matrix_sdk::deserialized_responses::SyncOrStrippedState;
 use matrix_sdk_ui::timeline::AttachmentSource;
 use serde::Deserialize;
 use serde_json::json;
@@ -930,6 +931,79 @@ pub(crate) fn add_room_to_space(
     Ok(())
 }
 
+/// Toggle the MSC1772 `suggested` flag on an EXISTING m.space.child,
+/// preserving the event's `via` list and `order` key — the flag rides the
+/// same state event that makes the room a child, so a blind rewrite would
+/// clobber routing. A room that is not currently a child (no event, or an
+/// empty-via tombstone) is refused, never promoted to a child as a side
+/// effect of suggesting it.
+async fn set_space_child_suggested_inner(
+    client: &matrix_sdk::Client,
+    space_id: &str,
+    child_room_id: &str,
+    suggested: bool,
+) -> Result<(), String> {
+    let space = RoomId::parse(space_id)
+        .ok()
+        .and_then(|id| client.get_room(&id))
+        .filter(|room| room.state() == RoomState::Joined)
+        .ok_or_else(|| "unknown space".to_owned())?;
+    let child =
+        RoomId::parse(child_room_id).map_err(|_| "invalid room id".to_owned())?;
+    let current = space
+        .get_state_event_static_for_key::<SpaceChildEventContent, _>(&child)
+        .await
+        .map_err(|err| classify_room_error(&err.to_string()).to_owned())?
+        .ok_or_else(|| "not a child".to_owned())?;
+    let mut content = match current.deserialize() {
+        Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(event))) => {
+            event.content
+        }
+        _ => return Err("not a child".to_owned()),
+    };
+    if content.via.is_empty() {
+        return Err("not a child".to_owned());
+    }
+    content.suggested = suggested;
+    space
+        .send_state_event_for_key(&child, content)
+        .await
+        .map(|_| ())
+        .map_err(|err| classify_room_error(&err.to_string()).to_owned())
+}
+
+pub(crate) fn set_space_child_suggested(
+    bridge: &RustClient,
+    space_id: String,
+    room_id: String,
+    suggested: bool,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let ok =
+            set_space_child_suggested_inner(&client, &space_id, &room_id, suggested)
+                .await
+                .is_ok();
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, json!({
+            "type": "space_child_suggested_result",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "space_id": space_id,
+            "room_id": room_id,
+            "suggested": suggested,
+            "ok": ok,
+        }));
+    });
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Invites to existing rooms
 // ---------------------------------------------------------------------------
@@ -1428,6 +1502,11 @@ async fn members_snapshot_json(
         let can_change_alias = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomCanonicalAlias));
+        // 2026-08-19: Space child management (add/remove/suggest all ride
+        // m.space.child) — the same real-required-level rule as the rest.
+        let can_manage_space_children = own_member
+            .as_ref()
+            .is_some_and(|m| m.can_send_state(StateEventType::SpaceChild));
         // The room's default user level: without it the UI cannot tell a
         // member sitting AT the default from one explicitly pinned to the
         // same number, and `update_power_levels` treats a set-to-default as
@@ -1464,6 +1543,7 @@ async fn members_snapshot_json(
             "own_can_pin": can_pin,
             "own_can_change_join_rule": can_change_join_rule,
             "own_can_change_alias": can_change_alias,
+            "own_can_manage_space_children": can_manage_space_children,
             "own_power_level": own_power_level,
             "users_default_power_level": users_default,
             "join_rule": join_rule,

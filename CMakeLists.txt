@@ -2105,6 +2105,36 @@ if(BUILD_TESTING)
     set_tests_properties(tester-report-2-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # 2026-08-19 Element-parity round: the unified Space Home "Rooms and
+    # spaces" list (Joined badges, capability-gated selection UI), the
+    # rail's inline space expansion, and the reader popover's per-reader
+    # timestamps — plus the non-exclusive-TapHandler guards on all of it.
+    qt_add_executable(element-parity-contract-test
+        tests/ElementParityContractTest.cpp
+    )
+    target_compile_definitions(element-parity-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(element-parity-contract-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME element-parity-contract
+             COMMAND element-parity-contract-test)
+    set_tests_properties(element-parity-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # 2026-08-19: SpaceManager::setSpaceChildSuggested plumbing — pending
+    # ops, foreign-op rejection, refused-send failure, logout isolation.
+    qt_add_executable(space-child-suggest-test
+        tests/SpaceChildSuggestTest.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(space-child-suggest-test PRIVATE src)
+    target_link_libraries(space-child-suggest-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME space-child-suggest COMMAND space-child-suggest-test)
+
     # 2026-08-18 voice-call signaling pipes: MSC2746 state machine —
     # ringing, glare, busy auto-reject, cross-device settlement, invite
     # lifetime, LRU absorption, honest placeCall refusal, logout reset.
