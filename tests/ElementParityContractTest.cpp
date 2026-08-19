@@ -134,7 +134,7 @@ private Q_SLOTS:
         const int pop = pane.indexOf(
             QStringLiteral("objectName: \"receiptListPopover\""));
         QVERIFY(pop >= 0);
-        const QString scope = pane.mid(pop, 4000);
+        const QString scope = pane.mid(pop, 7000);
         QVERIFY(scope.contains(QStringLiteral("Seen by 1 person")));
         QVERIFY(scope.contains(QStringLiteral("Seen by %1 people")));
         // Per-reader read time comes ONLY from the receipt's own tsMs;

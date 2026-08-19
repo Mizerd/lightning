@@ -565,6 +565,43 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(popover->property("visible").toBool(), 5000);
         QCOMPARE(popover->property("totalOthers").toInt(), 3);
         QCOMPARE(popover->property("readers").toList().size(), 1);
+
+        // 2026-08-19 feedback: the card is content-sized, never a fixed
+        // window share — one reader gets a small card (the share-sized
+        // version measured >=160 here), and a long list caps at half the
+        // window with the list scrolling inside.
+        const qreal oneReaderHeight = popover->property("height").toReal();
+        QVERIFY2(oneReaderHeight < 140,
+                 qPrintable(QStringLiteral("h=%1").arg(oneReaderHeight)));
+
+        QQmlExpression closeCall(qmlContext(timeline), timeline,
+                                 QStringLiteral("receiptListPopover.close()"));
+        closeCall.evaluate();
+        QVERIFY(!closeCall.hasError());
+        QQmlExpression bigCall(
+            qmlContext(timeline), timeline,
+            QStringLiteral(
+                "openReceiptList(Array.from({length: 30}, function(v, i) {"
+                " return {userId: \"@u\" + i + \":mock.local\","
+                " displayName: \"User \" + i, avatarMxc: \"\","
+                " tsMs: 1000 + i}; }), 30, Qt.point(40, 40))"));
+        bigCall.evaluate();
+        QVERIFY2(!bigCall.hasError(),
+                 bigCall.error().toString().toUtf8().constData());
+        QTRY_VERIFY_WITH_TIMEOUT(popover->property("visible").toBool(), 5000);
+        // The 30 delegates instantiate asynchronously; the content-driven
+        // height follows the list's contentHeight, so poll for it.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            popover->property("height").toReal() > oneReaderHeight, 5000);
+        const qreal manyHeight = popover->property("height").toReal();
+        QVERIFY(manyHeight <= window.height() * 0.5 + 1.0);
+        auto *readerList = popover->findChild<QQuickItem *>(
+            QStringLiteral("receiptReaderList"));
+        QVERIFY(readerList != nullptr);
+        // Capped: the rows genuinely overflow and scroll inside.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            readerList->property("contentHeight").toReal()
+                > readerList->height() + 1.0, 5000);
     }
 
     // 0.5.17: controller state changes alter the pagination header height,

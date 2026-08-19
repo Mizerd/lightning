@@ -283,11 +283,20 @@ Rectangle {
         dim: false
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        widthFraction: 0.22
-        heightFraction: 0.4
-        minWidth: 240
-        minHeight: 160
         padding: AppTheme.spacing12
+        // Content-sized, never share-sized (2026-08-19 feedback): this is
+        // a small info card, not a picker — two readers must not get a
+        // 40%-of-the-window box of empty space. The card hugs its rows
+        // (the list reports its real content height) and caps at half the
+        // window; past the cap the list scrolls.
+        width: Math.min(280, maxWidth)
+        height: {
+            var want = (contentItem ? contentItem.implicitHeight : 0)
+                       + topPadding + bottomPadding
+            var cap = Math.min(maxHeight,
+                               overlayItem ? overlayItem.height * 0.5 : 400)
+            return Math.max(Math.min(want, cap), 96)
+        }
         // The shared floating-popover surface (EmojiPicker/GifPicker
         // precedent) — without it the popup fell through to the Basic
         // style's flat unthemed box (2026-08-19 design audit P0).
@@ -330,8 +339,13 @@ Rectangle {
                 font.weight: Font.Bold
             }
             ListView {
+                objectName: "receiptReaderList"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                // The card's content-driven height reads this: the list's
+                // real content height, not the 0 a ListView reports by
+                // default.
+                implicitHeight: contentHeight
                 clip: true
                 spacing: 2
                 model: receiptListPopover.readers
@@ -393,6 +407,10 @@ Rectangle {
                 }
                 footer: Label {
                     visible: receiptListPopover.unnamed > 0
+                    // An invisible footer still occupies its height in
+                    // contentHeight — collapse it, or every short list
+                    // carries a ghost row in the content-sized card.
+                    height: visible ? implicitHeight : 0
                     width: ListView.view ? ListView.view.width : 0
                     text: qsTr("…and %n more (names not loaded)", "",
                                receiptListPopover.unnamed)
