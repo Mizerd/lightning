@@ -1,6 +1,6 @@
 [package]
 name = "matrix-client-rust"
-version = "0.7.3"
+version = "0.7.4"
 edition = "2021"
 description = "FFI bridge to the Matrix Rust SDK for the C++/Qt Lightning matrix client"
 license = "MIT OR Apache-2.0"

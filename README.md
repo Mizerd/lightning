@@ -7,7 +7,7 @@
 **A fast, native Matrix desktop client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.7.3-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.7.4-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Platform: Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-4c8fdc.svg)](#installation)
 [![Qt 6](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
 [![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
@@ -59,9 +59,9 @@ Download a package from the
 install it:
 
 ```sh
-sudo apt install ./lightning_0.7.3_amd64.deb          # Debian / Ubuntu
-sudo dnf install ./lightning-0.7.3-1.x86_64.rpm       # Fedora / RHEL
-chmod +x Lightning-0.7.3-x86_64.AppImage && ./Lightning-0.7.3-x86_64.AppImage
+sudo apt install ./lightning_0.7.4_amd64.deb          # Debian / Ubuntu
+sudo dnf install ./lightning-0.7.4-1.x86_64.rpm       # Fedora / RHEL
+chmod +x Lightning-0.7.4-x86_64.AppImage && ./Lightning-0.7.4-x86_64.AppImage
 ```
 
 On **Windows**, run the `.msi` or `-setup.exe` installer, or extract the
@@ -77,233 +77,183 @@ verification and uninstall instructions, or
 Everything below is implemented in the current codebase. Because Lightning is
 still developing, some workflows remain experimental.
 
+### What you will not find in most Matrix clients
+
+- **A real GIF browser, not a link box.** Two providers side by side — GIPHY
+  and KLIPY — with trending, search, categories, recents, safe-search and an
+  autoplay policy. Everything sends as genuine Matrix media, encrypted like any
+  other attachment. **Saved GIFs** are one star with one destination: star a
+  provider tile *or* a GIF already in a chat and it lands in the picker's
+  **Saved** tab. Provider GIFs are saved as links; one saved out of a chat is
+  copied to your device into an account-scoped store, bounded at 200 items /
+  64 MiB, deleted on sign-out and disclosed in Settings. Only your search term
+  ever reaches a provider — never a Matrix ID, room, or message body.
+- **Voice messages with a live waveform** (MSC3245) — record, watch the level
+  as you speak, send to a room *or* a thread as mono Opus through the SDK's
+  encrypting media path.
+- **Multi-account across different homeservers at once**, switching in place
+  with no login form in between. Every account keeps its own isolated SDK and
+  encryption store, and only the active one syncs.
+- **It updates itself, and verifies first.** An Ed25519-signed manifest decides
+  the exact filename, size and SHA-256; the signature is checked over the raw
+  bytes before a single field is read, and a failed check is terminal — there
+  is no "install anyway". The manifest names a file and can never name a
+  command.
+- **Eleven complete themes, every one WCAG-AA checked**, led by the Storm brand
+  theme — with five bundled UI fonts, a message-layout selector and text-size
+  scaling, all per-account.
+- **Native, not a web view.** Qt 6 / QML with a four-pane layout, and the
+  official Rust Matrix SDK owning sync, timelines, E2EE, threads and media.
+  Lightning implements no Matrix cryptography of its own.
+
 ### Accounts, rooms and Spaces
 
-- Password login, persistent sessions and restoration, and logout
-- **Browser sign-in (OAuth 2.0 / OIDC)** on homeservers that offer it —
-  live-validated against matrix.org, including new-account registration
-  through an upstream identity provider. Lightning asks the server which
-  authentication methods it actually supports as you type the homeserver
-  and offers only those — nothing is hard-coded for any provider. The browser flow is owned by the Matrix Rust SDK (`Client::oauth()`):
-  the SDK builds the authorization URL with PKCE, validates the CSRF state,
-  exchanges the code, and refreshes access tokens. Lightning contributes only
-  the system-browser launch and a single-shot loopback listener bound to
-  127.0.0.1 on an ephemeral port.
-  Sign-in runs in two phases so that a device the server has just created can
-  never attach to another device's encryption store: authentication happens with
-  no local store at all, and the account's store is chosen, checked and opened
-  only after the homeserver has named the user and device.
-  Legacy Matrix SSO is **detected but not supported** — Lightning tells you when
-  a server offers only that, rather than presenting a button that cannot work.
-- **Multi-account**: several signed-in accounts across any mix of homeservers,
-  with fast in-app switching and no login form between them; each account keeps
-  its own isolated SDK and encryption store, and only the active account syncs
-- Scoped account removal and logout that never touch other accounts
-- Joined rooms, direct messages, invites, and Matrix Space hierarchy
-  navigation, with a **Space front page** (double-click a Space in the rail)
-  listing its rooms, where its name, topic and **avatar** can be edited in
-  place when your power level allows it — a Space is a Matrix room, so the
-  avatar uses the same `m.room.avatar` path and the same permission check as
-  any other room
-- Room creation, member lists and roles, room-profile editing, and invites
-- **Discover and join rooms** — browse or search a homeserver's public
-  directory, or paste a room address, `matrix:` URI or matrix.to link and join
-  from the preview. Rooms that require it can be **knocked** on with an
-  optional message, and a pending knock can be withdrawn from the room list.
-  Refusals are reported as what they actually were — banned, invite-only, or
-  restricted to another space — rather than one generic failure
-- **Upgraded rooms** — when a room is tombstoned and replaced, Lightning shows
-  a banner offering the successor instead of moving you. The old room stays
-  open and readable, and nothing joins, leaves or navigates unless you press
-  the button: `m.room.tombstone` is state anyone with the power level can send,
-  and it names the room you would be moved into
-- **Moderation**: kick, ban and unban from the member profile, gated by real
-  power-level permissions; banned members stay visible so unban is
-  reachable, and unbanning can invite the user straight back
-- **Member roles / power levels**: inspect and change a member's real
-  `m.room.power_levels` value from their profile. Lightning offers only the
-  changes Matrix would actually allow — never above your own level, never
-  against a peer at or above it, self-demotion only — and it never rounds a
-  room's custom numbers into a preset: a member at 42 reads as "Custom (42)"
-  and stays at 42 unless you change it. Nothing is applied locally; the
-  authoritative levels come back from the room
-- **Room access**: change who can join (invited people only / anyone with the
-  link / ask to join) and publish or clear the room's address, both gated by
-  the room's own required power level for that state event. A
-  space-restricted room is shown honestly and left alone — Lightning does not
-  yet build the allow-rule list those rules carry
-- **Presence** — online / away / offline dots for other people on 1:1 DM rows,
-  the People list and the member profile popover, with a "last active" line in
-  the popover. Sliding Sync carries no presence events, so this is a bounded
-  poll of exactly the users currently on screen; a state Lightning does not
-  know renders **nothing** rather than a made-up "offline". Your own state is
-  published behind Privacy & security → "Share my online status" (default on;
-  turning it off publishes one final offline)
-- **Room list filters** — All / People / Rooms / Unreads chips, persisted
-  per account, so busy DM lists never bury your rooms
-- **Ignore and report** — ignore a user account-wide from their profile (the
-  real `m.ignored_user_list`, so it follows you to every client) or report a
-  message to the room's server admins
-- Keyboard quick switcher (Ctrl-K) with a **navigate mode** across rooms, DMs,
-  Spaces, and invites and a **command mode** (`>`) with scope chips, plus
-  find-in-timeline (Ctrl-F) across the currently loaded timeline, which
-  highlights every match and fills the one you are stepping through
+- **Browser sign-in (OAuth 2.0 / OIDC)** where the homeserver offers it,
+  live-validated against matrix.org including new-account registration through
+  an upstream identity provider. Lightning asks the server which methods it
+  actually supports as you type and offers only those. The flow is SDK-owned
+  (`Client::oauth()`); Lightning adds only the browser launch and a single-shot
+  loopback listener. Sign-in runs in two phases so a device the server just
+  created can never attach to another device's encryption store. Legacy Matrix
+  SSO is detected and reported as unsupported rather than offered as a button
+  that cannot work
+- Password login, persistent sessions and restoration, scoped logout and
+  account removal that never touch another account
+- Joined rooms, DMs, invites, and Matrix Space hierarchy — including **nested
+  subspaces**, indented in the rail and drillable from a Space's front page
+- **Space front page**: one unified *Rooms and spaces* list where joined rooms,
+  joined subspaces and rooms you have not joined yet sit together, each stating
+  its own membership, with select-and-remove, a *Suggested* toggle, invites, and
+  in-place editing of the Space's name, topic and avatar where your power level
+  allows
+- **Rail**: click a Space to open its overview; the chevron expands its most
+  active rooms inline
+- **Discover and join** — browse or search the public directory, or paste a
+  room address, `matrix:` URI or matrix.to link and join from the preview.
+  **Knock** on rooms that require it, and withdraw a pending knock from the
+  room list. Refusals say what they actually were — banned, invite-only, or
+  restricted to another space
+- **Upgraded rooms** — a tombstoned room shows a banner offering the successor
+  instead of moving you; nothing joins, leaves or navigates unless you press it
+- **Moderation and roles** — kick, ban, unban, and change a member's real
+  `m.room.power_levels` value, each gated by what Matrix would actually allow.
+  A room's custom numbers are never rounded into a preset: a member at 42 reads
+  as "Custom (42)" and stays there
+- **Room access** — who can join, and the room's published address, both gated
+  by the room's own required level. A space-restricted room is shown honestly
+  and left alone
+- **Presence** — online / away / offline dots on 1:1 DM rows, the People list
+  and profile popovers. Sliding Sync carries no presence events, so this polls
+  only the users on screen; an unknown state renders **nothing** rather than a
+  made-up "offline". Your own is behind a Privacy setting (default on)
+- **Ignore and report** — account-wide `m.ignored_user_list` ignores that
+  follow you to every client, and message reports to the room's admins
+- Room list filters (All / People / Rooms / Unreads), persisted per account
+- Quick switcher (Ctrl-K) with navigate and command (`>`) modes, plus
+  find-in-timeline (Ctrl-F) that highlights every match
 
 ### Messaging and timelines
 
-- Live timelines with replies, edits, reactions, redactions, mentions, and
+- Live timelines with replies, edits, reactions, redactions, mentions and
   typing indicators
-- **Read receipts** as Element-style avatar chips riding a fixed right-edge
-  rail, with a "+N" overflow pill and a "Read by …" summary for the tooltip
-  and screen readers
-- **Per-user name colours** — every sender keeps one deterministic,
-  WCAG-AA-checked colour, matched to their avatar, across every surface
-- **MSC3381 polls** — vote, change your vote, and see live tallies
-- **Pinned messages** (`m.room.pinned_events`) — pin and unpin from the
-  message menu when the room's power levels allow it, and read the room's
-  pins from a Pinned tab in Room Information. Clicking one jumps to the
-  original message through the same navigation replies and permalinks use, so
-  a pin outside the loaded window loads its history like any other jump. A
-  pin whose event is deleted or unreachable says exactly that and goes
-  nowhere, rather than landing you on an unrelated message; pins changed from
-  another client appear here without a reload
-- **Message search** — a room search panel with filters for sender, mentions,
-  date, content type and pinned state, plus a global search (Ctrl-Shift-F).
-  In unencrypted rooms this is the homeserver's own search over full history;
-  **in an encrypted room the server cannot search ciphertext**, so Lightning
-  searches the loaded timeline instead and says so rather than quietly
-  returning less. Only your search term is ever sent
-- **Forward a message** to another room — text, images, video, audio, voice and
-  files, from the message menu into a room picker. A forward is the content
-  re-sent as a new event (Matrix has no forward primitive), and media is
-  re-uploaded rather than mxc-copied, so the target room's members can actually
-  fetch it and no per-event decryption key is planted in a room that never
-  negotiated it
-- **Drafts** survive switching rooms. In an unencrypted room a draft is kept
-  between restarts; in an **encrypted** room it is held in memory only and
-  never written to disk, and a room whose encryption state is unknown is
-  treated as encrypted
+- **Read receipts** as Element-style avatar chips on a right-edge rail, with an
+  overflow pill — **click them** for the reader list with names, avatars and the
+  time each person read
+- **Pinned messages** (`m.room.pinned_events`) — pin and unpin where power
+  levels allow, read them from a Pinned tab, and jump to the original through
+  the same navigation replies use. A deleted or unreachable pin says so instead
+  of landing you somewhere unrelated
+- **Message search** — room panel with filters plus global search
+  (Ctrl-Shift-F). Unencrypted rooms use the homeserver's own search over full
+  history; **in an encrypted room the server cannot search ciphertext**, so
+  Lightning searches the loaded timeline and says so rather than quietly
+  returning less. Only your search term is sent
+- **Forward a message** to another room — text, images, video, audio, voice,
+  files. Media is re-uploaded rather than mxc-copied, so the target room can
+  actually fetch it and no per-event key is planted in a room that never
+  negotiated one
+- **Drafts** survive switching rooms. Unencrypted rooms keep them between
+  restarts; an **encrypted** room holds them in memory only, and unknown
+  encryption state is treated as encrypted
+- **MSC3381 polls**, per-user deterministic name colours, replies to images
+  showing a thumbnail (in the quote *and* while you type), and **Copy image**
+  straight to the clipboard
 - Unread and mention states, marked-unread, first-unread and jump-to-latest
-  navigation, and backward pagination. "Mark as read" works from the room list
-  for any room, not only the one you have open
-- Display names resolved everywhere the member roster knows them — mentions,
-  reply headers, and thread summary cards — with the roster hydrated on room
-  open
-- Content-width reply cards, quiet edge-bar mention highlighting, and member
-  profile popovers with Copy ID, plus a room-details panel
+  navigation, backward pagination, and "Mark as read" from the room list for
+  any room
 - Smooth mouse-wheel and touchpad scrolling with per-room position
-  preservation, and a reading position that survives history loading — older
-  messages and image pop-in no longer shove the view around
+  preservation, and a reading position that survives history loading
 
 ### Threads
 
-- SDK-backed Matrix thread timelines, replies, and threaded read receipts
-- Per-room Threads view, a dedicated thread panel, follow/unfollow, and pagination
-- Compact Element-style thread summary cards on room-timeline roots
-- Text, image, and file attachments in threads, including encrypted rooms
+- SDK-backed Matrix thread timelines, replies and threaded read receipts
+- Per-room Threads view, dedicated panel, follow/unfollow, pagination
+- Element-style summary cards with participant facepiles on timeline roots
+- Text, image, file and **voice** attachments in threads, including encrypted
+  rooms
 
 ### Media
 
-- Images, files, and clipboard images, including encrypted attachments
-- **Voice messages** (MSC3245) — record with a live waveform and send, in
-  rooms and threads, as mono Opus through the SDK's encrypting media path
-- Inline **video and audio playback** with posters, duration, and waveforms;
-  outgoing videos carry a locally extracted poster thumbnail. One **shared
-  volume control** governs every player, audio files show their embedded cover
-  art, and poster extraction runs off the UI thread so a video scrolling into
-  view never stalls the timeline
-- Room Information's **Media and Files** tabs list what has been shared in the
-  room, with thumbnails loaded lazily — a video is no longer downloaded in full
-  just to draw a tile
-- Animated GIF attachments and a multi-provider GIF browser (GIPHY and KLIPY):
-  trending, search, categories, recents, safe-search, and autoplay policy,
-  sending as real Matrix media into rooms and threads
-- **Saved GIFs** — one star, one meaning, one place. Star a GIF anywhere (a
-  provider tile or a GIF in a chat) and it lands in the picker's **Saved** tab.
-  Provider GIFs are saved as links; a GIF saved out of a chat is copied to your
-  device, in an account-scoped store bounded at 200 items / 64 MiB that is
-  deleted on sign-out and disclosed in Settings. Each tile is tagged with where
-  it came from (GIPHY / KLIPY / Local)
-- Client-side link previews with encrypted-room privacy controls
-- Image viewer with save, and validated inline rendering of direct raster links
+- Images, files and clipboard images, including encrypted attachments
+- Inline **video and audio playback** with posters, duration and waveforms;
+  outgoing videos carry a locally extracted poster. One shared volume control
+  governs every player, audio shows embedded cover art, and poster extraction
+  runs off the UI thread
+- Room Information **Media and Files** tabs, with thumbnails loaded lazily
+- Animated GIF attachments, client-side link previews with encrypted-room
+  privacy controls, an image viewer with save, and validated inline rendering
+  of direct raster links
 
 ### Encryption and account security
 
 - Encrypted send/receive through the Rust Matrix SDK, with automatic key
-  handling, late in-place decryption, and manual retry
-- SAS emoji device verification **in both directions** (either device may
-  initiate) and read-only session-trust information, including a Trust card
-  bound to real crypto-health state. Verification runs in a **focused centred
-  dialog** — the emojis you are comparing against another device are never
-  buried at the bottom of a scrolled page — and the same dialog handles a
-  verification another client starts
-- **Unverified-session prompts you can turn off.** A new session gets one
-  corner prompt offering Verify or Not now, and a small red dot on the
-  settings cog and the Sessions row. "Stop reminding me" silences those
-  badges for that account and persists; it never claims the session is
-  verified, the Sessions page keeps stating the fact plainly, and the
-  reminder returns by itself if a later session is unverified
-- Secure Backup recovery-key or passphrase restore and encrypted room-key import
-- Crypto health, recovery, and diagnostics controls in Settings
-- A sanitized support-diagnostics export (hashed account identifiers, no
-  paths, no tokens), offered from the sign-in repair flow when a
-  session-store failure is detected
+  handling, late in-place decryption and manual retry
+- **SAS emoji verification in both directions** and **QR verification**, run in
+  a focused centred dialog — the emoji you are comparing are never buried at
+  the bottom of a scrolled page — which also handles a verification another
+  client starts
+- **Unverified-session prompts you can turn off.** "Stop reminding me" silences
+  the badges for that account; it never claims the session is verified, the
+  Sessions page keeps stating the fact, and the reminder returns by itself for a
+  later unverified session
+- Secure Backup recovery-key or passphrase restore, encrypted room-key import,
+  and per-device sign-out (OAuth accounts are sent to their account console
+  rather than shown a password prompt that cannot work)
+- Crypto health and recovery controls, plus a sanitized support-diagnostics
+  export (hashed identifiers, no paths, no tokens)
 
 ### Desktop experience and personalization
 
-- The **Storm design language** (new in 0.6.5) across the whole menu system:
-  redesigned context menus with keycap accelerators and a quick-reaction strip,
-  a per-room notifications flyout, redesigned emoji/GIF pickers and mention
-  popup, identity cards in the account switcher, and dialogs (new conversation,
-  invite people, create poll) in one shared visual language
-- Eleven complete, WCAG-AA-tested semantic themes — **Storm** (the deep-navy,
-  bolt-yellow brand theme; *System* resolves to Storm in dark mode and Moss
-  Light in light mode), Moss Light, Indigo Night, Deep Teal, plus Lightning
-  Light/Dark, Graphite, Midnight, Nordic, Purple Dusk, and Warm — persistent
-  and live-switching, with a message-layout selector and text-size scaling
-  (all per-account)
-- A searchable full-view Settings screen with featured theme cards and the
-  Trust card embedded in Sessions
-- Bundled Manrope, JetBrains Mono, and Space Grotesk (brand) fonts, and five
-  selectable UI fonts
+- The **Storm design language** across the whole menu system: context menus
+  with keycap accelerators and a quick-reaction strip, a per-room notifications
+  flyout, redesigned pickers and mention popup, identity cards in the account
+  switcher, and dialogs in one shared visual language
+- Searchable full-view Settings; bundled Manrope, JetBrains Mono and Space
+  Grotesk fonts; letter-initial fallback avatars for rooms and Spaces
 - Native freedesktop notifications with mentions, active-room suppression,
-  privacy modes, sounds, and the room or sender's avatar. **Per-room modes**
-  (All messages / Mentions & keywords / Mute) are written to your account's
-  server push rules by the SDK, so a muted room stays muted on your other
-  clients
-- **One scrolling feel everywhere** — Settings, Room Information, the Space
-  front page, the pickers and the dialogs all use the same tuned smooth wheel
-  motion as the room timeline, instead of Qt's default in every pane but one
-- **Resizable pickers** — the GIF and emoji pickers sit on the composer and
-  scale with the window. Drag the corner to resize either one; both share a
-  single remembered size, stored as a proportion so it stays sensible across
-  window sizes and displays, and it persists between sessions
-- Responsive layouts from narrow to wide, a local Unicode emoji picker, an
-  installed application icon and desktop entry, and accessible keyboard navigation
+  privacy modes, sounds and the sender's avatar. **Per-room modes** are written
+  to your account's server push rules, so a muted room stays muted on your
+  other clients
+- One tuned scrolling feel in every pane, resizable pickers pinned to the
+  composer with a remembered size, responsive narrow-to-wide layouts, a local
+  Unicode emoji picker, and accessible keyboard navigation throughout
 
 ### Updating
 
-- **Lightning can update itself** (new in 0.7.1). Settings → Updates checks for
-  a new release and, where the package type allows it, installs it: MSI and
-  Setup EXE through their own installers, portable ZIP and AppImage replaced
-  transactionally with rollback, DEB and RPM handed to your package manager
-  through PolicyKit so those files stay package-manager owned. Flatpak and Snap
-  are left to their own ecosystems, and a development build never installs
-  anything
-- Every update is verified before it is installed: an **Ed25519-signed
-  manifest** decides the exact filename, size and SHA-256, the signature is
-  checked over the raw bytes before a single field is read, and a failure of
-  either check is terminal — there is no "install anyway". The manifest names a
-  file and can never name a command
+- Settings → Updates checks for a new release and, where the package type
+  allows, installs it: MSI and Setup EXE through their own installers,
+  portable ZIP and AppImage replaced transactionally with rollback, DEB and RPM
+  handed to your package manager through PolicyKit. Flatpak and Snap are left
+  to their own ecosystems, and a development build never installs anything
+- New versions announce themselves with a corner card and a badge on the
+  settings cog, dismissible per version
 - Binaries download from the read-only GitHub mirror first (falling back to
-  GitLab) purely to save the project's bandwidth. GitLab stays the release
-  authority: Lightning makes no GitHub API call and reads no GitHub release
-  metadata, so a compromised mirror can break a download but cannot ship an
-  update
-- **Automatic checks are on by default** and can be turned off in
-  Settings → Updates. A check sends only
-  `Lightning/<version>` — no Matrix ID, homeserver, device ID, token, room data,
-  or analytics identifier, and no updater tracking ID is generated at all. See
+  GitLab) purely to save bandwidth. GitLab stays the release authority:
+  Lightning makes no GitHub API call and reads no GitHub metadata, so a
+  compromised mirror can break a download but cannot ship an update
+- Automatic checks are **on by default** and can be turned off. A check sends
+  only `Lightning/<version>` — no Matrix ID, homeserver, device ID, token, room
+  data or analytics identifier, and no tracking ID is generated at all. See
   [Application updates](docs/updates.md)
 
 ## Screenshots
@@ -349,12 +299,12 @@ no package is code-signed yet:
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-Replace `0.7.3` in the commands below with the version you downloaded.
+Replace `0.7.4` in the commands below with the version you downloaded.
 
 ### Debian, Ubuntu, Linux Mint, Pop!_OS (`.deb`)
 
 ```sh
-sudo apt install ./lightning_0.7.3_amd64.deb
+sudo apt install ./lightning_0.7.4_amd64.deb
 ```
 
 `apt` resolves the dependencies itself; the leading `./` is required, otherwise
@@ -367,8 +317,8 @@ sudo apt remove lightning
 ### Fedora, RHEL, openSUSE (`.rpm`)
 
 ```sh
-sudo dnf install ./lightning-0.7.3-1.x86_64.rpm     # Fedora / RHEL
-sudo zypper install ./lightning-0.7.3-1.x86_64.rpm  # openSUSE
+sudo dnf install ./lightning-0.7.4-1.x86_64.rpm     # Fedora / RHEL
+sudo zypper install ./lightning-0.7.4-1.x86_64.rpm  # openSUSE
 ```
 
 To remove it: `sudo dnf remove lightning`.
@@ -376,8 +326,8 @@ To remove it: `sudo dnf remove lightning`.
 ### AppImage (any distribution, no installation)
 
 ```sh
-chmod +x Lightning-0.7.3-x86_64.AppImage
-./Lightning-0.7.3-x86_64.AppImage
+chmod +x Lightning-0.7.4-x86_64.AppImage
+./Lightning-0.7.4-x86_64.AppImage
 ```
 
 Nothing is installed and nothing is written outside your user profile; delete
@@ -392,7 +342,7 @@ the file to remove it. If it will not start, your system may need FUSE
 flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install --user flathub org.kde.Platform//6.9
 
-flatpak install --user ./lightning_0.7.3_amd64.flatpak
+flatpak install --user ./lightning_0.7.4_amd64.flatpak
 flatpak run net.smetonis.Lightning
 ```
 
@@ -405,7 +355,7 @@ needs `--dangerous` — that flag means "this file is not signed by the store",
 not that the snap is unsafe. It is built with `strict` confinement:
 
 ```sh
-sudo snap install --dangerous ./lightning_0.7.3_amd64.snap
+sudo snap install --dangerous ./lightning_0.7.4_amd64.snap
 ```
 
 To remove it: `sudo snap remove lightning`.
@@ -418,8 +368,8 @@ tasks, firewall rules, or autostart.
 
 | Format | Install | Uninstall |
 |---|---|---|
-| **MSI** | Double-click, or `msiexec /i Lightning-0.7.3-<sha>-windows-x86_64.msi` | Settings → Apps → Installed apps, or `msiexec /x` |
-| **Setup EXE** | Run `Lightning-0.7.3-<sha>-windows-x86_64-setup.exe` | Settings → Apps → Installed apps, or the **Uninstall Lightning** shortcut |
+| **MSI** | Double-click, or `msiexec /i Lightning-0.7.4-<sha>-windows-x86_64.msi` | Settings → Apps → Installed apps, or `msiexec /x` |
+| **Setup EXE** | Run `Lightning-0.7.4-<sha>-windows-x86_64-setup.exe` | Settings → Apps → Installed apps, or the **Uninstall Lightning** shortcut |
 | **Portable ZIP** | Extract anywhere, run `Lightning.exe` | Delete the folder |
 
 MSI and Setup EXE install to `%LOCALAPPDATA%\Programs\Lightning` with a
@@ -437,7 +387,7 @@ See the [**Code signing policy**](docs/code-signing-policy.md) and
 To verify a download on Windows:
 
 ```powershell
-Get-FileHash .\Lightning-0.7.3-<sha>-windows-x86_64.msi -Algorithm SHA256
+Get-FileHash .\Lightning-0.7.4-<sha>-windows-x86_64.msi -Algorithm SHA256
 ```
 
 ### macOS
@@ -455,7 +405,7 @@ the account inside the app.
 Once installed, Lightning can update itself: see
 [Application updates](docs/updates.md). The authoritative per-release list of
 artifacts is the release notes — for example
-[`docs/releases/v0.7.3.md`](docs/releases/v0.7.3.md) — and the Releases page
+[`docs/releases/v0.7.4.md`](docs/releases/v0.7.4.md) — and the Releases page
 itself. Packaging, cross-platform builds, publishing, and verification are
 maintained in a separate automation project,
 [**lightning-deploy**](https://gitlab.smetonis.net/Mizerd/lightning-deploy); this
@@ -615,8 +565,11 @@ interoperability should be verified rather than assumed. Known limits worth
 stating plainly: server-side message search covers **unencrypted rooms only**,
 because a homeserver cannot search ciphertext — encrypted rooms fall back to
 searching the loaded timeline; space-restricted join rules are displayed but
-not editable; and Lightning does not implement voice or video calls. It should
-not be treated as a finished or certified product.
+not editable; and **voice and video calls are not available** — a 1:1 voice
+stack (MSC2746 signalling and a WebRTC media engine) exists in the codebase but
+is deliberately disabled, because no answered call has been validated on a real
+network, so the button says "coming soon" rather than promising something it
+cannot keep. It should not be treated as a finished or certified product.
 
 ## Development and testing
 
