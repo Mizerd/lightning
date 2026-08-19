@@ -703,9 +703,19 @@ Rectangle {
                                  && (app.calls.state === CallController.Idle
                                      || app.calls.state
                                         === CallController.Ended)
+                        // 2026-08-19 (maintainer request): shown but GREYED
+                        // until voice calls have been validated against a
+                        // real network and another client. The engine is
+                        // real (the call-media-loopback suite completes an
+                        // in-process WebRTC call), but no answered call has
+                        // ever been live-tested, so offering it as though it
+                        // works would be a promise the round cannot keep.
+                        // Re-enabling is this one line — the DM/engine gates
+                        // above and the placeCall path below are unchanged.
+                        enabled: false
                         iconName: "call"
-                        Accessible.name: qsTr("Start voice call")
-                        ToolTip.text: qsTr("Start voice call")
+                        Accessible.name: qsTr("Voice call — coming soon")
+                        ToolTip.text: qsTr("Voice calls are coming soon")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: app.calls.placeCall(app.currentRoomId)

@@ -1306,6 +1306,75 @@ after the tester-report fixes shipped as 0.7.3:
   trees** after this round — the first fully green complete run since the
   timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
 
+**2026-08-19 scroll round 2, part 1 — the sliding window's FOUNDATION
+(proxy only; no UI wiring yet), plus the call button greyed out.**
+The maintainer reported that scrolling up a long way makes scrolling laggy
+in both directions, guessing it loads a year of history. Measured, and the
+guess is right — with the honest caveat that the small-N numbers below are
+deflated because a short timeline hits the scroll bound and its notches do
+no work:
+
+| loaded rows | QML items | px/notch | avg notch | worst |
+|---|---|---|---|---|
+| 100 | 7,235 | 10 (bound-limited) | 0.04 ms | 3 ms |
+| 300 | 21,685 | 62 (partly) | 0.53 ms | 8 ms |
+| 600 | 43,351 | 132 | 4.44 ms | 17 ms |
+| 1000 | 72,255 | 147 | 10.65 ms | 28 ms |
+
+The fair comparison is 600 vs 1000 (same per-notch displacement): 1.67x
+the rows costs 2.4x the time, 2.15x per pixel scrolled — SUPERLINEAR. The
+viewport was identical in every run, so this tracks TOTAL loaded rows
+(~72 items per row), never what is on screen.
+- **A second `perf record` says where it goes**, and it is not layout:
+  `syncSceneGraph`→`updateDirtyNode` **10.4%**, event delivery
+  (`eventTargets`) **12.1%**, `renderSceneGraph` 5.5%, and
+  **`polishItems` 1.0%**. Both dominant costs are O(total instantiated
+  items) per frame or per event. The profile is otherwise FLAT (nothing
+  above 4.2%), which is the signature of working-set/locality pressure —
+  consistent with the superlinearity. This buries the de-layouting
+  hypothesis for the second time; do not revive it.
+- **Only reducing instantiated rows touches this**, and pacing cannot: it
+  delays rows, it never takes any back. So `ReverseListProxyModel` gained
+  a real WINDOW — two integers, `windowSkip` (how many of the NEWEST
+  source rows are excluded) plus the exposed count — where every
+  transition between two windows is a single insert-or-remove at ONE end,
+  never a reset and never a mid-list renumbering.
+- **`windowSkip == 0` is the only state in which proxy row 0 is the live
+  edge**, i.e. in which the physical bottom of the rotated view is the
+  newest message. The pane must therefore return to 0 before the reader
+  can reach the bottom. Releasing at the OLDEST end is free (tail of the
+  Column, nothing visible moves); releasing at the NEWEST end shifts every
+  kept row, and the pane must correct contentY by the EXACT height delta —
+  that half is NOT yet written.
+- Proven by `reverse-list-proxy-window` (13 cases), including the two that
+  matter most: a **live message must not slide a windowed reader** (it is
+  absorbed by growing the skip, so the window keeps covering the same
+  events — otherwise every incoming message shifts what you are reading),
+  and **pacing must never grow past the window** (the reveal timer would
+  otherwise restore the whole history within a few frames). Also: removals
+  newer than / inside / older than the window, invisible backward
+  pagination, a reset clearing a stale skip (which would hide the next
+  room's newest messages), and `releaseAll()`/`clearWindow()` restoring the
+  live edge for every jump/search path. A window that SLIDES touches both
+  ends — one release at the tail, one restore at the head — which is still
+  one op per end; the first version of that test asserted a single signal
+  and was wrong.
+- **STILL TO DO, and it is the part with the revert history**: the pane
+  choosing the window from the reader's position, and the exact contentY
+  correction on a newest-end release. Acceptance bars already chosen: the
+  anchored event must hold within 2 px across a release, and cost per pixel
+  scrolled must stop growing with history depth (the 600-vs-1000 numbers
+  above are the baseline). CLAUDE.md §16's reverted bounded-retained-window
+  differs in three ways that must be kept: exact measured heights (never
+  pinned estimates), correction only when SETTLED (never mid-gesture), and
+  no second anchor path alongside `maintainViewAnchor`.
+- **The voice-call button is greyed out and reads "coming soon"**
+  (maintainer request). The engine is real — `call-media-loopback`
+  completes an in-process WebRTC call — but no answered call has ever been
+  live-validated, so offering it would promise what the round cannot keep.
+  `enabled: false` is contract-pinned so re-enabling is a decision, not an
+  accident; the DM-only and engine gates are unchanged beneath it.
+
 **2026-08-19 jump-to-live history trim — the answer to "does it unload
 old messages?" (it did not).** Rows were never released: the un-virtualized
 Column instantiates every paginated event, permanently. This adds Element

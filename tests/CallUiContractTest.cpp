@@ -84,7 +84,10 @@ private Q_SLOTS:
         const int button = norm.indexOf(
             QStringLiteral("objectName: \"startVoiceCallButton\""));
         QVERIFY(button >= 0);
-        const QString scope = norm.mid(button, 700);
+        // Wide enough to cover the button's whole block including its
+        // rationale comments (widened 2026-08-19 when the coming-soon note
+        // landed) — a too-tight window fails on prose, not on behaviour.
+        const QString scope = norm.mid(button, 1600);
         // A legacy m.call.invite rings EVERY member of a room: the entry
         // point must be gated to 1:1 DMs and to a registered engine.
         QVERIFY(scope.contains(
@@ -93,6 +96,11 @@ private Q_SLOTS:
             QStringLiteral("app.calls.mediaBackendAvailable")));
         QVERIFY(scope.contains(QStringLiteral(
             "onClicked: app.calls.placeCall(app.currentRoomId)")));
+        // 2026-08-19: greyed out and labelled "coming soon" until an
+        // answered call has been validated live. Pinned so it cannot be
+        // re-enabled by accident — flipping it is a deliberate decision.
+        QVERIFY(scope.contains(QStringLiteral("enabled: false")));
+        QVERIFY(norm.contains(QStringLiteral("Voice calls are coming soon")));
     }
 
     void mainHostsTheCallPromptAboveThePassiveOnes()

@@ -46,6 +46,46 @@ public:
     // where a silent no-op is not.
     Q_INVOKABLE void releaseAll();
 
+    // ── 2026-08-19: the sliding window ──────────────────────────────────
+    //
+    // Why this exists: the view instantiates every row it is given, and
+    // per-frame cost was MEASURED to scale with the total instantiated item
+    // count — scene-graph node sync and event delivery both walk the whole
+    // tree, while layout is only ~1% of a frame. At 1000 loaded rows that is
+    // ~10.4 ms per wheel notch against ~4.4 ms at 600, so reading deep in a
+    // long room degrades badly. Pacing alone cannot help: it only delays
+    // rows, it never takes any back.
+    //
+    // The window is TWO integers, and every transition between two windows
+    // is a single insert-or-remove at one end:
+    //   * `windowSkip` — how many of the NEWEST source rows are excluded.
+    //     Proxy row 0 is the (windowSkip)th newest, not necessarily the
+    //     newest. Zero means "the window includes the live edge", which is
+    //     the only state in which the physical bottom of the view is the
+    //     newest message — so the pane must return to zero before the
+    //     reader can reach the bottom.
+    //   * the exposed count (`m_revealedRows`), unchanged in meaning.
+    //
+    // Releasing at the OLDEST end is free: those rows are at the far end of
+    // the rotated view, and removing children from the tail of a Column
+    // moves nothing the reader can see. Releasing at the NEWEST end shifts
+    // every kept row, so the pane corrects contentY by the exact height
+    // delta — never an estimate, and only when the reader is settled.
+    Q_PROPERTY(int windowSkip READ windowSkip NOTIFY windowChanged)
+    int windowSkip() const { return m_windowSkip; }
+    // The oldest source row currently exposed (-1 when nothing is).
+    Q_INVOKABLE int oldestExposedSourceRow() const;
+    // Move to the window (skipNewest, rows). Clamped to what the source
+    // holds; performs at most one structural op per end, oldest end first.
+    Q_INVOKABLE void setWindow(int skipNewest, int rows);
+    // Back to "everything, live edge included" — what every jump/search
+    // path needs before it can address an arbitrary row.
+    Q_INVOKABLE void clearWindow();
+
+Q_SIGNALS:
+    void windowChanged();
+
+public:
     void setSourceModel(QAbstractItemModel *sourceModel) override;
 
     QModelIndex mapToSource(const QModelIndex &proxyIndex) const override;
@@ -65,6 +105,8 @@ private:
     // Rows in the source model, regardless of how many are released yet.
     int sourceRowTotal() const;
     void scheduleReveal();
+    // Rows pacing may expose: the window cap, or everything when uncapped.
+    int revealTarget() const;
     void revealNextChunk();
 
     QVector<QMetaObject::Connection> m_sourceConnections;
@@ -72,6 +114,14 @@ private:
     // How many of the newest source rows are currently exposed. Always
     // <= sourceRowTotal(); the difference is the paced backlog of oldest rows.
     int m_revealedRows = 0;
+    // How many of the NEWEST source rows the window excludes. 0 = the
+    // window reaches the live edge (the only state where proxy row 0 is the
+    // newest message).
+    int m_windowSkip = 0;
+    // Guards the reveal timer from undoing a deliberate window: pacing may
+    // only ever grow the window toward the OLDEST end, never past a cap the
+    // pane set, and never back over rows the pane released at the newest end.
+    int m_windowCap = 0;   // 0 = uncapped
     // Set between an announced beginInsertRows/beginRemoveRows pair so the
     // matching source signal knows whether it opened one.
     bool m_insertAnnounced = false;

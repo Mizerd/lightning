@@ -2135,6 +2135,23 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME space-child-suggest COMMAND space-child-suggest-test)
 
+    # 2026-08-19 scroll round 2: the sliding window in ReverseListProxyModel.
+    # Per-frame cost was MEASURED to scale with total instantiated items, so
+    # the proxy has to be able to take rows back, not merely delay them. Every
+    # window transition must be one insert/remove at one end, the mapping must
+    # stay exactly invertible, and a live message must not slide a reader who
+    # is deep in history.
+    qt_add_executable(reverse-list-proxy-window-test
+        tests/ReverseListProxyWindowTest.cpp
+        src/models/ReverseListProxyModel.h
+        src/models/ReverseListProxyModel.cpp
+    )
+    target_include_directories(reverse-list-proxy-window-test PRIVATE src)
+    target_link_libraries(reverse-list-proxy-window-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME reverse-list-proxy-window
+             COMMAND reverse-list-proxy-window-test)
+
     # 2026-08-18 voice-call signaling pipes: MSC2746 state machine —
     # ringing, glare, busy auto-reject, cross-device settlement, invite
     # lifetime, LRU absorption, honest placeCall refusal, logout reset.
