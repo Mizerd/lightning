@@ -161,6 +161,45 @@ private Q_SLOTS:
         QVERIFY(wheel > call);
     }
 
+    // 2026-08-19: speculative media (full-payload prefetch, and the poster
+    // extraction that materializes one) must gate on the view having
+    // SETTLED, not merely on a row being on screen — a live capture showed
+    // ~120 MB pulled by one 15-second gesture because every row that swept
+    // past armed a prefetch. Thumbnails stay ungated on purpose.
+    void speculativeMediaGatesOnSettleNotMerelyOnScreen()
+    {
+        const QString pane = normalized(
+            read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
+        const QString delegate = normalized(
+            read(QStringLiteral(QML_DIR "/MessageDelegate.qml")));
+        const QString audio = normalized(
+            read(QStringLiteral(QML_DIR "/AudioPlayerCard.qml")));
+        QVERIFY(!pane.isEmpty() && !delegate.isEmpty() && !audio.isEmpty());
+
+        // The pane owns the one definition, derived from the existing
+        // scroll-session state rather than a second notion of "busy".
+        QVERIFY(pane.contains(QStringLiteral(
+            "readonly property bool speculativeMediaAllowed: !userScrollActive")));
+        // Both speculative call sites in the delegate consult it...
+        QVERIFY(delegate.contains(QStringLiteral(
+            "} else if (root.speculativeMediaAllowed) {")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "if (root.speculativeMediaAllowed && playbackAvailable")));
+        // ...and neither gates the PAYLOAD on bare on-screen-ness any more.
+        QVERIFY(!delegate.contains(QStringLiteral(
+            "if (root.rowOnScreen && playbackAvailable")));
+        // The thumbnail branch is deliberately still ungated.
+        QVERIFY(delegate.contains(QStringLiteral(
+            "if (model.mediaThumbAvailable === true) {")));
+        // The audio card's prefetch is gated the same way, and retries.
+        QVERIFY(audio.contains(QStringLiteral(
+            "if (rowOnScreen && prefetchAllowed")));
+        QVERIFY(audio.contains(QStringLiteral(
+            "onPrefetchAllowedChanged: if (prefetchAllowed) maybePrefetch()")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "prefetchAllowed: root.speculativeMediaAllowed")));
+    }
+
     void receiptPopoverCarriesElementLook()
     {
         const QString pane = normalized(

@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QLoggingCategory>
 #include <QObject>
+#include <QThread>
 #include <QTimer>
 
 #include <atomic>
@@ -34,6 +35,11 @@ std::atomic<qint64> g_lastStallMs{0};
 std::atomic<const char *> g_lastStallCategory{nullptr};
 
 std::atomic<bool> g_installed{false};
+// The thread the heartbeat runs on — the one whose stalls this tracer
+// measures. A Scope entered on any OTHER thread must be inert: the category
+// is a single global, so letting a worker set it would attribute a GUI stall
+// to whatever a background decode happened to be doing (2026-08-19).
+std::atomic<QThread *> g_guiThread{nullptr};
 
 std::thread g_watchdog;
 std::mutex g_stopMutex;
@@ -147,6 +153,8 @@ void install(int thresholdMsOverride)
         ? thresholdMsOverride
         : thresholdFromEnvironment();
 
+    g_guiThread.store(QCoreApplication::instance()->thread(),
+                      std::memory_order_relaxed);
     auto *host = new BeatHost(QCoreApplication::instance());
     g_host = host;
     auto *beat = new QTimer(host);
@@ -218,6 +226,12 @@ QByteArray lastStallCategory()
 Scope::Scope(const char *category)
 {
     if (!g_installed.load(std::memory_order_relaxed))
+        return;
+    // Off-thread scopes are inert — see g_guiThread. This makes the primitive
+    // safe to place in code that may run on either thread (image decoding),
+    // rather than each call site having to know.
+    if (QThread::currentThread()
+        != g_guiThread.load(std::memory_order_relaxed))
         return;
     m_active = true;
     m_previous = g_category.load(std::memory_order_relaxed);

@@ -1,5 +1,7 @@
 #include "models/ReverseListProxyModel.h"
 
+#include "app/GuiStallTracer.h"
+
 #include <QAbstractItemModel>
 #include <QElapsedTimer>
 
@@ -106,6 +108,12 @@ void ReverseListProxyModel::revealNextChunk()
     // endInsertRows() builds the row synchronously, so elapsed() measures the
     // real construction cost and the budget adapts to whatever this particular
     // history happens to contain.
+    // Attributed for stall tracing (2026-08-19): a live capture showed GUI
+    // stalls of 333/369/1062 ms categorised "unattributed" while pagination
+    // ran, and endInsertRows() below builds a full message delegate
+    // synchronously — the single largest candidate. No-op unless
+    // LIGHTNING_GUI_STALL_TRACE is set.
+    stalltrace::Scope stallScope("row-reveal");
     QElapsedTimer spent;
     spent.start();
     int released = 0;

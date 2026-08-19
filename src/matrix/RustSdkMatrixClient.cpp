@@ -3896,6 +3896,10 @@ void RustSdkMatrixClient::updateRoomPreviewFrom(
 
 void RustSdkMatrixClient::handleTimelineReset(const QJsonObject &event)
 {
+    // Attributed for stall tracing (2026-08-19): ingesting a batch
+    // rebuilds model rows and emits the signals that drive delegate
+    // work. No-op unless LIGHTNING_GUI_STALL_TRACE is set.
+    stalltrace::Scope stallScope("timeline-reset");
     const QString roomId = event.value(QStringLiteral("room_id")).toString();
     const auto generation = static_cast<quint64>(
         event.value(QStringLiteral("room_generation")).toDouble(0));
@@ -4006,6 +4010,10 @@ void RustSdkMatrixClient::flushTimelineInsertBatch()
 
 void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
 {
+    // Attributed for stall tracing (2026-08-19): ingesting a batch
+    // rebuilds model rows and emits the signals that drive delegate
+    // work. No-op unless LIGHTNING_GUI_STALL_TRACE is set.
+    stalltrace::Scope stallScope("timeline-diff");
     const QString roomId = event.value(QStringLiteral("room_id")).toString();
     const auto generation = static_cast<quint64>(
         event.value(QStringLiteral("room_generation")).toDouble(0));

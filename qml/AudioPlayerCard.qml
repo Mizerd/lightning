@@ -25,6 +25,10 @@ Rectangle {
     // Normalized MSC3245 amplitudes (0..1) — empty when the event had none.
     property var waveform: []
     property bool rowOnScreen: true
+    // Speculative prefetch gate, separate from rowOnScreen: a row that
+    // merely swept past during a gesture must not pull a payload. Defaults
+    // permissive so standalone hosts (fixtures) behave as before.
+    property bool prefetchAllowed: true
     property bool canSave: false
 
     signal saveRequested()
@@ -154,12 +158,14 @@ Rectangle {
     function maybePrefetch() {
         // Same user preference as GIF autoplay: "never" means no passive
         // downloads of any media class.
-        if (rowOnScreen && mediaKey.length > 0 && app.mediaBridge.supported
+        if (rowOnScreen && prefetchAllowed && mediaKey.length > 0
+            && app.mediaBridge.supported
             && app.settings.gifAutoplay !== 2)
             app.mediaBridge.prefetchPlayable(
                 mediaKey,
                 fileSize || app.settings.knownMediaSizeBytes(mediaKey) || 0)
     }
+    onPrefetchAllowedChanged: if (prefetchAllowed) maybePrefetch()
     Component.onCompleted: maybePrefetch()
     onMediaKeyChanged: {
         resumePositionMs = 0 // a different track never inherits a position

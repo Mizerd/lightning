@@ -1306,6 +1306,61 @@ after the tester-report fixes shipped as 0.7.3:
   trees** after this round — the first fully green complete run since the
   timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
 
+**2026-08-19 scroll round 2, part 2 — a LIVE CAPTURE overturned part 1's
+conclusion. Read this before touching timeline scrolling again.**
+Rokas ran `LIGHTNING_SCROLL_TRACE=1 LIGHTNING_GUI_STALL_TRACE=250` on his
+own account (985-1026 loaded rows, contentH 74601) and the numbers say
+something different from the offscreen profile:
+- **`worstNotchMs` is 0-2 ms on EVERY gesture**, at every row count. The
+  offscreen harness measured 10.65 ms/notch at 1000 rows. The difference is
+  the RENDERER: offscreen uses the software rasterizer, where
+  `syncSceneGraph`/`updateDirtyNode` dominates; on a real GPU that is nearly
+  free. **The superlinear item-count finding in part 1 does not transfer to
+  real hardware.** The sliding window built in part 1 therefore stays INERT
+  (proxy-only, no pane wiring) — it would fix a problem this machine does
+  not have, and wiring it on a contradicted hypothesis is exactly how the
+  three reverted scroll fixes happened.
+- **Every anchor counter is zero** in every gesture line
+  (`anchorCorrections=0 displacedFirings=0 prependFirings=0 unresolvedId=0`).
+  The anchoring machinery is not implicated. Again.
+- **What the lag actually is.** One 15-second upward gesture: 442 wheel
+  events, 58,061 px scrolled, which triggered ~45 pagination pages and took
+  the timeline from 19 to 813 rows. Each page is ~20 delegates at the
+  documented 3-7 ms each. Alongside it the prefetcher pulled **~120 MB of
+  video** (23, 13.5, 12.6, 11.7, 9.5, 7.1, 6.5, 6.4, 6.1, 5.0, 4.8, 4.5,
+  3.9, 3.0, 2.8 MB) because every row that merely SWEPT THROUGH the
+  on-screen band armed a full-payload prefetch — and each completion writes
+  its temp file synchronously on the GUI thread. GUI stalls of 333, 369 and
+  1062 ms were logged, all categorised `unattributed`.
+- **The jump-to-live trim is LIVE-VALIDATED: PASS.**
+  `cachedBefore= 1083 released= true reloadedItems= 19`, and every gesture
+  after it reports `rows=66 contentH=7060` with `worstNotchMs` 0-1. That
+  closes the round's own NOT TESTED gap, using exactly the log line it added
+  for the purpose.
+- **Fix shipped (1): speculative media waits for a settle.** ONE gate,
+  `speculativeMediaAllowed: !userScrollActive` on the pane (reusing the
+  existing scroll-session state, not a second notion of "busy"), consulted
+  by the video payload prefetch, the video POSTER path — which prefetches
+  internally via `videoPosterSource` → `prefetchPlayable`, so gating only
+  the obvious call site would have left half the traffic — and the audio
+  card (with a retry when the gate reopens). **Thumbnails are deliberately
+  NOT gated**: small, and they are what the reader is looking at.
+- **Fix shipped (2): the unattributed stalls now have candidates** —
+  `row-reveal` (delegate construction in `revealNextChunk`, the prime
+  suspect), `image-decode`, `timeline-diff`, `timeline-reset`. And a real
+  bug in the tracer: `stalltrace::Scope` writes a single GLOBAL category, so
+  a scope entered on a WORKER thread could attribute a GUI stall to a
+  background decode. `Scope` is now inert off the GUI thread — the image
+  provider may run on either, and a confidently wrong category is worse
+  than `unattributed`.
+- **Next capture answers the open question**: whether the 120 MB is gone,
+  and which of the four new categories owns the 333/369/1062 ms stalls.
+  Do not guess at the fix for those before that line exists.
+- Method note worth keeping: **offscreen perf numbers are not the user's
+  numbers.** The item-count story was real under software rendering and
+  irrelevant on the GPU path. Scale-with-N measured offscreen must be
+  confirmed on hardware before anything is built on it.
+
 **2026-08-19 scroll round 2, part 1 — the sliding window's FOUNDATION
 (proxy only; no UI wiring yet), plus the call button greyed out.**
 The maintainer reported that scrolling up a long way makes scrolling laggy

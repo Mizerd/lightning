@@ -2145,6 +2145,11 @@ if(BUILD_TESTING)
         tests/ReverseListProxyWindowTest.cpp
         src/models/ReverseListProxyModel.h
         src/models/ReverseListProxyModel.cpp
+        # The proxy attributes its row construction for stall tracing, so a
+        # standalone target needs the tracer too (same reason media-bridge
+        # and forward already carry it).
+        src/app/GuiStallTracer.h
+        src/app/GuiStallTracer.cpp
     )
     target_include_directories(reverse-list-proxy-window-test PRIVATE src)
     target_link_libraries(reverse-list-proxy-window-test PRIVATE

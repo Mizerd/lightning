@@ -1,5 +1,7 @@
 #include "media/MediaImageProvider.h"
 
+#include "app/GuiStallTracer.h"
+
 #include "media/MediaBridge.h"
 
 #include <QBuffer>
@@ -121,9 +123,15 @@ MediaImageProvider::MediaImageProvider(MediaBridge *bridge)
 {
 }
 
+// Attributed for stall tracing (2026-08-19): a provider of type Image is
+// invoked on the GUI thread unless the requesting Image opted into async
+// loading, so a burst of 100-700 KB decodes during pagination lands here.
+// stalltrace::Scope is inert off the GUI thread, so an async request cannot
+// misattribute someone else's stall.
 QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
                                         const QSize &requestedSize)
 {
+    stalltrace::Scope stallScope("image-decode");
     if (!m_bridge)
         return {};
     QString cacheKey = QUrl::fromPercentEncoding(id.toUtf8());

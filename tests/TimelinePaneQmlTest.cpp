@@ -930,6 +930,92 @@ private Q_SLOTS:
         QVERIFY(timeline->property("stickToBottom").toBool());
     }
 
+    // ── 2026-08-19: speculative media waits for a settle ───────────────
+    //
+    // A live capture (985-1026 loaded rows) showed ONE 15-second upward
+    // gesture pull ~120 MB of video, because every row that merely SWEPT
+    // THROUGH the on-screen band armed a full-payload prefetch — and each
+    // completion writes its temp file synchronously on the GUI thread.
+    // The gate is `speculativeMediaAllowed`, and this pins its BEHAVIOUR:
+    // false while the reader's input owns the viewport, true again once it
+    // settles. Thumbnails are deliberately not gated, so this must not be
+    // confused with "no media while scrolling".
+    void speculativeMediaIsBlockedDuringAGestureAndResumesOnSettle()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        QVERIFY(!roomId.isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        controller.setCurrentRoomId(roomId);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(700, 420);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-6000);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 160; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$spec%1").arg(i);
+            e.itemId = QStringLiteral("uid-spec%1").arg(i);
+            e.roomId = roomId;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("speculative probe %1").arg(i);
+            e.timestamp = base.addSecs(i * 30);
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() > 100,
+                                 5000);
+
+        // Settled to begin with: spending is allowed.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("speculativeMediaAllowed").toBool(), 5000);
+
+        // Drive real wheel notches. While the reader's input owns the
+        // viewport the gate must be shut — this is the whole point: a row
+        // sweeping past is not worth a megabyte.
+        const QPointF pos(window.width() / 2.0, window.height() / 2.0);
+        bool blockedDuringGesture = false;
+        for (int i = 0; i < 12; ++i) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 0), QPoint(0, -120),
+                              Qt::NoButton, Qt::NoModifier,
+                              Qt::NoScrollPhase, false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+            if (!timeline->property("speculativeMediaAllowed").toBool())
+                blockedDuringGesture = true;
+        }
+        QVERIFY2(blockedDuringGesture,
+                 "speculative media was never gated during a wheel gesture");
+
+        // ...and it must RECOVER, or rows the reader stopped on would never
+        // get their poster or payload at all.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("speculativeMediaAllowed").toBool(), 5000);
+    }
+
     // ── 2026-08-19 jump-to-live history trim ───────────────────────────
     //
     // Element's jumpToLiveTimeline() does not scroll a large backlog — it

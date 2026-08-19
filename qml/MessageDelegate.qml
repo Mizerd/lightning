@@ -30,6 +30,15 @@ Item {
     // v0.5.7: virtual SDK timeline rows (date divider / read marker /
     // timeline start) render as thin separators instead of messages.
     // eventType: 7 = DateDivider, 8 = ReadMarker, 9 = TimelineStart.
+    // Speculative media work (full-payload prefetch, poster extraction) is
+    // only worth spending on a row the reader actually stopped on — see the
+    // long note on `speculativeMediaAllowed` in TimelinePane.qml. A host
+    // without a pane (fixtures, the thread panel) is permissive.
+    readonly property bool speculativeMediaAllowed:
+        rowOnScreen
+        && (!root.timelineView
+            || root.timelineView.speculativeMediaAllowed !== false)
+
     readonly property bool isVirtualRow: model.isVirtual === true
     readonly property bool isStateActivity: model.isStateActivity === true
     readonly property bool isRoutineActivity: model.isRoutineActivity === true
@@ -3578,24 +3587,34 @@ Item {
                                       || 0)
                                    : 0
                 if (model.mediaThumbAvailable === true) {
+                    // Thumbnails are never gated: small, and they are what
+                    // the reader is looking at while scrolling.
                     bridgeSource = app.mediaBridge.mediaSource(model.mediaKey,
                                                                "thumb")
-                } else if (root.rowOnScreen) {
+                } else if (root.speculativeMediaAllowed) {
+                    // videoPosterSource MATERIALIZES the payload to extract a
+                    // frame (MediaBridge::videoPosterSource -> prefetchPlayable),
+                    // so it is speculative work too, not a cheap read.
                     bridgeSource = app.mediaBridge.videoPosterSource(
                         model.mediaKey, prefetchSize)
                 } else {
-                    // Off-screen rows must not trigger poster/prefetch work;
-                    // the onScreen observer below re-runs this on reveal.
+                    // Off-screen rows, and rows sweeping past mid-gesture,
+                    // must not trigger poster/prefetch work; the observers
+                    // below re-run this once the view settles.
                     bridgeSource = ""
                 }
                 // Bounded speculative payload prefetch so pressing Play is
                 // (usually) instant instead of a multi-second download.
                 // MediaBridge enforces the size cap and deduplication.
-                if (root.rowOnScreen && playbackAvailable && prefetchSize > 0)
+                if (root.speculativeMediaAllowed && playbackAvailable
+                    && prefetchSize > 0)
                     app.mediaBridge.prefetchPlayable(model.mediaKey,
                                                      prefetchSize)
             }
-            readonly property bool coverOnScreen: root.rowOnScreen
+            // Re-run when the row appears OR when the view settles — a row
+            // that swept past mid-gesture deliberately took the empty
+            // branch above and needs the retry once spending is allowed.
+            readonly property bool coverOnScreen: root.speculativeMediaAllowed
             onCoverOnScreenChanged: {
                 if (coverOnScreen && bridgeSource.length === 0
                     && !bridgeFailed)
@@ -3827,6 +3846,11 @@ Item {
             isVoice: model.mediaIsVoice === true
             waveform: model.mediaWaveform || []
             rowOnScreen: root.rowOnScreen
+            // The card's speculative prefetch waits for a settle for the
+            // same reason the video path does (see TimelinePane.qml's
+            // `speculativeMediaAllowed`): a row swept past is not worth a
+            // download. Its playback/reclamation logic keeps rowOnScreen.
+            prefetchAllowed: root.speculativeMediaAllowed
             canSave: model.mediaSourceAvailable === true
                      && app.mediaBridge.supported
             onSaveRequested: {

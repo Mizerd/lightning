@@ -2141,6 +2141,30 @@ Rectangle {
                 readonly property bool userScrollActive:
                     moving || wheelAnimating || scrollSettleTimer.running
 
+                // ── 2026-08-19: speculative media work waits for a settle
+                //
+                // A live capture (Rokas, 985-1026 loaded rows) showed ONE
+                // 15-second upward gesture pull ~120 MB of video — 23, 13.5,
+                // 12.6, 11.7, 9.5, 7.1, 6.5, 6.4, 6.1, 5.0, 4.8, 4.5, 3.9,
+                // 3.0 and 2.8 MB payloads — because every row that merely
+                // SWEPT THROUGH the on-screen band armed a full-payload
+                // prefetch. Each completion then writes its temp file
+                // synchronously on the GUI thread (writePlayableFile), and
+                // the same capture logged unattributed GUI stalls of 333,
+                // 369 and 1062 ms.
+                //
+                // Rows the reader never stopped on are not worth a
+                // megabyte, so speculative work — full-payload prefetch and
+                // the poster extraction that materializes one — waits until
+                // the view settles. `userScrollActive` already includes the
+                // 250 ms settle tail, so this resumes shortly after the
+                // gesture ends and only for rows still on screen. THUMBNAILS
+                // are deliberately not gated: they are small, they are what
+                // the reader is actually looking at, and delaying them would
+                // make scrolling look broken.
+                readonly property bool speculativeMediaAllowed:
+                    !userScrollActive
+
                 // True only while Lightning itself drives contentY. The
                 // distinction is diagnostic only: NO active input path
                 // receives an anchor write.
