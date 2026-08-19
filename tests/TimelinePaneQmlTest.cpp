@@ -10,6 +10,8 @@
 // room-switch presentation states.
 #include <QtTest/QtTest>
 
+#include <functional>
+
 #include <limits>
 
 #include <QGuiApplication>
@@ -624,6 +626,308 @@ private Q_SLOTS:
         QCOMPARE(popover->property("readers").toList().size(), 1);
         QTRY_VERIFY_WITH_TIMEOUT(
             popover->property("height").toReal() < 140, 5000);
+    }
+
+    // ── 2026-08-19 scroll round: the profiled regression net ───────────
+    //
+    // A QQuickText is BORN with ItemObservesViewport ("default until size
+    // is known", qquicktext.cpp QQuickTextPrivate::init) and only clears
+    // it when it runs a layout that produces lineCount > 0. A Text whose
+    // string is EMPTY at creation therefore NEVER clears it — and every
+    // such item makes Qt walk the ENTIRE instantiated item tree on every
+    // single contentY change, because QQuickItemPrivate::transformChanged
+    // can only prune a subtree once no descendant observes the viewport.
+    //
+    // With one un-virtualized row per loaded event that is catastrophic:
+    // profiled at 19.2% of all cycles in transformChanged plus 9.5% in
+    // itemChange across 1000 rows, and 33.89 ms -> 10.39 ms per wheel notch
+    // once all six offenders became Loaders (an intermediate run with only
+    // the first three converted measured 10.58 ms — two runs, two numbers,
+    // both recorded so neither reads as the other's rounding). This test is
+    // the net: the room timeline's item tree must contain NO observers.
+    void timelineRowsCarryNoPermanentViewportObservers()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        QVERIFY(!roomId.isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        controller.setCurrentRoomId(roomId);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        // A mixed timeline: plain messages, an own message (the meta/status
+        // label's row), a date divider and a read marker (the virtual-row
+        // label's rows) — i.e. every row kind whose empty-text Label used
+        // to subscribe permanently.
+        const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-3600);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 40; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$vp%1").arg(i);
+            e.itemId = QStringLiteral("uid-vp%1").arg(i);
+            e.roomId = roomId;
+            e.sender = (i % 5 == 0)
+                           ? controller.settings()->userId()
+                           : QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("viewport observer probe %1").arg(i);
+            e.timestamp = base.addSecs(i * 60);
+            events.append(e);
+        }
+        // A LIVE thread card with NO latest timestamp: ThreadSummaryCard's
+        // own timeLabel() returns "" in exactly that state, so this is the
+        // one place the hazard survives inside an ACTIVE Loader (review
+        // find — without this row the card is never instantiated at all and
+        // the walk below could not see it).
+        TimelineEvent threadRoot;
+        threadRoot.eventId = QStringLiteral("$vp-threadroot");
+        threadRoot.itemId = QStringLiteral("uid-vp-threadroot");
+        threadRoot.roomId = roomId;
+        threadRoot.sender = QStringLiteral("@alice:mock.local");
+        threadRoot.senderDisplayName = QStringLiteral("Alice");
+        threadRoot.body = QStringLiteral("thread root with no latest ts");
+        threadRoot.timestamp = base.addSecs(2500);
+        threadRoot.isThreadRoot = true;
+        threadRoot.threadReplyCount = 3;
+        // threadLatestTimestamp deliberately left invalid.
+        events.append(threadRoot);
+        // An edited row and an ambiguous-name row so the meta label and the
+        // disambiguator are walked in their MATERIALIZED branches too.
+        TimelineEvent editedRow;
+        editedRow.eventId = QStringLiteral("$vp-edited");
+        editedRow.itemId = QStringLiteral("uid-vp-edited");
+        editedRow.roomId = roomId;
+        editedRow.sender = QStringLiteral("@bob:mock.local");
+        editedRow.senderDisplayName = QStringLiteral("Bob");
+        editedRow.body = QStringLiteral("an edited message");
+        editedRow.timestamp = base.addSecs(2560);
+        editedRow.edited = true;
+        events.append(editedRow);
+        TimelineEvent ambiguous;
+        ambiguous.eventId = QStringLiteral("$vp-ambiguous");
+        ambiguous.itemId = QStringLiteral("uid-vp-ambiguous");
+        ambiguous.roomId = roomId;
+        ambiguous.sender = QStringLiteral("@bob2:mock.local");
+        ambiguous.senderDisplayName = QStringLiteral("Bob");
+        ambiguous.senderNameAmbiguous = true;
+        ambiguous.body = QStringLiteral("same display name as Bob");
+        ambiguous.timestamp = base.addSecs(2620);
+        events.append(ambiguous);
+        TimelineEvent divider;
+        divider.itemId = QStringLiteral("uid-vp-divider");
+        divider.roomId = roomId;
+        divider.type = TimelineEvent::DateDivider;
+        divider.timestamp = base;
+        events.append(divider);
+        TimelineEvent marker;
+        marker.itemId = QStringLiteral("uid-vp-marker");
+        marker.roomId = roomId;
+        marker.type = TimelineEvent::ReadMarker;
+        events.append(marker);
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() > 20,
+                                 5000);
+
+        int totalItems = 0;
+        QStringList observers;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+            ++totalItems;
+            if (item->flags() & QQuickItem::ItemObservesViewport) {
+                QStringList chain;
+                const QQuickItem *up = item;
+                for (int d = 0; d < 6 && up; ++d) {
+                    QString seg = QString::fromLatin1(
+                                      up->metaObject()->className())
+                                      .section(QLatin1Char('_'), 0, 0);
+                    if (!up->objectName().isEmpty())
+                        seg += QLatin1Char('#') + up->objectName();
+                    chain.prepend(seg);
+                    up = up->parentItem();
+                }
+                observers << QStringLiteral("[vis=%1 text='%2'] %3")
+                                 .arg(item->isVisible())
+                                 .arg(item->property("text").toString()
+                                          .left(20))
+                                 .arg(chain.join(QStringLiteral(" > ")));
+            }
+            const auto children = item->childItems();
+            for (QQuickItem *c : children)
+                walk(c);
+        };
+        walk(timeline);
+
+        // The header/meta/timestamp Labels became Loaders — prove they
+        // still MATERIALIZE and render, or "zero observers" would be
+        // satisfiable by simply deleting the UI. A non-continuation row
+        // must carry a visible sender name with the real display name.
+        // findVisualChildren, not findChildren: Repeater-created rows are
+        // reparented with setParentItem() only, so they are never QObject-
+        // tree descendants (see that helper's note above).
+        const auto names =
+            findVisualChildren(timeline, QStringLiteral("senderName"));
+        QVERIFY2(!names.isEmpty(), "no senderName Label was created at all");
+        int visibleNamed = 0;
+        for (QQuickItem *n : names) {
+            if (n->isVisible()
+                && n->property("text").toString() == QStringLiteral("Alice"))
+                ++visibleNamed;
+        }
+        QVERIFY2(visibleNamed > 0,
+                 "the identity header Loader produced no visible sender name");
+        // ...and the identity header itself is a real, sized item.
+        const auto headers =
+            findVisualChildren(timeline, QStringLiteral("senderIdentityHeader"));
+        QVERIFY(!headers.isEmpty());
+        QQuickItem *header = headers.first();
+        QVERIFY2(header->width() > 0 && header->height() > 0,
+                 qPrintable(QStringLiteral("header collapsed: %1x%2")
+                                .arg(header->width()).arg(header->height())));
+
+        QVERIFY2(totalItems > 200,
+                 qPrintable(QStringLiteral("only %1 items instantiated — the "
+                                           "fixture did not build real rows")
+                                .arg(totalItems)));
+        QVERIFY2(observers.isEmpty(),
+                 qPrintable(QStringLiteral("%1 permanent viewport observers:\n%2")
+                                .arg(observers.size())
+                                .arg(observers.join(QStringLiteral("\n")))));
+    }
+
+    // 2026-08-19: jump-to-latest GLIDES from nearby and stays instant from
+    // far away. The glide reuses the wheel/keyboard motion engine, so the
+    // assertion is that the engine is engaged (motionActive) and that a
+    // pending follow-latest arrival is registered — and that a far jump
+    // engages neither, landing immediately instead.
+    void jumpToLatestGlidesFromNearbyAndJumpsFromFar()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        QVERIFY(!roomId.isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        controller.setCurrentRoomId(roomId);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(700, 400);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        // Enough rows that the content is many viewports tall.
+        const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-9000);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 220; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$jump%1").arg(i);
+            e.itemId = QStringLiteral("uid-jump%1").arg(i);
+            e.roomId = roomId;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("jump probe %1").arg(i);
+            e.timestamp = base.addSecs(i * 30);
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() > 200,
+                                 5000);
+
+        const qreal viewportHeight = timeline->property("height").toReal();
+        QVERIFY(viewportHeight > 0);
+        const int smoothViewports =
+            timeline->property("smoothJumpViewports").toInt();
+        QVERIFY(smoothViewports > 0);
+        QQmlExpression minY(qmlContext(timeline), timeline,
+                            QStringLiteral("wheelMinY()"));
+        const qreal bottomY = minY.evaluate().toReal();
+        QVERIFY(!minY.hasError());
+        QQmlExpression maxY(qmlContext(timeline), timeline,
+                            QStringLiteral("wheelMaxY()"));
+        const qreal topY = maxY.evaluate().toReal();
+        QVERIFY(!maxY.hasError());
+        // The fixture must genuinely be taller than the smooth threshold,
+        // or the "far" half of this test would be vacuous.
+        QVERIFY2(topY - bottomY > viewportHeight * (smoothViewports + 1),
+                 qPrintable(QStringLiteral("content only %1px for a %2px "
+                                           "threshold")
+                                .arg(topY - bottomY)
+                                .arg(viewportHeight * smoothViewports)));
+
+        // NEAR: one viewport up — the engine must engage and register the
+        // pending arrival. Leave follow-latest first, or the bottom pin
+        // undoes the position write before goToLatest() reads it.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        timeline->setProperty("contentY", bottomY + viewportHeight);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("contentY").toReal() > bottomY + 1.0, 5000);
+        QQmlExpression jumpNear(qmlContext(timeline), timeline,
+                                QStringLiteral("goToLatest()"));
+        jumpNear.evaluate();
+        QVERIFY2(!jumpNear.hasError(),
+                 jumpNear.error().toString().toUtf8().constData());
+        QVERIFY(controller.timelineScroll()->motionActive());
+        QVERIFY(timeline->property("followLatestOnArrival").toBool());
+        // ...and it actually arrives and re-pins, without a teleport.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !controller.timelineScroll()->motionActive(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(),
+                                 5000);
+        QVERIFY(!timeline->property("followLatestOnArrival").toBool());
+
+        // FAR: beyond the threshold — no glide, immediate landing.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        timeline->setProperty(
+            "contentY",
+            bottomY + viewportHeight * (smoothViewports + 0.5));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("contentY").toReal()
+                > bottomY + viewportHeight * smoothViewports, 5000);
+        QQmlExpression jumpFar(qmlContext(timeline), timeline,
+                               QStringLiteral("goToLatest()"));
+        jumpFar.evaluate();
+        QVERIFY2(!jumpFar.hasError(),
+                 jumpFar.error().toString().toUtf8().constData());
+        QVERIFY(!controller.timelineScroll()->motionActive());
+        QVERIFY(!timeline->property("followLatestOnArrival").toBool());
+        QVERIFY(timeline->property("stickToBottom").toBool());
     }
 
     // 0.5.17: controller state changes alter the pagination header height,

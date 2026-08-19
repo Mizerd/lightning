@@ -482,18 +482,41 @@ Item {
         visible: root.isVirtualRow
         width: parent.width
         implicitHeight: unreadDivider.visible ? 28
-                        : virtualLabel.visible
-                        ? virtualLabel.implicitHeight + AppTheme.spacingS
+                        : virtualLabel.active
+                        ? virtualLabel.height + AppTheme.spacingS
                         : 0
-        Label {
+        // ── 2026-08-19 scroll round: THE expensive QML mistake ─────────
+        // A Loader, never an always-created Label. Mechanism, verified in
+        // qtdeclarative 6.11.1 sources:
+        //   * every QQuickText is BORN with ItemObservesViewport
+        //     (QQuickTextPrivate::init, "default until size is known");
+        //   * the ONLY code that clears it is QQuickText::setText, which
+        //     opens with `if (d->text == n) return;` — so a text binding
+        //     that produces the SAME empty string the item already holds
+        //     never reaches the clearing line. (Visibility is never
+        //     consulted; an invisible Label with real text is fine.)
+        //   * QQuickItemPrivate::transformChanged can only switch off its
+        //     per-subtree walk once NO descendant observes the viewport.
+        // So one such Label per row makes Qt walk the ENTIRE instantiated
+        // timeline tree on EVERY contentY change: profiled at 19.2% of all
+        // cycles, with a tree walk measuring exactly 3 observers per row
+        // over 1000 rows. THE RULE: in a per-row delegate, a Label whose
+        // text can be "" in the state it is created in belongs in a Loader
+        // — and that includes labels reading message fields, which are all
+        // empty on a VIRTUAL (date-divider / read-marker) row.
+        Loader {
             id: virtualLabel
             anchors.centerIn: parent
-            visible: root.isVirtualRow && model.eventType !== 8
-            text: model.eventType === 7
-                  ? Qt.locale().toString(model.timestamp, "dddd, d MMMM yyyy")
-                  : (model.eventType === 9 ? qsTr("Beginning of conversation") : "")
-            color: AppTheme.textMuted
-            font.pixelSize: 11
+            active: root.isVirtualRow && model.eventType !== 8
+            sourceComponent: Label {
+                text: model.eventType === 7
+                      ? Qt.locale().toString(model.timestamp,
+                                             "dddd, d MMMM yyyy")
+                      : (model.eventType === 9
+                         ? qsTr("Beginning of conversation") : "")
+                color: AppTheme.textMuted
+                font.pixelSize: 11
+            }
         }
         RowLayout {
             id: unreadDivider
@@ -647,19 +670,33 @@ Item {
                 // for another avatar-height row. The timestamp is available
                 // on hover in that gutter instead of consuming a metadata
                 // line beneath every short message.
-                Label {
-                    objectName: "continuationTimestamp"
+                // Loader, active only WHILE HOVERED (2026-08-19 scroll
+                // round). Measured as a viewport observer before this
+                // change: Qt.formatDateTime() yields "" for the absent
+                // timestamp of a VIRTUAL row, so the flag was never
+                // cleared there (see the virtualLabel note). Not creating
+                // it until hover also drops one item per continuation row.
+                // Accepted trade, NOT separately measured: mousing down a
+                // column now creates and destroys one Label per row
+                // crossed, instead of ~microseconds of nothing. The
+                // alternative — a persistent laid-out Label on every
+                // continuation row — costs a text layout per row at load,
+                // which is the more expensive side.
+                Loader {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.rightMargin: 5
-                    visible: !root.showsIdentity && rowHover.hovered
-                             && !root.compactMode
-                    text: Qt.formatDateTime(model.timestamp, "hh:mm")
-                    horizontalAlignment: Text.AlignRight
-                    color: AppTheme.textMuted
-                    font.pixelSize: 9
-                    Accessible.name: qsTr("Sent at %1").arg(text)
+                    active: !root.showsIdentity && rowHover.hovered
+                            && !root.compactMode
+                    sourceComponent: Label {
+                        objectName: "continuationTimestamp"
+                        text: Qt.formatDateTime(model.timestamp, "hh:mm")
+                        horizontalAlignment: Text.AlignRight
+                        color: AppTheme.textMuted
+                        font.pixelSize: 9
+                        Accessible.name: qsTr("Sent at %1").arg(text)
+                    }
                 }
             }
 
@@ -782,19 +819,30 @@ Item {
                                         + (bubble.mentionBarVisible ? 8 : 0)
                     spacing: 2
 
-                    RowLayout {
-                        id: identityHeader
-                        objectName: "senderIdentityHeader"
+                    // Loader (2026-08-19 scroll round): the header's own
+                    // Labels read message fields, which are ALL empty on a
+                    // virtual row — and an empty text binding leaves the
+                    // born-with ItemObservesViewport flag in place (see the
+                    // virtualLabel note). Not creating the header on a
+                    // continuation row, where it is invisible anyway, also
+                    // drops several items per row.
+                    Loader {
                         // Own DM bubbles need no self-identity line.
-                        visible: root.showsIdentity
-                                 && !(root.bubbleMode && model.isOwn === true)
-                        spacing: 6
+                        active: root.showsIdentity
+                                && !(root.bubbleMode && model.isOwn === true)
+                        visible: active
                         // Nested layouts default to fillWidth; the header
                         // line hugs its content so the timestamp sits 8px
                         // beside the sender name (design §3), not at the
-                        // row's far edge.
+                        // row's far edge. These live on the LOADER because
+                        // Layout attached properties only bind on a direct
+                        // child of the enclosing ColumnLayout.
                         Layout.fillWidth: false
                         Layout.maximumWidth: Math.max(1, bubble.width - 112)
+                        sourceComponent: RowLayout {
+                        id: identityHeader
+                        objectName: "senderIdentityHeader"
+                        spacing: 6
                         Label {
                             id: nameLabel
                             objectName: "senderName"
@@ -818,15 +866,23 @@ Item {
                             HoverHandler { id: nameHover }
                         }
                         // v0.5.9: compact disambiguator when the SDK reports
-                        // two active members share this display name.
-                        Label {
-                            visible: model.senderNameAmbiguous === true
-                                     && (model.senderDisplayName || "").length > 0
-                            text: model.sender
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
-                            elide: Label.ElideMiddle
+                        // two active members share this display name. A
+                        // Loader (2026-08-19 scroll round): its text is
+                        // model.sender, which is "" on a virtual row, so it
+                        // measured as a viewport observer — see the
+                        // virtualLabel note for the mechanism.
+                        Loader {
+                            active: model.senderNameAmbiguous === true
+                                    && (model.senderDisplayName
+                                        || "").length > 0
+                            visible: active
                             Layout.maximumWidth: 180
+                            sourceComponent: Label {
+                                text: model.sender
+                                color: AppTheme.textMuted
+                                font.pixelSize: 10
+                                elide: Label.ElideMiddle
+                            }
                         }
                         Label {
                             objectName: "senderTimestamp"
@@ -834,6 +890,7 @@ Item {
                             color: AppTheme.textMuted
                             font.pixelSize: AppTheme.scaled(10)
                             Accessible.name: qsTr("Sent at %1").arg(text)
+                        }
                         }
                     }
 
@@ -1273,21 +1330,36 @@ Item {
                         id: metaRow
                         Layout.fillWidth: true
                         spacing: AppTheme.spacingXS
-                        Label {
+                        // Loader, not an empty-text Label: this text is ""
+                        // on every row that is neither sending, failed nor
+                        // edited, which is a permanent viewport observer —
+                        // see the virtualLabel note for the mechanism.
+                        Loader {
                             id: metaLabel
-                            visible: text.length > 0
-                            text: {
-                                var ts = Qt.formatDateTime(model.timestamp, "hh:mm")
-                                // Status: 0=Sent, 1=Sending, 2=Failed
-                                if (model.isOwn && model.status === 1) return ts + " • " + qsTr("sending…")
-                                if (model.isOwn && model.status === 2) return ts + " • " + qsTr("failed")
-                                if (model.edited) return qsTr("edited")
-                                return ""
+                            active: (model.isOwn === true
+                                     && (model.status === 1
+                                         || model.status === 2))
+                                    || model.edited === true
+                            visible: active
+                            sourceComponent: Label {
+                                text: {
+                                    var ts = Qt.formatDateTime(
+                                        model.timestamp, "hh:mm")
+                                    // Status: 0=Sent, 1=Sending, 2=Failed
+                                    if (model.isOwn && model.status === 1)
+                                        return ts + " • " + qsTr("sending…")
+                                    if (model.isOwn && model.status === 2)
+                                        return ts + " • " + qsTr("failed")
+                                    if (model.edited) return qsTr("edited")
+                                    return ""
+                                }
+                                color: root.bubbleMode
+                                       && model.isOwn === true
+                                       ? AppTheme.onAccentMuted
+                                       : AppTheme.textMuted
+                                font.pixelSize: AppTheme.scaled(10)
+                                Accessible.name: text
                             }
-                            color: root.bubbleMode && model.isOwn === true
-                                   ? AppTheme.onAccentMuted : AppTheme.textMuted
-                            font.pixelSize: AppTheme.scaled(10)
-                            Accessible.name: text
                         }
                         // v0.5.7: retry action for failed local echoes. The
                         // SDK send queue re-attempts the same queued item,
@@ -1315,9 +1387,19 @@ Item {
                         // shows the message-bubble icon, latest sender, a safe
                         // preview, the authoritative reply count and an unread
                         // indicator; activating it opens the correct thread.
-                        ThreadSummaryCard {
+                        // Loader (2026-08-19 scroll round): the card existed
+                        // in EVERY row though thread roots are the rare
+                        // case, and its own timeLabel() returns "" whenever
+                        // latestTimestamp is unset — a permanent viewport
+                        // observer (see the virtualLabel note). Note that
+                        // hazard survives INSIDE an active card, so the
+                        // regression test seeds a thread root with no
+                        // timestamp. previewLoader above is the precedent.
+                        Loader {
+                            active: model.isThreadRoot === true
+                            visible: active
+                            sourceComponent: ThreadSummaryCard {
                             id: threadSummaryCard
-                            visible: model.isThreadRoot === true
                             replyCount: model.threadReplyCount !== undefined
                                         ? model.threadReplyCount : -1
                             latestSender: model.threadLatestSenderDisplayName || ""
@@ -1383,6 +1465,7 @@ Item {
                                         && rootEventId === threadSummaryCard.rootId)
                                         threadSummaryCard.refreshParticipants()
                                 }
+                            }
                             }
                         }
                     }

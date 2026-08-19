@@ -246,12 +246,23 @@ Item {
                       : card.previewLabel()
             }
 
-            Label {
-                text: card.timeLabel()
-                visible: text.length > 0
-                color: AppTheme.textMuted
-                font.pixelSize: 12
+            // 2026-08-19 scroll round: a Loader, because timeLabel()
+            // returns "" whenever the SDK summary carries no latest
+            // timestamp — and a Text whose binding produces the same empty
+            // string it already holds never reaches the line in
+            // QQuickText::setText that clears the born-with
+            // ItemObservesViewport flag, which then defeats Qt's whole-tree
+            // transformChanged pruning for the entire timeline. See the
+            // long note on virtualLabel in MessageDelegate.qml.
+            Loader {
+                active: card.timeLabel().length > 0
+                visible: active
                 Layout.alignment: Qt.AlignVCenter
+                sourceComponent: Label {
+                    text: card.timeLabel()
+                    color: AppTheme.textMuted
+                    font.pixelSize: 12
+                }
             }
 
             Rectangle {

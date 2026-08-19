@@ -1306,6 +1306,94 @@ after the tester-report fixes shipped as 0.7.3:
   trees** after this round — the first fully green complete run since the
   timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
 
+**2026-08-19 scroll performance round — the polish/sync cost is
+ROOT-CAUSED, and it was not layouts.** §16's standing instruction was
+"profile what `polish` spends time on before changing anything"; that
+was done (`perf record --call-graph dwarf` over a real offscreen
+wheel-scroll run of 1000 loaded rows), and the mechanical candidate the
+old entry named — de-layouting nested ColumnLayout/RowLayouts — is NOT
+the cause. The profile named **`QQuickItemPrivate::transformChanged`
+(19.2% of all cycles)** plus `QQuickItemPrivate::itemChange` (9.5%),
+recursing hundreds of frames deep out of `setContentY`.
+- **The mechanism, read out of the qtdeclarative 6.11.1 sources (not
+  inferred).** Every `QQuickText` is BORN carrying `ItemObservesViewport`
+  (`QQuickTextPrivate::init`: "default until size is known"). The ONLY
+  code that clears it is `QQuickText::setText`, which opens with
+  `if (d->text == n) return;` — *before* its
+  `setFlag(ItemObservesViewport, n.size() > 10000)` line. So a text
+  binding that keeps producing the same empty string the item already
+  holds never clears the flag. **Visibility is never consulted** — an
+  invisible Label with real text is harmless, and an earlier revision of
+  this entry wrongly blamed invisibility (it is correlated, not causal:
+  the labels found were invisible *and* empty).
+  `QQuickItemPrivate::transformChanged` can only switch off its
+  per-subtree walk (`subtreeTransformChangedEnabled`) once **no**
+  descendant observes the viewport, so a few such Labels per row made Qt
+  walk the ENTIRE instantiated timeline tree on EVERY `contentY` change.
+  Measured with a tree walk: **3000 observers across 1000 rows** (exactly
+  3 per row — the three always-empty-by-design labels), and 139 on a
+  42-row mixed fixture (a VIRTUAL date-divider/read-marker row makes
+  *every* message-field label empty, hence the extra ones).
+- **The fix is seven `Loader`s**, not a restructure: in
+  MessageDelegate.qml the virtual-row date/start label, the
+  send-status+edited meta label, `ThreadSummaryCard`,
+  `continuationTimestamp` (now active only while hovered), the whole
+  `senderIdentityHeader` RowLayout, and the ambiguous-name
+  disambiguator — plus, in ThreadSummaryCard.qml, its own latest-time
+  label (`timeLabel()` returns `""` when the SDK summary carries no
+  timestamp, so the hazard survives INSIDE a live card; the review
+  predicted this and the fixture then caught it). Observers
+  **3000 → 0**; per-notch scroll cost **33.89 ms → 10.39 ms** at n=1000
+  (offscreen, one machine, synthesized wheel events, software rendering —
+  the felt improvement on a real 4K desktop is NOT TESTED). New suite
+  case `timelineRowsCarryNoPermanentViewportObservers` walks the real
+  item tree, requires ZERO observers, and seeds the row kinds that
+  materialize each converted branch (thread root with no timestamp,
+  edited, ambiguous name, date divider, read marker, own messages); it
+  measured 139 on the pre-fix tree.
+  **Generalize this**: in a per-row delegate, a `Label` whose text can be
+  `""` in the state it is created in belongs in a `Loader` — including
+  labels reading message fields, which are ALL empty on a virtual row.
+  This is now the single most expensive QML mistake known in this
+  codebase.
+  Accepted follow-up, NOT measured: `continuationTimestamp` is the one
+  gate that churns (hover), so mousing down a column creates/destroys one
+  Label per row crossed. The alternative — a persistent laid-out Label on
+  every continuation row — costs a text layout per row at load, which is
+  the more expensive side; a hover-churn capture would settle it.
+- **Jump-to-latest GLIDES from nearby** (maintainer request) via the
+  EXISTING `app.timelineScroll.animateTo` engine the wheel and
+  PageUp/PageDown already drive — no new animation mechanism, and every
+  scroll-session guard in TimelinePane.qml already accounts for a motion
+  in flight. Beyond `smoothJumpViewports` (4) it stays a jump on
+  purpose: at the engine's half-a-viewport-per-frame ceiling a
+  twenty-viewport slide is a second-long blur. `followLatestOnArrival`
+  + `onWheelAnimatingChanged` runs the follow-latest bookkeeping on
+  arrival and is self-guarding (`atBottomEdge()` — a reader who
+  redirected mid-glide is never yanked). Review-caught, all fixed before
+  commit: `beginWheelTo` must ALSO retire the pending arrival, because
+  `animateTo` on an already-active motion does not re-toggle
+  `motionActive` — so a keyboard redirect fired no arrival handler and the
+  stale flag could later snap the reader home just because the keys landed
+  inside the 8px bottom slack; a native drag/flick now cancels an
+  in-flight glide (the interlock the scrollbar and middle-click autoscroll
+  already had, and the glide is the first motion long enough to race one);
+  and the jump pill hides when the trip STARTS, not when it lands.
+- **Element (classic) was read for this, and it does NOT animate**:
+  `ScrollPanel.scrollToBottom()` is a bare `scrollTop = scrollHeight`,
+  and `TimelinePanel.jumpToLiveTimeline()` does not scroll through a
+  backlog at all — when `canPaginate(FORWARDS)` it builds a NEW
+  `TimelineWindow` at the live edge and DISCARDS everything paginated.
+  Its height-based unfilling (`UNPAGINATION_PADDING = 6000`,
+  `UNFILL_REQUEST_DEBOUNCE_MS = 200`, position restored by measuring a
+  tracked node's `offsetTop` before/after the DOM mutation and applying
+  a RELATIVE `scrollBy`) is enabled by DOM removal being nearly free —
+  which is exactly why Lightning's stronger bounded-retained-window
+  attempt was reverted. The one genuinely transferable idea left is
+  **drop the paginated backlog on an explicit jump-to-live**; it is NOT
+  implemented and would need its own round (see the reverted `225c7b3`
+  staging/freeze history before attempting it).
+
 **2026-08-19 design-deficit pass (same day, after live feedback).** The
 maintainer's screenshots exposed two real defects and a design gap:
 - **The reader popover's click was DEAD**: delegates reach the pane only
@@ -1720,8 +1808,18 @@ while media loads, and for part of the `sync` cost (texture upload), but the
 `polish` finding above stands on its own for scrolling through already
 loaded rows.
 
-**If this is picked up again**: profile what `polish` is spending time on
-before changing anything. MessageDelegate is built from nested
+**SUPERSEDED 2026-08-19 — read the scroll performance round entry at the
+top of this section first.** The instruction below (profile before
+changing anything, with `perf record`, not env-var experiments) was
+followed and was the right call. Its *hypothesis* was wrong: the cost was
+NOT Qt Quick Layouts propagating size hints. It was
+`QQuickItemPrivate::transformChanged` walking the whole instantiated tree
+on every `contentY` change, because never-laid-out `Text` items keep the
+`ItemObservesViewport` flag they are born with. Do not spend a round
+de-layouting MessageDelegate on the strength of the paragraph below.
+
+Original text, kept for the record: profile what `polish` is spending
+time on before changing anything. MessageDelegate is built from nested
 ColumnLayout/RowLayout and Qt Quick Layouts propagate size hints on every
 polish; replacing the hot ones with anchored Items is the mechanical
 candidate. Use `perf record` on the GUI thread, not more env-var

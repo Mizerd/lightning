@@ -2624,7 +2624,59 @@ Rectangle {
                 }
 
                 function cancelWheelMotion() {
+                    // Any cancellation retires a pending follow-latest
+                    // arrival: the motion that would have delivered it is
+                    // gone, so honouring it later would yank a reader who
+                    // has since taken over.
+                    followLatestOnArrival = false
                     app.timelineScroll.cancel()
+                }
+
+                // ── 2026-08-19: jump-to-latest glides instead of teleporting
+                // NEAR the bottom, and stays instant beyond that.
+                //
+                // The engine is the SAME coalescing exponential-approach
+                // motion the mouse wheel and PageUp/PageDown already drive
+                // (app.timelineScroll.animateTo) — no new animation
+                // mechanism, and every scroll-session guard in this file
+                // (userScrollActive, scrollToEndDeferred's !wheelAnimating,
+                // the anchor write-suppression) already accounts for a
+                // motion being in flight.
+                //
+                // Beyond the threshold it stays a jump, deliberately: at the
+                // engine's half-a-viewport-per-frame ceiling a
+                // twenty-viewport slide is a second-long blur, not motion.
+                // Element does not animate this at ALL — ScrollPanel's
+                // scrollToBottom() is a bare `scrollTop = scrollHeight`, and
+                // when the reader is far back TimelinePanel.jumpToLiveTimeline()
+                // does not scroll through the backlog either: it rebuilds the
+                // timeline at the live edge and drops what was paginated.
+                property int smoothJumpViewports: 4
+                property bool followLatestOnArrival: false
+                onWheelAnimatingChanged: {
+                    if (wheelAnimating || !followLatestOnArrival)
+                        return
+                    followLatestOnArrival = false
+                    // Self-guarding: if the reader redirected mid-glide and
+                    // ended somewhere else, that intent wins — never pin.
+                    if (!atBottomEdge())
+                        return
+                    settleAtLatest()
+                }
+                // The follow-latest bookkeeping, shared by both paths.
+                function settleAtLatest() {
+                    stickToBottom = true
+                    // positioning row zero can re-seed the position frame
+                    // from an estimate; a surviving anchor baseline would
+                    // then measure a delta across two different frames.
+                    viewAnchorId = ""
+                    viewAnchorLastY = 0
+                    app.pagination.saveFollowingLatest(app.currentRoomId)
+                    positionViewAtLatest()
+                    Qt.callLater(function() {
+                        positionViewAtLatest()
+                        app.readReceipts.reevaluate()
+                    })
                 }
 
                 function beginWheelTo(targetY) {
@@ -2640,8 +2692,18 @@ Rectangle {
                     // Any upward intent leaves follow-latest — applied last so
                     // the geometry recompute above (still on the pre-motion
                     // position) cannot re-enable it while scrolling up.
-                    if (targetY > contentY + 0.5)
+                    if (targetY > contentY + 0.5) {
                         stickToBottom = false
+                        // ...and retires a pending follow-latest arrival, the
+                        // same way the wheel-up notch does. animateTo() on an
+                        // ALREADY-active motion does not re-toggle
+                        // motionActive, so a keyboard redirect mid-glide fires
+                        // no arrival handler at the interrupt — without this
+                        // the stale flag could later fire settleAtLatest()
+                        // just because the keys happened to land inside the
+                        // bottom slack band (review find).
+                        followLatestOnArrival = false
+                    }
                     scrollSettleTimer.restart()
                 }
 
@@ -2668,18 +2730,21 @@ Rectangle {
                 }
                 function goToLatest() {
                     cancelWheelMotion()
-                    stickToBottom = true
-                    // positioning row zero below can re-seed the position
-                    // frame from an estimate; a surviving anchor baseline
-                    // would then measure a delta across two different frames.
-                    viewAnchorId = ""
-                    viewAnchorLastY = 0
-                    app.pagination.saveFollowingLatest(app.currentRoomId)
-                    positionViewAtLatest()
-                    Qt.callLater(function() {
-                        positionViewAtLatest()
-                        app.readReceipts.reevaluate()
-                    })
+                    // Rotated view: the newest row sits at wheelMinY(), so
+                    // the distance home is contentY - wheelMinY().
+                    var lo = wheelMinY()
+                    var distance = contentY - lo
+                    if (height > 0 && distance > 0
+                        && distance <= height * smoothJumpViewports) {
+                        followLatestOnArrival = true
+                        app.timelineScroll.animateTo(lo, contentY, lo,
+                                                     wheelMaxY(), height)
+                        // The settle pass recomputes pagination/anchoring for
+                        // the arrival exactly as it does for a wheel gesture.
+                        scrollSettleTimer.restart()
+                        return
+                    }
+                    settleAtLatest()
                 }
                 activeFocusOnTab: true
                 Keys.onPressed: (event) => {
@@ -2802,8 +2867,14 @@ Rectangle {
                                 -event.angleDelta.y, timeline.contentY,
                                 minY, maxY, timeline.height)
                             timeline.updateStickAndPaginate()
-                            if (event.angleDelta.y > 0)
+                            if (event.angleDelta.y > 0) {
                                 timeline.stickToBottom = false
+                                // Wheeling UP mid-glide is an explicit
+                                // "not to the bottom" — retire the pending
+                                // follow-latest arrival rather than leaning
+                                // on the arrival guard alone.
+                                timeline.followLatestOnArrival = false
+                            }
                             timeline.diagNoteEvent(false)
                             scrollSettleTimer.restart()
                         }
@@ -2811,6 +2882,13 @@ Rectangle {
                         event.accepted = true
                     }
                 }
+
+                // A native drag or flick takes ownership of contentY, and a
+                // glide still in flight would fight it — the same interlock
+                // the scrollbar and middle-click autoscroll already use. Only
+                // drag/flick (never a programmatic write) reaches these.
+                onDragStarted: cancelWheelMotion()
+                onFlickStarted: cancelWheelMotion()
 
                 Component.onDestruction: cancelWheelMotion()
 
@@ -3424,7 +3502,12 @@ Rectangle {
                 anchors.bottom: parent.bottom
                 anchors.rightMargin: AppTheme.spacingM + 12
                 anchors.bottomMargin: AppTheme.spacingM + 8
+                // Hidden the moment the trip home starts, not only once it
+                // lands: stickToBottom now flips at ARRIVAL on the glide
+                // path, and the pill lingering through the glide would be a
+                // regression from the old instant hide (review find).
                 visible: app.currentRoomId !== "" && !timeline.stickToBottom
+                         && !timeline.followLatestOnArrival
                 z: 20
                 focusPolicy: Qt.StrongFocus
                 hoverEnabled: true

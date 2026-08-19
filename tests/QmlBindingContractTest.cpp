@@ -476,8 +476,15 @@ private Q_SLOTS:
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(!delegate.isEmpty());
         QVERIFY(delegate.contains(QStringLiteral("ThreadSummaryCard {")));
+        // Gated on the thread-root role. 2026-08-19: the card is now
+        // behind a Loader (a never-laid-out Text inside it kept the
+        // ItemObservesViewport flag on EVERY row — see the scroll round),
+        // so the gate is `active:`; either spelling satisfies the
+        // contract, which is "the card appears only on a thread root".
         QVERIFY(delegate.contains(QStringLiteral(
-            "visible: model.isThreadRoot === true")));
+                    "active: model.isThreadRoot === true"))
+                || delegate.contains(QStringLiteral(
+                    "visible: model.isThreadRoot === true")));
         QVERIFY(delegate.contains(QStringLiteral(
             "replyCount: model.threadReplyCount")));
         QVERIFY(delegate.contains(QStringLiteral(
@@ -810,8 +817,18 @@ private Q_SLOTS:
             "implicitHeight: root.showsIdentity ? 34 : bodyLabel.implicitHeight")));
         QVERIFY(delegate.contains(QStringLiteral(
             "objectName: \"continuationTimestamp\"")));
+        // Shown only on a continuation row, only on hover. 2026-08-19:
+        // now a Loader gate (`active:`) rather than `visible:` — this
+        // Label's text is "" on a virtual row, and a text binding that
+        // keeps producing the same empty string the item already holds
+        // never reaches the line in QQuickText::setText that clears the
+        // born-with ItemObservesViewport flag, which defeated Qt's
+        // whole-tree pruning on every scroll. (Visibility is NOT the
+        // mechanism — see the long note in MessageDelegate.qml.)
         QVERIFY(delegate.contains(QStringLiteral(
-            "visible: !root.showsIdentity && rowHover.hovered")));
+                    "active: !root.showsIdentity && rowHover.hovered"))
+                || delegate.contains(QStringLiteral(
+                    "visible: !root.showsIdentity && rowHover.hovered")));
         QVERIFY(delegate.contains(QStringLiteral("return \"\"")));
         QVERIFY(!delegate.contains(QStringLiteral(
             "return model.showSenderIdentity === true ? \"\" : ts")));
