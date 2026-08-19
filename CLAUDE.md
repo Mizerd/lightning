@@ -1324,19 +1324,29 @@ Three explicit requests, each Element-screenshot-anchored:
   promotes one. Nothing applies optimistically: completion refetches the
   hierarchy. New suites: `space-child-suggest` (4),
   `element-parity-contract` (5).
-- **Rail inline space expansion**: a chevron left of the space tile
-  (hover/expanded-only) and double-click expand the space's top 5 joined
-  rooms as 28px tiles under the tile, "+N" pill reveals 5 more;
-  activity-ordered; opening one activates the space FIRST (the room list
-  filters by activeSpaceId — openRoom never touches it). Expansion state
-  lives on the rail root keyed by spaceId (delegate recycling amnesia),
-  cleared on account switch. Double-click on a space with no joined
-  child rooms still opens Space Home (the offers live there). The tile's
-  own tap/double-tap handlers are scoped to the tile band — the
-  expansion rows carry their own handlers and TapHandlers are
-  non-exclusive across subtrees (same class as the picker/facepile
-  fixes; the unified list's checkbox has the same guard).
-- **Reader popover Element look**: "Seen by N person(s)" header, 28px
+- **Rail interaction (revised same day on maintainer feedback)**: a
+  SINGLE tap on a real space opens its overview — Space Home REPLACES
+  the chat view (openSpaceHome; also activates the space so the room
+  list follows); pseudo tiles only filter. There is deliberately NO
+  double-tap. The ONLY expansion trigger is the chevron: an 18px
+  rail-ringed badge DISC riding the space tile's left edge (the unread
+  badge idiom mirrored left — the first version was a bare glyph that
+  clipped into the active accent outline), hover/expanded-only, which
+  expands the space's top 5 joined rooms as 28px tiles with a "+N" pill
+  for 5 more; activity-ordered; opening one activates the space FIRST
+  (openRoom never touches activeSpaceId). Expansion state lives on the
+  rail root keyed by spaceId, cleared on account switch. The tile's tap
+  is scoped to the tile band and EXCLUDES the chevron disc
+  (non-exclusive TapHandlers, the round's recurring class).
+  `openSpaceHome` itself was reordered — teardown first, activation
+  last — because the Space Home loader instantiates SYNCHRONOUSLY and
+  its handlers point RoomInfoController at the space; the old order
+  cleared roomInfo AFTER that, wiping the canInvite /
+  canManageSpaceChildren gates so the Home's controls rendered
+  permission-less (latent since the double-tap era, never live-tested).
+- **Reader popover Element look**: "Seen by N people" header (branched
+  explicitly — a %n source string renders its "(s)" literally without a
+  loaded translation), 28px
   avatars, per-reader read TIME from the receipt's own `tsMs` (which
   already crossed Rust→C++→QML unused since the receipts round — today
   → time, this week → weekday+time, older → date; tsMs 0 renders

@@ -106,21 +106,25 @@ private Q_SLOTS:
 
     void railTileHandlersAreScopedToTheTileBand()
     {
-        // The delegate's own tap/double-tap must not fire for taps in the
-        // expansion rows below the tile, NOR for taps on the chevron —
+        // The tile's tap must not fire for taps in the expansion rows
+        // below the tile, NOR for taps on the chevron badge —
         // TapHandlers are non-exclusive across subtrees, and without the
-        // chevron exclusion a chevron click also selected the space and a
-        // chevron double-click net-toggled the expansion three times.
+        // chevron exclusion a chevron click would also navigate. There
+        // is deliberately NO double-tap (2026-08-19 maintainer request:
+        // the arrow is the one expansion trigger; a single tap on a real
+        // space opens its overview, replacing the chat view).
         const QString rail = normalized(
             read(QStringLiteral(QML_DIR "/SpacesRail.qml")));
         QVERIFY(rail.contains(QStringLiteral(
             "if (eventPoint.position.y > spaceItem.tileBandHeight) return")));
         QVERIFY(rail.contains(QStringLiteral(
             "spaceItem.mapToItem(expandChevronArea,")));
-        // BOTH handlers honor the exclusion.
-        QCOMPARE(rail.count(QStringLiteral(
-                     "if (pointOnChevron(eventPoint)) return")),
-                 2);
+        QVERIFY(rail.contains(QStringLiteral(
+            "if (pointOnChevron(eventPoint)) return")));
+        QVERIFY(!rail.contains(QStringLiteral("onDoubleTapped")));
+        // A real space's tap opens the overview; pseudo tiles only filter.
+        QVERIFY(rail.contains(QStringLiteral(
+            "if (spaceItem.isRealSpace) app.openSpaceHome(spaceItem.ownSpaceId)")));
     }
 
     void receiptPopoverCarriesElementLook()
@@ -131,7 +135,8 @@ private Q_SLOTS:
             QStringLiteral("objectName: \"receiptListPopover\""));
         QVERIFY(pop >= 0);
         const QString scope = pane.mid(pop, 4000);
-        QVERIFY(scope.contains(QStringLiteral("Seen by %n person(s)")));
+        QVERIFY(scope.contains(QStringLiteral("Seen by 1 person")));
+        QVERIFY(scope.contains(QStringLiteral("Seen by %1 people")));
         // Per-reader read time comes ONLY from the receipt's own tsMs;
         // absence renders nothing, never a fabricated time.
         QVERIFY(scope.contains(QStringLiteral("formatReadTime(")));

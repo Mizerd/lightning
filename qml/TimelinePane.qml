@@ -308,10 +308,15 @@ Rectangle {
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing8
             Label {
-                text: qsTr("Seen by %n person(s)", "",
-                           receiptListPopover.totalOthers)
+                // Element's exact header wording — the %n-source-string
+                // form renders its "(s)" literally without a loaded
+                // translation, so the plural is branched explicitly.
+                text: receiptListPopover.totalOthers === 1
+                      ? qsTr("Seen by 1 person")
+                      : qsTr("Seen by %1 people")
+                            .arg(receiptListPopover.totalOthers)
                 color: AppTheme.text
-                font.pixelSize: 14
+                font.pixelSize: 15
                 font.weight: Font.DemiBold
             }
             ListView {
@@ -339,7 +344,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: modelData.displayName || modelData.userId
                             color: AppTheme.text
-                            font.pixelSize: 13
+                            font.pixelSize: 14
                             font.weight: Font.Medium
                             elide: Label.ElideRight
                         }
@@ -349,7 +354,7 @@ Rectangle {
                             text: receiptListPopover.formatReadTime(
                                       modelData.tsMs)
                             color: AppTheme.textMuted
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                             elide: Label.ElideRight
                         }
                     }

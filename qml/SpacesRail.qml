@@ -154,28 +154,34 @@ Rectangle {
                     anchors.rightMargin: 1
                 }
 
-                // 2026-08-19 tester request: a small arrow left of the
-                // space tile expands the space's top rooms inline
-                // (double-click does the same). Hover- or expanded-only,
+                // 2026-08-19 tester request (revised same day): the ONLY
+                // expansion trigger — a small arrow badge riding the space
+                // tile's left edge. It is a rail-ringed disc (the unread
+                // badge idiom, mirrored left) so the active accent outline
+                // never clips through the glyph. Hover- or expanded-only,
                 // real spaces only — the pseudo rows have no children.
-                Item {
+                Rectangle {
                     id: expandChevronArea
                     objectName: "railSpaceExpandChevron"
                     visible: spaceItem.isRealSpace
                              && (spaceHover.hovered
                                  || spaceItem.revealCount > 0)
-                    width: 16
-                    height: 40
+                    width: 18; height: 18; radius: 9
+                    color: chevronHover.hovered ? AppTheme.hover
+                                                : AppTheme.cardElevated
+                    border.color: AppTheme.rail
+                    border.width: 2
+                    z: 2
+                    anchors.horizontalCenter: spaceTile.left
                     anchors.verticalCenter: spaceTile.verticalCenter
-                    anchors.right: spaceTile.left
-                    anchors.rightMargin: -2
                     Icon {
                         anchors.centerIn: parent
                         name: spaceItem.revealCount > 0 ? "expand_less"
                                                         : "expand_more"
-                        size: 14
+                        size: 12
                         color: AppTheme.textSecondary
                     }
+                    HoverHandler { id: chevronHover }
                     TapHandler {
                         onTapped:
                             root.toggleSpaceExpansion(spaceItem.ownSpaceId)
@@ -267,22 +273,20 @@ Rectangle {
                 }
 
                 TapHandler {
-                    // Single tap filters the room list to the Space;
-                    // double tap expands the space's top rooms inline
-                    // (2026-08-19 tester request) — a space with no
-                    // joined child rooms has nothing to expand, so it
-                    // falls through to Space Home, where the join
-                    // offers live. Only REAL Spaces — a double-tap on
-                    // the Home/"Other rooms" pseudo tiles must not
-                    // tear down the open room (review L3). Both are
-                    // scoped to the tile band: the expansion rows
-                    // below carry their own handlers, and TapHandlers
-                    // are non-exclusive across subtrees.
-                    // The chevron sits INSIDE the tile band and owns its
-                    // taps alone — without this exclusion a chevron click
-                    // would also select the space, and a chevron
-                    // double-click would net-toggle the expansion three
-                    // times (review find; the selectBox pattern).
+                    // 2026-08-19 (revised same day, maintainer request):
+                    // a single tap on a REAL Space opens its overview —
+                    // the unified rooms-and-spaces list REPLACES the chat
+                    // view (openSpaceHome also activates the space, so
+                    // the room-list column follows). The pseudo tiles
+                    // (Home / "Other rooms") only filter — they have no
+                    // overview to open and must not tear down the open
+                    // room. There is deliberately NO double-tap: the
+                    // chevron badge is the one expansion trigger. Scoped
+                    // to the tile band (the expansion rows below carry
+                    // their own handlers) and excluding the chevron's
+                    // disc — TapHandlers are non-exclusive across
+                    // subtrees, so without the exclusion a chevron click
+                    // would also navigate.
                     function pointOnChevron(eventPoint) {
                         if (!expandChevronArea.visible)
                             return false
@@ -298,20 +302,10 @@ Rectangle {
                             return
                         if (pointOnChevron(eventPoint))
                             return
-                        if (app.spaces)
-                            app.spaces.activeSpaceId = model.spaceId
-                    }
-                    onDoubleTapped: (eventPoint) => {
-                        if (eventPoint.position.y > spaceItem.tileBandHeight)
-                            return
-                        if (pointOnChevron(eventPoint))
-                            return
-                        if (!spaceItem.isRealSpace)
-                            return
-                        if (root.topRoomsInSpace(spaceItem.ownSpaceId).length > 0)
-                            root.toggleSpaceExpansion(spaceItem.ownSpaceId)
-                        else
+                        if (spaceItem.isRealSpace)
                             app.openSpaceHome(spaceItem.ownSpaceId)
+                        else if (app.spaces)
+                            app.spaces.activeSpaceId = model.spaceId
                     }
                 }
 

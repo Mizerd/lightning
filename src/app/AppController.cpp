@@ -2132,20 +2132,26 @@ void AppController::openRoom(const QString &roomId)
 
 void AppController::openSpaceHome(const QString &spaceId)
 {
+    // Teardown FIRST, activation LAST (2026-08-19): the Space Home
+    // loader instantiates SYNCHRONOUSLY the moment "no open room" and
+    // "real active space" both hold, and its own handlers point
+    // RoomInfoController at the space — the old order cleared roomInfo
+    // AFTER that, wiping the canInvite/canManageSpaceChildren gates the
+    // Home's controls read, so they rendered permission-less.
+    if (!m_currentRoomId.isEmpty()) {
+        // Mirror the roomLeft path: the Rust backend's SDK timeline for
+        // the open room is closed before the room selection clears, so
+        // no live subscription outlives the visible timeline.
+#ifdef ENABLE_RUST_SDK_BACKEND
+        if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+            rust->closeRoomTimeline();
+#endif
+        m_roomInfo->setRoomId(QString());
+    }
     if (m_spaces)
         m_spaces->setActiveSpaceId(spaceId);
-    if (m_currentRoomId.isEmpty())
-        return;
-    // Mirror the roomLeft path: the Rust backend's SDK timeline for the
-    // open room is closed before the room selection clears, so no live
-    // subscription outlives the visible timeline, and the room-info
-    // controller stops pointing at a room that is no longer shown.
-#ifdef ENABLE_RUST_SDK_BACKEND
-    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
-        rust->closeRoomTimeline();
-#endif
-    setCurrentRoomId(QString());
-    m_roomInfo->setRoomId(QString());
+    if (!m_currentRoomId.isEmpty())
+        setCurrentRoomId(QString());
 }
 
 void AppController::reloadCurrentRoomTimeline(int limit)
