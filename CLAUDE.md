@@ -1306,6 +1306,127 @@ after the tester-report fixes shipped as 0.7.3:
   trees** after this round — the first fully green complete run since the
   timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
 
+**2026-08-19 scroll round 2, part 3 — the row window is WIRED, on
+frame-time evidence from real hardware.** A `QSG_RENDER_TIMING=1` capture
+from Rokas's GPU, with pagination frames EXCLUDED so it cannot be confused
+with loading cost:
+
+| loaded rows | median frame | frames > 16 ms | polish | render |
+|---|---|---|---|---|
+| ~108 | 3 ms | 1% | 1.1 | 0.6 |
+| ~916 | 14 ms | **46%** | 5.6 | 8.3 |
+
+Frames far from any pagination event cost the same as frames during one
+(14 vs 16 ms), so this is row COUNT, not loading. `render` grew 14x,
+`polish` 5x. **This is the measurement that justifies the window** — part 1's
+offscreen number was a software-rasterizer artefact and part 2's
+`worstNotchMs` reading wrongly retired the idea (it times the wheel HANDLER,
+never the frame). Two of my own measurement errors in one round; the lesson
+is in [[offscreen-perf-vs-gpu-2026-08-19]].
+- **Policy** (`applyRowWindow`, TimelinePane.qml): keep
+  `windowRunwayRows` (220) below the reader, `windowMarginRows` (120)
+  above, never window below `windowMinRows` (320), and move only for a
+  change of 40+ rows (hysteresis, or every settle would churn).
+- **Applied ONLY from the scroll-settle timer.** No structural change
+  mid-gesture — that is what sank the reverted bounded retained window.
+- **The runway is the strand-prevention**: 220 rows is ~30 viewports, and
+  the largest single downward gesture in the capture was ~7.5. Belt: with
+  a window active `atBottomEdge()` returns FALSE, so follow-latest can
+  never latch onto a false "newest message" and the jump pill stays.
+- **The correction is ONE exact write**: sum the MEASURED heights of the
+  rows about to be released at the head (the Column has no spacing, so a
+  plain sum is exact) and subtract it from contentY. A deferred
+  `Qt.callLater` snap-by-anchor-id was added as belt-and-braces and
+  REMOVED because it broke the fix: it runs BEFORE the Column relayout, so
+  it read the anchor's stale y, computed a target from the old geometry and
+  clamped it against the new shorter content — dumping the reader at the
+  top. Not adding a second correction path also keeps this clear of the
+  anchor machinery this section warns about twice.
+- **The view-row helpers now subtract `rowWindowSkip`.** They previously
+  derived the mapping from the source total alone, so under a window every
+  jump/search/anchor-restore resolved to "no such row" and silently did
+  nothing. The acceptance test caught it; nothing else would have.
+- **`releasePendingRows()` clears the WINDOW, not just the pacing cap.**
+  `releaseAll()` lifts `m_windowCap` and leaves `m_windowSkip` intact, so
+  every jump path that called it kept resolving recent rows to "no such
+  row" — the same silent-no-op class as the bug above. Pinned in
+  `ElementParityContractTest`.
+- **Live-edge paths must RESTORE the live edge** (review finding). With a
+  window active `wheelMinY()` is the window's synthetic newest edge, so
+  `goToLatest()` glided to a message that was **not** the latest and left
+  the jump pill on screen (measured: landed at `rowWindowSkip=302`, i.e.
+  `$win597` of 900). It now refuses the glide while a window is held — a
+  reader carrying a window is by definition deep in history, which is the
+  FAR case anyway — and `settleAtLatest()`, the fallback landing when the
+  history trim refuses, calls `releasePendingRows()` itself rather than
+  depending on the trim's model reset to have done it.
+- **THRASH GUARD, and it is thresholded on the ENTER band.** Trimming the
+  OLDEST end shrinks `contentHeight` and therefore `wheelMaxY()`, and
+  `distanceFromTop()` is `wheelMaxY() - contentY` — so a trim moves the
+  reader's MEASURED distance from the top with no reader-visible movement
+  at all, and `applyRowWindow()` ends in `updateStickAndPaginate()`. Left
+  open that dispatches a backfill regrowing exactly what was released.
+  Three things here were only settled by MEASUREMENT, after two wrong
+  guesses:
+  * The hazard is a TALL-VIEWPORT phenomenon. The kept margin is a fixed
+    row count (~4020 px at ~23 px/row) while the enter band is
+    `2.5 * height`, so it is unreachable below h≈1600 px and real at 4K
+    (h≈2000, enter≈5010, post-trim 4795 — inside). A test at 420 px or
+    even 1400 px passes on broken code; the suite uses a 2160 px window.
+  * Thresholding on `nearTopExitDistance` OVER-fires: it suppressed a trim
+    whose real outcome (4018) was comfortably outside the 3110 enter band,
+    keeping 666 rows where 503 were correct. The exit distance is
+    hysteresis for a reader already IN the band; what dispatches is
+    crossing INTO it. Thresholded on enter.
+  * Its first version summed heights over the WRONG row numbering — a skip
+    change renumbers every view row, and using `wantRows` alone counted
+    rows being KEPT, overstating the release enough to veto every trim.
+    Arithmetic that ignores the renumbering fails QUIETLY; this is the
+    window's whole hazard class.
+- Acceptance: `rowWindowBoundsRowsWithoutMovingTheReadersMessage` —
+  900 rows -> 376 with the reader's own event moving **0 px** (bar: 2 px),
+  both directions (release AND restore, the latter trusting heights of
+  rows created a moment earlier).
+  Three more from the §18 review, each proven against the unfixed tree:
+  `rowWindowTrimNeverFeedsTheNearTopPaginationBand`,
+  `jumpToLatestRestoresTheLiveEdgeWhenAWindowIsActive`,
+  `lateHeightChangeAfterAWindowRestoreIsAbsorbedByTheAnchor` (the window
+  does not handle late-settling heights itself — it re-baselines the
+  anchor and hands off to the pre-existing `contentHeight` mechanism, and
+  that hand-off was the unverified step).
+- **The window's old edge re-exposes LOCAL rows, it does not ask the
+  server.** Without this the window introduces a stall where none existed:
+  the reader scrolls up to the oldest exposed row, `atYBeginning` goes
+  true, and the pane requests history from the homeserver while the next
+  rows sit in the source model merely unexposed. Two things make the fix
+  safe rather than a new hazard:
+  * It rides the proxy's EXISTING paced reveal
+    (`extendWindowAtOldEnd` raises `m_windowCap` and schedules it; 3 ms
+    per 16 ms tick at the tail). A synchronous `setWindow(skip, count+120)`
+    would build 120 delegates in one go — 360-840 ms at the documented
+    3-7 ms per row, worse than the round trip it replaces.
+  * Releasing at the OLDEST end appends beyond the reader, so no kept row
+    moves and there is NO contentY correction — structurally the same
+    event as a backward pagination batch landing, the best-trodden path in
+    the file. It deliberately does NOT consume `nearTopArmed`: no request
+    is made, so there is no per-approach budget to spend, and consuming it
+    would stall the reader at the next edge until the 250 ms settle.
+- **`revealNextChunk()` bounded its release loop on `sourceRowTotal()`,
+  not `revealTarget()`** — a real bug in the window foundation
+  (`9adcdc9`), found by reading. The guard at the top of the function
+  stops the timer from STARTING past `m_windowCap`, but once inside, a
+  single tick released straight through it. Measured on the unfixed tree:
+  **230 rows exposed against a cap of 60**, i.e. the entire available
+  history — exactly the "pacing undoes the window" failure the cap exists
+  to prevent, and reachable in every trimmed window (`cap < available`).
+  Only bites once the exposed count drops BELOW the cap, which a removal
+  inside the window does, so `pacingNeverGrowsPastTheWindow` never saw it.
+- **Honest limit**: it only acts when SETTLED, so it does not help during
+  the long upward scroll itself — it bounds the state you read in
+  afterwards. Whether that is enough for the felt symptom is NOT TESTED;
+  the judge is a fresh `QSG_RENDER_TIMING` capture showing median frame
+  cost deep in history falling toward the 3 ms figure.
+
 **2026-08-19 scroll round 2, part 2 — a LIVE CAPTURE overturned part 1's
 conclusion. Read this before touching timeline scrolling again.**
 Rokas ran `LIGHTNING_SCROLL_TRACE=1 LIGHTNING_GUI_STALL_TRACE=250` on his

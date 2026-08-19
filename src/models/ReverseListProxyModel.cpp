@@ -122,7 +122,13 @@ void ReverseListProxyModel::revealNextChunk()
         ++m_revealedRows;
         endInsertRows();
         ++released;
-    } while (m_revealedRows < sourceRowTotal()
+        // Bound on revealTarget(), NOT sourceRowTotal(). The guard at
+        // the top of this function stops the timer from STARTING past the
+        // cap, but with sourceRowTotal() here a single tick kept releasing
+        // straight through it — which is exactly the "pacing undoes the
+        // window" failure m_windowCap exists to prevent, reachable in every
+        // trimmed window (cap < available).
+    } while (m_revealedRows < revealTarget()
              && spent.elapsed() < kRevealBudgetMs);
 
     // Counts and milliseconds only — no room, event or message content. This
@@ -404,6 +410,25 @@ void ReverseListProxyModel::setWindow(int skipNewest, int rows)
                       ? 0 : rowCount();
     scheduleReveal();
     Q_EMIT windowChanged();
+}
+
+bool ReverseListProxyModel::extendWindowAtOldEnd(int extraRows)
+{
+    if (extraRows <= 0 || !sourceModel())
+        return false;
+    // ONLY the window's cap counts here. m_windowCap == 0 means uncapped, so
+    // whatever is unexposed is the pacing backlog, which releases itself.
+    if (m_windowCap <= 0)
+        return false;
+    const int available = std::max(0, sourceRowTotal() - m_windowSkip);
+    if (m_windowCap >= available)
+        return false;   // the cap is not the binding constraint
+    if (m_revealedRows < m_windowCap)
+        return false;   // pacing has not even reached the cap yet
+    const int wanted = std::min(available, m_windowCap + extraRows);
+    m_windowCap = wanted >= available ? 0 : wanted;
+    scheduleReveal();
+    return true;
 }
 
 void ReverseListProxyModel::clearWindow()

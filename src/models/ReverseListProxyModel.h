@@ -82,6 +82,24 @@ public:
     // path needs before it can address an arbitrary row.
     Q_INVOKABLE void clearWindow();
 
+    // Re-expose up to `extraRows` more of the OLDEST source rows the window
+    // is holding back, through the PACED reveal rather than a synchronous
+    // insert. Rows older than the window's oldest exposed row are already in
+    // the source model, so this is a local operation: the pane calls it when
+    // the reader reaches the window's old edge, instead of asking the
+    // homeserver for history it already has. Releasing at the oldest end
+    // appends to the tail of the rotated view, beyond the reader, so nothing
+    // the reader is looking at moves.
+    //
+    // Returns true only when the WINDOW's cap was what withheld rows and has
+    // now been raised. False means the caller should fall back to its normal
+    // behaviour (for the pane: ask the server). Distinguishing this from the
+    // PACING backlog matters: pacing also leaves rows unexposed, but it is
+    // already releasing them on its own timer, and treating that as "the
+    // window is withholding" swallowed the near-top request on every
+    // timeline whose initial reveal was still in flight.
+    Q_INVOKABLE bool extendWindowAtOldEnd(int extraRows);
+
 Q_SIGNALS:
     void windowChanged();
 

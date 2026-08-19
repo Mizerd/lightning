@@ -200,6 +200,31 @@ private Q_SLOTS:
             "prefetchAllowed: root.speculativeMediaAllowed")));
     }
 
+    // 2026-08-19: with a row window active, a jump must restore the LIVE
+    // EDGE before addressing a row by id. releaseAll() only lifts the pacing
+    // cap — it leaves the window's skip — so a jump to a recent message
+    // would resolve to "no such row" and silently do nothing.
+    void jumpPathsRestoreTheLiveEdgeNotJustThePacedBacklog()
+    {
+        const QString pane = normalized(
+            read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
+        QVERIFY(!pane.isEmpty());
+        const int fn = pane.indexOf(
+            QStringLiteral("function releasePendingRows()"));
+        QVERIFY(fn >= 0);
+        const QString scope = pane.mid(fn, 600);
+        QVERIFY(scope.contains(
+            QStringLiteral("app.timelineView.clearWindow()")));
+        // The window must never claim "at bottom" while it hides the newest
+        // message, or follow-latest latches onto a false latest.
+        QVERIFY(pane.contains(
+            QStringLiteral("if (rowWindowSkip > 0) return false")));
+        // And the row mapping must account for the skip, or every
+        // id-addressed navigation silently resolves to nothing.
+        QVERIFY(pane.contains(QStringLiteral(
+            "app.timeline.count - 1 - rowWindowSkip - row")));
+    }
+
     void receiptPopoverCarriesElementLook()
     {
         const QString pane = normalized(

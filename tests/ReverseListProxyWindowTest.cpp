@@ -316,6 +316,140 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
+    // Reaching the window's OLD edge must re-expose rows we already hold
+    // rather than asking the homeserver for history. Paced, because a
+    // synchronous release of a whole margin would build that many delegates
+    // in one go (3-7 ms each in the real pane).
+    void extendingAtTheOldEndIsPacedAndBoundedByTheRequestedRows()
+    {
+        FakeSource source;
+        source.seed(200);
+        ReverseListProxyModel proxy;
+        proxy.setSourceModel(&source);
+        proxy.setWindow(50, 40);
+        QCOMPARE(proxy.rowCount(), 40);
+
+        QSignalSpy inserted(&proxy, &QAbstractItemModel::rowsInserted);
+        proxy.extendWindowAtOldEnd(30);
+        // Paced: not all of it lands synchronously.
+        QTRY_COMPARE(proxy.rowCount(), 70);
+        // And it STOPS there — generous extra time must not walk it further.
+        QTest::qWait(300);
+        QCOMPARE(proxy.rowCount(), 70);
+
+        // The newest end must not move: the reader's contentY correction
+        // depends on the skip, and this path deliberately performs none.
+        QCOMPARE(proxy.windowSkip(), 50);
+        // Every insert lands at the TAIL (beyond the reader), never at row 0.
+        QVERIFY(inserted.count() > 0);
+        for (const QList<QVariant> &args : inserted)
+            QVERIFY2(args.at(1).toInt() >= 40,
+                     "an extension inserted at the head, which would shift "
+                     "every row the reader is looking at");
+        verifyMappingIsConsistent(proxy, source);
+    }
+
+    // The PACING backlog also leaves rows unexposed, but it releases itself
+    // on its own timer and the pane's near-top logic must keep working
+    // normally around it. Conflating the two is not hypothetical: the first
+    // version of the pane hook asked `rowWindowSkip + count < total`, which
+    // is also true during an ordinary initial reveal with no window at all,
+    // and it swallowed the near-top request on every such timeline
+    // (timeline-pane-qml's nearTopProximityIsMeasuredFromLoadedHistoryNot
+    // AbsoluteContentY failed with "an approach to the top must consume the
+    // latch"). Only the window's own cap may answer yes.
+    void extendingRefusesWhenOnlyThePacingBacklogWithholdsRows()
+    {
+        FakeSource source;
+        source.seed(200);
+        ReverseListProxyModel proxy;
+        proxy.setSourceModel(&source);
+
+        // No window: m_windowCap is 0 (uncapped), so anything still unexposed
+        // is the paced backlog.
+        QCOMPARE(proxy.extendWindowAtOldEnd(50), false);
+        QTRY_COMPARE(proxy.rowCount(), 200);   // pacing gets there by itself
+        QCOMPARE(proxy.extendWindowAtOldEnd(50), false);
+
+        // And with a window whose cap pacing has not yet reached, it is still
+        // pacing's job, not the window's.
+        proxy.setWindow(50, 60);
+        QCOMPARE(proxy.rowCount(), 60);
+        // total=200, skip=50 -> sourceRow = 149 - proxyRow, so the exposed
+        // band is source [90, 149]. (200 is past the end and aborts.)
+        source.removeAt(100, 20);              // inside the window
+        QVERIFY(proxy.rowCount() < 60);
+        QCOMPARE(proxy.extendWindowAtOldEnd(30), false);
+
+        // Once pacing has caught up to the cap, the window is the constraint.
+        QTRY_COMPARE(proxy.rowCount(), 60);
+        QCOMPARE(proxy.extendWindowAtOldEnd(30), true);
+        QTRY_COMPARE(proxy.rowCount(), 90);
+        verifyMappingIsConsistent(proxy, source);
+    }
+
+    // The extension stops at the oldest row actually loaded, and asking again
+    // once everything is out is a no-op rather than an unbounded reveal.
+    void extendingAtTheOldEndStopsAtTheOldestLoadedRow()
+    {
+        FakeSource source;
+        source.seed(100);
+        ReverseListProxyModel proxy;
+        proxy.setSourceModel(&source);
+        proxy.setWindow(0, 40);
+        QCOMPARE(proxy.rowCount(), 40);
+
+        proxy.extendWindowAtOldEnd(1000);   // far more than exists
+        QTRY_COMPARE(proxy.rowCount(), 100);
+        QCOMPARE(proxy.windowSkip(), 0);
+
+        QSignalSpy inserted(&proxy, &QAbstractItemModel::rowsInserted);
+        proxy.extendWindowAtOldEnd(50);     // nothing left to expose
+        QTest::qWait(200);
+        QCOMPARE(inserted.count(), 0);
+        QCOMPARE(proxy.rowCount(), 100);
+        verifyMappingIsConsistent(proxy, source);
+    }
+
+    // revealNextChunk() bounded its release loop on sourceRowTotal() rather
+    // than revealTarget(). The guard at the top of that function stops the
+    // timer from STARTING past the cap, so this only bites once the exposed
+    // count drops BELOW the cap — a removal inside the window — after which a
+    // single 3 ms tick released straight through the cap to the source total.
+    // With no delegates to build in a unit test, that is hundreds of rows:
+    // the "pacing undoes the window" failure the cap exists to prevent.
+    void pacingNeverOvershootsTheCapAfterARemovalInsideTheWindow()
+    {
+        FakeSource source;
+        source.seed(300);
+        ReverseListProxyModel proxy;
+        proxy.setSourceModel(&source);
+        proxy.setWindow(50, 60);
+        QCOMPARE(proxy.rowCount(), 60);
+
+        // Drop rows from inside the exposed window, leaving the cap above the
+        // exposed count — the state that lets the reveal loop run. With
+        // total=300 and skip=50 the mapping is sourceRow = 249 - proxyRow,
+        // so the exposed band is source [190, 249]; 150 is OLDER than the
+        // window and removing there changes nothing (the guard below caught
+        // exactly that).
+        source.removeAt(200, 20);
+        QVERIFY2(proxy.rowCount() < 60,
+                 "the removal did not shrink the exposed window, so the "
+                 "overshoot path is not reachable and this test would pass "
+                 "on broken code");
+        const int afterRemoval = proxy.rowCount();
+
+        QTest::qWait(400);
+        QVERIFY2(proxy.rowCount() <= 60,
+                 qPrintable(QStringLiteral(
+                     "pacing overshot the window cap: %1 rows exposed "
+                     "(cap 60, was %2 after the removal)")
+                                .arg(proxy.rowCount()).arg(afterRemoval)));
+        QCOMPARE(proxy.windowSkip(), 50);
+        verifyMappingIsConsistent(proxy, source);
+    }
+
     // A room switch must not carry a stale skip into the new room — that would
     // hide the new room's newest messages.
     void aSourceResetClearsTheWindow()

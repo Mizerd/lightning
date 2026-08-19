@@ -930,6 +930,253 @@ private Q_SLOTS:
         QVERIFY(timeline->property("stickToBottom").toBool());
     }
 
+    // ── 2026-08-19 scroll round 2 part 3: the row window's acceptance bar
+    //
+    // Frame-time evidence from real hardware (QSG_RENDER_TIMING, steady
+    // state, pagination frames excluded): median frame 3 ms at ~108 loaded
+    // rows against 14 ms at ~916, and 1% vs 46% of frames over the 16 ms
+    // budget. So the window bounds instantiated rows around the reader.
+    //
+    // The bar this pins is the one the reverted bounded-retained-window
+    // failed: releasing rows must NOT move the message the reader is looking
+    // at. Anything else about the feature is negotiable; this is not.
+    // Builds a pane over `rows` plain rows with the reader parked deep in
+    // history — the state every row-window test needs. Returns the timeline
+    // item; the caller owns the controller/engine/window lifetimes.
+    static QQuickItem *deepHistoryPane(AppController &controller,
+                                       QQmlApplicationEngine &engine,
+                                       QQuickWindow &window,
+                                       int rows,
+                                       double parkFraction,
+                                       int viewportHeight = 420)
+    {
+        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        if (roomId.isEmpty())
+            return nullptr;
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        if (!mock)
+            return nullptr;
+        controller.setCurrentRoomId(roomId);
+
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty() && !createdSpy.wait(kSignalTimeoutMs))
+            return nullptr;
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        if (!root)
+            return nullptr;
+        window.resize(700, viewportHeight);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-40000);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < rows; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$win%1").arg(i);
+            e.itemId = QStringLiteral("uid-win%1").arg(i);
+            e.roomId = roomId;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("window probe %1").arg(i);
+            e.timestamp = base.addSecs(i * 30);
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        if (!timeline)
+            return nullptr;
+        if (!QTest::qWaitFor([&] {
+                return timeline->property("presentationReady").toBool()
+                       && timeline->property("count").toInt() > rows - 100;
+            }, 5000))
+            return nullptr;
+
+        timeline->setProperty("stickToBottom", false);
+        double minY = 0.0;
+        double maxY = 0.0;
+        if (!wheelBounds(timeline, &minY, &maxY))
+            return nullptr;
+        timeline->setProperty("contentY", maxY * parkFraction);
+        QCoreApplication::processEvents();
+        return timeline;
+    }
+
+    void rowWindowBoundsRowsWithoutMovingTheReadersMessage()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        QVERIFY(!roomId.isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        controller.setCurrentRoomId(roomId);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(700, 420);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        // Comfortably more rows than the window keeps, so a release is
+        // genuinely required rather than the policy declining.
+        const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-40000);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 900; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$win%1").arg(i);
+            e.itemId = QStringLiteral("uid-win%1").arg(i);
+            e.roomId = roomId;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("window probe %1").arg(i);
+            e.timestamp = base.addSecs(i * 30);
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() > 800,
+                                 5000);
+        const int rowsBefore = timeline->property("count").toInt();
+
+        // Park the reader deep in history — the state the report is about.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QQmlExpression maxY(qmlContext(timeline), timeline,
+                            QStringLiteral("wheelMaxY()"));
+        const qreal topY = maxY.evaluate().toReal();
+        QVERIFY(!maxY.hasError());
+        timeline->setProperty("contentY", topY * 0.6);
+        QCoreApplication::processEvents();
+
+        // The reader's own message, and where it sits on screen. The probe
+        // recomputes the visible range itself, since the pane's own update is
+        // timer-driven and this test drives the policy directly.
+
+        QQmlExpression probe(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(){ updateVisibleRowRange();"
+                           " var r = viewRowAtContentY(contentY);"
+                           " var it = itemAtViewRow(r);"
+                           " return [eventIdAtViewRow(r),"
+                           "         it ? it.y - contentY : 0]; })()"));
+        const QVariantList before = probe.evaluate().toList();
+        QVERIFY2(!probe.hasError(),
+                 probe.error().toString().toUtf8().constData());
+        const QString anchorId = before.value(0).toString();
+        const qreal anchorOffset = before.value(1).toReal();
+        QVERIFY2(!anchorId.isEmpty(), "no anchor event under the viewport");
+
+        // Apply the window exactly as the settle timer does.
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+
+        // (1) Rows are genuinely bounded — the whole point.
+        const int rowsAfter = timeline->property("count").toInt();
+        QVERIFY2(rowsAfter < rowsBefore,
+                 qPrintable(QStringLiteral("no rows released: %1 -> %2")
+                                .arg(rowsBefore).arg(rowsAfter)));
+        QVERIFY2(rowsAfter <= 520,
+                 qPrintable(QStringLiteral("window too loose: %1 rows")
+                                .arg(rowsAfter)));
+
+        // (2) THE BAR: the reader's message did not move on screen.
+        QQmlExpression after(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(id){ var r = viewRowForStableId(id);"
+                           " var it = itemAtViewRow(r);"
+                           " return it ? it.y - contentY : 1e9; })('")
+                + anchorId + QStringLiteral("')"));
+        const qreal afterOffset = after.evaluate().toReal();
+        QVERIFY2(!after.hasError(),
+                 after.error().toString().toUtf8().constData());
+        QVERIFY2(qAbs(afterOffset - anchorOffset) <= 2.0,
+                 qPrintable(QStringLiteral("reader moved %1 px (%2 -> %3)")
+                                .arg(afterOffset - anchorOffset)
+                                .arg(anchorOffset).arg(afterOffset)));
+
+        // (3) A window that hides the live edge must never claim "at bottom",
+        //     or follow-latest would latch to a false newest message.
+        const int skipAfter = timeline->property("rowWindowSkip").toInt();
+        QVERIFY2(skipAfter > 0,
+                 "the window only trimmed the oldest end — the skip path, "
+                 "which is the one that shifts the reader, was never taken");
+        QQmlExpression atBottom(qmlContext(timeline), timeline,
+                                QStringLiteral("atBottomEdge()"));
+        QCOMPARE(atBottom.evaluate().toBool(), false);
+        QVERIFY(!timeline->property("stickToBottom").toBool());
+
+        // (4) THE RESTORE DIRECTION — the half that matters when the reader
+        //     heads back toward the newest messages, and the one where the
+        //     correction has to trust the height of rows created a moment
+        //     earlier. Move the reader toward the live edge and re-apply:
+        //     the skip must come DOWN and the reader must still not move.
+        QQmlExpression probe2(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(){ contentY = wheelMinY() + 40;"
+                           " updateVisibleRowRange();"
+                           " var r = viewRowAtContentY(contentY);"
+                           " var it = itemAtViewRow(r);"
+                           " return [eventIdAtViewRow(r),"
+                           "         it ? it.y - contentY : 0]; })()"));
+        const QVariantList back = probe2.evaluate().toList();
+        QVERIFY2(!probe2.hasError(),
+                 probe2.error().toString().toUtf8().constData());
+        const QString backId = back.value(0).toString();
+        const qreal backOffset = back.value(1).toReal();
+        QVERIFY(!backId.isEmpty());
+        QCoreApplication::processEvents();
+
+        QQmlExpression apply2(qmlContext(timeline), timeline,
+                              QStringLiteral("applyRowWindow()"));
+        apply2.evaluate();
+        QVERIFY2(!apply2.hasError(),
+                 apply2.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+
+        QVERIFY2(timeline->property("rowWindowSkip").toInt() < skipAfter,
+                 qPrintable(QStringLiteral("skip did not come back down: %1")
+                                .arg(timeline->property("rowWindowSkip")
+                                         .toInt())));
+        QQmlExpression after2(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(id){ var r = viewRowForStableId(id);"
+                           " var it = itemAtViewRow(r);"
+                           " return it ? it.y - contentY : 1e9; })('")
+                + backId + QStringLiteral("')"));
+        const qreal after2Offset = after2.evaluate().toReal();
+        QVERIFY2(!after2.hasError(),
+                 after2.error().toString().toUtf8().constData());
+        QVERIFY2(qAbs(after2Offset - backOffset) <= 2.0,
+                 qPrintable(QStringLiteral("reader moved %1 px on restore "
+                                           "(%2 -> %3)")
+                                .arg(after2Offset - backOffset)
+                                .arg(backOffset).arg(after2Offset)));
+    }
+
     // ── 2026-08-19: speculative media waits for a settle ───────────────
     //
     // A live capture (985-1026 loaded rows) showed ONE 15-second upward
@@ -940,6 +1187,235 @@ private Q_SLOTS:
     // false while the reader's input owns the viewport, true again once it
     // settles. Thumbnails are deliberately not gated, so this must not be
     // confused with "no media while scrolling".
+    // §18 review finding (HIGH): trimming the OLDEST end shrinks
+    // contentHeight and therefore wheelMaxY(), and distanceFromTop() is
+    // wheelMaxY() - contentY. So a window trim moves the reader's MEASURED
+    // distance from the top with no reader-visible movement at all, and
+    // applyRowWindow() ends by calling updateStickAndPaginate(), which
+    // re-runs checkNearTopEdge(). Left unguarded that dispatches a backfill
+    // which regrows exactly what was just released — the request-storm class
+    // this file has already been through several rounds of. The guard is
+    // what makes the trim safe, so pin its contract.
+    void rowWindowTrimNeverFeedsTheNearTopPaginationBand()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        // A TALL viewport, deliberately. The hazard scales with viewport
+        // height and the protection does not: nearTopEnterDistance is
+        // 2.5 * height, while the rows the window keeps above the reader
+        // (windowMarginRows) are a fixed count and so a fixed pixel amount.
+        // MEASURED, not reasoned — two earlier guesses at this were wrong.
+        // The rows the window keeps above the reader come to ~4020px here
+        // regardless of viewport size (a fixed row count at ~23px each),
+        // while the enter band is 2.5 * viewport height. So the trim only
+        // reaches into the band once 2.5h > ~4020, i.e. h > ~1600px. At a
+        // 420px or even 1400px viewport the margin clears the band on its
+        // own and the guard is unreachable — a test there proves nothing.
+        // 2160 gives h≈2000 and enter≈5000: a 4K fullscreen client area,
+        // which is the reported configuration.
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.6, 2160);
+        QVERIFY(timeline != nullptr);
+        const int rowsBefore = timeline->property("count").toInt();
+
+        // Arm the latch, so a dispatch is possible and observable: the
+        // dispatch is what consumes it.
+        QVERIFY(timeline->setProperty("nearTopArmed", true));
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+
+        QVERIFY2(timeline->property("count").toInt() < rowsBefore,
+                 "nothing was released, so the hazard was never exercised");
+        // The invariant: a trim only proceeds when it leaves the reader
+        // OUTSIDE the enter band. nearTopExitDistance (3.25 viewports) is
+        // deliberately wider than nearTopEnterDistance (2.5), so clearing
+        // the exit distance clears the enter band with margin.
+        QQmlExpression fromTop(
+            qmlContext(timeline), timeline,
+            QStringLiteral("[distanceFromTop(), nearTopEnterDistance]"));
+        const QVariantList d = fromTop.evaluate().toList();
+        QVERIFY2(!fromTop.hasError(),
+                 fromTop.error().toString().toUtf8().constData());
+        QVERIFY2(d.value(0).toReal() > d.value(1).toReal(),
+                 qPrintable(QStringLiteral("trim left the reader INSIDE the "
+                                           "near-top band: %1 <= %2")
+                                .arg(d.value(0).toReal())
+                                .arg(d.value(1).toReal())));
+        // Deliberately NOT asserting on nearTopArmed. The dispatch is
+        // coalesced onto the next event-loop turn, and measurement showed the
+        // latch reading `true` in BOTH the guarded and unguarded runs — so an
+        // assertion on it would have passed on broken code. The band position
+        // above is what is actually observable here, and it is the assertion
+        // proven to fail without the guard (4795 <= 5010).
+    }
+
+    // §18 review finding (MEDIUM): with a window active, wheelMinY() is the
+    // window's synthetic newest edge. Every other jump path restores the
+    // live edge first; this one did not, so End / the jump pill landed on a
+    // message that is not the latest.
+    void jumpToLatestRestoresTheLiveEdgeWhenAWindowIsActive()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.6);
+        QVERIFY(timeline != nullptr);
+
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+        QVERIFY2(timeline->property("rowWindowSkip").toInt() > 0,
+                 "no window was established, so the bug is unreachable here");
+
+        QQmlExpression jump(qmlContext(timeline), timeline,
+                            QStringLiteral("goToLatest()"));
+        jump.evaluate();
+        QVERIFY2(!jump.hasError(),
+                 jump.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+
+        // The mock backend has no event cache, so the history trim refuses
+        // and this falls through to settleAtLatest() — which is exactly the
+        // path that must restore the live edge itself.
+        QCOMPARE(timeline->property("rowWindowSkip").toInt(), 0);
+        QVERIFY(timeline->property("stickToBottom").toBool());
+        QQmlExpression newest(
+            qmlContext(timeline), timeline,
+            QStringLiteral("[eventIdAtViewRow(0), atBottomEdge()]"));
+        const QVariantList landed = newest.evaluate().toList();
+        QVERIFY2(!newest.hasError(),
+                 newest.error().toString().toUtf8().constData());
+        QCOMPARE(landed.value(0).toString(), QStringLiteral("$win899"));
+        QCOMPARE(landed.value(1).toBool(), true);
+    }
+
+    // §18 review finding (MEDIUM): the restore direction corrects contentY
+    // from heights read immediately after the insert. That is exact for rows
+    // whose size is known from event metadata, but link previews and media
+    // without declared dimensions settle LATER. The window does not try to
+    // handle that itself — it re-baselines the anchor and hands off to the
+    // pre-existing contentHeight mechanism. That hand-off was the unverified
+    // step, so exercise it directly: change a row's height after the restore
+    // and require the reader to hold.
+    void lateHeightChangeAfterAWindowRestoreIsAbsorbedByTheAnchor()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.6);
+        QVERIFY(timeline != nullptr);
+
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+        QVERIFY(timeline->property("rowWindowSkip").toInt() > 0);
+
+        // Where the reader is, and a row NEWER than them (lower view row,
+        // physically below) whose late growth pushes their row along.
+        QQmlExpression probe(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(){ updateVisibleRowRange();"
+                           " var r = viewRowAtContentY(contentY);"
+                           " var it = itemAtViewRow(r);"
+                           " return [eventIdAtViewRow(r),"
+                           "         it ? it.y - contentY : 0, r]; })()"));
+        const QVariantList before = probe.evaluate().toList();
+        QVERIFY2(!probe.hasError(),
+                 probe.error().toString().toUtf8().constData());
+        const QString anchorId = before.value(0).toString();
+        const qreal anchorOffset = before.value(1).toReal();
+        const int anchorRow = before.value(2).toInt();
+        QVERIFY(!anchorId.isEmpty());
+        QVERIFY2(anchorRow > 4, "reader too close to the newest row to have "
+                                "a newer row to grow");
+
+        QQmlExpression grow(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(){ var it = itemAtViewRow(%1);"
+                           " if (!it) return false;"
+                           " it.height = it.height + 140; return true; })()")
+                .arg(anchorRow - 3));
+        QVERIFY2(grow.evaluate().toBool(), "could not grow a newer row");
+
+        QQmlExpression after(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(id){ var r = viewRowForStableId(id);"
+                           " var it = itemAtViewRow(r);"
+                           " return it ? it.y - contentY : 1e9; })('")
+                + anchorId + QStringLiteral("')"));
+        // The correction is coalesced on a timer, so give it its window.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            qAbs(after.evaluate().toReal() - anchorOffset) <= 2.0, 3000);
+    }
+
+    // With a window active the reader can scroll to its OLDEST exposed row.
+    // There atYBeginning goes true and the pane would ask the homeserver for
+    // older history — while the next rows sit in the source model, merely not
+    // exposed. That blocks the reader at a boundary the window itself created,
+    // waiting on the network for rows already in memory. Re-expose instead.
+    void reachingTheWindowsOldEdgeExposesLocalRowsInsteadOfAskingTheServer()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.6);
+        QVERIFY(timeline != nullptr);
+
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+
+        const int skip = timeline->property("rowWindowSkip").toInt();
+        const int exposed = timeline->property("count").toInt();
+        const int sourceTotal = controller.timeline()->rowCount();
+        QVERIFY2(skip > 0, "no window established");
+        QVERIFY2(skip + exposed < sourceTotal,
+                 qPrintable(QStringLiteral(
+                     "the window holds nothing back at the OLD end "
+                     "(skip %1 + exposed %2 vs total %3), so the boundary "
+                     "this test is about does not exist here")
+                                .arg(skip).arg(exposed).arg(sourceTotal)));
+
+        // Drive the reader to the window's oldest exposed row and run the
+        // near-top check exactly as a gesture does.
+        QQmlExpression toEdge(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(){ contentY = wheelMaxY();"
+                           " nearTopArmed = true;"
+                           " nearTopRequestDistance = Infinity;"
+                           " checkNearTopEdge(true); return true; })()"));
+        QVERIFY(toEdge.evaluate().toBool());
+        QVERIFY2(!toEdge.hasError(),
+                 toEdge.error().toString().toUtf8().constData());
+
+        // Paced, so give the reveal timer its ticks. The rows come from the
+        // model we already hold: the SOURCE total must not have changed,
+        // which is what shows no server page was consumed to get them.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("count").toInt() > exposed, 4000);
+        QCOMPARE(controller.timeline()->rowCount(), sourceTotal);
+        // The newest end must not move: this path performs no contentY
+        // correction, so a skip change here would displace the reader.
+        QCOMPARE(timeline->property("rowWindowSkip").toInt(), skip);
+    }
+
     void speculativeMediaIsBlockedDuringAGestureAndResumesOnSettle()
     {
         AppController controller(AppController::MockBackend);

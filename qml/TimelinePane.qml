@@ -1376,9 +1376,18 @@ Rectangle {
                 // stops a hair short of the end still resumes following.
                 readonly property real bottomFollowSlack: 8
                 function atBottomEdge() {
+                    // While the row window hides the live edge, the physical
+                    // bottom of the view is NOT the newest message — reporting
+                    // "at bottom" there would pin follow-latest to the wrong
+                    // place and hide the jump pill (2026-08-19).
+                    if (rowWindowSkip > 0)
+                        return false
                     return atYBeginning
                            || contentY <= wheelMinY() + bottomFollowSlack
                 }
+                readonly property int rowWindowSkip:
+                    app.timelineView && app.timelineView.windowSkip !== undefined
+                    ? app.timelineView.windowSkip : 0
 
                 // ── v0.7: initial-hydration presentation gate ────────────
                 // A freshly opened room must not present a one-item partial
@@ -1866,8 +1875,21 @@ Rectangle {
                 // Hand over the proxy's paced backlog immediately. Any path
                 // that must address a specific event by row calls this first;
                 // see ReverseListProxyModel::releaseAll().
+                // Every jump/search/permalink path calls this before it
+                // addresses a row by id. It must restore the LIVE EDGE, not
+                // merely the paced backlog: `releaseAll()` lifts the pacing
+                // cap but leaves the row window's skip in place, so with a
+                // window active a jump to any RECENT message resolved to "no
+                // such row" and silently did nothing — the same silent
+                // failure the pacing backlog already taught this codebase
+                // once. `clearWindow()` resets the skip AND releases the
+                // backlog (self-review find, 2026-08-19).
                 function releasePendingRows() {
-                    if (app.timelineView && app.timelineView.releaseAll)
+                    if (!app.timelineView)
+                        return
+                    if (app.timelineView.clearWindow)
+                        app.timelineView.clearWindow()
+                    else if (app.timelineView.releaseAll)
                         app.timelineView.releaseAll()
                 }
                 // View row <-> source row. The reversal is anchored on the
@@ -1878,15 +1900,22 @@ Rectangle {
                 // view rows exist. Deriving the mapping from `count` instead
                 // would renumber every visible row for as long as a page was
                 // draining.
+                // 2026-08-19: the row WINDOW shifts the newest edge, so the
+                // reversal is anchored on (source total - 1 - windowSkip),
+                // not on the source total alone. Getting this wrong is
+                // silent: a jump or an anchor restore simply resolves to "no
+                // such row" and does nothing — which is exactly how the
+                // window's own anchor correction failed its first test run.
                 function sourceRowForViewRowAtCount(row, rowCount) {
                     return row < 0 || row >= rowCount
-                            ? -1 : app.timeline.count - 1 - row
+                            ? -1
+                            : app.timeline.count - 1 - rowWindowSkip - row
                 }
                 function sourceRowForViewRow(row) {
                     return sourceRowForViewRowAtCount(row, count)
                 }
                 function viewRowForSourceRow(row) {
-                    var viewRow = app.timeline.count - 1 - row
+                    var viewRow = app.timeline.count - 1 - rowWindowSkip - row
                     return row < 0 || viewRow < 0 || viewRow >= count
                             ? -1 : viewRow
                 }
@@ -2505,6 +2534,168 @@ Rectangle {
                 // Recompute follow-latest and near-top pagination the way the
                 // drag/flick path does. Needed because wheel/pixel motion sets
                 // contentY programmatically, so Flickable.moving stays false.
+                // ── 2026-08-19 scroll round 2 part 3: the row window ─────
+                //
+                // Frame-time evidence from Rokas's GPU (QSG_RENDER_TIMING,
+                // steady state with pagination frames EXCLUDED): median frame
+                // 3 ms at ~108 loaded rows against 14 ms at ~916, and 1% vs
+                // 46% of frames over the 16 ms budget; `render` grew 14x and
+                // `polish` 5x. Bounding the instantiated rows is the only
+                // lever that touches that (see CLAUDE.md — the earlier
+                // offscreen numbers were a software-rasterizer artefact, but
+                // this measurement is the real machine).
+                //
+                // SAFETY, and it is the whole design:
+                //   * applied ONLY when the reader is settled — never a
+                //     structural change mid-gesture, which is what sank the
+                //     reverted bounded-retained-window;
+                //   * a generous RUNWAY of rows is kept below the reader, so
+                //     a real downward gesture cannot reach the window's low
+                //     edge (the largest single downward gesture in the
+                //     capture was ~7.5 viewports; the runway is ~30);
+                //   * the low-end release is corrected by re-finding the
+                //     reader's own anchor EVENT and restoring its screen
+                //     offset — exact, not estimated, and bailing out before
+                //     mutating anything if that anchor cannot be resolved;
+                //   * atBottomEdge() refuses while the window hides the live
+                //     edge, so follow-latest can never latch to a false
+                //     bottom.
+                readonly property int windowRunwayRows: 220   // below reader
+                readonly property int windowMarginRows: 120   // above reader
+                readonly property int windowMinRows: 320      // never below
+                function applyRowWindow() {
+                    if (!app.timelineView || !app.timelineView.setWindow)
+                        return
+                    // Settled only, and never against a timeline that is
+                    // still growing or being navigated.
+                    if (userScrollActive || !presentationReady)
+                        return
+                    if (app.pagination && app.pagination.busy)
+                        return
+                    const total = app.timeline ? app.timeline.count : 0
+                    if (total <= windowMinRows) {
+                        if (rowWindowSkip > 0)
+                            app.timelineView.clearWindow()
+                        return
+                    }
+                    // Absolute offsets from the NEWEST source row: the
+                    // proxy's skip plus the view row.
+                    const skip = rowWindowSkip
+                    const absNewestVisible = skip + Math.max(0, visibleFirstRow)
+                    const absOldestVisible =
+                        skip + Math.max(visibleLastRow, visibleFirstRow)
+                    let wantSkip =
+                        Math.max(0, absNewestVisible - windowRunwayRows)
+                    let wantRows = (absOldestVisible + windowMarginRows)
+                                   - wantSkip + 1
+                    wantRows = Math.max(windowMinRows, wantRows)
+                    if (wantSkip + wantRows > total)
+                        wantRows = total - wantSkip
+                    // Hysteresis: only move for a change worth a structural
+                    // op, or the settle after every gesture would churn.
+                    const rows = count
+                    if (Math.abs(wantSkip - skip) < 40
+                        && Math.abs(wantRows - rows) < 40)
+                        return
+                    // THRASH GUARD. Releasing rows at the OLDEST end brings
+                    // the reader closer to the new top, and inside
+                    // nearTopEnterDistance (2.5 viewports) that dispatches a
+                    // backfill which regrows exactly what was just released.
+                    // Whether the margin clears that band is NOT a row-count
+                    // question: the margin is a fixed number of rows while the
+                    // band is 2.5 viewports, so it clears comfortably at 1244px
+                    // and lands INSIDE at 2004px (a 4K client area). Decide it
+                    // on MEASURED height: if trimming the tail would leave the
+                    // reader inside the band, keep the tail and take only the
+                    // skip change, which is where most of the win is anyway.
+                    // NOTE the row numbering: these are CURRENT view rows,
+                    // where the window we want starts at (wantSkip - skip).
+                    // So the tail being released begins at
+                    // (wantSkip - skip) + wantRows — using `wantRows` alone
+                    // counts rows that are being KEPT and wildly overstates
+                    // the release (it made this guard veto every trim).
+                    const tailFirst = (wantSkip - skip) + wantRows
+                    if (tailFirst < rows) {
+                        let tailRelease = 0
+                        for (let t = tailFirst; t < rows; ++t) {
+                            const tailItem = itemAtViewRow(t)
+                            if (tailItem)
+                                tailRelease += tailItem.height
+                        }
+                        // Thresholded on the ENTER band, not the exit one.
+                        // The exit distance is hysteresis for a reader who
+                        // is already IN the band; what dispatches a backfill
+                        // is crossing INTO it, so that is the line this has
+                        // to stay clear of. Measured on the 900-row fixture:
+                        // thresholding on exit (4043) suppressed a trim whose
+                        // real outcome was 4018 — comfortably outside the
+                        // 3110 enter band — and kept 666 rows where 503 were
+                        // correct. A guard that over-fires spends exactly the
+                        // rows this whole mechanism exists to release.
+                        if (distanceFromTop() - tailRelease
+                            <= nearTopEnterDistance)
+                            wantRows = rows - (wantSkip - skip)
+                    }
+                    if (wantSkip === skip && wantRows === rows)
+                        return
+                    // A PRECONDITION, not an input. The shift below is
+                    // computed from the released rows' own heights and never
+                    // from the anchor — but if the reader's row cannot be
+                    // resolved at all, the view is in an incoherent state
+                    // (mid-reset, nothing materialised yet), and applying a
+                    // structural change there is how the reverted retained-
+                    // window attempt ended up dumping the reader. Bail
+                    // instead. (An earlier draft also captured the anchor's
+                    // offset here; the measured-height correction below never
+                    // needed it, so it was dead weight — §18 review.)
+                    if (wantSkip !== skip) {
+                        const anchorRow = viewRowAtContentY(contentY)
+                        if (!itemAtViewRow(anchorRow)
+                            || eventIdAtViewRow(anchorRow) === "")
+                            return
+                    }
+                    // Releasing rows at the HEAD moves every kept row by
+                    // exactly the released height, so measure it from the
+                    // real items BEFORE they are gone. Reading contentHeight
+                    // after the fact instead was the first attempt and it
+                    // failed by 3053 px: the Column has not relaid out yet,
+                    // so every geometry read is still the OLD content. The
+                    // Column has no inter-row spacing, so a plain sum is
+                    // exact rather than an estimate.
+                    let shift = 0
+                    if (wantSkip > skip) {
+                        for (let r = 0; r < wantSkip - skip; ++r) {
+                            const gone = itemAtViewRow(r)
+                            if (gone)
+                                shift -= gone.height
+                        }
+                    }
+                    app.timelineView.setWindow(wantSkip, wantRows)
+                    if (wantSkip < skip) {
+                        // Restored rows exist immediately (the proxy builds
+                        // them synchronously), so they can be measured now.
+                        for (let r2 = 0; r2 < skip - wantSkip; ++r2) {
+                            const added = itemAtViewRow(r2)
+                            if (added)
+                                shift += added.height
+                        }
+                    }
+                    // ONE exact write, and deliberately no deferred
+                    // follow-up. A `Qt.callLater` snap by anchor id was tried
+                    // and it BROKE this: it runs before the Column has
+                    // relaid out, so it read the anchor's stale y, computed a
+                    // target from the OLD geometry, and clamped it against
+                    // the NEW (shorter) content — landing the reader at the
+                    // very top instead of where they were. The measured
+                    // shift above needs no follow-up, and not adding a second
+                    // correction path keeps this clear of the anchor
+                    // machinery CLAUDE.md §16 warns about.
+                    if (shift !== 0)
+                        contentY = contentY + shift
+                    updateStickAndPaginate()
+                    captureViewAnchor()
+                }
+
                 function updateStickAndPaginate() {
                     stickToBottom = atBottomEdge()
                     // Active user scroll (wheel/pixel/keyboard): edge-latched so
@@ -2525,6 +2716,26 @@ Rectangle {
                 // (filtered-only) pages.
                 property bool nearTopCheckScheduled: false
                 property bool nearTopCheckUserInitiated: false
+                // True when the window was holding rows back and has now
+                // been asked to release more of them. Rows older than the
+                // window's oldest exposed row are ALREADY loaded; the window
+                // is the only reason they are not on screen.
+                function extendRowWindowAtOldEnd() {
+                    if (!app.timelineView
+                        || !app.timelineView.extendWindowAtOldEnd)
+                        return false
+                    // The proxy decides, because only it can tell the WINDOW's
+                    // cap apart from the pacing backlog. Re-deriving it here
+                    // as `rowWindowSkip + count < total` was wrong: that is
+                    // also true while the initial paced reveal is in flight
+                    // with no window at all, and it swallowed the near-top
+                    // request on every ordinary timeline
+                    // (nearTopProximityIsMeasuredFromLoadedHistoryNot
+                    // AbsoluteContentY caught it).
+                    return app.timelineView.extendWindowAtOldEnd(
+                               windowMarginRows) === true
+                }
+
                 function maybeRequestNearTop(userInitiated) {
                     // Establish the anchor at REQUEST time if the reader does
                     // not have one yet. captureViewAnchor() otherwise only
@@ -2650,6 +2861,24 @@ Rectangle {
                         if (nearTopArmed
                             && (fromTop <= 1
                                 || fromTop < nearTopRequestDistance - 1)) {
+                            // LOCAL ROWS FIRST. With a window active the
+                            // reader can reach its oldest exposed row, where
+                            // atYBeginning goes true and this would ask the
+                            // homeserver for history that is already in the
+                            // source model, merely not exposed — blocking the
+                            // reader at a boundary the window itself created.
+                            // Re-expose instead. Deliberately does NOT consume
+                            // nearTopArmed: no network request is made and
+                            // nothing at the head moves, so there is no
+                            // per-approach budget to spend, and consuming it
+                            // would stall the reader at the next edge until
+                            // the 250ms settle. The extension is PACED by the
+                            // proxy (3ms/tick at the tail), so it cannot
+                            // become a synchronous 120-row build, and the
+                            // settle-time applyRowWindow() re-trims behind
+                            // the reader.
+                            if (extendRowWindowAtOldEnd())
+                                return
                             nearTopArmed = false
                             maybeRequestNearTop(userInitiated)
                         }
@@ -2708,6 +2937,15 @@ Rectangle {
                 }
                 // The follow-latest bookkeeping, shared by both paths.
                 function settleAtLatest() {
+                    // Addressing the live edge requires the live edge to be
+                    // exposed — the same invariant the jump paths carry (see
+                    // releasePendingRows). positionViewAtLatest() is a pure
+                    // geometry write to wheelMinY(), which under an active
+                    // window is the window's newest row, NOT the newest
+                    // message. This is the fallback landing when the history
+                    // trim refuses, so it must not depend on that trim's
+                    // model reset having cleared the window for it.
+                    releasePendingRows()
                     stickToBottom = true
                     // positioning row zero can re-seed the position frame
                     // from an estimate; a surviving anchor baseline would
@@ -2777,7 +3015,17 @@ Rectangle {
                     // the distance home is contentY - wheelMinY().
                     var lo = wheelMinY()
                     var distance = contentY - lo
-                    if (height > 0 && distance > 0
+                    // With a row window active, wheelMinY() is the window's
+                    // SYNTHETIC newest edge, not the live edge — the newest
+                    // rows are not exposed at all. Gliding there would land
+                    // on a message that is not the latest and, because
+                    // atBottomEdge() correctly still reports false, leave the
+                    // jump pill on screen demanding a second press (review
+                    // finding). A reader carrying a window is by definition
+                    // deep in history, which is exactly the FAR case below,
+                    // so refuse the glide and let the trim/jump path restore
+                    // the live edge for real.
+                    if (height > 0 && distance > 0 && rowWindowSkip === 0
                         && distance <= height * smoothJumpViewports) {
                         followLatestOnArrival = true
                         app.timelineScroll.animateTo(lo, contentY, lo,
@@ -2875,6 +3123,11 @@ Rectangle {
                         timeline.updateStickAndPaginate()
                         timeline.saveRoomPosition()
                         timeline.captureViewAnchor()
+                        // Re-evaluate the row window now that the reader has
+                        // settled. This is the ONLY place it is applied — a
+                        // structural change mid-gesture is what sank the
+                        // reverted bounded-retained-window (2026-08-19).
+                        timeline.applyRowWindow()
                         // A COMPLETED gesture that left the reader near the
                         // top re-arms the edge. Without this, backfill stops
                         // dead in a filtered/thread-heavy room: the reader's
