@@ -1427,6 +1427,45 @@ is in [[offscreen-perf-vs-gpu-2026-08-19]].
   the judge is a fresh `QSG_RENDER_TIMING` capture showing median frame
   cost deep in history falling toward the 3 ms figure.
 
+**2026-08-19 scroll round 2, part 4 — the window shipped as a PERMANENT
+NO-OP in `b74b518`, and a live capture caught it. Read this alongside part
+3.** Rokas reported "better by a lot, but if i scroll to start the lag
+remains". A `QSG_RENDER_TIMING` capture said why, quantitatively: 64
+pagination pages, 928 rows added, and frame WORK (polish+sync+render) rising
+monotonically with cumulative loaded rows with **no plateau relative to row
+count** — 0 ms at +0-50 rows, 10 at +300-500, 16 at +500-800, 27 at
++800-1200 (polish 12 / render 14). The wall-clock plateau was only the
+reader stopping. Extrapolating against part 3's own table (~916 rows =
+polish 5.6 / render 8.3) put the instantiated count near 2000 — i.e. the
+window bounded NOTHING.
+- **Root cause, self-inflicted and total**:
+  `userScrollActive: moving || wheelAnimating || scrollSettleTimer.running`,
+  and `applyRowWindow()`'s only caller is `scrollSettleTimer.onTriggered`,
+  where that timer still reads as **running**. So
+  `if (userScrollActive) return` was UNSATISFIABLE at the one call site that
+  exists. Fixed with `viewportMotionActive` (`moving || wheelAnimating`),
+  which is what the guard always meant — the settle tail is the settle, not
+  live input. `userScrollActive` is left alone because the speculative-media
+  gate deliberately includes that tail.
+- **Why every test passed anyway**: all of them called `applyRowWindow()`
+  directly, where `scrollSettleTimer.running` is false. The POLICY was
+  covered from six directions and the TRIGGER was not covered at all.
+  `wheelScrollingIntoHistoryEventuallyBoundsRowsThroughTheSettleTimer` now
+  drives real wheel notches into history and then waits, calling nothing;
+  it fails on the unfixed tree with the reported symptom. **Generalize
+  this: a policy test that invokes the policy function directly proves
+  nothing about whether production ever reaches it.**
+- **The window had ZERO observability, which is how this shipped
+  unnoticed.** The gesture trace now carries `srcRows`, `winSkip` and
+  `winApplies` next to the existing `rows`. `rows == srcRows` with a deep
+  reader, or `winApplies=0`, is the signature of this exact defect.
+- Consequence for part 3's claims: its offline measurements remain valid as
+  measurements of the policy, but **no production frame-cost improvement
+  has ever been observed from the window.** The felt "better by a lot" in
+  this capture belongs to part 2 (speculative-media gating), not to the
+  window. NOT TESTED, at full strength, until a capture shows `winApplies`
+  above zero with `rows` well below `srcRows`.
+
 **2026-08-19 scroll round 2, part 2 — a LIVE CAPTURE overturned part 1's
 conclusion. Read this before touching timeline scrolling again.**
 Rokas ran `LIGHTNING_SCROLL_TRACE=1 LIGHTNING_GUI_STALL_TRACE=250` on his

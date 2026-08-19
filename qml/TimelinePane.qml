@@ -2194,6 +2194,24 @@ Rectangle {
                 readonly property bool speculativeMediaAllowed:
                     !userScrollActive
 
+                // True only while a native drag/flick or a wheel/keyboard
+                // ANIMATION owns contentY — i.e. while a structural change to
+                // the row set would fight live input. Deliberately NOT
+                // userScrollActive, which also counts the 250 ms settle TAIL
+                // (scrollSettleTimer.running).
+                //
+                // That distinction was a shipped no-op, not a nicety:
+                // applyRowWindow() runs from inside that same timer's
+                // onTriggered, where `running` is still true, so guarding it
+                // on userScrollActive meant the row window could NEVER apply.
+                // A live capture showed frame work still scaling with total
+                // loaded rows (27 ms at ~950 rows) with the window supposedly
+                // active. Every offline test called applyRowWindow() directly,
+                // where the property reads false — the policy was covered and
+                // the TRIGGER was not.
+                readonly property bool viewportMotionActive:
+                    moving || wheelAnimating
+
                 // True only while Lightning itself drives contentY. The
                 // distinction is diagnostic only: NO active input path
                 // receives an anchor write.
@@ -2392,6 +2410,7 @@ Rectangle {
                         diagStartOriginY = originY
                         diagGestureStartMs = Date.now()
                         diagWorstNotchMs = 0
+                        diagWindowApplications = 0
                     }
                     diagEvents += 1
                     if (isPixel)
@@ -2428,6 +2447,10 @@ Rectangle {
                 // Drains (prints then zeroes) every outcome counter — see the
                 // M1 comment above for why this is the ONLY place they reset,
                 // rather than at the next gesture's first input.
+                // Counts applyRowWindow() calls that actually changed the
+                // window this gesture — zero next to a large rows/srcRows gap
+                // is the signature of the no-op this round shipped.
+                property int diagWindowApplications: 0
                 function diagFlushGesture() {
                     if (!scrollTrace || !diagActive)
                         return
@@ -2470,6 +2493,15 @@ Rectangle {
                         + " prependMaxAbsOriginShiftDContentH=" + Math.round(diagPrependMaxAbsOriginShiftContentDelta)
                         + " prependMaxAbsOriginShiftPath=" + diagPrependMaxAbsOriginShiftPath
                         + " rows=" + count
+                        // The row WINDOW's state, because the round that added
+                        // it had none and shipped a permanent no-op unnoticed:
+                        // `rows` above is what is INSTANTIATED and srcRows is
+                        // what is loaded, so rows == srcRows with a deep reader
+                        // means the window is not bounding anything. winSkip is
+                        // how many of the newest rows are currently withheld.
+                        + " srcRows=" + (app.timeline ? app.timeline.count : -1)
+                        + " winSkip=" + rowWindowSkip
+                        + " winApplies=" + diagWindowApplications
                         // Cost, and what the loaded timeline is MADE of.
                         // gestureMs is wall clock across the whole gesture;
                         // worstNotchMs is the slowest single wheel event,
@@ -2567,8 +2599,11 @@ Rectangle {
                     if (!app.timelineView || !app.timelineView.setWindow)
                         return
                     // Settled only, and never against a timeline that is
-                    // still growing or being navigated.
-                    if (userScrollActive || !presentationReady)
+                    // still growing or being navigated. viewportMotionActive,
+                    // NOT userScrollActive: this function's only caller is the
+                    // settle timer's own handler, where the settle timer still
+                    // reads as running.
+                    if (viewportMotionActive || !presentationReady)
                         return
                     if (app.pagination && app.pagination.busy)
                         return
@@ -2692,6 +2727,7 @@ Rectangle {
                     // machinery CLAUDE.md §16 warns about.
                     if (shift !== 0)
                         contentY = contentY + shift
+                    ++diagWindowApplications
                     updateStickAndPaginate()
                     captureViewAnchor()
                 }

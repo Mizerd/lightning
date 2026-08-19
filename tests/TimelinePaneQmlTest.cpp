@@ -1416,6 +1416,52 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("rowWindowSkip").toInt(), skip);
     }
 
+    // END TO END through the REAL trigger. The other window tests call
+    // applyRowWindow() directly and refresh the visible-row range themselves,
+    // so they prove the POLICY but not that it ever runs: the only production
+    // caller is scrollSettleTimer, fed by the pane's own timer-driven
+    // visibleFirstRow/visibleLastRow. A live capture (2026-08-19) showed frame
+    // work still scaling with total loaded rows — 27 ms at ~950 rows, polish
+    // 12 / render 14 — i.e. the window was not bounding anything in practice.
+    // This drives real wheel notches deep into history and then waits, calling
+    // nothing.
+    void wheelScrollingIntoHistoryEventuallyBoundsRowsThroughTheSettleTimer()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.0);
+        QVERIFY(timeline != nullptr);
+        const int rowsBefore = timeline->property("count").toInt();
+        QVERIFY(rowsBefore > 800);
+
+        const QPointF pos(window.width() / 2.0, window.height() / 2.0);
+        const qreal startY = timeline->property("contentY").toReal();
+        for (int i = 0; i < 240; ++i) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 0), QPoint(0, 120),
+                              Qt::NoButton, Qt::NoModifier,
+                              Qt::NoScrollPhase, false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+        }
+        const qreal deepY = timeline->property("contentY").toReal();
+        QVERIFY2(deepY > startY + 2000,
+                 qPrintable(QStringLiteral(
+                     "the wheel notches did not travel into history "
+                     "(contentY %1 -> %2); this test proves nothing")
+                                .arg(startY).arg(deepY)));
+
+        // Now do NOTHING. The settle timer is 250ms; give it generous room.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("rowWindowSkip").toInt() > 0, 5000);
+        QVERIFY2(timeline->property("count").toInt() < rowsBefore,
+                 qPrintable(QStringLiteral(
+                     "a window was established but bounded nothing: %1 rows")
+                                .arg(timeline->property("count").toInt())));
+    }
+
     void speculativeMediaIsBlockedDuringAGestureAndResumesOnSettle()
     {
         AppController controller(AppController::MockBackend);
