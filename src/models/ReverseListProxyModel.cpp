@@ -68,6 +68,40 @@ int ReverseListProxyModel::revealTarget() const
     return m_windowCap > 0 ? std::min(m_windowCap, available) : available;
 }
 
+// THE single writer of m_windowSkip, and the single emitter of
+// windowChanged().
+//
+// Why a funnel rather than an emit beside each assignment: the skip was being
+// written in eight places and five of them never notified at all — the
+// modelReset lambda, setSourceModel, a live insert landing newer than the
+// window, a removal newer than the window, and the rowsRemoved clamp. QML's
+// `rowWindowSkip` is a NOTIFY-gated binding whose only other dependency is a
+// constant, so after a room switch or a jump-to-live trim it kept the previous
+// room's skip indefinitely, and atBottomEdge() — which refuses while the skip
+// is non-zero, correctly, because a windowed view's physical bottom is not the
+// newest message — then reported false at the TRUE live edge. The jump pill
+// stayed up and follow-latest never re-engaged. clearWindow() could not repair
+// it either: it guards its work on `m_windowSkip != 0`, which is already false
+// in that state. A ninth write site will exist one day; funnelling is what
+// makes that safe.
+//
+// Emitting only on a real change matters as much as emitting at all: this runs
+// from inside source-signal handlers, and a notify on every removal that left
+// the skip alone would re-run the pane's binding for nothing.
+//
+// Call sites finish updating m_revealedRows BEFORE calling this where both
+// move together, so rowCount() is already coherent when the notify runs. The
+// two reset paths deliberately notify from inside their
+// beginResetModel/endResetModel bracket: the skip has to be correct before
+// endResetModel() or the view rebuilds against the outgoing room's window.
+void ReverseListProxyModel::setWindowSkip(int skip)
+{
+    if (m_windowSkip == skip)
+        return;
+    m_windowSkip = skip;
+    Q_EMIT windowChanged();
+}
+
 void ReverseListProxyModel::scheduleReveal()
 {
     if (m_revealedRows >= revealTarget()) {
@@ -175,7 +209,7 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
     m_removeAnnounced = false;
     disconnectSource();
     QAbstractProxyModel::setSourceModel(model);
-    m_windowSkip = 0;
+    setWindowSkip(0);
     m_windowCap = 0;
     m_revealedRows = model ? model->rowCount() : 0;
 
@@ -195,7 +229,7 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
                 // in history — without it the whole window would slide one
                 // row older on every incoming message.
                 if (m_windowSkip > 0 && first > totalAfter - 1 - m_windowSkip) {
-                    m_windowSkip += inserted;
+                    setWindowSkip(m_windowSkip + inserted);
                     return;
                 }
                 // Rows landing entirely inside the not-yet-released oldest
@@ -235,7 +269,8 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
                 // Rows removed NEWER than the window shrink the skip, not the
                 // exposed slice: the window keeps covering the same rows.
                 if (proxyLast < 0) {
-                    m_windowSkip -= std::min(m_windowSkip, last - first + 1);
+                    setWindowSkip(m_windowSkip
+                                  - std::min(m_windowSkip, last - first + 1));
                     return;
                 }
                 // Entirely inside the unreleased backlog: the view never saw
@@ -260,7 +295,7 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
                 }
                 // A removal can only shrink the backlog; never leave the
                 // released count above what the source still holds.
-                m_windowSkip = std::min(m_windowSkip, sourceRowTotal());
+                setWindowSkip(std::min(m_windowSkip, sourceRowTotal()));
                 m_revealedRows =
                     std::min(m_revealedRows, sourceRowTotal() - m_windowSkip);
                 scheduleReveal();
@@ -300,7 +335,7 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
                 // The window goes with it — a fresh snapshot has no reader
                 // position to be windowed around, and leaving a stale skip
                 // would hide the live edge of the new room.
-                m_windowSkip = 0;
+                setWindowSkip(0);
                 m_windowCap = 0;
                 m_revealedRows = sourceRowTotal();
                 endResetModel();
@@ -390,17 +425,17 @@ void ReverseListProxyModel::setWindow(int skipNewest, int rows)
         const int drop = std::min(skip - m_windowSkip, rowCount());
         if (drop > 0) {
             beginRemoveRows({}, 0, drop - 1);
-            m_windowSkip += drop;
             m_revealedRows -= drop;
+            setWindowSkip(m_windowSkip + drop);
             endRemoveRows();
         } else {
-            m_windowSkip = skip;
+            setWindowSkip(skip);
         }
     } else if (skip < m_windowSkip) {
         const int add = m_windowSkip - skip;
         beginInsertRows({}, 0, add - 1);
-        m_windowSkip = skip;
         m_revealedRows += add;
+        setWindowSkip(skip);
         endInsertRows();
     }
 
@@ -409,7 +444,11 @@ void ReverseListProxyModel::setWindow(int skipNewest, int rows)
     m_windowCap = (m_windowSkip == 0 && m_revealedRows >= total)
                       ? 0 : rowCount();
     scheduleReveal();
-    Q_EMIT windowChanged();
+    // No emit here: setWindowSkip() above has already notified if the skip
+    // moved, and a second unconditional emit would fire on every settle-time
+    // window that only trimmed the OLD end — where the property this signal
+    // notifies is unchanged and the exposed count is already announced by the
+    // model's own rowsInserted/rowsRemoved.
 }
 
 bool ReverseListProxyModel::extendWindowAtOldEnd(int extraRows)
@@ -431,16 +470,53 @@ bool ReverseListProxyModel::extendWindowAtOldEnd(int extraRows)
     return true;
 }
 
+bool ReverseListProxyModel::extendWindowAtNewEnd(int extraRows)
+{
+    if (extraRows <= 0 || !sourceModel())
+        return false;
+    // Nothing to give: the window already includes the live edge, and the
+    // caller needs that answer rather than a silent no-op insert — it is what
+    // tells the pane the bottom of the view is now honestly the bottom.
+    if (m_windowSkip <= 0)
+        return false;
+
+    // ONE insert at the head, never a reset and never a mid-list renumbering:
+    // the pane compensates contentY by the exact summed height of these rows,
+    // and a reset would destroy both the measurement and every delegate the
+    // window exists to avoid rebuilding.
+    const int add = std::min(extraRows, m_windowSkip);
+    beginInsertRows({}, 0, add - 1);
+    m_revealedRows += add;
+    setWindowSkip(m_windowSkip - add);
+    endInsertRows();
+
+    // Pacing must still not undo the window — setWindow()'s rule, expressed
+    // as a delta instead of as `rowCount()`. Assigning the exposed count here
+    // would silently retire whatever the OLD end still owes: pacing may not
+    // have reached the cap setWindow established, and lowering the cap to
+    // whatever happens to be out at this instant would strand those rows for
+    // good. Growing it by exactly what was just restored keeps both ends'
+    // promises intact.
+    if (m_windowCap > 0)
+        m_windowCap += add;
+    // The one uncapped state is unchanged: the window reaches the live edge
+    // with everything exposed, which is simply "no window".
+    if (m_windowSkip == 0 && m_revealedRows >= sourceRowTotal())
+        m_windowCap = 0;
+
+    scheduleReveal();
+    return true;   // setWindowSkip() above emitted windowChanged()
+}
+
 void ReverseListProxyModel::clearWindow()
 {
     m_windowCap = 0;
     if (m_windowSkip != 0) {
         const int add = m_windowSkip;
         beginInsertRows({}, 0, add - 1);
-        m_windowSkip = 0;
         m_revealedRows += add;
+        setWindowSkip(0);
         endInsertRows();
-        Q_EMIT windowChanged();
     }
     releaseAll();
 }

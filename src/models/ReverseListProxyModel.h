@@ -100,6 +100,29 @@ public:
     // timeline whose initial reveal was still in flight.
     Q_INVOKABLE bool extendWindowAtOldEnd(int extraRows);
 
+    // The symmetric half: give back up to `extraRows` of the NEWEST source
+    // rows the window is holding back, synchronously, as ONE insert at the
+    // head.
+    //
+    // Why this is needed at all: under a window `wheelMinY()` is the window's
+    // SYNTHETIC newest edge, so a sustained downward gesture longer than the
+    // pane's runway reaches it and the motion settles — the reader stops
+    // before the newest message while those rows sit loaded in the source
+    // model, hidden by nothing but the skip.
+    //
+    // Why NOT paced like the old end: these are rows the reader is actively
+    // moving toward, and handing them over a few per tick would stall the
+    // gesture exactly the same way. They also have to exist synchronously,
+    // because a head insert shifts every kept row and the pane corrects
+    // contentY by their exact summed MEASURED height — the same arithmetic
+    // setWindow()'s newest-end release already performs, in reverse.
+    //
+    // Returns false when the window is already at the live edge (skip == 0):
+    // the caller must be able to tell "extended" from "already live", because
+    // "already live" is the one state in which the physical bottom of the
+    // view really is the newest message.
+    Q_INVOKABLE bool extendWindowAtNewEnd(int extraRows);
+
 Q_SIGNALS:
     void windowChanged();
 
@@ -119,6 +142,10 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
 private:
+    // THE only writer of m_windowSkip, and the only emitter of
+    // windowChanged(). Every mutation goes through here — see the comment on
+    // the definition for what happened when five of them did not.
+    void setWindowSkip(int skip);
     void disconnectSource();
     // Rows in the source model, regardless of how many are released yet.
     int sourceRowTotal() const;
@@ -134,7 +161,7 @@ private:
     int m_revealedRows = 0;
     // How many of the NEWEST source rows the window excludes. 0 = the
     // window reaches the live edge (the only state where proxy row 0 is the
-    // newest message).
+    // newest message). Never assign this directly — setWindowSkip().
     int m_windowSkip = 0;
     // Guards the reveal timer from undoing a deliberate window: pacing may
     // only ever grow the window toward the OLDEST end, never past a cap the

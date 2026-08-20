@@ -1,21 +1,30 @@
 import QtQuick
+import QtQuick.Window
 
 // MiddleClickScroller — the desktop "autoscroll" gesture every browser and
-// most native clients have: press the MIDDLE mouse button, then move the
-// pointer away from the press point to scroll continuously, faster the
-// further you move. Releasing it ends the gesture; a quick middle-click
-// without moving LATCHES the mode on (Windows/Firefox behaviour) until the
-// next button press.
+// most native clients have: press and HOLD the MIDDLE mouse button, then move
+// the pointer away from the press point to scroll continuously, faster the
+// further you move. Releasing the button ends the gesture.
 //
 // 2026-08-18 tester report: "still no middle click scroll".
 //
+// ── There is deliberately NO latched mode ────────────────────────────────
+// The first version latched on a quick click (`pressMs < 350 && !travelled`),
+// the Windows/Firefox convention. Its 50 ms hold clock meant an ORDINARY
+// middle click reported pressMs === 0, so every short middle click latched —
+// the reported "quick middle click makes the timeline scroll on its own".
+// Worse, the latched mode had to take Qt.AllButtons and hoverEnabled to see
+// its own exit click, which stole the next click from the timeline and hover
+// from every message row underneath, and a latched pointer that left the pane
+// kept scrolling at its last inside speed with nothing left to update it.
+// A press-and-hold gesture has none of those problems: it owns a real mouse
+// grab (so moves outside the item still arrive), it accepts only the middle
+// button, and it ends when the button does. Do not reintroduce the latch.
+//
 // ── How it stays out of everything else's way ────────────────────────────
-// The MouseArea accepts ONLY the middle button while idle, so left clicks,
-// text selection, the hover action bar and every other pointer interaction
-// pass straight through to the items underneath. Hover tracking is switched
-// on ONLY while the gesture is live (a latched gesture has no pressed grab
-// to deliver move events, so it needs hover) and off again the moment it
-// ends, which is what keeps the message rows' own hover behaviour intact.
+// The MouseArea accepts ONLY the middle button and never enables hover, so
+// left clicks, text selection, the hover action bar and every other pointer
+// interaction pass straight through to the items underneath.
 //
 // ── Usage ────────────────────────────────────────────────────────────────
 // Declare it as a SIBLING of the view, over the same area, and pass the view
@@ -54,17 +63,17 @@ Item {
     // bookkeeping (pagination, stick-to-bottom) can keep up.
     signal scrolled()
 
-    readonly property bool active: dragging || latched
+    // One state, not two: the gesture is live exactly while the middle
+    // button is held. `active` is kept as the public name every host and
+    // test already uses.
+    readonly property bool active: dragging
     property bool dragging: false
-    property bool latched: false
     property real anchorX: 0
     property real anchorY: 0
     property real pointerY: 0
-    property real pressMs: 0
 
     function stop() {
         dragging = false
-        latched = false
     }
 
     function rangeMin() {
@@ -104,10 +113,29 @@ Item {
         root.scrolled()
     }
 
-    // Any view change that invalidates the gesture ends it rather than
-    // leaving an invisible latched mode behind.
+    // ── The complete cancellation set ────────────────────────────────────
+    // The gesture writes view.contentY directly, so anything that
+    // invalidates the view, takes the pointer away, or hands contentY to
+    // another owner has to end it. Before this list existed the only exits
+    // were the next press, onCanceled, onVisibleChanged and onViewChanged —
+    // no key, no focus loss, no destruction — which is how a stuck gesture
+    // could outlive the surface it was started on.
     onVisibleChanged: if (!visible) stop()
     onViewChanged: stop()
+    onEnabledChanged: if (!enabled) stop()
+    Component.onDestruction: stop()
+    // Alt-tabbing away mid-gesture leaves no release event behind.
+    readonly property bool hostWindowActive: Window.active === true
+    onHostWindowActiveChanged: if (!hostWindowActive) stop()
+    // Escape is the conventional way out of an autoscroll. Enabled ONLY
+    // while the gesture runs, so it never competes with the host's own
+    // Escape handling (an always-enabled duplicate makes Qt report an
+    // ambiguous shortcut and fire NEITHER).
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.active
+        onActivated: root.stop()
+    }
 
     Timer {
         id: ticker
@@ -120,13 +148,14 @@ Item {
     MouseArea {
         id: area
         anchors.fill: parent
-        // Idle: middle button only, so nothing else in the view is affected.
-        // Latched: any button ends the mode, which is the conventional way
-        // out of autoscroll.
-        acceptedButtons: root.latched ? Qt.AllButtons : Qt.MiddleButton
-        // Hover is needed only to track the pointer of a LATCHED gesture;
-        // enabling it permanently would take hover away from the rows.
-        hoverEnabled: root.latched
+        // Middle button only, always: nothing else in the view is affected,
+        // and there is no latched state left that would need to see a
+        // different button to exit.
+        acceptedButtons: Qt.MiddleButton
+        // Hover stays OFF. A held gesture owns the mouse grab, so move
+        // events arrive even outside this item's bounds — including the
+        // ones that used to be lost when a latched pointer left the pane.
+        hoverEnabled: false
         propagateComposedEvents: true
         // NO cursorShape here: MouseArea applies its cursor whenever it is
         // enabled, regardless of acceptedButtons, and this area covers the
@@ -136,11 +165,6 @@ Item {
         // while the gesture is running.
 
         onPressed: (mouse) => {
-            if (root.latched) {
-                root.stop()
-                mouse.accepted = true
-                return
-            }
             if (mouse.button !== Qt.MiddleButton) {
                 mouse.accepted = false
                 return
@@ -148,40 +172,17 @@ Item {
             root.anchorX = mouse.x
             root.anchorY = mouse.y
             root.pointerY = mouse.y
-            root.pressMs = 0
             root.dragging = true
-            holdClock.restart()
             mouse.accepted = true
         }
         onPositionChanged: (mouse) => {
             if (root.active)
                 root.pointerY = mouse.y
         }
-        onReleased: (mouse) => {
-            if (!root.dragging)
-                return
-            holdClock.stop()
-            root.dragging = false
-            // A quick click that did not travel latches the mode on; a
-            // press-and-drag simply ends with the release.
-            var travelled = Math.abs(mouse.y - root.anchorY) > 6
-                            || Math.abs(mouse.x - root.anchorX) > 6
-            if (!travelled && root.pressMs < 350) {
-                root.pointerY = mouse.y
-                root.latched = true
-            }
-        }
+        // A quick click does nothing visible and starts no motion: press,
+        // move, release IS the whole gesture.
+        onReleased: root.stop()
         onCanceled: root.stop()
-    }
-
-    // Press duration, measured without Date.now() so the component stays
-    // usable in tests that forbid wall-clock reads.
-    Timer {
-        id: holdClock
-        interval: 50
-        repeat: true
-        running: root.dragging
-        onTriggered: root.pressMs += interval
     }
 
     // Gesture cursor, present ONLY while scrolling (see the MouseArea).
@@ -196,9 +197,12 @@ Item {
     }
 
     // The anchor marker: a small ring at the press point, exactly like the
-    // browser convention, so a latched gesture is visible rather than a
-    // mysteriously scrolling view.
+    // browser convention, so the gesture is visible rather than a
+    // mysteriously scrolling view. It exists only while the button is held,
+    // which is also what makes "a quick click leaves no marker behind" a
+    // property a test can assert on.
     Rectangle {
+        objectName: "autoscrollAnchorMarker"
         visible: root.active
         x: root.anchorX - width / 2
         y: root.anchorY - height / 2
