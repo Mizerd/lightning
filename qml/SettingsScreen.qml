@@ -365,6 +365,17 @@ Item {
     }
     Shortcut {
         sequence: "Escape"
+        // Qt dispatches QEvent::Shortcut BEFORE the key ever reaches the
+        // focused item, so an unconditional window-scoped Escape here makes
+        // every in-place editor's own Keys.onEscapePressed dead code — and
+        // worse, pressing Escape to abandon an edit would leave Settings
+        // entirely. Disabling it while an inline editor is open hands the key
+        // back to that editor, which is the same guard TimelinePane already
+        // applies for its pinned toolbar and picker. This codebase has been
+        // bitten once before by a window-level Shortcut swallowing a key the
+        // focused item needed (a "Space pauses media" Shortcut silently broke
+        // timeline paging and the emoji grids).
+        enabled: !accountIdentityCard.editingDisplayName
         onActivated: root.goBack()
     }
     // SPEC 1v: Ctrl+, focuses the settings search field. Scoped to this Item
@@ -445,6 +456,30 @@ Item {
                        + "are only links. This cannot be undone.")
         }
         onAccepted: app.gif.starredStore.clearAll()
+    }
+
+    // v0.7.4: clearing the own display name is deliberate, never a silent
+    // whitespace write — an emptied editor is REFUSED by AppController, and
+    // removing the name is only reachable through this confirmation. Same
+    // confirmed-consequence pattern as the two clears above.
+    Dialog {
+        id: displayNameClearConfirm
+        objectName: "displayNameClearConfirm"
+        title: qsTr("Clear your display name?")
+        anchors.centerIn: parent
+        modal: true
+        standardButtons: Dialog.Yes | Dialog.Cancel
+        // Bounded width for the same reason the dialog above documents:
+        // sizing from fixed-width content feeds implicitWidth back in.
+        width: 320
+        Label {
+            width: 280
+            wrapMode: Text.WordWrap
+            color: AppTheme.stormText
+            text: qsTr("People will see your Matrix ID instead. You can set a "
+                       + "new display name at any time.")
+        }
+        onAccepted: app.clearOwnDisplayName()
     }
 
     Rectangle { anchors.fill: parent; color: AppTheme.stormDeep }
@@ -2371,6 +2406,60 @@ Item {
                             readonly property string accountDisplayName:
                                 accountRecord && accountRecord.displayName
                                 ? accountRecord.displayName : ""
+
+                            // ── v0.7.4 own display name ────────────────
+                            property bool editingDisplayName: false
+                            function beginDisplayNameEdit() {
+                                displayNameField.text =
+                                    accountIdentityCard.accountDisplayName
+                                app.dismissOwnDisplayNameError()
+                                editingDisplayName = true
+                                displayNameField.forceActiveFocus()
+                                displayNameField.selectAll()
+                            }
+                            function cancelDisplayNameEdit() {
+                                if (app.ownDisplayNameBusy) return
+                                editingDisplayName = false
+                                app.dismissOwnDisplayNameError()
+                                displayNameField.text =
+                                    accountIdentityCard.accountDisplayName
+                            }
+                            function commitDisplayName() {
+                                if (app.ownDisplayNameBusy) return
+                                var wanted = displayNameField.text.trim()
+                                // Unchanged is not a save. Close the editor
+                                // rather than sending a request whose only
+                                // possible answer is the value the account
+                                // already has — and note the server would
+                                // answer it SUCCESSFULLY, so the registry
+                                // would emit nothing and a UI that waited
+                                // for accountsChanged would hang here.
+                                if (wanted === accountIdentityCard.accountDisplayName) {
+                                    editingDisplayName = false
+                                    app.dismissOwnDisplayNameError()
+                                    return
+                                }
+                                // A refusal (empty, over the ceiling, no
+                                // session) leaves the editor open with the
+                                // reason in app.ownDisplayNameError.
+                                app.submitOwnDisplayName(wanted)
+                            }
+                            Connections {
+                                target: app
+                                // Server-CONFIRMED only. Both Save and
+                                // Clear land here; nothing else closes the
+                                // editor, so a failure can never look like
+                                // a success.
+                                function onOwnDisplayNameSaved() {
+                                    accountIdentityCard.editingDisplayName = false
+                                }
+                                // A session teardown retires the write; the
+                                // editor must not stay open over the next
+                                // account's identity.
+                                function onLoggedInChanged() {
+                                    accountIdentityCard.editingDisplayName = false
+                                }
+                            }
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
@@ -2436,6 +2525,141 @@ Item {
                                             color: AppTheme.stormTextMuted
                                             font.family: AppTheme.monoFont
                                             font.pixelSize: AppTheme.fontMonoXS
+                                        }
+                                    }
+                                }
+                                // ── v0.7.4 own display name, edited in
+                                // place. Hidden entirely on a backend that
+                                // cannot write a profile: the command
+                                // returns void, so offering it there would
+                                // leave the editor spinning with nothing
+                                // left to answer it.
+                                ColumnLayout {
+                                    objectName: "ownDisplayNameSection"
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+                                    visible: app.canEditOwnDisplayName
+                                    Label {
+                                        text: qsTr("Display name")
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        font.weight: Font.DemiBold
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing8
+                                        visible: !accountIdentityCard.editingDisplayName
+                                        Label {
+                                            objectName: "ownDisplayNameValue"
+                                            Layout.fillWidth: true
+                                            elide: Label.ElideRight
+                                            // "Not set" is the honest empty
+                                            // state — never the localpart,
+                                            // which would make a cleared
+                                            // name look like a set one.
+                                            text: accountIdentityCard.accountDisplayName.length > 0
+                                                  ? accountIdentityCard.accountDisplayName
+                                                  : qsTr("Not set")
+                                            color: accountIdentityCard.accountDisplayName.length > 0
+                                                   ? AppTheme.stormText
+                                                   : AppTheme.stormTextMuted
+                                        }
+                                        AppButton {
+                                            objectName: "editDisplayNameButton"
+                                            storm: true
+                                            text: qsTr("Edit")
+                                            Accessible.name: qsTr("Edit display name")
+                                            onClicked: accountIdentityCard.beginDisplayNameEdit()
+                                        }
+                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing8
+                                        visible: accountIdentityCard.editingDisplayName
+                                        AppTextField {
+                                            id: displayNameField
+                                            objectName: "ownDisplayNameField"
+                                            storm: true
+                                            Layout.fillWidth: true
+                                            enabled: !app.ownDisplayNameBusy
+                                            placeholderText: qsTr("Your display name")
+                                            Accessible.name: qsTr("Display name")
+                                            // No maximumLength: it counts
+                                            // UTF-16 code units, so a 255
+                                            // cap there would cut an emoji
+                                            // in half between its
+                                            // surrogates. The ceiling is
+                                            // enforced by code point in
+                                            // AppController instead, and
+                                            // shown by the counter below.
+                                            onAccepted: accountIdentityCard.commitDisplayName()
+                                            Keys.onEscapePressed: accountIdentityCard.cancelDisplayNameEdit()
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            horizontalAlignment: Text.AlignRight
+                                            font.pixelSize: AppTheme.fontCaption
+                                            readonly property int used:
+                                                app.displayNameLength(displayNameField.text.trim())
+                                            // Only near the ceiling: a
+                                            // permanent counter on a field
+                                            // nobody fills is noise.
+                                            visible: used > app.ownDisplayNameMaxLength() - 40
+                                            color: used > app.ownDisplayNameMaxLength()
+                                                   ? AppTheme.stormDanger
+                                                   : AppTheme.stormTextMuted
+                                            text: qsTr("%1 / %2 characters")
+                                                  .arg(used)
+                                                  .arg(app.ownDisplayNameMaxLength())
+                                        }
+                                        Label {
+                                            objectName: "ownDisplayNameError"
+                                            Layout.fillWidth: true
+                                            wrapMode: Text.WordWrap
+                                            visible: app.ownDisplayNameError.length > 0
+                                            color: AppTheme.stormDanger
+                                            font.pixelSize: AppTheme.fontCaption
+                                            text: app.ownDisplayNameError
+                                        }
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: AppTheme.spacing8
+                                            AppButton {
+                                                objectName: "saveDisplayNameButton"
+                                                storm: true
+                                                kind: "primary"
+                                                text: app.ownDisplayNameBusy
+                                                      ? qsTr("Saving…") : qsTr("Save")
+                                                // Duplicate submissions are
+                                                // refused by AppController
+                                                // too; this only keeps the
+                                                // pointer honest.
+                                                enabled: !app.ownDisplayNameBusy
+                                                         && displayNameField.text.trim().length > 0
+                                                         && displayNameField.text.trim()
+                                                            !== accountIdentityCard.accountDisplayName
+                                                         && app.displayNameLength(
+                                                                displayNameField.text.trim())
+                                                            <= app.ownDisplayNameMaxLength()
+                                                onClicked: accountIdentityCard.commitDisplayName()
+                                            }
+                                            AppButton {
+                                                objectName: "cancelDisplayNameButton"
+                                                storm: true
+                                                text: qsTr("Cancel")
+                                                enabled: !app.ownDisplayNameBusy
+                                                onClicked: accountIdentityCard.cancelDisplayNameEdit()
+                                            }
+                                            Item { Layout.fillWidth: true }
+                                            AppButton {
+                                                objectName: "clearDisplayNameButton"
+                                                storm: true
+                                                kind: "danger"
+                                                text: qsTr("Clear")
+                                                visible: accountIdentityCard.accountDisplayName.length > 0
+                                                enabled: !app.ownDisplayNameBusy
+                                                onClicked: displayNameClearConfirm.visible = true
+                                            }
                                         }
                                     }
                                 }

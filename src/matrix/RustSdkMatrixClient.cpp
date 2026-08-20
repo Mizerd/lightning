@@ -4548,6 +4548,38 @@ quint64 RustSdkMatrixClient::fetchUserProfile(const QString &userId)
     return opId;
 }
 
+void RustSdkMatrixClient::setOwnDisplayName(const QString &name, quint64 opId)
+{
+    // Reported, never dropped. This command returns void (the caller owns
+    // the op id), so a silent refusal would leave the Settings editor
+    // spinning with nothing left to answer it. The failure is posted
+    // rather than emitted inline: the caller records the op id AFTER this
+    // call returns, and a synchronous emit would arrive before it exists.
+    const auto refuse = [this, opId] {
+        QMetaObject::invokeMethod(this, [this, opId] {
+            Q_EMIT ownDisplayNameChanged(opId, false, QString());
+        }, Qt::QueuedConnection);
+    };
+    if (!m_rustHandle || !m_loggedIn) {
+        refuse();
+        return;
+    }
+    // An empty payload is the CLEAR request; Rust maps it to None, which
+    // is a different request from storing an empty name. Never trimmed or
+    // filtered here — the name is the user's text, emoji, combining marks
+    // and non-Latin scripts included, and it is bounded (by characters,
+    // not bytes) on the Rust side.
+    const QByteArray payload = name.toUtf8();
+    const QString result = takeRustString(mx_rust_set_display_name(
+        m_rustHandle, payload.constData(), opId));
+    if (!result.isEmpty()) {
+        // Counts and a literal tag only — the rejection message can carry
+        // the submitted name back in some FFI error paths.
+        qCWarning(lcRust) << "display-name write rejected";
+        refuse();
+    }
+}
+
 quint64 RustSdkMatrixClient::fetchUrlPreview(const QString &url)
 {
     // Scheme allow-list is enforced again in Rust; this early check keeps
@@ -6323,6 +6355,17 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("suggested")).toBool(),
             event.value(QStringLiteral("ok")).toBool());
+        return true;
+    }
+
+    if (type == QLatin1String("own_display_name_result")) {
+        // `error` is the server's own sentence, already collapsed and
+        // bounded in Rust; empty means it said nothing usable. The name is
+        // deliberately absent from the payload.
+        Q_EMIT ownDisplayNameChanged(
+            opId(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("error")).toString());
         return true;
     }
 

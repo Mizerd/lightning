@@ -74,6 +74,7 @@ mod pinned;
 mod search;
 mod uia;
 mod presence;
+mod profile;
 mod rooms;
 mod timeline;
 
@@ -5452,6 +5453,28 @@ pub unsafe extern "C" fn mx_rust_get_user_profile(
         let bridge = unsafe { bridge(ptr)? };
         let user_id = unsafe { cstr_arg(user_id) }?;
         rooms::fetch_user_profile(bridge, user_id, op_id).map(|_| String::new())
+    })
+}
+
+/// v0.7.4: set — or CLEAR — the signed-in account's own display name.
+///
+/// An EMPTY `name` means clear, which reaches the SDK as `None`; the SDK
+/// then picks the MSC4133 delete-profile-field endpoint or the deprecated
+/// v3 request by itself. `Some("")` is a different request (store an empty
+/// name) and is deliberately unreachable from here.
+///
+/// Result event: own_display_name_result { op_id, lifecycle, ok, error }.
+/// The name never comes back — C++ already holds what it submitted.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_display_name(
+    ptr: *mut c_void,
+    name: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let name = unsafe { cstr_arg(name) }?;
+        profile::set_own_display_name(bridge, name, op_id).map(|_| String::new())
     })
 }
 

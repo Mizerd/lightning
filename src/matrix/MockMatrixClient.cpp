@@ -2864,3 +2864,61 @@ quint64 MockMatrixClient::reportMessage(const QString &roomId,
     });
     return op;
 }
+
+// ── v0.7.4 own profile ──────────────────────────────────────────────────
+
+quint64 MockMatrixClient::fetchUserProfile(const QString &userId)
+{
+    if (userId.isEmpty())
+        return 0;
+    const quint64 op = ++m_opCounter;
+    const bool known = userId == m_userId || mockDisplayNames.contains(userId);
+    QString name;
+    if (mockDisplayNames.contains(userId)) {
+        // Present-but-empty is a CLEARED name, not an unknown one. Reading
+        // it back as the localpart here would make a successful clear look
+        // exactly like a failed one.
+        name = mockDisplayNames.value(userId);
+    } else if (userId == m_userId) {
+        const qsizetype colon = userId.indexOf(QLatin1Char(':'));
+        name = colon > 1 ? userId.mid(1, colon - 1) : userId;
+    }
+    const QString avatar = mockAvatarUrls.value(userId);
+    QTimer::singleShot(0, this, [this, op, userId, known, name, avatar] {
+        Q_EMIT userProfileFinished(op, known, userId, name, avatar,
+                                   known ? QString()
+                                         : QStringLiteral("not_found"));
+    });
+    return op;
+}
+
+void MockMatrixClient::setOwnDisplayName(const QString &name, quint64 opId)
+{
+    ++displayNameWrites;
+    const QString failure = mockDisplayNameFailReason;
+    const bool silentFailure = mockDisplayNameFailSilently;
+    const bool loggedIn = m_loggedIn && !m_userId.isEmpty();
+    const QString userId = m_userId;
+    // Deferred like every other mock completion, so the caller has stored
+    // its op id before the answer arrives — a synchronous emit would let
+    // a test pass against a controller that never recorded the id at all.
+    QTimer::singleShot(0, this, [this, opId, name, failure, silentFailure,
+                                 loggedIn, userId] {
+        if (!loggedIn) {
+            Q_EMIT ownDisplayNameChanged(opId, false, QString());
+            return;
+        }
+        if (silentFailure) {
+            Q_EMIT ownDisplayNameChanged(opId, false, QString());
+            return;
+        }
+        if (!failure.isEmpty()) {
+            Q_EMIT ownDisplayNameChanged(opId, false, failure);
+            return;
+        }
+        // Only a CONFIRMED write mutates the stored profile — the account
+        // registry must never be able to cache a name the server refused.
+        mockDisplayNames.insert(userId, name);
+        Q_EMIT ownDisplayNameChanged(opId, true, QString());
+    });
+}

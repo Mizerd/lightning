@@ -375,6 +375,21 @@ public:
     quint64 reportMessage(const QString &roomId, const QString &eventId,
                           const QString &reason) override;
 
+    // ── v0.7.4 own profile. The mock stands in for the whole Rust + server
+    // path, so it answers BOTH halves: the write, and the read-back the
+    // account registry caches. Without the read-back the non-Rust tree's
+    // cached display name is permanently empty, which is what made this
+    // surface untestable offline.
+    //
+    // The lookup deliberately answers "not_found" for anyone but the own
+    // account and the explicitly seeded rows: a mock backend knows only
+    // the account it is signed in as, and confirming arbitrary user ids
+    // would quietly change what every other mock-backed surface believes
+    // about strangers.
+    bool supportsOwnProfileEditing() const override { return true; }
+    quint64 fetchUserProfile(const QString &userId) override;
+    void setOwnDisplayName(const QString &name, quint64 opId) override;
+
     // Knobs (read/written by tests directly).
     QVariantMap mockResolveResult;      // empty → ok=false, category invalid
     QVariantList mockPublicRooms;       // rows for one directory page
@@ -394,4 +409,20 @@ public:
     quint64 lastDeleteOp = 0;           // pending UIA challenge id
     QStringList lastDeletedDevices;
     QStringList joinedTargets;          // every join target dispatched
+
+    // Profiles by user id. An ABSENT own-account row means "never set",
+    // and the lookup then reports the localpart, the way a fresh account
+    // usually reads. A CLEARED name is stored as an empty QString and
+    // stays empty — otherwise the localpart fallback would silently undo
+    // the clear and make that path untestable.
+    QHash<QString, QString> mockDisplayNames;
+    QHash<QString, QString> mockAvatarUrls;
+    // Non-empty → every display-name write fails with this as the server's
+    // own message. Sticky, so the retry-after-failure path is drivable.
+    QString mockDisplayNameFailReason;
+    // Fail with NO message at all — a timeout, or a server that sent
+    // nothing usable. A distinct knob because the two failures are
+    // presented differently: only this one gets Lightning's own wording.
+    bool mockDisplayNameFailSilently = false;
+    int displayNameWrites = 0;          // dispatched writes (dedup checks)
 };

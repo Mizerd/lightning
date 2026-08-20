@@ -681,6 +681,23 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_pagination->setTimelineModel(m_timeline.get());
     m_readReceipts->setClient(m_client.get());
     m_readReceipts->setTimelineModel(m_timeline.get());
+
+    // 2026-08-20 (C4): the models need to know whether routine activity is
+    // being SHOWN, because a date divider whose entire run is hidden must not
+    // render — that is the orphan-date-label defect. QML cannot answer it
+    // (a per-row scan of the model on every contentY change is exactly the
+    // cost this file has already paid twice), so the setting is pushed into
+    // both timeline models and kept live. Both, not just the room's: the
+    // thread panel renders the same delegate against its own model.
+    const auto applyRoomActivityVisibility = [this]() {
+        const bool shown = m_settings->showRoomActivity();
+        m_timeline->setShowRoomActivity(shown);
+        if (m_thread)
+            m_thread->model()->setShowRoomActivity(shown);
+    };
+    applyRoomActivityVisibility();
+    connect(m_settings.get(), &SettingsManager::showRoomActivityChanged,
+            this, applyRoomActivityVisibility);
     m_linkPreviews->setClient(m_client.get());
     m_gifTransport->setClient(m_client.get());
     m_gifSend->setClient(m_client.get());
@@ -867,6 +884,47 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             return;
         m_accounts->updateProfile(userId, displayName, avatarUrl);
     });
+    // v0.7.4: the terminal answer for one own-display-name write.
+    connect(m_client.get(), &MatrixClient::ownDisplayNameChanged, this,
+            [this](quint64 opId, bool ok, const QString &error) {
+        // Drop anything that is not the write this controller is waiting
+        // for: a previous account's answer, or an attempt already retired
+        // by a sign-out. Matching by op id is the whole guard — nothing
+        // else distinguishes them, because the payload carries no name.
+        if (opId == 0 || opId != m_displayNameOp)
+            return;
+        m_displayNameOp = 0;
+        if (!ok) {
+            // An empty `error` means the server said nothing usable (or
+            // there was no server answer at all — a timeout, a transport
+            // failure, a synchronous refusal). Supply our own wording
+            // rather than showing an empty red line, and never invent a
+            // server message.
+            m_displayNameError = error.isEmpty()
+                ? tr("The display name could not be saved. Please try again.")
+                : error;
+            Q_EMIT ownDisplayNameStateChanged();
+            return;
+        }
+        m_displayNameError.clear();
+        Q_EMIT ownDisplayNameStateChanged();
+        // NOTHING else refreshes the cached name — sync does not carry the
+        // account's own profile, and the one fetch in the tree runs once
+        // per login. Re-issue it, and take the answer from the SERVER
+        // rather than writing the submitted string into the registry: the
+        // server is free to normalise or bound what it stored, and a local
+        // write would cache a value it never held.
+        const QString uid = m_client ? m_client->currentUserId() : QString{};
+        if (!uid.isEmpty())
+            m_client->fetchUserProfile(uid);
+        Q_EMIT ownDisplayNameSaved();
+    });
+    // A plain sign-out does not go through clearCrossAccountCaches(), so
+    // retire the write here too — detachSession() (the account switch)
+    // emits this signal as well, which makes the reset idempotent rather
+    // than duplicated.
+    connect(m_client.get(), &MatrixClient::loggedOut, this,
+            &AppController::retireOwnDisplayNameWrite);
     connect(m_client.get(), &MatrixClient::errorOccurred,
             this, &AppController::errorReported);
     auto refreshConnectionStatus = [this]() {
@@ -2970,6 +3028,7 @@ void AppController::clearCrossAccountCaches()
     m_sessionDevicesLoading = false;
     m_sessionDevicesFailed = false;
     Q_EMIT sessionDevicesChanged();
+    retireOwnDisplayNameWrite();
     m_verificationFlowId.clear();
     m_verificationOtherUser.clear();
     m_verificationOtherDevice.clear();
@@ -2995,6 +3054,149 @@ void AppController::clearCrossAccountCaches()
     // Drop DM profile lookups resolved under the previous account's
     // authority.
     m_roomList->clearProfileCaches();
+}
+
+// ── v0.7.4 own display name ─────────────────────────────────────────────
+
+bool AppController::canEditOwnDisplayName() const
+{
+    return m_client && m_client->isLoggedIn()
+           && m_client->supportsOwnProfileEditing();
+}
+
+int AppController::displayNameLength(const QString &name) const
+{
+    // Unicode code points, not UTF-16 code units. QString stores an emoji
+    // as a surrogate PAIR, so `name.size()` would count it twice and the
+    // editor would refuse a 200-emoji name the server accepts — and a
+    // truncation at 255 units could cut one in half. Combining marks and
+    // ZWJ joiners count as their own code points here, deliberately: that
+    // is the same unit the Rust bound and the server use, so the number
+    // the user is shown is the number that is enforced.
+    int points = 0;
+    for (qsizetype i = 0; i < name.size();) {
+        const bool pair = name.at(i).isHighSurrogate() && i + 1 < name.size()
+                          && name.at(i + 1).isLowSurrogate();
+        i += pair ? 2 : 1;
+        ++points;
+    }
+    return points;
+}
+
+QString AppController::cachedOwnDisplayName() const
+{
+    if (!m_accounts || !m_client)
+        return {};
+    const QString uid = m_client->currentUserId();
+    if (uid.isEmpty())
+        return {};
+    return m_accounts->account(uid)
+        .value(QStringLiteral("displayName"))
+        .toString();
+}
+
+QString AppController::ownDisplayNameUnavailableReason() const
+{
+    if (!m_client || !m_client->isLoggedIn())
+        return tr("Not signed in.");
+    if (!m_client->supportsOwnProfileEditing())
+        return tr("This backend cannot change your display name.");
+    return {};
+}
+
+bool AppController::dispatchOwnDisplayName(const QString &name)
+{
+    // The op id is claimed BEFORE the backend call: a backend is allowed
+    // to answer a synchronous refusal from inside setOwnDisplayName, and
+    // an answer for an id this controller has not stored yet would be
+    // dropped as stale — the editor would then spin forever.
+    m_displayNameOp = ++m_displayNameOpCounter;
+    m_displayNameError.clear();
+    Q_EMIT ownDisplayNameStateChanged();
+    m_client->setOwnDisplayName(name, m_displayNameOp);
+    return true;
+}
+
+bool AppController::submitOwnDisplayName(const QString &name)
+{
+    // Single-flight: a second Save while one is in flight would leave two
+    // ops racing for one editor, and the loser's answer would be reported
+    // over the winner's.
+    if (m_displayNameOp != 0)
+        return false;
+    const QString unavailable = ownDisplayNameUnavailableReason();
+    if (!unavailable.isEmpty()) {
+        m_displayNameError = unavailable;
+        Q_EMIT ownDisplayNameStateChanged();
+        return false;
+    }
+    // Trimmed for the comparison and for the wire — a name of spaces is
+    // not a name. The INTERIOR of the string is untouched: no case
+    // folding, no ASCII filter, no normalisation. Emoji, ZWJ sequences,
+    // combining marks and mixed scripts go out exactly as typed.
+    const QString wanted = name.trimmed();
+    if (wanted.isEmpty()) {
+        // Clearing is a separate, deliberate action. An editor emptied by
+        // a stray select-all must never silently erase the name.
+        m_displayNameError =
+            tr("Enter a name, or use Clear to remove your display name.");
+        Q_EMIT ownDisplayNameStateChanged();
+        return false;
+    }
+    if (displayNameLength(wanted) > ownDisplayNameMaxLength()) {
+        // Refused rather than truncated: a silent cut would send something
+        // the user did not type and then report it as saved.
+        m_displayNameError = tr("Display names are limited to %1 characters.")
+                                 .arg(ownDisplayNameMaxLength());
+        Q_EMIT ownDisplayNameStateChanged();
+        return false;
+    }
+    if (wanted == cachedOwnDisplayName()) {
+        // Belt and braces — the editor disables Save in this state and
+        // never reaches here. No error: nothing went wrong, there is
+        // simply nothing to send, and claiming a save for a request that
+        // was never made is a claim we cannot support.
+        if (!m_displayNameError.isEmpty()) {
+            m_displayNameError.clear();
+            Q_EMIT ownDisplayNameStateChanged();
+        }
+        return false;
+    }
+    return dispatchOwnDisplayName(wanted);
+}
+
+bool AppController::clearOwnDisplayName()
+{
+    if (m_displayNameOp != 0)
+        return false;
+    const QString unavailable = ownDisplayNameUnavailableReason();
+    if (!unavailable.isEmpty()) {
+        m_displayNameError = unavailable;
+        Q_EMIT ownDisplayNameStateChanged();
+        return false;
+    }
+    // Deliberately NOT refused when the cached name is already empty: the
+    // cache can be stale or simply never fetched, and asking the server to
+    // remove a field it does not have is harmless — whereas refusing here
+    // would leave a user who really does have a name stuck with it.
+    return dispatchOwnDisplayName(QString{});
+}
+
+void AppController::retireOwnDisplayNameWrite()
+{
+    if (m_displayNameOp == 0 && m_displayNameError.isEmpty())
+        return;
+    m_displayNameOp = 0;
+    m_displayNameError.clear();
+    Q_EMIT ownDisplayNameStateChanged();
+}
+
+void AppController::dismissOwnDisplayNameError()
+{
+    if (m_displayNameError.isEmpty())
+        return;
+    m_displayNameError.clear();
+    Q_EMIT ownDisplayNameStateChanged();
 }
 
 void AppController::switchToAccount(const QString &userId)

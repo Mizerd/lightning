@@ -118,6 +118,20 @@ class AppController : public QObject
     Q_PROPERTY(bool accountSwitching READ accountSwitching
                NOTIFY accountSwitchingChanged)
 
+    // v0.7.4 own display name. The NAME itself is deliberately NOT mirrored
+    // here: the account registry already holds it, and the rail, the
+    // account menu and the Settings identity card all refresh off
+    // AccountManager::accountsChanged. A second copy would be a second
+    // truth. These three carry only what the editor needs and nothing else
+    // does — whether the backend can write a profile at all, whether a
+    // write is in flight, and the last failure's wording.
+    Q_PROPERTY(bool canEditOwnDisplayName READ canEditOwnDisplayName
+               NOTIFY loggedInChanged)
+    Q_PROPERTY(bool ownDisplayNameBusy READ ownDisplayNameBusy
+               NOTIFY ownDisplayNameStateChanged)
+    Q_PROPERTY(QString ownDisplayNameError READ ownDisplayNameError
+               NOTIFY ownDisplayNameStateChanged)
+
     // v0.5.0-prep+10: redacted Rust SDK device id (e.g. "GAOT...GBSK")
     // so Settings can show which Lightning session is running without
     // exposing the full id. Empty when the backend is not Rust or the
@@ -562,6 +576,34 @@ public Q_SLOTS:
     // detached. No-op when already switching or the target is unusable.
     Q_INVOKABLE void switchToAccount(const QString &userId);
 
+    // ── v0.7.4 own display name ─────────────────────────────────────────
+    // The write is a single-flight command matched by op id, exactly like
+    // presence: the id is recorded before the backend is called, and an
+    // answer carrying any other id is dropped (it belongs to a previous
+    // account, or to an attempt this controller already retired).
+    bool canEditOwnDisplayName() const;
+    bool ownDisplayNameBusy() const { return m_displayNameOp != 0; }
+    QString ownDisplayNameError() const { return m_displayNameError; }
+    // A client-side ceiling: Matrix specifies no maximum and servers
+    // differ. Mirrors the bound Rust applies before the request goes out.
+    Q_INVOKABLE int ownDisplayNameMaxLength() const { return 255; }
+    // Length in Unicode CODE POINTS. QML's `text.length` counts UTF-16
+    // code units, so an emoji reads as two there and would have the editor
+    // refuse names the server accepts.
+    Q_INVOKABLE int displayNameLength(const QString &name) const;
+    // Returns true when a write was DISPATCHED. False means nothing was
+    // sent: a write is already in flight, the backend cannot write
+    // profiles, the name is empty (clearing is a separate deliberate
+    // action — an empty editor must never silently erase the name), it is
+    // over the ceiling, or it is unchanged. ownDisplayNameError explains
+    // all of those except "unchanged", which is a silent no-op because the
+    // editor disables Save in that state and never reaches here.
+    Q_INVOKABLE bool submitOwnDisplayName(const QString &name);
+    // The explicit CLEAR. Reaches the SDK as `None`, which asks the server
+    // to remove the field rather than to store an empty name.
+    Q_INVOKABLE bool clearOwnDisplayName();
+    Q_INVOKABLE void dismissOwnDisplayNameError();
+
     // v0.7. Fully remove one saved account from this device: if it is the
     // active account this performs a real (server) logout, otherwise it
     // deletes the account's local store, token, and record without touching
@@ -799,6 +841,13 @@ Q_SIGNALS:
     void appIconChanged();
     void initialSyncDoneChanged();
     void accountSwitchingChanged();
+    void ownDisplayNameStateChanged();
+    // Server-CONFIRMED success. The editor closes on this and on nothing
+    // else: renaming to the value the account record already held emits no
+    // accountsChanged at all (SettingsManager::updateAccountProfile writes
+    // only on a real change), so waiting for the registry would hang the
+    // editor on exactly the case that succeeded.
+    void ownDisplayNameSaved();
     void currentRoomIdChanged();
     void loggedInChanged();
     void connectionStatusChanged();
@@ -902,6 +951,27 @@ private:
     // The account whose session most recently succeeded — used to detect a
     // cross-account transition in onLoginSucceeded.
     QString m_lastSessionUserId;
+    // v0.7.4 own display name. 0 = idle; otherwise the id of the ONE write
+    // in flight. The counter is separate from the backend's own op ids on
+    // purpose — this is a caller-owned id, like PresenceManager's.
+    quint64 m_displayNameOp = 0;
+    quint64 m_displayNameOpCounter = 0;
+    QString m_displayNameError;
+    // Dispatch helper shared by the set and clear paths, so the op id is
+    // recorded before the backend call in both.
+    bool dispatchOwnDisplayName(const QString &name);
+    // Empty when a write may be dispatched; otherwise the honest reason it
+    // may not. "Not signed in" and "this backend cannot write a profile"
+    // are different facts and are worded differently.
+    QString ownDisplayNameUnavailableReason() const;
+    // The registry's cached name for the active account, or empty when
+    // there is none. Read only to refuse an unchanged write.
+    QString cachedOwnDisplayName() const;
+    // Retire an in-flight write and its error. Called on every session
+    // teardown (sign-out AND account switch) — retiring the op id is what
+    // makes a late answer stale, so the next account's editor can never
+    // take it as its own.
+    void retireOwnDisplayNameWrite();
     // v0.7 add-account mode: the account to return to when an add-account
     // login fails or the user presses Back. Entering the login screen while
     // a session is active sets it; success with a new account clears it.

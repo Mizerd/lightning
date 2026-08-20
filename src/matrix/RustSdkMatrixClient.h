@@ -327,6 +327,8 @@ public:
     bool supportsMediaBridge() const override { return true; }
     quint64 searchUsers(const QString &query, int limit) override;
     quint64 fetchUserProfile(const QString &userId) override;
+    bool supportsOwnProfileEditing() const override { return true; }
+    void setOwnDisplayName(const QString &name, quint64 opId) override;
     bool supportsUrlPreview() const override { return true; }
     quint64 fetchUrlPreview(const QString &url) override;
     bool supportsGifProvider() const override { return true; }

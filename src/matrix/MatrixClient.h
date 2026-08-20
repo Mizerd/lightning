@@ -459,6 +459,18 @@ public:
     // (or refutes) a bare-localpart candidate the directory may not list.
     virtual quint64 fetchUserProfile(const QString &userId)
     { Q_UNUSED(userId); return 0; }
+    // v0.7.4: the signed-in account's OWN display name. Backends that
+    // cannot write a profile keep the false default and the UI never
+    // offers the affordance — a void call with no answer would otherwise
+    // leave the editor spinning forever.
+    virtual bool supportsOwnProfileEditing() const { return false; }
+    // Set — or, with an EMPTY `name`, CLEAR — the own display name. The op
+    // id is the CALLER's (the presence precedent: a void command whose
+    // answer is matched by id), so the caller can record it before any
+    // answer can arrive. Answers exactly once on ownDisplayNameChanged,
+    // including for a synchronous refusal, so the caller never hangs.
+    virtual void setOwnDisplayName(const QString &name, quint64 opId)
+    { Q_UNUSED(name); Q_UNUSED(opId); }
     // v0.5.12: client-side URL preview (Rust validates and fetches the target;
     // the client never does). Backends without support return 0.
     virtual bool supportsUrlPreview() const { return false; }
@@ -973,6 +985,13 @@ Q_SIGNALS:
                              const QString &displayName,
                              const QString &avatarUrl,
                              const QString &category);
+    // v0.7.4: terminal answer for setOwnDisplayName(), matched by the
+    // caller's op id. `error` is the SERVER's own sanitized sentence when
+    // it sent one, and EMPTY when it did not (a timeout, a transport
+    // failure, or a synchronous refusal) — the presentation layer supplies
+    // the wording for that case rather than inventing a server message.
+    // The name itself is never carried back: the caller already holds it.
+    void ownDisplayNameChanged(quint64 opId, bool ok, const QString &error);
     // v0.5.11: URL-preview result. `fields` carries only whitelisted
     // OpenGraph values (title, description, siteName, imageMxc, imageMime,
     // imageWidth, imageHeight, imageSize) — never the requested URL.

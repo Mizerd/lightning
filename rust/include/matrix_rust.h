@@ -522,6 +522,19 @@ char *mx_rust_get_user_profile(void *client,
                                const char *user_id,
                                unsigned long long op_id);
 /*
+ * v0.7.4: set — or CLEAR — the signed-in account's own display name via the
+ * SDK's Account::set_display_name. An EMPTY `name` means clear (the SDK
+ * chooses the MSC4133 delete-profile-field endpoint where the server
+ * advertises it); a non-empty one is bounded at 255 Unicode scalar values
+ * in Rust. The name is never logged and never echoed back.
+ * Result event: {"type":"own_display_name_result","op_id",…,"ok",
+ * "error"} — `error` carries only the server's own sanitized sentence, and
+ * is empty when the server said nothing usable (including a timeout).
+ */
+char *mx_rust_set_display_name(void *client,
+                               const char *name,
+                               unsigned long long op_id);
+/*
  * v0.7.x Matrix presence: one bounded polling round. `user_ids_json` is a
  * JSON array of user-id strings (invalid entries dropped, batch capped at
  * 40 in Rust). Sliding Sync carries no presence, so C++ polls exactly the
