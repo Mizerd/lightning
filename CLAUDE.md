@@ -26,204 +26,116 @@ frontend.
 
 ## 2. Current release and development state
 
-Release facts, verified on 2026-08-18:
+Latest published release: **Lightning 0.7.4** (`v0.7.4` -> `e8139ed`),
+notes in `docs/releases/v0.7.4.md`. The application version reads
+**0.7.4** in `CMakeLists.txt` (`APP_VERSION_LABEL`), `rust/Cargo.toml`,
+and the Rust/HTTP user agent. It is released, so the next bump is a new
+release checkpoint and only on Rokas's explicit request (§14).
 
-- Latest published release: **Lightning 0.7.3** (`v0.7.3` -> `8da2e81`),
-  cut by lightning-deploy pipeline **104** in `RELEASE_ACTION=create`
-  mode: all 19 jobs green on the first attempt, 9 assets published. The
-  release that makes UPDATING work: 0.7.2 was the first that could be
-  installed as an update, and doing it for real found msiexec rejecting
-  Qt's forward-slash path (1619) and the portable swap asking Windows to
-  rename a directory holding the running helper's mapped DLLs.
-  Verified ANONYMOUSLY rather than from job status: all 9 GitLab package
-  links 200 under curl; the `latest` manifest reports 0.7.3, names tag
-  v0.7.3 and carries `mirror_url` on all 6 artifacts; its Ed25519
-  signature (`lightning-release-2026a`) VERIFIES and a one-field-changed
-  copy is REJECTED; the GitHub release has 9 assets, its annotated tag
-  peels to the same commit, and a package fetched from the mirror matches
-  the GitLab-signed SHA-256 exactly. Release notes:
-  `docs/releases/v0.7.3.md`.
-  First release carrying the Flatpak ID **org.lightning_matrix.Lightning**
-  (was `net.smetonis.Lightning`; lightning-deploy `7e84170`) — a 0.7.2
-  Flatpak BUNDLE is not upgraded in place and must be reinstalled.
-  NOT live-validated: the Windows MSI and portable fixes CANNOT be reached
-  by updating from 0.7.2, because the updater that performs an install is
-  the one already on disk. Those two need one manual install of 0.7.3;
-  the first genuine proof of them is the upgrade INTO 0.7.4. The Setup EXE
-  path was never affected and updates normally.
-- Previous release: **Lightning 0.7.2** (`v0.7.2` -> `7c736c3`),
-  cut by lightning-deploy pipeline **103** in `RELEASE_ACTION=create`
-  mode: all 19 jobs green on the first attempt, 9 assets published.
-  Verified ANONYMOUSLY rather than from job status: all 9 GitLab package
-  links 200 under curl; the `latest` update manifest fetches, reports
-  0.7.2, carries `mirror_url` on every one of its 6 artifacts, and its
-  Ed25519 signature (`key_id: lightning-release-2026a`) VERIFIES against
-  the real public key — and a manifest with one byte changed is REJECTED,
-  so that check is not vacuous; the GitHub release has 9 assets, its
-  annotated tag peels to the same commit as the GitLab release, and a
-  package downloaded from the mirror matches the GitLab-signed SHA-256
-  exactly. Release notes: `docs/releases/v0.7.2.md`.
-  NOT live-validated: **no real upgrade has still ever been performed.**
-  0.7.2 is the first release that can be installed as an UPDATE (0.7.1
-  was the first that could be updated from), so that test is now
-  available and is the highest-value thing to do next — see
-  `docs/updates.md`. Nothing in the 0.7.2 round has been checked against
-  Element for interoperability either.
-- Previous release: **Lightning 0.7.1** (`v0.7.1` -> `25a01f1`),
-  cut by lightning-deploy pipeline **102** in `RELEASE_ACTION=create`
-  mode: all 19 jobs green, 9 assets published. First release carrying the
-  secure updater, and the first ever run of `sign-update-manifest` and
-  `mirror-release-to-github`. Verified ANONYMOUSLY rather than from job
-  status: all 9 GitLab package links 200; the `latest` update manifest
-  fetches, reports 0.7.1, carries `mirror_url`, and its Ed25519 signature
-  VERIFIES against the embedded key (`lightning-release-2026a`); the
-  GitHub release has 9 assets and its tag peels to the same commit; and
-  GitHub's bytes match the signed SHA-256. Release notes:
-  `docs/releases/v0.7.1.md`.
-  Three pipelines were burned first (99/100/101), all in CI plumbing and
-  none reaching publication: no `make`; bare `gcc` without libc6-dev; and
-  an NSIS payload assertion using `strings`, which cannot work under
-  `SetCompressor /SOLID lzma`. VERIFY CI JOB SCRIPTS IN A REAL
-  `docker run debian:13.6-slim` — the nix dev shell supplies a toolchain
-  through stdenv and hid two of those. Also: a doomed pipeline keeps
-  running its other jobs and HOLDS the runners; cancel it before
-  retriggering or the retry sits pending.
-  NOT live-validated: no real MSI/EXE/portable/AppImage/DEB/RPM upgrade
-  has been performed. 0.7.1 is the first release that can be updated
-  FROM, so the first true end-to-end upgrade is the one into 0.7.2.
-- Earlier release: **Lightning 0.7.0** (`v0.7.0` -> `cd91b9c`),
-  cut by lightning-deploy pipeline **98** in `RELEASE_ACTION=create` mode:
-  all 17 jobs green (the fleet + the macOS arm64 test bundle via
-  `BUILD_MACOS_PACKAGES=true` — built and validated on the Mac mini
-  runner but never published, pending code signing), 9 assets published,
-  hash-verified, and every link confirmed anonymously downloadable.
-  Pipeline 97 failed only `build-rpm` (the RPM spec missed the new
-  scalable SVG icon; fixed in lightning-deploy `ca24f16`). Release notes:
-  `docs/releases/v0.7.0.md`. OAuth is fully live-validated (see §7).
-  NOTE: anonymous probes of package links 403 under Python's default
-  user-agent (reverse-proxy bot filter) — test with curl, it is not an
-  access failure.
-- Previous releases: `v0.6.6` -> `f35bc8c`, `v0.6.5` -> `4cdace3`,
-  `v0.6.4` -> `e719bbe`, `v0.6.3` -> `97f10b7`, `v0.6.2` -> `fe3b85f`,
-  `v0.6.1` -> `86d30b4`, `v0.6.0` -> `2157194` (all immutable, unchanged)
-- Application version: **0.7.3** in `CMakeLists.txt`, `rust/Cargo.toml`, and
-  the Rust/HTTP user agent — released, so the next bump is a new checkpoint
+`matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to
+**0.18.0** in `rust/Cargo.lock`; UI and base are exact-pinned in
+`rust/Cargo.toml`. Dependencies are lock-file controlled — never update
+them incidentally.
 
-0.6.6 released the thirty commits that had accumulated since `v0.6.5`:
-Element-style read receipts (`c060ef5`, `3afc2d0`, `30ee39b`), per-room
-notification modes promoted to server push rules (`21d5fb8`), QR device
-verification alongside SAS (`6fa6378`; the only dependency change in the
-release), locally-saved GIFs reworked to one star with one destination
-(`44c29aa`, `52cf6ca`, `e39439a`, `9531684`), pickers pinned to the composer
-and made resizable (`dbbd484`, `467a391`, `e48fe8d`), find-in-timeline match
-highlighting (`97cef4f`), and the room timeline rebuilt without height
-virtualization (`1e50f6a`, `080c186`, `5dad0fd`, `e3a7d7a`, `8f84d18`,
-`263268b`) after the staging/freeze mechanism from `225c7b3` was removed
-entirely. `60f2c54` restored the README screenshots to native resolution.
+### Release inventory (all tags immutable)
 
-**Carried into the release, and still open:** CTest was **85/87 on both
-trees** at release time, not 87/87. `timeline-pane-qml` (36 passed / 27
-failed) and `timeline-hydration-qml` (5 passed / 2 failed at release; 4/3 in
-the current desktop environment — the extra case fails identically with the
-release-era binaries, i.e. environment drift, not a code regression) have
-failed continuously since the timeline was rebuilt in `1e50f6a`; `8f84d18`
-ported seven other suites to the solid-timeline contract and recorded these
-two as explicitly not addressed. They are stale assertions against the
-previous virtualized contract rather than separately observed defects, but
-the regression net for the timeline is incomplete and porting them is the
-highest-value open work. This is disclosed in `docs/releases/v0.6.6.md`.
+| Version | Commit | Deploy pipeline | Notes file |
+|---|---|---|---|
+| 0.7.4 | `e8139ed` | not recorded here (105 FAILED, see below) | `docs/releases/v0.7.4.md` |
+| 0.7.3 | `8da2e81` | 104, 19/19 green first attempt, 9 assets | `docs/releases/v0.7.3.md` |
+| 0.7.2 | `7c736c3` | 103, 19/19 green first attempt, 9 assets | `docs/releases/v0.7.2.md` |
+| 0.7.1 | `25a01f1` | 102, 19/19 green, 9 assets | `docs/releases/v0.7.1.md` |
+| 0.7.0 | `cd91b9c` | 98, 17/17 green, 9 assets | `docs/releases/v0.7.0.md` |
+| 0.6.6 | `f35bc8c` | — | `docs/releases/v0.6.6.md` |
+| 0.6.5 | `4cdace3` | — | `docs/releases/v0.6.5.md` |
+| 0.6.4 | `e719bbe` | — | `docs/releases/v0.6.4.md` |
+| 0.6.3 | `97f10b7` | — | `docs/releases/v0.6.3.md` |
+| 0.6.2 | `fe3b85f` | — | `docs/releases/v0.6.2.md` |
+| 0.6.1 | `86d30b4` | attach-existing backfill | — |
+| 0.6.0 | `2157194` | — | — |
 
-As of the 2026-08-14 user-report round the registered count is **95 per
-tree** (the `room-info-moderation` suite was added) and the tree measures
-**93/95 on both trees** — ONLY the two timeline suites above, with
-`timeline-pane-qml` improved to 37 passed / 26 failed (the read-receipt
-placement test was ported to the delegate-level fixture and the new
-right-edge-rail contract) and `timeline-hydration-qml` at 5 passed / 2
-failed (the release-era number). Earlier revisions of this paragraph
-claimed 85/87, then 86/91, then 92/94; the pessimistic drift entries
-(`settings-shell-qml`, `design-acceptance`, `verification-qr-qml`) were
-offscreen pixel sampling and a host KDE style leak — exactly why these
-numbers are flagged as describing one desktop on one day. Run the suites
-yourself rather than trusting this paragraph. UPDATE 2026-08-18: both
-timeline suites were repaired (one real gate defect, one fixture bug, two
-tests inverted — see §16) and the registered tree measured fully green
-offscreen on that day.
+Every SHA above predating 2026-08-11 is a **pre-rewrite** identifier
+(§4). Run `git log --oneline v0.7.4..HEAD` rather than trusting any
+narrative in this file; it goes stale immediately. Never quote a CTest
+count from here either — run the suites yourself (§12).
 
-Run `git log --oneline v0.6.6..HEAD` rather than trusting this list; it will
-go stale the same way the narrative below did.
+0.7.1 was the first release carrying the secure updater and the first
+ever run of `sign-update-manifest` and `mirror-release-to-github`. The
+0.7.0 round also built and validated a macOS arm64 bundle on the Mac
+mini runner (`BUILD_MACOS_PACKAGES=true`) but deliberately **never
+published it**, pending code signing. OAuth/OIDC sign-in is the one
+feature block that IS fully live-validated (0.7.0; see §7) — nothing
+else in the 0.7.x rounds is.
 
-The narrative below describes the 0.6.2-era checkpoints and has not been
-rewritten for every release since. Treat it as background, not as the current
-inventory: source and `git log` are authoritative, and this section will be
-stale again before it is next read.
-- The 2026-07-20 stability checkpoints (`790a75b`..`fe3b85f`) delivered:
-  the initial-timeline presentation gate + persistent scroll anchoring
-  (bottom-pinned and scrolled-up) with row-scoped Set-diff application;
-  the shared Skeleton primitive with typed media placeholders and real
-  video/audio/voice/sticker timeline rows; room-member profile hydration
-  through `Timeline::fetch_members` with the localpart display-name
-  fallback (never a bare MXID label) and explicit avatar states (a loaded
-  transparent avatar never sits on the fallback colour); the
-  verified-session Megolm bootstrap (`BackupDownloadStrategy::OneShot`, a
-  sanitized per-session crypto-bootstrap observer, CryptoBootstrapModel
-  status in Settings); the repeated account-switch fix (active-account
-  changes re-notify the accounts list); the BootScreen startup state (the
-  login form is never instantiated while a saved session restores); the
-  favorite-GIF identity fix (choose() resolves the visible model);
-  Lightning-styled AppMenu/AppMenuItem popovers for message/room/composer
-  actions with ONE shared reaction picker + profile popover per view;
-  emoji category buckets and a single shared tone popup; and five
-  selectable bundled OFL UI fonts (per-account, Settings → Appearance).
-- Older context: the 2026-07-19 checkpoints added
-  the design-handoff UI shell (four-pane layout, Moss Light / Indigo Night /
-  Deep Teal themes, bundled Manrope + JetBrains Mono), persistent
-  multi-account support with safe in-app switching, the eager room-preview /
-  avatar-readiness fixes, and the real application icon + desktop entry.
-  The 2026-07-20 design-fidelity checkpoints consolidated the three-style
-  button system (IconButton), rebuilt the composer to the correction spec
-  (one card, formatting toolbar + markdown sending through the SDK),
-  completed the Appearance page (featured theme cards, functional
-  message-layout modes, text-size scaling — all per-account), and rebuilt
-  threads as the exclusive 340px right-side panel. The same-day runtime
-  correction pass then fixed GIF key discovery (the app itself reads
-  lightning-gif.env: environment > env file > build key), switched the app
-  to the flat Basic style with shared themed controls (AppButton,
-  SegmentedControl, AppComboBox, AppTextField) across Room Information,
-  Settings, the GIF picker, and invites, made Settings a FULL application
-  view (rail/room list/timeline/composer hidden while open), and gave the
-  right panel one authoritative state where closing a thread collapses to
-  None — never back to Room Information. The application version stays
-  0.6.2 until an explicitly requested release.
-- `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to **0.18.0** in
-  `rust/Cargo.lock`; UI and base are exact-pinned in `rust/Cargo.toml`
-- Dependencies remain lock-file controlled. Do not update them incidentally.
+Releases are package-first: the tag and GitLab Release are created by
+the lightning-deploy pipeline only after packages publish and verify
+(§14). Never create a tag or release by hand, and never move one.
 
-Important checkpoints leading into 0.6.1, newest first:
+### What release rounds have learned (operational traps)
 
-- The `0.6.1` release completed the user-facing multi-provider GIF browser
-  (GIPHY/KLIPY tabs, trending/search/categories, favorites, recents, autoplay
-  and safe-search settings), the safe validated provider download pipeline, and
-  room and real Matrix-thread GIF sending through the SDK media path.
-- `fdd6c88` licensed the project as GPL-3.0-or-later and refreshed the README.
-- `73ee4ed`, `4a01f11`, and `373087a` added GIPHY/KLIPY response parsing, a
-  shared provider abstraction, bounded SDK-backed network transport, result
-  models, and provider-agnostic search/trending/pagination control.
-- `f25dfbd`, `5b9bf99`, `49b2708`, `01784af`, and `96ce316` added live thread
-  summaries, summary cards, cold-cache thread loading, and correct removal of
-  true thread replies from the main timeline.
-- `580a1a1`, `20b33f6`, and `0ab7e33` strengthened thread E2EE recovery,
-  account/room/thread generation isolation, and safe diagnostics.
-- `c197129`, `0d05272`, `712b1e8`, and `f98e65d` added notification sounds and
-  privacy controls, the room/thread quick switcher, loaded-timeline search,
-  and thread attachment sending.
-- `98d0bf0` through `cc2414f` hardened notification cold starts/click routing,
-  stale thread failures, scrolling, and real room IDs in thread links/details.
+- **Trigger variables must be a JSON body.** `glab api --input` without
+  an explicit `-H "Content-Type: application/json"` returns **HTTP 415**.
+  And passing them as form fields (`-f "variables[0][key]=..."`) is
+  **silently ignored**: GitLab creates a pipeline with **zero**
+  variables, which then runs as a non-publishing snapshot build and
+  reports success while publishing nothing. Pipeline **82** was lost to
+  exactly that. Always confirm with
+  `glab api projects/7/pipelines/<id>/variables` before trusting a run.
+- **Verify anonymously, never from job status.** The bar used for 0.7.1
+  through 0.7.3: every GitLab package link returns 200; the `latest`
+  manifest fetches, reports the right version, names the right tag, and
+  carries `mirror_url` on all 6 artifacts; its Ed25519 signature
+  (`key_id: lightning-release-2026a`) VERIFIES against the real public
+  key **and a one-field-changed copy is REJECTED** (otherwise the check
+  is vacuous); the GitHub release has its 9 assets and its annotated tag
+  peels to the same commit as the GitLab release; and a package fetched
+  from the mirror matches the GitLab-signed SHA-256 exactly.
+- **Anonymous probes 403 under Python's default user-agent** (a
+  reverse-proxy bot filter). Test package links with **curl** — a 403
+  there is not an access failure.
+- **Verify CI job scripts in a real `docker run debian:13.6-slim`.** The
+  nix dev shell supplies a toolchain through stdenv and hid two
+  publication-blocking failures (no `make`; bare `gcc` without
+  libc6-dev). A third burned pipeline asserted an NSIS payload with
+  `strings`, which cannot work under `SetCompressor /SOLID lzma`.
+  Pipelines 99/100/101 were all lost to CI plumbing before 0.7.1
+  published; pipeline 97 lost only `build-rpm` (the spec missed the new
+  scalable SVG icon, fixed in lightning-deploy `ca24f16`). Pipeline
+  **105** lost `build-deb` to a Qt version difference the dev shell
+  cannot show you (Qt 6.11 vs Debian's 6.8.2 — see §16); the same
+  container plus `-fsyntax-only` reproduced it and swept all 104
+  translation units, instead of finding the rest one 30-minute pipeline
+  at a time.
+- **Cancel a doomed pipeline immediately.** It keeps running its other
+  jobs and **HOLDS the runners**, so the retry sits pending.
+- **The Flatpak application ID changed in 0.7.3** to
+  `org.lightning_matrix.Lightning` (was `net.smetonis.Lightning`;
+  lightning-deploy `7e84170`). A 0.7.2 Flatpak **bundle is not upgraded
+  in place and must be reinstalled**.
 
-Do not describe these systems as future-only work. Keep the version at 0.6.2
-until an explicitly requested release checkpoint changes it. Live validation
-still pending on a real desktop: verified-session Element interoperability of
-the key bootstrap, repeated account switching, favorite-GIF sends, startup
-restoration, message-action popovers, and the font options.
+### Update / upgrade live-validation truth
+
+0.7.1 was the first release that could be updated **FROM**; 0.7.2 the
+first that could be installed **AS** an update. The procedure is in
+`docs/updates.md`.
+
+- **Exercised for real** (the 0.7.2 -> 0.7.3 round): the upgrade found
+  the Windows MSI failing with **1619** because msiexec has its own
+  argument parser and rejects Qt's forward-slash path (proven by hand:
+  `/` errored, `\` installed), and the Windows portable swap failing
+  because it renamed the install DIRECTORY while the running helper and
+  its mapped Qt DLLs lived inside it. Both fixed in 0.7.3.
+- **NOT live-validated:** those two Windows fixes cannot be reached by
+  updating *from* 0.7.2, because the updater that performs an install is
+  the one already on disk. Their first genuine proof is the upgrade
+  **INTO 0.7.4**, and there is no record here that it was performed. The
+  Setup EXE path was never affected and updates normally.
+- **NOT TESTED:** any real AppImage / DEB / RPM / MSI / portable upgrade
+  beyond the above; Element interoperability of anything in the 0.7.2,
+  0.7.3 or 0.7.4 rounds.
+- Windows packages remain **unsigned**; the signed update manifest is
+  the integrity guarantee on every platform. Do not describe the
+  packages as signed.
 
 ## 3. User and response preferences
 
@@ -397,6 +309,7 @@ needed, and presentation-safe metadata at the Rust/C++ boundary. Do not weaken
 SSRF, DNS/IP, redirect, MIME, scheme, response-size, or media-origin validation
 to make a preview/provider test pass.
 
+
 ## 7. Implemented feature summary
 
 Treat the following as implemented in the current repository, while preserving
@@ -407,232 +320,183 @@ backend capability checks and honest live-test status.
 - Password login, persistent SDK session/store, session restoration, logout,
   sync/initial-sync state, and account-scoped local reset paths
 - **OAuth 2.0 / OIDC browser sign-in** through `Client::oauth()` on
-  matrix-sdk 0.18 (`rust/src/oauth.rs`). PKCE, the CSRF `state`, the code
-  exchange and the token-refresh REQUEST are SDK-owned; Lightning implements
-  no OAuth primitive. Refresh needs two things the SDK does not do by itself:
-  `ClientBuilder::handle_refresh_tokens()` (it defaults to FALSE, and without
-  it a 401 is forwarded rather than renewed, so a saved refresh token is
-  inert), and writing the ROTATED pair back — `oauth::spawn_token_persistence`
-  subscribes to `SessionChange::TokensRefreshed` and persists through
-  `SettingsManager::updateSessionTokens`. Skipping that leaves a CONSUMED
-  refresh token in the store, and an OAuth 2.1 server treats its reuse as
-  compromise. `SessionChange::UnknownToken` surfaces as the existing
-  `AccessTokenRevoked` state instead of an endless sync-failure loop. It adds only the system-browser launch and
-  `src/auth/OAuthCallbackServer.*` — loopback-only (127.0.0.1), ephemeral
-  port, single-shot, size-bounded, with a timeout, because matrix-sdk's own
-  `local-server` helper is gated behind `sso-login`, whose `axum` dependency
-  is not vendored in this offline `--locked` build. Costs NO dependency
-  change: `oauth2`/`oauth2-reqwest` are already non-optional deps of
-  matrix-sdk 0.18.
-  **Two-phase store lifecycle, and it is mandatory.** Password login knows the
-  account before it contacts the server; OAuth does not — the user id arrives
-  only from `whoami` after the code exchange. So phase A authenticates on a
-  bootstrap handle with NO persistent store (the builder's in-memory default;
-  it must never sync, or it would upload device keys that phase B would then
-  contradict), and phase B derives the normal `AccountIdentity`, applies
-  `rust_session::oauthLoginBlockReason()`, and only then opens the account's
-  sqlite store and restores through `oauth().restore_session()`. That policy
-  is the OAuth counterpart of `passwordLoginBlockReason`: a device the server
-  just issued must never adopt a store belonging to a different device. Note
-  it deliberately does NOT suggest a local reset — that store belongs to a
+  matrix-sdk 0.18 (`rust/src/oauth.rs`). PKCE, CSRF `state`, code exchange
+  and the refresh REQUEST are SDK-owned; Lightning implements no OAuth
+  primitive. Two things the SDK does NOT do itself and must not be dropped:
+  * `ClientBuilder::handle_refresh_tokens()` **defaults to FALSE** — without
+    it a 401 is forwarded rather than renewed and a saved refresh token is
+    inert.
+  * The ROTATED pair must be written back (`oauth::spawn_token_persistence`
+    on `SessionChange::TokensRefreshed` →
+    `SettingsManager::updateSessionTokens`). Skipping it leaves a CONSUMED
+    refresh token in the store, and an OAuth 2.1 server treats its reuse as
+    compromise.
+  `SessionChange::UnknownToken` surfaces as the existing `AccessTokenRevoked`
+  state, not an endless sync-failure loop. Added surface is only the
+  system-browser launch and `src/auth/OAuthCallbackServer.*` — loopback-only
+  (127.0.0.1), ephemeral port, single-shot, size-bounded, timed out; hand-
+  rolled because matrix-sdk's `local-server` helper needs `sso-login`/`axum`,
+  not vendored in this offline `--locked` build. Costs no dependency change.
+  **Two-phase store lifecycle, mandatory.** OAuth learns the user id only
+  from `whoami` after the code exchange, so phase A authenticates on a
+  bootstrap handle with NO persistent store (in-memory default; it must
+  never sync, or it would upload device keys phase B would contradict), and
+  phase B derives `AccountIdentity`, applies
+  `rust_session::oauthLoginBlockReason()`, then opens the account's sqlite
+  store and `oauth().restore_session()`. Rule: a device the server just
+  issued must never adopt a store belonging to a different device. That
+  block deliberately does NOT suggest a local reset — the store belongs to a
   live device whose keys are still valid.
-  Sessions carry an `authType` discriminator (QSettings, not the SecretStore,
-  so restore routes correctly even when the keyring is locked): `password`
-  restores via `matrix_auth()`, `oauth` via `oauth()`. Refresh tokens and the
-  dynamic-registration client id are CREDENTIALS in the SecretStore, never in
-  QSettings, never exposed to QML, never logged. Legacy Matrix SSO is
-  detected and disclosed as unsupported, never offered.
-  Live validation (2026-08-15): the browser sign-in flow **PASSED against
-  matrix.org** (MAS/OIDC) — Rokas logged in end-to-end, and separately
-  **registered a brand-new account through the Google upstream IdP** and
-  logged in with it, exercising the full multi-step MAS journey and the
-  two-phase store bootstrap for a never-seen account. Refresh, restart
-  restoration and sign-out were then confirmed working live with his
-  original test account — the OAuth path is fully live-validated. The same
-  session surfaced a discovery-UX defect — the method choices only
-  appeared after Enter in the homeserver field — fixed by probing the
-  prefilled server on open and debounce-probing while typing.
-- `restore_client()` previously hardcoded `refresh_token: None`, silently
-  discarding a saved refresh token on every restore, so an expired access
-  token surfaced as `M_UNKNOWN_TOKEN` instead of being renewed. Fixed for
-  password sessions as well as OAuth
-- Persistent multi-account support: account records live under
-  `accounts/<slug>/` in QSettings (SettingsManager), tokens stay per-user-id
-  in the SecretStore, and the session accessors are views of the active
-  account. `AppController::switchToAccount` detaches the local session
-  (`MatrixClient::detachSession` — emits `loggedOut` for model cleanup
-  WITHOUT server logout or store deletion), points settings at the target,
-  and restores it through the normal restore path. Only the active account
-  syncs. Removal/logout are scoped to one account; logout continues with the
-  most recently added remaining account. The `accountSwitching` property
-  guards the UI; a failed activation falls back once to the previous account
+  Sessions carry an `authType` discriminator in **QSettings, not the
+  SecretStore**, so restore routes correctly even with a locked keyring:
+  `password` → `matrix_auth()`, `oauth` → `oauth()`. Refresh tokens and the
+  dynamic-registration client id are CREDENTIALS in the SecretStore, never
+  in QSettings, never exposed to QML, never logged. Legacy Matrix SSO is
+  detected and disclosed as unsupported, never offered. Live validation
+  (2026-08-15): **PASSED against matrix.org** (MAS/OIDC) end-to-end incl.
+  Google-IdP registration, refresh, restart restoration and sign-out — the
+  OAuth path is fully live-validated.
+- `restore_client()` previously hardcoded `refresh_token: None`, discarding
+  a saved refresh token on every restore so an expired access token surfaced
+  as `M_UNKNOWN_TOKEN`. Fixed for password sessions as well as OAuth
+- Persistent multi-account support: records under `accounts/<slug>/` in
+  QSettings, tokens per-user-id in the SecretStore, accessors are views of
+  the active account. `AppController::switchToAccount` detaches the local
+  session (`MatrixClient::detachSession` emits `loggedOut` for model cleanup
+  WITHOUT server logout or store deletion), repoints settings, restores
+  normally. Only the active account syncs; removal/logout are scoped to one
+  account and logout continues with the most recently added remaining one. A
+  failed activation falls back once
 - Secret Service/libsecret token storage when available, with an explicit
   insecure QSettings fallback warning
 - Rust-backed unified sync/Sliding Sync behavior with compatibility fallback
 
 ### Rooms and navigation
 
-- Joined rooms, direct-message detection from `m.direct`, invites, Space
-  hierarchy, room membership/actions, room information, and room creation
-- Quick switching across rooms, direct messages, Spaces, invites, and threads
+- Joined rooms, DM detection from `m.direct`, invites, Space hierarchy, room
+  membership/actions, room information, and room creation
+- Quick switching across rooms, direct messages, Spaces, invites, threads
 - Activity ordering, unread state/navigation, first-unread and latest jumps,
   threaded receipts, and local marked-unread behavior
-- Matrix presence indicators (2026-08-15) on unambiguous 1:1 DM rows, the
-  People list and the member profile popover, via bounded client polling —
-  Sliding Sync has no presence extension. See §16 for the full mechanism
-  and honesty rules; live validation NOT TESTED
-- **Member power levels** (2026-08-15) through the SDK's own
-  `Room::update_power_levels`, which rewrites `m.room.power_levels`
-  preserving every other user's value — including arbitrary custom numbers.
-  Offered from the member profile popover; the OFFER policy lives in
-  `RoomInfoController::canSetPowerLevel` (architecture §5), which applies
-  the rules the server will apply anyway: never above the viewer's own
-  level, never against a peer at or above it, self-DEMOTION only, and an
-  unknown target FAILS CLOSED (levels may legitimately be negative — Element's
-  "Restricted" is -1 — so absence of the roster row, never a sentinel, is
-  the unknown state). `roleLabelForLevel` renders 100/50/users_default as
+- Matrix presence indicators on unambiguous 1:1 DM rows, the People list and
+  the member profile popover, via bounded client polling — Sliding Sync has
+  no presence extension. §16 carries the mechanism and honesty rules; live
+  validation NOT TESTED
+- **Member power levels** via `Room::update_power_levels`, which preserves
+  every other user's value including arbitrary custom numbers. OFFER policy
+  is `RoomInfoController::canSetPowerLevel` (§5), applying what the server
+  applies anyway: never above the viewer's own level, never against a peer
+  at or above it, self-DEMOTION only, and an unknown target **FAILS CLOSED**
+  — levels may legitimately be NEGATIVE (Element's "Restricted" is -1), so
+  absence of the roster row, never a sentinel, is the unknown state.
+  `roleLabelForLevel` renders 100/50/users_default as
   Administrator/Moderator/Member and **anything else as its number**: a room
-  using 42 must not be relabelled 50, and must not be SAVED as 50 either.
-  Nothing is applied optimistically — the write completes and the roster is
-  re-read, so a rejection cannot leave a value the room does not have.
+  using 42 must not be relabelled 50 and must not be SAVED as 50. Nothing is
+  applied optimistically — the write completes, the roster is re-read, so a
+  rejection cannot leave a value the room does not have.
   `own_can_change_power_levels` is the SDK's `can_send_state`, never a role
   label. Live homeserver validation NOT TESTED
-- **Join rule and canonical alias** (2026-08-15) in Room Information →
-  Overview, each gated on the room's REAL required level for that state
-  event. Only `invite` / `public` / `knock` are settable: the restricted
-  rules carry an allow-rule list this surface cannot build, and sending one
-  with an empty list would silently lock the room to invite-only while
-  claiming otherwise — a restricted room is displayed honestly and left
-  alone. The alias path publishes the directory mapping first
-  (`Client::create_room_alias`) when the alias does not already resolve to
-  this room, because a server rejects a canonical alias it cannot resolve;
-  clearing sends the state event with no alias and deliberately does NOT
-  delete the directory mapping. Both ride the MEMBER snapshot, so a
-  successful write asks for a roster refresh explicitly — nothing else
-  refetches it for a non-membership state change. Live validation NOT TESTED
-- **Room upgrades / tombstones** (2026-08-16), banner-and-link and
-  deliberately NOT auto-follow. Matrix leaves an upgraded room in place
-  and creates a replacement; Lightning keeps the old room open and
-  readable and OFFERS the successor. That is a security decision as much
-  as a UX one: a room transition discards navigation context and can
-  discard draft state, and `m.room.tombstone` is state anyone with the
-  power level can send — it NAMES the room you would be moved into. No
-  code path changes the current room, joins, or leaves except as the
-  direct result of the user pressing the banner.
-  Room ids come only from the SDK's typed `Room::successor_room()` /
-  `predecessor_room()` (ruma `OwnedRoomId`) — that IS the "parse
-  replacement_room as a real room id" requirement, and nothing
-  hand-parses `m.room.tombstone` or `m.room.create`. The tombstone's
-  `body` NEVER crosses the FFI: free text chosen by whoever sent the
-  event, on a control the user is invited to click, so the banner uses
-  Lightning's own wording.
-  Joined successor -> navigate, no join. Invited or UNKNOWN -> join
-  through `RoomDiscoveryController::join` (so error categories and
-  wait-for-room settling cannot drift from Discover), navigate only once
-  settled. Refused -> stay in the old room with the reason shown inline
-  in the banner. A successor we HOLD but cannot enter is the one case
-  reported inaccessible; one we have never heard of is **Unknown**,
-  because we cannot show the user is unable to join it.
-  `chainVerified` requires the successor's predecessor to point BACK;
-  false-because-unknown means "not established yet", not "bad", and only
-  a CONTRADICTED chain withholds the room list's de-emphasis. That
-  de-emphasis is a demotion WITHIN the room's own category (a fourth
-  top-level sort group would fragment RoomsPanel's `category` sections
-  and demote a superseded invite out of the top block), never a filter.
-  Permalinks are untouched — an old-event permalink still resolves to the
-  old room.
-  Two defects were caught in review, both worth remembering:
-  `navigateRequested` passed a MEMBER over a direct connection to
-  `openRoom`, whose parameter aliased it — `openRoom` re-enters this
-  controller, whose `refresh()` clears that member, so `openRoomTimeline`
-  was never issued and Continue opened the room but not its timeline;
-  and the guard that stops an abandoned join navigating a user who has
-  moved on was retired only by a SUCCESSFUL join, so an abandoned join
-  that FAILED left a token that swallowed a later successful Continue.
-  Live validation NOT TESTED
-- **Unverified-session prompts** (2026-08-15): `sessionVerificationNeeded`
-  is true for exactly one actionable state — signed in, crypto-capable
-  backend, `sessionTrustState == "Not verified"`. "Unknown" (not yet
-  determined) and "Cross-signing unavailable" (no identity to verify
-  against) deliberately do NOT prompt. `sessionVerificationWarning` adds the
-  per-account dismissal, and ONLY the badges (rail cog, Sessions nav dot,
-  corner prompt) read it — the Sessions page states the fact from the
-  undismissible property, so silencing the reminder never hides the truth.
-  The dismissal is strictly account-scoped (NOT `appearanceValue`, which
-  mirrors into a shared global fallback) and is cleared automatically when
-  the session verifies, so it can never silence a later unverified session
+- **Join rule and canonical alias** in Room Information → Overview, each
+  gated on the room's REAL required level for that state event. Only
+  `invite`/`public`/`knock` are settable: restricted rules carry an
+  allow-rule list this surface cannot build, and sending one with an empty
+  list would silently lock the room to invite-only while claiming otherwise
+  — a restricted room is displayed honestly and left alone. The alias path
+  publishes the directory mapping first (`Client::create_room_alias`) when
+  the alias does not already resolve to this room, because a server rejects
+  a canonical alias it cannot resolve; clearing sends the state event with
+  no alias and deliberately does NOT delete the directory mapping. Both ride
+  the MEMBER snapshot, so a successful write must ask for a roster refresh
+  explicitly. NOT TESTED
+- **Room upgrades / tombstones**: banner-and-link, deliberately **NOT
+  auto-follow**. The old room stays open and readable; the successor is
+  OFFERED. Security reason: a transition discards navigation and draft
+  context, and `m.room.tombstone` is state anyone with the power level can
+  send — it NAMES the room you would be moved into. No code path changes the
+  current room, joins, or leaves except as the direct result of the user
+  pressing the banner. Room ids come ONLY from the SDK's
+  `Room::successor_room()` / `predecessor_room()` (ruma `OwnedRoomId`);
+  nothing hand-parses `m.room.tombstone` or `m.room.create`. The tombstone's
+  `body` **NEVER crosses the FFI** (free text chosen by whoever sent the
+  event, on a control the user is invited to click), so the banner uses
+  Lightning's own wording. Joined successor → navigate, no join. Invited or
+  UNKNOWN → join through `RoomDiscoveryController::join` (so error
+  categories and wait-for-room settling cannot drift from Discover),
+  navigate once settled; refused → stay put, reason inline. A successor we
+  HOLD but cannot enter is the one case reported inaccessible; one never
+  heard of is **Unknown**. `chainVerified` requires the successor's
+  predecessor to point BACK; false-because-unknown means "not established
+  yet", and only a CONTRADICTED chain withholds the room list's de-emphasis
+  — a demotion WITHIN the room's own category, never a filter. Permalinks
+  untouched. NOT TESTED
+- **Unverified-session prompts**: `sessionVerificationNeeded` is true for
+  exactly one actionable state — signed in, crypto-capable backend,
+  `sessionTrustState == "Not verified"`. "Unknown" and "Cross-signing
+  unavailable" deliberately do NOT prompt. `sessionVerificationWarning` adds
+  the per-account dismissal and ONLY the badges read it — the Sessions page
+  states the fact from the undismissible property, so silencing the reminder
+  never hides the truth. The dismissal is strictly account-scoped (NOT
+  `appearanceValue`, which mirrors into a shared global fallback) and clears
+  on verification, so it can never silence a later unverified session
 
 ### Timeline and media
 
-- **Pinned messages** (`m.room.pinned_events`, 2026-08-15). Lightning invents
-  NO storage format: the list IS the state event, read through
+- **Pinned messages** (`m.room.pinned_events`). Lightning invents NO storage
+  format: **the list IS the state event**, read via
   `Room::pinned_event_ids()` with `Room::load_pinned_events()` as the
-  `/state` fallback, and written through `Room::pin_event()` /
-  `unpin_event()`, which do the read-modify-send themselves — so a
-  concurrent change can never be clobbered by a stale list of ours.
-  A pinned event is usually NOT in the loaded timeline; each id resolves
-  through `Room::load_or_fetch_event()` (cache-first, one bounded `/event`
-  on a miss, written back to the event cache, decrypted by the SDK in an
-  encrypted room). Fan-out is bounded twice: at most
-  `PINNED_RESOLVE_CAP` (32) resolutions, sequential, 10 s no-retry each; a
-  longer list reports `truncated` rather than issuing hundreds of GETs.
-  The COMPLETE id list crosses uncapped, because that is what answers "is
-  this pinned?" for the message menu — a capped answer there would be a
-  WRONG answer, not a partial one.
+  `/state` fallback (probe spent once per room per session), written via
+  `Room::pin_event()`/`unpin_event()`, **which do the read-modify-send
+  themselves** — a concurrent change can never be clobbered by a stale list
+  of ours. Each pinned id resolves through `Room::load_or_fetch_event()`
+  (cache-first, one bounded `/event` on a miss, SDK-decrypted), fan-out
+  bounded at `PINNED_RESOLVE_CAP` (32) sequential resolutions, 10 s no-retry
+  each; longer lists report `truncated`. **The COMPLETE id list crosses
+  uncapped**, because it answers "is this pinned?" for the message menu — a
+  capped answer there would be a WRONG answer, not a partial one.
   `PinnedMessagesController` tracks the ACTIVE room (not the Room
-  Information panel's room, which may be a Space home). It never applies a
-  pin optimistically: the write completes, then the authoritative list is
-  re-read — on success AND on rejection. A failed READ keeps the last known
-  list (a flaky connection must not read as "nothing is pinned any more").
-  A remote change arrives as a payload-free `room_pinned_changed` poke and
-  is answered by re-reading, so remote and local pins converge on one path.
-  The `/state` fallback probe is spent once per room per session.
-  Entry previews are decrypted message text in an encrypted room: MEMORY
-  ONLY, never CacheStore. Live validation NOT TESTED
+  Information panel's room, which may be a Space home), never applies a pin
+  optimistically (re-reads the authoritative list on success AND rejection),
+  and a failed READ keeps the last known list — a flaky connection must not
+  read as "nothing is pinned any more". A remote change arrives as a
+  payload-free `room_pinned_changed` poke answered by re-reading, so remote
+  and local converge on one path. Entry previews are decrypted text in an
+  encrypted room: **MEMORY ONLY, never CacheStore**. NOT TESTED
 - SDK-backed live timelines and local echoes
 - Text, rich replies, edits, reactions, redactions, typing indicators, read
   receipts, mentions, and room-state activity rows
-- Element-style read-receipt chips on live-room rows (newest 16 receipts
-  cross the bridge with a truthful uncapped total; ONLY the local user is
-  excluded — since 2026-08-12 a user's marker renders even on their own
-  message, matching real Element behavior; the earlier extra
-  sender-exclusion made receipts vanish asymmetrically when the other side
-  sent, see docs/receipt-semantics.md). Thread timeline builders
-  deliberately keep receipt tracking Disabled — SDK receipts are not
-  thread-aware
-- Images, files, clipboard images, encrypted attachments, media viewing/saving,
-  animated GIF attachments, and validated direct-raster inline previews
+- Element-style read-receipt chips on live-room rows: newest 16 receipts
+  cross the bridge with a truthful uncapped total, and **ONLY the local user
+  is excluded** — a user's marker renders even on their own message, as in
+  real Element; the earlier extra sender-exclusion made receipts vanish
+  asymmetrically when the other side sent (docs/receipt-semantics.md).
+  Thread timeline builders deliberately keep receipt tracking **Disabled** —
+  SDK receipts are not thread-aware
+- Images, files, clipboard images, encrypted attachments, media
+  viewing/saving, animated GIF attachments, validated direct-raster previews
 - Inline video/audio playback materializes the decrypted payload as a
-  session-scoped 0600 temp file (wiped on sign-out/switch/exit). Since the
-  2026-08-12 perf round this includes a BOUNDED speculative prefetch for
-  on-screen video/audio rows (declared size ≤ 32 MiB, lowest priority,
-  cancelled/dropped on room switch) governed by the SAME user preference as
-  GIF autoplay ("never" disables all passive media downloads), plus a
-  locally extracted first-frame poster for videos without a Matrix
-  thumbnail (JPEG, RAM image cache only — never disk). In-flight fetches
-  are cancellable end-to-end (QML card → MediaBridge → mx_rust_media_cancel
-  aborts the download task), and the SDK media store runs a real retention
-  policy (max_file_size 24 MiB) so large payloads no longer enter — or
-  stall — matrix-sdk-media.sqlite3
-- **Outgoing videos carry a real poster thumbnail** (2026-08-12). A video
-  queued in the room or thread composer is postered the moment it is added:
-  `AttachmentQueueModel` drives the SAME `VideoPosterExtractor` the receive
-  side uses (offscreen `QMediaPlayer` + `QVideoSink`, black-lead-in skipping,
-  640px JPEG, hard timeout, one job at a time), and the decoded frame is also
-  the only honest source of the video's own width/height and duration on the
-  send side. Dispatch of THAT entry waits for the poster and nothing else;
-  extraction failure is not send failure — the video goes out without a
-  poster, exactly as before. The bytes cross `mx_rust_timeline_send_video` /
-  `mx_rust_thread_send_video`, are re-validated by magic sniffing
-  (`rooms::PosterBytes`, ≤ 2 MiB, SVG and every non-raster refused; a refusal
-  degrades to no thumbnail), and become `AttachmentConfig::thumbnail`. **The
-  SDK owns everything after that**: it uploads the poster as its own media
-  request, encrypts it alongside the payload in an encrypted room, and fills
-  `thumbnail_url`/`thumbnail_file` + `thumbnail_info` on the `m.video` event.
-  Nothing in C++ builds thumbnail content or encrypts anything. Live Element
-  interoperability of the sent posters is NOT TESTED
+  session-scoped 0600 temp file (wiped on sign-out/switch/exit); a BOUNDED
+  speculative prefetch for on-screen video/audio rows (≤ 32 MiB declared,
+  lowest priority, dropped on room switch) governed by the SAME preference
+  as GIF autoplay ("never" disables all passive media downloads); and a
+  locally extracted first-frame poster for videos without a Matrix thumbnail
+  (JPEG, RAM image cache only — never disk). In-flight fetches are
+  cancellable end-to-end (QML card → MediaBridge → `mx_rust_media_cancel`),
+  and the SDK media store runs a retention policy (max_file_size 24 MiB) so
+  large payloads no longer enter or stall matrix-sdk-media.sqlite3
+- **Outgoing videos carry a real poster thumbnail.** `AttachmentQueueModel`
+  drives the same `VideoPosterExtractor` the receive side uses; the decoded
+  frame is also the only honest source of the video's width/height and
+  duration on the send side. Dispatch waits for the poster and nothing else;
+  extraction failure is NOT send failure. Bytes cross
+  `mx_rust_timeline_send_video`/`mx_rust_thread_send_video`, are re-validated
+  by magic sniffing (`rooms::PosterBytes`, ≤ 2 MiB, SVG and every non-raster
+  refused; a refusal degrades to no thumbnail), and become
+  `AttachmentConfig::thumbnail`. **The SDK owns everything after that** —
+  upload, encryption alongside the payload, the thumbnail fields on the
+  `m.video` event. Nothing in C++ builds thumbnail content or encrypts
+  anything. Live Element interop of sent posters: NOT TESTED
 - Backward pagination and retry, stable navigation, loaded-timeline search,
-  message links/permalinks, message details, context menus, and sender profiles
+  message links/permalinks, message details, context menus, sender profiles
 - Link previews with encrypted-room privacy controls and security validation
 - Smooth mouse-wheel motion, touchpad pixel scrolling, configurable wheel
   speed, keyboard scrolling, and per-room position preservation
@@ -643,68 +507,61 @@ backend capability checks and honest live-test status.
 - Thread panel and per-room Threads view, real `m.thread` text/rich replies,
   follow/unfollow where MSC4306 is supported, threaded read receipts, and
   pagination
-- Thread image/file/clipboard attachments through the SDK, including encrypted
-  rooms, with local echoes, send state, and retry/failure handling. Thread
-  video sends carry the same locally extracted poster as the room path
+- Thread image/file/clipboard attachments through the SDK including
+  encrypted rooms, with local echoes, send state, retry/failure handling.
+  Thread video sends carry the same locally extracted poster
   (`mx_rust_thread_send_video`), still routed through the thread-focused SDK
   timeline so the `m.thread` relation and encryption stay SDK-owned
-- Element-style root summary cards with server reply counts, latest metadata,
-  live updates, and conservative unread indication
-- **Thread voice messages** (2026-08-13). The thread composer has the same
-  mic, pill, waveform, cancel and send as the room composer, reusing the ONE
-  shared `VoiceRecorder`. `rooms::send_thread_voice_path` builds the SAME
-  `AttachmentInfo::Voice` as the room path and routes through
-  `mx_rust_thread_send_voice` → the thread-focused SDK timeline, so the
-  `m.thread` relation and encryption stay SDK-owned. There is deliberately
-  NO room-send fallback: a thread voice message that cannot reach its thread
-  must fail, never land in the main timeline. It hands over BYTES, not a
-  path — the SDK resolves `AttachmentSource::File` with `fs::read` INSIDE
-  its spawned task, so reclaiming the recording when the panel closes (one
-  click after Send) could delete it before it was read, and the advanced
-  thread generation would suppress the failure report. Do not switch this
-  back to `File`.
-  Ownership of the shared recorder is ONE authoritative value
-  (`AppController::voiceOwner`), never two per-composer flags: with two,
-  recording in the room composer and then in a thread (opening a thread does
-  not change `currentRoomId`, so cancel-on-room-change never fires) left
-  both armed and one `ready()` sent the same file to BOTH. Ownership is taken
-  only AFTER a successful start and is NEVER stolen from a live recorder —
-  `VoiceRecorder::start()` refuses while Recording/Processing and returns
-  false WITHOUT emitting `failed()`, so moving ownership first orphaned the
-  microphone with no pill and no owner, for up to 15 minutes and across
-  sign-out. Live mic capture and Element interop: NOT TESTED
-- **Thread participant facepiles** (2026-08-13). matrix-sdk-ui 0.18 exposes
-  NO participant list: `ThreadSummary` and `ThreadListItem` both carry only
-  the root sender, the latest reply's sender and a count of REPLIES — never
-  of people, and `num_replies` is not a participant count. So participants
-  come from the thread's own events via
-  `Room::load_or_fetch_event_with_relations` (cache-first, network only on a
-  miss, writes back to the event cache), deduplicated by user id in Rust,
-  root sender first then first-appearance order. Only user id, display name
-  and avatar mxc cross the FFI — never event content. `ThreadManager` caches
-  per (roomId, rootEventId), cleared on sign-out; requests are idempotent per
-  root, and an unanswered one is released after 60s so a root never becomes
-  permanently un-retryable. An empty list means UNKNOWN, never "nobody" — a
-  FAILED lookup is deliberately not cached, and the card falls back to the
-  latest sender's avatar. No "+N" badge: the distinct total beyond the cap is
-  not known.
-  **The fan-out is BOUNDED as of 2026-08-15** (this was the accepted
-  follow-up). The timeline is not virtualized, so every loaded root's card
-  calls `requestParticipants` on the same frame; `ThreadManager` now runs at
-  most `kMaxConcurrentParticipantFetches` (4) at a time with the rest in a
-  FIFO queue (capped at 64 — beyond that a root is DROPPED, which keeps it
-  genuinely retryable, rather than queued forever). A slot is released by the
-  answer **or** by the 60 s timeout, and — importantly — a FAILED (empty)
-  answer releases it too, or one failure per round would shrink the pool
-  permanently. Deduplication now covers cached, in-flight AND queued roots.
-  `setActiveRoom()` (driven from `AppController::setCurrentRoomId`) discards
-  QUEUED work for other rooms but deliberately leaves IN-FLIGHT work running:
-  the cache key is `(roomId, rootEventId)`, so a late answer can only ever
-  populate its own room, and cancelling a fetch already paid for would just
-  make a return visit slower
-- True thread-reply filtering from the live main timeline, cold-cache initial
-  loading, stable per-thread scrolling, quick-switch navigation, and in-place
-  thread E2EE recovery
+- Element-style root summary cards with server reply counts, latest
+  metadata, live updates, conservative unread indication
+- **Thread voice messages.** Same mic, pill, waveform, cancel and send as
+  the room composer, reusing the ONE shared `VoiceRecorder`;
+  `rooms::send_thread_voice_path` builds the same `AttachmentInfo::Voice`
+  and routes through `mx_rust_thread_send_voice`. Invariants:
+  * **NO room-send fallback, ever** — a thread voice message that cannot
+    reach its thread must fail, never land in the main timeline.
+  * It hands over **BYTES, not a path**. The SDK resolves
+    `AttachmentSource::File` with `fs::read` INSIDE its spawned task, so
+    reclaiming the recording when the panel closes (one click after Send)
+    could delete it before it was read, and the advanced thread generation
+    would suppress the failure report. Do not switch back to `File`.
+  * Recorder ownership is ONE authoritative value
+    (`AppController::voiceOwner`), never two per-composer flags: with two,
+    recording in the room composer and then in a thread (opening a thread
+    does not change `currentRoomId`, so cancel-on-room-change never fires)
+    left both armed and one `ready()` sent the same file to BOTH.
+  * Ownership is taken only AFTER a successful start and is NEVER stolen
+    from a live recorder — `VoiceRecorder::start()` refuses while
+    Recording/Processing and returns false WITHOUT emitting `failed()`, so
+    moving ownership first orphaned the microphone with no pill and no
+    owner, for up to 15 minutes and across sign-out.
+  Live mic capture and Element interop: NOT TESTED
+- **Thread participant facepiles.** matrix-sdk-ui 0.18 exposes NO
+  participant list: `ThreadSummary`/`ThreadListItem` carry only the root
+  sender, the latest reply's sender and a count of REPLIES — `num_replies`
+  is not a participant count. Participants therefore come from the thread's
+  own events via `Room::load_or_fetch_event_with_relations` (cache-first),
+  deduped by user id in Rust, root sender first then first-appearance order.
+  Only user id, display name and avatar mxc cross the FFI — never event
+  content. `ThreadManager` caches per (roomId, rootEventId), cleared on
+  sign-out; requests are idempotent per root and an unanswered one is
+  released after 60 s so a root never becomes permanently un-retryable.
+  **An empty list means UNKNOWN, never "nobody"** — a FAILED lookup is
+  deliberately NOT cached, and the card falls back to the latest sender's
+  avatar. No "+N" badge: the distinct total beyond the cap is not known.
+  Fan-out is BOUNDED (the timeline is not virtualized, so every root's card
+  calls `requestParticipants` on the same frame):
+  `kMaxConcurrentParticipantFetches` (4) concurrent + a FIFO queue capped at
+  64, beyond which a root is DROPPED, keeping it genuinely retryable rather
+  than queued forever. A slot is released by the answer, by the 60 s
+  timeout, **and by a FAILED (empty) answer** — otherwise one failure per
+  round would shrink the pool permanently. Dedup covers cached, in-flight
+  AND queued roots. `setActiveRoom()` discards QUEUED work for other rooms
+  but deliberately leaves IN-FLIGHT work running: the cache key is
+  `(roomId, rootEventId)`, so a late answer can only populate its own room
+- True thread-reply filtering from the live main timeline, cold-cache
+  initial loading, stable per-thread scrolling, quick-switch navigation, and
+  in-place thread E2EE recovery
 
 ### E2EE
 
@@ -715,17 +572,17 @@ backend capability checks and honest live-test status.
   recovery-key/passphrase backup restore controls
 - SAS emoji device verification in both directions, show-QR verification
   (Lightning displays a code the other device scans; SDK-owned reciprocate
-  flow, SAS fallback, never scans — live Element interop NOT TESTED),
-  session/device trust UI,
-  cross-signing/backup state, and generation-isolated callbacks
+  flow, SAS fallback, **never scans** — live Element interop NOT TESTED),
+  session/device trust UI, cross-signing/backup state, and
+  generation-isolated callbacks
 
 These mechanisms cannot guarantee recovery of historical messages whose keys
 were never backed up or shared.
 
 ### Notifications
 
-- Native freedesktop notifications when Qt DBus and a notification service are
-  available
+- Native freedesktop notifications when Qt DBus and a notification service
+  are available
 - SDK-derived mention metadata, direct-message and per-room local modes,
   privacy modes, active-room suppression, invite and verification notices
 - Cold-start/backlog suppression, bounded click routing to room/event/thread,
@@ -734,161 +591,145 @@ were never backed up or shared.
   backend (SDK-managed; user-defined-rule reports reconcile a device-local
   cache that keeps policy working offline, and a failed write is disclosed
   in the UI as kept-on-this-device). Non-Rust backends remain device-local.
-  Live homeserver/Element interoperability of the rules is NOT TESTED
-- **"Follow account default" and retry on reconnect** (2026-08-13). Matrix
-  has no follow-default rule — it has the ABSENCE of a room override — so
-  mode 3 routes to `clearRoomNotificationMode` →
+  Live homeserver/Element interoperability of the rules: NOT TESTED
+- **"Follow account default" and retry on reconnect.** Matrix has no
+  follow-default rule — it has the ABSENCE of a room override — so mode 3
+  routes to `clearRoomNotificationMode` →
   `mx_rust_clear_room_notification_mode` → the SDK's
   `delete_user_defined_room_rules`, and `setRoomNotificationMode` still
   refuses 3 toward the FFI so an invalid `RoomNotificationMode` can never
-  cross. Success reports on its own `roomNotificationModeCleared` signal:
+  cross. Success reports on its OWN `roomNotificationModeCleared` signal:
   the absence of a rule is not a rule's value, and routing it through
-  `roomNotificationModeChanged` meant a successful clear was DROPPED, so a
-  clear that failed once claimed "couldn't save" for the whole session and
-  was re-issued on every reconnect. Mode 3 is stored EXPLICITLY, not as a
+  `roomNotificationModeChanged` DROPPED a successful clear, so a clear that
+  failed once claimed "couldn't save" for the whole session and was
+  re-issued on every reconnect. Mode 3 is stored EXPLICITLY, not as a
   missing key — an absent key already reads back as 0, so absence cannot
   distinguish "following the default" from "never configured". Clamps are
-  0..3 in `SettingsManager` only; the other mode settings stay 0..2.
+  0..3 in `SettingsManager` only; other mode settings stay 0..2.
   `NotificationManager` branches only on Muted/MentionsOnly, so mode 3
-  falls through to notify locally — the UI discloses that the SERVER applies
-  the account default while THIS DEVICE notifies for all messages, because
-  the resolved default is not known here and is not fabricated. The option
-  is offered only on a backend that owns server push rules. A write that
-  fails offline is retried on the EDGE into Syncing (not on every status
-  change), and a room leaves the failed set ONLY when the server
-  acknowledges it — never merely because a retry was attempted. Live
-  homeserver validation of the deletion and the retry: NOT TESTED
+  notifies locally, and the UI discloses that the SERVER applies the account
+  default while THIS DEVICE notifies for all messages — the resolved default
+  is not known here and is not fabricated. Offered only on a backend that
+  owns server push rules. A failed offline write is retried on the EDGE into
+  Syncing (not on every status change), and a room leaves the failed set
+  ONLY when the server acknowledges it, never merely because a retry was
+  attempted. Live homeserver validation: NOT TESTED
 
 ### Settings, usability, and accessibility
 
 - Eleven complete semantic themes (ids 1–11): Lightning Light, Lightning
   Dark, Graphite, Midnight, Nordic, Purple Dusk, Warm, the design-handoff
-  Moss Light / Indigo Night / Deep Teal, and Storm (11) — the 0.6.5 brand
-  theme (deep navy, bolt-yellow accent), first in the picker; System (0)
-  resolves to Moss Light / Storm. AppTheme.qml is the sole token source;
-  the theme test enforces palette completeness, routing, and WCAG AA pairs.
-  The storm* token namespace (menus, popovers, Settings) is theme-ROUTED:
-  Storm literals under theme 11, each legacy theme's own semantic tones
-  otherwise. The trust card is the one deliberate invariant (raw _sto*
-  literals). Ink on a bolt/accent fill uses boltInk, never stormPanel
+  Moss Light / Indigo Night / Deep Teal, and Storm (11), the brand theme,
+  first in the picker; System (0) resolves to Moss Light / Storm.
+  AppTheme.qml is the sole token source; the theme test enforces palette
+  completeness, routing, and WCAG AA pairs. The storm* namespace (menus,
+  popovers, Settings) is theme-ROUTED: Storm literals under theme 11, each
+  legacy theme's own semantic tones otherwise. The trust card is the one
+  deliberate invariant (raw _sto* literals). Ink on a bolt/accent fill uses
+  boltInk, never stormPanel
 - The four-pane design shell: 68 px spaces rail (home, Spaces, settings,
-  account avatar + switcher popover), 300 px room list with workspace
-  header and Ctrl-K hint, timeline with members/threads side panel, card
-  composer; bundled Manrope/JetBrains Mono fonts; application icon and
-  desktop entry installed by CMake (see data/ and scripts/generate-icons.sh)
-- The full-view Settings screen: covers the entire application content
-  area (the chat shell stays loaded but hidden — no rail, room list,
-  timeline, composer, or right panel while open; closing restores the
-  selected room with the right panel remaining None). 60px header
-  ("Settings — <section>", accent section icon, bare close X) above the
-  260 px internal navigation (Account, Appearance, Notifications, Privacy
-  & security, Sessions, Labs; About pinned bottom; soft-accent active
-  rows).
-  Appearance carries the three featured design theme cards with fixed
-  preview palettes plus a secondary row for the other presets, a custom
-  match-system switch, a FUNCTIONAL message-layout selector (Modern /
-  Bubbles for DMs / Compact) and a text-size slider (90-140%) — theme,
-  layout and text scale persist per account with a global fallback. All
-  prior security/session/recovery controls are preserved under Privacy &
-  security and Sessions. Avatar shapes are baked into the cached bitmap by
-  MediaImageProvider ("|shape:" suffix) instead of per-item MultiEffect
-  masks. Headless/offscreen runs force stderr logging in main.cpp because
-  Qt otherwise routes category logs to the journal when stderr is no TTY.
-- Room-activity visibility, link/GIF preview policy, notification privacy and
-  sound, per-room notification mode, and wheel-speed settings
+  account avatar + switcher popover), 300 px room list with workspace header
+  and Ctrl-K hint, timeline with members/threads side panel, card composer;
+  bundled Manrope/JetBrains Mono fonts; application icon and desktop entry
+  installed by CMake (data/, scripts/generate-icons.sh)
+- The full-view Settings screen covers the whole content area (chat shell
+  loaded but hidden — no rail, room list, timeline, composer or right panel
+  while open; closing restores the selected room with the right panel
+  remaining None), 60 px header above 260 px navigation (Account,
+  Appearance, Notifications, Privacy & security, Sessions, Labs; About
+  pinned bottom). Appearance carries featured theme cards, a match-system
+  switch, a FUNCTIONAL message-layout selector (Modern / Bubbles for DMs /
+  Compact) and a text-size slider (90-140%) — theme, layout and text scale
+  persist per account with a global fallback. Avatar shapes are baked into
+  the cached bitmap by MediaImageProvider ("|shape:" suffix) instead of
+  per-item MultiEffect masks. Headless/offscreen runs force stderr logging
+  in main.cpp because Qt otherwise routes category logs to the journal when
+  stderr is no TTY
+- Room-activity visibility, link/GIF preview policy, notification privacy
+  and sound, per-room notification mode, and wheel-speed settings
 - The media autoplay control is labelled **"Autoplay and prefetch media"**
-  (2026-08-13) because that is what it governs since the perf round: GIF
-  animation, the picker's autoplay, AND the speculative video/audio
-  prefetch. The stored key stays `gif/autoplay` and the property stays
-  `gifAutoplay` ON PURPOSE — renaming the key would silently reset every
-  existing user's preference, which is worse than a stale identifier
-- **Pre-send upload-limit preflight** (2026-08-13) against the homeserver's
-  advertised `m.upload.size` ONLY. Both fabricated 100 MiB ceilings are
-  gone; the Rust one was the worse, reporting an invented value as though
-  the server had advertised it whenever the capability lookup failed. 0 now
-  means UNKNOWN — never "unlimited", never replaced by a client default —
-  and suppresses local rejection entirely rather than refusing files the
-  server would have accepted. Voice messages had NO preflight at all and
-  now share `AttachmentQueueModel::exceedsUploadLimit`, so the check cannot
-  drift between composers. Exactly-at-limit is allowed (`>`, not `>=`):
-  `m.upload.size` is the largest ACCEPTED payload. Consequence to keep in
-  mind: with no advertised limit there is no client-side ceiling at all, so
-  an arbitrarily large file enters the SDK send queue. Re-adding a bound
-  would need to be worded plainly as a CLIENT safety limit, never presented
+  because that is what it governs: GIF animation, the picker's autoplay, AND
+  the speculative video/audio prefetch. The stored key stays `gif/autoplay`
+  and the property stays `gifAutoplay` **ON PURPOSE** — renaming the key
+  would silently reset every existing user's preference, which is worse than
+  a stale identifier
+- **Pre-send upload-limit preflight** against the homeserver's advertised
+  `m.upload.size` ONLY; both fabricated 100 MiB ceilings are gone (the Rust
+  one reported an invented value as though the server had advertised it).
+  **0 means UNKNOWN** — never "unlimited", never replaced by a client
+  default — and suppresses local rejection entirely rather than refusing
+  files the server would have accepted. Voice messages share
+  `AttachmentQueueModel::exceedsUploadLimit` so the check cannot drift
+  between composers. **Exactly-at-limit is allowed** (`>`, not `>=`):
+  `m.upload.size` is the largest ACCEPTED payload. Consequence: with no
+  advertised limit there is no client-side ceiling at all; re-adding a bound
+  would have to be worded plainly as a CLIENT safety limit, never presented
   as the server's
-- **Send failures are scoped to where they happened** (2026-08-13).
+- **Send failures are scoped to where they happened.**
   `onAttachmentQueueFinished` received a `roomId` and discarded it, so a
   late voice-send failure surfaced over whatever room the composer had since
   moved to. Ops now carry their target room (and thread root). Cleanup of
   the recording stays UNCONDITIONAL so nothing is orphaned on disk; only the
-  NOTICE is scoped — those are deliberately not the same decision
+  NOTICE is scoped — deliberately not the same decision
 - Unicode emoji picker with search, tones, and bounded local recents
 - Keyboard quick switch/search/navigation, accessible labels/roles/actions,
   focus handling, and keyboard-operable message/thread actions
 
 ### GIF provider integration
 
-The provider foundation and network clients are implemented: strict GIPHY and
-KLIPY parsing, shared provider interface, provider-specific endpoint/key/rating
-and pagination behavior, attribution, a provider-agnostic search controller,
-result model, stale-response rejection, deduplication, trending/search modes,
-and bounded redirect-validated HTTPS transport through the Rust backend.
-
-The user-facing GIF browser is implemented: a shared room/thread picker with
-GIPHY and KLIPY provider tabs, trending, debounced search, client-side category
-shortcuts, pagination, per-provider attribution, favorites, bounded local
-recents, safe-search rating, a configurable autoplay policy, and accessible
+Implemented: strict GIPHY and KLIPY parsing behind a shared provider
+interface (provider-specific endpoint/key/rating/pagination, attribution), a
+provider-agnostic search controller and result model with stale-response
+rejection and deduplication, and bounded redirect-validated HTTPS transport
+through the Rust backend. The user-facing browser is implemented too: shared
+room/thread picker with provider tabs, trending, debounced search,
+client-side categories, pagination, attribution, favorites, bounded local
+recents, safe-search rating, configurable autoplay, accessible
 keyboard-navigable tiles. The safe validated download pipeline (HTTPS-only,
 revalidated redirects, bounded size, GIF magic and dimension validation) and
 the send path into a room or a real Matrix thread — uploading through the SDK
 media path, with SDK media encryption in encrypted rooms — are implemented.
-Existing GIF attachment/direct-media playback remains separate and implemented.
-Live Element interoperability of provider GIF sends should still be tested
+Existing GIF attachment/direct-media playback remains separate and
+implemented. Live Element interop of provider GIF sends: to be tested
 honestly rather than assumed.
 
-**Saving GIFs** is implemented — and since the 2026-08-11 media/UX round the
-star accepts every safe static raster the timeline shows: GIF, PNG, JPEG and
-WebP. Bytes are validated by magic sniffing (never a claimed MIME or file
-name; SVG and everything else refused), stored in their ORIGINAL format as
-`<sha256>.<ext>` (no transcoding), and re-sent with a truthful MIME and
-dimensions. Legacy index entries without a format field load as GIF —
-existing saved GIFs survive with no migration pass. The store stays
-account-scoped and content-addressed, bounded at 200 items / 64 MiB
-(refusal, never eviction — a full store must not silently discard what the
-user asked to keep), and sends go from local bytes.
+**Saving GIFs** is implemented; the star accepts every safe static raster the
+timeline shows (GIF, PNG, JPEG, WebP). Bytes are validated by magic sniffing
+— never a claimed MIME or file name; SVG and everything else refused —
+stored in their ORIGINAL format as `<sha256>.<ext>` (no transcoding), and
+re-sent with a truthful MIME and dimensions. Legacy index entries without a
+format field load as GIF, so existing saved GIFs survive with no migration.
+The store is account-scoped and content-addressed, bounded at 200 items /
+64 MiB by **refusal, never eviction** — a full store must not silently
+discard what the user asked to keep. Sends go from local bytes.
 
 A star means exactly one thing everywhere — "save this GIF" — with one
-destination: the picker's **Saved** tab. That tab renders `GifSavedModel`, a
-presentation-only `QConcatenateTablesProxyModel` merge of the local byte store
-and the provider favorites; the two **stores stay separate**, because only one
-of them holds decrypted media. The picker's navigation is one row of peers:
-the provider sources (GIPHY, KLIPY) and the two lists that were always
-cross-provider (Saved, Recent). Each tile carries its own source tag
-(GIPHY/KLIPY/LOCAL).
+destination: the picker's **Saved** tab, which renders `GifSavedModel`, a
+presentation-only `QConcatenateTablesProxyModel` merge of the local byte
+store and the provider favorites. The two **stores stay separate**, because
+only one of them holds decrypted media. Each tile carries its own source tag
+(GIPHY/KLIPY/LOCAL). Saved and Recent issue **no provider API request** — no
+search, trending, pagination or category call is reachable from either — but
+they are not offline: a saved *provider bookmark* is a link, so its tile
+still loads its preview from that provider's CDN. Only locally-saved rows
+are pure device-local content; do not describe the Saved tab as having "no
+provider traffic".
 
-Saved and Recent issue **no provider API request** — no search, trending,
-pagination, or category call is reachable from either. They are not offline,
-though: a saved *provider bookmark* is a link, so its tile still loads its
-preview from that provider's CDN, exactly as the Favorites list always did.
-Only the locally-saved rows are pure device-local content. Do not describe the
-Saved tab as having "no provider traffic".
+Never read `GifResultModel::FavoriteRole` from a `GifStoredModel` as an "is
+this saved" oracle: that role is a constant `true` for every stored
+collection — honest for favorites and local-saved rows, a lie for Recents.
+Ask the collection (`GifFavoritesModel::isFavorite`).
 
-Never read `GifResultModel::FavoriteRole` from a `GifStoredModel` as a
-"is this saved" oracle: that role is a constant `true` for every stored
-collection, which is honest for favorites and local-saved rows and a lie for
-Recents. Ask the collection (`GifFavoritesModel::isFavorite`).
-
-This is a deliberate, documented exception to the section 6 rule against
-persisting decrypted media, on explicit-export semantics: the user is
-choosing to save one image, exactly as Save-As already allows. It is only
-defensible because deletion is real — the store is removed on sign-out and
-on account removal through a shared path helper with tri-state
-deleted/absent/failed reporting (an earlier version *claimed* this cleanup
-and did not have it; decrypted media would have survived sign-out
-indefinitely). Settings → Privacy & security discloses the store and offers
-Clear All. The index records **no provenance**: no room, event, or sender.
-Do not weaken any of that, and do not extend the exception to other media
-without the same deletion guarantees.
+This is a deliberate, documented exception to the §6 rule against persisting
+decrypted media, on explicit-export semantics: the user chooses to save one
+image, exactly as Save-As already allows. It is only defensible because
+deletion is REAL — the store is removed on sign-out and on account removal
+through a shared path helper with tri-state deleted/absent/failed reporting
+(an earlier version *claimed* this cleanup and did not have it; decrypted
+media would have survived sign-out indefinitely). Settings → Privacy &
+security discloses the store and offers Clear All. The index records **no
+provenance**: no room, event, or sender. Do not weaken any of that, and do
+not extend the exception to other media without the same guarantees.
 
 ## 8. Threads and main-timeline rules
 
@@ -952,6 +793,7 @@ every historical key is recoverable.
 Automated replacement tests prove local mechanics, not real interoperability.
 Report Element-to-Lightning, multi-device, backup, and live homeserver recovery
 as PASS only after actually exercising those paths.
+
 
 ## 10. GIF integration rules
 
@@ -1244,1304 +1086,627 @@ direct merge-request submission may not be enabled on this GitLab instance.
 
 ## 16. Current active development areas
 
-Keep this list grounded in source and recent history:
+Source and `git log` are authoritative. This section is a LESSON INDEX,
+not an inventory: it exists so an agent does not repeat a past mistake.
+Narrative and chronology have been cut; rules, refuted hypotheses,
+deliberate decisions and validation status have not.
 
-**2026-08-18 post-0.7.3 round (handoff top tasks + call pipes).** Landed
-after the tester-report fixes shipped as 0.7.3:
-- **Both stale timeline suites are GREEN for the first time since
-  `1e50f6a`**: `timeline-hydration-qml` 8/0, `timeline-pane-qml` 63/0
-  (offscreen, one desktop, one day — run them yourself).
-  Two distinct root causes, neither what the fixtures assumed:
-  * `initialHydrationGateHoldsThenOpensAtLatest` exposed a REAL production
-    defect: after a timeline reset, `fillsViewport` trusted a `contentHeight`
-    still reading the OUTGOING content's height (old delegates linger until
-    deferred destruction) — measured `count=1 ch=3601 h=404` at gate-open —
-    and `contentHeight >= height-1` is degenerately true while `height==0`
-    pre-layout. Fixed in TimelinePane.qml: `presentationGeometryStale` (set
-    on model reset, cleared by the first Column relayout) plus a `height>0`
-    guard; the settled/guard paths still open the gate if geometry never
-    moves.
-  * `scrolledUpAnchorHoldsThroughGrowthAndAppends` was a FIXTURE bug: view
-    rows count from the newest message, so a live append shifts every
-    event's view row by one and the test kept measuring view row 15 — a
-    different event after the append. The production anchor held within
-    2px once the test tracked the event. The two dead eviction tests were
-    INVERTED per the standing note (delegates are never evicted in the
-    un-virtualized Column): they now pin "the evicted/displaced branches
-    must not fire while the delegate is alive" — if eviction is ever
-    reintroduced, they fail and the pre-8f84d18 fixtures in history are
-    the re-porting start point.
-- **GUI stall tracing** (`LIGHTNING_GUI_STALL_TRACE`, src/app/GuiStallTracer)
-  for the still-unreproduced tester freeze after hammering reactions:
-  heartbeat + watchdog thread, logs one line per stall > threshold
-  (default 250 ms, env value >= 50 overrides) with a coarse category from
-  RAII scopes (`rust-poll-drain`, `playable-write`; literal strings only,
-  never content). New suite `gui-stall-trace` (6 cases). Hand the tester a
-  build with it enabled — one capture beats three theories.
-- **Element interop checklist**: `docs/element-interop-checklist.md` — the
-  scripted PASS/FAIL pass (encrypted both directions, threads, voice,
-  video+poster, reactions incl. the D3 hammer test, pins, edit, redaction,
-  key-recovery cycle). Running it live is the highest-value next block.
-- **Voice-call signaling pipes** (backend only, NO UI): MSC2746 `m.call.*`
-  v1 + `m.rtc.notification`/`m.rtc.decline` lane. `rust/src/calls.rs`
-  (sends via ruma version-1 constructors + SDK `make_decline_call_event`;
-  typed event handlers behind `EventHandlerDropGuard`s bound to
-  `run_authoritative_sync`), `mx_rust_calls_*` FFI, SDP-free `CallSignal`,
-  `src/calls/CallController` state machine (glare = smaller call_id wins,
-  party-id locking + single `select_answer`, cross-device settlement,
-  clamped lifetime timers, BOUNDED busy auto-reject with idempotent
-  re-delivery, per-call-scoped send-op results, bounded ended-call LRU,
-  ignored-sender drop before any state or send, ring-policy/ring-state
-  separation, backlog suppression defaults CLOSED; inbound call/party ids
-  are sender-chosen text — bounded in Rust, never logged).
-  placeCall() REFUSES (`no_media_backend`); `placeCallWithOffer` is the
-  future media backend's entry. SDP never crosses the FFI/logs — see
-  `docs/voice-calls.md` for the full contract and the deliberate absences
-  (no candidates/negotiate, no `m.call.member`, no answering, no media).
-  New suite `call-controller` (20 cases) + `calls::tests` in Rust (9). A
-  four-lens independent review (§18) ran before commit; its must-fix
-  findings (bounded busy auto-reject, live own-user filter, sender-chosen
-  id bounding, idempotent re-delivery, per-call op scoping, tracer
-  lifecycle) are in. The full registered CTest measured **128/128 on both
-  trees** after this round — the first fully green complete run since the
-  timeline rebuild. Live interop of ANY of it: **NOT TESTED**.
+### Standing warnings
 
-**2026-08-19 scroll round 2, part 3 — the row window is WIRED, on
-frame-time evidence from real hardware.** A `QSG_RENDER_TIMING=1` capture
-from Rokas's GPU, with pagination frames EXCLUDED so it cannot be confused
-with loading cost:
+**Timeline scrolling — read this whole block before touching it.** Five
+rounds, three reverted fixes, several measurement errors of my own.
 
-| loaded rows | median frame | frames > 16 ms | polish | render |
-|---|---|---|---|---|
-| ~108 | 3 ms | 1% | 1.1 | 0.6 |
-| ~916 | 14 ms | **46%** | 5.6 | 8.3 |
+*Refuted hypotheses. Do not re-propose any of these.*
 
-Frames far from any pagination event cost the same as frames during one
-(14 vs 16 ms), so this is row COUNT, not loading. `render` grew 14x,
-`polish` 5x. **This is the measurement that justifies the window** — part 1's
-offscreen number was a software-rasterizer artefact and part 2's
-`worstNotchMs` reading wrongly retired the idea (it times the wheel HANDLER,
-never the frame). Two of my own measurement errors in one round; the lesson
-is in [[offscreen-perf-vs-gpu-2026-08-19]].
-- **Policy** (`applyRowWindow`, TimelinePane.qml): keep
-  `windowRunwayRows` (220) below the reader, `windowMarginRows` (120)
-  above, never window below `windowMinRows` (320), and move only for a
-  change of 40+ rows (hysteresis, or every settle would churn).
-- **Applied ONLY from the scroll-settle timer.** No structural change
-  mid-gesture — that is what sank the reverted bounded retained window.
-- **The runway is the strand-prevention**: 220 rows is ~30 viewports, and
-  the largest single downward gesture in the capture was ~7.5. Belt: with
-  a window active `atBottomEdge()` returns FALSE, so follow-latest can
-  never latch onto a false "newest message" and the jump pill stays.
-- **The correction is ONE exact write**: sum the MEASURED heights of the
-  rows about to be released at the head (the Column has no spacing, so a
-  plain sum is exact) and subtract it from contentY. A deferred
-  `Qt.callLater` snap-by-anchor-id was added as belt-and-braces and
-  REMOVED because it broke the fix: it runs BEFORE the Column relayout, so
-  it read the anchor's stale y, computed a target from the old geometry and
-  clamped it against the new shorter content — dumping the reader at the
-  top. Not adding a second correction path also keeps this clear of the
-  anchor machinery this section warns about twice.
-- **The view-row helpers now subtract `rowWindowSkip`.** They previously
-  derived the mapping from the source total alone, so under a window every
-  jump/search/anchor-restore resolved to "no such row" and silently did
-  nothing. The acceptance test caught it; nothing else would have.
-- **`releasePendingRows()` clears the WINDOW, not just the pacing cap.**
-  `releaseAll()` lifts `m_windowCap` and leaves `m_windowSkip` intact, so
-  every jump path that called it kept resolving recent rows to "no such
-  row" — the same silent-no-op class as the bug above. Pinned in
-  `ElementParityContractTest`.
-- **Live-edge paths must RESTORE the live edge** (review finding). With a
-  window active `wheelMinY()` is the window's synthetic newest edge, so
-  `goToLatest()` glided to a message that was **not** the latest and left
-  the jump pill on screen (measured: landed at `rowWindowSkip=302`, i.e.
-  `$win597` of 900). It now refuses the glide while a window is held — a
-  reader carrying a window is by definition deep in history, which is the
-  FAR case anyway — and `settleAtLatest()`, the fallback landing when the
-  history trim refuses, calls `releasePendingRows()` itself rather than
-  depending on the trim's model reset to have done it.
-- **THRASH GUARD, and it is thresholded on the ENTER band.** Trimming the
-  OLDEST end shrinks `contentHeight` and therefore `wheelMaxY()`, and
-  `distanceFromTop()` is `wheelMaxY() - contentY` — so a trim moves the
-  reader's MEASURED distance from the top with no reader-visible movement
-  at all, and `applyRowWindow()` ends in `updateStickAndPaginate()`. Left
-  open that dispatches a backfill regrowing exactly what was released.
-  Three things here were only settled by MEASUREMENT, after two wrong
-  guesses:
-  * The hazard is a TALL-VIEWPORT phenomenon. The kept margin is a fixed
-    row count (~4020 px at ~23 px/row) while the enter band is
-    `2.5 * height`, so it is unreachable below h≈1600 px and real at 4K
-    (h≈2000, enter≈5010, post-trim 4795 — inside). A test at 420 px or
-    even 1400 px passes on broken code; the suite uses a 2160 px window.
-  * Thresholding on `nearTopExitDistance` OVER-fires: it suppressed a trim
-    whose real outcome (4018) was comfortably outside the 3110 enter band,
-    keeping 666 rows where 503 were correct. The exit distance is
-    hysteresis for a reader already IN the band; what dispatches is
-    crossing INTO it. Thresholded on enter.
-  * Its first version summed heights over the WRONG row numbering — a skip
-    change renumbers every view row, and using `wantRows` alone counted
-    rows being KEPT, overstating the release enough to veto every trim.
-    Arithmetic that ignores the renumbering fails QUIETLY; this is the
-    window's whole hazard class.
-- Acceptance: `rowWindowBoundsRowsWithoutMovingTheReadersMessage` —
-  900 rows -> 376 with the reader's own event moving **0 px** (bar: 2 px),
-  both directions (release AND restore, the latter trusting heights of
-  rows created a moment earlier).
-  Three more from the §18 review, each proven against the unfixed tree:
-  `rowWindowTrimNeverFeedsTheNearTopPaginationBand`,
-  `jumpToLatestRestoresTheLiveEdgeWhenAWindowIsActive`,
-  `lateHeightChangeAfterAWindowRestoreIsAbsorbedByTheAnchor` (the window
-  does not handle late-settling heights itself — it re-baselines the
-  anchor and hands off to the pre-existing `contentHeight` mechanism, and
-  that hand-off was the unverified step).
-- **The window's old edge re-exposes LOCAL rows, it does not ask the
-  server.** Without this the window introduces a stall where none existed:
-  the reader scrolls up to the oldest exposed row, `atYBeginning` goes
-  true, and the pane requests history from the homeserver while the next
-  rows sit in the source model merely unexposed. Two things make the fix
-  safe rather than a new hazard:
-  * It rides the proxy's EXISTING paced reveal
-    (`extendWindowAtOldEnd` raises `m_windowCap` and schedules it; 3 ms
-    per 16 ms tick at the tail). A synchronous `setWindow(skip, count+120)`
-    would build 120 delegates in one go — 360-840 ms at the documented
-    3-7 ms per row, worse than the round trip it replaces.
-  * Releasing at the OLDEST end appends beyond the reader, so no kept row
-    moves and there is NO contentY correction — structurally the same
-    event as a backward pagination batch landing, the best-trodden path in
-    the file. It deliberately does NOT consume `nearTopArmed`: no request
-    is made, so there is no per-approach budget to spend, and consuming it
-    would stall the reader at the next edge until the 250 ms settle.
-- **`revealNextChunk()` bounded its release loop on `sourceRowTotal()`,
-  not `revealTarget()`** — a real bug in the window foundation
-  (`9adcdc9`), found by reading. The guard at the top of the function
-  stops the timer from STARTING past `m_windowCap`, but once inside, a
-  single tick released straight through it. Measured on the unfixed tree:
-  **230 rows exposed against a cap of 60**, i.e. the entire available
-  history — exactly the "pacing undoes the window" failure the cap exists
-  to prevent, and reachable in every trimmed window (`cap < available`).
-  Only bites once the exposed count drops BELOW the cap, which a removal
-  inside the window does, so `pacingNeverGrowsPastTheWindow` never saw it.
-- **Honest limit**: it only acts when SETTLED, so it does not help during
-  the long upward scroll itself — it bounds the state you read in
-  afterwards. Whether that is enough for the felt symptom is NOT TESTED;
-  the judge is a fresh `QSG_RENDER_TIMING` capture showing median frame
-  cost deep in history falling toward the 3 ms figure.
-
-**2026-08-19 the 0.7.4 release build failed on a Qt VERSION difference the
-dev shell cannot show you.** Pipeline 105's `build-deb` died compiling
-`AppController.cpp`: `CallController.h` held
-`return m_mediaBackend != nullptr;` INLINE, where `m_mediaBackend` is a
-`QPointer<CallMediaBackend>` and that class is only forward-declared (the
-whole point of the media seam). Comparing a `QPointer<T>` against `nullptr`
-instantiates `QPointer<T>::data()`, whose `static_cast<T*>` requires T to be
-COMPLETE. **Qt 6.11 (nix dev shell) never reaches that path; Qt 6.8.2
-(Debian, every deb/rpm/AppImage job) does.** Fixed by moving the accessor
-into the `.cpp` where the type is complete — version-independent, rather
-than depending on which Qt versions instantiate what.
-- Generalize: a `QPointer<T>` MEMBER of an incomplete type is fine; any
-  inline comparison or dereference of it in the header is not. Raw
-  `T *p = nullptr` comparisons are always fine.
-- **The verification method is the reusable part.** `docker run
-  debian:13.6-slim` + `qt6-base-dev` + `-fsyntax-only` reproduced the exact
-  error from the committed header and showed the fix clean, and a sweep of
-  ALL 104 translation units proved it was the only occurrence in the tree.
-  The failing build had stopped at file 97 of 269, so ~170 files were
-  unchecked; finding the rest one 30-minute pipeline at a time is the
-  alternative. Two apparent sweep failures were missing dev packages and one
-  was a file only compiled under `LIGHTNING_ENABLE_SCREENSHOT_DEMO` — check
-  CMake conditionals before believing a sweep hit.
-- Cancel a doomed pipeline immediately: it keeps running its other jobs and
-  HOLDS the runners, so a retry sits pending (this is the third time that
-  note has earned its place).
-
-**2026-08-19 scroll round 2, part 4 — the window shipped as a PERMANENT
-NO-OP in `b74b518`, and a live capture caught it. Read this alongside part
-3.** Rokas reported "better by a lot, but if i scroll to start the lag
-remains". A `QSG_RENDER_TIMING` capture said why, quantitatively: 64
-pagination pages, 928 rows added, and frame WORK (polish+sync+render) rising
-monotonically with cumulative loaded rows with **no plateau relative to row
-count** — 0 ms at +0-50 rows, 10 at +300-500, 16 at +500-800, 27 at
-+800-1200 (polish 12 / render 14). The wall-clock plateau was only the
-reader stopping. Extrapolating against part 3's own table (~916 rows =
-polish 5.6 / render 8.3) put the instantiated count near 2000 — i.e. the
-window bounded NOTHING.
-- **Root cause, self-inflicted and total**:
-  `userScrollActive: moving || wheelAnimating || scrollSettleTimer.running`,
-  and `applyRowWindow()`'s only caller is `scrollSettleTimer.onTriggered`,
-  where that timer still reads as **running**. So
-  `if (userScrollActive) return` was UNSATISFIABLE at the one call site that
-  exists. Fixed with `viewportMotionActive` (`moving || wheelAnimating`),
-  which is what the guard always meant — the settle tail is the settle, not
-  live input. `userScrollActive` is left alone because the speculative-media
-  gate deliberately includes that tail.
-- **Why every test passed anyway**: all of them called `applyRowWindow()`
-  directly, where `scrollSettleTimer.running` is false. The POLICY was
-  covered from six directions and the TRIGGER was not covered at all.
-  `wheelScrollingIntoHistoryEventuallyBoundsRowsThroughTheSettleTimer` now
-  drives real wheel notches into history and then waits, calling nothing;
-  it fails on the unfixed tree with the reported symptom. **Generalize
-  this: a policy test that invokes the policy function directly proves
-  nothing about whether production ever reaches it.**
-- **The window had ZERO observability, which is how this shipped
-  unnoticed.** The gesture trace now carries `srcRows`, `winSkip` and
-  `winApplies` next to the existing `rows`. `rows == srcRows` with a deep
-  reader, or `winApplies=0`, is the signature of this exact defect.
-- Consequence for part 3's claims: its offline measurements remain valid as
-  measurements of the policy, but **no production frame-cost improvement
-  has ever been observed from the window.** The felt "better by a lot" in
-  this capture belongs to part 2 (speculative-media gating), not to the
-  window. NOT TESTED, at full strength, until a capture shows `winApplies`
-  above zero with `rows` well below `srcRows`.
-
-**2026-08-19 scroll round 2, part 2 — a LIVE CAPTURE overturned part 1's
-conclusion. Read this before touching timeline scrolling again.**
-Rokas ran `LIGHTNING_SCROLL_TRACE=1 LIGHTNING_GUI_STALL_TRACE=250` on his
-own account (985-1026 loaded rows, contentH 74601) and the numbers say
-something different from the offscreen profile:
-- **`worstNotchMs` is 0-2 ms on EVERY gesture**, at every row count. The
-  offscreen harness measured 10.65 ms/notch at 1000 rows. The difference is
-  the RENDERER: offscreen uses the software rasterizer, where
-  `syncSceneGraph`/`updateDirtyNode` dominates; on a real GPU that is nearly
-  free. **The superlinear item-count finding in part 1 does not transfer to
-  real hardware.** The sliding window built in part 1 therefore stays INERT
-  (proxy-only, no pane wiring) — it would fix a problem this machine does
-  not have, and wiring it on a contradicted hypothesis is exactly how the
-  three reverted scroll fixes happened.
-- **Every anchor counter is zero** in every gesture line
-  (`anchorCorrections=0 displacedFirings=0 prependFirings=0 unresolvedId=0`).
-  The anchoring machinery is not implicated. Again.
-- **What the lag actually is.** One 15-second upward gesture: 442 wheel
-  events, 58,061 px scrolled, which triggered ~45 pagination pages and took
-  the timeline from 19 to 813 rows. Each page is ~20 delegates at the
-  documented 3-7 ms each. Alongside it the prefetcher pulled **~120 MB of
-  video** (23, 13.5, 12.6, 11.7, 9.5, 7.1, 6.5, 6.4, 6.1, 5.0, 4.8, 4.5,
-  3.9, 3.0, 2.8 MB) because every row that merely SWEPT THROUGH the
-  on-screen band armed a full-payload prefetch — and each completion writes
-  its temp file synchronously on the GUI thread. GUI stalls of 333, 369 and
-  1062 ms were logged, all categorised `unattributed`.
-- **The jump-to-live trim is LIVE-VALIDATED: PASS.**
-  `cachedBefore= 1083 released= true reloadedItems= 19`, and every gesture
-  after it reports `rows=66 contentH=7060` with `worstNotchMs` 0-1. That
-  closes the round's own NOT TESTED gap, using exactly the log line it added
-  for the purpose.
-- **Fix shipped (1): speculative media waits for a settle.** ONE gate,
-  `speculativeMediaAllowed: !userScrollActive` on the pane (reusing the
-  existing scroll-session state, not a second notion of "busy"), consulted
-  by the video payload prefetch, the video POSTER path — which prefetches
-  internally via `videoPosterSource` → `prefetchPlayable`, so gating only
-  the obvious call site would have left half the traffic — and the audio
-  card (with a retry when the gate reopens). **Thumbnails are deliberately
-  NOT gated**: small, and they are what the reader is looking at.
-- **Fix shipped (2): the unattributed stalls now have candidates** —
-  `row-reveal` (delegate construction in `revealNextChunk`, the prime
-  suspect), `image-decode`, `timeline-diff`, `timeline-reset`. And a real
-  bug in the tracer: `stalltrace::Scope` writes a single GLOBAL category, so
-  a scope entered on a WORKER thread could attribute a GUI stall to a
-  background decode. `Scope` is now inert off the GUI thread — the image
-  provider may run on either, and a confidently wrong category is worse
-  than `unattributed`.
-- **Next capture answers the open question**: whether the 120 MB is gone,
-  and which of the four new categories owns the 333/369/1062 ms stalls.
-  Do not guess at the fix for those before that line exists.
-- Method note worth keeping: **offscreen perf numbers are not the user's
-  numbers.** The item-count story was real under software rendering and
-  irrelevant on the GPU path. Scale-with-N measured offscreen must be
-  confirmed on hardware before anything is built on it.
-
-**2026-08-19 scroll round 2, part 1 — the sliding window's FOUNDATION
-(proxy only; no UI wiring yet), plus the call button greyed out.**
-The maintainer reported that scrolling up a long way makes scrolling laggy
-in both directions, guessing it loads a year of history. Measured, and the
-guess is right — with the honest caveat that the small-N numbers below are
-deflated because a short timeline hits the scroll bound and its notches do
-no work:
-
-| loaded rows | QML items | px/notch | avg notch | worst |
-|---|---|---|---|---|
-| 100 | 7,235 | 10 (bound-limited) | 0.04 ms | 3 ms |
-| 300 | 21,685 | 62 (partly) | 0.53 ms | 8 ms |
-| 600 | 43,351 | 132 | 4.44 ms | 17 ms |
-| 1000 | 72,255 | 147 | 10.65 ms | 28 ms |
-
-The fair comparison is 600 vs 1000 (same per-notch displacement): 1.67x
-the rows costs 2.4x the time, 2.15x per pixel scrolled — SUPERLINEAR. The
-viewport was identical in every run, so this tracks TOTAL loaded rows
-(~72 items per row), never what is on screen.
-- **A second `perf record` says where it goes**, and it is not layout:
-  `syncSceneGraph`→`updateDirtyNode` **10.4%**, event delivery
-  (`eventTargets`) **12.1%**, `renderSceneGraph` 5.5%, and
-  **`polishItems` 1.0%**. Both dominant costs are O(total instantiated
-  items) per frame or per event. The profile is otherwise FLAT (nothing
-  above 4.2%), which is the signature of working-set/locality pressure —
-  consistent with the superlinearity. This buries the de-layouting
-  hypothesis for the second time; do not revive it.
-- **Only reducing instantiated rows touches this**, and pacing cannot: it
-  delays rows, it never takes any back. So `ReverseListProxyModel` gained
-  a real WINDOW — two integers, `windowSkip` (how many of the NEWEST
-  source rows are excluded) plus the exposed count — where every
-  transition between two windows is a single insert-or-remove at ONE end,
-  never a reset and never a mid-list renumbering.
-- **`windowSkip == 0` is the only state in which proxy row 0 is the live
-  edge**, i.e. in which the physical bottom of the rotated view is the
-  newest message. The pane must therefore return to 0 before the reader
-  can reach the bottom. Releasing at the OLDEST end is free (tail of the
-  Column, nothing visible moves); releasing at the NEWEST end shifts every
-  kept row, and the pane must correct contentY by the EXACT height delta —
-  that half is NOT yet written.
-- Proven by `reverse-list-proxy-window` (13 cases), including the two that
-  matter most: a **live message must not slide a windowed reader** (it is
-  absorbed by growing the skip, so the window keeps covering the same
-  events — otherwise every incoming message shifts what you are reading),
-  and **pacing must never grow past the window** (the reveal timer would
-  otherwise restore the whole history within a few frames). Also: removals
-  newer than / inside / older than the window, invisible backward
-  pagination, a reset clearing a stale skip (which would hide the next
-  room's newest messages), and `releaseAll()`/`clearWindow()` restoring the
-  live edge for every jump/search path. A window that SLIDES touches both
-  ends — one release at the tail, one restore at the head — which is still
-  one op per end; the first version of that test asserted a single signal
-  and was wrong.
-- **STILL TO DO, and it is the part with the revert history**: the pane
-  choosing the window from the reader's position, and the exact contentY
-  correction on a newest-end release. Acceptance bars already chosen: the
-  anchored event must hold within 2 px across a release, and cost per pixel
-  scrolled must stop growing with history depth (the 600-vs-1000 numbers
-  above are the baseline). CLAUDE.md §16's reverted bounded-retained-window
-  differs in three ways that must be kept: exact measured heights (never
-  pinned estimates), correction only when SETTLED (never mid-gesture), and
-  no second anchor path alongside `maintainViewAnchor`.
-- **The voice-call button is greyed out and reads "coming soon"**
-  (maintainer request). The engine is real — `call-media-loopback`
-  completes an in-process WebRTC call — but no answered call has ever been
-  live-validated, so offering it would promise what the round cannot keep.
-  `enabled: false` is contract-pinned so re-enabling is a decision, not an
-  accident; the DM-only and engine gates are unchanged beneath it.
-
-**2026-08-19 jump-to-live history trim — the answer to "does it unload
-old messages?" (it did not).** Rows were never released: the un-virtualized
-Column instantiates every paginated event, permanently. This adds Element
-classic's policy — `TimelinePanel.jumpToLiveTimeline()` rebuilds the
-timeline at the live edge and DISCARDS the backlog rather than scrolling
-through it — for one explicit gesture only.
-- **Lightning implements no unloading of its own.** matrix-sdk 0.18 already
-  has it: `RoomEventCache::subscribe()` bumps a `subscriber_count`, and when
-  that count reaches zero the SDK's `auto_shrink_linked_chunk_task` calls
-  `shrink_to_last_chunk()` ("unload all the chunks, then reload only the
-  last one"). All this round adds is ORDERING — verified against the
-  vendored crate, not assumed.
-- **Two things make it work rather than silently no-op.** `abort()` only
-  REQUESTS cancellation, so the old task still owns the `Arc<Timeline>`
-  whose subscriber holds the count up; `await_event_cache_shrink` therefore
-  awaits that handle (a `Cancelled` join IS the success signal), bounded so
-  a slow task degrades to no-trim instead of stalling the room. The shrink
-  then runs on the SDK's own task via a channel ping, so there is nothing to
-  await: it polls the public `events()` until the count drops. Never
-  `RoomEventCache::clear()` — that wipes PERSISTED events too, forcing even
-  the live tail to be refetched.
-- **Refuses more than it accepts, and the policy is a PURE predicate**
-  (`AppController::historyTrimAllowed`) so every clause is testable offline
-  rather than unreachable behind a short-circuit: Rust backend, room open,
-  not mid-pagination, **no thread panel / Threads view open**, and more than
-  400 loaded rows. The thread clause is load-bearing twice over — a thread
-  timeline holds its OWN event-cache subscriber (TimelineBuilder subscribes
-  for a Thread focus exactly as for Live, and ThreadListService again), so
-  the shrink could not fire, AND the reload would tear that panel's live
-  subscription out from under it while it stayed on screen.
-- **One call site, contract-pinned**: the FAR branch of `goToLatest()`.
-  Wiring it to scrolling or pagination would reset a reader's timeline out
-  from under them. It commits (`stickToBottom`, `saveFollowingLatest`) ONLY
-  on a REAL dispatch success — a swallowed failure would leave follow-latest
-  persisted with no reset coming, and the next live message would teleport a
-  reader still mid-history. The landing needs no anchor work at all, which
-  is exactly why this is the safe place: the reader ends at the newest row,
-  where there is no scroll position to preserve. `onModelReset` already
-  pins, re-arms backfill and re-engages the presentation gate — and now also
-  closes the row-anchored surfaces (reaction picker, profile/reader
-  popovers, image viewer) through one shared helper, because a same-room
-  reset fires none of the switch-driven cleanup. Deliberate side effect
-  worth knowing: that helper now runs on EVERY model reset, so the
-  same-room recovery reload (`reloadCurrentRoomTimeline`, used after
-  decryption retry / backup recovery) also closes those surfaces where it
-  previously left them open. A reset rebuilds every row, so closing is the
-  safe direction — but it is a new, visible behaviour.
-- **NOT TESTED, stated at full strength**: `await_event_cache_shrink`
-  has NO automated coverage at ANY layer (there is no mock-room harness in
-  `rust/`), and the accept path is unreachable offline because the mock
-  backend has no event cache. The reset payload carries `trimmed_from` AND
-  `trim_shrunk` — a timed-out wait must never look like a successful trim —
-  and `handleTimelineReset` LOGS them (`timeline live-trim … cachedBefore=
-  … released= … reloadedItems=`), because a field nothing consumes verifies
-  nothing. One live capture of that line is what closes this gap — and the
-  baseline is sampled BEFORE the release for that capture to mean anything:
-  taken afterwards, a fast shrink could land first and a genuine trim would
-  report `released=false`. Compare `cachedBefore` against `reloadedItems`
-  too; `released=true` with both counts equal would be contradictory.
-- Deliberately NOT done: incremental unfilling while scrolling. Element's
-  version works because DOM removal is nearly free; Lightning's closest
-  attempt (the bounded retained window) was implemented and REVERTED. This
-  round is materially different — one user-initiated action, no continuous
-  release machinery, no height pinning, no anchor arithmetic.
-
-**2026-08-19 scroll performance round — the polish/sync cost is
-ROOT-CAUSED, and it was not layouts.** §16's standing instruction was
-"profile what `polish` spends time on before changing anything"; that
-was done (`perf record --call-graph dwarf` over a real offscreen
-wheel-scroll run of 1000 loaded rows), and the mechanical candidate the
-old entry named — de-layouting nested ColumnLayout/RowLayouts — is NOT
-the cause. The profile named **`QQuickItemPrivate::transformChanged`
-(19.2% of all cycles)** plus `QQuickItemPrivate::itemChange` (9.5%),
-recursing hundreds of frames deep out of `setContentY`.
-- **The mechanism, read out of the qtdeclarative 6.11.1 sources (not
-  inferred).** Every `QQuickText` is BORN carrying `ItemObservesViewport`
-  (`QQuickTextPrivate::init`: "default until size is known"). The ONLY
-  code that clears it is `QQuickText::setText`, which opens with
-  `if (d->text == n) return;` — *before* its
-  `setFlag(ItemObservesViewport, n.size() > 10000)` line. So a text
-  binding that keeps producing the same empty string the item already
-  holds never clears the flag. **Visibility is never consulted** — an
-  invisible Label with real text is harmless, and an earlier revision of
-  this entry wrongly blamed invisibility (it is correlated, not causal:
-  the labels found were invisible *and* empty).
-  `QQuickItemPrivate::transformChanged` can only switch off its
-  per-subtree walk (`subtreeTransformChangedEnabled`) once **no**
-  descendant observes the viewport, so a few such Labels per row made Qt
-  walk the ENTIRE instantiated timeline tree on EVERY `contentY` change.
-  Measured with a tree walk: **3000 observers across 1000 rows** (exactly
-  3 per row — the three always-empty-by-design labels), and 139 on a
-  42-row mixed fixture (a VIRTUAL date-divider/read-marker row makes
-  *every* message-field label empty, hence the extra ones).
-- **The fix is seven `Loader`s**, not a restructure: in
-  MessageDelegate.qml the virtual-row date/start label, the
-  send-status+edited meta label, `ThreadSummaryCard`,
-  `continuationTimestamp` (now active only while hovered), the whole
-  `senderIdentityHeader` RowLayout, and the ambiguous-name
-  disambiguator — plus, in ThreadSummaryCard.qml, its own latest-time
-  label (`timeLabel()` returns `""` when the SDK summary carries no
-  timestamp, so the hazard survives INSIDE a live card; the review
-  predicted this and the fixture then caught it). Observers
-  **3000 → 0**; per-notch scroll cost **33.89 ms → 10.39 ms** at n=1000
-  (offscreen, one machine, synthesized wheel events, software rendering —
-  the felt improvement on a real 4K desktop is NOT TESTED). New suite
-  case `timelineRowsCarryNoPermanentViewportObservers` walks the real
-  item tree, requires ZERO observers, and seeds the row kinds that
-  materialize each converted branch (thread root with no timestamp,
-  edited, ambiguous name, date divider, read marker, own messages); it
-  measured 139 on the pre-fix tree.
-  **Generalize this**: in a per-row delegate, a `Label` whose text can be
-  `""` in the state it is created in belongs in a `Loader` — including
-  labels reading message fields, which are ALL empty on a virtual row.
-  This is now the single most expensive QML mistake known in this
-  codebase.
-  Accepted follow-up, NOT measured: `continuationTimestamp` is the one
-  gate that churns (hover), so mousing down a column creates/destroys one
-  Label per row crossed. The alternative — a persistent laid-out Label on
-  every continuation row — costs a text layout per row at load, which is
-  the more expensive side; a hover-churn capture would settle it.
-- **Jump-to-latest GLIDES from nearby** (maintainer request) via the
-  EXISTING `app.timelineScroll.animateTo` engine the wheel and
-  PageUp/PageDown already drive — no new animation mechanism, and every
-  scroll-session guard in TimelinePane.qml already accounts for a motion
-  in flight. Beyond `smoothJumpViewports` (4) it stays a jump on
-  purpose: at the engine's half-a-viewport-per-frame ceiling a
-  twenty-viewport slide is a second-long blur. `followLatestOnArrival`
-  + `onWheelAnimatingChanged` runs the follow-latest bookkeeping on
-  arrival and is self-guarding (`atBottomEdge()` — a reader who
-  redirected mid-glide is never yanked). Review-caught, all fixed before
-  commit: `beginWheelTo` must ALSO retire the pending arrival, because
-  `animateTo` on an already-active motion does not re-toggle
-  `motionActive` — so a keyboard redirect fired no arrival handler and the
-  stale flag could later snap the reader home just because the keys landed
-  inside the 8px bottom slack; a native drag/flick now cancels an
-  in-flight glide (the interlock the scrollbar and middle-click autoscroll
-  already had, and the glide is the first motion long enough to race one);
-  and the jump pill hides when the trip STARTS, not when it lands.
-- **Element (classic) was read for this, and it does NOT animate**:
-  `ScrollPanel.scrollToBottom()` is a bare `scrollTop = scrollHeight`,
-  and `TimelinePanel.jumpToLiveTimeline()` does not scroll through a
-  backlog at all — when `canPaginate(FORWARDS)` it builds a NEW
-  `TimelineWindow` at the live edge and DISCARDS everything paginated.
-  Its height-based unfilling (`UNPAGINATION_PADDING = 6000`,
-  `UNFILL_REQUEST_DEBOUNCE_MS = 200`, position restored by measuring a
-  tracked node's `offsetTop` before/after the DOM mutation and applying
-  a RELATIVE `scrollBy`) is enabled by DOM removal being nearly free —
-  which is exactly why Lightning's stronger bounded-retained-window
-  attempt was reverted. The one genuinely transferable idea left is
-  **drop the paginated backlog on an explicit jump-to-live**; it is NOT
-  implemented and would need its own round (see the reverted `225c7b3`
-  staging/freeze history before attempting it).
-
-**2026-08-19 design-deficit pass (same day, after live feedback).** The
-maintainer's screenshots exposed two real defects and a design gap:
-- **The reader popover's click was DEAD**: delegates reach the pane only
-  through their `timelineView` (the rotated Flickable), and
-  `openReceiptList` was a pane-root function — the delegate's existence
-  guard silently swallowed every click. It is now a property-function ON
-  the Flickable (the `openSenderProfile` pattern), with a behavioral
-  timeline-pane-qml case proven to fail pre-fix. The popover also had NO
-  themed background (fell through to the flat Basic-style box) — now the
-  shared storm popover surface with menuFont ink and hover rows.
-- **The rail chevron** (third pass): a quiet tree-expander glyph living
-  entirely in the gutter left of the tile (chevron_right collapsed →
-  expand_more expanded), never touching the accent ring — the badge disc
-  floated over the ring and read as a misplaced blob.
-- **A three-lens design audit** (round surfaces / message search /
-  dialog sweep) drove ~18 consistency fixes: Space Home's filter field
-  gained searchIcon/clear/a11y and a no-matches empty state; unified-row
-  hover gated on actionability; keycap tokens on the Suggested chip;
-  nested rail-room indent derives from the owning tile; "+N" pill
-  tooltip + badge weight; SearchPanel's raw CheckBox got palette ink;
-  search sender/body text now respects AppTheme.scaled() in all three
-  search surfaces; MessageSearchDialog rows carry menuFont; find-bar
-  history rows carry sender-specific Accessible.names;
-  UpdateAvailablePrompt matches its corner-card siblings (primary CTA,
-  storm buttons, Icon + Bold title, radiusLg); InvitePeopleDialog's
-  native Dialog.title replaced with the themed header; the shared
-  modalScrim override added to DiscoverJoin/Report/Uia/InvitePeople/
-  UpdateAvailable dialogs; and Space Home's three popups
-  (removeChildConfirm/leaveSpaceConfirm/addRoomPopup) moved to the
-  storm dialect every other confirm uses. Full CTest after: 134/134
-  both trees. All NOT TESTED live.
-
-**2026-08-19 Element-parity round (follow-up to tester report #2).**
-Three explicit requests, each Element-screenshot-anchored:
-- **Space Home unified "Rooms and spaces" list**: joined subspaces,
-  joined rooms and unjoined /hierarchy offers in ONE list (the three
-  section headers are gone) — each row states its own membership with a
-  "Joined" badge and a "Suggested" tag (only when the hierarchy KNOWS,
-  never fabricated), searchable by name/description, plus Element's
-  selection UI: per-row checkboxes gated on the NEW
-  `canManageSpaceChildren` capability (the SDK's `can_send_state` for
-  `m.space.child`, crossing the member snapshot like its siblings),
-  multi-select Remove (one confirm for N rooms), and a suggest toggle —
-  all-suggested flips off, otherwise on. The toggle is NEW Rust:
-  `mx_rust_set_space_child_suggested` reads the CURRENT m.space.child
-  (`get_state_event_static_for_key`), preserves via/order, flips only
-  `suggested`, and REFUSES a non-child (empty-via included) — never
-  promotes one. Nothing applies optimistically: completion refetches the
-  hierarchy. New suites: `space-child-suggest` (4),
-  `element-parity-contract` (5).
-- **Rail interaction (revised same day on maintainer feedback)**: a
-  SINGLE tap on a real space opens its overview — Space Home REPLACES
-  the chat view (openSpaceHome; also activates the space so the room
-  list follows); pseudo tiles only filter. There is deliberately NO
-  double-tap. The ONLY expansion trigger is the chevron: an 18px
-  rail-ringed badge DISC riding the space tile's left edge (the unread
-  badge idiom mirrored left — the first version was a bare glyph that
-  clipped into the active accent outline), hover/expanded-only, which
-  expands the space's top 5 joined rooms as 28px tiles with a "+N" pill
-  for 5 more; activity-ordered; opening one activates the space FIRST
-  (openRoom never touches activeSpaceId). Expansion state lives on the
-  rail root keyed by spaceId, cleared on account switch. The tile's tap
-  is scoped to the tile band and EXCLUDES the chevron disc
-  (non-exclusive TapHandlers, the round's recurring class).
-  `openSpaceHome` itself was reordered — teardown first, activation
-  last — because the Space Home loader instantiates SYNCHRONOUSLY and
-  its handlers point RoomInfoController at the space; the old order
-  cleared roomInfo AFTER that, wiping the canInvite /
-  canManageSpaceChildren gates so the Home's controls rendered
-  permission-less (latent since the double-tap era, never live-tested).
-- **Reader popover Element look**: "Seen by N people" header (branched
-  explicitly — a %n source string renders its "(s)" literally without a
-  loaded translation), 28px
-  avatars, per-reader read TIME from the receipt's own `tsMs` (which
-  already crossed Rust→C++→QML unused since the receipts round — today
-  → time, this week → weekday+time, older → date; tsMs 0 renders
-  nothing, never a fabricated time). The truthful "+N more (names not
-  loaded)" tail survives.
-Everything user-visible: **NOT TESTED** live.
-
-**2026-08-18 tester report #2 round (same day, 0.7.3 Win11 report).**
-Fixed, each with regression coverage: the emoji picker is now MODAL
-(dim:false) — a right-click on a tone-capable tile ALSO opened the
-message context menu through the non-modal popup (TapHandlers are
-non-exclusive across subtrees; screenshot-proven); **Copy image** on
-image rows (fetch via the star/save MediaBridge path with pending-key
-discipline, magic-sniffed — SVG refused — clipboard gets raster +
-original bytes; transient export, Save-As precedent; the tester's
-"paste sends a link" was the absence of this — paste itself already
-prefers image data); the GIF settings "reset" was a DISPLAY bug — the
-only combos using creation-time `indexOfValue()` bindings (evaluates
-before valueRole/model settle, -1 masked by Math.max) now sync
-explicitly (regression test runs first-open with non-default values);
-room/space avatars fall back to letter INITIALS (the `#` glyph is
-retired; identity colors unchanged); Space Home gains **Invite**
-(canInvite-gated, same dialog/permission path); **nested subspaces**
-("Land of the Insane") — Space Home lists joined child spaces
-(SpaceManager::childSpacesDetailed; click drills in), unjoined
-/hierarchy children label themselves `Space · N rooms inside` and Join
-drills in via spaceJoined, and the rail indents nested spaces using the
-always-computed-never-rendered `level` role; **reply-to-image
-thumbnails** in the quote block AND the composer banner (the embedded
-reply event's media registers in the Rust media registry under the
-reply target's event id — the row mechanism, so encrypted rooms work
-identically; `reply_to_media_key` crosses, never media bytes);
-**clickable read-by** — the chip strip opens a reader-list popover
-showing the delivered 16 newest + a truthful "…and N more (names not
-loaded)" (the bridge caps at 16 by design; names are never fabricated).
-Assessed + deferred with reasons in
-`docs/tester-report-2026-08-18-2.md`: spellcheck (engine + dictionary
-packaging round; the MentionHighlighter QSyntaxHighlighter hook is the
-proven attach point), rail reorder/folders, update dev-channel (needs a
-second signed manifest slot in lightning-deploy first), Win11 emoji
-tofu (no bundled emoji font; bundling Noto Color Emoji is a size
-decision for Rokas). A three-lens §18 review ran before commit; all
-findings fixed: the receipt popover mapped its tap point from the wrong
-item (the handler lives in receiptRow, whose offset from the strip is
-exactly the right-alignment gap — the popover opened displaced by it);
-a facepile tap could ALSO pin the bubble's action toolbar (the same
-non-exclusive-TapHandler class the picker fix names — the bubble handler
-now excludes the facepile band); the reader popover now closes on
-room/account switch like its sibling popovers; Space Home's
-`spaceJoined` drill-in was an UNFILTERED global listener (joining any
-space from Discover yanked the user out of whatever Home they were on —
-now scoped to the space's own offers); a star and a copy racing on the
-same not-yet-cached image left the star stranded forever (the bridge
-dedups by key, so ONE broadcast must service BOTH claims); and the
-reply-banner thumbnail key now survives the draft round trip. Both
-handler fixes carry regression tests proven to fail pre-fix. Full
-registered CTest after the fixes: **132/132 on both trees**; cargo 123/0.
-Everything user-visible: **NOT TESTED** live on Windows.
-
-**2026-08-18 voice-calls round 3 (same day): the REAL media engine.**
-`GstCallMediaBackend` — GStreamer webrtcbin (ICE/libnice, DTLS-SRTP,
-Opus, audio-only) behind the round-2 seam. Optional at BUILD time
-(`LIGHTNING_ENABLE_WEBRTC`, pkg-config AUTO), re-probed at RUNTIME
-(element factories) before registration, `LIGHTNING_DISABLE_WEBRTC=1`
-kill switch; without it the honest signaling-only refusal stands.
-`m.call.candidates` flows both ways (media-capable-gated, bounded), TURN
-comes from `/voip/turnServer` only (credentials cross once, engine-only,
-never logged; no third-party STUN). UI: the corner card is the full call
-surface (Accept gated on the engine; Calling/Connecting/In-call + Hang
-up), and the room header gains `startVoiceCallButton` — contract-enforced
-**1:1-DM-only** (a legacy invite rings every room member). Flake dev
-shell adds gst-plugins-base/good/bad + libnice (plugin path in
-`GST_PLUGIN_SYSTEM_PATH_1_0`). The `call-media-loopback` suite runs a
-REAL in-process WebRTC call headless (two engines, genuine ICE +
-DTLS-SRTP + Opus, CONNECTED both ways, teardown/recycle, garbage-SDP
-refusal) and SKIPs where the plugins are absent. A four-lens §18 review
-ran; all findings fixed pre-commit (session-identity tokens on every
-GStreamer callback — the reused engine must never attribute a closed
-call's queued event to the next call; the first-call TURN gap — the
-pre-fetch now fires when the client/backend pair completes, and the
-masking test was rewritten to production order; ICE-uri sanitization;
-bus-queue drop; engine registration moved to main.cpp's explicit
-enableCallMediaEngine() so the test fleet never gains an engine it
-didn't ask for; QML symbolic enums via QML_ELEMENT). Deliberate gaps:
-official PACKAGES don't yet declare the GStreamer/libnice runtime deps
-(lightning-deploy follow-up — packaged builds stay signaling-only), no
-video, no MatrixRTC/group calls, no mid-call renegotiation
-(`m.call.negotiate` still unhandled). A second recheck pass (GStreamer
-sources consulted) landed: RFC 3264 answer-side Opus pt reuse,
-pre-answer candidate buffering (callers trickle immediately; humans
-answer slowly — these were dropped), 32/event candidate chunking,
-TURN-fetch overflow timeout + bounded TURN responses, and the in-call
-card following the user into Settings. Live network/Element interop of
-an ANSWERED call: **NOT TESTED** (the loopback suite proves the engine,
-not the network or another client).
-
-**2026-08-18 voice-calls round 2 (same day as the round above).** The
-call backend grew its user-facing half and its media seam, still with NO
-media engine and none addable under the locked deps:
-- Ring policy wired to its real owners in AppController (ignored senders
-  via ModerationController, muted rooms via roomNotificationMode, backlog
-  from initialSyncDone edges) — the round-1 hooks are no longer inert.
-- Incoming-call notification with a Decline ACTION (freedesktop actions +
-  `replaces_id` re-delivery every 5 s carrying the themed
-  `phone-incoming-call` sound — Lightning still bundles/plays no audio),
-  missed-call notices, and the global `ringForCalls` setting (default ON,
-  Settings → Notifications). Dismissing the notification stops the local
-  re-ring only; Decline is the wire action.
-- `qml/IncomingCallPrompt.qml` corner card (above the passive prompts):
-  call STATE, caller localpart, Decline/Dismiss, and the honest
-  "answering isn't supported on this device yet" line. Contract-enforced:
-  no answer affordance until a media engine exists.
-- Media seam complete: `CallMediaBackend.h` (FakeRecorder-pattern seam) +
-  `answer()` + full outbound/inbound cycles; SDP transport is OPT-IN end
-  to end (`mx_rust_calls_set_media_capable`, only flipped when a backend
-  registers — never in production today), bounded 128 KiB at the Rust
-  edge, landing in the single-shot memory-only `calls::SdpStore` (cap 8,
-  wiped on sign-out/detach), never on CallSignal, never logged, never QML.
-- A second four-lens §18 review ran before commit; all findings were
-  fixed (ring duration follows the real invite lifetime; missed = prior
-  state Ringing AND announced; answered-inbound hangup; no wire hangup
-  for undispatched invites; SDP wipe on every teardown incl. local reset;
-  C++-side media-capable gate + re-push on handle recreation; QPointer
-  backend; payload-FIFO promotion for the re-delivered call card;
-  per-sender 30 s ring cooldown; HTML-escaped new notification bodies).
-  Accepted follow-up: the PRE-EXISTING invite/verification notification
-  bodies also carry unescaped member-chosen text — same fix belongs
-  there.
-- New suites: `call-ring-policy` (10), `call-ui-contract` (6, incl. real
-  offscreen instantiation through a live ring/decline);
-  `call-controller` grew to 35, `notification-manager` to 26 (7 call-ring
-  cases); `calls::tests` 10.
-Everything user-visible is **NOT TESTED** live (ring sound behavior is
-notification-daemon-dependent by design).
-
-**2026-08-17/18 post-0.7.2 round** (`4f74eb4..8da2e81`) — **shipped as
-0.7.3.** The first REAL upgrade test drove all of it. Windows MSI failed
-with 1619 because msiexec has its own argument parser and rejects Qt's
-forward-slash path (proven by hand: `/` errored, `\` installed); Windows
-portable failed with backup-failed because the swap renamed the install
-DIRECTORY while the running helper and its loaded Qt DLLs were mapped
-inside it — now an entry-by-entry move, since renaming in-use FILES is
-permitted on Windows while deleting them is not (so the backup directory
-survives, and a stale one must be cleared or update #2 fails). AppImage
-relaunched the MOUNTED binary rather than the .AppImage it had replaced.
-Notifications: opening a room notified for its own backlog, because
-opening a room subscribes it in sliding sync and the backlog arrives as
-live appends while `roomVisibleAtLatest` is false (the view is still
-hydrating); a sender with no avatar got the daemon's generic glyph
-instead of an initials disc; and the app icon was passed only as a theme
-name, which resolves in an installed deb/rpm and nowhere else — a source
-build, an AppImage and a Flatpak all fell through to a placeholder.
-Updates now announce themselves (corner card + gear badge, dismissal per
-VERSION, badge survives dismissal), automatic checks default ON with the
-default restated in all four places that claim it, and update DISCOVERY
-survives the release server being unreachable via a canonical-first,
-mirror-fallback manifest fetch — inert until lightning-deploy publishes
-the pair to the `update-latest` tag.
-
-**2026-08-16/17 post-0.7.1 round** (`ea1fd40..7c736c3`) — **shipped as
-0.7.2.** Everything below is now released; live validation status is
-unchanged by that, and most of it is still NOT TESTED.
-Twenty-four commits addressing user-report batches. Newest first:
-- **Video poster extraction froze the GUI thread** (`68cb82c`). The
-  reported "massive lag spike when scrolling up and videos come up" was a
-  SECOND cause, unrelated to the image decode below. `VideoPosterExtractor`
-  built its `QMediaPlayer`/`QVideoSink` inline on the GUI thread, and the
-  **first `QVideoSink` in a process costs ~931 ms** — lazy Qt Multimedia
-  backend init including a hardware-decoder probe that fails without VAAPI
-  — plus ~68 ms `~QMediaPlayer` and ~232 ms of `frame.toImage()` per job.
-  A GUI-thread heartbeat measured a 937 ms stall against a 1 ms idle
-  baseline; on a private worker thread the same extraction measures 1 ms.
-  The intuitive per-frame theory was WRONG: `toImage()` is 0.24 ms.
-  Two traps this shape invites, both caught in prototype and worth
-  remembering: a plain `moveToThread` leaves a MEMBER `QTimer` on the
-  creating thread, where Qt refuses to start it, silently disarming the
-  6 s watchdog (make it a CHILD); and the reply becomes QUEUED, so
-  `disconnect()` no longer reliably cancels one already posted — session
-  isolation therefore keys on `m_posterExtracting`, which `clear()`
-  empties, not on the connection. `MediaBridge::warmMultimediaBackend()`
-  additionally pre-pays the init off-thread for the first inline PLAYBACK,
-  whose sink QML builds on the GUI thread and cannot move; it is skipped
-  under a guiless app so the media suites still construct no decoder.
-  New suite `video-poster-threading`, proven to fail on the old tree
-  (891 ms). Residual, unmeasured: `writePlayableFile` still writes up to
-  32 MiB synchronously on the GUI thread.
-- **Message action bar clipped on a thin row** (`4db1a18`). The hover
-  toolbar was anchored INSIDE bubbleRow with a -3px overhang and root
-  clips (`clip: ListView.view === null`, load-bearing), so a one-line row
-  truncated it. Escaping the clip is right; the FIRST attempt at it
-  crashed — a per-row Loader's loaded Rectangle setting
-  `parent: Overlay.overlay` keeps the Loader as its destruction owner, so
-  delegate churn dereferenced a dangling pointer (bisected against
-  timeline-pane-qml). The `detailsDialogComponent` precedent does NOT
-  transfer: a Dialog is a Popup and manages its own overlay lifetime.
-  Fixed with ONE shared bar declared statically in TimelinePane.qml
-  (same lifetime as sharedReactionPicker), into which rows publish only
-  PRIMITIVES via claimActionBar/releaseActionBar — never a QObject
-  reference, so a destroyed row cannot dangle anything.
-  `forceReleaseActionBar` exists because the ordinary release refuses
-  while the pointer is on the bar: correct for a live row, WRONG for a
-  dying one, where a room switch left the bar on screen over the next
-  room still holding the previous room's event id.
-- **Scroll consistency** (`5429ab0`): shared `qml/SmoothWheelArea.qml`
-  applied to Settings and eight other panes; contract test lists the
-  twelve still unconverted rather than hiding them. It uses only
-  ScrollTuning's STATELESS `notchDistance()` — `wheelTargetY()` mutates
-  controller state owned by the timeline's anchoring.
-- **State-flood scroll death: still NOT reproduced** (`970bc75`,
-  `ff5dcfe`). The user reports scrolling dying in rooms with many state
-  events. Two harnesses say the opposite of the hypothesis: state rows
-  cost ~0 ms per wheel notch vs 12-20 ms for the same count of ordinary
-  messages, and page inserts stay flat (~6 ms) out to 1063 loaded rows.
-  The proxy-suppression fix sketched in `970bc75`'s message was therefore
-  NOT shipped — it would be a fourth speculative scroll change, and the
-  three before it were withdrawn in review or shipped and regressed. The
-  trace now carries `gestureMs`, `worstNotchMs`, `stateRows` and
-  `stateGroups` (all behind LIGHTNING_SCROLL_TRACE, counts only).
-  **A real capture is the blocker**: a high `worstNotchMs` next to a high
-  `stateRows` is the evidence that would justify the suppression work.
-  Note the real inefficiency that IS confirmed: a collapsed group drawing
-  ONE summary line still instantiates one delegate per member row
-  (`modelRows=100 viewRows=100`).
-- **Room upgrades / tombstones** (`de05091`) — see §7.
-- **Space avatar** (`74319b1`): Space Home already edited name and topic;
-  the avatar controls did not exist, so a Space could be renamed but
-  never given a picture from inside Lightning. Same permission-gated
-  `setRoomAvatar`/`removeRoomAvatar` a room uses — a Space IS a Matrix
-  room and this is `m.room.avatar` either way.
-- **"Mark as read" was a silent no-op for any room but the open one**
-  (`05b2384`). `RoomListModel::markRoomRead` resolved its target by
-  walking `MatrixClient::timeline(roomId)`, which on the Rust backend
-  only ever holds the ACTIVE room — empty for every other room, so it
-  sent nothing and said nothing. `mx_rust_mark_room_read` takes the
-  target from the SDK's `Room::latest_event()`, sends the public receipt
-  AND `m.fully_read` together, and always clears the manual unread flag.
-  Worth recording: the read-marker plumbing was otherwise already
-  correct — Lightning sends `m.fully_read` on every in-room advance and
-  the SDK derives its own ReadMarker row from account data, so a marker
-  set by another client already arrived. Only this entry point was broken.
-- **Message forwarding**: content re-sent as a NEW, unrelated event (no
-  Matrix forward primitive, no SDK helper). Media is RE-UPLOADED, never
-  mxc-copied — under authenticated media the target's members may not be
-  entitled to the source mxc, and an encrypted source's `file` block
-  carries per-event keys that must not be planted in a room that never
-  negotiated them. Carries NO relation, so a forwarded thread reply lands
-  as an ordinary message (§8). Filename and MIME are sender-chosen and
-  RE-ORIGINATED under this account, so both are sanitized: leaf-only
-  filename, and type identified from MAGIC BYTES using the same five
-  signatures as `rooms::sniff_image_mime` (NOT `QImageReader::format()`,
-  which is plugin-backed — WebP lives in qtimageformats and the packaged
-  fleet need not carry it; and NOT `gif::validateRasterBytes`, which
-  imports the saved-GIF store's 4096px / 25 MiB caps and would refuse a
-  5K screenshot). Four review-caught defects worth remembering: every
-  image forward would have written decrypted bytes into the saved-media
-  store (the star handler acted on EVERY `mediaBytesForStar`, safe only
-  while `starChatGif` was its sole caller); media forwarding to any room
-  but the OPEN one failed 100% of the time (`sendAttachmentBytes` gates
-  on the live timeline, so `Room::send_attachment` was added); a server
-  refusal after dispatch was SILENT (a direct upload has no send queue
-  and the target timeline is not open, so nothing fails visibly).
-- **`wantsSharedActionBar` binding loop** (regression from the action-bar
-  fix, caught by a LIVE CAPTURE not by any test): the binding read
-  `activeActionsKey` and its handler called `claimActionBar`, which
-  writes it. Fired hundreds of times per pagination run. Keeping the bar
-  alive under the pointer never needed that term — `releaseActionBar`
-  already refuses while hovered. A binding loop is a WARNING, so the
-  suites asserting on QML warnings missed it: they load MessageDelegate
-  standalone, and the loop needs a claim to fire at all.
-- **Stale timeline suites ported**: `timeline-pane-qml` 52/11 -> **61/2**.
-  Not flakiness — six cases asserted `maintainViewAnchor`'s materialized
-  branch APPLYING its delta, which was deliberately reversed to NO WRITE
-  after physical testing rejected it twice. Also removed
-  `diagMaterializedAppliedSum`, which was printed in the scroll trace but
-  never incremented since that reversal, so `materializedApplied=0` in
-  every capture read as "no growth measured". The 2 remaining failures
-  abort on their own fixture precondition (no cache eviction exists in
-  the un-virtualized Column) and are deliberately left.
-- **First-upgrade validation procedure** (`082d4d0`) in `docs/updates.md`.
-Everything user-visible in this round is **NOT TESTED** live.
-
-**#10 RESOLVED as diagnosis, 2026-08-16. Read this before touching
-timeline scrolling.** Four hypotheses were proposed and every one was
-falsified by a live capture from Rokas's machine. Do not re-propose them:
-
-| Hypothesis | Falsified by |
+| Hypothesis | Refuted by |
 |---|---|
-| State events are the cost | state rows measured ~8x CHEAPER than messages |
-| Row count is the cost | `worstNotchMs` flat at 1-2 ms regardless of rows |
+| State events are the cost | state rows ~8x CHEAPER per notch than ordinary messages; page inserts flat (~6 ms) out to 1063 rows |
 | GPU fill-rate at 4K | `render` = 1-4 ms on every slow frame |
-| Clipping breaking batching | same — render is never the cost |
+| Clipping breaks batching | same capture — render is never the cost |
+| De-layouting MessageDelegate's nested ColumnLayout/RowLayouts | `perf record` named `QQuickItemPrivate::transformChanged` at 19.2% of cycles and `polishItems` at 1.0%. Buried twice; do not revive |
+| The anchoring machinery displaces readers | every anchor counter zero on every line of every live capture (`anchorCorrections=0 displacedFirings=0 prependFirings=0 unresolvedId=0 evictedNoInsert=0`) |
+| Pagination teleport | did not reproduce 2026-08-12; structurally impossible now (positive-only guard, below) |
+| `worstNotchMs` measures frame cost | it times the wheel HANDLER, never the frame: 0-2 ms live while frames cost 14 ms. It once wrongly retired the row-window idea |
+| Offscreen per-notch cost transfers to hardware | offscreen uses the software rasterizer where `syncSceneGraph`/`updateDirtyNode` dominates: 10.65 ms/notch offscreen at 1000 rows vs 0-2 ms on the GPU |
 
-**What the evidence says.** `QSG_RENDER_TIMING=1` during a hard scroll at
-4K fullscreen:
+**Offscreen perf numbers are not the user's numbers.** Any scale-with-N
+result measured offscreen must be confirmed on hardware before anything
+is built on it.
 
-```
-polish=28 sync=18 render=3 swap=2  -> 53ms
-polish=10 sync=32 render=4 swap=1  -> 48ms
-```
+*Measured.* Frame cost tracks TOTAL instantiated rows, not what is on
+screen. `QSG_RENDER_TIMING=1` on Rokas's GPU, pagination frames
+excluded: ~108 rows = 3 ms median frame (1% over 16 ms); ~916 rows =
+14 ms (46% over, polish 5.6 / render 8.3). Cost is CPU-side polish+sync
+on the GUI thread; `render`/`swap` are negligible. Residual accepted:
+~60-140 ms per pagination page (`perRowMs` 3-7, ~18-20 rows a page),
+paced by `ReverseListProxyModel` at 3 ms per tick.
 
-The cost is **polish (Qt item layout) + sync (scene-graph node updates)**,
-both CPU-side on the GUI thread. `render` and `swap` are negligible. That
-is why the lag tracked WINDOW SIZE rather than row count: a taller viewport
-puts more rows inside the 3-viewport `rowOnScreen` band, and every one of
-those activates media loaders and layouts.
+*Shipped 1 — never-laid-out empty `Text` items (`d1ddc2f`).* Every
+`QQuickText` is BORN carrying `ItemObservesViewport`
+(`QQuickTextPrivate::init`). The ONLY code that clears it is
+`QQuickText::setText`, which opens with `if (d->text == n) return;` —
+*before* its `setFlag(ItemObservesViewport, n.size() > 10000)` line, so
+a binding that keeps producing the same empty string never clears it.
+**Visibility is never consulted** (an earlier revision wrongly blamed
+invisibility; correlated, not causal).
+`QQuickItemPrivate::transformChanged` only switches off its per-subtree
+walk once NO descendant observes the viewport, so a few such Labels per
+row made Qt walk the whole instantiated tree on every `contentY` change:
+3000 observers across 1000 rows. Fixed with seven `Loader`s in
+MessageDelegate.qml and ThreadSummaryCard.qml (whose `timeLabel()`
+returns `""` without an SDK timestamp, so the hazard lives inside a live
+card too). Observers 3000 → 0; offscreen per-notch 33.89 → 10.39 ms at
+n=1000. Felt improvement on a real desktop: **NOT TESTED**.
+**GENERALIZE: in a per-row delegate, a `Label` whose text can be `""` in
+the state it is created in belongs in a `Loader`** — including labels
+reading message fields, which are ALL empty on a virtual
+date-divider/read-marker row. Single most expensive QML mistake known
+here. `timelineRowsCarryNoPermanentViewportObservers` walks the real
+item tree and requires ZERO (139 on the pre-fix tree). Unmeasured
+follow-up: `continuationTimestamp` churns one Label per row crossed on
+hover; the alternative costs a text layout per row at load.
 
-**A bounded retained window was implemented and REVERTED.** It released
-far-offscreen rows while pinning their measured height. It did not produce
-a felt improvement over two rounds of testing, a follow-up cap on the
-on-screen band made the app FREEZE, and the width-invalidation it required
-called `captureViewAnchor()`/`maintainViewAnchorCoalesced()` on every
-resize — injecting anchor operations into the machinery three previous
-fixes were reverted from, which three anchor-counter tests detected.
-Reverting restored "fine, only lags a bit when messages load". **The change
-was making it worse**, consistent with the review finding that it added a
-build-then-destroy pass to the pagination path.
-
-Residual, accepted: ~60-140 ms per page while backfilling (`perRowMs` 3-7,
-~18-20 rows a page). ReverseListProxyModel already paces this with a 3 ms
-budget per tick.
-
-**A REAL, MEASURED cause of the "lags when images load" spike was found on
-2026-08-17 and fixed (`6ca9d99`) — it is not the polish story above.**
-`MediaImageProvider` ignored the QML `sourceSize` on every timeline image.
-The rows ask for `sourceSize.width: 640` with the height left 0 (QML's
-documented keep-the-aspect idiom), and the provider gated on
+*Shipped 2 — decoded image size (`6ca9d99`).* `MediaImageProvider`
+ignored `sourceSize` on every timeline image: rows ask for
+`sourceSize.width: 640` with height 0 (the documented keep-the-aspect
+idiom) and the provider gated on
 `requestedSize.isValid() && !requestedSize.isEmpty()` — but
-`QSize::isEmpty()` is true when EITHER axis is below 1, so a width-only
-request read as "no size asked for" and the decode fell back to FULL
-resolution, bounded only by the 4096 safety edge. A user capture of a
-scroll-up shows ~20 paginations each pulling six to sixteen images at
-1.7 MB / 1.3 MB / 920 KB, decoded at full size for a 348px box. Measured on
-the test fixture: 3.84 Mpx -> 0.27 Mpx, 14x fewer pixels per image.
-Upscaling is still honoured when a shape is BAKED IN (an avatar mask
-rasterizes once, so baking small then showing large aliases the edge) and
-refused otherwise. Whether this removes the felt spike is **NOT TESTED**
-live. Note what this does and does not explain: it accounts for the spike
-while media loads, and for part of the `sync` cost (texture upload), but the
-`polish` finding above stands on its own for scrolling through already
-loaded rows.
+**`QSize::isEmpty()` is true when EITHER axis is below 1**, so a
+width-only request read as "no size asked for" and decoded at FULL
+resolution. Fixture: 3.84 Mpx → 0.27 Mpx. Upscaling is still honoured
+when a shape is BAKED IN (an avatar mask rasterizes once) and refused
+otherwise. **NOT TESTED** live.
 
-**SUPERSEDED 2026-08-19 — read the scroll performance round entry at the
-top of this section first.** The instruction below (profile before
-changing anything, with `perf record`, not env-var experiments) was
-followed and was the right call. Its *hypothesis* was wrong: the cost was
-NOT Qt Quick Layouts propagating size hints. It was
-`QQuickItemPrivate::transformChanged` walking the whole instantiated tree
-on every `contentY` change, because never-laid-out `Text` items keep the
-`ItemObservesViewport` flag they are born with. Do not spend a round
-de-layouting MessageDelegate on the strength of the paragraph below.
+*Shipped 3 — speculative media waits for a settle.* A live capture of
+one 15 s upward gesture (442 wheel events, ~45 pagination pages, 19 →
+813 rows) showed ~120 MB of video pulled because every row that merely
+SWEPT THROUGH the on-screen band armed a full-payload prefetch, each
+completion writing its temp file synchronously on the GUI thread. ONE
+gate, `speculativeMediaAllowed: !userScrollActive`, consulted by the
+video payload prefetch, the video POSTER path (which prefetches
+internally via `videoPosterSource` → `prefetchPlayable`, so gating only
+the obvious call site leaves half the traffic) and the audio card.
+**Thumbnails are deliberately NOT gated**: small, and they are what the
+reader is looking at.
 
-Original text, kept for the record: profile what `polish` is spending
-time on before changing anything. MessageDelegate is built from nested
-ColumnLayout/RowLayout and Qt Quick Layouts propagate size hints on every
-polish; replacing the hot ones with anchored Items is the mechanical
-candidate. Use `perf record` on the GUI thread, not more env-var
-experiments. The scroll trace (`gestureMs`, `worstNotchMs`, `stateRows`,
-`stateGroups`) and `row-reveal` (`perRowMs`) are already in place and are
-what retired all four wrong hypotheses.
+*Shipped 4 — jump-to-live history trim (`f40da33`).* The un-virtualized
+Column instantiates every paginated event permanently. **Lightning
+implements no unloading of its own**: matrix-sdk 0.18 already does it —
+`RoomEventCache::subscribe()` bumps a `subscriber_count`, and at zero
+`auto_shrink_linked_chunk_task` calls `shrink_to_last_chunk()`; this
+round adds only ORDERING. **`abort()` only REQUESTS cancellation**, so
+the old task still owns the `Arc<Timeline>` holding the count up;
+`await_event_cache_shrink` awaits that handle (a `Cancelled` join IS the
+success signal), bounded so a slow task degrades to no-trim. **Never
+`RoomEventCache::clear()`** — it wipes PERSISTED events, forcing even
+the live tail to be refetched. Policy is a PURE predicate
+(`AppController::historyTrimAllowed`) so every clause is testable: Rust
+backend, room open, not mid-pagination, **no thread panel or Threads
+view open**, >400 loaded rows. The thread clause is load-bearing twice:
+a thread timeline holds its OWN event-cache subscriber (so the shrink
+could not fire) and the reload would tear its live subscription out from
+under an on-screen panel. ONE call site, contract-pinned: the FAR branch
+of `goToLatest()` — wiring it to scrolling or pagination would reset a
+reader's timeline out from under them — committing (`stickToBottom`,
+`saveFollowingLatest`) ONLY on a real dispatch success. Deliberate side
+effect: `onModelReset` now closes the row-anchored surfaces on EVERY
+reset, including the same-room recovery reload. **LIVE-VALIDATED PASS**
+(`cachedBefore= 1083 released= true reloadedItems= 19`). The payload
+carries both `trimmed_from` and `trim_shrunk` so a timed-out wait cannot
+look like a successful trim, and the baseline must be sampled BEFORE the
+release or a fast shrink makes a genuine trim report `released=false`.
+`await_event_cache_shrink` has NO automated coverage at any layer (no
+mock-room harness in `rust/`).
 
-**2026-08-15 discovery / search / UIA / moderation / drafts round.** Landed
-in one pass after the pins/admin round:
-- **Active-room sliding-sync subscription** (user-report fix): sliding sync
-  delivers `m.room.pinned_events` ONLY inside a room SUBSCRIPTION's
-  required state, and Lightning never subscribed — so a pin (local or from
-  another client) stayed invisible until a restart re-ran the once-per-room
-  `/state` probe. `mx_rust_timeline_open` now records the open room as THE
-  one subscription (`RoomListService::subscribe_to_rooms`, replacing the
-  previous set), the modern sync loop applies it on start for restored
-  sessions and publishes the service behind an RAII guard, and
-  `stop_sync_and_wait` forgets the room so a later account can never
-  inherit it. Bonus: the active room gets subscription timeline batches
-  (20) instead of the list's 1. Also from that report: a `push_pin` header
-  shortcut appears when the room has pins (opens Room Info → Pinned), and
-  the profile role buttons' labels are vertically centred.
-- **Discover / Join Room** (`discover.rs`, `RoomDiscoveryController`,
-  `RoomDirectorySearchModel`, `DiscoverJoinDialog`): directory browse/
-  search with `next_batch` paging, identifier/link resolution through ruma
-  `MatrixUri`/`MatrixToUri` + `get_room_preview` (a refused preview still
-  resolves — Join stays offered), joins via `join_room_by_id_or_alias`
-  (+ via servers), knocking via `Client::knock` with optional reason,
-  knock withdrawal (a Knocked-state `Room::leave` — the normal leave path
-  deliberately filters to Joined), the room-list knocked row with
-  Withdraw, Space Home "More rooms in this space" from the SDK's
-  `/hierarchy`-backed `SpaceRoomList` (bounded 10 pages/200 rows), room
-  matrix.to/`matrix:` links in messages open IN-APP through the dialog
-  (joined rooms auto-open and jump to the linked event; user links keep
-  the browser), and Quick Switcher commands. Join errors map to honest
-  categories — banned / invite-only / restricted (`restricted_denied` is
-  classified separately, never presented as plain invite-only).
-- **Message history search** (`search.rs`, `MessageSearchController`,
-  `MessageSearchDialog`, find-bar History segment): the server `/search`
-  endpoint through raw `Client::send` (matrix-sdk has no wrapper), Recent
-  order, `content.body` key only, zero-context + historic profiles,
-  `next_batch` paging. E2EE POLICY (deliberate): the server cannot search
+*Shipped 5 — the row window (`b74b518`, made live by `7092eab`).*
+`ReverseListProxyModel` carries a window: `windowSkip` (how many of the
+NEWEST source rows are excluded) plus the exposed count, every
+transition a single insert-or-remove at ONE end — never a reset, never a
+mid-list renumbering. **`windowSkip == 0` is the only state in which
+proxy row 0 is the live edge**, so the pane must return to 0 before the
+reader can reach the bottom. Policy (`applyRowWindow`,
+TimelinePane.qml): `windowRunwayRows` 220 below the reader (≈30
+viewports vs a largest observed gesture of ≈7.5 — that runway is the
+strand-prevention), `windowMarginRows` 120 above, never below
+`windowMinRows` 320, move only for a change of 40+ rows. **Applied ONLY
+from the scroll-settle timer** — no structural change mid-gesture, which
+is what sank the reverted bounded retained window. With a window active
+`atBottomEdge()` returns FALSE so follow-latest cannot latch onto a
+false newest message. Correction on a newest-end release is ONE exact
+write: sum the MEASURED heights of the released rows (the Column has no
+spacing, so a plain sum is exact) and subtract from contentY. A deferred
+`Qt.callLater` snap-by-anchor-id was tried and REMOVED — it runs BEFORE
+the Column relayout, reads the anchor's stale y and clamps against the
+new shorter content, dumping the reader at the top. Do not add a second
+correction path alongside `maintainViewAnchor`. Silent failure modes:
+- **A skip change renumbers every view row.** View-row helpers must
+  subtract `rowWindowSkip` or every jump/search/anchor-restore resolves
+  to "no such row" and does nothing. Four instances; none threw.
+- `releasePendingRows()` must clear the WINDOW, not just the pacing cap
+  (`releaseAll()` lifts `m_windowCap`, leaves `m_windowSkip`).
+- Live-edge paths must RESTORE the live edge: `wheelMinY()` under a
+  window is a synthetic newest edge, so `goToLatest()` glided to a
+  message that was not the latest. It now refuses the glide while a
+  window is held, and `settleAtLatest()` calls `releasePendingRows()`
+  itself rather than trusting the trim's model reset.
+- `revealNextChunk()` bounded its release loop on `sourceRowTotal()`
+  instead of `revealTarget()` (`9adcdc9`): one tick released straight
+  through the cap — 230 rows against a cap of 60. Only bites once the
+  exposed count drops below the cap.
+- **Thrash guard, thresholded on the ENTER band.** Trimming the OLDEST
+  end shrinks `contentHeight` and so `wheelMaxY()`, and
+  `distanceFromTop()` is `wheelMaxY() - contentY`, so a trim moves the
+  reader's measured distance from the top with no visible movement while
+  `applyRowWindow()` ends in `updateStickAndPaginate()` — dispatching a
+  backfill that regrows what was released. TALL-VIEWPORT only (fixed
+  ~4020 px kept margin vs a `2.5 * height` enter band): a test at 420 or
+  1400 px passes on broken code, so the suite uses 2160 px. Thresholding
+  on `nearTopExitDistance` OVER-fires — that is hysteresis for a reader
+  already in the band; what dispatches is crossing INTO it.
+- **The window's old edge re-exposes LOCAL rows; it does not ask the
+  server**, or the window creates a stall where none existed. It rides
+  the proxy's paced reveal (`extendWindowAtOldEnd`); a synchronous
+  `setWindow(skip, count+120)` would build 120 delegates at once,
+  360-840 ms. It deliberately does NOT consume `nearTopArmed`.
+- Acceptance: `rowWindowBoundsRowsWithoutMovingTheReadersMessage`
+  (900 → 376 rows, the reader's own event moves 0 px, bar 2 px, both
+  directions) plus three review-driven cases including
+  `rowWindowTrimNeverFeedsTheNearTopPaginationBand`.
+
+*It shipped as a PERMANENT NO-OP and a live capture caught it.*
+`userScrollActive: moving || wheelAnimating || scrollSettleTimer.running`
+and `applyRowWindow()`'s only caller is `scrollSettleTimer.onTriggered`,
+where that timer still reads as running — so `if (userScrollActive)
+return` was UNSATISFIABLE at the one call site that exists. Fixed with
+`viewportMotionActive` (`moving || wheelAnimating`); `userScrollActive`
+is left alone because the speculative-media gate deliberately includes
+the settle tail. **GENERALIZE: a policy test that invokes the policy
+function directly proves nothing about whether production ever reaches
+it.** The policy was covered six ways and the trigger not at all;
+`wheelScrollingIntoHistoryEventuallyBoundsRowsThroughTheSettleTimer` now
+drives real wheel notches and waits, calling nothing. The window had
+ZERO observability, which is how it shipped unnoticed: the gesture trace
+now carries `srcRows`, `winSkip`, `winApplies`, and `rows == srcRows`
+with a deep reader, or `winApplies=0`, is the signature.
+
+*Still unproven.* **No production frame-cost improvement has ever been
+observed from the row window** — the felt "better by a lot" in the live
+capture belongs to the speculative-media gating. The judge is a fresh
+`QSG_RENDER_TIMING` capture with `winApplies` > 0, `rows` ≪ `srcRows`
+and median frame cost deep in history falling toward 3 ms. The window
+only acts when SETTLED, so it does not help during the long upward
+scroll itself. Also open: which stall category (`row-reveal`,
+`image-decode`, `timeline-diff`, `timeline-reset`) owns the logged
+333/369/1062 ms GUI stalls — do not guess a fix before that line exists.
+`writePlayableFile` still writes up to 32 MiB synchronously on the GUI
+thread (unmeasured).
+
+*The positive-only anchor guard: do not "fix" it.* The timeline is a
+rotated `Flickable` + `Column` (`qml/TimelinePane.qml`), not a ListView:
+`contentHeight` is the exact sum of real rows and `originY` can never
+move. View row 0 is the NEWEST message at content y 0
+(`sourceRowForViewRow = count-1-row`), so backward pagination lands at
+HIGHER view rows and higher content y, past the reader; a prepend does
+not change the anchor row's index or y and the displaced branch is never
+reached. The only insertion that displaces a scrolled-up reader is a
+LIVE message at view row 0 — a genuinely positive `grew` the guard
+already applies. Three attempts failed here (two withdrawn in review;
+the staging/freeze window `225c7b3` shipped, regressed and was removed
+in `263268b`). A fourth needs a `LIGHTNING_SCROLL_TRACE=1` capture
+naming a failure: a non-zero `displacedApplied`, `anchorCorrections` or
+`materializedMaxAbsDelta`. All-zero lines are not evidence.
+
+*Element (classic) was read for this and does NOT animate.*
+`ScrollPanel.scrollToBottom()` is a bare `scrollTop = scrollHeight`;
+`TimelinePanel.jumpToLiveTimeline()` builds a NEW `TimelineWindow` at
+the live edge and DISCARDS everything paginated. Its height-based
+unfilling (`UNPAGINATION_PADDING = 6000`,
+`UNFILL_REQUEST_DEBOUNCE_MS = 200`, relative `scrollBy` from a tracked
+node's `offsetTop`) works because DOM removal is nearly free — exactly
+why Lightning's bounded-retained-window attempt was reverted (no felt
+improvement, a follow-up cap made the app FREEZE, and its
+width-invalidation injected anchor calls on every resize into the
+machinery three fixes were reverted from). Incremental unfilling while
+scrolling remains deliberately NOT done.
+
+**Qt version differences the dev shell cannot show you.** Pipeline 105's
+`build-deb` died on `CallController.h` holding
+`return m_mediaBackend != nullptr;` INLINE where `m_mediaBackend` is a
+`QPointer<CallMediaBackend>` and that class is only forward-declared:
+comparing a `QPointer<T>` against `nullptr` instantiates
+`QPointer<T>::data()`, whose `static_cast<T*>` requires T COMPLETE.
+**Qt 6.11 (nix dev shell) never reaches that path; Qt 6.8.2 (Debian —
+every deb/rpm/AppImage job) does.** Fixed by moving the accessor into
+the `.cpp` (`e8139ed`). Generalize: a `QPointer<T>` MEMBER of an
+incomplete type is fine; any inline comparison or dereference of it in a
+header is not. Raw `T *p = nullptr` comparisons are always fine.
+Reusable method: `docker run debian:13.6-slim` + `qt6-base-dev` +
+`-fsyntax-only` reproduced the exact error, and a sweep of all 104
+translation units proved it the only occurrence. Check CMake
+conditionals before believing a sweep hit (one apparent hit compiled
+only under `LIGHTNING_ENABLE_SCREENSHOT_DEMO`; two were missing dev
+packages). **Cancel a doomed pipeline immediately — it keeps running its
+other jobs and HOLDS the runners, so a retry sits pending.** (Third time
+that note has earned its place.)
+
+**TapHandlers are non-exclusive across subtrees**, and TapHandler points
+are PARENT-local. A right-click on a non-modal popup's tile also reached
+the message context menu beneath it (fixed by making the emoji picker
+MODAL with `dim:false`); a facepile tap also pinned the bubble's action
+toolbar; a receipt popover opened displaced because its handler lives in
+`receiptRow`, not the strip. Any overlaid affordance needs an explicit
+band exclusion in the handler beneath it. Recurred in three rounds.
+
+**Timeline test conventions — do not "re-fix" these.** The rotated
+Flickable + Column has no `positionViewAtIndex`,
+`positionViewAtBeginning` or `itemAtIndex`; `QMetaObject::invokeMethod`
+merely returns false. Physically UPWARD means *increasing* contentY, and
+the earliest loaded position is `wheelMaxY()`, not `wheelMinY()`
+(`goToEarliestLoaded()` is literally `contentY = wheelMaxY()`). On the
+mock backend `mediaThumbUrl` is a plain http URL, so image rows log one
+`mock.local` host-not-found warning — filtered NARROWLY by
+`realWarnings()`, so a fixture reaching a REAL host still fails. Assert
+DELTAS of branch counters, not absolutes, when the fixture's own setup
+can legitimately fire a branch. There is no delegate eviction in the
+un-virtualized Column, so the two eviction tests are INVERTED to pin
+"these branches must not fire while the delegate is alive"; if eviction
+returns they fail and the pre-`8f84d18` fixtures are the re-porting
+start point. View rows count from the newest message, so a live append
+shifts every event's view row by one: a test measuring a fixed view row
+is measuring a different event afterwards (a FIXTURE bug once misread as
+an anchor defect). A binding loop is a WARNING, and suites that load
+MessageDelegate standalone will miss one that needs a claim to fire.
+
+**`indexOfValue()` is -1 at creation time** (evaluates before
+valueRole/model settle; -1 was masked by `Math.max`). Combos must sync
+their index explicitly.
+
+### Round history (newest first)
+
+Lessons only; features are described in §7, SHAs point into `git log`.
+
+**2026-08-19 design-deficit pass.** The reader popover's click was DEAD:
+delegates reach the pane only through their `timelineView` (the rotated
+Flickable), and `openReceiptList` was a pane-root function, so the
+delegate's existence guard silently swallowed every click — it is now a
+property-function ON the Flickable (the `openSenderProfile` pattern).
+~18 consistency fixes from a three-lens design audit. CTest 134/134 both
+trees. **NOT TESTED** live.
+
+**2026-08-19 Element-parity round.** `mx_rust_set_space_child_suggested`
+reads the CURRENT `m.space.child`, preserves via/order, flips only
+`suggested`, and REFUSES a non-child (empty-via included) — it never
+promotes one; nothing applies optimistically. "Suggested" is shown only
+when the hierarchy KNOWS, never fabricated. Rail: a SINGLE tap on a real
+space opens Space Home (which REPLACES the chat view), there is
+deliberately NO double-tap, and the ONLY expansion trigger is the
+chevron disc, whose band is excluded from the tile's tap.
+`openSpaceHome` was reordered teardown-first, activation-last because
+the Space Home loader instantiates SYNCHRONOUSLY and its handlers point
+RoomInfoController at the space — the old order wiped the
+canInvite/canManageSpaceChildren gates afterwards, rendering the
+controls permission-less. A `%n` source string renders its "(s)"
+literally without a loaded translation, so "Seen by N people" is
+branched explicitly; per-reader time comes from the receipt's own
+`tsMs`, and `tsMs` 0 renders nothing, never a fabricated time. Suites:
+`space-child-suggest` (4), `element-parity-contract` (5). **NOT
+TESTED**.
+
+**2026-08-18 post-0.7.3 round.** Both stale timeline suites GREEN for
+the first time since `1e50f6a` (`timeline-hydration-qml` 8/0,
+`timeline-pane-qml` 63/0; offscreen, one desktop, one day).
+`initialHydrationGateHoldsThenOpensAtLatest` exposed a REAL production
+defect: after a reset, `fillsViewport` trusted a `contentHeight` still
+reading the OUTGOING content's height (old delegates linger until
+deferred destruction), and `contentHeight >= height-1` is degenerately
+true while `height==0` pre-layout — fixed with
+`presentationGeometryStale` (set on model reset, cleared by the first
+Column relayout) plus a `height>0` guard. **GUI stall tracing**
+(`LIGHTNING_GUI_STALL_TRACE`, `src/app/GuiStallTracer`; default 250 ms,
+env value >= 50 overrides): one line per stall with a coarse RAII-scope
+category — literal strings only, never content. `stalltrace::Scope`
+writes a single GLOBAL category, so it is inert off the GUI thread: a
+confidently wrong category is worse than `unattributed`.
+
+**2026-08-18 voice calls (rounds 1-3).** MSC2746 `m.call.*` v1 plus the
+`m.rtc.notification`/`m.rtc.decline` lane (`rust/src/calls.rs`,
+`mx_rust_calls_*`, SDP-free `CallSignal`, `src/calls/CallController`)
+and `GstCallMediaBackend` (GStreamer webrtcbin, ICE/libnice, DTLS-SRTP,
+Opus, audio-only) behind a seam — optional at build time
+(`LIGHTNING_ENABLE_WEBRTC`), re-probed at runtime,
+`LIGHTNING_DISABLE_WEBRTC=1` kill switch; without it the honest
+signaling-only refusal stands. Full contract in `docs/voice-calls.md`.
+Constraints that must not soften:
+- **Inbound call/party ids are sender-chosen text — bounded in Rust,
+  never logged.** Anything remotely triggered (busy auto-reject,
+  re-delivery) is BOUNDED and idempotent, ignored senders are dropped
+  before any state change or send, and backlog suppression defaults
+  CLOSED.
+- **SDP transport is OPT-IN end to end**
+  (`mx_rust_calls_set_media_capable`), bounded 128 KiB at the Rust edge,
+  held in the single-shot memory-only `calls::SdpStore` (cap 8, wiped on
+  sign-out/detach/teardown/local reset), never on CallSignal, never
+  logged, never in QML.
+- **TURN comes from `/voip/turnServer` only**; credentials cross once,
+  engine-only, never logged; no third-party STUN.
+- `startVoiceCallButton` is contract-enforced 1:1-DM-only (a legacy
+  invite rings every room member) and currently `enabled: false`
+  ("coming soon", contract-pinned so re-enabling is a decision) because
+  no answered call has ever been live-validated.
+- Session-identity tokens on every GStreamer callback: a reused engine
+  must never attribute a closed call's queued event to the next call.
+  Engine registration sits behind main.cpp's explicit
+  `enableCallMediaEngine()` so the test fleet never gains an engine it
+  did not ask for.
+- Pre-answer candidate buffering (callers trickle immediately, humans
+  answer slowly — those candidates were being dropped) and RFC 3264
+  answer-side Opus pt reuse came from reading GStreamer sources.
+Deliberate gaps: packages do not declare the GStreamer/libnice runtime
+deps (packaged builds stay signaling-only), no video, no MatrixRTC/group
+calls, `m.call.negotiate` unhandled. Suites: `call-controller` (35),
+`call-ring-policy` (10), `call-ui-contract` (6), `call-media-loopback`
+(a real in-process WebRTC call; SKIPs without plugins), `calls::tests`
+(10). **Live network or Element interop of an ANSWERED call: NOT
+TESTED** — the loopback suite proves the engine, not the network.
+
+**2026-08-18 tester report #2 round (`1aa89f5`).** Copy image and the
+saved-media star both fetch through the MediaBridge with pending-key
+discipline and magic sniffing (SVG refused); **a keyed dedup must
+service ALL claimants** — a star and a copy racing on the same uncached
+image left the star stranded forever. Reply-to-image thumbnails register
+the embedded reply event's media in the Rust media registry under the
+reply target's event id (the row mechanism, so encrypted rooms work
+identically); `reply_to_media_key` crosses, never media bytes. The
+read-by popover shows the delivered 16 newest plus a truthful "…and N
+more (names not loaded)" — the bridge caps at 16 by design and names are
+never fabricated. Space Home's `spaceJoined` drill-in was an UNFILTERED
+global listener. Deferred with reasons in
+`docs/tester-report-2026-08-18-2.md`: spellcheck (the MentionHighlighter
+`QSyntaxHighlighter` hook is the proven attach point), rail
+reorder/folders, an update dev-channel (needs a second signed manifest
+slot in lightning-deploy first), Win11 emoji tofu (bundling Noto Color
+Emoji is a size decision for Rokas). **NOT TESTED** live on Windows.
+
+**2026-08-17/18 post-0.7.2 round (`4f74eb4..8da2e81`, shipped as
+0.7.3).** The first REAL upgrade test drove all of it. Windows MSI
+failed with 1619 because msiexec has its own argument parser and rejects
+Qt's forward-slash path (proven by hand: `/` errored, `\` installed).
+Windows portable failed because the swap renamed the install DIRECTORY
+while the running helper and its mapped Qt DLLs lived inside it — now an
+entry-by-entry move, since renaming in-use FILES is permitted on Windows
+while deleting them is not (so the backup directory survives, and a
+stale one must be cleared or update #2 fails). AppImage relaunched the
+MOUNTED binary rather than the .AppImage it had replaced. Opening a room
+notified for its own backlog: opening a room subscribes it in sliding
+sync and the backlog arrives as live appends while `roomVisibleAtLatest`
+is false. The app icon was passed only as a theme name, which resolves
+in an installed deb/rpm and nowhere else. Update discovery survives the
+release server being unreachable via a canonical-first, mirror-fallback
+manifest fetch. First-upgrade procedure: `docs/updates.md` (`082d4d0`).
+
+**2026-08-16/17 post-0.7.1 round (`ea1fd40..7c736c3`, shipped as
+0.7.2).**
+- **Video poster extraction froze the GUI thread (`68cb82c`).** The
+  **first `QVideoSink` in a process costs ~931 ms** (lazy Qt Multimedia
+  init incl. a hardware-decoder probe that fails without VAAPI); on a
+  worker thread the same extraction is 1 ms. The per-frame theory was
+  WRONG: `toImage()` is 0.24 ms. Two traps: a plain `moveToThread`
+  leaves a MEMBER `QTimer` on the creating thread where Qt refuses to
+  start it, silently disarming the 6 s watchdog (make it a CHILD); and
+  the reply becomes QUEUED, so `disconnect()` no longer reliably cancels
+  one already posted — session isolation keys on `m_posterExtracting`,
+  not on the connection. `MediaBridge::warmMultimediaBackend()` pre-pays
+  the init off-thread for the first inline PLAYBACK, whose sink QML
+  builds on the GUI thread and cannot move.
+- **Message action bar (`4db1a18`).** The FIRST attempt crashed: a
+  per-row Loader's loaded Rectangle setting `parent: Overlay.overlay`
+  keeps the Loader as its destruction owner, so delegate churn
+  dereferenced a dangling pointer (the `detailsDialogComponent`
+  precedent does NOT transfer — a Dialog is a Popup and owns its overlay
+  lifetime). Fixed with ONE shared bar declared statically in
+  TimelinePane.qml into which rows publish only PRIMITIVES, never a
+  QObject reference. `forceReleaseActionBar` exists because the ordinary
+  release refuses while the pointer is on the bar: right for a live row,
+  wrong for a dying one.
+- **Scroll consistency (`5429ab0`):** shared `qml/SmoothWheelArea.qml`
+  using only ScrollTuning's STATELESS `notchDistance()` —
+  `wheelTargetY()` mutates controller state owned by the timeline's
+  anchoring. Its `parent as Flickable` was NULL in nine panes, so the
+  shared area was inert there; the contract test LISTS the unconverted
+  panes rather than hiding them.
+- **"Mark as read" was a silent no-op for any room but the open one
+  (`05b2384`)**: `RoomListModel::markRoomRead` walked
+  `MatrixClient::timeline(roomId)`, which on the Rust backend only ever
+  holds the ACTIVE room. `mx_rust_mark_room_read` takes the target from
+  `Room::latest_event()` and sends the public receipt AND `m.fully_read`
+  together. Only this entry point was broken.
+- **Message forwarding**: re-sent as a NEW, unrelated event (no Matrix
+  forward primitive), carrying NO relation, so a forwarded thread reply
+  lands as an ordinary message (§8). **Media is RE-UPLOADED, never
+  mxc-copied** — under authenticated media the target's members may not
+  be entitled to the source mxc, and an encrypted source's `file` block
+  carries per-event keys that must not be planted in a room that never
+  negotiated them. Filename and MIME are RE-ORIGINATED under this
+  account and therefore sanitized: leaf-only filename, type from MAGIC
+  BYTES using `rooms::sniff_image_mime`'s five signatures — NOT
+  `QImageReader::format()` (plugin-backed; WebP lives in qtimageformats,
+  which the packaged fleet need not carry) and NOT
+  `gif::validateRasterBytes` (its 4096px / 25 MiB caps would refuse a 5K
+  screenshot). Review caught: every image forward would have written
+  decrypted bytes into the saved-media store (the star handler acted on
+  EVERY `mediaBytesForStar`); forwarding to any room but the OPEN one
+  failed 100% of the time (`sendAttachmentBytes` gates on the live
+  timeline, so `Room::send_attachment` was added); a server refusal
+  after dispatch was SILENT.
+- **Space avatar (`74319b1`)**: a Space IS a Matrix room, so the same
+  permission-gated `setRoomAvatar`/`removeRoomAvatar` applies.
+- **State-flood scroll death: still NOT reproduced** (`970bc75`,
+  `ff5dcfe`). The proxy-suppression fix sketched in `970bc75`'s message
+  was deliberately NOT shipped — it would be a fourth speculative scroll
+  change. A real capture is the blocker: a high `worstNotchMs` next to a
+  high `stateRows`. Confirmed inefficiency: a collapsed state group
+  drawing ONE summary line still instantiates one delegate per member
+  row.
+
+**2026-08-15 discovery / search / UIA / moderation / drafts round.**
+- **Active-room sliding-sync subscription** (user-report fix): sliding
+  sync delivers `m.room.pinned_events` ONLY inside a room
+  SUBSCRIPTION's required state and Lightning never subscribed, so a pin
+  stayed invisible until a restart re-ran the once-per-room `/state`
+  probe. `mx_rust_timeline_open` records the open room as THE one
+  subscription (`RoomListService::subscribe_to_rooms`, replacing the
+  previous set); `stop_sync_and_wait` forgets it so a later account
+  cannot inherit it.
+- **Discover / Join** (`discover.rs`, `RoomDiscoveryController`): a
+  refused `get_room_preview` still resolves — Join stays offered; knock
+  withdrawal is a Knocked-state `Room::leave` because the normal leave
+  path filters to Joined; the `/hierarchy`-backed `SpaceRoomList` is
+  bounded to 10 pages / 200 rows; `restricted_denied` is classified
+  separately, never presented as plain invite-only.
+- **Message history search** (`search.rs`, `MessageSearchController`):
+  the server `/search` endpoint via raw `Client::send` (matrix-sdk has
+  no wrapper). **E2EE POLICY, deliberate: the server cannot search
   ciphertext, so server search covers UNENCRYPTED rooms only and every
-  surface says so; inside an encrypted room the loaded-timeline find is
-  the only search, and the find bar offers no History segment there. The
-  only content sent is the typed search term. Result navigation reuses
-  `PaginationController::jumpToEvent` unchanged (bounded; deep history
-  reports its honest unavailable message). Global search: Ctrl+Shift+F.
-- **Reusable UIA + session sign-out** (`uia.rs`, `UiaController`,
-  `UiaPromptDialog`, Sessions page): the privileged call runs WITHOUT auth
-  first; a real 401 challenge (`as_uiaa_response`) parks the operation in
-  the bridge's single UIA slot (the SDK's own `CrossSigningResetHandle`
-  shape), surfaces sanitized stage NAMES only, and the password answer's
-  transit buffers are scrubbed BEST-EFFORT (QML field wiped on dispatch,
-  C++ QByteArray + Rust String zeroed with volatile writes). Honesty
-  (review L1): on the success path the String moves into ruma's
-  `uiaa::Password`, which serializes and drops it without zeroing — that
-  memory is not scrubbable without patching ruma, so this is transit
-  hygiene, never a guarantee. Wrong password re-parks with the refreshed
-  session and offers retry; unsupported stages surface honestly. Sessions
-  tiles get per-device Sign out + "Sign out all other sessions"; the
-  current device is guarded out (that is the logout flow's job); tiles
-  only disappear on the authoritative refetch. OAuth/MAS accounts have NO
-  password stage: their buttons open the account console
-  (`account_management_url_with_action` DeviceDelete/DevicesList) in the
-  browser instead — never a fake password prompt. The old "not supported
-  yet" disclaimer is gone. The login path's password transit buffer is now
-  scrubbed too (it never was), and the login form wipes its field when the
-  screen is left — deliberately not on a failed attempt.
-- **Ignore + report** (`ignore.rs`, `ModerationController`,
-  `ReportMessageDialog`): SDK `Account::ignore_user`/`unignore_user`
-  (m.ignored_user_list read-modify-write — never a Lightning-local
-  database), list read from account data (0.18 has no accessor), remote
-  AND local changes forwarded from the sync loop's
-  `subscribe_to_ignore_user_list_changes` arm so everything converges on
-  one path. The SDK clears the whole event cache on a list change —
-  timelines reset and refetch; that is expected. NotificationManager takes
-  `senderIsIgnored` to close the race window before the server stops
-  sending an ignored user's events. Report = `Room::report_content`
-  (stable /v3, requires Joined, reason optional, no score field in 0.18);
-  `report_room` (unstable MSC4151) and `report_user` (absent from the SDK)
-  are deliberately NOT offered. Surfaces: profile popover Ignore row
-  (account-wide, below room moderation), message menu "Report message"
-  (own messages excluded; real room id via
-  `TimelineModel::realRoomIdForEvent`, never the thread composite),
-  Settings → Privacy "Ignored users" card.
-- **Drafts** (`DraftStore`, SettingsManager `roomDraft`/`setRoomDraft`,
-  composer/thread hooks): POLICY (maintainer-confirmed 2026-08-15) —
-  unencrypted rooms persist drafts locally (strictly account-scoped
-  QSettings keys `accounts/<slug>/drafts/<sha16>`, LRU cap 256, wiped with
-  the account group); ENCRYPTED rooms are memory-only (survive switches
-  and the Settings round-trip, never restart; a room with UNKNOWN
-  encryption state fails closed to memory). Payload = text + mention refs
-  (restored fail-closed against the text slice) + reply target (restored
-  tolerantly — a dangling target never blocks sending); edit state and
-  attachments deliberately excluded. Saves are 1 s debounced; the debounce
-  is STOPPED before every room/thread change and the save reads the
-  still-current key, so a stale timer can never write across rooms;
-  send-success and explicit clear retire the draft and stop the timer.
-  Memory drafts clear in `clearCrossAccountCaches` and on `loggedOut`.
-  The old `Main.qml` "drafts survive" comment is now actually true.
-- **Authenticated media hygiene**: the audit confirmed every Rust-backend
-  media byte already flows through the SDK Media API (which negotiates
-  `/_matrix/client/v1/media` itself); the ONLY reachable legacy surface
-  was `RustSdkMatrixClient::mediaDownloadUrl`/`mediaThumbnailUrl` handing
-  unauthenticated `/media/v3` links to the browser. Both now return empty
-  on the Rust backend.
-Everything user-visible in this round is **NOT TESTED** live until the
-round's own live-validation pass says otherwise; see the completion report.
+  surface says so**; in an encrypted room the loaded-timeline find is
+  the only search and the find bar offers no History segment. The only
+  content sent is the typed search term.
+- **Reusable UIA** (`uia.rs`, `UiaController`): the privileged call runs
+  WITHOUT auth first; a real 401 (`as_uiaa_response`) parks it in the
+  bridge's single UIA slot and surfaces sanitized stage NAMES only.
+  Password transit buffers are scrubbed BEST-EFFORT (QML field wiped on
+  dispatch, C++ QByteArray + Rust String zeroed with volatile writes).
+  **Honesty: on the success path the String moves into ruma's
+  `uiaa::Password`, which serializes and drops it without zeroing —
+  transit hygiene, never a guarantee.** The current device is guarded
+  out of per-device sign-out and tiles only disappear on the
+  authoritative refetch. **OAuth/MAS accounts have NO password stage** —
+  their buttons open `account_management_url_with_action` in the
+  browser, never a fake password prompt.
+- **Ignore + report** (`ignore.rs`, `ModerationController`): SDK
+  `Account::ignore_user`/`unignore_user` read-modify-write of
+  `m.ignored_user_list` — **never a Lightning-local database**. Remote
+  and local changes both arrive via the sync loop's
+  `subscribe_to_ignore_user_list_changes`. The SDK clears the whole
+  event cache on a list change (timelines reset and refetch; expected).
+  `NotificationManager` takes `senderIsIgnored` to close the race before
+  the server stops sending. Report = `Room::report_content` (requires
+  Joined); `report_room` (unstable MSC4151) and `report_user` (absent
+  from the SDK) are deliberately NOT offered. The message menu uses
+  `TimelineModel::realRoomIdForEvent`, never the thread composite.
+- **Drafts** (`DraftStore`): unencrypted rooms persist drafts locally
+  (account-scoped QSettings `accounts/<slug>/drafts/<sha16>`, LRU 256,
+  wiped with the account group); **ENCRYPTED rooms are memory-only**
+  (never restart), and UNKNOWN encryption state fails closed to memory.
+  Payload = text + mention refs (restored fail-closed against the text
+  slice) + reply target (restored tolerantly); edit state and
+  attachments excluded. Saves are 1 s debounced; the debounce is STOPPED
+  before every room/thread change and the save reads the still-current
+  key, so a stale timer cannot write across rooms.
+- **Authenticated media hygiene**: the only reachable legacy surface was
+  `RustSdkMatrixClient::mediaDownloadUrl`/`mediaThumbnailUrl` handing
+  unauthenticated `/media/v3` links to the browser; both now return
+  empty on the Rust backend.
+All **NOT TESTED** live.
 
-**2026-08-15 pins / admin / verification-UX round.** Landed: pinned
-messages (§7 Timeline and media), member power levels + join rule +
-canonical alias (§7 Rooms and navigation), the bounded thread-participant
-fan-out (§7 Threads), the verification move to a focused dialog with
-dismissible prompts (§7 Rooms and navigation), and the stale timeline-test
-repair below. New suites: `pinned-messages`, `room-power-levels`,
-`thread-facepile-bound`. Everything user-visible in it is **NOT TESTED**
-live: real `m.room.pinned_events` round trips and Element interop, a
-homeserver accepting/rejecting a power-level or join-rule write, alias
-publication, and the on-screen look of the pinned tab, role buttons,
-verification dialog and corner prompt.
+**2026-08-15 pins / admin / verification-UX round.** Pinned messages,
+member power levels, join rule and canonical alias, the bounded
+thread-participant fan-out and the focused verification dialog — all in
+§7. Suites: `pinned-messages`, `room-power-levels`,
+`thread-facepile-bound`. **NOT TESTED** live: real
+`m.room.pinned_events` round trips and Element interop, a homeserver
+accepting or rejecting a power-level or join-rule write, alias
+publication, and the on-screen look of any of it.
 
-**Stale timeline suites — root-caused, not "flaky".** `timeline-pane-qml`
-and `timeline-hydration-qml` had been failing since the timeline was rebuilt
-in `1e50f6a`. Three distinct causes, none of them one bug:
-  1. **Obsolete ListView API.** `positionViewAtIndex`,
-     `positionViewAtBeginning` and `itemAtIndex` do not exist on the rotated
-     Flickable + Column; `QMetaObject::invokeMethod` merely returned false.
-     Ported to the pane's real view-row API behind three helpers in the test
-     file. NOTE the index convention: the pre-rewrite ListView bound
-     `model: app.timeline` directly, so its indices were SOURCE rows
-     (row 0 = oldest) — the helpers convert, the call sites keep their
-     original meaning.
-  2. **Direction and end-of-range flips.** The rotation makes physically
-     UPWARD mean *increasing* contentY, and the earliest loaded position
-     `wheelMaxY()` rather than `wheelMinY()`. Two assertions encoded the
-     pre-rotation directions. Production is correct in both cases —
-     `goToEarliestLoaded()` is literally `contentY = wheelMaxY()`.
-  3. **A mock-fixture QML warning.** On the mock backend `mediaThumbUrl` is
-     a plain http URL (the media bridge is the Rust path), so any image row
-     asks Qt to resolve `mock.local` and logs one host-not-found warning.
-     Six cases asserted `warnings == {}`. Filtered NARROWLY by
-     `realWarnings()` — pinned to `mock.local` specifically, so a fixture
-     that reached a REAL host still fails; every other warning still fails.
-  4. **One genuine flake, now deterministic.**
-     `diagUnresolvedIdFallbackCountsGenuinelyUnresolvableAnchor` asserted
-     the ABSOLUTE branch counters were zero, but its own touchpad setup
-     loop drives real geometry and can legitimately fire the materialized
-     branch first. Measured 4 pass / 4 fail in isolation. Rewritten to
-     baseline the counters immediately before the call under test and
-     assert the DELTA — which is the invariant the test actually names
-     ("this call falls straight to the capture fallback"). 8/8 after.
-Do not "re-fix" these by reintroducing ListView semantics.
+**2026-08-15 Matrix presence.** Sliding Sync delivers NO presence events
+(MSC4186 has no presence extension), so this is a bounded polling loop,
+stateless on the Rust side: `rust/src/presence.rs` answers one
+`presence_batch` poll per round (raw ruma `get_presence` via
+`Client::send`, ≤40 users, 10 s no-retry timeout so sign-out's task join
+cannot stall). ALL policy is in `src/presence/PresenceManager`: only
+watch()ed on-screen users are polled (`qml/PresenceDot.qml` owns that
+lifecycle), 30 s rounds with rotation past the cap; transient failures
+KEEP the last known state, forbidden/not_found erase it; two consecutive
+all-forbidden batches of at least two distinct users each latch "server
+has presence disabled" for the session (a single user's 403 never
+latches). **Unknown renders NOTHING — never a fabricated offline.** Own
+presence is gated by the APPLICATION-WIDE `sharePresence` setting
+(default ON, global not per-account; disabling publishes ONE final
+offline). **NOT TESTED** live.
 
-Result: `timeline-pane-qml` **37 passed / 26 failed -> 52 passed / 11
-failed**; `timeline-hydration-qml` unchanged at 5/2. The remaining 13 cases
-were root-caused and deliberately NOT forced green — they are not one bug:
-  * **Unreachable branches (4+).** `diagEvictedNoInsertFallback…` and
-    `diagDisplacedBranchCounters…` both abort on their own fixture
-    precondition with "fixture no longer evicts the anchor's delegate —
-    this test would pass on broken code". Every row is instantiated now, so
-    there is no cache eviction and no displaced-anchor branch to enter.
-    This agrees exactly with the physical capture already recorded in this
-    section (`displacedFirings=0`, `evictedNoInsert=0`). Porting them means
-    rewriting the fixture around the ONE displacement that can still occur
-    (a live message arriving at view row 0) or inverting them into "this
-    branch must not fire" — the latter would preserve a real invariant.
-  * **Pre-rotation geometry in the fixture.**
-    `maintainViewAnchorAppliesGrowthDeltaMidGestureWithoutGlide` reports
-    `before=12 after=12 expectedGrowth=270`: the anchor did not move, so
-    nothing needed compensating. On the rotated view, growth at an OLDER
-    row sits at higher content y and cannot displace the reader.
-  * **Paced row release.** `viewportFillRunCompensatesEveryBatchImmediately`
-    fails at `positionAtSourceRow(timeline, 5)` because the proxy has not
-    released that row yet; the navigation paths call `releasePendingRows()`
-    first for exactly this reason.
-  * `initialHydrationGateHoldsThenOpensAtLatest` (hydration) opens the
-    presentation gate with one row. NOT diagnosed — it needs its own pass,
-    and it is unrelated to the port (it failed identically before).
-These are an honest open item, not a claim of completion.
+**2026-08-11 media/UX round.** MediaBridge request priorities (0
+explicit playback/save, 1 avatars/thumbnails, 2 full static, 3
+speculative GIF prefetch), two slots reserved for interactive classes, a
+15 s starvation bound, temp-file pinning while a QMediaPlayer holds the
+file, queued-speculative dropping on room switch, byte-sniff rejection
+of A/V containers on thumbnail-class results, offscreen player
+reclamation (45 s audio, 90 s video). libpipewire was made resolvable in
+the dev shell so Qt Multimedia uses native PipeWire instead of the
+PulseAudio fallback a captured FLAC crash aborted in. An SDK receipt
+move arrives as adjacent Set diffs, so the poll drain must not split the
+pair across 100 ms ticks. The custom app icon
+(`appicon::normalizeIconBytes`) covers window/task-switcher surfaces
+only — launchers keep the packaged hicolor icon. SDK-internal
+receipt-loss mechanisms Lightning cannot fix without patching
+matrix-sdk-ui 0.18 are in `docs/receipt-semantics.md`. **NOT TESTED**.
 
-- Continue GIF playback, cancellation, resource, cache, and malformed-media
-  hardening now that the user-facing flow has landed.
-- Perform real Element interoperability validation of provider GIF sends across
-  plain and encrypted rooms and threads.
-- Validate notification coverage/routing for thread replies now that true
-  thread replies are excluded from the live main timeline.
-- Perform real homeserver and Element interoperability validation for thread
-  timelines, thread sending/attachments, late E2EE recovery, backup recovery,
-  verification, notifications, and physical scrolling.
-- Perform live multi-account validation on real homeservers: switching with
-  two signed-in accounts (same and different homeservers), encrypted-room
-  decryption after a switch, notification routing, restart restoration, and
-  scoped removal. The offline lifecycle is CTest-covered; the live matrix is
-  NOT TESTED.
-- Live-validate the room-list latest-event previews and avatar readiness on a
-  real account (the lazy Latest-Events registration landed with the 0.7 UI
-  checkpoints), and the design shell on a real desktop (KDE Wayland taskbar
-  icon association included).
-- Matrix presence LANDED 2026-08-15, closing the design-handoff follow-up
-  list. Sliding Sync delivers NO presence events (MSC4186 has no presence
-  extension), so it is a bounded polling loop, stateless on the Rust side:
-  `rust/src/presence.rs` answers one `presence_batch` poll event per round
-  (raw ruma `get_presence` through `Client::send`, ≤40 users, 10 s
-  no-retry timeout so sign-out's task join cannot stall) and publishes own
-  state via `set_presence`. ALL policy lives in
-  `src/presence/PresenceManager`: only watch()ed on-screen users are ever
-  polled (DM rows via the identityColorKey 1:1 gate, People rows, an OPEN
-  profile popover — one shared `qml/PresenceDot.qml` owns the
-  watch/unwatch lifecycle), 30 s rounds with rotation past the cap plus a
-  400 ms debounced burst for new unknowns, transient failures KEEP the
-  last known state, forbidden/not_found erase it, and two consecutive
-  all-forbidden batches of at least two distinct users each latch "server
-  has presence disabled" for the session (reset on sign-out/switch; a
-  single user's 403 never latches — smaller batches neither advance nor
-  reset the count). Unknown renders NOTHING — never a
-  fabricated offline. Own presence (online, or unavailable after 10 min in
-  the background; 4 min keep-alive PUT) is gated by the APPLICATION-WIDE
-  Privacy & security setting `sharePresence` (default ON, ecosystem norm;
-  global like the link-preview switches, not per-account; disabling
-  publishes ONE final offline — deferred to the next Syncing edge when
-  the session is not live). The popover contract test
-  flipped from "presence absent" to "presence via the shared component".
-  Live homeserver validation (real dots, latch behavior on a
-  presence-disabled server, Element interop): NOT TESTED.
-  Prior text for this entry follows. Thread participant
-  facepiles LANDED 2026-08-13 (see §7 Threads) — the entry that said they
-  "need participant data in the thread-summary bridge payload" was
-  misleading: the SDK has no such payload to extend. Voice messages LANDED
-  2026-08-12 (VoiceRecorder: Qt Multimedia capture, OGG/Opus preferred with
-  AAC/MP4 fallback, real QAudioDecoder-derived waveform;
-  mx_rust_timeline_send_voice → AttachmentInfo::Voice, so the SDK emits the
-  MSC3245 marker + MSC1767 duration/waveform block via the normal
-  encrypting attachment path; the hard duration cap DISCARDS, never
-  auto-sends). The thread composer mic LANDED 2026-08-13. Live mic capture
-  and Element interop of sent voice events: NOT TESTED. Markdown sending (formatting
-  toolbar + SDK text_markdown on interactive sends), message layout modes,
-  and text-size scaling landed with the 2026-07-20 checkpoints; their live
-  Element interoperability (formatted-body rendering) is still user-pending.
-- Live-validate the redesigned Settings screen and the baked-mask avatar
-  rendering interactively on a real desktop (automated suites cover both).
-- Plan any post-0.6.5 work only through explicitly requested checkpoints.
+### Open items and NOT TESTED inventory
 
-Open items carried by the post-0.6.5 rounds (`4cdace3..e39439a`), in the
-order a successor should pick them up:
+Highest value first:
 
-- **Timeline scroll teleport during pagination — DID NOT REPRODUCE on
-  2026-08-12; no longer a confirmed open defect.** A fresh physical
-  `LIGHTNING_SCROLL_TRACE=1` capture (maintainer's real account, two rooms,
-  11 gestures, ~28 real backward-pagination batches of 1–24 rows each, mixed
-  text / images / GIFs to 10 MB / videos / voice, poster extraction running
-  mid-scroll) shows **every** anchor outcome at zero on **every** line:
-  `prependFirings=0 displacedFirings=0 displacedApplied=0
-  displacedMaxAbsGrew=0 anchorCorrections=0 growthCorrections=0
-  unresolvedId=0 evictedNoInsert=0`, with `materializedFirings` NON-zero and
-  `materializedMaxAbsDelta=0` / `activeDeferredMaxAbs=0` — i.e. the
-  mechanism engaged, measured, and found the anchor row's own y unmoved,
-  which is the M2 "ran and had nothing to correct" reading, not "never ran".
-  `originY=0` and `dOriginY=0` throughout.
-
-  The reason is structural, not luck. The room timeline is a **rotated
-  `Flickable` + `Column`** (`qml/TimelinePane.qml:619`), not a ListView:
-  there is no delegate-height estimation left, so `contentHeight` is the
-  exact sum of real rows and `originY` can never move. View row 0 is the
-  NEWEST message at content y 0 (`sourceRowForViewRow = count-1-row`), so
-  backward pagination lands at HIGHER view rows and HIGHER content y —
-  *past* the reader. A prepend therefore does not change the anchor row's
-  index or its y, `row > viewAnchorRow` is false, and the displaced branch
-  is not reached at all. The `-3582` phantom shrink and the ±17000 px swings
-  quoted by the previous version of this entry were artifacts of the
-  pre-`1e50f6a` virtualized ListView and no longer exist.
-
-  Consequence: **do not "fix" the positive-only guard.** In the current
-  architecture the only insertion that displaces a scrolled-up reader is a
-  LIVE message arriving at view row 0, which pushes every row down — a
-  genuinely POSITIVE `grew` that the existing guard already applies
-  correctly. Three past attempts failed here (two withdrawn in review, one —
-  the staging/freeze window `225c7b3` — shipped, regressed, and was removed
-  in `263268b`); a fourth needs a capture that actually names a failure.
-  Keep the trace facility: it is what retired this entry. If a teleport is
-  reported again, get a `LIGHTNING_SCROLL_TRACE=1` capture FIRST — a line
-  with a non-zero `displacedApplied`, `anchorCorrections`, or
-  `materializedMaxAbsDelta` is the evidence; all-zero lines are not.
-- **GIF-favorite reopen crash** — still only `1502e6b`'s commit message as
-  evidence; seven headless scenario families including an ASan build found
-  nothing. Needs a real `coredumpctl`/`gdb` backtrace.
+- **Run `docs/element-interop-checklist.md` live** (encrypted both
+  directions, threads, voice, video+poster, reactions incl. the D3
+  hammer test, pins, edit, redaction, key-recovery cycle).
+- **A fresh `QSG_RENDER_TIMING` capture** proving the row window does
+  anything in production (`winApplies` > 0, `rows` ≪ `srcRows`).
+- **The still-unreproduced tester freeze after hammering reactions** —
+  hand the tester a build with `LIGHTNING_GUI_STALL_TRACE` enabled. One
+  capture beats three theories.
+- **GIF-favorite reopen crash** — still only `1502e6b`'s commit message
+  as evidence; seven headless scenario families including an ASan build
+  found nothing. Needs a real `coredumpctl`/`gdb` backtrace.
 - **`app.` dereferences in creation-time bindings of other `Repeater`
-  delegates** (`qml/EmojiPicker.qml`, `qml/SettingsScreen.qml` theme cards) —
-  structurally exposed to the poisoned-context-lookup defect fixed in
-  `30ee39b`, not observed failing.
-- Live validation still outstanding for everything the post-release rounds
-  added: read receipts, server push-rule notification modes, QR verification
-  against Element / Element X, and saving GIFs. All **NOT TESTED**.
-- From the 2026-08-13 thread-parity round, all **NOT TESTED**: microphone
-  capture and Element interop of thread voice events; real-homeserver
-  deletion of a room's push rules ("follow account default") and the
-  reconnect retry; facepile rendering and real `/relations` cost on a live
-  account. Accepted follow-ups from its review, none blocking: ~~bound the
-  per-loaded-root participant fetch fan-out~~ — **DONE 2026-08-15**, see the
-  facepile entry in §7 Threads (concurrency cap 4 + FIFO queue +
-  room-switch invalidation, `thread-facepile-bound` suite); decide whether a
-  client-side sanity ceiling should apply when the server advertises no
-  upload limit (deliberately absent — see §7); `setVoiceRecorderForTest`
-  would be better taking a `unique_ptr`; `voice_info` computes `info.size`
-  from the stat size rather than the uploaded bytes; and `FakeRecorder` is
-  a PARTIAL double — `stop()`/`durationMs()` are not virtual, so anyone
-  needing `stop() → ready()` must extend the seam consciously.
+  delegates** (`qml/EmojiPicker.qml`, `qml/SettingsScreen.qml` theme
+  cards) — structurally exposed to the poisoned-context-lookup defect
+  fixed in `30ee39b`, not observed failing.
+- Continue GIF playback, cancellation, resource, cache and
+  malformed-media hardening.
 
-The 2026-08-11 media/UX round (single commit on `main`) landed: big-emoji
-rendering for 1-3 emoji-only messages (EmojiCatalog::emojiOnlySequenceCount,
-grapheme-cluster + catalogue lookup; the loader also recovered the #️⃣
-keycap a comment-prefix check silently dropped, so the catalogue is 3944
-sequences now); MediaBridge request priorities (0 explicit playback/save,
-1 avatars/thumbnails, 2 full static, 3 speculative GIF prefetch) with two
-slots reserved for interactive classes, a 15s starvation bound, playable
-temp-file pinning while a QMediaPlayer holds the file, queued-speculative
-dropping on room switch, and byte-sniff rejection of A/V containers on
-thumbnail-class results; offscreen player reclamation (audio engine unload
-+ resume position after 45s, video card auto-close after 90s); the
-VaapiLogGate bounding Qt's per-frame vaExportSurfaceHandle warning storm;
-libpipewire made resolvable in the dev shell so Qt Multimedia uses native
-PipeWire instead of the PulseAudio fallback that the captured FLAC crash
-aborted in; a styled no-thumbnail video placeholder; the read-receipt
-poll-drain fix (an SDK receipt move arrives as adjacent Set diffs; the
-drain no longer splits the pair across 100 ms ticks) plus bounded
-count-only receipt diagnostics under `matrix.receipts`; the new circular
-default logo (scripts/generate-logo-source.sh -> lightning-source.png ->
-generate-icons.sh); the user-selectable custom app icon
-(Settings -> Appearance; appicon::normalizeIconBytes validates and
-normalizes to the circular 512px presentation; window/task-switcher
-surfaces only — launchers keep the packaged hicolor icon); the saved-media
-generalization described in section 7; and the native QML Storm Band on
-the About page (StormBandPainter tiles generated once per theme, reduced
-motion honored). Known SDK-internal receipt-loss mechanisms that Lightning
-cannot fix without patching matrix-sdk-ui 0.18 are documented in
-`docs/receipt-semantics.md`. Live validation of all of the above:
-**NOT TESTED** (see the round's completion report).
+**NOT TESTED (live), all of it:** Element interoperability of provider
+GIF sends (plain and encrypted, rooms and threads), sent voice events,
+sent video posters, and formatted-body markdown rendering; notification
+coverage and routing for thread replies; thread timelines, thread
+sending and attachments, late E2EE recovery, backup recovery, QR and SAS
+verification against Element / Element X; physical scrolling and
+touchpad feel; multi-account switching on real homeservers (same and
+different servers), encrypted-room decryption after a switch,
+notification routing, restart restoration, scoped removal; room-list
+latest-event previews and avatar readiness; the design shell on a real
+desktop incl. KDE Wayland taskbar icon association; the redesigned
+Settings screen and baked-mask avatar rendering; read receipts; server
+push-rule notification modes incl. "follow account default" deletion and
+the reconnect retry; saving GIFs; facepile rendering and real
+`/relations` cost; microphone capture; presence dots and the
+presence-disabled latch; everything from the call rounds.
 
-"Recovering never-backed-up Megolm keys" is **refused, not deferred**: a key
-that was never backed up and never shared exists nowhere, every legitimate
-recovery path is already implemented, and anything further would weaken E2EE.
+**Accepted follow-ups, none blocking:** decide whether a client-side
+sanity ceiling should apply when the server advertises no upload limit
+(deliberately absent — see §7); `setVoiceRecorderForTest` would be
+better taking a `unique_ptr`; `voice_info` computes `info.size` from the
+stat size rather than the uploaded bytes; `FakeRecorder` is a PARTIAL
+double (`stop()`/`durationMs()` are not virtual, so anyone needing
+`stop() → ready()` must extend the seam consciously); the pre-existing
+invite/verification notification bodies carry unescaped member-chosen
+text.
 
-Do not list the implemented GIF browser, favorites/recents, download/send path,
-provider networking, thread summaries/attachments, notification sounds, or E2EE
-generation isolation as unfinished. Do not turn possible future ideas into
-commitments.
+"Recovering never-backed-up Megolm keys" is **refused, not deferred**: a
+key that was never backed up and never shared exists nowhere, every
+legitimate recovery path is already implemented, and anything further
+would weaken E2EE.
+
+Do not list the implemented GIF browser, favorites/recents, download and
+send path, provider networking, thread summaries/attachments,
+notification sounds, or E2EE generation isolation as unfinished. Do not
+turn possible future ideas into commitments.
 
 ## 17. Agent completion-report requirements
 
