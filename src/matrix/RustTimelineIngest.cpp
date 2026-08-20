@@ -24,6 +24,32 @@ QDateTime timestampFromMs(qint64 ms)
     return QDateTime::fromMSecsSinceEpoch(ms, QTimeZone::UTC);
 }
 
+// Profile-change display names are UNTRUSTED text and already arrive
+// bounded (the Rust bridge caps them at 255 code points). Bound them here
+// too: this layer is a pure translator over arbitrary JSON, and it must not
+// hand the model an unbounded string merely because the usual producer is
+// well behaved.
+//
+// Counted in CODE POINTS, not QChars, and deliberately so — a name made of
+// emoji is two QChars per character, and a plain left(255) would cut
+// between a surrogate pair and produce an INVALID string rather than a
+// merely short one. Matching the Rust unit means a bridge-bounded name is
+// never truncated a second time here.
+QString boundedProfileName(const QString &name)
+{
+    constexpr int kMaxCodePoints = 255;
+    qsizetype units = 0;
+    int points = 0;
+    while (units < name.size() && points < kMaxCodePoints) {
+        const bool pair = name.at(units).isHighSurrogate()
+            && units + 1 < name.size()
+            && name.at(units + 1).isLowSurrogate();
+        units += pair ? 2 : 1;
+        ++points;
+    }
+    return units >= name.size() ? name : name.left(units);
+}
+
 TimelineEvent::Type messageType(const QString &msgtype)
 {
     if (msgtype == QLatin1String("notice"))
@@ -91,6 +117,20 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.formattedBody = item.value(QStringLiteral("formatted_body")).toString();
     e.stateKind = item.value(QStringLiteral("state_kind")).toString();
     e.stateTarget = item.value(QStringLiteral("state_target")).toString();
+    // Typed member-profile change. Rust sends null for profile_name_change
+    // when the event carried no real rename (an avatar-only change, or an
+    // old value equal to the new one) — toString() maps that to the empty
+    // default, which is exactly "no name change". Absent old/new fields
+    // likewise stay empty; the sentence builder falls back rather than
+    // printing empty quotes.
+    e.profileNameChange =
+        item.value(QStringLiteral("profile_name_change")).toString();
+    e.profileNameOld = boundedProfileName(
+        item.value(QStringLiteral("profile_name_old")).toString());
+    e.profileNameNew = boundedProfileName(
+        item.value(QStringLiteral("profile_name_new")).toString());
+    e.profileAvatarChanged =
+        item.value(QStringLiteral("profile_avatar_changed")).toBool(false);
     e.timestamp = timestampFromMs(static_cast<qint64>(
         item.value(QStringLiteral("timestamp_ms")).toDouble(0)));
     if (!e.timestamp.isValid())
@@ -198,6 +238,29 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         r.key = obj.value(QStringLiteral("key")).toString();
         r.count = obj.value(QStringLiteral("count")).toInt(0);
         r.byMe = obj.value(QStringLiteral("by_me")).toBool(false);
+        // Reactor ids: a bounded window in the SDK's own insertion order
+        // (Rust caps at 16 and puts the local user first) alongside the
+        // uncapped `count`. An entry that is not a non-empty string is
+        // malformed and dropped — never an empty-identity name in a
+        // tooltip. Order is preserved: the tooltip reads "You and …" off
+        // position 0 rather than re-scanning for the local user.
+        // Bounded HERE as well as in Rust, for the same reason the profile
+        // names above are: this function is a pure translator over arbitrary
+        // JSON, and it must not hand the model an unbounded list merely
+        // because the usual producer is well behaved. The cap matches
+        // REACTION_SENDER_CAP in rust/src/timeline.rs; the uncapped total
+        // still travels in `count`, so nothing downstream has to infer it
+        // from the list length.
+        constexpr int kMaxReactionSenders = 16;
+        const QJsonArray senders = obj.value(QStringLiteral("senders")).toArray();
+        r.senders.reserve(std::min<int>(senders.size(), kMaxReactionSenders));
+        for (const auto &sender : senders) {
+            if (r.senders.size() >= kMaxReactionSenders)
+                break;
+            const QString userId = sender.toString();
+            if (!userId.isEmpty())
+                r.senders.append(userId);
+        }
         if (!r.key.isEmpty() && r.count > 0)
             e.reactions.append(r);
     }

@@ -2542,6 +2542,99 @@ fn read_by_json<'a>(
     (serialized, total)
 }
 
+/// Reaction tooltips: at most this many reactor ids cross the FFI per
+/// reaction bucket. Same reasoning (and same number) as [`READ_BY_CAP`] —
+/// the tooltip lists a handful of names and then says "and N more", so the
+/// uncapped `count` is all the presentation needs past the window. A
+/// popular reaction in a large room can carry hundreds of senders and is
+/// re-serialized on every toggle.
+const REACTION_SENDER_CAP: usize = 16;
+
+/// Reactor ids longer than this are dropped rather than forwarded. Sender
+/// ids come from the server and a real MXID cannot approach this, but the
+/// same bounding rule the call ids follow applies: never hand the C++ side
+/// an unbounded string just because the source is nominally trusted.
+const REACTION_SENDER_MAX_BYTES: usize = 255;
+
+/// Serialize the reactors of ONE reaction bucket as a bounded id list.
+///
+/// The local user comes first when present, so the tooltip can say "You and
+/// …" without the presentation layer re-scanning the list; everything else
+/// keeps the SDK's own iteration order (`IndexMap`, i.e. insertion order),
+/// which makes the window deterministic for a given snapshot. Only the
+/// stable user id crosses — never the reaction event id or its timestamp,
+/// neither of which the tooltip needs, and the redaction target
+/// (`my_event_id`) is already carried separately for the local user alone.
+fn reaction_senders_json<'a>(
+    senders: impl IntoIterator<Item = &'a str>,
+    own_user: &str,
+) -> Vec<serde_json::Value> {
+    let mut own_reacted = false;
+    let mut others: Vec<&str> = Vec::new();
+    for id in senders {
+        if id.len() > REACTION_SENDER_MAX_BYTES {
+            continue;
+        }
+        if !own_user.is_empty() && id == own_user {
+            own_reacted = true;
+            continue;
+        }
+        others.push(id);
+    }
+
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    if own_reacted {
+        out.push(own_user.into());
+    }
+    for id in others {
+        if out.len() >= REACTION_SENDER_CAP {
+            break;
+        }
+        out.push(id.into());
+    }
+    out
+}
+
+/// Display names in a profile-change row are bounded at this many CHARS.
+/// Chars, never bytes: slicing a `String` by byte offset panics mid
+/// code point, and a name is very often emoji or non-Latin.
+const PROFILE_NAME_CAP: usize = 255;
+
+fn bound_profile_name(name: &str) -> String {
+    name.chars().take(PROFILE_NAME_CAP).collect()
+}
+
+/// Classify an `m.room.member` display-name change into the typed triple
+/// (`kind`, bounded old, bounded new) the C++ side turns into a sentence.
+///
+/// Rust deliberately builds no English here: the row is presentation, and a
+/// sentence assembled in the bridge cannot be translated and cannot adapt
+/// to the resolved actor name the UI already knows.
+///
+/// Empty is the same as absent — a server that stores `""` for a cleared
+/// name must not be reported as "set their display name to nothing". And an
+/// old value equal to the new one is NO name change at all: the SDK hands
+/// us a profile-change item when only the avatar moved, and claiming a
+/// rename that did not happen is worse than saying nothing.
+fn profile_name_change(
+    old: Option<&str>,
+    new: Option<&str>,
+) -> Option<(&'static str, Option<String>, Option<String>)> {
+    let old = old.filter(|name| !name.is_empty());
+    let new = new.filter(|name| !name.is_empty());
+    match (old, new) {
+        (None, Some(new)) => Some(("set", None, Some(bound_profile_name(new)))),
+        (Some(old), None) => Some(("cleared", Some(bound_profile_name(old)), None)),
+        (Some(old), Some(new)) if old != new => Some((
+            "changed",
+            Some(bound_profile_name(old)),
+            Some(bound_profile_name(new)),
+        )),
+        // (None, None), or old == new: nothing to report.
+        _ => None,
+    }
+}
+
 // The activity-row wording for an `OtherState` timeline item. Extracted from
 // the match it used to sit in purely so it can be tested: everything else in
 // that arm needs a real SDK timeline item to construct, while this mapping is
@@ -2646,8 +2739,14 @@ fn event_item_to_json(
                             .unwrap_or(false);
                         json!({
                             "key": key,
+                            // The UNCAPPED total. `senders` below is a
+                            // bounded window, exactly like read receipts.
                             "count": senders.len(),
                             "by_me": by_me,
+                            "senders": reaction_senders_json(
+                                senders.keys().map(|user| user.as_str()),
+                                own_user,
+                            ),
                         })
                     })
                     .collect();
@@ -2873,13 +2972,36 @@ fn event_item_to_json(
         TimelineItemContent::ProfileChange(change) => {
             out["msgtype"] = "state".into();
             out["state_kind"] = "member_profile".into();
-            let target = change.user_id().to_string();
-            out["state_target"] = target.clone().into();
-            out["body"] = if change.displayname_change().is_some() {
-                format!("{target} changed their display name.")
-            } else {
-                format!("{target} changed their avatar.")
-            }.into();
+            out["state_target"] = change.user_id().to_string().into();
+
+            // Typed fields, not a sentence. The old wording also picked the
+            // WRONG one whenever both moved at once ("changed their display
+            // name" swallowed the avatar), and it addressed the member by
+            // raw MXID because the bridge has no resolved name to use.
+            let name_change = change.displayname_change().and_then(|names| {
+                profile_name_change(names.old.as_deref(), names.new.as_deref())
+            });
+            match name_change {
+                Some((kind, old, new)) => {
+                    out["profile_name_change"] = kind.into();
+                    if let Some(old) = old {
+                        out["profile_name_old"] = old.into();
+                    }
+                    if let Some(new) = new {
+                        out["profile_name_new"] = new.into();
+                    }
+                }
+                None => out["profile_name_change"] = serde_json::Value::Null,
+            }
+            // Only the fact, never the mxc URI: the row says an avatar
+            // changed, and the picture it would point at is fetched through
+            // the member cache like every other avatar.
+            out["profile_avatar_changed"] =
+                change.avatar_url_change().is_some().into();
+
+            // Present but EMPTY by contract — the sentence is built in C++,
+            // where the actor's resolved display name and translations live.
+            out["body"] = "".into();
         }
         TimelineItemContent::OtherState(state) => {
             out["msgtype"] = "state".into();
@@ -3663,6 +3785,133 @@ mod tests {
         assert_eq!(
             entries[super::READ_BY_CAP - 1]["user_id"],
             "@u4:example.org"
+        );
+    }
+
+    // Reaction tooltips: the local user leads the window so the sentence
+    // can start with "You", the rest keeps the SDK's insertion order, and
+    // the window is bounded exactly like the receipt window is. `count`
+    // stays uncapped at the call site — this helper only builds the list.
+    #[test]
+    fn reaction_senders_put_the_local_user_first_and_cap_the_rest() {
+        let ids: Vec<String> = (0..20).map(|i| format!("@u{i}:example.org")).collect();
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+
+        let mine = super::reaction_senders_json(
+            refs.iter().copied(),
+            "@u5:example.org",
+        );
+        assert_eq!(mine.len(), super::REACTION_SENDER_CAP);
+        assert_eq!(mine[0], "@u5:example.org");
+        // Then the SDK's order with our own id removed, not re-sorted.
+        assert_eq!(mine[1], "@u0:example.org");
+        assert_eq!(mine[6], "@u6:example.org");
+        assert_eq!(
+            mine[super::REACTION_SENDER_CAP - 1],
+            "@u15:example.org"
+        );
+
+        // A reaction we did not send keeps the plain order.
+        let theirs = super::reaction_senders_json(
+            refs.iter().copied(),
+            "@someone-else:example.org",
+        );
+        assert_eq!(theirs.len(), super::REACTION_SENDER_CAP);
+        assert_eq!(theirs[0], "@u0:example.org");
+        assert_eq!(
+            theirs[super::REACTION_SENDER_CAP - 1],
+            "@u15:example.org"
+        );
+
+        // Under the cap nothing is dropped, and an empty bucket stays empty.
+        let few = super::reaction_senders_json(
+            ["@a:example.org", "@b:example.org"],
+            "@b:example.org",
+        );
+        assert_eq!(few.len(), 2);
+        assert_eq!(few[0], "@b:example.org");
+        assert_eq!(few[1], "@a:example.org");
+        assert!(
+            super::reaction_senders_json(std::iter::empty::<&str>(), "@a:b.c")
+                .is_empty()
+        );
+    }
+
+    // Ids come from the server, so they are bounded anyway — an absurd one
+    // is dropped rather than forwarded into a QStringList.
+    #[test]
+    fn reaction_senders_drop_an_unbounded_id() {
+        let huge = format!("@{}:example.org", "x".repeat(4096));
+        let out = super::reaction_senders_json(
+            [huge.as_str(), "@ok:example.org"],
+            "@me:example.org",
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0], "@ok:example.org");
+    }
+
+    // Typed profile changes: the classification the C++ sentence is built
+    // from. The old==new case is the one that matters most — the SDK emits
+    // a profile-change item when only the AVATAR moved, and claiming a
+    // rename that did not happen is worse than saying nothing.
+    #[test]
+    fn profile_name_change_classifies_set_changed_and_cleared() {
+        assert_eq!(
+            super::profile_name_change(None, Some("Alice")),
+            Some(("set", None, Some("Alice".to_owned())))
+        );
+        // A server that stores the cleared name as "" must not read as a set.
+        assert_eq!(
+            super::profile_name_change(Some(""), Some("Alice")),
+            Some(("set", None, Some("Alice".to_owned())))
+        );
+        assert_eq!(
+            super::profile_name_change(Some("Alice"), Some("Alice A.")),
+            Some((
+                "changed",
+                Some("Alice".to_owned()),
+                Some("Alice A.".to_owned())
+            ))
+        );
+        assert_eq!(
+            super::profile_name_change(Some("Alice"), None),
+            Some(("cleared", Some("Alice".to_owned()), None))
+        );
+        assert_eq!(
+            super::profile_name_change(Some("Alice"), Some("")),
+            Some(("cleared", Some("Alice".to_owned()), None))
+        );
+    }
+
+    #[test]
+    fn profile_name_change_reports_nothing_when_the_name_did_not_move() {
+        // Avatar-only change: same name on both sides.
+        assert_eq!(super::profile_name_change(Some("Alice"), Some("Alice")), None);
+        assert_eq!(super::profile_name_change(None, None), None);
+        assert_eq!(super::profile_name_change(Some(""), None), None);
+        assert_eq!(super::profile_name_change(None, Some("")), None);
+    }
+
+    // The bound is CHARS. A byte slice would panic mid code point on a name
+    // made of emoji, which is exactly the kind of name people set.
+    #[test]
+    fn profile_names_are_bounded_by_chars_never_bytes() {
+        let long: String = "🌩".repeat(300);
+        let (kind, _, new) = super::profile_name_change(None, Some(&long))
+            .expect("a long name is still a set");
+        assert_eq!(kind, "set");
+        let new = new.expect("set carries the new name");
+        assert_eq!(new.chars().count(), super::PROFILE_NAME_CAP);
+        // Four bytes per storm cloud: the byte length proves nothing was
+        // sliced at a code-point boundary that does not exist.
+        assert_eq!(new.len(), super::PROFILE_NAME_CAP * 4);
+        assert!(new.chars().all(|c| c == '🌩'));
+
+        // A name at exactly the cap is untouched.
+        let exact: String = "a".repeat(super::PROFILE_NAME_CAP);
+        assert_eq!(
+            super::profile_name_change(None, Some(&exact)),
+            Some(("set", None, Some(exact)))
         );
     }
 

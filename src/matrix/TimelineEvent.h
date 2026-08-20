@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 // A single emoji reaction bucket on a target event.
 struct Reaction {
@@ -10,6 +11,13 @@ struct Reaction {
     int count = 0;           // Total distinct senders that reacted with this key.
     bool byMe = false;       // True if the current user is one of them.
     QString myEventId;       // If byMe: the event_id of our reaction, needed to redact.
+    // Who reacted, as stable user ids — the Rust bridge sends a bounded
+    // window (16, the read-receipt cap) with the local user first, while
+    // `count` above stays the UNCAPPED total. Presentation resolves these
+    // to room display names at role-read time; the ids themselves are what
+    // the SDK reported, never a name the bridge guessed. Empty on the mock
+    // and HTTP backends, which report no reactor identities.
+    QStringList senders;
 };
 
 // One user's read receipt on the event (Rust backend, SDK receipt
@@ -78,6 +86,18 @@ struct TimelineEvent {
     // Typed room-activity target (for example the affected member's display
     // name or MXID). State presentation never needs raw event JSON.
     QString stateTarget;
+    // m.room.member profile change (stateKind == "member_profile"), typed so
+    // the presentation layer can translate it instead of receiving an
+    // English sentence built in the bridge — which could neither be
+    // translated nor use the actor's resolved display name.
+    // profileNameChange: "" (no name change) / "set" / "changed" /
+    // "cleared". The old/new names are bounded at 255 chars in Rust and are
+    // UNTRUSTED plain text: render them as PlainText, never as rich text.
+    // Only the avatar FACT crosses — never the mxc URI.
+    QString profileNameChange;
+    QString profileNameOld;
+    QString profileNameNew;
+    bool profileAvatarChanged = false;
     QString formattedBody;
     QDateTime timestamp;
     Type type = TextMessage;

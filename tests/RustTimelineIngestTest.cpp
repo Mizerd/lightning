@@ -69,6 +69,9 @@ private Q_SLOTS:
     void parsesLocalEchoStates();
     void parsesVirtualItems();
     void parsesReactionsAndReply();
+    // Reaction tooltips: who reacted, bounded, local user first.
+    void parsesReactionSenders();
+    void reactionSendersAbsentLeavesEmptyList();
     // Read-receipt chips: read_by parsing and Set-diff movement.
     void parsesReadReceipts();
     void readReceiptsMoveBetweenRowsViaSet();
@@ -76,6 +79,10 @@ private Q_SLOTS:
     void threadSummaryAbsentKeepsFallbackContract();
     void threadPanelIngestPreservesReplies();
     void parsesTypedStateActivity();
+    // Typed m.room.member profile changes (the sentence is built in C++).
+    void parsesTypedProfileChange();
+    void profileChangeAbsentFieldsKeepDefaults();
+    void profileNameIsBoundedWithoutSplittingSurrogatePairs();
     // v0.7: typed media rows with type-correct reserved-geometry metadata.
     void parsesTypedMediaItems();
     // v0.7: MSC3381 polls.
@@ -461,6 +468,67 @@ void RustTimelineIngestTest::parsesReactionsAndReply()
     QCOMPARE(m.replyToPreview, QStringLiteral("Grok AI tai jo"));
 }
 
+// Reaction tooltips need identities, not just a number. The Rust bridge
+// sends a bounded window (16) with the local user first while `count` stays
+// the uncapped total, so the tooltip can say "You, Bob and 234 others"
+// without the model guessing at either half.
+void RustTimelineIngestTest::parsesReactionSenders()
+{
+    QJsonObject item = itemJson(QStringLiteral("uid1"), QStringLiteral("$ev1"),
+                                QStringLiteral("hello"));
+    QJsonArray senders;
+    senders.append(QStringLiteral("@me:example.org"));
+    senders.append(QStringLiteral("@bob:example.org"));
+    // Malformed entries: an empty id and a non-string. Both are dropped
+    // rather than becoming a blank name in the tooltip.
+    senders.append(QString());
+    senders.append(QJsonValue(7));
+    senders.append(QStringLiteral("@carol:example.org"));
+
+    QJsonObject up;
+    up.insert(QStringLiteral("key"), QStringLiteral("👍"));
+    // The uncapped total: far more people reacted than crossed the FFI.
+    up.insert(QStringLiteral("count"), 250);
+    up.insert(QStringLiteral("by_me"), true);
+    up.insert(QStringLiteral("senders"), senders);
+    QJsonArray reactions;
+    reactions.append(up);
+    item.insert(QStringLiteral("reactions"), reactions);
+
+    const TimelineEvent e = eventFromItemJson(item, kRoom);
+    QCOMPARE(e.reactions.size(), 1);
+    const Reaction &r = e.reactions.first();
+    // The window is a window, never the count.
+    QCOMPARE(r.count, 250);
+    QCOMPARE(r.senders.size(), 3);
+    // Order is preserved exactly: the bridge already put the local user
+    // first, and re-sorting here would lose that.
+    QCOMPARE(r.senders.at(0), QStringLiteral("@me:example.org"));
+    QCOMPARE(r.senders.at(1), QStringLiteral("@bob:example.org"));
+    QCOMPARE(r.senders.at(2), QStringLiteral("@carol:example.org"));
+}
+
+// Mock and HTTP backends report no reactor identities at all, and an older
+// Rust build would send none either. That must read as "unknown", i.e. an
+// empty list beside a real count — never as "nobody reacted".
+void RustTimelineIngestTest::reactionSendersAbsentLeavesEmptyList()
+{
+    QJsonObject item = itemJson(QStringLiteral("uid1"), QStringLiteral("$ev1"),
+                                QStringLiteral("hello"));
+    QJsonObject up;
+    up.insert(QStringLiteral("key"), QStringLiteral("👍"));
+    up.insert(QStringLiteral("count"), 2);
+    up.insert(QStringLiteral("by_me"), false);
+    QJsonArray reactions;
+    reactions.append(up);
+    item.insert(QStringLiteral("reactions"), reactions);
+
+    const TimelineEvent e = eventFromItemJson(item, kRoom);
+    QCOMPARE(e.reactions.size(), 1);
+    QCOMPARE(e.reactions.first().count, 2);
+    QVERIFY(e.reactions.first().senders.isEmpty());
+}
+
 void RustTimelineIngestTest::parsesReadReceipts()
 {
     QJsonObject item = itemJson(QStringLiteral("uid1"), QStringLiteral("$ev1"),
@@ -673,6 +741,129 @@ void RustTimelineIngestTest::parsesTypedStateActivity()
     QCOMPARE(event.stateKind, QStringLiteral("m.room.topic"));
     QCOMPARE(event.stateTarget, QStringLiteral("Project"));
     QCOMPARE(event.body, QStringLiteral("Alice changed the room topic."));
+}
+
+// A member profile change crosses as TYPED fields with an empty body. The
+// bridge used to build an English sentence addressing the member by raw
+// MXID — untranslatable, and it swallowed the avatar whenever both moved.
+void RustTimelineIngestTest::parsesTypedProfileChange()
+{
+    QJsonObject item = itemJson(QStringLiteral("profile-1"),
+                                QStringLiteral("$profile"), QString());
+    item.insert(QStringLiteral("msgtype"), QStringLiteral("state"));
+    item.insert(QStringLiteral("state_kind"), QStringLiteral("member_profile"));
+    item.insert(QStringLiteral("state_target"),
+                QStringLiteral("@alice:example.org"));
+    item.insert(QStringLiteral("profile_name_change"),
+                QStringLiteral("changed"));
+    item.insert(QStringLiteral("profile_name_old"), QStringLiteral("Alice"));
+    item.insert(QStringLiteral("profile_name_new"), QStringLiteral("Alice A."));
+    item.insert(QStringLiteral("profile_avatar_changed"), true);
+
+    const TimelineEvent changed = eventFromItemJson(item, kRoom);
+    QCOMPARE(changed.type, TimelineEvent::StateChange);
+    QCOMPARE(changed.stateKind, QStringLiteral("member_profile"));
+    QCOMPARE(changed.stateTarget, QStringLiteral("@alice:example.org"));
+    QCOMPARE(changed.profileNameChange, QStringLiteral("changed"));
+    QCOMPARE(changed.profileNameOld, QStringLiteral("Alice"));
+    QCOMPARE(changed.profileNameNew, QStringLiteral("Alice A."));
+    QVERIFY(changed.profileAvatarChanged);
+    // The sentence belongs to the presentation layer; the row carries none.
+    QVERIFY(changed.body.isEmpty());
+
+    // "set": no old name, so the field is omitted entirely.
+    item.remove(QStringLiteral("profile_name_old"));
+    item.insert(QStringLiteral("profile_name_change"), QStringLiteral("set"));
+    item.insert(QStringLiteral("profile_avatar_changed"), false);
+    const TimelineEvent set = eventFromItemJson(item, kRoom);
+    QCOMPARE(set.profileNameChange, QStringLiteral("set"));
+    QVERIFY(set.profileNameOld.isEmpty());
+    QCOMPARE(set.profileNameNew, QStringLiteral("Alice A."));
+    QVERIFY(!set.profileAvatarChanged);
+
+    // "cleared": the new name is the omitted half.
+    item.remove(QStringLiteral("profile_name_new"));
+    item.insert(QStringLiteral("profile_name_old"), QStringLiteral("Alice"));
+    item.insert(QStringLiteral("profile_name_change"),
+                QStringLiteral("cleared"));
+    const TimelineEvent cleared = eventFromItemJson(item, kRoom);
+    QCOMPARE(cleared.profileNameChange, QStringLiteral("cleared"));
+    QCOMPARE(cleared.profileNameOld, QStringLiteral("Alice"));
+    QVERIFY(cleared.profileNameNew.isEmpty());
+
+    // Avatar only: Rust sends a JSON null for the name kind, which must map
+    // to the same empty "no name change" the absent field maps to — not to
+    // the string "null" and not to a claimed rename.
+    item.remove(QStringLiteral("profile_name_old"));
+    item.insert(QStringLiteral("profile_name_change"), QJsonValue::Null);
+    item.insert(QStringLiteral("profile_avatar_changed"), true);
+    const TimelineEvent avatarOnly = eventFromItemJson(item, kRoom);
+    QVERIFY(avatarOnly.profileNameChange.isEmpty());
+    QVERIFY(avatarOnly.profileNameOld.isEmpty());
+    QVERIFY(avatarOnly.profileNameNew.isEmpty());
+    QVERIFY(avatarOnly.profileAvatarChanged);
+}
+
+// Every other row kind, and the mock/HTTP backends, send none of these
+// fields. They must keep the struct defaults rather than reading as a
+// profile change that never happened.
+void RustTimelineIngestTest::profileChangeAbsentFieldsKeepDefaults()
+{
+    const QJsonObject item = itemJson(QStringLiteral("uid1"),
+                                      QStringLiteral("$ev1"),
+                                      QStringLiteral("hello"));
+    const TimelineEvent e = eventFromItemJson(item, kRoom);
+    QVERIFY(e.profileNameChange.isEmpty());
+    QVERIFY(e.profileNameOld.isEmpty());
+    QVERIFY(e.profileNameNew.isEmpty());
+    QVERIFY(!e.profileAvatarChanged);
+}
+
+// Display names are untrusted text. The bridge bounds them at 255 code
+// points and so does this layer, counting CODE POINTS: a name of emoji is
+// two QChars per character, and a plain left(255) would cut a surrogate
+// pair in half and yield an invalid string, not a short one.
+void RustTimelineIngestTest::profileNameIsBoundedWithoutSplittingSurrogatePairs()
+{
+    QString cloud;
+    cloud.append(QChar(QChar::highSurrogate(0x1F329)));
+    cloud.append(QChar(QChar::lowSurrogate(0x1F329)));
+    QCOMPARE(cloud.size(), 2);
+    const QString overlong = cloud.repeated(300);
+
+    QJsonObject item = itemJson(QStringLiteral("profile-1"),
+                                QStringLiteral("$profile"), QString());
+    item.insert(QStringLiteral("msgtype"), QStringLiteral("state"));
+    item.insert(QStringLiteral("state_kind"), QStringLiteral("member_profile"));
+    item.insert(QStringLiteral("profile_name_change"),
+                QStringLiteral("changed"));
+    item.insert(QStringLiteral("profile_name_old"), overlong);
+    item.insert(QStringLiteral("profile_name_new"), overlong);
+
+    const TimelineEvent e = eventFromItemJson(item, kRoom);
+    // 255 code points, i.e. 510 UTF-16 units — not 255 units.
+    QCOMPARE(e.profileNameNew.toUcs4().size(), 255);
+    QCOMPARE(e.profileNameNew.size(), 510);
+    QCOMPARE(e.profileNameOld.toUcs4().size(), 255);
+    // Nothing was cut mid-pair: the tail is a low surrogate, and every
+    // code point survived as the original character.
+    QVERIFY(e.profileNameNew.at(e.profileNameNew.size() - 1).isLowSurrogate());
+    const auto points = e.profileNameNew.toUcs4();
+    QCOMPARE(points.first(), 0x1F329u);
+    QCOMPARE(points.last(), 0x1F329u);
+
+    // A name already at the bound is passed through untouched, so a
+    // bridge-bounded name is never truncated a second time.
+    const QString exact = cloud.repeated(255);
+    item.insert(QStringLiteral("profile_name_new"), exact);
+    const TimelineEvent atBound = eventFromItemJson(item, kRoom);
+    QCOMPARE(atBound.profileNameNew, exact);
+
+    // ASCII is bounded by the same count, and a short name is untouched.
+    item.insert(QStringLiteral("profile_name_new"),
+                QString(300, QLatin1Char('a')));
+    const TimelineEvent ascii = eventFromItemJson(item, kRoom);
+    QCOMPARE(ascii.profileNameNew.size(), 255);
 }
 
 void RustTimelineIngestTest::appendAppends()
