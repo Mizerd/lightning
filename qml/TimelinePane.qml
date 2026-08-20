@@ -36,6 +36,22 @@ Rectangle {
                       : app.roomList.findRoom(app.currentRoomId)
     }
 
+    // The REVERSE half of the middle-click autoscroll interlock. The
+    // scroller already cancels an in-flight wheel glide when its gesture
+    // starts; without this the other direction was missing entirely, so a
+    // wheel notch, a keyboard page, Jump to latest or a reply jump would
+    // write contentY on alternate frames with a gesture that was still
+    // running. ONE helper, named at every cancellation site, so the set
+    // cannot drift the way the scroller's own did.
+    //
+    // Deliberately NOT folded into timeline.cancelWheelMotion(): the
+    // scroller calls that itself when its gesture starts, and stopping the
+    // gesture from inside it would end every autoscroll on its first frame.
+    function stopAutoscroll() {
+        if (middleClickScroller.active)
+            middleClickScroller.stop()
+    }
+
     // The right-side region is mutually exclusive: member/info panel OR
     // thread panel, never both layered. Exclusion lives on the two state
     // properties themselves so every open path — buttons, chips,
@@ -151,8 +167,11 @@ Rectangle {
                 app.messageSearch.query = ""
                 findField.text = ""
             }
-            // Old-room wheel motion must not continue into the new room.
+            // Old-room wheel motion must not continue into the new room —
+            // and neither may a middle-click autoscroll gesture, which
+            // writes contentY directly and had no room-switch exit at all.
             timeline.cancelWheelMotion()
+            root.stopAutoscroll()
             // A pinned message-action toolbar belongs to the room it was
             // pinned in; drop it when the room changes.
             timeline.pinnedActionsKey = ""
@@ -213,6 +232,7 @@ Rectangle {
         var row = timeline.viewRowForStableId(eventId)
         if (row < 0) return
         timeline.cancelWheelMotion()
+        root.stopAutoscroll()
         timeline.stickToBottom = false
         timeline.positionViewAtViewRow(row, true)
     }
@@ -231,7 +251,11 @@ Rectangle {
     // Escape closes the room info panel first, then any pinned toolbar.
     Shortcut {
         sequence: "Escape"
-        enabled: !timeline.emojiPickerOpen
+        // An ACTIVE autoscroll owns Escape (MiddleClickScroller declares its
+        // own shortcut for it). Two enabled Shortcuts on one sequence make Qt
+        // report an ambiguous overload and fire NEITHER, so the exclusion has
+        // to be explicit here rather than relying on ordering.
+        enabled: !timeline.emojiPickerOpen && !middleClickScroller.active
                  && (root.findOpen || root.infoOpen || root.searchOpen
                      || root.threadSurfaceOpen
                      || timeline.pinnedActionsKey !== "")
@@ -260,7 +284,11 @@ Rectangle {
     Component.onCompleted: refreshCurrentRoom()
 
     // v0.5.9: in-app image viewer + explicit Save As for file attachments.
-    ImageViewerOverlay { id: imageViewer }
+    ImageViewerOverlay {
+        id: imageViewer
+        onOpened: timeline.claimTransientInteraction("viewer")
+        onClosed: timeline.releaseTransientInteraction("viewer")
+    }
 
     // v0.7: ONE reaction picker and ONE sender-profile popover for the whole
     // timeline (previously every message row eagerly built its own picker
@@ -288,6 +316,8 @@ Rectangle {
         // card that grows after placement grows away from the window's
         // bottom edge instead of past it.
         preferAbove: true
+        onOpened: timeline.claimTransientInteraction("readers")
+        onClosed: timeline.releaseTransientInteraction("readers")
         // Content-sized, never share-sized (2026-08-19 feedback): this is
         // a small info card, not a picker — two readers must not get a
         // 40%-of-the-window box of empty space. The card hugs its rows
@@ -429,13 +459,29 @@ Rectangle {
 
     EmojiPicker {
         id: sharedReactionPicker
+        objectName: "sharedReactionPicker"
         mode: "reaction"
         property string targetEventId: ""
-        onOpened: timeline.emojiPickerOpen = true
+        onOpened: {
+            timeline.emojiPickerOpen = true
+            timeline.claimTransientInteraction("picker")
+        }
         onClosed: {
             timeline.emojiPickerOpen = false
+            // Release the tone level first: when the picker closes while the
+            // tone popup is up, the owner is "tone", and only that release
+            // matches.
+            timeline.releaseTransientInteraction("tone")
+            timeline.releaseTransientInteraction("picker")
             targetEventId = ""
         }
+        // The nested skin-tone popup is modal in its own right (see
+        // EmojiPicker), and it owns row interaction while it is up.
+        onToneOpened: timeline.claimTransientInteraction("tone")
+        // The fallback is unconditionally "picker" and both close orders
+        // still converge: if the picker closes FIRST it releases "tone"
+        // itself (leaving nobody), and this handler then matches nothing.
+        onToneClosed: timeline.releaseTransientInteraction("tone", "picker")
         onEmojiChosen: (emoji) => {
             if (targetEventId !== "")
                 app.composer.reactTo(targetEventId, emoji)
@@ -445,6 +491,8 @@ Rectangle {
         id: senderProfilePopover
         parent: Overlay.overlay
         anchors.centerIn: parent
+        onOpened: timeline.claimTransientInteraction("profile")
+        onClosed: timeline.releaseTransientInteraction("profile")
     }
 
     // Every floating surface that is anchored to, or snapshotted from, a
@@ -460,6 +508,13 @@ Rectangle {
         // The viewer holds decoded pixels and a stale entries snapshot; it
         // must never survive content it was opened from.
         imageViewer.close()
+        // The single reset point for transient row-interaction ownership.
+        // Every close above releases its own claim, but a surface that was
+        // never opened through those handlers (or one destroyed under the
+        // pointer) would otherwise leave the timeline permanently unable to
+        // show an action bar. Deliberately not a second cleanup path — this
+        // helper is already the one every switch and content discard calls.
+        timeline.transientInteractionOwner = ""
     }
 
     Connections {
@@ -471,6 +526,7 @@ Rectangle {
             if (app.accountSwitching) {
                 imageViewer.close()
                 receiptListPopover.close()
+                root.stopAutoscroll()
             }
         }
     }
@@ -1290,6 +1346,46 @@ Rectangle {
                     // continuation look like an unrelated row.
                     spacing: 0
 
+                    // Qt's own "a positioning pass just finished" signal.
+                    // How many rows that pass covered is what a
+                    // geometry-reading jump path needs before it can trust a
+                    // delegate's y: children are placed during polish, so a
+                    // row created or shifted in this turn still reports the
+                    // previous shape's coordinates. See
+                    // navigationGeometryReady(). Nothing binds to the
+                    // property, so writing it from here cannot loop.
+                    onPositioningComplete: {
+                        timeline.layoutRowsAtLastPass = timeline.count
+                        // The Column has just re-positioned its CURRENT
+                        // children, so contentHeight (bound to this Column's
+                        // height) now describes THIS snapshot rather than the
+                        // outgoing room's lingering rows. That is precisely
+                        // what presentationGeometryStale means, so this — not
+                        // a timer — is where it is allowed to clear.
+                        //
+                        // It replaces a 0 ms settle timer that waited on
+                        // presentationResetPending instead. Waiting for that
+                        // flag is NOT the same as waiting for the relayout:
+                        // the timer could fire while contentHeight was still
+                        // the previous snapshot's, fillsViewport then read
+                        // true on a one-item partial snapshot, and the gate
+                        // opened on it — re-introducing the exact defect the
+                        // 2026-08-18 round fixed (measured then as
+                        // count=1 ch=3601 h=404). timeline-hydration-qml
+                        // caught it.
+                        //
+                        // Unlike onContentHeightChanged this also fires when
+                        // the new height happens to EQUAL the old one, which
+                        // is the case the settle timer was reaching for: an
+                        // incoming room whose Column height matches the
+                        // outgoing room's otherwise kept the flag armed for
+                        // that whole room generation.
+                        if (timeline.presentationGeometryStale) {
+                            timeline.presentationGeometryStale = false
+                            timeline.recomputePresentationReady()
+                        }
+                    }
+
                     Repeater {
                         id: rowRepeater
                         model: app.timelineView
@@ -1984,6 +2080,240 @@ Rectangle {
                 function positionViewAtLatest() {
                     contentY = wheelMinY()
                 }
+                // How far INTO the viewport a navigation target lands. A
+                // reply jump that pins the quoted message flush against an
+                // edge shows it with no context on one side; a third of a
+                // viewport in is the Discord placement and reads as "here it
+                // is", not "it is off the edge". Built on the same measured
+                // geometry positionViewAtViewRow() uses plus one bounded
+                // offset and the same clamp — no second anchor mechanism, and
+                // maintainViewAnchor() is not involved.
+                readonly property real navigationInsetFraction: 0.33
+                function positionViewAtNavigationTarget(row) {
+                    var item = itemAtViewRow(row)
+                    if (!item)
+                        return false
+                    // Rotated view: a row's logical bottom edge is its
+                    // physical top. anchorPositionForItem(item) - height +
+                    // topMargin puts that edge at the viewport's physical
+                    // top; adding the inset moves the row DOWN the screen by
+                    // exactly that many pixels.
+                    var target = anchorPositionForItem(item) - height
+                                 + topMargin + height * navigationInsetFraction
+                    var lo = wheelMinY()
+                    var hi = wheelMaxY()
+                    contentY = target < lo ? lo : (target > hi ? hi : target)
+                    return true
+                }
+                // Bounded navigation diagnostics — counts only, never an
+                // event id. diagNavigationUnresolved is the number that used
+                // to be invisible: BOTH failure paths here (C5b B1/B2) were
+                // silent returns, so a jump that did nothing looked exactly
+                // like one that worked, which is why reply navigation stayed
+                // broken for so long with nobody able to point at a line.
+                property int diagNavigationLandings: 0
+                property int diagNavigationUnresolved: 0
+                // ── The geometry half of onTargetLocated ─────────────────
+                //
+                // releasePendingRows() lifts the pacing backlog AND the row
+                // window, so it can insert hundreds of rows in one turn. The
+                // original defect was reading geometry in that same turn.
+                // Both of its faces are real and only the first is obvious:
+                //
+                //   * the delegate may not exist yet — a Repeater incubates
+                //     AsynchronousIfNested, which is synchronous only while
+                //     the Repeater itself was not built inside an
+                //     asynchronous incubator (MainScreen instantiates this
+                //     pane directly today, so it is) — and
+                //     positionViewAtViewRow() returns silently on a null
+                //     item: a jump that does nothing and says nothing;
+                //   * and, in every case that actually reaches this code
+                //     today, the delegate DOES exist and is completely
+                //     UNMEASURED. A row's height comes from its ColumnLayout,
+                //     and a QQuickLayout only applies its implicit size from
+                //     updatePolish(); the Column likewise positions its
+                //     children during polish. So a row created in this turn
+                //     reads y == 0, height == 0, anchorPositionForItem() == 0
+                //     — and the landing clamps contentY to the newest end.
+                //     That is worse than the silent no-op: it is a confident
+                //     jump to the wrong end of the room.
+                //
+                // Existence is therefore NOT the readiness condition.
+                // navigationGeometryReady() is, and it asks for both halves:
+                // the row itself is measured, and the LAST completed Column
+                // layout pass covered the row set we are about to measure
+                // against (rows inserted at the newest end move every row
+                // after them, so a target that was already exposed can have a
+                // perfectly good height and a stale y).
+                //
+                // Then write contentY exactly ONCE. This is deliberately NOT
+                // a correction retry loop: nothing is written until the
+                // geometry is real, there is a single write, and it never
+                // re-runs against the anchor machinery afterwards. A newer
+                // jump REPLACES a pending one rather than queueing behind it.
+                property int navigationPendingRow: -1
+                // The target's STABLE ID. Authoritative while the landing
+                // waits; navigationPendingRow is only the fallback for a row
+                // whose id the model cannot answer. See
+                // beginNavigationLanding().
+                property string navigationPendingId: ""
+                property real navigationPendingOffset: 0
+                property bool navigationPendingHighlight: false
+                property int navigationPendingAttempts: 0
+                // "<rows>/<laidOutRows>" at the previous landing attempt.
+                // A change means the view is still converging, which re-arms
+                // the budget; see tryLandNavigationTarget().
+                property string navigationLastShape: ""
+                // The row count the Column's most recent completed
+                // positioning pass ran over. Equal to `count` means the
+                // laid-out row set IS the current one; smaller (or larger)
+                // means rows were added or removed since and every y this
+                // view could read is from the previous shape. Written from
+                // the Column's own positioningComplete signal — Qt's own
+                // statement that a pass finished — never inferred from a
+                // timer or from a row happening to sit at y == 0.
+                property int layoutRowsAtLastPass: 0
+                function navigationGeometryReady(item) {
+                    if (!item)
+                        return false
+                    // A row that is deliberately not shown (hidden routine
+                    // activity, a suppressed thread root, an orphan date
+                    // divider) is measured AT zero and never grows, so
+                    // height > 0 would wait for something that cannot
+                    // happen. `visible` is a plain binding and is correct
+                    // from the delegate's first turn.
+                    if (item.height <= 0 && item.visible)
+                        return false
+                    return layoutRowsAtLastPass === count
+                }
+                // ~200 ms of frames. Counted in TICKS, not wall clock: a
+                // machine slow enough to spend half a second building the
+                // rows this release just exposed spends it inside one tick
+                // rather than burning the budget. Long enough for incubation
+                // and the Column's relayout, short enough that an impossible
+                // target reports rather than hangs.
+                readonly property int maxNavigationLandingAttempts: 12
+                Timer {
+                    id: navigationLandingTimer
+                    interval: 16
+                    repeat: false
+                    onTriggered: timeline.tryLandNavigationTarget()
+                }
+                function beginNavigationLanding(row, pixelOffset, highlight) {
+                    // Hold the target by STABLE ID, never by row number. This
+                    // landing can wait up to 12 frames, and a backward
+                    // pagination batch landing in that window renumbers every
+                    // source row — so a retried jump held as an integer would
+                    // resolve to a DIFFERENT message than the one the reader
+                    // clicked, silently and confidently. The id is resolved
+                    // back to a row on each attempt through the same
+                    // rowForStableId() the anchor machinery already uses.
+                    navigationPendingId = app.timeline
+                                          ? app.timeline.stableIdAt(row) : ""
+                    // Keep the row only as the fallback for a model that
+                    // cannot answer a stable id for it (it answers "" then);
+                    // in that case there is nothing better than the index,
+                    // and a renumber is still less likely than never landing.
+                    navigationPendingRow = row
+                    navigationPendingOffset = pixelOffset
+                    navigationPendingHighlight = highlight
+                    navigationPendingAttempts = 0
+                    navigationLastShape = ""
+                    // Try immediately: an already-exposed target lands on
+                    // this turn exactly as it always did.
+                    tryLandNavigationTarget()
+                }
+                function tryLandNavigationTarget() {
+                    if (navigationPendingRow < 0)
+                        return false
+                    // Re-derive the row every attempt (see the note above).
+                    const row = navigationPendingId !== ""
+                                && app.timeline
+                                ? app.timeline.rowForStableId(
+                                      navigationPendingId)
+                                : navigationPendingRow
+                    const viewRow = row >= 0 ? viewRowForSourceRow(row) : -1
+                    const item = viewRow >= 0 ? itemAtViewRow(viewRow) : null
+                    if (!navigationGeometryReady(item)) {
+                        // Bound on CONVERGENCE, not on wall clock. A fixed
+                        // tick budget is ~200 ms of real time, and on a
+                        // loaded or slow machine the Column can still be
+                        // polishing when it runs out — the reply jump then
+                        // reports unresolved and the click silently does
+                        // nothing, which is the very defect this landing
+                        // exists to fix. (Measured: this suite is 83/83 six
+                        // times idle and fails here under 16 competing CPU
+                        // hogs.) The timer keeps firing on schedule while
+                        // nothing progresses, so counting ticks measures the
+                        // machine's load rather than the view's readiness.
+                        //
+                        // Progress = the row set or the laid-out row set
+                        // changed since the last attempt. While either moves
+                        // the view is still converging and we keep waiting;
+                        // the budget is spent only on attempts that observed
+                        // NO change, so a genuinely impossible target still
+                        // gives up promptly instead of spinning forever.
+                        const shape = count + "/" + layoutRowsAtLastPass
+                        if (shape !== navigationLastShape) {
+                            navigationLastShape = shape
+                            navigationPendingAttempts = 0
+                        }
+                        if (++navigationPendingAttempts
+                                < maxNavigationLandingAttempts) {
+                            navigationLandingTimer.restart()
+                            return false
+                        }
+                        navigationPendingRow = -1
+                        navigationPendingId = ""
+                        ++diagNavigationUnresolved
+                        // Honest failure instead of a silent return. Counts
+                        // and the view's own shape only — never an event id.
+                        // The geometry fields separate "the row was never
+                        // built" from "it was built and never measured",
+                        // which are different bugs with the same symptom.
+                        console.warn("timeline navigation target unresolved"
+                                     + " sourceRow=" + row
+                                     + " viewRow=" + viewRow
+                                     + " rows=" + count
+                                     + " srcRows="
+                                     + (app.timeline ? app.timeline.count : -1)
+                                     + " winSkip=" + rowWindowSkip
+                                     + " built=" + (item ? 1 : 0)
+                                     + " rowH=" + (item ? item.height : -1)
+                                     + " laidOutRows=" + layoutRowsAtLastPass)
+                        return false
+                    }
+                    // The row set is laid out and this row is measured, but a
+                    // height that settled AFTER that pass (an image, a link
+                    // preview) leaves the Column with a polish still pending
+                    // and every y below it short by that delta. forceLayout()
+                    // is Qt's own synchronous flush of exactly that — one
+                    // call, no waiting, no second correction afterwards — so
+                    // the single write below reads final geometry.
+                    //
+                    // This is the POSITIONER's forceLayout (it re-runs
+                    // prePositioning over children that already exist), NOT
+                    // the TableView one this file warns about above: it
+                    // materialises nothing, requests no media, and runs once
+                    // per navigation jump rather than once per page.
+                    rowColumn.forceLayout()
+                    const pixelOffset = navigationPendingOffset
+                    const highlight = navigationPendingHighlight
+                    navigationPendingRow = -1
+                    navigationPendingId = ""
+                    cancelWheelMotion()
+                    stickToBottom = false
+                    if (highlight) {
+                        positionViewAtNavigationTarget(viewRow)
+                    } else {
+                        positionViewAtViewRow(viewRow, false)
+                        contentY = anchorPositionForItem(item) + pixelOffset
+                    }
+                    ++diagNavigationLandings
+                    saveRoomPosition()
+                    captureViewAnchor()
+                    return true
+                }
                 function positionViewAtViewRow(row, centered) {
                     var item = itemAtViewRow(row)
                     if (!item)
@@ -2014,6 +2344,46 @@ Rectangle {
                 // row showed a second bar and both rows looked selected.
                 property string hoveredActionsKey: ""
                 property bool emojiPickerOpen: false
+                // ── C6: ONE owner of transient row interaction ───────────
+                // "" = nobody. Otherwise the name of the surface that owns it
+                // right now: "picker" | "tone" | "menu" | "profile" |
+                // "readers" | "viewer". While non-empty no row may show its
+                // action bar and hover must not claim one.
+                //
+                // Confirmed defect: MessageDelegate's actionsVisible consulted
+                // hoveredActionsKey / actionsPinned / moreMenuOpen and nothing
+                // else, so the row toolbar kept rendering under an open picker
+                // and its nested tone popup. Another boolean would have been a
+                // fourth thing to keep in sync; one owner is the mechanism.
+                // Never solved with z: raising the picker would only cover the
+                // bar, and the bar is still hit-testable underneath it.
+                property string transientInteractionOwner: ""
+                function claimTransientInteraction(owner) {
+                    if (!owner || owner.length === 0)
+                        return
+                    // CLEAR, not cover: the bar is gone, not merely hidden.
+                    hoveredActionsKey = ""
+                    pinnedActionsKey = ""
+                    transientInteractionOwner = owner
+                }
+                // Release only what you own. The tone popup and its parent
+                // picker close in an order the popups themselves decide, and
+                // an unconditional release would let the CHILD's close hand
+                // row interaction back while the picker is still on screen.
+                function releaseTransientInteraction(owner, fallback) {
+                    if (transientInteractionOwner !== owner)
+                        return
+                    transientInteractionOwner = fallback ? fallback : ""
+                }
+                // The hover guard lives HERE rather than in the delegate's
+                // HoverHandler so that EVERY writer of the key is covered by
+                // one rule — including a future one. Releasing ownership needs
+                // no re-hover: the next real hover event sets the key again.
+                onHoveredActionsKeyChanged: {
+                    if (transientInteractionOwner !== ""
+                        && hoveredActionsKey !== "")
+                        hoveredActionsKey = ""
+                }
                 // v0.5.11: whether the open room is encrypted — drives the
                 // link-preview privacy gate in each MessageDelegate.
                 property bool roomEncrypted: root.currentRoom.encrypted === true
@@ -2072,6 +2442,23 @@ Rectangle {
                 property var openSenderProfile: function(member) {
                     senderProfilePopover.openFor(member)
                 }
+                // ── C5: the shared reply-navigation view contract ────────
+                // MessageDelegate reaches its view ONLY through
+                // `timelineView`, exactly as openSenderProfile and
+                // openReactionPicker already do, so the SAME reply preview
+                // works in the room and in the thread panel without either
+                // knowing about the other's history loader.
+                // PaginationController::jumpToEvent stays the single room
+                // history loader; this adds no second one.
+                property var navigateToEvent: function(eventId) {
+                    if (!eventId || eventId.length === 0)
+                        return
+                    root.stopAutoscroll()
+                    timeline.cancelWheelMotion()
+                    app.pagination.jumpToEvent(eventId)
+                }
+                readonly property string navigationHighlightEventId:
+                    app.pagination.highlightedEventId
                 // 2026-08-19 fix: delegates reach the pane ONLY through
                 // this Flickable (their `timelineView`), so the reader
                 // list opener must live here — as a pane-root function it
@@ -2411,6 +2798,7 @@ Rectangle {
                         diagGestureStartMs = Date.now()
                         diagWorstNotchMs = 0
                         diagWindowApplications = 0
+                        diagWindowNewEndExtensions = 0
                     }
                     diagEvents += 1
                     if (isPixel)
@@ -2451,6 +2839,10 @@ Rectangle {
                 // window this gesture — zero next to a large rows/srcRows gap
                 // is the signature of the no-op this round shipped.
                 property int diagWindowApplications: 0
+                // Counts newest-end window extensions taken DURING motion.
+                // Zero next to a non-zero winSkip on a gesture that ran into
+                // the bottom is the signature of the clamp this fixes.
+                property int diagWindowNewEndExtensions: 0
                 function diagFlushGesture() {
                     if (!scrollTrace || !diagActive)
                         return
@@ -2502,6 +2894,7 @@ Rectangle {
                         + " srcRows=" + (app.timeline ? app.timeline.count : -1)
                         + " winSkip=" + rowWindowSkip
                         + " winApplies=" + diagWindowApplications
+                        + " winExtendNew=" + diagWindowNewEndExtensions
                         // Cost, and what the loaded timeline is MADE of.
                         // gestureMs is wall clock across the whole gesture;
                         // worstNotchMs is the slowest single wheel event,
@@ -2628,8 +3021,17 @@ Rectangle {
                         wantRows = total - wantSkip
                     // Hysteresis: only move for a change worth a structural
                     // op, or the settle after every gesture would churn.
+                    // EXEMPT wantSkip === 0. Closing to the live edge is
+                    // always worth the op: with the reader parked at the
+                    // window's synthetic bottom, updateVisibleRowRange()
+                    // forces visibleFirstRow to 0, so wantSkip walks toward 0
+                    // in steps — and the LAST fewer-than-40 rows could never
+                    // be closed, leaving the newest messages permanently
+                    // unreachable and atBottomEdge() permanently false
+                    // (2026-08-20).
                     const rows = count
-                    if (Math.abs(wantSkip - skip) < 40
+                    if (wantSkip !== 0
+                        && Math.abs(wantSkip - skip) < 40
                         && Math.abs(wantRows - rows) < 40)
                         return
                     // THRASH GUARD. Releasing rows at the OLDEST end brings
@@ -2684,7 +3086,15 @@ Rectangle {
                     // offset here; the measured-height correction below never
                     // needed it, so it was dead weight — §18 review.)
                     if (wantSkip !== skip) {
-                        const anchorRow = viewRowAtContentY(contentY)
+                        // Clamped to row 0: while the reader is pinned at the
+                        // live edge contentY parks at -topMargin, BELOW row
+                        // 0's own y, and viewRowAtContentY() has no row to
+                        // name there. That is the bottom, not an incoherent
+                        // view — and treating it as one meant the window
+                        // could never be reduced from exactly the place the
+                        // reader is most likely to be sitting (2026-08-20).
+                        const anchorRow = Math.max(0,
+                                                   viewRowAtContentY(contentY))
                         if (!itemAtViewRow(anchorRow)
                             || eventIdAtViewRow(anchorRow) === "")
                             return
@@ -2732,12 +3142,34 @@ Rectangle {
                     captureViewAnchor()
                 }
 
-                function updateStickAndPaginate() {
-                    stickToBottom = atBottomEdge()
+                // followStateApplies: pass FALSE for an input event the
+                // geometry could not apply at all — a wheel notch into a bound
+                // the position is already sitting on. Such an event moves
+                // nothing, so it must leave follow-latest exactly as it found
+                // it; letting it run the recompute meant one unappliable notch
+                // in a room too short to scroll disengaged follow-latest and
+                // raised a jump pill that no amount of further scrolling could
+                // ever clear (2026-08-20). The near-top check still runs: a
+                // reader pinned against the OLDEST loaded row is precisely who
+                // wants more history, and that is the one bound where an
+                // unappliable event is meaningful.
+                function updateStickAndPaginate(followStateApplies) {
+                    if (followStateApplies !== false)
+                        stickToBottom = atBottomEdge()
                     // Active user scroll (wheel/pixel/keyboard): edge-latched so
                     // reaching the top re-arms the bounded backfill exactly once
                     // per approach, not on every settle.
                     checkNearTopEdge(true)
+                }
+                // Can an input event in this direction move the position at
+                // all? towardsOlder is INCREASING contentY on this rotated
+                // view. Evaluated BEFORE the motion is dispatched, because the
+                // discrete-wheel engine clamps its own target and then reports
+                // an active motion either way — there is nothing to read back
+                // afterwards that distinguishes "moved" from "clamped".
+                function wheelCanMove(towardsOlder) {
+                    return towardsOlder ? contentY < wheelMaxY() - 0.5
+                                        : contentY > wheelMinY() + 0.5
                 }
 
                 // Coalesce near-top backfill onto the next event-loop turn, the
@@ -2752,6 +3184,76 @@ Rectangle {
                 // (filtered-only) pages.
                 property bool nearTopCheckScheduled: false
                 property bool nearTopCheckUserInitiated: false
+                // ── A1: the window's NEWEST edge gives rows back DURING
+                // motion, not only at the 250 ms settle.
+                //
+                // Nothing used to lower windowSkip while the reader was
+                // moving, so a sustained downward gesture was hard-clamped at
+                // the window's SYNTHETIC newest edge — the reader hit what
+                // looked like the bottom of the room and stopped there, with
+                // the jump pill up, until they let go for a quarter of a
+                // second. extendWindowAtNewEnd() performs ONE head insert and
+                // returns false when the skip is already 0 (nothing to give),
+                // which is also the honest answer to "is the bottom of this
+                // view the bottom of the room".
+                //
+                // The chunk is deliberately modest: these rows are built
+                // SYNCHRONOUSLY (unlike the old end, which rides the proxy's
+                // paced reveal), so a 120-row restore would be a several
+                // hundred millisecond stall at the documented 3-7 ms per row.
+                // A clamp-and-stop is worse than a small hitch, and the
+                // settle-time applyRowWindow() releases the surplus again.
+                readonly property int windowNewEndExtendRows: 60
+                // How close to the synthetic newest edge is close enough to
+                // ask. One viewport of remaining runway, so the rows exist
+                // before the reader arrives rather than after.
+                function nearWindowNewEdge() {
+                    return rowWindowSkip > 0
+                           && contentY - wheelMinY() < Math.max(1, height)
+                }
+                function extendRowWindowAtNewEnd() {
+                    if (!app.timelineView
+                        || !app.timelineView.extendWindowAtNewEnd)
+                        return false
+                    if (rowWindowSkip <= 0)
+                        return false
+                    const before = count
+                    if (app.timelineView.extendWindowAtNewEnd(
+                                windowNewEndExtendRows) !== true)
+                        return false
+                    // Restored rows land at the HEAD, which pushes every kept
+                    // row further from content y 0 by exactly their summed
+                    // height. Measure the real items — the proxy builds them
+                    // synchronously, the Column has no inter-row spacing, so
+                    // the sum is exact rather than an estimate. contentHeight
+                    // is NOT usable here: the Column has not relaid out yet
+                    // and every geometry read is still the old content (this
+                    // is the same trap applyRowWindow() documents).
+                    let shift = 0
+                    const added = count - before
+                    for (let r = 0; r < added; ++r) {
+                        const item = itemAtViewRow(r)
+                        if (item)
+                            shift += item.height
+                    }
+                    if (shift !== 0) {
+                        contentY = contentY + shift
+                        // TRANSLATE an in-flight glide rather than cancelling
+                        // it: the reader asked for a distance, and cancelling
+                        // would silently discard whatever was left of it. This
+                        // is the call that exists for exactly this event (a
+                        // prepend landing mid-glide) and it preserves the
+                        // remaining distance by construction.
+                        app.timelineScroll.translateActiveMotion(shift)
+                    }
+                    // ONE exact write and no deferred follow-up, for the same
+                    // reason applyRowWindow() has none: a Qt.callLater snap by
+                    // anchor id runs BEFORE the Column relayout, reads a stale
+                    // y, and lands the reader somewhere they never asked to be.
+                    ++diagWindowNewEndExtensions
+                    return true
+                }
+
                 // True when the window was holding rows back and has now
                 // been asked to release more of them. Rows older than the
                 // window's oldest exposed row are ALREADY loaded; the window
@@ -2997,6 +3499,10 @@ Rectangle {
                 }
 
                 function beginWheelTo(targetY) {
+                    // Keyboard/programmatic motion is another owner of
+                    // contentY: end an autoscroll gesture rather than letting
+                    // the two write it on alternate frames.
+                    root.stopAutoscroll()
                     // Clamp defensively so keyboard callers (which pass an
                     // unclamped target) and any rounding can never drive an
                     // out-of-range or jittering contentY.
@@ -3040,12 +3546,14 @@ Rectangle {
                 // wheel motion engine and jumps directly, then recomputes
                 // pagination / follow-latest and saves one settled anchor.
                 function goToEarliestLoaded() {
+                    root.stopAutoscroll()
                     cancelWheelMotion()
                     contentY = wheelMaxY()
                     updateStickAndPaginate()
                     scrollSettleTimer.restart()
                 }
                 function goToLatest() {
+                    root.stopAutoscroll()
                     cancelWheelMotion()
                     // Rotated view: the newest row sits at wheelMinY(), so
                     // the distance home is contentY - wheelMinY().
@@ -3132,6 +3640,20 @@ Rectangle {
                     target: app.timelineScroll
                     function onWheelPositionChanged(y) {
                         var lo = timeline.wheelMinY()
+                        // A GLIDE can run into the window's synthetic newest
+                        // edge too — the wheel handler only extends per event,
+                        // and one large notch outlives its own event. Give the
+                        // rows back instead of settling at a bottom that is not
+                        // the bottom.
+                        if (y <= lo && timeline.rowWindowSkip > 0
+                            && timeline.extendRowWindowAtNewEnd()) {
+                            // The extension already moved contentY and
+                            // translated the in-flight motion by exactly the
+                            // restored height, so THIS frame's y is stale by
+                            // that amount. Drop it; the engine's next frame
+                            // carries the corrected position.
+                            return
+                        }
                         var hi = timeline.wheelMaxY()
                         var clamped = y < lo ? lo : (y > hi ? hi : y)
                         timeline.contentY = clamped
@@ -3208,6 +3730,23 @@ Rectangle {
                         // Timed only while LIGHTNING_SCROLL_TRACE is set;
                         // Date.now() is not called at all otherwise.
                         var notchStartMs = timeline.scrollTrace ? Date.now() : 0
+                        // A wheel notch is another owner of contentY; an
+                        // autoscroll gesture still running would write it on
+                        // alternate frames.
+                        root.stopAutoscroll()
+                        // Positive delta on either axis is the OLDER
+                        // direction on this rotated view (see wheelTargetY /
+                        // pixelTargetY, which both take the negated value).
+                        var towardsOlder = event.pixelDelta.y !== 0
+                                ? event.pixelDelta.y > 0
+                                : event.angleDelta.y > 0
+                        // Give the window its newest rows back BEFORE the
+                        // motion is computed, so the notch clamps against the
+                        // extended geometry instead of the synthetic edge.
+                        if (!towardsOlder && timeline.nearWindowNewEdge())
+                            timeline.extendRowWindowAtNewEnd()
+                        // Evaluated before dispatch: see wheelCanMove().
+                        var canMove = timeline.wheelCanMove(towardsOlder)
                         var minY = timeline.wheelMinY()
                         var maxY = timeline.wheelMaxY()
                         if (event.pixelDelta.y !== 0) {
@@ -3215,8 +3754,8 @@ Rectangle {
                             timeline.contentY = app.timelineScroll.pixelTargetY(
                                 -event.pixelDelta.y, timeline.contentY,
                                 minY, maxY)
-                            timeline.updateStickAndPaginate()
-                            if (event.pixelDelta.y > 0)
+                            timeline.updateStickAndPaginate(canMove)
+                            if (event.pixelDelta.y > 0 && canMove)
                                 timeline.stickToBottom = false
                             timeline.diagNoteEvent(true)
                             scrollSettleTimer.restart()
@@ -3224,8 +3763,8 @@ Rectangle {
                             app.timelineScroll.wheelNotch(
                                 -event.angleDelta.y, timeline.contentY,
                                 minY, maxY, timeline.height)
-                            timeline.updateStickAndPaginate()
-                            if (event.angleDelta.y > 0) {
+                            timeline.updateStickAndPaginate(canMove)
+                            if (event.angleDelta.y > 0 && canMove) {
                                 timeline.stickToBottom = false
                                 // Wheeling UP mid-glide is an explicit
                                 // "not to the bottom" — retire the pending
@@ -3322,14 +3861,67 @@ Rectangle {
                 // from onContentHeightChanged re-entered the header's state
                 // binding and produced a paginationState binding loop.
                 property bool viewportFillCheckScheduled: false
+                // ── The fill loop is SELF-HEALING, not geometry-triggered ──
+                //
+                // maybeFillViewport() is level-triggered and armed ONLY by
+                // geometry signals (onContentHeightChanged, onHeightChanged,
+                // Component.onCompleted, the deferred onModelReset call, the
+                // room-activity toggle). Two ordinary things leave it with no
+                // trigger left, and the room is then permanently unscrollable:
+                //
+                //   * PaginationController::request() drops a dispatch with no
+                //     retry armed while a request is already in flight (its
+                //     m_deferredFill recovery covers only the not-ready case);
+                //   * a batch can insert rows the timeline does not RENDER —
+                //     routine room activity while showRoomActivity is off is
+                //     zero-height — so contentHeight never moves and no
+                //     geometry signal fires.
+                //
+                // With contentHeight + margins <= height, wheelMaxY() equals
+                // wheelMinY() and every input path is a no-op by construction:
+                // the reported "a freshly opened room cannot be scrolled until
+                // I resize the window", where the resize is literally the user
+                // re-running this function.
+                //
+                // The retry is bounded TWICE, and neither bound alone would
+                // do. This counter caps consecutive re-arms and only resets
+                // when the room resets or the viewport is genuinely filled —
+                // needed because PaginationController's own budget is NOT
+                // spent by a dropped dispatch. And the controller's budget
+                // (m_maxFillRequests, plus kMaxNoProgressStrikes) latches
+                // `fillStopped`, which is checked below — needed because this
+                // counter alone would not stop a backend that keeps returning
+                // rows the timeline cannot show. reachedStart / failed end it
+                // too. So the loop cannot spin: every path either grows the
+                // content, exhausts a bound, or ends the room.
+                readonly property int maxViewportFillRetries: 8
+                property int viewportFillRetries: 0
+                Timer {
+                    id: viewportFillRetryTimer
+                    interval: 250
+                    repeat: false
+                    onTriggered: timeline.maybeFillViewport()
+                }
                 function maybeFillViewport() {
                     if (viewportFillCheckScheduled)
                         return
                     viewportFillCheckScheduled = true
                     Qt.callLater(function() {
                         viewportFillCheckScheduled = false
-                        if (app.currentRoomId !== "" && contentHeight < height)
-                            app.pagination.requestViewportFill()
+                        if (app.currentRoomId === ""
+                            || contentHeight >= height) {
+                            viewportFillRetries = 0
+                            viewportFillRetryTimer.stop()
+                            return
+                        }
+                        app.pagination.requestViewportFill()
+                        if (app.pagination.reachedStart
+                            || app.pagination.fillStopped
+                            || app.pagination.failed
+                            || viewportFillRetries >= maxViewportFillRetries)
+                            return
+                        ++viewportFillRetries
+                        viewportFillRetryTimer.restart()
                     })
                 }
                 // Content height changes whenever any delegate's height
@@ -3413,30 +4005,23 @@ Rectangle {
                     function onTargetLocated(row, pixelOffset, highlight) {
                         // Reply navigation takes control immediately.
                         timeline.cancelWheelMotion()
+                        root.stopAutoscroll()
                         Qt.callLater(function() {
                             // The target can be older than what the proxy has
-                            // paced out so far; without this the jump resolves
-                            // to -1 and nothing happens at all.
+                            // paced out so far, or hidden behind the row
+                            // window; without this the jump resolves to -1 and
+                            // nothing happens at all.
                             timeline.releasePendingRows()
-                            var viewRow = timeline.viewRowForSourceRow(row)
-                            if (viewRow < 0)
-                                return
-                            timeline.cancelWheelMotion()
-                            timeline.stickToBottom = false
-                            timeline.positionViewAtViewRow(viewRow, highlight)
-                            if (!highlight) {
-                                var item = timeline.itemAtViewRow(viewRow)
-                                if (item)
-                                    timeline.contentY =
-                                        timeline.anchorPositionForItem(item)
-                                        + pixelOffset
-                            }
-                            timeline.saveRoomPosition()
-                            timeline.captureViewAnchor()
+                            // C5b/B1: see beginNavigationLanding(). Landing
+                            // in THIS turn is what made every jump to a target
+                            // that was not already exposed a silent no-op.
+                            timeline.beginNavigationLanding(row, pixelOffset,
+                                                            highlight)
                         })
                     }
                     function onRestoreLatestRequested() {
                         timeline.cancelWheelMotion()
+                        root.stopAutoscroll()
                         timeline.stickToBottom = true
                         // Same frame-rebase reason as goToLatest().
                         timeline.viewAnchorId = ""
@@ -3528,8 +4113,11 @@ Rectangle {
                     }
                     function onModelReset() {
                         // A room switch / fresh snapshot must cancel any
-                        // in-flight wheel motion from the previous room.
+                        // in-flight wheel motion from the previous room — and
+                        // any autoscroll gesture, which survives a reset with
+                        // nothing left to scroll.
                         timeline.cancelWheelMotion()
+                        root.stopAutoscroll()
                         // Any reset discards the rows these surfaces were
                         // opened from — including a same-room jump-to-live
                         // trim, which changes no room id and so fires none
@@ -3547,6 +4135,16 @@ Rectangle {
                         timeline.nearTopArmed = true
                         timeline.nearTopRequestDistance = Infinity
                         timeline.expandedStateGroups = ({})
+                        // A fresh room gets a fresh fill-retry budget; the
+                        // previous room's spent attempts must not deny this
+                        // one its own.
+                        timeline.viewportFillRetries = 0
+                        viewportFillRetryTimer.stop()
+                        // A pending navigation landing belongs to the
+                        // snapshot it was resolved against.
+                        timeline.navigationPendingRow = -1
+                        timeline.navigationPendingId = ""
+                        navigationLandingTimer.stop()
                         // Re-engage the presentation gate for the fresh
                         // snapshot. Recompute only after this whole signal
                         // dispatch settles: the pagination controller's own
@@ -3804,6 +4402,7 @@ Rectangle {
             // bounds the wheel handler uses, with `inverted` set because a
             // rotated view scrolls towards newer messages as contentY FALLS.
             MiddleClickScroller {
+                id: middleClickScroller
                 objectName: "timelineMiddleClickScroller"
                 anchors.fill: parent
                 z: 2

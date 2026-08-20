@@ -28,6 +28,11 @@ AnchoredPopup {
     property string mode: "composer"
     property bool closeAfterSelection: true
     signal emojiChosen(string emoji)
+    // The nested skin-tone popup's lifetime, reported to whoever owns
+    // transient row interaction (TimelinePane's transientInteractionOwner).
+    // A host that does not care simply does not connect them.
+    signal toneOpened()
+    signal toneClosed()
 
     // Footer preview state: the emoji + name of whichever cell is currently
     // hovered or keyboard-focused. Empty when nothing is (the footer then
@@ -481,12 +486,23 @@ AnchoredPopup {
 
     Popup {
         id: tonePopup
+        objectName: "emojiTonePopup"
         property var variants: []
         parent: picker.contentItem
         width: Math.min(Math.max(variants.length, 1), 6) * 42 + 8
         height: Math.ceil(Math.max(variants.length, 1) / 6) * 42 + 8
         padding: 4
+        // MODAL for exactly the reason its parent picker is (2026-08-18,
+        // screenshot-proven): Qt Quick TapHandlers are non-exclusive across
+        // unrelated subtrees, so a press on a tone tile also reached the
+        // message row's own handlers underneath. Modality is the only robust
+        // barrier; dim: false keeps the look unchanged, and an outside press
+        // still closes — it is simply consumed rather than falling through.
+        modal: true
+        dim: false
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onOpened: picker.toneOpened()
+        onClosed: picker.toneClosed()
         background: Rectangle {
             color: AppTheme.stormPanel
             border.color: AppTheme.stormBorder

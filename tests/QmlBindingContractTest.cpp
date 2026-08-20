@@ -130,9 +130,35 @@ private Q_SLOTS:
         QVERIFY(pane.contains(QStringLiteral("saveScrollAnchor(")));
         QVERIFY(pane.contains(QStringLiteral("eventIdAtViewRow(row)")));
 
+        // 2026-08-20 (C5): the shared delegate must NOT name a controller.
+        // It used to call app.pagination.jumpToEvent() and read
+        // app.pagination.highlightedEventId directly — but ThreadPanel.qml
+        // renders this same delegate, and app.pagination is wired only to the
+        // ROOM timeline. A thread reply's target is a thread event, which the
+        // live room timeline hides (hide_threaded_events), so the click cost
+        // eight real room paginations and then reported failure. The delegate
+        // now goes through the view contract its host supplies, exactly like
+        // openSenderProfile / openReactionPicker already did. These two
+        // assertions replace the two that pinned the old hardcoding.
+        // The REPLY PREVIEW specifically must not name the room controller.
+        // One deliberate app.pagination.jumpToEvent survives in this file: the
+        // thread panel's "Open in room" menu item, whose entire purpose is to
+        // leave the thread for the room. Routing that through the thread's own
+        // navigation would defeat it, so it is correct and stays — which is
+        // why this assertion is scoped to the reply target rather than
+        // banning the symbol outright.
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
-        QVERIFY(delegate.contains(QStringLiteral("jumpToEvent(model.replyToEventId")));
-        QVERIFY(delegate.contains(QStringLiteral("highlightedEventId")));
+        QVERIFY(!delegate.contains(
+            QStringLiteral("app.pagination.jumpToEvent(model.replyToEventId")));
+        QVERIFY(!delegate.contains(QStringLiteral("app.pagination.highlightedEventId")));
+        QVERIFY(delegate.contains(QStringLiteral("navigateToEvent(")));
+        QVERIFY(delegate.contains(QStringLiteral("navigationHighlightEventId")));
+        // Both hosts must actually supply that contract.
+        QVERIFY(pane.contains(QStringLiteral("navigateToEvent")));
+        QVERIFY(pane.contains(QStringLiteral("navigationHighlightEventId")));
+        const QString threadPanel = read(QStringLiteral("ThreadPanel.qml"));
+        QVERIFY(threadPanel.contains(QStringLiteral("navigateToEvent")));
+        QVERIFY(threadPanel.contains(QStringLiteral("navigationHighlightEventId")));
         QVERIFY(pane.contains(QStringLiteral("viewportFillCheckScheduled")));
         QVERIFY(pane.contains(QStringLiteral("Qt.callLater(function()")));
         QVERIFY(pane.contains(QStringLiteral("app.pagination.requestViewportFill()")));
@@ -571,8 +597,14 @@ private Q_SLOTS:
         // thread panel's pinned-root suppression — same mechanism, still
         // presentation-only.
         QVERIFY(delegate.contains(QStringLiteral("naturalImplicitHeight")));
+        // 2026-08-20 (C4): a third presentation-only suppression joined the
+        // same expression — a date divider whose entire run is hidden. It is
+        // the same mechanism (zero height, row stays in the authoritative
+        // model), so it belongs in this assertion rather than beside it.
+        QVERIFY(delegate.contains(QStringLiteral("dividerSuppressed")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "(!roomActivityVisible || suppressedAsThreadRoot) ? 0")));
+            "(!roomActivityVisible || suppressedAsThreadRoot"
+            " || dividerSuppressed) ? 0")));
         QVERIFY(settings.contains(QStringLiteral("Show room activity")));
         QVERIFY(settings.contains(QStringLiteral(
             "onToggled: app.settings.showRoomActivity = checked")));

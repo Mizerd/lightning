@@ -90,6 +90,40 @@ ApplicationWindow {
             window.visibility = Window.Minimized
     }
 
+    // SECURITY, application-wide. Qt Quick Controls uses ONE shared ToolTip
+    // instance for every attached `ToolTip.text`, and the Basic style builds
+    // its contentItem as a Text with the default AutoText format. AutoText
+    // runs mightBeRichText() over the string, so any tooltip whose text can
+    // begin with markup is promoted to StyledText — and several of ours carry
+    // remote-chosen member display names (the reaction reactor list, the
+    // read-receipt strip). A display name containing an <img src="https://…">
+    // would then make every viewer who merely HOVERS fetch that URL: an
+    // unconsented remote beacon reporting IP and timing, inside rooms where
+    // link previews are deliberately off by default.
+    //
+    // Fixing it once on the shared instance is what makes it a property of
+    // the application rather than of whichever call site someone remembered.
+    // Declaring a per-chip ToolTip with a plain-text contentItem would also
+    // work but costs a Popup + background + Label PER CHIP, which is the
+    // eager per-row instantiation this timeline has already un-done twice.
+    //
+    // It lives on an Item, not on the window: ToolTip is an attached property
+    // of Item, and attaching it to an ApplicationWindow warns
+    // "ToolTip attached property must be attached to an object deriving from
+    // Item" — which the QML-warning suites correctly fail on.
+    Item {
+        objectName: "sharedToolTipPlainTextGuard"
+        Component.onCompleted: {
+            // Touching `contentItem` forces the lazy instance to exist.
+            // Guarded: a style whose tooltip content is not a Text simply has
+            // no textFormat, and must not throw here.
+            const shared = ToolTip.toolTip
+            if (shared && shared.contentItem
+                    && shared.contentItem.textFormat !== undefined)
+                shared.contentItem.textFormat = Text.PlainText
+        }
+    }
+
     // v0.6.0 checkpoint 11: a clicked notification raises Lightning, selects
     // the room, opens the thread when it was a thread reply, and locates the
     // event (the existing navigation shows a safe message when the target is

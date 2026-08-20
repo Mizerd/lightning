@@ -181,7 +181,36 @@ private Q_SLOTS:
         // The automatic viewport fill settles the gate without user input.
         QTRY_VERIFY_WITH_TIMEOUT(
             pane.timeline->property("presentationReady").toBool(), 5000);
-        QVERIFY(controller.timeline()->rowCount() > 1);
+        // The gate's whole contract: it does NOT open on the one-item
+        // partial snapshot. More than one row means the staged history
+        // pages actually arrived before the view was presented.
+        //
+        // 2026-08-21: this is where a real regression landed, and a bare
+        // "returned FALSE" named none of it — so report the geometry the
+        // gate decided on. The fast path (fillsViewport) compares
+        // contentHeight against height, and right after a reset
+        // contentHeight still reads the OUTGOING content's value until the
+        // Column has re-positioned; presentationGeometryStale exists to
+        // suppress exactly that read. A failure printing modelRows=1 with a
+        // contentHeight far larger than one row's worth is that read
+        // happening anyway — i.e. the staleness flag was cleared by
+        // something other than the relayout itself.
+        const int gatedRows = controller.timeline()->rowCount();
+        QVERIFY2(gatedRows > 1,
+                 qPrintable(
+                     QStringLiteral("presentation gate opened on a partial "
+                                    "snapshot: modelRows=%1 viewRows=%2 "
+                                    "contentHeight=%3 height=%4 "
+                                    "geometryStale=%5")
+                         .arg(gatedRows)
+                         .arg(pane.timeline->property("count").toInt())
+                         .arg(timelineReal(pane.timeline, "contentHeight"))
+                         .arg(timelineReal(pane.timeline, "height"))
+                         .arg(pane.timeline
+                                  ->property("presentationGeometryStale")
+                                  .toBool()
+                              ? QStringLiteral("true")
+                              : QStringLiteral("false"))));
         QTRY_COMPARE_WITH_TIMEOUT(pane.timeline->opacity(), 1.0, 5000);
         QVERIFY(!loading->isVisible());
 

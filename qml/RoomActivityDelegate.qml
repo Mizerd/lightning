@@ -15,6 +15,43 @@ Item {
 
     readonly property int entryCount: entries ? entries.length : 0
     readonly property bool canExpand: entryCount > 0
+
+    // A collapsed group draws ONE summary line, and the date dividers that
+    // used to sit around it are now suppressed when everything they
+    // introduce is hidden — so a group spanning several days would otherwise
+    // lose its date entirely. Same-day groups keep the plain count: a date on
+    // every group is noise, not information.
+    //
+    // Entries carry their own timestamp (TimelineModel::stateGroupEntriesFrom)
+    // and arrive in timeline order, so the range is the first and the last —
+    // never a scan, and never a guess when a timestamp is missing.
+    function sameCalendarDay(a, b) {
+        return a.getFullYear() === b.getFullYear()
+               && a.getMonth() === b.getMonth()
+               && a.getDate() === b.getDate()
+    }
+    // Duck-typed rather than `instanceof Date`: the entries come from a
+    // QVariantMap, and a value that arrives wrapped instead of converted
+    // would silently fail an identity check and drop the range for every
+    // group.
+    function validDate(value) {
+        if (!value || typeof value.getTime !== "function")
+            return false
+        return !isNaN(value.getTime())
+    }
+    readonly property string dateRangeLabel: {
+        if (root.entryCount < 2)
+            return ""
+        var first = root.entries[0].timestamp
+        var last = root.entries[root.entryCount - 1].timestamp
+        if (!root.validDate(first) || !root.validDate(last))
+            return ""
+        if (root.sameCalendarDay(first, last))
+            return ""
+        var locale = Qt.locale()
+        return qsTr("%1 – %2").arg(locale.toString(first, "d MMM"))
+                              .arg(locale.toString(last, "d MMM"))
+    }
     readonly property int renderedEntryCount: activityRepeater.count
     readonly property real expandedContentHeight: expandedColumn.height
     implicitHeight: visible ? activityColumn.implicitHeight : 0
@@ -57,11 +94,21 @@ Item {
                 Label {
                     id: summaryLabel
                     Layout.fillWidth: true
-                    text: root.entryCount === 0
-                          ? qsTr("Room updated")
-                          : root.entryCount === 1
-                            ? qsTr("1 room update")
-                            : qsTr("%1 room updates").arg(root.entryCount)
+                    // Same reason as the entry label below: the summary can
+                    // carry a member-chosen display name, and AutoText would
+                    // let it become markup.
+                    textFormat: Text.PlainText
+                    text: {
+                        if (root.entryCount === 0)
+                            return qsTr("Room updated")
+                        if (root.entryCount === 1)
+                            return qsTr("1 room update")
+                        if (root.dateRangeLabel.length > 0)
+                            return qsTr("%1 room updates · %2")
+                                .arg(root.entryCount)
+                                .arg(root.dateRangeLabel)
+                        return qsTr("%1 room updates").arg(root.entryCount)
+                    }
                     color: AppTheme.textMuted
                     font.pixelSize: 11
                     elide: Label.ElideRight
@@ -104,6 +151,19 @@ Item {
                     width: expandedColumn.width
                     height: Math.max(16, implicitHeight)
                     text: modelData.description || ""
+                    // MANDATORY, and it is a security control, not styling.
+                    // This sentence embeds THREE strings a remote member
+                    // chose: the actor's resolved display name (at offset 0)
+                    // and the old and new display names. Qt's AutoText
+                    // default runs mightBeRichText() over the result, so a
+                    // display name beginning with markup promotes the whole
+                    // row to StyledText — and a name carrying
+                    // <img src="https://…"> would then make every viewer's
+                    // client fetch that URL. That is an unconsented remote
+                    // beacon (IP, timing) fired inside a room where link
+                    // previews are deliberately off by default. Plain text
+                    // renders the characters and fetches nothing.
+                    textFormat: Text.PlainText
                     color: AppTheme.textMuted
                     font.pixelSize: 11
                     wrapMode: Text.WordWrap

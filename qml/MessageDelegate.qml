@@ -65,6 +65,17 @@ Item {
     readonly property var stateActivityEntries: model.stateGroupEntries || []
     readonly property bool showsIdentity: model.showSenderIdentity === true
 
+    // A date divider that introduces nothing the reader can see — a run of
+    // routine state rows hidden by the room-activity setting, or the
+    // non-leader rows of a collapsed group — is an orphan date and must not
+    // render at all. The MODEL answers this (one cached scan of the run);
+    // the delegate never walks its neighbours. `=== false` deliberately:
+    // a host whose model lacks the role reads `undefined` and keeps today's
+    // behaviour rather than silently hiding every divider.
+    readonly property bool dividerSuppressed:
+        isVirtualRow && model.eventType === 7
+        && model.dividerIntroducesVisibleContent === false
+
     // Settings → Appearance → Message layout (0 Modern, 1 Bubbles, 2
     // Compact). The thread panel always keeps the Modern rows; Bubbles
     // applies only to direct-message timelines (never ordinary rooms).
@@ -117,9 +128,9 @@ Item {
                 === CryptoBootstrapModel.ManualRecoveryRequired
             || app.cryptoBootstrap.phase
                 === CryptoBootstrapModel.NoBackupAvailable)
-    visible: roomActivityVisible && !suppressedAsThreadRoot
+    visible: roomActivityVisible && !suppressedAsThreadRoot && !dividerSuppressed
     readonly property real naturalImplicitHeight:
-        (!roomActivityVisible || suppressedAsThreadRoot) ? 0
+        (!roomActivityVisible || suppressedAsThreadRoot || dividerSuppressed) ? 0
         : isVirtualRow ? virtualRow.implicitHeight
         : isStateActivity ? stateActivity.implicitHeight
         : layout.implicitHeight + messageTopSpacing
@@ -332,12 +343,29 @@ Item {
     // The single deliberate exception is a row whose More menu is open: the
     // menu is positioned from that bar, so hiding it would strand the menu.
     // That state ends with the menu.
+    //
+    // C6: while a transient surface owns row interaction — the shared
+    // reaction picker, its tone popup, the profile/reader popovers, the image
+    // viewer — no row may show its bar. One owner on the view, not another
+    // boolean per surface, and deliberately NOT solved with z: a bar that is
+    // merely covered still takes hover and still reads as selected. The More
+    // menu keeps the exception above, because it is positioned FROM the bar.
+    // An undefined owner (a host that predates the contract) blocks nothing.
+    readonly property bool transientOwnerBlocks: {
+        if (!root.timelineView)
+            return false
+        var owner = root.timelineView.transientInteractionOwner
+        if (owner === undefined || owner === null || owner === "")
+            return false
+        return !(owner === "menu" && root.moreMenuOpen)
+    }
     readonly property bool actionsVisible:
-        root.moreMenuOpen
-        || (root.timelineView
-            && (root.timelineView.hoveredActionsKey === actionKey
-                || (actionsPinned
-                    && root.timelineView.hoveredActionsKey === "")))
+        !root.transientOwnerBlocks
+        && (root.moreMenuOpen
+            || (root.timelineView
+                && (root.timelineView.hoveredActionsKey === actionKey
+                    || (actionsPinned
+                        && root.timelineView.hoveredActionsKey === ""))))
     property string menuEventId: ""
 
     // Clears the view's hovered key if — and only if — this row owns it.
@@ -398,6 +426,42 @@ Item {
                                  y === undefined ? 0 : y)
         root.ensureContextMenu().popup(Overlay.overlay, p.x, p.y)
     }
+    // Mentions carry an internal "mention:<user-id>" link (rewritten by the
+    // sanitizer); open the member profile. Everything else is a validated
+    // http(s) or Matrix URL. Lives on root because every body renderer in
+    // this delegate — the single TextEdit and each rich-text segment —
+    // must route identically.
+    function openMessageLink(link) {
+        if (link.indexOf("mention:") === 0) {
+            if (root.timelineView
+                && root.timelineView.openSenderProfile) {
+                root.timelineView.openSenderProfile({
+                    userId: link.substring(8),
+                    displayName: "",
+                    avatarUrl: ""
+                })
+            }
+            return
+        }
+        // v0.7.x: room-oriented Matrix links open IN-APP through the
+        // Discover surface (which resolves them via the SDK). User links
+        // keep the web behavior — matrix.to renders a profile page there.
+        var isMatrixLink =
+            link.indexOf("matrix:") === 0
+            || link.indexOf("matrix.to/#/") !== -1
+        // Percent-encoded user permalinks (Element emits
+        // matrix.to/#/%40user…) are user links too (review L2).
+        var lower = link.toLowerCase()
+        var isUserLink =
+            link.indexOf("#/@") !== -1
+            || lower.indexOf("#/%40") !== -1
+            || link.indexOf("matrix:u/") === 0
+        if (isMatrixLink && !isUserLink) {
+            app.openMatrixLink(link)
+            return
+        }
+        app.media.openWebUrl(link)
+    }
     function copyToClipboard(value) {
         if (!value || value.length === 0) return
         clipboardHelper.text = value
@@ -447,6 +511,61 @@ Item {
         var kind = model.errorKind || ""
         return kind !== "membership" && kind !== "device_trust"
                && kind !== "withheld"
+    }
+
+    // ── Fenced code blocks ───────────────────────────────────────────────
+    // The model hands over ORDERED segments only for a body that actually
+    // carries a <pre> block; an ordinary message reads back an empty list and
+    // keeps the single-TextEdit path below untouched, which is the whole
+    // point — this timeline instantiates every loaded row, so the hot path
+    // must not grow an item for a feature most messages never use.
+    // `|| []` covers a host whose model has no such role at all.
+    readonly property var messageSegments: model.messageSegments || []
+    // Media/redacted/poll rows suppress the body for their own reasons; the
+    // segmented renderer must obey exactly the same suppression, so both it
+    // and bodyLabel read these two predicates instead of each keeping its
+    // own copy. They live on root (not on bodyLabel) because a root property
+    // must never dereference an id declared further down the document.
+    readonly property bool mediaRowBody:
+        model.isImage
+        || model.isSticker === true
+        || model.isVideo === true
+        || model.isAudio === true
+        || model.isFile === true
+    readonly property bool mediaCaptionBody: {
+        if (!mediaRowBody) return false
+        var body = (model.body || "").trim()
+        var name = (model.mediaFilename || "").trim()
+        return body.length > 0 && name.length > 0
+               && body.toLowerCase() !== name.toLowerCase()
+    }
+    readonly property bool hasMessageSegments:
+        messageSegments.length > 0
+        && !isVirtualRow && !isStateActivity
+        && !model.redacted && model.isPoll !== true
+        && !showsDecryptingSkeleton
+        && (!mediaRowBody || mediaCaptionBody)
+
+    // ── Navigation (C5) ──────────────────────────────────────────────────
+    // The delegate is shared by the room timeline and the thread panel, so it
+    // must not know HOW a jump is performed — only that its host offers one.
+    // The room pane routes to PaginationController; the thread panel resolves
+    // the target inside its own thread timeline. A true thread reply must
+    // never be handed to the room history loader, and the SDK's thread focus
+    // guarantees a reply preview in the panel points at another in-thread
+    // event or at the root, so there is no room-handoff case to write here.
+    // Guarded on the function existing: a standalone fixture host degrades to
+    // doing nothing instead of throwing.
+    readonly property string navigationHighlightId:
+        root.timelineView
+        && root.timelineView.navigationHighlightEventId !== undefined
+        ? root.timelineView.navigationHighlightEventId : ""
+    function navigateToReplyTarget() {
+        var target = model.replyToEventId || ""
+        if (target.length === 0)
+            return
+        if (root.timelineView && root.timelineView.navigateToEvent)
+            root.timelineView.navigateToEvent(target)
     }
 
     // v0.5.11: link-preview state for this row, resolved by
@@ -516,7 +635,12 @@ Item {
         Loader {
             id: virtualLabel
             anchors.centerIn: parent
+            // `!dividerSuppressed`: an orphan date divider creates no label
+            // at all, which is also what zeroes virtualRow's implicitHeight
+            // below — the row occupies no space rather than drawing an empty
+            // one.
             active: root.isVirtualRow && model.eventType !== 8
+                    && !root.dividerSuppressed
             sourceComponent: Label {
                 text: model.eventType === 7
                       ? Qt.locale().toString(model.timestamp,
@@ -600,12 +724,15 @@ Item {
         id: rowHighlight
         visible: !root.isVirtualRow && !root.isStateActivity
                  && (rowHover.hovered || root.actionsPinned
-                     || app.pagination.highlightedEventId === (model.eventId || ""))
+                     || root.navigationHighlightId === (model.eventId || ""))
         x: -AppTheme.spacingXS
         y: layout.y
         width: root.width + AppTheme.spacingXS * 2
         height: layout.height
-        color: app.pagination.highlightedEventId === (model.eventId || "")
+        // C5: the VIEW says what is highlighted. Reading app.pagination here
+        // lit up the wrong timeline — a room jump highlighted the matching id
+        // inside an open thread panel, which is a different navigation.
+        color: root.navigationHighlightId === (model.eventId || "")
                ? AppTheme.selected : AppTheme.hover
         // Design shell: message-row hover highlight is the soft theme tint
         // at an 8px radius — no border, no elevation.
@@ -636,10 +763,17 @@ Item {
                 onHoveredChanged: {
                     if (!root.timelineView || root.actionKey === "")
                         return
-                    if (hovered)
+                    if (hovered) {
+                        // C6: a stray hover under an open picker must not
+                        // re-claim the bar the owner just cleared. No
+                        // re-hover is needed once the owner releases — the
+                        // next real hover event sets the key normally.
+                        if (root.transientOwnerBlocks)
+                            return
                         root.timelineView.hoveredActionsKey = root.actionKey
-                    else
+                    } else {
                         root.releaseHoveredActions()
+                    }
                 }
             }
             TapHandler {
@@ -816,6 +950,21 @@ Item {
                                 && rp.y >= 0 && rp.y <= receiptRow.height)
                                 return
                         }
+                        // Same class, fifth occurrence (facepile, rail
+                        // chevron, tone popup, receipt chips, and now this):
+                        // the reply preview's own TapHandler lives in a
+                        // SIBLING subtree, so without this band exclusion a
+                        // click that navigates to the replied message ALSO
+                        // pinned this row's action bar.
+                        if (replyBox.visible) {
+                            var qp = bubble.mapToItem(
+                                        replyBox,
+                                        eventPoint.position.x,
+                                        eventPoint.position.y)
+                            if (qp.x >= 0 && qp.x <= replyBox.width
+                                && qp.y >= 0 && qp.y <= replyBox.height)
+                                return
+                        }
                         root.toggleActionsPin()
                     }
                 }
@@ -922,11 +1071,40 @@ Item {
                         implicitHeight: replyLayout.implicitHeight + 8
                         color: AppTheme.hover
                         radius: 6
+                        // A quote block that navigates is a control, and it
+                        // was reachable only with a mouse: no tab stop, no
+                        // key activation, no focus ring, and an accessible
+                        // name that never said whose message it goes to.
+                        activeFocusOnTab: true
+                        border.width: activeFocus ? 1 : 0
+                        border.color: AppTheme.focusRing
                         Accessible.role: Accessible.Button
-                        Accessible.name: qsTr("Jump to replied message")
+                        Accessible.name: (model.replyToSender || "").length > 0
+                            ? qsTr("Go to message from %1").arg(model.replyToSender)
+                            : qsTr("Go to the original message")
+                        Accessible.onPressAction: root.navigateToReplyTarget()
+                        Keys.onReturnPressed: (event) => {
+                            root.navigateToReplyTarget()
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: (event) => {
+                            root.navigateToReplyTarget()
+                            event.accepted = true
+                        }
+                        Keys.onSpacePressed: (event) => {
+                            root.navigateToReplyTarget()
+                            event.accepted = true
+                        }
                         TapHandler {
                             cursorShape: Qt.PointingHandCursor
-                            onTapped: app.pagination.jumpToEvent(model.replyToEventId || "")
+                            // Routes through the view contract, never
+                            // app.pagination: inside the thread panel that
+                            // would hand a true thread reply to the ROOM
+                            // history loader, which cannot hold it.
+                            // Deliberately does NOT take focus: a mouse jump
+                            // must not pull focus out of the composer
+                            // mid-sentence. Tab reaches the same control.
+                            onTapped: root.navigateToReplyTarget()
                         }
                         Rectangle {
                             width: replyBox.barWidth
@@ -1071,19 +1249,13 @@ Item {
                         // Media rows suppress a body that is just the
                         // filename echo; a genuinely different body renders
                         // once, styled as a caption below the card.
-                        readonly property bool isMediaRow:
-                            model.isImage
-                            || model.isSticker === true
-                            || model.isVideo === true
-                            || model.isAudio === true
-                            || model.isFile === true
-                        readonly property bool isMediaCaption: {
-                            if (!isMediaRow) return false
-                            var body = (model.body || "").trim()
-                            var name = (model.mediaFilename || "").trim()
-                            return body.length > 0 && name.length > 0
-                                   && body.toLowerCase() !== name.toLowerCase()
-                        }
+                        // Defined on root so the segmented renderer below can
+                        // apply the identical suppression without an id
+                        // dereference into this object; the two names stay
+                        // here because the whole file reads them.
+                        readonly property bool isMediaRow: root.mediaRowBody
+                        readonly property bool isMediaCaption:
+                            root.mediaCaptionBody
                         // Big-emoji: a body of exactly 1-3 user-perceived
                         // emoji sequences (and nothing but whitespace) renders
                         // large, Element-style. The count comes from the C++
@@ -1101,6 +1273,13 @@ Item {
                         readonly property bool bigEmoji:
                             emojiOnlyCount >= 1 && emojiOnlyCount <= 3
                         text: {
+                            // A body that carries fenced code renders through
+                            // the segmented column below instead. Returning ""
+                            // here (rather than only hiding this item) is what
+                            // keeps a long code message from being laid out
+                            // twice — the RichText document would otherwise
+                            // still be built for an invisible item.
+                            if (root.hasMessageSegments) return ""
                             if (model.redacted) return qsTr("[message deleted]")
                             // The poll card presents the question; the body
                             // is only the MSC1767 fallback for old clients.
@@ -1171,42 +1350,12 @@ Item {
                         textFormat: Text.RichText
                         selectByMouse: true
                         Accessible.name: model.body || ""
-                        // Mentions carry an internal "mention:<user-id>" link
-                        // (rewritten by the sanitizer); open the member
-                        // profile. Everything else is a validated http(s) URL.
+                        // One routing implementation, shared with the
+                        // segmented renderer below — a second copy would
+                        // drift, and this one carries the mention and
+                        // user-permalink rules.
                         onLinkActivated: function(link) {
-                            if (link.indexOf("mention:") === 0) {
-                                if (root.timelineView
-                                    && root.timelineView.openSenderProfile) {
-                                    root.timelineView.openSenderProfile({
-                                        userId: link.substring(8),
-                                        displayName: "",
-                                        avatarUrl: ""
-                                    })
-                                }
-                                return
-                            }
-                            // v0.7.x: room-oriented Matrix links open
-                            // IN-APP through the Discover surface (which
-                            // resolves them via the SDK). User links keep
-                            // the web behavior — matrix.to renders a
-                            // profile page there.
-                            var isMatrixLink =
-                                link.indexOf("matrix:") === 0
-                                || link.indexOf("matrix.to/#/") !== -1
-                            // Percent-encoded user permalinks (Element
-                            // emits matrix.to/#/%40user…) are user links
-                            // too (review L2).
-                            var lower = link.toLowerCase()
-                            var isUserLink =
-                                link.indexOf("#/@") !== -1
-                                || lower.indexOf("#/%40") !== -1
-                                || link.indexOf("matrix:u/") === 0
-                            if (isMatrixLink && !isUserLink) {
-                                app.openMatrixLink(link)
-                                return
-                            }
-                            app.media.openWebUrl(link)
+                            root.openMessageLink(link)
                         }
 
                         // v0.5.0-prep+12: hover tooltip for undecryptable rows
@@ -1223,6 +1372,142 @@ Item {
                                 "Missing room key. Restore your recovery key " +
                                 "in Settings, or wait for another verified " +
                                 "device to share the key.")
+                        }
+                    }
+
+                    // ── Fenced code blocks (C1) ──────────────────────────
+                    // Ordered segments in place of the single body TextEdit,
+                    // for the only rows that need them. A Loader, not an
+                    // always-created column: `active` is false for every
+                    // ordinary message, so those rows instantiate NOTHING
+                    // here — which also keeps the zero-viewport-observer
+                    // guarantee, since none of the text items below can
+                    // exist holding an empty string.
+                    Loader {
+                        id: segmentsLoader
+                        objectName: "messageSegments"
+                        // Row values captured OUT HERE, outside the Repeater:
+                        // inside a delegate the bare name `model` can resolve
+                        // to the segment's own model object instead of this
+                        // timeline row's, and a silently wrong resolution is
+                        // exactly the class of bug this file keeps paying for.
+                        readonly property bool ownMessage: model.isOwn === true
+                        readonly property string plainBody: model.body || ""
+                        active: root.hasMessageSegments
+                        visible: active
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: bubble.width > 8
+                                             ? Math.min(720, bubble.width - 8)
+                                             : 560
+                        sourceComponent: ColumnLayout {
+                            spacing: 4
+                            // ONE accessible reading for the whole message,
+                            // on the container: naming every segment with
+                            // the full body would read the message once per
+                            // segment, and naming each with its own
+                            // RichText would read markup. model.body is the
+                            // original markdown source, code fences and all.
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: segmentsLoader.plainBody
+                            Repeater {
+                                model: root.messageSegments
+                                delegate: Item {
+                                    id: segmentRow
+                                    required property var modelData
+                                    // kind: 0 RichText, 1 CodeBlock. Anything
+                                    // else is treated as rich text — an
+                                    // unknown kind must degrade to readable
+                                    // prose, never to a blank row.
+                                    readonly property bool isCode:
+                                        modelData && modelData.kind === 1
+                                    Layout.fillWidth: true
+                                    // Both implicit sizes are propagated, not
+                                    // just the height: in Bubbles layout the
+                                    // bubble's width IS bubbleContent's
+                                    // implicit width, so a row that reports 0
+                                    // would collapse a code-only DM message
+                                    // to the 60px floor.
+                                    implicitWidth: segmentLoader.item
+                                        ? segmentLoader.item.implicitWidth : 0
+                                    implicitHeight: segmentLoader.item
+                                        ? segmentLoader.item.implicitHeight : 0
+                                    Loader {
+                                        id: segmentLoader
+                                        anchors.left: parent.left
+                                        // The mediaBox idiom: take the
+                                        // segment's own natural width, capped
+                                        // at the column. A code block sizes
+                                        // to its widest line (it clamps and
+                                        // scrolls internally past that) and a
+                                        // two-word snippet must not stretch
+                                        // edge to edge; a long paragraph hits
+                                        // the cap and wraps, exactly as the
+                                        // single-body TextEdit does.
+                                        width: item
+                                               ? Math.min(segmentRow.width,
+                                                          item.implicitWidth)
+                                               : segmentRow.width
+                                        sourceComponent: segmentRow.isCode
+                                                         ? codeSegment
+                                                         : richSegment
+                                    }
+                                    // Declared inside the delegate on
+                                    // purpose: an inline Component's creation
+                                    // context is the object it is declared
+                                    // in, so `segmentRow` and `root` resolve
+                                    // here. A Component hoisted to the file
+                                    // root could not see the delegate scope.
+                                    Component {
+                                        id: richSegment
+                                        TextEdit {
+                                            objectName: "messageSegmentText"
+                                            text: root.highlightSearchMatches(
+                                                      segmentRow.modelData.text
+                                                      || "",
+                                                      root.searchHighlight,
+                                                      root.isCurrentSearchHit)
+                                            // Same ink, family, scaling and
+                                            // interaction the single-body
+                                            // path uses, so prose either
+                                            // side of a code block is
+                                            // visually unchanged. Big emoji
+                                            // cannot occur here: a body with
+                                            // a fenced block is not an
+                                            // emoji-only body.
+                                            color: root.bubbleMode
+                                                   && segmentsLoader.ownMessage
+                                                   ? AppTheme.ownBubbleText
+                                                   : AppTheme.text
+                                            font.family: AppTheme.uiFont
+                                            font.pixelSize: AppTheme.scaled(
+                                                root.mediaCaptionBody ? 12
+                                                : root.compactMode
+                                                  || root.inThreadPanel
+                                                ? 13 : AppTheme.fontSizeM)
+                                            wrapMode: Text.Wrap
+                                            readOnly: true
+                                            textFormat: Text.RichText
+                                            selectByMouse: true
+                                            onLinkActivated: function(link) {
+                                                root.openMessageLink(link)
+                                            }
+                                        }
+                                    }
+                                    Component {
+                                        id: codeSegment
+                                        CodeBlock {
+                                            // PLAIN text from the model,
+                                            // never html — CodeBlock renders
+                                            // it with PlainText formatting.
+                                            code: segmentRow.modelData.text
+                                                  || ""
+                                            language:
+                                                segmentRow.modelData.language
+                                                || ""
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -1741,6 +2026,72 @@ Item {
                     // design (it's interface chrome, not message-body text).
                     implicitHeight: Math.max(22, reactionRow.implicitHeight + 6)
                     HoverHandler { id: reactionHover }
+
+                    // ── Who reacted (C2) ─────────────────────────────────
+                    // Names are RESOLVED in C++ (room display name, localpart
+                    // fallback, never a bare MXID) and the delivered list is
+                    // capped; `reactorTotal` is the UNCAPPED count, so the
+                    // tail is always truthful. Nothing is fabricated here: an
+                    // absent list means no tooltip at all, never a guess.
+                    // Degrades on a host whose model predates the fields.
+                    readonly property var reactorNames:
+                        modelData.reactorNames || []
+                    readonly property int reactorTotal:
+                        modelData.reactorTotal >= 0
+                        ? modelData.reactorTotal : (modelData.count || 0)
+                    // A display name is user-chosen and can be 255 chars, and
+                    // the shared ToolTip instance has no width cap of its
+                    // own — so bound each name here and mark the cut with an
+                    // ellipsis. Visibly truncated, never silently rewritten.
+                    function boundedName(value) {
+                        var name = value || ""
+                        return name.length > 24
+                               ? name.substring(0, 24) + "…" : name
+                    }
+                    readonly property string reactorSummary: {
+                        var names = reactionChip.reactorNames
+                        if (names.length === 0
+                                || (names[0] || "").length === 0)
+                            return ""
+                        // A delivered list longer than the reported total
+                        // would make the tail negative — trust the larger.
+                        var total = Math.max(reactionChip.reactorTotal,
+                                             names.length)
+                        var first = reactionChip.boundedName(names[0])
+                        if (total <= 1)
+                            return first
+                        var second = names.length > 1
+                                     ? reactionChip.boundedName(names[1]) : ""
+                        if (second.length === 0) {
+                            return total === 2
+                                ? qsTr("%1 and 1 other").arg(first)
+                                : qsTr("%1 and %2 others")
+                                    .arg(first).arg(total - 1)
+                        }
+                        if (total === 2)
+                            return qsTr("%1 and %2").arg(first).arg(second)
+                        if (total === 3)
+                            return qsTr("%1, %2 and 1 other")
+                                .arg(first).arg(second)
+                        return qsTr("%1, %2 and %3 others")
+                            .arg(first).arg(second).arg(total - 2)
+                    }
+                    // The ATTACHED form, exactly like the read-receipt strip
+                    // above: one shared ToolTip instance for the whole
+                    // application. A declared ToolTip child would build a
+                    // Popup, a background and a Label PER CHIP, and a busy
+                    // message carries dozens of chips — the same eager
+                    // per-row instantiation cost this file has already paid
+                    // for twice (the context menu and the details dialog are
+                    // both lazy now for exactly this reason).
+                    //
+                    // The HoverHandler covers the whole chip, so moving the
+                    // pointer within it never leaves and the tip cannot
+                    // flicker. Short delay — this is a read, not a warning.
+                    ToolTip.text: reactionChip.reactorSummary
+                    ToolTip.visible: reactionHover.hovered
+                                     && reactionChip.reactorSummary.length > 0
+                    ToolTip.delay: 300
                     RowLayout {
                         id: reactionRow
                         anchors.centerIn: parent
@@ -1771,6 +2122,11 @@ Item {
                     Accessible.name: modelData.byMe
                         ? qsTr("Reaction %1, %2, selected").arg(modelData.key).arg(modelData.count)
                         : qsTr("Reaction %1, %2").arg(modelData.key).arg(modelData.count)
+                    // The same information the hover tooltip carries, so a
+                    // keyboard/AT user is not the only one who cannot find
+                    // out who reacted. Empty when the senders are unknown —
+                    // an absent list is never described as "nobody".
+                    Accessible.description: reactionChip.reactorSummary
                     // Accessible.role/name alone describe the control to
                     // assistive tech but do not make it ACTIVATABLE — an AT
                     // user invoking it (not clicking with a mouse) needs
@@ -2043,7 +2399,25 @@ Item {
             contextLabel: qsTr("Message · %1 · %2")
                 .arg(model.senderDisplayName || model.sender || "")
                 .arg(Qt.formatDateTime(model.timestamp, "hh:mm"))
-            onClosed: root.menuEventId = ""
+            // C6: the menu takes transient row-interaction ownership so no
+            // OTHER row can show its toolbar underneath it, while this row
+            // keeps its own — transientOwnerBlocks carries exactly that
+            // exception, because the menu is positioned FROM this row's bar
+            // and hiding it would strand the menu. Without these two lines
+            // the "menu" owner was never claimed by anything, so the
+            // documented exception was unreachable and the round's own
+            // comment described behaviour the code did not have.
+            onOpened: {
+                if (root.timelineView
+                        && root.timelineView.claimTransientInteraction)
+                    root.timelineView.claimTransientInteraction("menu")
+            }
+            onClosed: {
+                root.menuEventId = ""
+                if (root.timelineView
+                        && root.timelineView.releaseTransientInteraction)
+                    root.timelineView.releaseTransientInteraction("menu", "")
+            }
             // v0.6.5 (SPEC 1a): single-key accelerators while
             // the menu is open. Keys cannot attach to a Menu
             // (a Popup, not an Item), so these are Shortcuts
@@ -2182,6 +2556,11 @@ Item {
             // locate the same event in the room timeline
             // (highlighted); the existing navigation shows a
             // safe message when the target is unavailable.
+            // This one deliberately KEEPS app.pagination while
+            // the reply preview moved to the view contract: it
+            // is offered only in the thread panel and its whole
+            // purpose is the ROOM, so routing it through the
+            // thread's own navigation would defeat it.
             AppMenuItem {
                 iconName: "arrow_forward"
                 text: qsTr("Open in room")
