@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QList>
 #include <QString>
 
 #include <functional>
@@ -42,6 +43,47 @@ struct MentionStyle {
 // the id itself when unknown — the sanitizer falls back to the localpart).
 // ownUserId, when it matches a mention target, marks a self-mention (bold).
 QString sanitize(
+    const QString &html,
+    const std::function<QString(const QString &userId)> &resolveDisplayName,
+    const QString &ownUserId,
+    const MentionStyle &mentionStyle = {});
+
+// v0.7.4: fenced code blocks are not rich text.
+//
+// Qt's rich-text engine treats <pre> as PREFORMATTED and does not wrap it, so
+// a single long terminal line painted a TextEdit far past its own width and
+// escaped the timeline entirely (the delegate root is deliberately clip:false
+// so the hover action bar can overhang). A code block is therefore not
+// something to style better inside the one rich-text item — it is a different
+// KIND of content that needs its own renderer, with horizontal scrolling of
+// its own. segments() is the split that makes that possible.
+enum class SegmentKind {
+    RichText,   // sanitized Qt-RichText subset, rendered as today
+    CodeBlock,  // plain text, rendered by qml/CodeBlock.qml
+};
+
+struct Segment {
+    SegmentKind kind = SegmentKind::RichText;
+    // RichText: exactly what sanitize() produces for that span — inline
+    //           <code> that is NOT inside a <pre> stays inline in here and
+    //           keeps its codeBackground styling.
+    // CodeBlock: PLAIN text, already entity-decoded, newline separated, never
+    //           html. The UI renders it with Text.PlainText, so "&lt;b&gt;"
+    //           arrives as the literal characters and can never become markup.
+    QString text;
+    // CodeBlock only. Empty unless the source carried a class of the form
+    // `language-xxx` / `lang-xxx` where xxx matches ^[A-Za-z0-9+#._-]{1,24}$.
+    // Anything else -> empty: a class attribute is attacker-chosen text and
+    // only this validated token ever leaves the parser.
+    QString language;
+};
+
+// Splits a formatted body into ordered segments. A body with no code block
+// returns exactly ONE RichText segment whose text IS sanitize()'s output —
+// that equality is by construction (the fast path calls sanitize on the
+// untouched input), so the ordinary message keeps its existing rendering and
+// its existing cost.
+QList<Segment> segments(
     const QString &html,
     const std::function<QString(const QString &userId)> &resolveDisplayName,
     const QString &ownUserId,
