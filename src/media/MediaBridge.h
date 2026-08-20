@@ -16,6 +16,7 @@
 #include <memory>
 
 class MatrixClient;
+class PlayableFileWriter;
 class VideoPosterExtractor;
 
 // v0.5.9: managed download half of the media pipeline for the Rust backend.
@@ -68,6 +69,14 @@ public:
     // sign-out/account switch — but returns a file:// URL suitable for the
     // in-process QMediaPlayer ONLY. Paths must never reach external
     // applications. QML retries from playableMediaReady(cacheKey).
+    //
+    // 2026-08-20: the file is written on a worker thread, so this ALWAYS
+    // returns "" the first time a payload is materialized — even when the
+    // bytes were already in the RAM cache, where it used to write inline
+    // and hand back a URL. The retry contract is unchanged and QML already
+    // implements it (AudioPlayerCard/VideoPlayerCard set fetchState
+    // "fetching" and re-ask from onPlayableMediaReady); only the number of
+    // times that branch is taken changed.
     Q_INVOKABLE QString playableSource(const QString &mediaKey);
     // v0.7 perf round: bounded speculative playable prefetch. Called for an
     // on-screen video cover so the payload is (usually) already
@@ -175,6 +184,13 @@ public:
     {
         m_playableMaxEntries = entries;
         m_playableMaxBytes = bytes;
+    }
+    // Writes handed to the worker thread and not yet published. Lets a test
+    // distinguish "refused before any file was created" (0) from "under
+    // way" without waiting on a timer.
+    int pendingPlayableWritesForTest() const
+    {
+        return m_playableWriting.size();
     }
 
     // v0.7 media round: playable-file pinning. A QMediaPlayer holds its
@@ -356,8 +372,35 @@ private:
                        const QString &mediaKey);
     QString writeAnimatedFile(const QString &cacheKey, const QByteArray &bytes,
                               const QString &mimetype);
-    QString writePlayableFile(const QString &cacheKey, const QByteArray &bytes,
-                              const QString &mimetype);
+    // 2026-08-20: playable payloads are written on PlayableFileWriter's
+    // worker thread (see that header for the measurement that motivated
+    // it). Everything that must fail CLOSED still runs here, before a
+    // single byte is handed over: the size bound, the container sniff, and
+    // the salted name derivation.
+    //
+    // Returns true when a write is under way for this key — including when
+    // one was already under way and this caller was coalesced onto it —
+    // and false when the payload was REFUSED and no file will ever appear.
+    // Callers that used the old synchronous return value must read true as
+    // "wait for playableMediaReady", never as "the file exists now".
+    //
+    // `notifyFailure` marks a real pressed-play consumer, which is owed a
+    // terminal mediaFetchFailed if the write fails; a speculative prefetch
+    // or a poster hook is not.
+    bool beginPlayableWrite(const QString &cacheKey, const QString &mediaKey,
+                            const QByteArray &bytes, const QString &mimetype,
+                            bool notifyFailure);
+    void onPlayableWriteFinished(quint64 serial, const QString &cacheKey,
+                                 const QString &path, quint64 generation,
+                                 bool ok);
+    // Registers a completed file in the playable registry and evicts down
+    // to the caps, never choosing a PINNED victim. GUI thread: the only
+    // disk work left on it is unlinking evicted files.
+    void registerPlayableFile(const QString &cacheKey, const QString &path,
+                              qint64 bytes);
+    // Lazy, like the poster extractor: a session (or a guiless suite) that
+    // never materializes an A/V payload never spawns the writer thread.
+    PlayableFileWriter *ensurePlayableWriter();
     // Lazy poster machinery: constructed on the first poster request (or
     // backend warm-up) so headless tests, and sessions that never
     // materialize any A/V payload, never touch Qt Multimedia.
@@ -494,6 +537,27 @@ private:
     // an eviction victim while the count is positive.
     QHash<QString, int> m_pinnedPlayables;
     QString m_playableNameSalt;
+    PlayableFileWriter *m_playableWriter = nullptr;
+    struct PendingPlayableWrite {
+        quint64 serial = 0;
+        QString mediaKey;
+        QString path;
+        qint64 bytes = 0;
+        quint64 generation = 0;
+        bool notifyFailure = false;
+    };
+    // Writes handed to the worker thread and not yet published. This hash
+    // is the session-isolation AUTHORITY, not the signal connection: the
+    // completion arrives as a QUEUED call, so one already posted can
+    // outlive a disconnect and land in the next account — clear() empties
+    // this and makes any late delivery inert by construction. The poster
+    // path learned exactly this (see onPosterReady), and the generation
+    // token below is the second, independent guard.
+    QHash<QString, PendingPlayableWrite> m_playableWriting;
+    // Bumped by clear(). A completion carrying an older value belongs to a
+    // previous account or session and must publish nothing — even if the
+    // next session happens to want the same cache key.
+    quint64 m_sessionGeneration = 1;
     // Playable LRU caps as members so tests can shrink them; initialized
     // from the class constants below.
     int m_playableMaxEntries;

@@ -436,6 +436,8 @@ set(APP_SOURCES
     src/media/MediaManager.cpp
     src/media/MediaBridge.h
     src/media/MediaBridge.cpp
+    src/media/PlayableFileWriter.h
+    src/media/PlayableFileWriter.cpp
     src/media/MediaImageProvider.h
     src/media/MediaImageProvider.cpp
     src/media/MediaPlaybackController.h
@@ -591,6 +593,7 @@ set(APP_QML_FILES
     qml/StormBand.qml
     qml/StormNode.qml
     qml/TrustMeter.qml
+    qml/CodeBlock.qml
     qml/AppTheme.qml
 )
 
@@ -1569,6 +1572,24 @@ if(BUILD_TESTING)
     set_tests_properties(account-switch PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # 2026-08-20 (C7): setting the signed-in account's own display name on a
+    # real AppController (mock backend). The caller-owned op id and the
+    # lifecycle guard are the point: a completion from a superseded generation
+    # or a foreign op must never update the cached identity. Also pins the
+    # code-point ceiling (never a byte slice — that splits a surrogate pair),
+    # explicit clear vs an empty-value refusal, the unicode round trip, and
+    # the registry re-fetch that a confirmed write must trigger, because sync
+    # does not feed that cache.
+    qt_add_executable(own-profile-test
+        tests/OwnProfileTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(own-profile-test)
+    target_link_libraries(own-profile-test PRIVATE Qt6::Test)
+    add_test(NAME own-profile COMMAND own-profile-test)
+    set_tests_properties(own-profile PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.6.6 review (M2): AppController::isChatGifStarred/unstarChatGif's
     # two-tier design (session-only fast path + durable content-hash
     # fallback through MediaBridge) had no executable coverage — only
@@ -1634,6 +1655,28 @@ if(BUILD_TESTING)
     target_link_libraries(state-activity-grouping-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME state-activity-grouping COMMAND state-activity-grouping-test)
 
+    # 2026-08-20 (C3): the member-profile sentence matrix. The Rust bridge no
+    # longer builds an English sentence for m.room.member profile changes — it
+    # sends typed old/new values — so the wording is built here, translatably,
+    # from the actor's RESOLVED display name. Names are untrusted plain text;
+    # these cases pin set/changed/cleared/avatar/both, the honest fallback
+    # when a value is missing (never empty quotes), and that markup in a name
+    # is never interpreted.
+    qt_add_executable(profile-activity-test
+        tests/ProfileActivityTest.cpp
+        src/models/TimelineModel.h
+        src/models/TimelineModel.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(profile-activity-test PRIVATE src)
+    target_link_libraries(profile-activity-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME profile-activity COMMAND profile-activity-test)
+
     # The hover toolbar is one per row, anchored in place; the row simply
     # does not clip, so a one-line message no longer truncates it. (An
     # earlier overlay-mapped shared instance was reverted — rows are rotated
@@ -1668,6 +1711,20 @@ if(BUILD_TESTING)
     add_test(NAME smooth-wheel-area-runtime
              COMMAND smooth-wheel-area-runtime-test)
     set_tests_properties(smooth-wheel-area-runtime PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # 2026-08-20 (C1): qml/CodeBlock.qml's own behaviour. A fenced block used
+    # to render inside the body's one RichText item, where Qt does not wrap
+    # <pre> and the delegate root is deliberately clip:false — so a terminal
+    # transcript painted straight out of the timeline. These cases pin the
+    # properties that make that impossible: a long line becomes horizontal
+    # SCROLL RANGE and never geometry, the gutter is never part of a copy,
+    # and a vertical wheel notch still belongs to the timeline.
+    qt_add_executable(code-block-qml-test tests/CodeBlockQmlTest.cpp)
+    lightning_configure_qml_test(code-block-qml-test)
+    target_link_libraries(code-block-qml-test PRIVATE Qt6::Test)
+    add_test(NAME code-block-qml COMMAND code-block-qml-test)
+    set_tests_properties(code-block-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Measurement (not a fix): quantifies the cost of the state-activity
@@ -1761,6 +1818,24 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
     add_test(NAME video-poster-threading
              COMMAND video-poster-threading-test)
+
+    # 2026-08-20 (C8): playable materialization runs on its own thread.
+    # MediaBridge::writePlayableFile() wrote the whole decrypted A/V payload
+    # synchronously on the GUI thread — its own comment said so, and the
+    # gui-stall tracer's "playable-write" category existed to attribute it.
+    # This suite measures a synchronous baseline with the same payload on the
+    # same filesystem, then proves the call returns before the bytes are on
+    # disk and the caller's thread keeps beating through the write.
+    qt_add_executable(playable-write-threading-test
+        tests/PlayableWriteThreadingTest.cpp
+        src/media/PlayableFileWriter.h
+        src/media/PlayableFileWriter.cpp
+    )
+    target_include_directories(playable-write-threading-test PRIVATE src)
+    target_link_libraries(playable-write-threading-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME playable-write-threading
+             COMMAND playable-write-threading-test)
     set_tests_properties(video-poster-threading PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
@@ -1911,6 +1986,8 @@ if(BUILD_TESTING)
         src/app/ForwardController.cpp
         src/media/MediaBridge.h
         src/media/MediaBridge.cpp
+        src/media/PlayableFileWriter.h
+        src/media/PlayableFileWriter.cpp
         src/app/GuiStallTracer.cpp
         src/media/VideoPosterExtractor.h
         src/media/VideoPosterExtractor.cpp
@@ -2433,6 +2510,8 @@ if(BUILD_TESTING)
         tests/MediaBridgeTest.cpp
         src/media/MediaBridge.h
         src/media/MediaBridge.cpp
+        src/media/PlayableFileWriter.h
+        src/media/PlayableFileWriter.cpp
         src/app/GuiStallTracer.cpp
         src/media/VideoPosterExtractor.h
         src/media/VideoPosterExtractor.cpp

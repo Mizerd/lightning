@@ -3,6 +3,7 @@
 #include "app/GuiStallTracer.h"
 
 #include "matrix/MatrixClient.h"
+#include "media/PlayableFileWriter.h"
 #include "media/VideoPosterExtractor.h"
 
 #include <QBuffer>
@@ -489,19 +490,28 @@ QString MediaBridge::playableSource(const QString &mediaKey)
             m_playableWanted.remove(cacheKey);
         return {};
     }
+    const auto writing = m_playableWriting.find(cacheKey);
+    if (writing != m_playableWriting.end()) {
+        // A write for these bytes is already on the worker thread: this
+        // caller is coalesced onto it and answered by the single
+        // playableMediaReady broadcast, and it upgrades that write to one
+        // that owes a terminal answer if it fails. The interest count
+        // stays — it is what a cancel aborts and what the completion
+        // retires. Dispatching a second fetch here would download the same
+        // payload twice.
+        writing->notifyFailure = true;
+        return {};
+    }
     const QByteArray cached = cachedBytes(cacheKey);
     if (!cached.isEmpty()) {
         // Mimetype intentionally empty: the container magic decides.
-        const QString written = writePlayableFile(cacheKey, cached, {});
-        if (!written.isEmpty()) {
-            // Served synchronously: no fetch will run for this call, so no
-            // interest count may linger (same rule as the failure-mark
-            // return above — a phantom +1 would silently veto a later
-            // cancel of a real fetch for this key).
-            if (--m_playableWanted[cacheKey] <= 0)
-                m_playableWanted.remove(cacheKey);
-            return QUrl::fromLocalFile(written).toString();
-        }
+        if (beginPlayableWrite(cacheKey, mediaKey, cached, {}, true))
+            return {}; // materializing off-thread; QML re-asks on the signal
+        // Refused before any file was created (unknown container, over the
+        // size bound). Fall through to a fetch exactly as before, KEEPING
+        // the interest count: the dispatched fetch is what will consume it,
+        // and dropping it here would make onMediaReady see no playable
+        // consumer and never materialize the payload it just downloaded.
     }
     if (!alreadyPending(cacheKey)) {
         Pending request;
@@ -540,14 +550,14 @@ void MediaBridge::prefetchPlayable(const QString &mediaKey, double sizeBytes)
     }
     if (failureBlocks(cacheKey))
         return;
+    if (m_playableWriting.contains(cacheKey))
+        return; // already materializing off-thread for someone else
     const QByteArray cached = cachedBytes(cacheKey);
     if (!cached.isEmpty()) {
-        const QString written = writePlayableFile(cacheKey, cached, {});
-        if (!written.isEmpty()) {
-            Q_EMIT playableMediaReady(cacheKey);
-            if (m_posterWanted.remove(cacheKey))
-                startPosterExtraction(mediaKey, written);
-        }
+        // playableMediaReady and the poster hook now fire from the write
+        // completion, on this thread. A speculative prefetch is owed no
+        // terminal failure signal, hence notifyFailure = false.
+        beginPlayableWrite(cacheKey, mediaKey, cached, {}, false);
         return;
     }
     if (alreadyPending(cacheKey))
@@ -593,8 +603,10 @@ QString MediaBridge::videoPosterSource(const QString &mediaKey,
     // The prefetch may decline (over-cap or unknown declared size, failure
     // mark, unsupported): a hook with no materialization path would leak
     // AND veto later cancels (review H1/M3). Keep it only while something
-    // can actually deliver the file.
-    if (!alreadyPending(playableKey) && !m_playableFiles.contains(playableKey))
+    // can actually deliver the file — which now includes a write already
+    // running on the worker thread, whose completion fires the hook.
+    if (!alreadyPending(playableKey) && !m_playableFiles.contains(playableKey)
+        && !m_playableWriting.contains(playableKey))
         m_posterWanted.remove(playableKey);
     return {};
 }
@@ -623,6 +635,14 @@ void MediaBridge::cancelPlayable(const QString &mediaKey)
     }
     m_prefetchWanted.remove(cacheKey);
     m_posterWanted.remove(cacheKey);
+    // A write already handed to the worker thread is abandoned too: the
+    // bytes are downloaded, but a multi-hundred-megabyte write into the
+    // session temp directory is real disk churn for a card that is gone.
+    // QSaveFile discards the partial file and no completion is emitted, so
+    // erasing the tracking entry here leaves nothing pending — and a fresh
+    // Play re-materializes from the cached bytes.
+    if (m_playableWriting.remove(cacheKey) > 0 && m_playableWriter)
+        m_playableWriter->cancel(cacheKey);
     for (int i = m_queue.size() - 1; i >= 0; --i) {
         const Pending &p = m_queue.at(i);
         if (p.cacheKey == cacheKey && !p.saveRequest && !p.starRequest)
@@ -1101,6 +1121,10 @@ QVariantMap MediaBridge::healthSnapshot() const
     out.insert(QStringLiteral("contentHashComputed"), m_statContentHashComputed);
     out.insert(QStringLiteral("failureMarks"),
                static_cast<qint64>(m_failed.size()));
+    // Playable payloads materialize on a worker thread; a count that never
+    // drains is the signature of a wedged write.
+    out.insert(QStringLiteral("pendingPlayableWrites"),
+               static_cast<qint64>(m_playableWriting.size()));
     out.insert(QStringLiteral("cacheBytes"), cacheBytesUsed());
     return out;
 }
@@ -1162,19 +1186,24 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     }
     ++m_statCompleted;
     m_failed.remove(request.cacheKey);
-    // v0.7: large playable payloads live on disk for the in-process player;
-    // pushing them through the RAM LRU would evict the entire image cache
-    // for one video. Smaller payloads (thumbnails, images, short audio)
-    // keep the existing in-memory path.
-    const bool playableWanted =
-        m_playableWanted.remove(request.cacheKey) > 0;
-    const bool prefetchWanted = m_prefetchWanted.remove(request.cacheKey);
+    // 2026-08-20: READ, not consumed. Materialization is a second phase
+    // now, running on the worker thread, and a card that closes during it
+    // must still be able to cancel — which cancelPlayable can only do
+    // while the refcounted interest still exists. Every path below that
+    // does NOT start a write drops both entries itself, and the write
+    // completion drops them when it does.
+    const bool playableWanted = m_playableWanted.contains(request.cacheKey);
+    const bool prefetchWanted = m_prefetchWanted.contains(request.cacheKey);
     // Remember the real payload size of A/V media (sniffed from bytes, not
     // trusted labels): metadata-less events can then prefetch — and so
     // poster — on every later session after one fetch.
     if (request.kind == 0 && looksLikeAvContainer(bytes))
         Q_EMIT playableSizeLearned(request.mediaKey,
                                    static_cast<qint64>(bytes.size()));
+    // v0.7: large playable payloads live on disk for the in-process player;
+    // pushing them through the RAM LRU would evict the entire image cache
+    // for one video. Smaller payloads (thumbnails, images, short audio)
+    // keep the existing in-memory path.
     if (!((playableWanted || prefetchWanted)
           && bytes.size() > kLargeCacheSkipBytes))
         insertCache(request.cacheKey, bytes);
@@ -1190,14 +1219,15 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
             Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("invalid_gif"));
     }
     if (playableWanted || prefetchWanted) {
-        const QString written =
-            writePlayableFile(request.cacheKey, bytes, mimetype);
-        if (!written.isEmpty()) {
-            Q_EMIT playableMediaReady(request.cacheKey);
-            warmMultimediaBackend();
-            if (m_posterWanted.remove(request.cacheKey))
-                startPosterExtraction(request.mediaKey, written);
-        } else {
+        // The write runs on the worker thread; playableMediaReady, the
+        // multimedia warm-up and the poster hook all fire from its
+        // completion (onPlayableWriteFinished). Only a REFUSAL — an
+        // unknown container or an over-bound payload, decided before any
+        // file is created — is terminal here, exactly as before.
+        if (!beginPlayableWrite(request.cacheKey, request.mediaKey, bytes,
+                                mimetype, playableWanted)) {
+            m_playableWanted.remove(request.cacheKey);
+            m_prefetchWanted.remove(request.cacheKey);
             m_posterWanted.remove(request.cacheKey);
             if (playableWanted)
                 Q_EMIT mediaFetchFailed(request.cacheKey,
@@ -1207,19 +1237,42 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     Q_EMIT mediaCached(request.cacheKey);
 }
 
-QString MediaBridge::writePlayableFile(const QString &cacheKey,
-                                       const QByteArray &bytes,
-                                       const QString &mimetype)
+PlayableFileWriter *MediaBridge::ensurePlayableWriter()
 {
-    // Known residual synchronous cost: up to 32 MiB written on the GUI
-    // thread. Attribute it when stall tracing is on (no-op otherwise).
-    stalltrace::Scope stallScope("playable-write");
+    if (!m_playableWriter) {
+        m_playableWriter = new PlayableFileWriter(this);
+        connect(m_playableWriter, &PlayableFileWriter::writeFinished,
+                this, &MediaBridge::onPlayableWriteFinished);
+    }
+    return m_playableWriter;
+}
+
+bool MediaBridge::beginPlayableWrite(const QString &cacheKey,
+                                     const QString &mediaKey,
+                                     const QByteArray &bytes,
+                                     const QString &mimetype,
+                                     bool notifyFailure)
+{
+    // Coalescing, the documented "keyed dedup must service all claimants"
+    // rule (a star and a copy racing on one image once stranded the star
+    // forever): a second caller for the same key never starts a second
+    // write. The one completion broadcasts playableMediaReady, which every
+    // claimant already listens for, and the failure obligation is the OR of
+    // the claimants' — an explicit Play joining a speculative prefetch must
+    // still get its terminal answer.
+    const auto existing = m_playableWriting.find(cacheKey);
+    if (existing != m_playableWriting.end()) {
+        existing->notifyFailure = existing->notifyFailure || notifyFailure;
+        return true;
+    }
+    // Everything below runs BEFORE any byte is handed to the worker, so a
+    // refusal is guaranteed to have created no file.
     if (bytes.isEmpty() || bytes.size() > m_playableMaxBytes
         || !m_animatedDir || !m_animatedDir->isValid())
-        return {};
+        return false;
     const QString extension = playableExtensionFor(bytes, mimetype);
     if (extension.isEmpty())
-        return {}; // unknown container — fail closed, never materialize
+        return false; // unknown container — fail closed, never materialize
     if (m_playableNameSalt.isEmpty())
         m_playableNameSalt = QUuid::createUuid().toString(QUuid::Id128);
     const QString name = QString::fromLatin1(QCryptographicHash::hash(
@@ -1227,17 +1280,71 @@ QString MediaBridge::writePlayableFile(const QString &cacheKey,
         QCryptographicHash::Sha256).toHex())
         + QLatin1Char('.') + extension;
     const QString path = m_animatedDir->filePath(name);
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly))
-        return {};
-    // Owner-only, explicitly — QSaveFile otherwise honors the umask. The
-    // 0700 parent directory already blocks traversal; this is the second
-    // layer for decrypted payloads.
-    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-    if (file.write(bytes) != bytes.size() || !file.commit())
-        return {};
+    const quint64 serial = ensurePlayableWriter()->write(
+        cacheKey, path, bytes, m_sessionGeneration);
+    if (serial == 0)
+        return false; // writer refused; nothing was created
+    PendingPlayableWrite pending;
+    pending.serial = serial;
+    pending.mediaKey = mediaKey;
+    pending.path = path;
+    pending.bytes = bytes.size();
+    pending.generation = m_sessionGeneration;
+    pending.notifyFailure = notifyFailure;
+    m_playableWriting.insert(cacheKey, pending);
+    return true;
+}
+
+void MediaBridge::onPlayableWriteFinished(quint64 serial,
+                                          const QString &cacheKey,
+                                          const QString &path,
+                                          quint64 generation, bool ok)
+{
+    // Session isolation keyed on the tracking hash rather than on the
+    // connection (see m_playableWriting's comment) AND on the generation
+    // token, so a completion belonging to a previous account publishes
+    // nothing even if the next session happens to want the same key. The
+    // serial disambiguates a cancelled job from the fresh one that
+    // replaced it under the same key.
+    const auto it = m_playableWriting.find(cacheKey);
+    if (it == m_playableWriting.end() || it->serial != serial
+        || generation != m_sessionGeneration) {
+        if (ok)
+            QFile::remove(path); // orphan from a session that is over
+        return;
+    }
+    const PendingPlayableWrite pending = it.value();
+    m_playableWriting.erase(it);
+    if (!ok) {
+        // QSaveFile discarded its temporary file, so nothing exists at
+        // `path`. No failure MARK is set — a write failure is a local disk
+        // condition, not a verdict on the payload, and the old synchronous
+        // path did not mark one either; the consumer may retry.
+        m_posterWanted.remove(cacheKey);
+        m_playableWanted.remove(cacheKey);
+        m_prefetchWanted.remove(cacheKey);
+        if (pending.notifyFailure)
+            Q_EMIT mediaFetchFailed(cacheKey, QStringLiteral("rejected"));
+        return;
+    }
+    // The remaining GUI-thread disk work is unlinking evicted files; keep
+    // the stall attribution pointed at it, so a stall still logged under
+    // this category means eviction, never the payload write.
+    stalltrace::Scope stallScope("playable-write");
+    registerPlayableFile(cacheKey, path, pending.bytes);
+    m_playableWanted.remove(cacheKey);
+    m_prefetchWanted.remove(cacheKey);
+    Q_EMIT playableMediaReady(cacheKey);
+    warmMultimediaBackend();
+    if (m_posterWanted.remove(cacheKey))
+        startPosterExtraction(pending.mediaKey, path);
+}
+
+void MediaBridge::registerPlayableFile(const QString &cacheKey,
+                                       const QString &path, qint64 bytes)
+{
     m_playableFiles.insert(cacheKey, path);
-    m_playableSizes.insert(cacheKey, bytes.size());
+    m_playableSizes.insert(cacheKey, bytes);
     m_playableLru.removeOne(cacheKey);
     m_playableLru.prepend(cacheKey);
     qint64 total = 0;
@@ -1267,7 +1374,6 @@ QString MediaBridge::writePlayableFile(const QString &cacheKey,
         total -= m_playableSizes.take(victim);
         QFile::remove(m_playableFiles.take(victim));
     }
-    return path;
 }
 
 void MediaBridge::pinPlayable(const QString &mediaKey)
@@ -1625,6 +1731,29 @@ void MediaBridge::clear()
         m_posterExtractor = nullptr;
     }
     m_pinnedPlayables.clear(); // the files the pins protected are gone too
+    // Session isolation for the write path. Clearing the tracking hash is
+    // what actually makes a late completion inert (the same rule as
+    // m_posterExtracting above); the generation bump is the independent
+    // second guard, and cancelAll() REQUESTS cancellation of a write that is
+    // still running.
+    //
+    // Be precise about that last one, because the difference matters for the
+    // security claim: cancellation is observed between chunks, so a write
+    // already inside its final chunk can still complete and leave bytes on
+    // disk for a moment. What guarantees the previous account's decrypted
+    // payload does not SURVIVE is the m_animatedDir reset below — the
+    // QTemporaryDir destructor removes the directory recursively, including
+    // anything a racing write just finished. Saying cancelAll() prevents the
+    // bytes from ever landing would be a comment asserting an invariant the
+    // code does not hold, which in this codebase becomes the next round's
+    // evidence base.
+    // Unlike the poster extractor the writer is KEPT: it holds no decoder
+    // and no reference to the account's data, only a thread, so recreating
+    // it per account switch would buy nothing.
+    m_playableWriting.clear();
+    ++m_sessionGeneration;
+    if (m_playableWriter)
+        m_playableWriter->cancelAll();
     m_playableNameSalt.clear(); // next session gets fresh unguessable names
     m_animatedDir.reset(); // recursively removes decrypted temporary files
     m_animatedDir = std::make_unique<QTemporaryDir>(

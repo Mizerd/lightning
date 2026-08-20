@@ -23,6 +23,12 @@ bool isRenderableState(const QString &state)
 
 PresenceManager::PresenceManager(QObject *parent)
     : QObject(parent)
+    // Read ONCE, per instance (the LIGHTNING_SCROLL_TRACE pattern in
+    // TimelineScrollController). Per instance rather than a function
+    // static because the presence-manager suite constructs a fresh
+    // manager per case and a static would freeze the first value for the
+    // whole process.
+    , m_traceEnabled(qEnvironmentVariableIsSet("LIGHTNING_PRESENCE_TRACE"))
 {
     m_clock.start();
     m_inactiveSinceMs = m_clock.elapsed();
@@ -65,6 +71,7 @@ void PresenceManager::setClient(MatrixClient *client)
     if (!m_client) {
         Q_EMIT supportedChanged();
         Q_EMIT activeChanged();
+        Q_EMIT unavailableChanged();
         return;
     }
     connect(m_client, &MatrixClient::presenceReceived,
@@ -82,6 +89,7 @@ void PresenceManager::setClient(MatrixClient *client)
             this, &PresenceManager::handleConnectionState);
     Q_EMIT supportedChanged();
     Q_EMIT activeChanged();
+    Q_EMIT unavailableChanged();
 }
 
 void PresenceManager::setSettings(SettingsManager *settings)
@@ -128,6 +136,16 @@ bool PresenceManager::supported() const
 bool PresenceManager::active() const
 {
     return supported() && !m_serverRefused;
+}
+
+bool PresenceManager::unavailable() const
+{
+    // Having no client at all is not a finding: nothing has been asked of
+    // any server yet, so the honest answer is silence, not "unavailable".
+    // The two cases below are the only ones the client can actually
+    // establish — a backend that cannot do presence, and a server that
+    // refused it for every user this session.
+    return m_client && (!m_client->supportsPresence() || m_serverRefused);
 }
 
 void PresenceManager::watch(const QString &userId)
@@ -208,8 +226,20 @@ void PresenceManager::setApplicationActive(bool activeNow)
 
 void PresenceManager::scheduledPollRound()
 {
-    if (!active() || !m_syncing || m_watched.isEmpty())
+    if (!active() || !m_syncing || m_watched.isEmpty()) {
+        // Every one of these looks identical to the user — no dot at all —
+        // so the trace has to name WHICH gate closed. The order matches
+        // the conditions above: a null client is not "unsupported", and a
+        // latched session is not "not syncing".
+        traceRound("scheduled",
+                   !m_client ? "no_client"
+                   : !m_client->supportsPresence() ? "unsupported"
+                   : m_serverRefused ? "latched"
+                   : !m_syncing ? "not_syncing"
+                   : "nothing_watched",
+                   0, 0);
         return;
+    }
     // Stable rotation over the watched set so a set larger than one batch
     // still refreshes everyone across consecutive rounds.
     m_pollOrder = m_watched.keys();
@@ -223,12 +253,24 @@ void PresenceManager::scheduledPollRound()
     for (int i = 0; i < take; ++i)
         round.append(m_pollOrder.at((m_pollCursor + i) % count));
     m_pollCursor = (m_pollCursor + take) % qMax(1, count);
-    pollRound(round);
+    pollRound("scheduled", round);
 }
 
 void PresenceManager::burstRound()
 {
     if (!active() || !m_syncing || m_burstPending.isEmpty()) {
+        // Note what this drop means and why the scheduled round is the
+        // recovery: a burst queued while the session was not live is
+        // DISCARDED here, not deferred. The Syncing edge re-polls the
+        // whole watched set, so nothing is lost — but the discarded burst
+        // is invisible without this line.
+        traceRound("burst",
+                   !m_client ? "no_client"
+                   : !m_client->supportsPresence() ? "unsupported"
+                   : m_serverRefused ? "latched"
+                   : !m_syncing ? "not_syncing"
+                   : "nothing_pending",
+                   0, 0);
         m_burstPending.clear();
         return;
     }
@@ -240,14 +282,21 @@ void PresenceManager::burstRound()
             break;
     }
     m_burstPending.clear();
-    if (!round.isEmpty())
-        pollRound(round);
+    if (round.isEmpty()) {
+        // Everything pending was unwatched again before the debounce
+        // fired (a delegate created and destroyed inside 400 ms).
+        traceRound("burst", "pending_unwatched", 0, 0);
+        return;
+    }
+    pollRound("burst", round);
 }
 
-void PresenceManager::pollRound(const QStringList &userIds)
+void PresenceManager::pollRound(const char *kind, const QStringList &userIds)
 {
-    if (!m_client || userIds.isEmpty())
+    if (!m_client || userIds.isEmpty()) {
+        traceRound(kind, m_client ? "empty_batch" : "no_client", 0, 0);
         return;
+    }
     // Answers dropped by the lifecycle guard never clear their op id;
     // bound the set by evicting the OLDEST ids (they are monotonic) —
     // wholesale clearing discarded legitimately pending rounds whose
@@ -257,35 +306,101 @@ void PresenceManager::pollRound(const QStringList &userIds)
                                             m_inFlight.cend()));
     const quint64 opId = m_nextOpId++;
     m_inFlight.insert(opId);
+    // Traced BEFORE the request, and applyBatch traces the matching
+    // answer. A dispatch line with no answer line is the ONLY evidence of
+    // a request the backend swallowed: requestPresence() returns void, its
+    // two early-outs (not logged in, no Rust handle) are silent, a
+    // synchronous FFI rejection only logs a category-gated warning under
+    // lightning.rust, and the Rust task's lifecycle guard returns without
+    // enqueuing anything. In every one of those the op id simply stays in
+    // m_inFlight until it is evicted.
+    traceRound(kind, "dispatched", static_cast<int>(userIds.size()), opId);
     m_client->requestPresence(userIds, opId);
+}
+
+void PresenceManager::traceRound(const char *kind, const char *reason,
+                                 int batch, quint64 opId) const
+{
+    if (!m_traceEnabled)
+        return;
+    // qInfo rather than qCDebug(lcPresence): a diagnostic that needed BOTH
+    // an environment variable and QT_LOGGING_RULES would be a trap for a
+    // remote tester, and the row-reveal trace in ReverseListProxyModel
+    // sets the precedent. Counts, booleans and string literals only —
+    // never a user id, never a display name, never a list.
+    qInfo("presence-round kind=%s reason=%s watched=%d pending=%d "
+          "supported=%d active=%d syncing=%d appActive=%d inFlight=%d "
+          "batch=%d op=%llu",
+          kind, reason, static_cast<int>(m_watched.size()),
+          static_cast<int>(m_burstPending.size()), supported() ? 1 : 0,
+          active() ? 1 : 0, m_syncing ? 1 : 0, m_appActive ? 1 : 0,
+          static_cast<int>(m_inFlight.size()), batch,
+          static_cast<unsigned long long>(opId));
 }
 
 void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
 {
-    if (!m_inFlight.remove(opId))
+    if (!m_inFlight.remove(opId)) {
+        if (m_traceEnabled) {
+            qInfo("presence-batch op=%llu stale=1 entries=%d",
+                  static_cast<unsigned long long>(opId),
+                  static_cast<int>(entries.size()));
+        }
         return;
+    }
     bool changed = false;
+    // Trace accounting only. Every one of these outcomes renders as the
+    // same absent dot, which is exactly why the counts have to be
+    // separable in a capture.
+    int okCount = 0;
+    int forbiddenCount = 0;
+    int notFoundCount = 0;
+    int transientCount = 0;
+    int malformedCount = 0;
+    int onlineCount = 0;
+    int awayCount = 0;
+    int offlineCount = 0;
+    int unrenderableCount = 0;
+    int erasedCount = 0;
     // A batch feeds the refusal latch only when it is broad enough that
     // "everyone forbidden" plausibly means "the server refuses presence"
     // rather than one user's federation/membership quirk (review L1). A
     // too-small batch neither advances nor resets the latch count.
-    const bool latchEligible = entries.size() >= kForbiddenLatchMinBatch;
+    //
+    // Counted in DISTINCT user ids, which is what kForbiddenLatchMinBatch
+    // has always claimed to mean: entries.size() would let one user's
+    // repeated 403 look like a broad refusal, and the latch blinds
+    // presence for the whole session, so it is the one place worth
+    // spending a QSet on. Bounded by the batch cap the bridge enforces.
+    QSet<QString> distinctUsers;
     bool allForbidden = !entries.isEmpty();
     for (const QVariant &value : entries) {
         const QVariantMap entry = value.toMap();
         const QString userId = entry.value(QStringLiteral("userId")).toString();
         if (userId.isEmpty()) {
+            ++malformedCount;
             allForbidden = false;
             continue;
         }
+        distinctUsers.insert(userId);
         if (entry.value(QStringLiteral("ok")).toBool()) {
+            ++okCount;
             allForbidden = false;
             const QString state =
                 entry.value(QStringLiteral("state")).toString();
             if (!isRenderableState(state)) {
-                changed = m_cache.remove(userId) > 0 || changed;
+                ++unrenderableCount;
+                const int removed = static_cast<int>(m_cache.remove(userId));
+                erasedCount += removed;
+                changed = removed > 0 || changed;
                 continue;
             }
+            if (state == QLatin1String("online"))
+                ++onlineCount;
+            else if (state == QLatin1String("unavailable"))
+                ++awayCount;
+            else
+                ++offlineCount;
             Entry cached;
             cached.state = state;
             cached.currentlyActive =
@@ -304,15 +419,25 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
             || category == QLatin1String("not_found")) {
             // Authoritative "no presence for this user": drop what we had.
             // Only forbidden counts toward the disabled-server latch.
-            changed = m_cache.remove(userId) > 0 || changed;
-            if (category != QLatin1String("forbidden"))
+            const int removed = static_cast<int>(m_cache.remove(userId));
+            erasedCount += removed;
+            changed = removed > 0 || changed;
+            if (category != QLatin1String("forbidden")) {
+                ++notFoundCount;
                 allForbidden = false;
+            } else {
+                ++forbiddenCount;
+            }
         } else {
             // Transient (network, rate limit): keep the last known state —
             // erasing it would flicker every dot on a flaky connection.
+            ++transientCount;
             allForbidden = false;
         }
     }
+    bool latchArmedNow = false;
+    const bool latchEligible =
+        distinctUsers.size() >= kForbiddenLatchMinBatch;
     if (allForbidden && latchEligible) {
         if (++m_forbiddenBatches >= kForbiddenLatchThreshold
             && !m_serverRefused) {
@@ -320,11 +445,16 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
                 << "server refuses presence for every user; disabling "
                    "presence polling for this session";
             m_serverRefused = true;
+            latchArmedNow = true;
             changed = changed || !m_cache.isEmpty();
             m_cache.clear();
             m_inFlight.clear();
             m_burstPending.clear();
             Q_EMIT activeChanged();
+            // The one state the UI is allowed to disclose: from here the
+            // client KNOWS this session's server will not answer, so the
+            // profile popover may say so instead of staying silent.
+            Q_EMIT unavailableChanged();
         }
     } else if (!allForbidden) {
         m_forbiddenBatches = 0;
@@ -332,6 +462,23 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
     if (changed) {
         ++m_revision;
         Q_EMIT revisionChanged();
+    }
+    if (m_traceEnabled) {
+        // The state distribution is the field that separates the two
+        // shapes a presence-disabled homeserver can take: refusals
+        // (forbidden=N, which eventually latches) versus a server that
+        // answers 200 with a flat offline for everyone (ok=N offline=N,
+        // which never latches and renders a grey dot on every avatar).
+        qInfo("presence-batch op=%llu entries=%d ok=%d forbidden=%d "
+              "not_found=%d transient=%d malformed=%d online=%d away=%d "
+              "offline=%d unrenderable=%d erased=%d latchEligible=%d "
+              "forbiddenStreak=%d latchArmed=%d latched=%d",
+              static_cast<unsigned long long>(opId),
+              static_cast<int>(entries.size()), okCount, forbiddenCount,
+              notFoundCount, transientCount, malformedCount, onlineCount,
+              awayCount, offlineCount, unrenderableCount, erasedCount,
+              latchEligible ? 1 : 0, m_forbiddenBatches,
+              latchArmedNow ? 1 : 0, m_serverRefused ? 1 : 0);
     }
 }
 
@@ -395,8 +542,10 @@ void PresenceManager::clearSession()
     m_serverRefused = false;
     ++m_revision;
     Q_EMIT revisionChanged();
-    if (wasRefused)
+    if (wasRefused) {
         Q_EMIT activeChanged();
+        Q_EMIT unavailableChanged();
+    }
 }
 
 int PresenceManager::desiredOwnState() const

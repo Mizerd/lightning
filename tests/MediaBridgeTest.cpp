@@ -16,6 +16,7 @@
 
 #include <QBuffer>
 #include <QCryptographicHash>
+#include <QElapsedTimer>
 #include <QLoggingCategory>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
@@ -126,6 +127,25 @@ const QString kMxc = QStringLiteral("mxc://example.org/avatar1");
 class MediaBridgeTest : public QObject
 {
     Q_OBJECT
+
+    // 2026-08-20: playable payloads are written on PlayableFileWriter's
+    // worker thread, so materialization is complete when
+    // playableMediaReady lands — NOT when the call that started it
+    // returns. Every playable assertion below waits on the signal.
+    //
+    // Deliberately not "poll playableSource() until it answers": that call
+    // registers a playable interest as a side effect, and a poll loop
+    // would leave a pile of phantom counts behind — which is exactly the
+    // regression ramCacheHitRetiresItsInterestWhenTheWriteLands guards.
+    static bool waitForPlayableCount(QSignalSpy &spy, int expected)
+    {
+        constexpr int timeoutMs = 5000;
+        QElapsedTimer clock;
+        clock.start();
+        while (spy.count() < expected && clock.elapsed() < timeoutMs)
+            spy.wait(25);
+        return spy.count() == expected;
+    }
 
 private Q_SLOTS:
     void identicalRequestsAreDeduplicated()
@@ -776,7 +796,7 @@ private Q_SLOTS:
         ogg.resize(2048, '\1');
         client.succeed(client.fetches.at(0).opId, ogg,
                        QStringLiteral("audio/ogg"));
-        QCOMPARE(ready.count(), 1);
+        QVERIFY(waitForPlayableCount(ready, 1));
         const QString url = bridge.playableSource(QStringLiteral("$vid"));
         QVERIFY(url.startsWith(QStringLiteral("file:")));
         QVERIFY(url.endsWith(QStringLiteral(".ogg")));
@@ -793,6 +813,11 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 2);
         client.succeed(client.fetches.at(1).opId, QByteArray(2048, 'x'),
                        QStringLiteral("video/mp4"));
+        // The refusal is SYNCHRONOUS by contract — an unknown container is
+        // rejected before any file is created, so nothing was ever handed
+        // to the worker and no completion can arrive later.
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 0);
+        QTest::qWait(50);
         QCOMPARE(ready.count(), 1); // no new materialization
         bool sawRejected = false;
         for (const auto &args : failed) {
@@ -816,12 +841,14 @@ private Q_SLOTS:
         FakeClient client;
         MediaBridge bridge;
         bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
 
         QCOMPARE(bridge.playableSource(QStringLiteral("$big")), QString());
         QByteArray big = QByteArrayLiteral("OggS");
         big.resize(9 * 1024 * 1024, '\2'); // > 8 MiB skip threshold
         client.succeed(client.fetches.at(0).opId, big,
                        QStringLiteral("audio/ogg"));
+        QVERIFY(waitForPlayableCount(ready, 1));
         QVERIFY(bridge.cacheBytesUsed() < 1024 * 1024);
         QVERIFY(!bridge.playableSource(QStringLiteral("$big")).isEmpty());
 
@@ -830,7 +857,143 @@ private Q_SLOTS:
         small.resize(4096, '\3');
         client.succeed(client.fetches.at(1).opId, small,
                        QStringLiteral("audio/ogg"));
+        QVERIFY(waitForPlayableCount(ready, 2));
         QVERIFY(bridge.cacheBytesUsed() >= small.size());
+    }
+
+    // ── 2026-08-20 (contract C8): the write is off the GUI thread ──────
+
+    // The payload is NOT written by the call that receives it. On the
+    // unfixed tree writePlayableFile ran inline inside onMediaReady, so
+    // the file existed and playableSource() answered a URL the instant
+    // succeed() returned — both assertions below fail there.
+    void aFetchedPayloadIsNotWrittenByTheThreadThatReceivesIt()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
+        bridge.playableSource(QStringLiteral("$vid"));
+        QByteArray ogg = QByteArrayLiteral("OggS");
+        ogg.resize(2 * 1024 * 1024, '\1');
+        client.succeed(client.fetches.at(0).opId, ogg,
+                       QStringLiteral("audio/ogg"));
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 1);
+        QCOMPARE(ready.count(), 0);
+        // A card asking again meanwhile is coalesced, not re-fetched.
+        QVERIFY(bridge.playableSource(QStringLiteral("$vid")).isEmpty());
+        QCOMPARE(client.fetches.size(), 1);
+        QVERIFY(waitForPlayableCount(ready, 1));
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 0);
+        QVERIFY(!bridge.playableSource(QStringLiteral("$vid")).isEmpty());
+    }
+
+    // The documented "keyed dedup must service all claimants" rule — the
+    // one a star and a copy racing on the same image once broke by
+    // stranding the star forever. A speculative prefetch and a pressed-play
+    // card can land on the same key: ONE write runs, and the single
+    // broadcast answers both.
+    void twoClaimantsShareOneWriteAndBothAreServiced()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
+        bridge.prefetchPlayable(QStringLiteral("$dual"), 2 * 1024 * 1024);
+        QCOMPARE(client.fetches.size(), 1);
+        QByteArray mp4(2 * 1024 * 1024, 'x');
+        mp4.replace(4, 4, "ftyp");
+        client.succeed(client.fetches.at(0).opId, mp4,
+                       QStringLiteral("video/mp4"));
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 1);
+        // The user presses Play while the prefetch's write is still going.
+        QVERIFY(bridge.playableSource(QStringLiteral("$dual")).isEmpty());
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 1); // still ONE
+        QCOMPARE(client.fetches.size(), 1);                 // and ONE fetch
+        QVERIFY(waitForPlayableCount(ready, 1));
+        QTest::qWait(50);
+        QCOMPARE(ready.count(), 1); // one broadcast, not one per claimant
+        QVERIFY(!bridge.playableSource(QStringLiteral("$dual")).isEmpty());
+    }
+
+    // Lifecycle isolation: a write handed to the worker thread by one
+    // account must never publish into the next. clear() empties the
+    // tracking hash — the authority, because the completion is a QUEUED
+    // call that can outlive any disconnect — bumps the generation, and
+    // cancels the job.
+    void aWriteStartedBeforeSignOutPublishesNothing()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
+        bridge.playableSource(QStringLiteral("$vid"));
+        QByteArray ogg = QByteArrayLiteral("OggS");
+        ogg.resize(8 * 1024 * 1024, '\1');
+        client.succeed(client.fetches.at(0).opId, ogg,
+                       QStringLiteral("audio/ogg"));
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 1);
+        bridge.clear(); // sign-out / account switch
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 0);
+        QTest::qWait(300); // a completion in flight would land in here
+        QCOMPARE(ready.count(), 0);
+        // The next session inherits nothing and re-fetches.
+        QVERIFY(bridge.playableSource(QStringLiteral("$vid")).isEmpty());
+        QCOMPARE(client.fetches.size(), 2);
+    }
+
+    // A card closed mid-materialization abandons the write too: the bytes
+    // are already downloaded, but writing hundreds of megabytes for a card
+    // that is gone is pure disk churn. Nothing is published, nothing is
+    // left under the final name, and a fresh Play re-fetches cleanly.
+    void cancelDuringAWriteAbandonsIt()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
+        bridge.playableSource(QStringLiteral("$vid"));
+        // Above kLargeCacheSkipBytes, so the payload leaves no RAM copy
+        // behind and a re-ask can only be answered by a real fetch.
+        QByteArray ogg = QByteArrayLiteral("OggS");
+        ogg.resize(9 * 1024 * 1024, '\1');
+        client.succeed(client.fetches.at(0).opId, ogg,
+                       QStringLiteral("audio/ogg"));
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 1);
+        bridge.cancelPlayable(QStringLiteral("$vid"));
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 0);
+        QTest::qWait(300);
+        QCOMPARE(ready.count(), 0);
+        QVERIFY(bridge.playableSource(QStringLiteral("$vid")).isEmpty());
+        QCOMPARE(client.fetches.size(), 2);
+    }
+
+    // The size bound and the container sniff still fail CLOSED — and they
+    // do it before a single byte reaches the worker thread, so a refused
+    // payload can never have created a file.
+    void anOverBoundPayloadIsRefusedBeforeAnyWriteStarts()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setPlayableCapsForTest(4, 1024); // 1 KiB per-file bound
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        bridge.playableSource(QStringLiteral("$vid"));
+        QByteArray ogg = QByteArrayLiteral("OggS");
+        ogg.resize(4096, '\1');
+        client.succeed(client.fetches.at(0).opId, ogg,
+                       QStringLiteral("audio/ogg"));
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 0);
+        QTest::qWait(50);
+        QCOMPARE(ready.count(), 0);
+        bool sawRejected = false;
+        for (const auto &args : failed) {
+            if (args.at(0).toString() == QStringLiteral("full:$vid")
+                && args.at(1).toString() == QStringLiteral("rejected"))
+                sawRejected = true;
+        }
+        QVERIFY(sawRejected);
     }
 
     // ── v0.7 defense-in-depth: timeout classes + terminal coordination ──
@@ -1225,9 +1388,15 @@ private Q_SLOTS:
         const auto flac = [](char fill) {
             return QByteArray("fLaC") + QByteArray(9 * 1024 * 1024, fill);
         };
+        // The write is off-thread now, so every materialization below has
+        // to be awaited before the eviction it triggers can be asserted.
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
+        int materialized = 0;
+
         bridge.playableSource(QStringLiteral("$a"));
         client.succeed(client.fetches.at(0).opId, flac('a'),
                        QStringLiteral("audio/flac"));
+        QVERIFY(waitForPlayableCount(ready, ++materialized));
         const QString urlA = bridge.playableSource(QStringLiteral("$a"));
         QVERIFY(urlA.startsWith(QLatin1String("file://")));
         bridge.pinPlayable(QStringLiteral("$a"));
@@ -1235,9 +1404,11 @@ private Q_SLOTS:
         bridge.playableSource(QStringLiteral("$b"));
         client.succeed(client.fetches.at(1).opId, flac('b'),
                        QStringLiteral("audio/flac"));
+        QVERIFY(waitForPlayableCount(ready, ++materialized));
         bridge.playableSource(QStringLiteral("$c"));
         client.succeed(client.fetches.at(2).opId, flac('c'),
                        QStringLiteral("audio/flac"));
+        QVERIFY(waitForPlayableCount(ready, ++materialized));
 
         // Cap 2 with three files: the unpinned $b was the victim, the
         // pinned $a survives on disk.
@@ -1254,9 +1425,11 @@ private Q_SLOTS:
         bridge.playableSource(QStringLiteral("$x1"));
         client.succeed(client.fetches.last().opId, flac('x'),
                        QStringLiteral("audio/flac"));
+        QVERIFY(waitForPlayableCount(ready, ++materialized));
         bridge.playableSource(QStringLiteral("$x2"));
         client.succeed(client.fetches.last().opId, flac('y'),
                        QStringLiteral("audio/flac"));
+        QVERIFY(waitForPlayableCount(ready, ++materialized));
         QVERIFY(QFileInfo::exists(QUrl(urlA).toLocalFile()));
 
         // Unpinned by the LAST holder, $a becomes an ordinary victim again
@@ -1265,9 +1438,11 @@ private Q_SLOTS:
         bridge.playableSource(QStringLiteral("$d"));
         client.succeed(client.fetches.last().opId, flac('d'),
                        QStringLiteral("audio/flac"));
+        QVERIFY(waitForPlayableCount(ready, ++materialized));
         bridge.playableSource(QStringLiteral("$e"));
         client.succeed(client.fetches.last().opId, flac('e'),
                        QStringLiteral("audio/flac"));
+        QVERIFY(waitForPlayableCount(ready, ++materialized));
         QVERIFY(!QFileInfo::exists(QUrl(urlA).toLocalFile()));
     }
 
@@ -1369,6 +1544,10 @@ private Q_SLOTS:
         bridge.cancelPlayable(QStringLiteral("$video"));
         client.succeed(opId, QByteArray("GIF89a-not-really"),
                        QStringLiteral("video/mp4"));
+        // The op is stale, so no write is ever started — and no late
+        // worker completion can arrive to contradict that.
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 0);
+        QTest::qWait(50);
         QCOMPARE(ready.count(), 0);
         QVERIFY(bridge.cachedSource(QStringLiteral("full:$video")).isEmpty());
     }
@@ -1409,7 +1588,7 @@ private Q_SLOTS:
         mp4.replace(4, 4, "ftyp");
         client.succeed(client.fetches.first().opId, mp4,
                        QStringLiteral("video/mp4"));
-        QCOMPARE(ready.count(), 1);
+        QVERIFY(waitForPlayableCount(ready, 1));
         // Play now serves the materialized file with no new fetch.
         QVERIFY(!bridge.playableSource(QStringLiteral("$small")).isEmpty());
         QCOMPARE(client.fetches.size(), 1);
@@ -1491,15 +1670,19 @@ private Q_SLOTS:
         QCOMPARE(bridge.inflightCountForTest(), 0);
     }
 
-    // review-recheck LOW: a playableSource call served synchronously from
-    // the RAM cache holds no fetch, so it must not leave an interest count
-    // behind — a phantom +1 would silently veto a later cancel of a REAL
-    // fetch for the same key.
-    void ramCacheHitLeavesNoPhantomInterest()
+    // review-recheck LOW, reworked 2026-08-20: a playableSource call served
+    // from the RAM cache no longer materializes inline — it starts a write
+    // on the worker thread and answers "". Its interest count therefore has
+    // to SURVIVE the call (it is what a cancel aborts) and be retired by
+    // the completion. A count still standing afterwards would silently veto
+    // a later cancel of a REAL fetch for the same key, which is the
+    // original defect this case exists for.
+    void ramCacheHitRetiresItsInterestWhenTheWriteLands()
     {
         FakeClient client;
         MediaBridge bridge;
         bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
         bridge.setPlayableCapsForTest(1, 1024 * 1024); // 1 materialized file
         QByteArray mp4(256, 'x');
         mp4.replace(4, 4, "ftyp");
@@ -1507,12 +1690,19 @@ private Q_SLOTS:
         bridge.playableSource(QStringLiteral("$track"));
         client.succeed(client.fetches.at(0).opId, mp4,
                        QStringLiteral("video/mp4"));
+        QVERIFY(waitForPlayableCount(ready, 1));
         // Evict $track's FILE with $other (file cap is 1)...
         bridge.playableSource(QStringLiteral("$other"));
         client.succeed(client.fetches.at(1).opId, mp4,
                        QStringLiteral("video/mp4"));
-        // ...then serve $track from RAM bytes — the synchronous cache-hit
-        // path this regression is about. It must not retain interest.
+        QVERIFY(waitForPlayableCount(ready, 2));
+        // ...then re-ask $track, whose BYTES are still in RAM. The answer
+        // is "" and a worker write is under way — no second fetch.
+        QVERIFY(bridge.playableSource(QStringLiteral("$track")).isEmpty());
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 1);
+        QCOMPARE(client.fetches.size(), 2);
+        QVERIFY(waitForPlayableCount(ready, 3));
+        QCOMPARE(bridge.pendingPlayableWritesForTest(), 0);
         QVERIFY(!bridge.playableSource(QStringLiteral("$track")).isEmpty());
         // Drop the RAM copies (limit forces eviction on the next insert)…
         bridge.setCacheLimitBytes(1);
@@ -1522,8 +1712,9 @@ private Q_SLOTS:
         bridge.playableSource(QStringLiteral("$other"));
         client.succeed(client.fetches.at(3).opId, mp4,
                        QStringLiteral("video/mp4"));
+        QVERIFY(waitForPlayableCount(ready, 4));
         // A REAL fetch for $track now carries exactly one press-play
-        // interest; a phantom +1 from the earlier cache hit would make
+        // interest; a count retained from the cache hit above would make
         // this cancel a silent no-op.
         bridge.playableSource(QStringLiteral("$track"));
         QCOMPARE(bridge.inflightCountForTest(), 1);

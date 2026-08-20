@@ -59,6 +59,17 @@ class PresenceManager : public QObject
     // the watched set (review M2: one account's watch list must never be
     // polled against the next account's homeserver).
     Q_PROPERTY(int sessionEpoch READ sessionEpoch NOTIFY sessionEpochChanged)
+    // The ONLY two conditions under which the client actually KNOWS that
+    // presence will not be answered: the backend cannot do presence at
+    // all, or this session's server refused it for every user (the latch
+    // below). Everything else — an unanswered lookup, a user we have not
+    // polled yet, a transient failure — stays UNKNOWN, and unknown must
+    // keep rendering nothing. This property exists so the profile popover
+    // can say "Presence unavailable" for the two honest cases without
+    // QML having to infer them from `supported && !active`, which reads
+    // like a coincidence and would silently acquire a third meaning the
+    // day either property gains a condition.
+    Q_PROPERTY(bool unavailable READ unavailable NOTIFY unavailableChanged)
 
 public:
     explicit PresenceManager(QObject *parent = nullptr);
@@ -68,6 +79,7 @@ public:
 
     bool supported() const;
     bool active() const;
+    bool unavailable() const;
     int revision() const { return m_revision; }
     int sessionEpoch() const { return m_sessionEpoch; }
 
@@ -102,6 +114,7 @@ public:
 Q_SIGNALS:
     void supportedChanged();
     void activeChanged();
+    void unavailableChanged();
     void revisionChanged();
     void sessionEpochChanged();
 
@@ -141,7 +154,14 @@ private:
     static constexpr int kForbiddenLatchThreshold = 2;
     static constexpr int kForbiddenLatchMinBatch = 2;
 
-    void pollRound(const QStringList &userIds);
+    void pollRound(const char *kind, const QStringList &userIds);
+    // Opt-in diagnostic (env LIGHTNING_PRESENCE_TRACE, read ONCE at
+    // construction — the LIGHTNING_SCROLL_TRACE pattern). One bounded line
+    // per polling round decision; applyBatch emits the matching answer
+    // line itself. Counts and literal tags only: never a user id, never a
+    // display name, never a list. `reason` is always a string literal.
+    void traceRound(const char *kind, const char *reason, int batch,
+                    quint64 opId) const;
     void scheduledPollRound();
     void burstRound();
     void applyBatch(quint64 opId, const QVariantList &entries);
@@ -171,6 +191,10 @@ private:
     int m_sessionEpoch = 0;
     int m_forbiddenBatches = 0;
     bool m_serverRefused = false;
+    // Read once at construction so a test can enable the trace per
+    // instance; a function-static would freeze the first value for the
+    // whole process.
+    bool m_traceEnabled = false;
     bool m_appActive = true;
     // When focus was LOST (only meaningful while m_appActive is false).
     qint64 m_inactiveSinceMs = 0;

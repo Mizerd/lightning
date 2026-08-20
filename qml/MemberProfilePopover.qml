@@ -161,6 +161,17 @@ Popup {
         close()
     }
 
+    // Presence that the client KNOWS is not on offer: the backend cannot do
+    // presence at all, or this session's server refused it for every user
+    // (PresenceManager's latch). Those are the only two states we may
+    // disclose. A lookup that simply has not been answered — the common
+    // case for a popover opened a moment ago — is still UNKNOWN, and
+    // unknown renders nothing at all: no dot, no line, and never a
+    // fabricated Offline.
+    readonly property bool presenceUnavailable:
+        root.opened && root.userId !== "" && app.presence
+            ? app.presence.unavailable : false
+
     // v0.7.x Matrix presence status line. Pure reads re-evaluated on
     // PresenceManager's revision; unknown presence yields "" and the label
     // collapses — never a placeholder.
@@ -362,13 +373,21 @@ Popup {
                 font.pixelSize: AppTheme.fontMonoXS
                 elide: Label.ElideMiddle
             }
+            // One row for both: a real presence state when the server
+            // answered, and the restrained disclosure when we know it
+            // never will. The state wins if we somehow hold one — a
+            // known answer is always more informative than "unavailable".
             Label {
                 Layout.fillWidth: true
-                visible: root.presenceLine.length > 0
-                text: root.presenceLine
+                visible: text.length > 0
+                text: root.presenceLine.length > 0 ? root.presenceLine
+                    : root.presenceUnavailable ? qsTr("Presence unavailable")
+                    : ""
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.fontSecondary
                 elide: Label.ElideRight
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
             }
 
             RowLayout {

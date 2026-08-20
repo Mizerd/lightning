@@ -10,6 +10,14 @@ import MatrixClient
 // Unknown presence renders NOTHING (visible: false): an unanswered lookup,
 // a backend without presence and a server that disabled presence are all
 // the same honest absence, never a fabricated offline.
+//
+// That includes the case PresenceManager can name — `unavailable`, i.e. an
+// unsupported backend or a server that refused presence for everyone this
+// session. This component deliberately does NOT consult it: a dot has no
+// room for prose, so the only thing it could do with that knowledge is
+// paint a fourth colour, which is a fabricated indicator by another name.
+// The disclosure belongs where there is space for a sentence — the member
+// profile popover.
 Rectangle {
     id: dot
 

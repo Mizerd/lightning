@@ -7,6 +7,9 @@
 // publication gating. These tests drive it against a fake client — network
 // behavior and real homeserver semantics are live-validation, not this.
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -60,6 +63,39 @@ QVariantMap failEntry(const QString &userId, const QString &category)
     };
 }
 
+QString readText(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    return QString::fromUtf8(file.readAll());
+}
+
+// Both build trees live inside the source tree, so walking up from the test
+// binary locates the repository without a compile definition (the
+// UpdateManagerStateTest idiom). Returns an empty string when the scan
+// cannot find the tree, which the caller treats as a failure rather than a
+// pass.
+QString repositoryRoot()
+{
+    for (const QString &start :
+         { QCoreApplication::applicationDirPath(), QDir::currentPath() }) {
+        QDir dir(start);
+        for (int depth = 0; depth < 8; ++depth) {
+            const bool found =
+                QFileInfo::exists(dir.absoluteFilePath(QStringLiteral(
+                    "src/matrix/RustSdkMatrixClient.h")))
+                && QFileInfo::exists(dir.absoluteFilePath(
+                    QStringLiteral("rust/src/presence.rs")));
+            if (found)
+                return dir.absolutePath();
+            if (!dir.cdUp())
+                break;
+        }
+    }
+    return {};
+}
+
 } // namespace
 
 class PresenceManagerTest : public QObject
@@ -88,12 +124,42 @@ private Q_SLOTS:
     void pendingFinalOfflineFlushesOnSyncEdge();
     void unsupportedBackendStaysInactive();
 
+    // 2026-08-20 correctness round (contract C10). The `unavailable`
+    // property the profile popover reads, the latch's distinct-user
+    // minimum, watch ref-counting, connection-state gating, cross-session
+    // isolation, and the platform-independence build contract.
+    void unknownPresenceIsNotUnavailable();
+    void unavailableIsFalseWithoutAClient();
+    void unsupportedBackendReportsUnavailable();
+    void latchArmingReportsUnavailableAndSessionEndClearsIt();
+    void forbiddenBatchBelowMinimumNeitherAdvancesNorResetsTheLatch();
+    void repeatedForbiddenEntriesForOneUserNeverLatch();
+    void flatOfflineServerNeverLatchesOrReportsUnavailable();
+    void singleForbiddenErasesTheCachedState();
+    void watchIsRefCountedPerHolder();
+    void watchesQueuedBeforeSyncingWaitForTheSyncingEdge();
+    void stayingInSyncingDoesNotRepoll();
+    void replayedAnswerForTheSameRoundIsDropped();
+    void answerArrivingAfterSignOutIsDropped();
+    void switchingAccountDropsTheWatchedSetAndBumpsTheEpoch();
+    void presenceIsCompiledInWithNoPlatformConditional();
+
 private:
     // Drives the manager to a live session and returns the fake's baseline
     // request count (the edge may or may not have polled, depending on the
     // watched set).
     void goSyncing(FakePresenceClient &client)
     {
+        Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
+    }
+
+    // Ask for one more authoritative round. The scheduled timer is 30 s, so
+    // a reconnect EDGE is how a test drives the next round without waiting
+    // for it; callers assert the resulting request count themselves rather
+    // than have this helper swallow a failure.
+    void reconnect(FakePresenceClient &client)
+    {
+        Q_EMIT client.connectionStateChanged(MatrixClient::Error);
         Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
     }
 
@@ -550,6 +616,476 @@ void PresenceManagerTest::unsupportedBackendStaysInactive()
     QTest::qWait(500);
     QCOMPARE(client.requests.size(), 0);
     QCOMPARE(client.published.size(), 0);
+}
+
+// --- 2026-08-20 correctness round (contract C10) -------------------------
+//
+// The round's UI change is one line of prose in the member profile popover,
+// and the whole risk is that it appears when the client does not actually
+// KNOW anything. So most of what follows discriminates "unknown" (render
+// nothing) from "the server or backend will not answer" (say so once).
+
+void PresenceManagerTest::unknownPresenceIsNotUnavailable()
+{
+    // Unknown is the default state of the world: nobody has answered yet, a
+    // lookup failed transiently, one user is forbidden. None of those is a
+    // finding about the server, and none may reach the popover's
+    // "Presence unavailable" line.
+    FakePresenceClient client;
+    PresenceManager presence;
+    QSignalSpy unavailableSpy(&presence, &PresenceManager::unavailableChanged);
+    presence.setClient(&client);
+    // Attaching a client answers the capability question once.
+    QCOMPARE(unavailableSpy.count(), 1);
+    QVERIFY(presence.supported());
+    QVERIFY(presence.active());
+    QVERIFY(!presence.unavailable());
+
+    goSyncing(client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    QTRY_COMPARE(client.requests.size(), 1);
+
+    // Dispatched, nothing back yet.
+    QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
+             QString());
+    QVERIFY(presence.infoFor(QStringLiteral("@alice:example.org")).isEmpty());
+    QVERIFY(!presence.unavailable());
+
+    // A network blip says nothing about whether the server offers presence.
+    Q_EMIT client.presenceReceived(
+        client.requests.last().opId,
+        { failEntry(QStringLiteral("@alice:example.org"),
+                    QStringLiteral("network")) });
+    QVERIFY(!presence.unavailable());
+
+    // Neither does ONE user's 403 — that is a federation or
+    // invited-not-joined edge, and it deliberately does not latch.
+    reconnect(client);
+    QTRY_COMPARE(client.requests.size(), 2);
+    Q_EMIT client.presenceReceived(
+        client.requests.last().opId,
+        { failEntry(QStringLiteral("@alice:example.org"),
+                    QStringLiteral("forbidden")) });
+    QVERIFY(presence.active());
+    QVERIFY(!presence.unavailable());
+    QCOMPARE(unavailableSpy.count(), 1);
+}
+
+void PresenceManagerTest::unavailableIsFalseWithoutAClient()
+{
+    // Having no client is not a finding either: nothing has been asked of
+    // any server. An implementation deriving the flag from !supported()
+    // would claim "Presence unavailable" on the login screen.
+    PresenceManager presence;
+    QVERIFY(!presence.supported());
+    QVERIFY(!presence.active());
+    QVERIFY(!presence.unavailable());
+}
+
+void PresenceManagerTest::unsupportedBackendReportsUnavailable()
+{
+    // The first of exactly two honest disclosures: this backend cannot do
+    // presence at all, which the client knows without asking anyone.
+    FakePresenceClient client;
+    client.supports = false;
+    PresenceManager presence;
+    QSignalSpy unavailableSpy(&presence, &PresenceManager::unavailableChanged);
+    presence.setClient(&client);
+    QVERIFY(presence.unavailable());
+    QVERIFY(!presence.supported());
+    QVERIFY(!presence.active());
+    QCOMPARE(unavailableSpy.count(), 1);
+}
+
+void PresenceManagerTest::latchArmingReportsUnavailableAndSessionEndClearsIt()
+{
+    // The second disclosure: this session's server refused presence for
+    // every user. It is SESSION scoped — the next account may be on a
+    // server that answers — so signing out must retract it.
+    FakePresenceClient client;
+    PresenceManager presence;
+    presence.setClient(&client);
+    QSignalSpy unavailableSpy(&presence, &PresenceManager::unavailableChanged);
+    goSyncing(client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    presence.watch(QStringLiteral("@bob:example.org"));
+    QTRY_COMPARE(client.requests.size(), 1);
+
+    const QVariantList bothForbidden{
+        failEntry(QStringLiteral("@alice:example.org"),
+                  QStringLiteral("forbidden")),
+        failEntry(QStringLiteral("@bob:example.org"),
+                  QStringLiteral("forbidden")),
+    };
+    Q_EMIT client.presenceReceived(client.requests.last().opId,
+                                   bothForbidden);
+    QVERIFY(!presence.unavailable()); // one batch is not yet a finding
+
+    reconnect(client);
+    QTRY_COMPARE(client.requests.size(), 2);
+    Q_EMIT client.presenceReceived(client.requests.last().opId,
+                                   bothForbidden);
+    QVERIFY(presence.unavailable());
+    QCOMPARE(unavailableSpy.count(), 1);
+    // The capability is not the latch (review M1): publication may still
+    // run, so the Settings card must not disappear.
+    QVERIFY(presence.supported());
+
+    // A latched session accepts no new polling at all — a fresh watch must
+    // not restart it.
+    presence.watch(QStringLiteral("@carol:example.org"));
+    QTest::qWait(500); // outlives the burst debounce
+    QCOMPARE(client.requests.size(), 2);
+
+    Q_EMIT client.loggedOut();
+    QVERIFY(!presence.unavailable());
+    QCOMPARE(unavailableSpy.count(), 2);
+}
+
+void PresenceManagerTest::forbiddenBatchBelowMinimumNeitherAdvancesNorResetsTheLatch()
+{
+    // The subtle half of review L1. A batch too small to be evidence is
+    // evidence for NEITHER side: it must not advance the streak, and it
+    // must not throw the streak away. The tempting shape —
+    // `latchEligible ? ++streak : streak = 0` — passes every other latch
+    // test in this file and lets one interleaved single-user 403 mask a
+    // genuinely presence-disabled server for the whole session.
+    FakePresenceClient client;
+    PresenceManager presence;
+    presence.setClient(&client);
+    goSyncing(client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    presence.watch(QStringLiteral("@bob:example.org"));
+    QTRY_COMPARE(client.requests.size(), 1);
+
+    const QVariantList broadForbidden{
+        failEntry(QStringLiteral("@alice:example.org"),
+                  QStringLiteral("forbidden")),
+        failEntry(QStringLiteral("@bob:example.org"),
+                  QStringLiteral("forbidden")),
+    };
+
+    // Streak 1.
+    Q_EMIT client.presenceReceived(client.requests.last().opId,
+                                   broadForbidden);
+    QVERIFY(presence.active());
+
+    // A one-user refusal in between: neither advances nor resets.
+    reconnect(client);
+    QTRY_COMPARE(client.requests.size(), 2);
+    Q_EMIT client.presenceReceived(
+        client.requests.last().opId,
+        { failEntry(QStringLiteral("@carol:example.org"),
+                    QStringLiteral("forbidden")) });
+    QVERIFY(presence.active());
+
+    // Streak 2: the server has now refused two broad batches in a row.
+    reconnect(client);
+    QTRY_COMPARE(client.requests.size(), 3);
+    Q_EMIT client.presenceReceived(client.requests.last().opId,
+                                   broadForbidden);
+    QVERIFY(!presence.active());
+    QVERIFY(presence.unavailable());
+}
+
+void PresenceManagerTest::repeatedForbiddenEntriesForOneUserNeverLatch()
+{
+    // The minimum counts DISTINCT user ids, not entries. One user's
+    // repeated 403 inside a single batch must not read as a broad refusal —
+    // entries.size() is 2 here and the distinct count is 1.
+    FakePresenceClient client;
+    PresenceManager presence;
+    presence.setClient(&client);
+    goSyncing(client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    QTRY_COMPARE(client.requests.size(), 1);
+
+    const QVariantList sameUserTwice{
+        failEntry(QStringLiteral("@alice:example.org"),
+                  QStringLiteral("forbidden")),
+        failEntry(QStringLiteral("@alice:example.org"),
+                  QStringLiteral("forbidden")),
+    };
+    for (int round = 0; round < 3; ++round) {
+        Q_EMIT client.presenceReceived(client.requests.last().opId,
+                                       sameUserTwice);
+        QVERIFY(presence.active());
+        QVERIFY(!presence.unavailable());
+        reconnect(client);
+        QTRY_COMPARE(client.requests.size(), round + 2);
+    }
+    QVERIFY(presence.active());
+    QVERIFY(!presence.unavailable());
+}
+
+void PresenceManagerTest::flatOfflineServerNeverLatchesOrReportsUnavailable()
+{
+    // A server answering 200 with offline for everyone is not refusing
+    // anything: those grey dots are honest, and the popover must keep
+    // showing the real state rather than "Presence unavailable". Only
+    // refusals feed the latch.
+    FakePresenceClient client;
+    PresenceManager presence;
+    presence.setClient(&client);
+    goSyncing(client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    presence.watch(QStringLiteral("@bob:example.org"));
+    QTRY_COMPARE(client.requests.size(), 1);
+
+    const QVariantList allOffline{
+        okEntry(QStringLiteral("@alice:example.org"),
+                QStringLiteral("offline"), false),
+        okEntry(QStringLiteral("@bob:example.org"),
+                QStringLiteral("offline"), false),
+    };
+    Q_EMIT client.presenceReceived(client.requests.last().opId, allOffline);
+    reconnect(client);
+    QTRY_COMPARE(client.requests.size(), 2);
+    Q_EMIT client.presenceReceived(client.requests.last().opId, allOffline);
+
+    QVERIFY(presence.active());
+    QVERIFY(!presence.unavailable());
+    QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
+             QStringLiteral("offline"));
+}
+
+void PresenceManagerTest::singleForbiddenErasesTheCachedState()
+{
+    // forbidden and not_found are both authoritative "no presence for this
+    // user": the last known dot has to go, even though a single 403 never
+    // latches. Treating forbidden as transient would leave a stale online
+    // dot on a user the server has stopped answering for.
+    FakePresenceClient client;
+    PresenceManager presence;
+    presence.setClient(&client);
+    goSyncing(client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    QTRY_COMPARE(client.requests.size(), 1);
+    Q_EMIT client.presenceReceived(
+        client.requests.first().opId,
+        { okEntry(QStringLiteral("@alice:example.org"),
+                  QStringLiteral("online")) });
+    QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
+             QStringLiteral("online"));
+
+    reconnect(client);
+    QTRY_COMPARE(client.requests.size(), 2);
+    Q_EMIT client.presenceReceived(
+        client.requests.last().opId,
+        { failEntry(QStringLiteral("@alice:example.org"),
+                    QStringLiteral("forbidden")) });
+    QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
+             QString());
+    QVERIFY(presence.infoFor(QStringLiteral("@alice:example.org")).isEmpty());
+    // Erasing one user is not a statement about the server.
+    QVERIFY(presence.active());
+    QVERIFY(!presence.unavailable());
+}
+
+void PresenceManagerTest::watchIsRefCountedPerHolder()
+{
+    // Two surfaces routinely show the same user at once (a DM row and an
+    // open profile popover). The first holder going away must not stop
+    // polling for the one still on screen — an unwatch that erased the
+    // entry outright would blank the dot under the open popover.
+    FakePresenceClient client;
+    PresenceManager presence;
+    presence.setClient(&client);
+    goSyncing(client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    presence.watch(QStringLiteral("@alice:example.org")); // second holder
+    presence.watch(QStringLiteral("@bob:example.org"));
+    QTRY_COMPARE(client.requests.size(), 1);
+    // One request entry per USER, not per holder.
+    QCOMPARE(client.requests.first().userIds.size(), 2);
+
+    presence.unwatch(QStringLiteral("@alice:example.org"));
+    reconnect(client);
+    QTRY_COMPARE(client.requests.size(), 2);
+    QVERIFY(client.requests.last().userIds.contains(
+        QStringLiteral("@alice:example.org")));
+
+    presence.unwatch(QStringLiteral("@alice:example.org"));
+    presence.unwatch(QStringLiteral("@bob:example.org"));
+    // An unwatch with no matching watch is a no-op — never a negative count
+    // that a later watch would have to climb back out of.
+    presence.unwatch(QStringLiteral("@alice:example.org"));
+    presence.unwatch(QStringLiteral("@nobody:example.org"));
+    reconnect(client);
+    QTest::qWait(50);
+    QCOMPARE(client.requests.size(), 2);
+}
+
+void PresenceManagerTest::watchesQueuedBeforeSyncingWaitForTheSyncingEdge()
+{
+    // Connection gating. A watch registered before the session is live must
+    // not poll a server we are not synced with; the queued burst is
+    // DISCARDED rather than deferred, and the Syncing edge is the recovery
+    // that re-polls the whole watched set.
+    FakePresenceClient client;
+    PresenceManager presence;
+    presence.setClient(&client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    presence.watch(QStringLiteral("@bob:example.org"));
+    QTest::qWait(500); // outlives kBurstDelayMs
+    QCOMPARE(client.requests.size(), 0);
+
+    goSyncing(client);
+    QTRY_COMPARE(client.requests.size(), 1);
+    QCOMPARE(client.requests.first().userIds.size(), 2);
+    QVERIFY(client.requests.first().userIds.contains(
+        QStringLiteral("@alice:example.org")));
+    QVERIFY(client.requests.first().userIds.contains(
+        QStringLiteral("@bob:example.org")));
+}
+
+void PresenceManagerTest::stayingInSyncingDoesNotRepoll()
+{
+    // Only the EDGE into Syncing polls. The sync loop reports its state
+    // more than once, and turning every status callback into a round of
+    // GETs is how a bounded poller stops being bounded.
+    FakePresenceClient client;
+    PresenceManager presence;
+    presence.setClient(&client);
+    goSyncing(client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    QTRY_COMPARE(client.requests.size(), 1);
+
+    goSyncing(client);
+    goSyncing(client);
+    QTest::qWait(50);
+    QCOMPARE(client.requests.size(), 1);
+
+    // A real reconnect is an edge, and it refreshes every watched dot
+    // without waiting out the 30 s scheduled round.
+    reconnect(client);
+    QTRY_COMPARE(client.requests.size(), 2);
+    QCOMPARE(client.requests.last().userIds,
+             (QStringList{ QStringLiteral("@alice:example.org") }));
+}
+
+void PresenceManagerTest::replayedAnswerForTheSameRoundIsDropped()
+{
+    // Op ids are single-use: the answer is consumed, not merely matched. A
+    // re-delivered batch is by definition older than what is already
+    // cached, so applying it would roll a dot backwards.
+    FakePresenceClient client;
+    PresenceManager presence;
+    presence.setClient(&client);
+    goSyncing(client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    QTRY_COMPARE(client.requests.size(), 1);
+    const quint64 opId = client.requests.first().opId;
+    Q_EMIT client.presenceReceived(
+        opId, { okEntry(QStringLiteral("@alice:example.org"),
+                        QStringLiteral("online")) });
+    QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
+             QStringLiteral("online"));
+
+    QSignalSpy revisions(&presence, &PresenceManager::revisionChanged);
+    Q_EMIT client.presenceReceived(
+        opId, { okEntry(QStringLiteral("@alice:example.org"),
+                        QStringLiteral("offline"), false) });
+    QCOMPARE(revisions.count(), 0);
+    QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
+             QStringLiteral("online"));
+}
+
+void PresenceManagerTest::answerArrivingAfterSignOutIsDropped()
+{
+    // Generation isolation, presence edition (review M2). A round dispatched
+    // for the previous account can still be in flight when the session ends;
+    // its answer must never populate the next session's cache.
+    FakePresenceClient client;
+    PresenceManager presence;
+    presence.setClient(&client);
+    goSyncing(client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    QTRY_COMPARE(client.requests.size(), 1);
+    const quint64 opId = client.requests.first().opId;
+
+    Q_EMIT client.loggedOut();
+    QSignalSpy revisions(&presence, &PresenceManager::revisionChanged);
+    Q_EMIT client.presenceReceived(
+        opId, { okEntry(QStringLiteral("@alice:example.org"),
+                        QStringLiteral("online")) });
+    QCOMPARE(revisions.count(), 0);
+    QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
+             QString());
+}
+
+void PresenceManagerTest::switchingAccountDropsTheWatchedSetAndBumpsTheEpoch()
+{
+    // Account switching goes through setClient, not loggedOut. It must end
+    // the session just as completely: polling the previous account's watch
+    // list against the next account's homeserver would disclose who that
+    // account was looking at.
+    FakePresenceClient first;
+    FakePresenceClient second;
+    PresenceManager presence;
+    presence.setClient(&first);
+    goSyncing(first);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    QTRY_COMPARE(first.requests.size(), 1);
+    Q_EMIT first.presenceReceived(
+        first.requests.first().opId,
+        { okEntry(QStringLiteral("@alice:example.org"),
+                  QStringLiteral("online")) });
+
+    QSignalSpy epochs(&presence, &PresenceManager::sessionEpochChanged);
+    presence.setClient(&second);
+    // PresenceDot re-registers on this edge; without the bump the surviving
+    // dots would hold watches the manager no longer has.
+    QCOMPARE(epochs.count(), 1);
+    QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
+             QString());
+
+    goSyncing(second);
+    QTest::qWait(500); // outlives the burst debounce too
+    QCOMPARE(second.requests.size(), 0);
+    QCOMPARE(first.requests.size(), 1);
+}
+
+void PresenceManagerTest::presenceIsCompiledInWithNoPlatformConditional()
+{
+    // Contract C10's build assertion. The reported "no presence on macOS"
+    // was hypothesised to be a packaging omission; reading refuted that, and
+    // this pins the refutation so a future platform guard has to be a
+    // deliberate decision rather than a silent regression that presents to
+    // the user as "the dots are gone". A source scan, because the presence
+    // suite deliberately does not link the Rust backend.
+    const QString root = repositoryRoot();
+    QVERIFY2(!root.isEmpty(), "could not locate the repository to scan");
+
+    const QString header =
+        readText(root + QStringLiteral("/src/matrix/RustSdkMatrixClient.h"));
+    QVERIFY(!header.isEmpty());
+    QVERIFY2(header.contains(QStringLiteral(
+                 "bool supportsPresence() const override { return true; }")),
+             "the Rust backend must advertise presence unconditionally");
+    QVERIFY(!header.contains(QStringLiteral("__APPLE__")));
+    QVERIFY(!header.contains(QStringLiteral("Q_OS_MAC")));
+
+    // The Rust module itself, and nothing gating it.
+    const QStringList libLines =
+        readText(root + QStringLiteral("/rust/src/lib.rs"))
+            .split(QLatin1Char('\n'));
+    const int modLine = libLines.indexOf(QStringLiteral("mod presence;"));
+    QVERIFY2(modLine > 0, "rust/src/lib.rs must declare `mod presence;`");
+    QVERIFY2(!libLines.at(modLine - 1).trimmed().startsWith(
+                 QStringLiteral("#[")),
+             "no attribute may gate the presence module");
+
+    // And the C++ policy owner is an unconditional source of the app.
+    const QString cmake = readText(root + QStringLiteral("/CMakeLists.txt"));
+    QVERIFY(cmake.contains(QStringLiteral("src/presence/PresenceManager.cpp")));
+    const QStringList cmakeLines = cmake.split(QLatin1Char('\n'));
+    for (const QString &line : cmakeLines) {
+        if (!line.contains(QStringLiteral("APPLE")))
+            continue;
+        QVERIFY2(!line.contains(QStringLiteral("presence"), Qt::CaseInsensitive),
+                 qPrintable(line));
+    }
 }
 
 QTEST_MAIN(PresenceManagerTest)
