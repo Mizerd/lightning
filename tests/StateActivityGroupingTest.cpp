@@ -41,6 +41,16 @@ TimelineEvent makeVirtual(TimelineEvent::Type type, const QString &id)
     return e;
 }
 
+constexpr qint64 kOneDayMs = 24 * 60 * 60 * 1000LL;
+
+// Same rows as above, dated onto a chosen day so a multi-day run can be
+// built. Day 0 is the fixed base timestamp every other helper here uses.
+TimelineEvent onDay(TimelineEvent e, int day)
+{
+    e.timestamp = QDateTime::fromMSecsSinceEpoch(1700000000000 + day * kOneDayMs);
+    return e;
+}
+
 TimelineEvent makeMessage(const QString &eventId, const QString &body,
                           TimelineEvent::Type type = TimelineEvent::TextMessage)
 {
@@ -122,6 +132,11 @@ private Q_SLOTS:
     void appendingContiguousStateChangeExtendsGroupForward();
     void prependingOlderStateChangesExtendsGroupBackward();
     void groupCountAlwaysMatchesAccessibleChildren();
+    // v0.7.4 (C4): a date divider must not draw when everything it
+    // introduces is hidden.
+    void dividersInsideOneCollapsedRunAreOrphansAndReportNoContent();
+    void hiddenRoutineActivityLeavesItsDividerWithNothingToIntroduce();
+    void showRoomActivityFlipReAnnouncesTheDividerRows();
 
 private:
     FakeClient *m_client = nullptr;
@@ -424,6 +439,180 @@ void StateActivityGroupingTest::groupCountAlwaysMatchesAccessibleChildren()
     QVERIFY(!children.isEmpty());
     for (const QVariant &child : children)
         QVERIFY(!child.toMap().value(QStringLiteral("description")).toString().isEmpty());
+}
+
+void StateActivityGroupingTest::dividersInsideOneCollapsedRunAreOrphansAndReportNoContent()
+{
+    // The reported defect: a long run of membership churn spread over
+    // several days draws ONE collapsed summary, but the SDK still emits a
+    // date divider at every day boundary inside it — so the timeline showed
+    // a stack of bare date labels introducing nothing at all.
+    QList<TimelineEvent> mirror;
+    mirror.append(onDay(makeVirtual(TimelineEvent::DateDivider,
+                                    QStringLiteral("$divA")), 0));
+    mirror.append(onDay(makeMessage(QStringLiteral("$before"),
+                                    QStringLiteral("before")), 0));
+
+    // 51 state updates spread across days 1..3, one divider per day.
+    int made = 0;
+    for (int day = 1; day <= 3; ++day) {
+        mirror.append(onDay(makeVirtual(TimelineEvent::DateDivider,
+                                        QStringLiteral("$div%1").arg(day)), day));
+        for (int i = 0; i < 17; ++i) {
+            mirror.append(onDay(makeStateChange(
+                QStringLiteral("$s%1").arg(made),
+                QStringLiteral("update %1").arg(made),
+                QStringLiteral("membership"), QStringLiteral("Bob")), day));
+            ++made;
+        }
+    }
+    QCOMPARE(made, 51);
+
+    mirror.append(onDay(makeVirtual(TimelineEvent::DateDivider,
+                                    QStringLiteral("$divAfter")), 4));
+    mirror.append(onDay(makeMessage(QStringLiteral("$after"),
+                                    QStringLiteral("after")), 4));
+    m_client->mirror = mirror;
+    m_model->setRoomId(kRoom);
+
+    // Collapsed: exactly ONE summary for the whole 51-row run, because a
+    // group is transparent through the dividers between its rows.
+    int leaders = 0;
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        if (m_model->data(m_model->index(row),
+                          TimelineModel::IsStateActivityRole).toBool()
+            && m_model->data(m_model->index(row),
+                             TimelineModel::StateGroupLeaderRole).toBool())
+            ++leaders;
+    }
+    QCOMPARE(leaders, 1);
+
+    // The fixture's layout is explicit, so each answer is read at a KNOWN
+    // row and guarded by that row's own id: a drift in the fixture must
+    // fail the test, never quietly move an assertion onto another row.
+    // Returning an invalid QVariant on a mismatch does exactly that,
+    // because neither QVariant(true) nor QVariant(false) equals it.
+    const auto dividerAt = [this](int row, const QString &eventId) {
+        const QModelIndex idx = m_model->index(row);
+        if (m_model->data(idx, TimelineModel::EventIdRole).toString() != eventId)
+            return QVariant();
+        return m_model->data(
+            idx, TimelineModel::DividerIntroducesVisibleContentRole);
+    };
+
+    // Day 1's divider introduces the group's leader — its summary is drawn
+    // there, so the date belongs.
+    QCOMPARE(dividerAt(2, QStringLiteral("$div1")), QVariant(true));
+    // Days 2 and 3 introduce only NON-leader rows of that same collapsed
+    // group: nothing is drawn, so the label is an orphan.
+    QCOMPARE(dividerAt(20, QStringLiteral("$div2")), QVariant(false));
+    QCOMPARE(dividerAt(38, QStringLiteral("$div3")), QVariant(false));
+    // The ordinary message boundaries on either side still work.
+    QCOMPARE(dividerAt(0, QStringLiteral("$divA")), QVariant(true));
+    QCOMPARE(dividerAt(56, QStringLiteral("$divAfter")), QVariant(true));
+
+    // Expanded, the leader renders the whole run itself — which is why the
+    // inner dividers have nothing to introduce, and why the summary needs a
+    // date RANGE rather than a single day. The entries carry the timestamps
+    // that range is built from.
+    const int leaderRow = 3;   // the first state row, right after $div1
+    QCOMPARE(m_model->data(m_model->index(leaderRow),
+                           TimelineModel::EventIdRole).toString(),
+             QStringLiteral("$s0"));
+    QCOMPARE(m_model->data(m_model->index(leaderRow),
+                           TimelineModel::StateGroupLeaderRole).toBool(), true);
+    const QVariantList entries =
+        m_model->data(m_model->index(leaderRow),
+                      TimelineModel::StateGroupEntriesRole).toList();
+    QCOMPARE(entries.size(), 51);
+    const QDateTime first =
+        entries.first().toMap().value(QStringLiteral("timestamp")).toDateTime();
+    const QDateTime last =
+        entries.last().toMap().value(QStringLiteral("timestamp")).toDateTime();
+    QVERIFY(first.isValid() && last.isValid());
+    QVERIFY(first.date() != last.date());
+}
+
+void StateActivityGroupingTest::hiddenRoutineActivityLeavesItsDividerWithNothingToIntroduce()
+{
+    m_client->mirror = {
+        makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$div0")),
+        makeStateChange(QStringLiteral("$s0"), QStringLiteral("joined"),
+                        QStringLiteral("membership"), QStringLiteral("Bob")),
+        makeVirtual(TimelineEvent::ReadMarker, QStringLiteral("$read")),
+        makeStateChange(QStringLiteral("$s1"), QStringLiteral("left"),
+                        QStringLiteral("membership"), QStringLiteral("Bob")),
+    };
+    m_model->setRoomId(kRoom);
+    const QModelIndex divider = m_model->index(0);
+
+    // Preference on: the group's leader draws its summary under this date.
+    QCOMPARE(m_model->showRoomActivity(), true);
+    QCOMPARE(m_model->data(divider,
+                           TimelineModel::DividerIntroducesVisibleContentRole)
+                 .toBool(),
+             true);
+
+    // Preference off: every row in the run is routine and hidden, so the
+    // divider introduces nothing. A read marker is not content either.
+    m_model->setShowRoomActivity(false);
+    QCOMPARE(m_model->data(divider,
+                           TimelineModel::DividerIntroducesVisibleContentRole)
+                 .toBool(),
+             false);
+
+    // A non-routine state row (an untyped call/RTC notification) is never
+    // hidden by the preference, so its divider keeps its date.
+    m_client->mirror.append(makeStateChange(QStringLiteral("$call"),
+                                            QStringLiteral("call event"),
+                                            QString{}));
+    Q_EMIT m_client->eventAppended(kRoom, m_client->mirror.last());
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::DividerIntroducesVisibleContentRole)
+                 .toBool(),
+             false);
+    // ... but only when it LEADS a group: this one joins the existing run,
+    // whose hidden leader draws the summary, so nothing new appears.
+    QCOMPARE(m_model->data(m_model->index(4),
+                           TimelineModel::StateGroupLeaderRole).toBool(),
+             false);
+}
+
+void StateActivityGroupingTest::showRoomActivityFlipReAnnouncesTheDividerRows()
+{
+    m_client->mirror = {
+        makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$div0")),
+        makeStateChange(QStringLiteral("$s0"), QStringLiteral("joined"),
+                        QStringLiteral("membership"), QStringLiteral("Bob")),
+    };
+    m_model->setRoomId(kRoom);
+
+    QSignalSpy dataSpy(m_model, &QAbstractItemModel::dataChanged);
+    QSignalSpy settingSpy(m_model, &TimelineModel::showRoomActivityChanged);
+    m_model->setShowRoomActivity(false);
+
+    QCOMPARE(settingSpy.count(), 1);
+    QVERIFY(!dataSpy.isEmpty());
+    bool coveredDivider = false;
+    for (const QList<QVariant> &emitted : dataSpy) {
+        const int first = emitted.at(0).value<QModelIndex>().row();
+        const int last = emitted.at(1).value<QModelIndex>().row();
+        const QList<int> roles = emitted.at(2).value<QList<int>>();
+        if (first <= 0 && last >= 0
+            && roles.contains(
+                   TimelineModel::DividerIntroducesVisibleContentRole))
+            coveredDivider = true;
+    }
+    // The refresh must reach the divider row THROUGH the existing
+    // presentation-grouping path — a role nothing re-announces is a role
+    // that silently keeps its old answer in every live view.
+    QVERIFY(coveredDivider);
+
+    // Idempotent: writing the same value again is not a refresh.
+    dataSpy.clear();
+    m_model->setShowRoomActivity(false);
+    QCOMPARE(settingSpy.count(), 1);
+    QVERIFY(dataSpy.isEmpty());
 }
 
 QTEST_GUILESS_MAIN(StateActivityGroupingTest)

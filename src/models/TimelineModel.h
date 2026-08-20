@@ -35,6 +35,15 @@ class TimelineModel : public QAbstractListModel
                    NOTIFY searchChanged)
     Q_PROPERTY(QString searchCurrentEventId READ searchCurrentEventId
                    NOTIFY searchChanged)
+    // v0.7.4: the presentation preference that decides whether routine
+    // room-activity rows render at all. The model needs it because a DATE
+    // DIVIDER's own visibility depends on whether anything it introduces is
+    // drawn (see DividerIntroducesVisibleContentRole) — a question no
+    // delegate can answer for itself without scanning its neighbours. The
+    // rows themselves are never filtered here: the timeline stays the
+    // authoritative event list and QML keeps the zero-height filter.
+    Q_PROPERTY(bool showRoomActivity READ showRoomActivity
+                   WRITE setShowRoomActivity NOTIFY showRoomActivityChanged)
 
 public:
     enum Roles {
@@ -149,6 +158,19 @@ public:
         // window can overcount by at most 1 in >16-reader rooms —
         // conservative, never an undercount of what is visibly shown.
         ReadReceiptsTotalRole,
+        // v0.7.4: fenced code blocks. An ordered list of
+        // {kind, text, language} maps (kind 0 = rich text, 1 = code block)
+        // for a body that actually CONTAINS a code block; EMPTY for every
+        // other row, so the ordinary message keeps its single-TextEdit path
+        // and its existing cost. See MessageHtml::segments().
+        MessageSegmentsRole,
+        // v0.7.4: meaningful on DateDivider rows — true when at least one
+        // row between this divider and the next one is actually drawn. A
+        // divider whose whole run is hidden (routine activity with the
+        // preference off, or non-leader rows of a collapsed group) is an
+        // orphan date label and must not occupy space. Always true on a
+        // non-divider row, so a QML gate can read it unconditionally.
+        DividerIntroducesVisibleContentRole,
     };
 
     explicit TimelineModel(QObject *parent = nullptr);
@@ -169,6 +191,20 @@ public:
     bool canPaginate() const;
     bool paginating() const;
     bool paginationFailed() const;
+
+    bool showRoomActivity() const { return m_showRoomActivity; }
+    void setShowRoomActivity(bool show);
+
+    // Presentation-layer sentence for a typed m.room.member profile change
+    // (stateKind == "member_profile"), which the bridge deliberately does
+    // NOT phrase: an English sentence built in Rust could be neither
+    // translated nor written with the actor's resolved display name.
+    // `actorDisplayName` is the resolved name (localpart fallback, never a
+    // bare MXID). The old/new names are UNTRUSTED plain text and are
+    // rendered as PlainText, never as rich text. Static so the sentence
+    // matrix is testable without a model or a backend.
+    static QString profileChangeDescription(const TimelineEvent &e,
+                                            const QString &actorDisplayName);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -283,6 +319,7 @@ Q_SIGNALS:
     // rows shifted down by exactly that amount. Fired once per landed batch.
     void olderPrepended(int count);
     void searchChanged();
+    void showRoomActivityChanged();
 
 private Q_SLOTS:
     void onEventAppended(const QString &roomId, const TimelineEvent &event);
@@ -330,6 +367,21 @@ private:
     const QHash<QString, int> &rowIndex() const;
     void refreshTypingText();
     QVariantList reactionsVariant(const TimelineEvent &e) const;
+    // One resolver for every identity the timeline shows for a user id that
+    // is NOT the row's own sender (reactors, readers): member lookup, then
+    // the LOCALPART. Mirrors senderDisplayName()'s fallback order — the
+    // complete MXID is never the visible label, and a backend that answers
+    // with the raw user id has told us "unresolved", not a display name.
+    QString memberDisplayName(const QString &roomId,
+                              const QString &userId) const;
+    // The row's visible text. Redacted rows read as deleted, and a typed
+    // profile-change row is PHRASED here rather than carrying a sentence in
+    // `body` — the bridge leaves that field empty for those rows, so
+    // anything still reading `body` directly would render nothing.
+    QString visibleBodyFor(const TimelineEvent &e) const;
+    // Answers DividerIntroducesVisibleContentRole for one divider row.
+    // O(rows until the next divider), and it stops at the first drawn row.
+    bool dividerIntroducesVisibleContent(int dividerRow) const;
     QVariantList pollAnswersVariant(const TimelineEvent &e) const;
     QVariantList readReceiptsVariant(const TimelineEvent &e) const;
     // Grouping is transparent through virtual rows (date dividers, read
@@ -366,6 +418,18 @@ private:
     // costly part). Invalidated per event on edit/replace/redact and
     // wholesale on member hydration, theme-color change, and reload.
     mutable QHash<QString, QString> m_sanitizedHtmlCache;
+    // Memoized MessageSegmentsRole payload per event id. Derived from the
+    // SAME inputs as m_sanitizedHtmlCache (formatted body, mention style,
+    // member lookup), so the two are invalidated together through
+    // forgetRenderedHtml()/clearRenderedHtml() rather than through a dozen
+    // parallel remove() calls — this file already has eleven invalidation
+    // sites, and a class that mutates state at N sites eventually misses
+    // one (ReverseListProxyModel missed five of its own notify sites).
+    // Only rows that really carry a code block get an entry: an ordinary
+    // body is answered by a substring test with no sanitize walk at all.
+    mutable QHash<QString, QVariantList> m_messageSegmentsCache;
+    void forgetRenderedHtml(const QString &eventId);
+    void clearRenderedHtml();
     QString m_selfUserId;
     QList<TimelineEvent> m_events;
     // Loaded thread replies per root event id. IsThreadRootRole and
@@ -400,4 +464,9 @@ private:
     QString m_mentionAccentColor;
     QString m_mentionSoftColor;
     QString m_codeBackgroundColor;
+
+    // Mirrors SettingsManager::showRoomActivity (default true, matching it).
+    // Only DividerIntroducesVisibleContentRole reads it; nothing here
+    // filters rows.
+    bool m_showRoomActivity = true;
 };

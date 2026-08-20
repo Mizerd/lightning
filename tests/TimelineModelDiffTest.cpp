@@ -42,6 +42,10 @@ public:
     QStringList typingUsers;
     QHash<QString, QString> displayNames;
     QHash<QString, QString> avatarMxc;
+    // Counts member lookups so a test can prove a role was computed ONCE.
+    // Every identity resolution in the model funnels through here, so a
+    // second sanitize walk (or a second name resolution) is visible.
+    mutable int displayNameLookups = 0;
 
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
@@ -62,6 +66,7 @@ public:
     }
     QString displayNameFor(const QString &, const QString &userId) const override
     {
+        ++displayNameLookups;
         return displayNames.value(userId, userId);
     }
     QString avatarMxcFor(const QString &, const QString &userId) const override
@@ -148,6 +153,12 @@ private Q_SLOTS:
     void searchUpdatesOnPaginationInsert();
     void searchClearsOnRoomSwitchAndEnd();
     void searchSurvivesEditAndExcludesRedacted();
+    // v0.7.4 (C1): fenced code blocks reach QML as ordered segments, and
+    // only for the rows that have one.
+    void messageSegmentsSplitCodeBlocksAndAreComputedOnce();
+    void messageSegmentsStayEmptyAndFreeForOrdinaryBodies();
+    // v0.7.4 (C2): who reacted, resolved like every other identity.
+    void reactionRolesNameTheReactorsAndKeepTheUncappedTotal();
 
 private:
     FakeClient *m_client = nullptr;
@@ -1370,6 +1381,210 @@ void TimelineModelDiffTest::threadRoleIndexTracksEveryStructuralMutation()
     m_client->mirror[plainRow] = revealed;
     Q_EMIT m_client->eventChangedAt(kRoom, plainRow, revealed);
     QCOMPARE(replies(0), 3);
+}
+
+void TimelineModelDiffTest::messageSegmentsSplitCodeBlocksAndAreComputedOnce()
+{
+    TimelineEvent e = makeEvent(QStringLiteral("$code"),
+                                QStringLiteral("before\nfn main() {}\nafter"));
+    e.formattedBody = QStringLiteral(
+        "<p>before <a href=\"https://matrix.to/#/@bob:example.org\">Bob</a></p>"
+        "<pre><code class=\"language-rust\">fn main() {\n"
+        "    println!(\"&lt;hi&gt;\");\n"
+        "}</code></pre>"
+        "<p>after</p>");
+    m_client->mirror = { e };
+    m_client->displayNames.insert(QStringLiteral("@bob:example.org"),
+                                  QStringLiteral("Bob B"));
+    // init() already pointed the model at kRoom, so setRoomId(kRoom) is a
+    // NO-OP (it early-returns on an unchanged id) and the model would still
+    // be holding init's two plain rows — every assertion below would then be
+    // measuring the wrong event. Load the fixture the way every other case
+    // in this file does, and prove it landed.
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(m_model->rowCount(), 1);
+
+    const QModelIndex idx = m_model->index(0);
+    m_client->displayNameLookups = 0;
+    const QVariantList segments =
+        m_model->data(idx, TimelineModel::MessageSegmentsRole).toList();
+    const int firstReadLookups = m_client->displayNameLookups;
+    QVERIFY(firstReadLookups > 0);   // the mention was really resolved
+
+    QCOMPARE(segments.size(), 3);
+    QCOMPARE(segments.at(0).toMap().value(QStringLiteral("kind")).toInt(), 0);
+    QCOMPARE(segments.at(1).toMap().value(QStringLiteral("kind")).toInt(), 1);
+    QCOMPARE(segments.at(2).toMap().value(QStringLiteral("kind")).toInt(), 0);
+
+    const QVariantMap code = segments.at(1).toMap();
+    QCOMPARE(code.value(QStringLiteral("language")).toString(),
+             QStringLiteral("rust"));
+    // PLAIN text: entities are decoded, so the delegate can render it with
+    // Text.PlainText and "&lt;hi&gt;" can never become markup again.
+    QCOMPARE(code.value(QStringLiteral("text")).toString(),
+             QStringLiteral("fn main() {\n    println!(\"<hi>\");\n}"));
+
+    // The rich runs kept their sanitized html and the resolved mention name.
+    QVERIFY(segments.at(0).toMap().value(QStringLiteral("text")).toString()
+                .contains(QStringLiteral("Bob B")));
+    QVERIFY(segments.at(2).toMap().value(QStringLiteral("text")).toString()
+                .contains(QStringLiteral("after")));
+
+    // Memoized: a second read of the role costs no second sanitize walk and
+    // no second identity resolution. Every row's delegate binds this role,
+    // and the walk is the expensive half.
+    m_client->displayNameLookups = 0;
+    const QVariantList again =
+        m_model->data(idx, TimelineModel::MessageSegmentsRole).toList();
+    QCOMPARE(m_client->displayNameLookups, 0);
+    QCOMPARE(again, segments);
+
+    // An edit invalidates it — the cache is keyed on the event, not frozen
+    // for the session.
+    m_client->mirror[0].formattedBody =
+        QStringLiteral("<pre><code>edited</code></pre>");
+    Q_EMIT m_client->eventEdited(kRoom, e.eventId);
+    const QVariantList edited =
+        m_model->data(idx, TimelineModel::MessageSegmentsRole).toList();
+    QCOMPARE(edited.size(), 1);
+    QCOMPARE(edited.at(0).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("edited"));
+}
+
+void TimelineModelDiffTest::messageSegmentsStayEmptyAndFreeForOrdinaryBodies()
+{
+    TimelineEvent plain = makeEvent(QStringLiteral("$plain"),
+                                    QStringLiteral("hello Bob"));
+    TimelineEvent rich = makeEvent(QStringLiteral("$rich"),
+                                   QStringLiteral("hello Bob"));
+    rich.formattedBody = QStringLiteral(
+        "<em>hello</em> <a href=\"https://matrix.to/#/@bob:example.org\">Bob</a>"
+        " and <code>inline</code>");
+    // A <pre> that lives inside dropped content is not a code block: nothing
+    // in there is rendered, so this row must keep the single-TextEdit path.
+    TimelineEvent quoted = makeEvent(QStringLiteral("$quoted"),
+                                     QStringLiteral("reply"));
+    quoted.formattedBody =
+        QStringLiteral("<mx-reply><pre>quoted</pre></mx-reply>reply");
+    TimelineEvent gone = makeEvent(QStringLiteral("$gone"),
+                                   QStringLiteral("removed"));
+    gone.formattedBody = QStringLiteral("<pre><code>secret</code></pre>");
+    gone.redacted = true;
+
+    m_client->mirror = { plain, rich, quoted, gone };
+    m_client->displayNames.insert(QStringLiteral("@bob:example.org"),
+                                  QStringLiteral("Bob B"));
+    // setRoomId(kRoom) would early-return here (init() already set it) and
+    // leave init's rows in place. Reset is the load path.
+    Q_EMIT m_client->timelineReset(kRoom);
+    // Non-vacuous: data() on a row past the end answers an invalid variant
+    // whose toList() is empty, so the loop below would "pass" against a
+    // fixture that never loaded.
+    QCOMPARE(m_model->rowCount(), 4);
+
+    for (int row = 0; row < 4; ++row) {
+        QVERIFY2(m_model->data(m_model->index(row),
+                               TimelineModel::MessageSegmentsRole)
+                     .toList().isEmpty(),
+                 qPrintable(QStringLiteral("row %1 must keep the ordinary "
+                                           "single-TextEdit path").arg(row)));
+    }
+
+    // And the ordinary row is answered WITHOUT a sanitize walk at all — the
+    // role's whole cost for a normal message is one substring test, so
+    // adding it to every delegate does not double the timeline's parsing.
+    // A walk would have resolved the mention.
+    m_client->displayNameLookups = 0;
+    m_model->data(m_model->index(1), TimelineModel::MessageSegmentsRole);
+    QCOMPARE(m_client->displayNameLookups, 0);
+    // The rich body itself is still rendered the usual way — and the
+    // sanitizer resolves the mention to the ROOM display name. It never
+    // echoes the sender's own anchor text (attacker-chosen), and an
+    // unresolved mention renders the localpart ("@bob"), so asserting the
+    // resolved "Bob B" is what proves the walk really ran.
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::FormattedBodyRole)
+                .toString().contains(QStringLiteral("Bob B")));
+}
+
+void TimelineModelDiffTest::reactionRolesNameTheReactorsAndKeepTheUncappedTotal()
+{
+    TimelineEvent e = makeEvent(QStringLiteral("$m0"), QStringLiteral("hi"));
+    Reaction thumbs;
+    thumbs.key = QString::fromUtf8("\U0001F44D");
+    thumbs.count = 7;          // uncapped total, larger than the id window
+    thumbs.byMe = true;
+    thumbs.myEventId = QStringLiteral("$react0");
+    thumbs.senders = { QStringLiteral("@me:example.org"),
+                       QStringLiteral("@bob:example.org"),
+                       QStringLiteral("@carol:example.org") };
+    e.reactions = { thumbs };
+    m_client->mirror = { e };
+    m_client->displayNames.insert(QStringLiteral("@bob:example.org"),
+                                  QStringLiteral("Bob B"));
+    // setRoomId(kRoom) is a no-op after init() already set the same id.
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(m_model->rowCount(), 1);
+
+    // Read buckets through a helper that answers an empty map instead of
+    // indexing an empty list: a role that answers nothing must be a legible
+    // failure here, not a QList::at abort that kills every case after it.
+    auto bucketAt = [this](int row) {
+        const QVariantList buckets =
+            m_model->data(m_model->index(row), TimelineModel::ReactionsRole)
+                .toList();
+        return buckets.isEmpty() ? QVariantMap{} : buckets.at(0).toMap();
+    };
+
+    const QVariantMap bucket = bucketAt(0);
+    QVERIFY(!bucket.isEmpty());
+    QCOMPARE(bucket.value(QStringLiteral("key")).toString(), thumbs.key);
+    QCOMPARE(bucket.value(QStringLiteral("count")).toInt(), 7);
+    QCOMPARE(bucket.value(QStringLiteral("byMe")).toBool(), true);
+    // The count is the UNCAPPED total; the names are the bounded window the
+    // bridge delivered. QML must never have to infer the overflow from a
+    // list length that was capped.
+    QCOMPARE(bucket.value(QStringLiteral("reactorTotal")).toInt(), 7);
+
+    const QStringList names =
+        bucket.value(QStringLiteral("reactorNames")).toStringList();
+    QCOMPARE(names, QStringList({ QStringLiteral("me"),
+                                  QStringLiteral("Bob B"),
+                                  QStringLiteral("carol") }));
+    // Order is the bridge's (local user first) and NEVER a bare MXID: an
+    // unresolved reactor is a localpart, exactly like every other identity
+    // this model shows.
+    for (const QString &name : names) {
+        QVERIFY(!name.startsWith(QLatin1Char('@')));
+        QVERIFY(!name.contains(QLatin1Char(':')));
+    }
+
+    // Member hydration must refresh them off that localpart fallback, the
+    // same way it refreshes senders and receipt chips.
+    QSignalSpy dataSpy(m_model, &QAbstractItemModel::dataChanged);
+    m_client->displayNames.insert(QStringLiteral("@carol:example.org"),
+                                  QStringLiteral("Carol C"));
+    Q_EMIT m_client->membersChanged(kRoom);
+    QVERIFY(!dataSpy.isEmpty());
+    QVERIFY(dataSpy.first().at(2).value<QList<int>>().contains(
+        TimelineModel::ReactionsRole));
+    QCOMPARE(bucketAt(0).value(QStringLiteral("reactorNames")).toStringList(),
+             QStringList({ QStringLiteral("me"), QStringLiteral("Bob B"),
+                           QStringLiteral("Carol C") }));
+
+    // Backends that report no reactor identities (mock/HTTP) simply carry an
+    // empty list — never a fabricated name, never a guessed count.
+    TimelineEvent bare = makeEvent(QStringLiteral("$m1"), QStringLiteral("yo"));
+    Reaction anonymous;
+    anonymous.key = QString::fromUtf8("\U0001F600");
+    anonymous.count = 2;
+    bare.reactions = { anonymous };
+    m_client->mirror.append(bare);
+    Q_EMIT m_client->eventAppended(kRoom, bare);
+    const QVariantMap bareBucket = bucketAt(1);
+    QVERIFY(!bareBucket.isEmpty());
+    QVERIFY(bareBucket.value(QStringLiteral("reactorNames")).toStringList()
+                .isEmpty());
+    QCOMPARE(bareBucket.value(QStringLiteral("reactorTotal")).toInt(), 2);
 }
 
 QTEST_GUILESS_MAIN(TimelineModelDiffTest)

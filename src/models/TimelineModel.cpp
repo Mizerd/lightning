@@ -310,6 +310,21 @@ QUrl TimelineModel::mediaThumbHttp(const QString &mxc, int w, int h) const
     return m_client->mediaThumbnailUrl(mxc, w, h, false);
 }
 
+QString TimelineModel::memberDisplayName(const QString &roomId,
+                                        const QString &userId) const
+{
+    if (userId.isEmpty())
+        return {};
+    if (m_client) {
+        const QString resolved = m_client->displayNameFor(roomId, userId);
+        // Backends return the raw user id when nothing is known — that is
+        // "unresolved", not a display name.
+        if (!resolved.isEmpty() && resolved != userId)
+            return resolved;
+    }
+    return matrix::user_lookup::localpartOrUserId(userId);
+}
+
 QVariantList TimelineModel::reactionsVariant(const TimelineEvent &e) const
 {
     QVariantList out;
@@ -319,6 +334,22 @@ QVariantList TimelineModel::reactionsVariant(const TimelineEvent &e) const
         m.insert(QStringLiteral("key"),   r.key);
         m.insert(QStringLiteral("count"), r.count);
         m.insert(QStringLiteral("byMe"),  r.byMe);
+        // Who reacted. The bridge delivers a bounded window of stable user
+        // ids (16, the read-receipt cap) and resolution happens HERE, at
+        // role-read time, through the same member lookup every other
+        // identity uses — never a name the bridge guessed, and never a
+        // network round trip from a role. `reactorTotal` is the UNCAPPED
+        // count, so the tooltip can say "and N more" truthfully instead of
+        // inferring an overflow from a list length that was capped.
+        QStringList names;
+        names.reserve(r.senders.size());
+        for (const QString &userId : r.senders) {
+            const QString name = memberDisplayName(e.roomId, userId);
+            if (!name.isEmpty())
+                names.append(name);
+        }
+        m.insert(QStringLiteral("reactorNames"),  names);
+        m.insert(QStringLiteral("reactorTotal"),  r.count);
         out.append(m);
     }
     return out;
@@ -367,16 +398,7 @@ QVariantList TimelineModel::readReceiptsVariant(const TimelineEvent &e) const
     QVariantList out;
     out.reserve(receipts.size());
     for (const auto &r : receipts) {
-        QString display;
-        if (m_client) {
-            const QString resolved = m_client->displayNameFor(e.roomId, r.userId);
-            // Backends return the raw user id when nothing is known — that
-            // is "unresolved", not a display name.
-            if (!resolved.isEmpty() && resolved != r.userId)
-                display = resolved;
-        }
-        if (display.isEmpty())
-            display = matrix::user_lookup::localpartOrUserId(r.userId);
+        const QString display = memberDisplayName(e.roomId, r.userId);
         QString avatar =
             m_client ? m_client->avatarMxcFor(e.roomId, r.userId) : QString{};
         // Member-cache miss (hydration pending, failed, or a reader beyond
@@ -468,7 +490,7 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
             entry.insert(QStringLiteral("actorDisplayName"),
                          senderDisplayName(e));
             entry.insert(QStringLiteral("affectedMemberDisplayName"), e.stateTarget);
-            entry.insert(QStringLiteral("description"), e.body);
+            entry.insert(QStringLiteral("description"), visibleBodyFor(e));
             entry.insert(QStringLiteral("timestamp"), e.timestamp);
             entries.append(entry);
             ++i;
@@ -481,6 +503,125 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
         break;
     }
     return entries;
+}
+
+QString TimelineModel::profileChangeDescription(const TimelineEvent &e,
+                                                const QString &actorDisplayName)
+{
+    const QString actor = actorDisplayName.isEmpty()
+        ? matrix::user_lookup::localpartOrUserId(e.sender)
+        : actorDisplayName;
+    // Untrusted plain text, straight from another user's profile. It is
+    // substituted into a tr() string and rendered as PlainText — never as
+    // rich text, and never concatenated into markup.
+    const QString oldName = e.profileNameOld.trimmed();
+    const QString newName = e.profileNameNew.trimmed();
+    const bool avatar = e.profileAvatarChanged;
+
+    if (e.profileNameChange == QLatin1String("changed")
+        && !oldName.isEmpty() && !newName.isEmpty()) {
+        return avatar
+            ? tr("%1 changed their display name from \u201C%2\u201D to "
+                 "\u201C%3\u201D and changed their avatar.")
+                  .arg(actor, oldName, newName)
+            : tr("%1 changed their display name from \u201C%2\u201D to "
+                 "\u201C%3\u201D.")
+                  .arg(actor, oldName, newName);
+    }
+    if (e.profileNameChange == QLatin1String("set") && !newName.isEmpty()) {
+        return avatar
+            ? tr("%1 set their display name to \u201C%2\u201D and changed "
+                 "their avatar.").arg(actor, newName)
+            : tr("%1 set their display name to \u201C%2\u201D.")
+                  .arg(actor, newName);
+    }
+    if (e.profileNameChange == QLatin1String("cleared")) {
+        return avatar
+            ? tr("%1 cleared their display name and changed their avatar.")
+                  .arg(actor)
+            : tr("%1 cleared their display name.").arg(actor);
+    }
+    if (e.profileNameChange.isEmpty() && avatar)
+        return tr("%1 changed their avatar.").arg(actor);
+    // Either nothing typed arrived, or a name change was CLAIMED whose
+    // names we do not have (the bridge bounds them, and an old-name-less
+    // change is legal). Rendering \u201C\u201D would assert the user set
+    // their name to nothing, which is a different event — that is what
+    // "cleared" is for. Say only what is supported.
+    return tr("%1 updated their profile.").arg(actor);
+}
+
+QString TimelineModel::visibleBodyFor(const TimelineEvent &e) const
+{
+    if (e.redacted)
+        return QStringLiteral("[message deleted]");
+    // The Rust bridge sends an EMPTY body for a typed profile change, so
+    // every reader of `body` must come through here or it renders a blank
+    // row. Backends that still phrase the row THEMSELVES (mock, HTTP, rows
+    // restored from an older cache) keep their own sentence: replacing a
+    // body we did not produce with the typed fallback would DISCARD what
+    // that backend knew, not translate it.
+    if (e.type == TimelineEvent::StateChange
+        && e.stateKind == QLatin1String("member_profile")
+        && (!e.profileNameChange.isEmpty() || e.profileAvatarChanged
+            || e.body.isEmpty()))
+        return profileChangeDescription(e, senderDisplayName(e));
+    return e.body;
+}
+
+bool TimelineModel::dividerIntroducesVisibleContent(int dividerRow) const
+{
+    // A date divider earns its space only when something it introduces is
+    // actually drawn. "Drawn" is exactly the delegate's own rule, kept in
+    // one place rather than asked of each delegate (which would need to
+    // scan its neighbours on every bind):
+    //   * any non-virtual, non-state row is a real message/media/poll row;
+    //   * a state row draws only its collapsed GROUP SUMMARY, and only the
+    //     group LEADER draws that;
+    //   * a routine state row draws nothing at all while the room-activity
+    //     preference is off.
+    bool leaderChecked = false;
+    for (int row = dividerRow + 1; row < m_events.size(); ++row) {
+        const auto &e = m_events.at(row);
+        if (e.type == TimelineEvent::DateDivider)
+            return false;   // the next day answers for its own run
+        if (e.isVirtual())
+            continue;       // read markers / timeline-start draw no content
+        if (e.type != TimelineEvent::StateChange)
+            return true;
+        const bool routine = !e.stateKind.isEmpty();
+        if (routine && !m_showRoomActivity)
+            continue;
+        // State groups are transparent through virtual rows, so a run that
+        // began BEFORE this divider keeps its leader up there and this
+        // divider introduces no summary of its own — that is precisely the
+        // orphan date label this role exists to remove. Only the FIRST
+        // drawable state row after the divider can be a leader: everything
+        // after it is in the same run (a run can only end at a visible
+        // message, which returns true above), so this walk costs one
+        // leader resolution, not one per row.
+        if (!leaderChecked) {
+            leaderChecked = true;
+            if (stateGroupLeaderRow(row) == row)
+                return true;
+        }
+    }
+    return false;
+}
+
+void TimelineModel::setShowRoomActivity(bool show)
+{
+    if (m_showRoomActivity == show)
+        return;
+    m_showRoomActivity = show;
+    Q_EMIT showRoomActivityChanged();
+    // Every divider's answer depends on this preference, so the whole
+    // loaded range is re-announced — through the ONE existing presentation
+    // refresh, not a second invalidation path. This runs once per user
+    // toggle, never per frame and never per scroll position.
+    const int exposed = rowCount();
+    if (exposed > 0)
+        emitPresentationGroupingChanged(0, exposed - 1);
 }
 
 void TimelineModel::emitPresentationGroupingChanged(int first, int last)
@@ -508,7 +649,11 @@ void TimelineModel::emitPresentationGroupingChanged(int first, int last)
                        { StateGroupIdRole, StateGroupLeaderRole,
                          StateGroupEntriesRole, SameSenderAsPreviousRole,
                          BeginsSenderGroupRole, ContinuesSenderGroupRole,
-                         EndsSenderGroupRole, ShowSenderIdentityRole });
+                         EndsSenderGroupRole, ShowSenderIdentityRole,
+                         // A divider's answer is decided by the rows of the
+                         // run it introduces, so the same boundary-local
+                         // expansion that refreshes the run refreshes it.
+                         DividerIntroducesVisibleContentRole });
 }
 
 void TimelineModel::rebuildThreadReplyIndex()
@@ -536,10 +681,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case EventIdRole:            return e.eventId;
     case SenderRole:             return e.sender;
     case SenderDisplayNameRole: return senderDisplayName(e);
-    case BodyRole: {
-        if (e.redacted) return QStringLiteral("[message deleted]");
-        return e.body;
-    }
+    case BodyRole:               return visibleBodyFor(e);
     case FormattedBodyRole: {
         // Untrusted sender HTML — never expose it to QML raw. Sanitize to the
         // safe RichText subset and rewrite mentions to resolved display names.
@@ -568,6 +710,61 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         if (!e.eventId.isEmpty())
             m_sanitizedHtmlCache.insert(e.eventId, sanitized);
         return sanitized;
+    }
+    case MessageSegmentsRole: {
+        if (e.redacted || e.formattedBody.isEmpty())
+            return QVariantList{};
+        // The fast path, and the reason this role can exist at all: a body
+        // with no <pre> can never produce a code-block segment
+        // (MessageHtml::segments' own containsCodeBlock() opens with
+        // exactly this test), so the ordinary message is answered by one
+        // substring scan — not by a second full sanitize walk beside
+        // FormattedBodyRole's. Nothing is cached for it either: the answer
+        // is cheaper than the hash lookup that would serve it.
+        if (!e.formattedBody.contains(QLatin1String("<pre"),
+                                      Qt::CaseInsensitive))
+            return QVariantList{};
+        const auto memo = m_messageSegmentsCache.constFind(e.eventId);
+        if (memo != m_messageSegmentsCache.constEnd())
+            return memo.value();
+        const QString roomId = m_roomId;
+        MatrixClient *client = m_client;
+        const QList<MessageHtml::Segment> parsed = MessageHtml::segments(
+            e.formattedBody,
+            [client, roomId](const QString &userId) {
+                return client ? client->displayNameFor(roomId, userId)
+                              : QString();
+            },
+            m_selfUserId,
+            MessageHtml::MentionStyle{m_mentionAccentColor,
+                                      m_mentionSoftColor,
+                                      m_codeBackgroundColor});
+        QVariantList out;
+        bool hasCodeBlock = false;
+        for (const auto &segment : parsed) {
+            if (segment.kind == MessageHtml::SegmentKind::CodeBlock) {
+                hasCodeBlock = true;
+                break;
+            }
+        }
+        // A body that survived the substring test but yielded no code block
+        // (a <pre> inside a dropped element, say) answers EMPTY, so QML
+        // keeps its single-TextEdit path. Only a row that really has a code
+        // block gets the segmented renderer.
+        if (hasCodeBlock) {
+            out.reserve(parsed.size());
+            for (const auto &segment : parsed) {
+                QVariantMap m;
+                m.insert(QStringLiteral("kind"),
+                         static_cast<int>(segment.kind));
+                m.insert(QStringLiteral("text"), segment.text);
+                m.insert(QStringLiteral("language"), segment.language);
+                out.append(m);
+            }
+        }
+        if (!e.eventId.isEmpty())
+            m_messageSegmentsCache.insert(e.eventId, out);
+        return out;
     }
     case TimestampRole:          return e.timestamp;
     case TypeRole:               return static_cast<int>(e.type);
@@ -703,6 +900,11 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case IsLocalEchoRole:        return e.isLocalEcho;
     case SendErrorRole:          return e.sendErrorCategory;
     case IsVirtualRole:          return e.isVirtual();
+    // Meaningful on a date divider; true everywhere else so a QML gate can
+    // read it on every row without a type test of its own.
+    case DividerIntroducesVisibleContentRole:
+        return e.type != TimelineEvent::DateDivider
+            || dividerIntroducesVisibleContent(raw);
     case MediaKeyRole:           return e.mediaKey;
     case MediaSourceAvailableRole: return e.mediaSourceAvailable;
     case MediaThumbAvailableRole:  return e.mediaThumbAvailable;
@@ -834,6 +1036,9 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { CanEndPollRole,           "canEndPoll" },
         { ReadReceiptsRole,         "readReceipts" },
         { ReadReceiptsTotalRole,    "readReceiptsTotal" },
+        { MessageSegmentsRole,      "messageSegments" },
+        { DividerIntroducesVisibleContentRole,
+                                    "dividerIntroducesVisibleContent" },
     };
 }
 
@@ -914,10 +1119,11 @@ void TimelineModel::setMentionStyle(const QString &accentColor,
     m_mentionAccentColor = nextAccent;
     m_mentionSoftColor = nextSoft;
     m_codeBackgroundColor = nextCode;
-    m_sanitizedHtmlCache.clear();
+    clearRenderedHtml();
     const int exposed = rowCount();
     if (exposed > 0)
-        Q_EMIT dataChanged(index(0), index(exposed - 1), {FormattedBodyRole});
+        Q_EMIT dataChanged(index(0), index(exposed - 1),
+                           {FormattedBodyRole, MessageSegmentsRole});
 }
 
 const QHash<QString, int> &TimelineModel::rowIndex() const
@@ -975,8 +1181,8 @@ void TimelineModel::onEventReplaced(const QString &roomId,
     m_events[row] = newEvent;
     noteSenderAvatar(newEvent);
     invalidateRowIndex(); // replacement can rename local: -> remote id
-    m_sanitizedHtmlCache.remove(oldEventId);
-    m_sanitizedHtmlCache.remove(newEvent.eventId);
+    forgetRenderedHtml(oldEventId);
+    forgetRenderedHtml(newEvent.eventId);
     rebuildThreadReplyIndex();
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx);
@@ -1024,10 +1230,11 @@ void TimelineModel::onEventEdited(const QString &roomId, const QString &eventId)
         return;
     m_events[row] = *fresh;
     invalidateRowIndex();
-    m_sanitizedHtmlCache.remove(eventId);
+    forgetRenderedHtml(eventId);
     rebuildThreadReplyIndex();
     const auto idx = index(row);
-    Q_EMIT dataChanged(idx, idx, { BodyRole, FormattedBodyRole, EditedRole });
+    Q_EMIT dataChanged(idx, idx, { BodyRole, FormattedBodyRole,
+                                   MessageSegmentsRole, EditedRole });
 }
 
 void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventId)
@@ -1037,7 +1244,7 @@ void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventI
     if (row < 0) return;
     m_events[row].redacted = true;
     m_events[row].body.clear();
-    m_sanitizedHtmlCache.remove(eventId);
+    forgetRenderedHtml(eventId);
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx, { BodyRole, RedactedRole, ReactionsRole });
     emitPresentationGroupingChanged(row - 1, row + 1);
@@ -1167,8 +1374,8 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     // rebuild a real cost in long timelines.
     const bool threadIndexChanged =
         m_events.at(index).threadRootId != event.threadRootId;
-    m_sanitizedHtmlCache.remove(m_events.at(index).eventId);
-    m_sanitizedHtmlCache.remove(event.eventId);
+    forgetRenderedHtml(m_events.at(index).eventId);
+    forgetRenderedHtml(event.eventId);
     m_events[index] = event;
     noteSenderAvatar(event);
     invalidateRowIndex();
@@ -1190,7 +1397,7 @@ void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
     }
     beginRemoveRows({}, index, index);
     const QString removedRoot = m_events.at(index).threadRootId;
-    m_sanitizedHtmlCache.remove(m_events.at(index).eventId);
+    forgetRenderedHtml(m_events.at(index).eventId);
     m_events.removeAt(index);
     invalidateRowIndex();
     if (!removedRoot.isEmpty()) {
@@ -1216,7 +1423,7 @@ void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
     const int publicSize = static_cast<int>(m_events.size());
     beginRemoveRows({}, length, publicSize - 1);
     while (m_events.size() > length) {
-        m_sanitizedHtmlCache.remove(m_events.last().eventId);
+        forgetRenderedHtml(m_events.last().eventId);
         m_events.removeLast();
     }
     invalidateRowIndex();
@@ -1233,7 +1440,7 @@ void TimelineModel::onLoggedOut()
     invalidateRowIndex();
     // Rendered message HTML is decrypted plaintext for encrypted rooms —
     // it must not outlive the session (review M4).
-    m_sanitizedHtmlCache.clear();
+    clearRenderedHtml();
     m_threadReplyCounts.clear();
     // Session-scoped like every cache here: user-id → avatar pairs from
     // account A must not linger into account B's session.
@@ -1256,7 +1463,7 @@ void TimelineModel::onTypingChanged(const QString &roomId)
 void TimelineModel::onMembersChanged(const QString &roomId)
 {
     if (roomId != m_roomId) return;
-    m_sanitizedHtmlCache.clear(); // mention chips embed resolved names
+    clearRenderedHtml(); // mention chips embed resolved names
     // Refresh SDK/member-derived identity for every row (cheap: one signal).
     // FormattedBodyRole and ReplyToSenderRole are member-derived too: mention
     // chips and reply headers resolve display names through the SAME member
@@ -1267,12 +1474,18 @@ void TimelineModel::onMembersChanged(const QString &roomId)
         Q_EMIT dataChanged(index(0), index(exposed - 1),
                            { SenderDisplayNameRole, SenderInitialsRole,
                              SenderAvatarMxcRole, FormattedBodyRole,
+                             MessageSegmentsRole,
                              ReplyToSenderRole,
+                             // A typed profile-change row phrases itself
+                             // with the ACTOR's resolved name, so hydration
+                             // must re-announce the state rows too.
+                             BodyRole, StateGroupEntriesRole,
                              ThreadLatestSenderDisplayNameRole,
                              // Receipt chips resolve reader names/avatars
                              // through the same member lookup — hydration must
-                             // refresh them off their localpart fallback too.
-                             ReadReceiptsRole });
+                             // refresh them off their localpart fallback too,
+                             // and so do the reactor names on the chips.
+                             ReadReceiptsRole, ReactionsRole });
     }
     refreshTypingText();
 }
@@ -1424,8 +1637,7 @@ QVariantMap TimelineModel::layoutMetadataAt(int row) const
     metadata.insert(QStringLiteral("mediaKind"), mediaKind);
     metadata.insert(QStringLiteral("mediaWidth"), e.mediaWidth);
     metadata.insert(QStringLiteral("mediaHeight"), e.mediaHeight);
-    const QString visibleBody = e.redacted
-        ? QStringLiteral("[message deleted]") : e.body;
+    const QString visibleBody = visibleBodyFor(e);
     metadata.insert(QStringLiteral("bodyLength"), visibleBody.size());
     metadata.insert(QStringLiteral("bodyLineCount"), visibleBody.isEmpty()
                     ? 0 : visibleBody.count(QLatin1Char('\n')) + 1);
@@ -1640,6 +1852,22 @@ void TimelineModel::retryDecryption()
     m_client->retryDecryption(m_roomId);
 }
 
+void TimelineModel::forgetRenderedHtml(const QString &eventId)
+{
+    if (eventId.isEmpty())
+        return;
+    m_sanitizedHtmlCache.remove(eventId);
+    m_messageSegmentsCache.remove(eventId);
+}
+
+void TimelineModel::clearRenderedHtml()
+{
+    // Rendered message HTML — and its segmented form — is decrypted
+    // plaintext in an encrypted room. Both caches live and die together.
+    m_sanitizedHtmlCache.clear();
+    m_messageSegmentsCache.clear();
+}
+
 void TimelineModel::reload()
 {
     beginResetModel();
@@ -1647,7 +1875,7 @@ void TimelineModel::reload()
                    ? m_client->timeline(m_roomId)
                    : QList<TimelineEvent>{};
     invalidateRowIndex();
-    m_sanitizedHtmlCache.clear();
+    clearRenderedHtml();
     rebuildThreadReplyIndex();
     rebuildSenderAvatarIndex();
     endResetModel();
