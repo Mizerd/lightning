@@ -95,6 +95,12 @@ Rectangle {
             replyList.scrollToEndDeferredIfFollowing()
         }
     }
+    Connections {
+        target: app.thread
+        function onNavigationTargetLocated(row) {
+            replyList.positionAtNavigationRow(row)
+        }
+    }
     Component.onCompleted: refreshRoot()
 
     ColumnLayout {
@@ -331,8 +337,18 @@ Rectangle {
                                      + AppTheme.spacing12 * 2, 190)
             clip: true
             radius: 10
-            border.color: AppTheme.border
-            border.width: 1
+            // Reply navigation to the thread ROOT pulses this card: the root
+            // has no row of its own in the list below (replyList suppresses
+            // it), so this card IS the target. A reply preview pointing here
+            // must never close the thread or jump to the room.
+            readonly property bool navigationHighlighted:
+                app.thread.navigationHighlightEventId !== ""
+                && app.thread.navigationHighlightEventId
+                   === (panel.rootData.eventId || "")
+            border.color: navigationHighlighted ? AppTheme.accent
+                                                : AppTheme.border
+            border.width: navigationHighlighted ? 2 : 1
+            Behavior on border.width { NumberAnimation { duration: 120 } }
             color: AppTheme.surface
             ColumnLayout {
                 id: rootColumn
@@ -531,6 +547,41 @@ Rectangle {
                 property bool threadContext: true
                 property string pinnedActionsKey: ""
                 property bool emojiPickerOpen: false
+                // Declared here for the first time, and it repairs a latent
+                // defect rather than only serving C6 below: the shared
+                // MessageDelegate WRITES `timelineView.hoveredActionsKey`
+                // (MessageDelegate.qml:773) and reads it in actionsVisible,
+                // but this pane never declared it — so in the thread panel
+                // those were assignments to a non-existent property and the
+                // hover toolbar could only ever appear via the More menu.
+                // The room timeline has always declared it.
+                property string hoveredActionsKey: ""
+                // C6: the SAME transient-interaction contract the room
+                // timeline supplies. MessageDelegate is shared, and its
+                // `transientOwnerBlocks` treats an UNDEFINED owner as
+                // "blocks nothing" — so without these the picker and its
+                // nested tone popup suppressed the row action bar in the room
+                // and silently did nothing here, in the one pane where the
+                // popup and the bar are closest together (340px wide).
+                property string transientInteractionOwner: ""
+                function claimTransientInteraction(owner) {
+                    if (!owner || owner.length === 0)
+                        return
+                    // CLEAR, not cover — same rule as the room timeline.
+                    hoveredActionsKey = ""
+                    pinnedActionsKey = ""
+                    transientInteractionOwner = owner
+                }
+                function releaseTransientInteraction(owner, fallback) {
+                    if (transientInteractionOwner !== owner)
+                        return
+                    transientInteractionOwner = fallback ? fallback : ""
+                }
+                onHoveredActionsKeyChanged: {
+                    if (transientInteractionOwner !== ""
+                        && hoveredActionsKey !== "")
+                        hoveredActionsKey = ""
+                }
                 property bool roomEncrypted: {
                     var info = app.roomList.findRoom(app.thread.roomId)
                     return info && info.encrypted === true
@@ -550,6 +601,34 @@ Rectangle {
                 }
                 property var openSenderProfile: function(member) {
                     threadSenderProfile.openFor(member)
+                }
+                // v0.7.4 reply navigation (contract C5). The POLICY — the
+                // bounded thread pagination, the thread-identity guard and
+                // the honest failure wording — lives in ThreadController;
+                // this view owns only where the row ends up on screen, which
+                // is the architecture's split. Note the target is resolved
+                // against THIS thread's timeline only: a reply preview inside
+                // a thread never points at an ordinary room message, so there
+                // is deliberately no app.pagination path here.
+                property string navigationHighlightEventId:
+                    app.thread.navigationHighlightEventId
+                property var navigateToEvent: function(eventId) {
+                    app.thread.navigateToEvent(eventId || "")
+                }
+                function positionAtNavigationRow(row) {
+                    if (row < 0 || row >= count)
+                        return
+                    followLatest = false
+                    // A programmatic landing must not be finished off by a
+                    // lingering wheel animation, and must not be undone by a
+                    // pagination anchor the same batch armed — that anchor
+                    // belongs to where the reader WAS, not to where they
+                    // asked to go. Dropping it makes restoreCapturedAnchor()
+                    // a no-op rather than a competitor.
+                    app.threadScroll.cancel()
+                    anchorStableId = ""
+                    positionViewAtIndex(row, ListView.Center)
+                    panel.saveThreadScrollPosition()
                 }
 
                 // v0.6.0 checkpoint 6: the panel's own wheel motion engine
@@ -781,6 +860,37 @@ Rectangle {
                 }
 
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            }
+
+            // Honest failure notice for reply navigation — the SAME sentence
+            // the room timeline shows (ThreadController reuses
+            // PaginationController's single translatable string). A transient
+            // inline pill over the list, never a dialog: the reader asked to
+            // look at a message, not to acknowledge an error.
+            Label {
+                objectName: "threadNavigationNotice"
+                visible: app.thread.navigationMessage.length > 0
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: AppTheme.spacing12
+                width: Math.min(implicitWidth,
+                                parent.width - AppTheme.spacing12 * 2)
+                text: app.thread.navigationMessage
+                color: AppTheme.textMuted
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+                horizontalAlignment: Text.AlignHCenter
+                topPadding: AppTheme.spacingS
+                bottomPadding: AppTheme.spacingS
+                leftPadding: AppTheme.spacing12
+                rightPadding: AppTheme.spacing12
+                z: 5
+                background: Rectangle {
+                    radius: AppTheme.radiusSm
+                    color: AppTheme.surface
+                    border.color: AppTheme.border
+                    border.width: 1
+                }
             }
         }
 
@@ -1591,11 +1701,20 @@ Rectangle {
         id: threadReactionPicker
         mode: "reaction"
         property string targetEventId: ""
-        onOpened: replyList.emojiPickerOpen = true
+        onOpened: {
+            replyList.emojiPickerOpen = true
+            replyList.claimTransientInteraction("picker")
+        }
         onClosed: {
             replyList.emojiPickerOpen = false
+            replyList.releaseTransientInteraction("picker", "")
             targetEventId = ""
         }
+        // The nested skin-tone popup owns interaction while it is up and
+        // hands it back to the picker, not to the rows (see the room
+        // timeline's identical wiring).
+        onToneOpened: replyList.claimTransientInteraction("tone")
+        onToneClosed: replyList.releaseTransientInteraction("tone", "picker")
         onEmojiChosen: (emoji) => {
             if (targetEventId !== "")
                 app.composer.reactTo(targetEventId, emoji)
@@ -1612,6 +1731,10 @@ Rectangle {
             threadReactionPicker.close()
             threadSenderProfile.close()
             threadMentionPopup.close()
+            // One reset point, matching closeRowAnchoredSurfaces() in the room
+            // timeline: a surface destroyed under the pointer would otherwise
+            // leave this pane permanently unable to show an action bar.
+            replyList.transientInteractionOwner = ""
         }
     }
 

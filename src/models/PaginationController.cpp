@@ -274,7 +274,15 @@ void PaginationController::jumpToEvent(const QString &eventId)
     // A room-open fill may already own the single flight, or the timeline
     // may not have adopted its SDK generation yet. Keep the target pending;
     // finishBatch()/the readiness-driven initial fill will continue it.
-    if (!m_requestActive && m_client->paginationReady(m_roomId))
+    //
+    // The m_client guard is not decoration: request() returns early without
+    // dispatching when there is no client, so this line used to dereference a
+    // null pointer on exactly that path (its sibling in restoreScrollAnchor()
+    // has always guarded it). A missing client can never deliver a completion
+    // either, so the pending target is failed honestly rather than left to sit
+    // forever behind a click that appeared to do nothing.
+    if (!m_requestActive
+        && (!m_client || m_client->paginationReady(m_roomId)))
         failNavigation();
 }
 
@@ -738,8 +746,8 @@ void PaginationController::failNavigation()
         Q_EMIT restoreLatestRequested();
         return;
     }
-    m_navigationMessage = tr("Original message is unavailable.");
-    m_navigationMessageTimer.start(3000);
+    m_navigationMessage = unavailableTargetMessage();
+    m_navigationMessageTimer.start(kNavigationMessageDurationMs);
     Q_EMIT navigationChanged();
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QCoreApplication>
 #include <QList>
 #include <QHash>
 #include <QObject>
@@ -99,6 +100,27 @@ public:
     Q_ENUM(InitialHistoryState)
 
     explicit PaginationController(QObject *parent = nullptr);
+
+    // The ONE wording for "the navigation target could not be reached".
+    // ThreadController shows the same sentence when a thread-local reply
+    // cannot be paginated into the thread panel: a second phrasing for the
+    // same fact would read to the user as a different failure, and lupdate
+    // still sees exactly one translatable source.
+    // QCoreApplication::translate() rather than tr(), and inline, so
+    // ThreadController can show it without linking this class's metaobject
+    // (its own suites do not build PaginationController.cpp). The context
+    // string and the source key are exactly what tr() produced here before,
+    // so existing translations are unaffected.
+    static QString unavailableTargetMessage()
+    {
+        return QCoreApplication::translate(
+            "PaginationController", "Original message is unavailable.");
+    }
+    // Reply-highlight lifetime, and how long the unavailable notice stays.
+    // Shared with ThreadController so the room timeline and the thread panel
+    // pulse and expire identically.
+    static constexpr int kDefaultHighlightDurationMs = 1800;
+    static constexpr int kNavigationMessageDurationMs = 3000;
 
     void setClient(MatrixClient *client);
     void setTimelineModel(TimelineModel *model) { m_timelineModel = model; }
@@ -303,7 +325,7 @@ private:
     QTimer m_highlightTimer;
     QTimer m_navigationMessageTimer;
     QHash<QString, ScrollAnchor> m_scrollAnchors;
-    int m_highlightDurationMs = 1800;
+    int m_highlightDurationMs = kDefaultHighlightDurationMs;
 
     static constexpr int kMaxNoProgressStrikes = 2;
     static constexpr int kMaxNearTopEmptyStrikes = 4;

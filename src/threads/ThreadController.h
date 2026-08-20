@@ -10,6 +10,7 @@
 
 #include "models/AttachmentQueueModel.h"
 #include "models/MentionTokenizer.h"
+#include "models/PaginationController.h"
 #include "models/TimelineModel.h"
 
 #include <QVariantMap>
@@ -81,6 +82,20 @@ class ThreadController : public QObject
     Q_PROPERTY(bool hasAttachments READ hasAttachments NOTIFY attachmentsChanged)
     Q_PROPERTY(bool attachmentsSupported READ attachmentsSupported
                    NOTIFY stateChanged)
+    // v0.7.4 thread-local reply navigation. The room timeline's equivalent is
+    // PaginationController; this is deliberately separate state rather than a
+    // second consumer of that controller, because a reply preview inside a
+    // thread must NEVER be routed through the ROOM history loader — see
+    // navigateToEvent(). Empty highlight id means "nothing is pulsing".
+    Q_PROPERTY(QString navigationHighlightEventId READ navigationHighlightEventId
+                   NOTIFY navigationChanged)
+    // Honest, transient failure wording. Shares PaginationController's single
+    // translatable string so the two surfaces cannot drift.
+    Q_PROPERTY(QString navigationMessage READ navigationMessage
+                   NOTIFY navigationChanged)
+    // True while a bounded backward search for a not-yet-loaded target is in
+    // flight. Presentation hint and test surface; no policy reads it.
+    Q_PROPERTY(bool navigating READ navigating NOTIFY navigationChanged)
 
 public:
     enum State { Closed, Opening, Ready, Failed };
@@ -133,6 +148,10 @@ public:
     // Attachment sending is available only when the backend supports both
     // attachment upload and live thread timelines.
     bool attachmentsSupported() const;
+    QString navigationHighlightEventId() const
+    { return m_navigationHighlightEventId; }
+    QString navigationMessage() const { return m_navigationMessage; }
+    bool navigating() const { return !m_navigationEventId.isEmpty(); }
 
     // Open (or switch to) the thread rooted at `rootEventId`. Replaces any
     // open thread; stale results from the replaced thread are ignored by
@@ -190,6 +209,18 @@ public:
     // honest "original message unavailable" state. Safe fields only.
     Q_INVOKABLE QVariantMap rootInfo() const;
 
+    // Reply navigation WITHIN the open thread (contract C5). Resolves the
+    // target in the thread's own timeline, paginating this thread's history a
+    // bounded number of times when it is not loaded yet, and reports honestly
+    // when it cannot be reached. Never touches the room timeline.
+    Q_INVOKABLE void navigateToEvent(const QString &eventId);
+
+    // Test hook: keeps the bounded loop, the highlight pulse and the
+    // unanswered-batch watchdog off wall-clock time. Non-positive arguments
+    // leave the corresponding policy value untouched.
+    void setNavigationPolicyForTest(int maxBatches, int highlightDurationMs,
+                                    int batchTimeoutMs);
+
     // The active room changed; a thread panel never survives into another
     // room. Called by AppController.
     void handleCurrentRoomChanged(const QString &currentRoomId);
@@ -204,6 +235,13 @@ Q_SIGNALS:
     void listStateChanged();
     void attachmentsChanged();
     void attachmentRejected(const QString &reason);
+    void navigationChanged();
+    // The navigation target resolved to `row` of model(); the panel positions
+    // its ListView there. Mirrors PaginationController::targetLocated without
+    // the pixel offset — the thread panel keeps no saved scroll anchors, and
+    // a reply landing is always a "put it comfortably on screen", never a
+    // restore of a remembered position.
+    void navigationTargetLocated(int row);
 
 private Q_SLOTS:
     void onAttachmentQueueFinished(quint64 opId, const QString &roomId,
@@ -253,6 +291,18 @@ private:
     QTimer m_draftDebounce;
     bool m_restoringDraft = false;
     void resetFollowState();
+    // Reply-navigation internals. All of them no-op when no navigation is
+    // pending, so they are safe to call from the model signal handlers.
+    void beginNavigationBatch();
+    void continueNavigation();
+    void locateNavigationTarget(int row);
+    void failNavigation();
+    void clearNavigation(bool clearMessage);
+    void setNavigationHighlight(const QString &eventId);
+    // The open thread is no longer the one the pending navigation started in
+    // (closed, switched thread, or switched room). Identity IS the generation
+    // guard here, exactly as it is for the follow/subscription answers above.
+    bool navigationStale() const;
     // Conservative unread hint for a list entry: the loaded room timeline's
     // SDK thread summary for that root, when present.
     bool threadUnreadHint(const QString &rootEventId) const;
@@ -267,4 +317,27 @@ private:
     bool m_listFailed = false;
     QString m_listRoomId;
     QVariantList m_threadList;
+
+    // Reply navigation state. m_navigationEventId non-empty == a bounded
+    // backward search is in flight; the room/root pair it started in is the
+    // staleness gate for every completion.
+    QString m_navigationEventId;
+    QString m_navigationRoomId;
+    QString m_navigationRootEventId;
+    int m_navigationBatches = 0;
+    int m_maxNavigationBatches = 8;   // matches kMaxNavigationBatches
+    QString m_navigationHighlightEventId;
+    QString m_navigationMessage;
+    QTimer m_navigationHighlightTimer;
+    QTimer m_navigationMessageTimer;
+    // Per-batch watchdog. A request the backend drops silently would
+    // otherwise leave the reader with a click that did nothing at all — the
+    // exact failure class this round exists to remove.
+    QTimer m_navigationBatchTimer;
+    int m_navigationHighlightMs =
+        PaginationController::kDefaultHighlightDurationMs;
+    int m_navigationBatchTimeoutMs = 8000;
+    // Mirrors TimelineModel::paginating() so a completion EDGE can be told
+    // from an ordinary state poke.
+    bool m_modelPaginating = false;
 };

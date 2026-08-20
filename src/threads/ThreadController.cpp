@@ -35,6 +35,55 @@ ThreadController::ThreadController(QObject *parent)
     m_draftDebounce.setInterval(1000);
     connect(&m_draftDebounce, &QTimer::timeout, this,
             [this] { saveDraftNow(); });
+
+    // ── Reply navigation inside the open thread (contract C5) ───────────
+    m_navigationHighlightTimer.setSingleShot(true);
+    m_navigationMessageTimer.setSingleShot(true);
+    m_navigationBatchTimer.setSingleShot(true);
+    connect(&m_navigationHighlightTimer, &QTimer::timeout, this, [this] {
+        m_navigationHighlightEventId.clear();
+        Q_EMIT navigationChanged();
+    });
+    connect(&m_navigationMessageTimer, &QTimer::timeout, this, [this] {
+        m_navigationMessage.clear();
+        Q_EMIT navigationChanged();
+    });
+    connect(&m_navigationBatchTimer, &QTimer::timeout, this, [this] {
+        // Nothing ever answered the batch (a dropped request, a backend that
+        // went quiet). Say so rather than leaving a click that silently did
+        // nothing — one bounded batch cannot be retried into a spin because
+        // the batch counter has already been spent.
+        if (!m_navigationEventId.isEmpty())
+            failNavigation();
+    });
+    // Rows landed. Check here as well as on the completion edge below so the
+    // panel lands on the same frame the page arrived; deciding whether to ask
+    // for ANOTHER page is deliberately not done here, because the model is
+    // still paginating and that request would just be dropped after spending
+    // one of the bounded attempts.
+    connect(&m_model, &TimelineModel::olderPrepended, this, [this](int) {
+        if (m_navigationEventId.isEmpty())
+            return;
+        if (navigationStale()) {
+            clearNavigation(/*clearMessage=*/true);
+            return;
+        }
+        const int row = m_model.rowForStableId(m_navigationEventId);
+        if (row >= 0)
+            locateNavigationTarget(row);
+    });
+    connect(&m_model, &TimelineModel::paginationChanged, this, [this] {
+        const bool wasPaginating = m_modelPaginating;
+        m_modelPaginating = m_model.paginating();
+        if (m_navigationEventId.isEmpty() || m_modelPaginating)
+            return;
+        // Only a busy -> idle transition is an answer; every other emission
+        // is a state poke (a failure clear, a readiness change) and must not
+        // consume one of the bounded attempts.
+        if (!wasPaginating)
+            return;
+        continueNavigation();
+    });
 }
 
 void ThreadController::saveDraftNow()
@@ -240,6 +289,12 @@ void ThreadController::openThread(const QString &roomId,
     // Queued attachments belong to the thread they were prepared in; a thread
     // switch must never reroute them into the newly opened thread.
     clearAttachments();
+    // A reply search still walking the previous thread's history is abandoned
+    // SILENTLY: the reader moved on, and reporting the old thread's failure
+    // over the new one would be noise about something they no longer asked
+    // for. (navigationStale() catches any batch already in flight; this is
+    // the synchronous half.)
+    clearNavigation(/*clearMessage=*/true);
     // Bind the model to the new composite id BEFORE dispatching so the
     // arriving snapshot reset is applied, never raced.
     m_model.setRoomId(timelineId());
@@ -268,6 +323,7 @@ void ThreadController::close()
     cancelReply();
     clearComposerText();
     clearAttachments();
+    clearNavigation(/*clearMessage=*/true);
     resetFollowState();
     m_lastMarkedReadEventId.clear();
     // Reclaim any voice recording whose send may never report back. The
@@ -820,6 +876,161 @@ void ThreadController::paginateList()
     m_listLoading = true;
     Q_EMIT listStateChanged();
     m_client->paginateThreadList(m_listRoomId);
+}
+
+// ── Reply navigation inside the open thread (contract C5) ───────────────
+//
+// The room timeline's equivalent is PaginationController::jumpToEvent. This
+// is deliberately a SEPARATE implementation rather than a second caller of
+// that controller: a reply preview shown inside a thread panel can only point
+// at another event of that same thread. The SDK's thread-focused timeline
+// drops the falling-back m.in_reply_to and keeps only genuine in-thread
+// relations, so the target is another thread reply or the thread root —
+// never an ordinary room message. Handing any of it to the ROOM history
+// loader would therefore pull the reader out of the thread to hunt for an
+// event the thread itself owns. There is no room-handoff branch here on
+// purpose; "Open in room" stays the one explicit, user-chosen way to leave.
+void ThreadController::navigateToEvent(const QString &eventId)
+{
+    if (eventId.isEmpty() || m_state == Closed)
+        return;
+    if (eventId == m_rootEventId) {
+        // The root is not a row of the reply list: ThreadPanel suppresses its
+        // row and pins it as a card above the replies, so "navigate to the
+        // root" is a pulse of that card. Never a close, never a room jump.
+        clearNavigation(/*clearMessage=*/true);
+        setNavigationHighlight(eventId);
+        return;
+    }
+    const int loadedRow = m_model.rowForStableId(eventId);
+    if (loadedRow >= 0) {
+        clearNavigation(/*clearMessage=*/true);
+        setNavigationHighlight(eventId);
+        Q_EMIT navigationTargetLocated(loadedRow);
+        return;
+    }
+    if (m_navigationEventId == eventId)
+        return;   // coalesce repeated activation of the same reply preview
+    clearNavigation(/*clearMessage=*/true);
+    m_navigationEventId = eventId;
+    m_navigationRoomId = m_roomId;
+    m_navigationRootEventId = m_rootEventId;
+    m_navigationBatches = 0;
+    Q_EMIT navigationChanged();
+    beginNavigationBatch();
+}
+
+void ThreadController::beginNavigationBatch()
+{
+    if (m_navigationEventId.isEmpty())
+        return;
+    if (!m_client || navigationStale()) {
+        clearNavigation(/*clearMessage=*/true);
+        return;
+    }
+    const QString id = timelineId();
+    // canPaginate() is false while a batch is loading as well as at the start
+    // of history, so a batch already in flight is ridden rather than treated
+    // as "no more history": its completion edge continues this search.
+    const bool busy = m_client->paginating(id);
+    if (m_navigationBatches >= m_maxNavigationBatches
+        || (!busy && !m_client->canPaginate(id))) {
+        failNavigation();
+        return;
+    }
+    ++m_navigationBatches;
+    m_navigationBatchTimer.start(m_navigationBatchTimeoutMs);
+    if (!busy)
+        m_model.requestOlder();
+    // Re-read rather than assume: the mirror must be right at the start of
+    // every batch or the busy -> idle edge below cannot be recognised.
+    m_modelPaginating = m_client->paginating(id);
+}
+
+void ThreadController::continueNavigation()
+{
+    if (m_navigationEventId.isEmpty())
+        return;
+    if (navigationStale()) {
+        clearNavigation(/*clearMessage=*/true);
+        return;
+    }
+    const int row = m_model.rowForStableId(m_navigationEventId);
+    if (row >= 0) {
+        locateNavigationTarget(row);
+        return;
+    }
+    if (m_model.paginationFailed()) {
+        failNavigation();
+        return;
+    }
+    beginNavigationBatch();
+}
+
+void ThreadController::locateNavigationTarget(int row)
+{
+    const QString eventId = m_navigationEventId;
+    clearNavigation(/*clearMessage=*/true);
+    setNavigationHighlight(eventId);
+    Q_EMIT navigationTargetLocated(row);
+}
+
+void ThreadController::failNavigation()
+{
+    clearNavigation(/*clearMessage=*/false);
+    // Deliberately the ROOM's sentence, not a second one: the reader is told
+    // the same fact by the same words wherever the reply lived.
+    m_navigationMessage = PaginationController::unavailableTargetMessage();
+    m_navigationMessageTimer.start(
+        PaginationController::kNavigationMessageDurationMs);
+    Q_EMIT navigationChanged();
+}
+
+void ThreadController::clearNavigation(bool clearMessage)
+{
+    bool changed = !m_navigationEventId.isEmpty();
+    m_navigationEventId.clear();
+    m_navigationRoomId.clear();
+    m_navigationRootEventId.clear();
+    m_navigationBatches = 0;
+    m_navigationBatchTimer.stop();
+    if (!m_navigationHighlightEventId.isEmpty()) {
+        m_navigationHighlightTimer.stop();
+        m_navigationHighlightEventId.clear();
+        changed = true;
+    }
+    if (clearMessage && !m_navigationMessage.isEmpty()) {
+        m_navigationMessageTimer.stop();
+        m_navigationMessage.clear();
+        changed = true;
+    }
+    if (changed)
+        Q_EMIT navigationChanged();
+}
+
+void ThreadController::setNavigationHighlight(const QString &eventId)
+{
+    m_navigationHighlightEventId = eventId;
+    m_navigationHighlightTimer.start(m_navigationHighlightMs);
+    Q_EMIT navigationChanged();
+}
+
+bool ThreadController::navigationStale() const
+{
+    return m_state == Closed || m_roomId != m_navigationRoomId
+           || m_rootEventId != m_navigationRootEventId;
+}
+
+void ThreadController::setNavigationPolicyForTest(int maxBatches,
+                                                  int highlightDurationMs,
+                                                  int batchTimeoutMs)
+{
+    if (maxBatches > 0)
+        m_maxNavigationBatches = maxBatches;
+    if (highlightDurationMs > 0)
+        m_navigationHighlightMs = highlightDurationMs;
+    if (batchTimeoutMs > 0)
+        m_navigationBatchTimeoutMs = batchTimeoutMs;
 }
 
 void ThreadController::setState(State state, const QString &failureCategory)

@@ -8,6 +8,7 @@
 
 #include "matrix/MockMatrixClient.h"
 #include "models/AttachmentQueueModel.h"
+#include "models/PaginationController.h"
 #include "models/TimelineModel.h"
 #include "threads/ThreadController.h"
 #include "threads/ThreadManager.h"
@@ -65,6 +66,21 @@ private:
             out << model.data(model.index(row, 0), TimelineModel::BodyRole)
                        .toString();
         return out;
+    }
+
+    // Opens a room's first fixture thread. Deliberately a plain private
+    // helper, not a slot: anything in the Q_SLOTS block below is a test case.
+    static bool openFixtureThread(MockMatrixClient &client,
+                                  ThreadController &controller,
+                                  const QString &roomId, QString *rootOut)
+    {
+        const QString rootId = firstThreadRootId(client, roomId);
+        if (rootId.isEmpty())
+            return false;
+        controller.openThread(roomId, rootId);
+        if (rootOut)
+            *rootOut = rootId;
+        return true;
     }
 
 private Q_SLOTS:
@@ -879,6 +895,297 @@ private Q_SLOTS:
         // Sign-out drops everything: no cross-account face leakage.
         client.logout();
         QVERIFY(threads.participants(kGeneral, root).isEmpty());
+    }
+
+    // ── Reply navigation inside the thread panel (contract C5) ──────────
+    //
+    // These pin the whole point of the round's thread half: a reply preview
+    // in a thread panel resolves against THIS thread's timeline, never
+    // against the room history loader.
+
+    // A target already in the loaded thread timeline resolves synchronously:
+    // one located signal carrying its row, and a highlight that is a PULSE,
+    // not a permanent state.
+    void navigateToLoadedThreadReplyLocatesItsRowAndPulses()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.setNavigationPolicyForTest(3, 150, 500);
+
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        auto *model = controller.model();
+        QVERIFY(model->rowCount() >= 3);
+
+        const int targetRow = model->rowCount() - 1;
+        const QString targetId =
+            model->data(model->index(targetRow, 0),
+                        TimelineModel::EventIdRole).toString();
+        QVERIFY(!targetId.isEmpty());
+        QVERIFY(targetId != rootId);
+
+        QSignalSpy located(&controller,
+                           &ThreadController::navigationTargetLocated);
+        controller.navigateToEvent(targetId);
+
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(located.at(0).at(0).toInt(), targetRow);
+        QCOMPARE(controller.navigationHighlightEventId(), targetId);
+        QVERIFY(controller.navigationMessage().isEmpty());
+        QVERIFY(!controller.navigating());
+        // The pulse expires on its own; a permanent highlight would leave the
+        // row looking selected forever.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.navigationHighlightEventId().isEmpty(), kSignalTimeoutMs);
+    }
+
+    // The highlight is observably ON before it clears — the assertion above
+    // would also pass if it had never been set at all.
+    void theReplyHighlightIsVisibleBeforeItExpires()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.setNavigationPolicyForTest(3, 400, 500);
+
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        auto *model = controller.model();
+        const QString targetId =
+            model->data(model->index(model->rowCount() - 1, 0),
+                        TimelineModel::EventIdRole).toString();
+
+        QSignalSpy navChanged(&controller, &ThreadController::navigationChanged);
+        controller.navigateToEvent(targetId);
+        QVERIFY(navChanged.count() >= 1);
+        QCOMPARE(controller.navigationHighlightEventId(), targetId);
+        QTest::qWait(80);
+        QCOMPARE(controller.navigationHighlightEventId(), targetId);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.navigationHighlightEventId().isEmpty(), kSignalTimeoutMs);
+    }
+
+    // The thread ROOT is not a row of the reply list (the panel suppresses it
+    // and pins it as a card), so navigating to it pulses that card: no row
+    // landing, no thread close, and above all no room jump.
+    void navigateToThreadRootPulsesTheCardWithoutLeavingTheThread()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.setNavigationPolicyForTest(3, 300, 500);
+
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+
+        const int roomRowsBefore = client.timeline(kGeneral).size();
+        QSignalSpy located(&controller,
+                           &ThreadController::navigationTargetLocated);
+        QSignalSpy stateSpy(&controller, &ThreadController::stateChanged);
+
+        controller.navigateToEvent(rootId);
+
+        QCOMPARE(controller.navigationHighlightEventId(), rootId);
+        QCOMPARE(located.count(), 0);          // the root owns no list row
+        QCOMPARE(stateSpy.count(), 0);         // the thread stayed open
+        QCOMPARE(controller.state(), ThreadController::Ready);
+        QCOMPARE(controller.roomId(), kGeneral);
+        QCOMPARE(controller.rootEventId(), rootId);
+        QVERIFY(controller.navigationMessage().isEmpty());
+        // Nothing asked the ROOM for history.
+        QCOMPARE(client.timeline(kGeneral).size(), roomRowsBefore);
+        QVERIFY(!client.paginating(kGeneral));
+    }
+
+    // A target only reachable through this thread's own backward pagination
+    // is found by the bounded search and located at its landed row.
+    void navigateToAnUnloadedReplyPaginatesTheThreadTimeline()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.setPaginationDelayForTest(10);
+        ThreadController controller;
+        controller.setClient(&client);
+        // A generous highlight lifetime: this case waits on an async page,
+        // and the pulse must still be observable when it lands.
+        controller.setNavigationPolicyForTest(4, 1500, 3000);
+
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+
+        // Give the OPEN thread timeline paginable history. The mock keys
+        // pagination by timeline id, and a thread timeline it assembled
+        // itself has none — so seed it with exactly the rows it already has
+        // plus a page budget, and stage the page that carries the target.
+        const QString threadId = MatrixClient::threadTimelineId(kGeneral,
+                                                               rootId);
+        TimelineEvent older;
+        older.eventId = QStringLiteral("$older-thread-reply:mock.local");
+        older.sender = QStringLiteral("@bob:mock.local");
+        older.senderDisplayName = QStringLiteral("Bob");
+        older.body = QStringLiteral("An older reply in this thread.");
+        older.timestamp = QDateTime::currentDateTimeUtc().addSecs(-7200);
+        older.type = TimelineEvent::TextMessage;
+        older.status = TimelineEvent::Sent;
+        older.threadRootId = rootId;
+        client.setPaginationChunkForTest({ older });
+        client.resetTimelineForTest(threadId, client.timeline(threadId), 2);
+
+        auto *model = controller.model();
+        QTRY_VERIFY_WITH_TIMEOUT(model->rowCount() > 0, kSignalTimeoutMs);
+        QCOMPARE(model->rowForStableId(older.eventId), -1);
+
+        QSignalSpy located(&controller,
+                           &ThreadController::navigationTargetLocated);
+        controller.navigateToEvent(older.eventId);
+        QVERIFY(controller.navigating());
+
+        QTRY_COMPARE_WITH_TIMEOUT(located.count(), 1, kSignalTimeoutMs);
+        // A backward page lands at the top of the thread timeline.
+        QCOMPARE(located.at(0).at(0).toInt(), 0);
+        QCOMPARE(model->rowForStableId(older.eventId), 0);
+        QCOMPARE(controller.navigationHighlightEventId(), older.eventId);
+        QVERIFY(controller.navigationMessage().isEmpty());
+        QVERIFY(!controller.navigating());
+    }
+
+    // A thread with no reachable history refuses immediately and honestly —
+    // and, critically, does NOT fall back to the room history loader.
+    void navigationForAnUnreachableTargetFailsHonestlyAndNeverJumpsToTheRoom()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.setNavigationPolicyForTest(3, 200, 500);
+
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+
+        const int roomRowsBefore = client.timeline(kGeneral).size();
+        QSignalSpy located(&controller,
+                           &ThreadController::navigationTargetLocated);
+        controller.navigateToEvent(QStringLiteral("$nowhere:mock.local"));
+
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.navigationMessage().isEmpty(),
+                                 kSignalTimeoutMs);
+        // The SAME sentence the room timeline shows, not a second wording.
+        QCOMPARE(controller.navigationMessage(),
+                 PaginationController::unavailableTargetMessage());
+        QCOMPARE(located.count(), 0);
+        QVERIFY(controller.navigationHighlightEventId().isEmpty());
+        QVERIFY(!controller.navigating());
+        QCOMPARE(client.timeline(kGeneral).size(), roomRowsBefore);
+        QVERIFY(!client.paginating(kGeneral));
+    }
+
+    // With history available but the target not in it, the search stops at
+    // its own bounded budget — not at the end of the thread — and reports the
+    // honest message rather than paginating the whole thread away.
+    void navigationStopsAtItsBoundedBudgetAndReportsHonestly()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.setPaginationDelayForTest(5);
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.setNavigationPolicyForTest(3, 200, 3000);
+
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+
+        const QString threadId = MatrixClient::threadTimelineId(kGeneral,
+                                                               rootId);
+        // Far more pages than the budget, and none of them carry the target.
+        client.resetTimelineForTest(threadId, client.timeline(threadId), 20);
+
+        auto *model = controller.model();
+        const int rowsBefore = model->rowCount();
+        QSignalSpy located(&controller,
+                           &ThreadController::navigationTargetLocated);
+        controller.navigateToEvent(QStringLiteral("$never-here:mock.local"));
+
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.navigationMessage().isEmpty(),
+                                 kSignalTimeoutMs);
+        QCOMPARE(controller.navigationMessage(),
+                 PaginationController::unavailableTargetMessage());
+        QCOMPARE(located.count(), 0);
+        // Exactly three pages of three synthetic rows each: the stop was the
+        // budget, not the end of history (the mock still has pages left).
+        QCOMPARE(model->rowCount(), rowsBefore + 9);
+        QVERIFY(client.canPaginate(threadId));
+        QVERIFY(!controller.navigating());
+    }
+
+    // A reader who moves on must never be pulled back. Both lifecycle
+    // changes that can happen mid-search abandon it SILENTLY: no honest
+    // message about a thread they left, and no landing in the new one.
+    void aThreadOrRoomChangeAbandonsAnInFlightReplySearch()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.setPaginationDelayForTest(120);
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.setNavigationPolicyForTest(3, 200, 3000);
+
+        QString generalRoot;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &generalRoot));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        const QString generalThreadId =
+            MatrixClient::threadTimelineId(kGeneral, generalRoot);
+        client.resetTimelineForTest(generalThreadId,
+                                    client.timeline(generalThreadId), 20);
+
+        QSignalSpy located(&controller,
+                           &ThreadController::navigationTargetLocated);
+
+        // (1) Switching to a thread in ANOTHER room.
+        controller.navigateToEvent(QStringLiteral("$gone-a:mock.local"));
+        QVERIFY(controller.navigating());
+        const QString devsRoot = firstThreadRootId(client, kDevs);
+        QVERIFY(!devsRoot.isEmpty());
+        controller.openThread(kDevs, devsRoot);
+        QVERIFY(!controller.navigating());
+        QVERIFY(controller.navigationHighlightEventId().isEmpty());
+        QVERIFY(controller.navigationMessage().isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QTest::qWait(250);            // let the abandoned page land
+        QCOMPARE(located.count(), 0);
+        QVERIFY(controller.navigationMessage().isEmpty());
+
+        // (2) The active room changing out from under the panel.
+        const QString devsThreadId =
+            MatrixClient::threadTimelineId(kDevs, devsRoot);
+        client.resetTimelineForTest(devsThreadId,
+                                    client.timeline(devsThreadId), 20);
+        controller.navigateToEvent(QStringLiteral("$gone-b:mock.local"));
+        QVERIFY(controller.navigating());
+        controller.handleCurrentRoomChanged(kGeneral);
+        QCOMPARE(controller.state(), ThreadController::Closed);
+        QVERIFY(!controller.navigating());
+        QVERIFY(controller.navigationMessage().isEmpty());
+        QTest::qWait(250);
+        QCOMPARE(located.count(), 0);
+        QVERIFY(controller.navigationMessage().isEmpty());
     }
 };
 

@@ -1043,6 +1043,30 @@ private Q_SLOTS:
                                  2000);
     }
 
+    // C5b/B4: jumpToEvent() dereferenced m_client unconditionally after
+    // request(), which returns WITHOUT dispatching when there is no client —
+    // so this exact sequence was a null dereference (its sibling in
+    // restoreScrollAnchor() has always guarded m_client). A controller with a
+    // room and a model but no client is reachable: setRoomId() does not
+    // require one, and setClient(nullptr) is a legal teardown.
+    void jumpToEventWithoutAClientFailsHonestlyInsteadOfCrashing()
+    {
+        TimelineModel model;
+        PaginationController controller;
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        QVERIFY(controller.navigationMessage().isEmpty());
+
+        // On the unfixed tree this line segfaults.
+        controller.jumpToEvent(QStringLiteral("$missing:example.org"));
+
+        // A missing client can never deliver a completion, so the target must
+        // not be left pending behind a click that appeared to do nothing.
+        QCOMPARE(controller.navigationMessage(),
+                 PaginationController::unavailableTargetMessage());
+        QVERIFY(controller.highlightedEventId().isEmpty());
+    }
+
     void unavailableReplySearchHasFixedBatchBudget()
     {
         FakeClient client;
