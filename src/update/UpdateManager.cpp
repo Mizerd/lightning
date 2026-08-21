@@ -1,5 +1,6 @@
 #include "update/UpdateManager.h"
 
+#include "storage/AppDataPaths.h"
 #include "update/UpdateDownloader.h"
 #include "update/UpdateEndpoints.h"
 #include "update/SignatureVerifier.h"
@@ -540,7 +541,10 @@ QString UpdateManager::stagingRoot() const
 {
     if (!m_stagingRootOverride.isEmpty())
         return m_stagingRootOverride;
-    const QString base = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    // Lightning-OWNED staging area — see materializedIconPath() in
+    // NotificationManager for the same reasoning. A portable copy stages its
+    // downloaded update inside its own folder, never in %LOCALAPPDATA%.
+    const QString base = matrix::app_data::cacheRoot();
     return base + QStringLiteral("/updates");
 }
 

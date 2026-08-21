@@ -12,6 +12,7 @@
 #include "app/GuiStallTracer.h"
 #include "media/VaapiLogGate.h"
 #include "storage/AppDataPaths.h"
+#include "storage/PortableMode.h"
 
 #ifdef ENABLE_RUST_SDK_BACKEND
 #include "smoke/RustSdkSmokeTest.h"
@@ -698,6 +699,59 @@ int main(int argc, char *argv[])
         QCoreApplication::setApplicationName(
             QStringLiteral("matrix-client-screenshot-demo"));
 #endif
+
+    // ── Portable mode ─────────────────────────────────────────────────
+    // This is the last moment the decision can be made. The very next block
+    // default-constructs a QSettings for the interface-zoom value, and on
+    // Windows a default-constructed QSettings is REGISTRY-backed (HKCU) —
+    // once one exists in the process the storage backend is settled and
+    // there is no retracting it. The screenshot-demo block above is the same
+    // pattern for the same reason, which is why this sits after it: the
+    // application name it may have changed feeds the INI file name below.
+    //
+    // Note the ordering relative to QGuiApplication (constructed further
+    // down): there is no QCoreApplication instance here, so
+    // lightning::portable resolves the executable directory from the platform
+    // API rather than applicationDirPath(). See storage/PortableMode.h.
+    if (lightning::portable::isPortable()) {
+        const QString portableProblem = lightning::portable::prepareDataRoot();
+        if (!portableProblem.isEmpty()) {
+            const QString advice =
+                QStringLiteral("Lightning portable needs write access to its "
+                               "data directory. Move the extracted folder to "
+                               "a writable location and try again.");
+            QTextStream(stderr) << portableProblem << "\n" << advice << "\n";
+#ifdef Q_OS_WIN
+            // Lightning.exe is a GUI-subsystem PE, so a user who
+            // double-clicked it has no console and would see NOTHING — the
+            // application would simply fail to appear, which is the worst
+            // possible outcome for the one error this mode is most likely to
+            // produce (extracted into Program Files, or onto read-only
+            // media). MessageBoxW is used directly rather than QMessageBox
+            // because this runs before QGuiApplication exists, by design: the
+            // portable decision has to happen before the first QSettings.
+            const QString text = portableProblem + QStringLiteral("\n\n") + advice;
+            MessageBoxW(nullptr,
+                        reinterpret_cast<const wchar_t *>(text.utf16()),
+                        L"Lightning", MB_OK | MB_ICONERROR);
+#endif
+            // Deliberately NOT a fallback to the installed locations. A
+            // portable copy that quietly starts writing to %LOCALAPPDATA%,
+            // the registry and the Credential Manager is the exact defect
+            // this mode exists to fix: the user would sign in, copy the
+            // folder to another PC, and be asked to sign in again with no
+            // indication of why. Refusing loudly is the honest outcome.
+            return 4;
+        }
+        // Every default-constructed QSettings in the process — here,
+        // SettingsManager, GifSearchController, the GIF models, the insecure
+        // token fallback — lands in
+        // <dataRoot>/config/MatrixClient/matrix-client.ini. Nothing is
+        // written to, or synchronised back to, the registry.
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                           lightning::portable::configDir());
+    }
 
     // Interface zoom (Settings → Appearance, Ctrl+= / Ctrl+-): Qt reads
     // QT_SCALE_FACTOR exactly once at startup, so the persisted percent is

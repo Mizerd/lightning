@@ -1,4 +1,5 @@
 #include "storage/AppDataPaths.h"
+#include "storage/PortableMode.h"
 
 #include <QDir>
 #include <QFile>
@@ -11,8 +12,12 @@ class AppDataPathsTest : public QObject
 
 private Q_SLOTS:
     void initTestCase();
+    void cleanupTestCase();
     void resolveAppDataBase_data();
     void resolveAppDataBase();
+    void resolveAppDataBasePortableRootWins();
+    void composeAppDataRoot_data();
+    void composeAppDataRoot();
     void canonicalIdentity_data();
     void canonicalIdentity();
     void rejectsInvalidIdentity_data();
@@ -34,6 +39,78 @@ void AppDataPathsTest::initTestCase()
 {
     QVERIFY(m_dataHome.isValid());
     qputenv("XDG_DATA_HOME", m_dataHome.path().toUtf8());
+    // Isolate every OTHER variable resolveAppDataBase() can reach as well.
+    // Isolating only some of them is how a test in this project once wrote
+    // into the maintainer's real data directory.
+    qputenv("HOME", m_dataHome.path().toUtf8());
+    qputenv("LOCALAPPDATA", m_dataHome.path().toUtf8() + "/AppData/Local");
+    qputenv("USERPROFILE", m_dataHome.path().toUtf8());
+    qunsetenv("LIGHTNING_PORTABLE");
+
+    // Pin installed mode for the whole suite. primaryRoot() now consults
+    // lightning::portable, and a stray portable.marker in the build tree would
+    // otherwise silently move every path this suite asserts on.
+    lightning::portable::setPortableOverrideForTest(false, QString());
+    QVERIFY(!lightning::portable::isPortable());
+}
+
+void AppDataPathsTest::cleanupTestCase()
+{
+    lightning::portable::clearPortableOverrideForTest();
+}
+
+void AppDataPathsTest::resolveAppDataBasePortableRootWins()
+{
+    // The portable root is an OVERRIDE, not a fallback: a portable copy must
+    // not be steerable back into AppData by an inherited environment.
+    // PortableModeTest covers the full precedence matrix; this pins the
+    // signature here so the default argument cannot quietly disappear.
+    QCOMPARE(matrix::app_data::resolveAppDataBase(
+                 true, QStringLiteral("D:/xdg"),
+                 QStringLiteral("C:/Users/X/AppData/Local"),
+                 QStringLiteral("C:/Users/X"), QStringLiteral("/home/x"),
+                 QStringLiteral("E:/Lightning/data")),
+             QStringLiteral("E:/Lightning/data"));
+    // Omitting it keeps the historical five-argument behaviour byte for byte.
+    QCOMPARE(matrix::app_data::resolveAppDataBase(
+                 true, QString(), QStringLiteral("C:/Users/X/AppData/Local"),
+                 QStringLiteral("C:/Users/X"), QStringLiteral("/home/x")),
+             QStringLiteral("C:/Users/X/AppData/Local"));
+}
+
+void AppDataPathsTest::composeAppDataRoot_data()
+{
+    QTest::addColumn<QString>("base");
+    QTest::addColumn<bool>("portable");
+    QTest::addColumn<QString>("expected");
+
+    // Installed: unchanged from every release so far, which is the whole
+    // point — an MSI/Setup install must keep reading the data it already has.
+    QTest::newRow("installed-linux")
+        << QStringLiteral("/home/x/.local/share") << false
+        << QStringLiteral("/home/x/.local/share/MatrixClient/matrix-client");
+    QTest::newRow("installed-windows")
+        << QStringLiteral("C:/Users/X/AppData/Local") << false
+        << QStringLiteral("C:/Users/X/AppData/Local/MatrixClient/matrix-client");
+    // Portable: no vendor/app segments — inside <program dir>/data the
+    // directory is already unambiguously Lightning's.
+    QTest::newRow("portable")
+        << QStringLiteral("E:/Lightning/data") << true
+        << QStringLiteral("E:/Lightning/data/matrix");
+    QTest::newRow("portable-spaces")
+        << QStringLiteral("E:/Portable Apps/Lightning/data") << true
+        << QStringLiteral("E:/Portable Apps/Lightning/data/matrix");
+    // No base resolvable -> empty, never a bogus root, in either mode.
+    QTest::newRow("empty-installed") << QString() << false << QString();
+    QTest::newRow("empty-portable") << QString() << true << QString();
+}
+
+void AppDataPathsTest::composeAppDataRoot()
+{
+    QFETCH(QString, base);
+    QFETCH(bool, portable);
+    QFETCH(QString, expected);
+    QCOMPARE(matrix::app_data::composeAppDataRoot(base, portable), expected);
 }
 
 void AppDataPathsTest::resolveAppDataBase_data()

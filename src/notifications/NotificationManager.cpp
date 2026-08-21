@@ -1,5 +1,6 @@
 #include "notifications/NotificationManager.h"
 
+#include "storage/AppDataPaths.h"
 #include "notifications/FallbackAvatar.h"
 
 #include "matrix/EventPreview.h"
@@ -123,8 +124,11 @@ struct NotificationIdentity {
 
 QString materializedIconPath()
 {
-    const QString cacheDir =
-        QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    // Lightning-OWNED cache, so it follows the portable data root when the
+    // installation is portable and stays exactly where it was otherwise.
+    // QStandardPaths would answer %LOCALAPPDATA% on Windows, which is one of
+    // the three places a portable copy must not write to.
+    const QString cacheDir = matrix::app_data::cacheRoot();
     if (cacheDir.isEmpty())
         return {};
     QDir().mkpath(cacheDir);

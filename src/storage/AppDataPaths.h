@@ -75,13 +75,45 @@ QString primaryRoot();
 // platform-specific branch (Windows %LOCALAPPDATA% / %USERPROFILE%) is unit
 // testable on any host. `windows` selects the Windows lookup order; the four
 // strings are the raw values of $XDG_DATA_HOME, %LOCALAPPDATA%, %USERPROFILE%
-// and $HOME (empty when unset). Precedence: XDG_DATA_HOME, then (Windows only)
-// LOCALAPPDATA / USERPROFILE\AppData\Local, then HOME/.local/share, then empty.
+// and $HOME (empty when unset). Precedence: a non-empty `portableRoot`, then
+// XDG_DATA_HOME, then (Windows only) LOCALAPPDATA / USERPROFILE\AppData\Local,
+// then HOME/.local/share, then empty.
+//
+// `portableRoot` is lightning::portable::dataRoot() at the one real call site.
+// It is passed IN rather than queried inside this function on purpose: the
+// function stays pure and hermetic, so the unit tests can exercise the
+// precedence without a marker file, an executable directory, or a process-wide
+// cached decision. It wins over every environment source because a portable
+// installation must not be steerable by an inherited XDG_DATA_HOME or
+// LOCALAPPDATA — a portable copy that silently follows an environment
+// variable back into AppData is the defect portability is fixing.
 QString resolveAppDataBase(bool windows,
                            const QString &xdgDataHome,
                            const QString &localAppData,
                            const QString &userProfile,
-                           const QString &home);
+                           const QString &home,
+                           const QString &portableRoot = QString());
+
+// Pure: the full app-data root for a resolved base.
+//
+// Installed builds keep Qt's own AppLocalDataLocation layout
+// (<base>/MatrixClient/matrix-client) so that behaviour is byte-identical to
+// every release so far. A portable tree drops the two vendor/app segments —
+// inside <program dir>/data the directory is already unambiguously Lightning's,
+// and repeating the vendor name would just make the folder harder to read on a
+// USB stick. Returns empty for an empty base.
+QString composeAppDataRoot(const QString &base, bool portable);
+
+// The cache root Lightning owns: <portable dataRoot>/cache when portable, and
+// QStandardPaths::writableLocation(CacheLocation) otherwise (byte-identical to
+// what callers used to compute themselves). Centralized here so no caller has
+// to know which mode it is in.
+//
+// This is only for caches LIGHTNING owns. It is NOT for user-facing locations
+// such as a Save-As default or the user's Documents folder — redirecting those
+// into the program folder would break the file dialogs, not improve
+// portability.
+QString cacheRoot();
 
 // Safe per-account directory slug used under the app data roots. Returns an
 // empty string for malformed or unsafe Matrix user ids.

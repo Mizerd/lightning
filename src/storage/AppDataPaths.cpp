@@ -1,11 +1,14 @@
 #include "storage/AppDataPaths.h"
 
+#include "storage/PortableMode.h"
+
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QLatin1Char>
 #include <QLatin1String>
+#include <QStandardPaths>
 #include <QUrl>
 
 #include <cstdlib>
@@ -31,8 +34,10 @@ QString envValue(const char *name)
 
 // Resolve the app-data base from the current process environment. The actual
 // selection logic lives in the pure resolveAppDataBase() so it can be tested
-// on any host; this only reads getenv (which is why it stays usable before a
-// QCoreApplication exists, as --reset-crypto-store requires).
+// on any host; this only reads getenv and the portable decision (which is why
+// it stays usable before a QCoreApplication exists, as --reset-crypto-store
+// requires — lightning::portable resolves the executable directory from the
+// platform API, not from Qt).
 QString appDataBase()
 {
 #ifdef Q_OS_WIN
@@ -40,11 +45,32 @@ QString appDataBase()
 #else
     constexpr bool kWindows = false;
 #endif
+    const QString portableRoot = lightning::portable::dataRoot();
+    if (lightning::portable::isPortable() && portableRoot.isEmpty()) {
+        // Portable, but the executable directory could not be resolved. That
+        // is "no root", NEVER a fall-through to the environment: quietly
+        // resolving to %LOCALAPPDATA% here would put the account's SDK store
+        // outside the folder the user copies, which is the exact defect
+        // portable mode exists to fix. Every caller already treats an empty
+        // root as "no app data root available" and refuses rather than
+        // guessing, and main.cpp exits non-zero on this before any of them
+        // run.
+        return {};
+    }
     return resolveAppDataBase(kWindows,
                               envValue("XDG_DATA_HOME"),
                               envValue("LOCALAPPDATA"),
                               envValue("USERPROFILE"),
-                              envValue("HOME"));
+                              envValue("HOME"),
+                              portableRoot);
+}
+
+// Whether the roots below are portable ones. Deliberately just asks
+// lightning::portable — that module owns the caching, and a second cache here
+// is how two answers start to disagree.
+bool portableActive()
+{
+    return lightning::portable::isPortable();
 }
 
 // ASCII-only case-insensitive equality. Qt::CaseInsensitive applies full
@@ -170,8 +196,13 @@ QString resolveAppDataBase(bool windows,
                            const QString &xdgDataHome,
                            const QString &localAppData,
                            const QString &userProfile,
-                           const QString &home)
+                           const QString &home,
+                           const QString &portableRoot)
 {
+    // Beats every environment source — see the header for why this is not a
+    // fallback but an override.
+    if (!portableRoot.isEmpty())
+        return portableRoot;
     if (!xdgDataHome.isEmpty())
         return xdgDataHome;
     if (windows) {
@@ -185,13 +216,29 @@ QString resolveAppDataBase(bool windows,
     return {};
 }
 
-QString primaryRoot()
+QString composeAppDataRoot(const QString &base, bool portable)
 {
-    const QString base = appDataBase();
-    if (base.isEmpty()) return {};
+    if (base.isEmpty())
+        return {};
+    if (portable)
+        return base + QLatin1String("/matrix");
     return base
         + QLatin1Char('/') + kOrganizationName
         + QLatin1Char('/') + kApplicationName;
+}
+
+QString primaryRoot()
+{
+    return composeAppDataRoot(appDataBase(), portableActive());
+}
+
+QString cacheRoot()
+{
+    if (portableActive())
+        return lightning::portable::cacheDir();
+    // Identical to what the call sites computed inline before this existed, so
+    // an installed build's cache location does not move.
+    return QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
 }
 
 QString safeUserSlug(const QString &userId)
@@ -473,6 +520,12 @@ QString quarantineRustStore(const AccountIdentity &identity)
 QStringList legacyRoots()
 {
     QStringList out;
+    // A portable tree has no history: it was created by this feature, so no
+    // earlier build ever wrote into it. Returning the "no org prefix" variant
+    // here would invent <dataRoot>/matrix-client, a directory that has never
+    // existed, and hand it to --reset-crypto-store's recursive scan.
+    if (portableActive())
+        return out;
     const QString base = appDataBase();
     if (base.isEmpty()) return out;
 
