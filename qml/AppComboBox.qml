@@ -17,6 +17,52 @@ ComboBox {
 
     property bool storm: false
 
+    // Select the row whose valueRole equals `v`.
+    //
+    // Combos must call this instead of binding currentIndex, because
+    // indexOfValue() returns -1 at creation time — it evaluates before the
+    // model and valueRole have settled. The idiom that shipped for this was
+    // `currentIndex = Math.max(0, indexOfValue(v))`, which MASKS the -1 as
+    // index 0: the combo then displayed the FIRST row while the stored value
+    // was something else, which is exactly what "my settings reset every
+    // launch" looks like from the outside. The setting was never lost; the
+    // control was lying about it.
+    //
+    // A -1 is therefore retried on the next tick rather than clamped, and a
+    // value genuinely absent from the model leaves the index alone rather
+    // than silently selecting row 0.
+    // The last value asked for, so the selection can be REAPPLIED when the
+    // model is rebuilt. That is not hypothetical: every combo whose labels
+    // come from qsTr() has its model re-evaluated on a language change
+    // (QQmlEngine::retranslate), and a rebuilt model resets currentIndex to 0
+    // without firing `activated` — the control would silently start showing
+    // row 0 while the setting behind it was unchanged. Same shape as the
+    // creation-time -1, same fix.
+    property var syncedValue: undefined
+
+    function syncToValue(v) {
+        root.syncedValue = v
+        var i = indexOfValue(v)
+        if (i >= 0) {
+            if (i !== currentIndex)
+                currentIndex = i
+            return true
+        }
+        Qt.callLater(root._resync)
+        return false
+    }
+
+    function _resync() {
+        if (root.syncedValue === undefined)
+            return
+        var j = root.indexOfValue(root.syncedValue)
+        if (j >= 0 && j !== root.currentIndex)
+            root.currentIndex = j
+    }
+
+    onModelChanged: if (root.syncedValue !== undefined) Qt.callLater(root._resync)
+    onCountChanged: if (root.syncedValue !== undefined) Qt.callLater(root._resync)
+
     implicitHeight: AppTheme.buttonHeight
     font.pixelSize: AppTheme.textBody
     hoverEnabled: true

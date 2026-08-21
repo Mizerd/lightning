@@ -653,6 +653,7 @@ set(APP_QML_FILES
     qml/ThreadSummaryCard.qml
     qml/ThemePreviewDemo.qml
     qml/ThemeEditorDialog.qml
+    qml/ColorPickerPanel.qml
     qml/GifPicker.qml
     qml/QuickSwitcher.qml
     qml/ImageViewerOverlay.qml

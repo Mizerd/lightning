@@ -1986,8 +1986,7 @@ Item {
                                     // and whenever the persisted value changes
                                     // rather than in a one-shot binding.
                                     function syncFromSetting() {
-                                        currentIndex = Math.max(0, indexOfValue(
-                                            app.settings.timelineWheelSpeed))
+                                        syncToValue(app.settings.timelineWheelSpeed)
                                     }
                                     Component.onCompleted: syncFromSetting()
                                     Connections {
@@ -2138,9 +2137,7 @@ Item {
                                     // explicitly here and again whenever
                                     // either side changes.
                                     function syncIndex() {
-                                        var i = indexOfValue(app.localization.language)
-                                        if (i >= 0 && i !== currentIndex)
-                                            currentIndex = i
+                                        syncToValue(app.localization.language)
                                     }
                                     Component.onCompleted: syncIndex()
                                     onModelChanged: Qt.callLater(syncIndex)
@@ -2410,16 +2407,19 @@ Item {
                                         { label: qsTr("On hover"), value: 1 },
                                         { label: qsTr("Never"),    value: 2 },
                                     ]
-                                    // NOT a currentIndex binding: at
-                                    // creation, indexOfValue() runs before
-                                    // valueRole/model settle and returns -1,
-                                    // so every relaunch DISPLAYED the
-                                    // default while the stored value was
-                                    // fine (2026-08-18 tester report #2,
-                                    // "GIF settings reset every launch").
+                                    // NOT a currentIndex binding, and NOT
+                                    // `Math.max(0, indexOfValue(...))` either:
+                                    // that idiom shipped in 2026-08-18 and did
+                                    // not fix the report it was written for.
+                                    // indexOfValue() is -1 at creation, and
+                                    // max(0, -1) is row 0 -- so the combo went
+                                    // on displaying "Always" whatever was
+                                    // stored, which is what "GIF settings
+                                    // reset every launch" looks like from the
+                                    // outside. syncToValue retries the -1
+                                    // instead of clamping it.
                                     function syncFromSettings() {
-                                        currentIndex = Math.max(0,
-                                            indexOfValue(app.settings.gifAutoplay))
+                                        syncToValue(app.settings.gifAutoplay)
                                     }
                                     Component.onCompleted: syncFromSettings()
                                     Connections {
@@ -2456,8 +2456,7 @@ Item {
                                         { label: qsTr("R — all"),     value: 3 },
                                     ]
                                     function syncFromSettings() {
-                                        currentIndex = Math.max(0,
-                                            indexOfValue(app.settings.gifSafeSearch))
+                                        syncToValue(app.settings.gifSafeSearch)
                                     }
                                     Component.onCompleted: syncFromSettings()
                                     Connections {
@@ -2482,8 +2481,7 @@ Item {
                                         { label: "KLIPY", value: "klipy" },
                                     ]
                                     function syncFromSettings() {
-                                        currentIndex = Math.max(0,
-                                            indexOfValue(app.settings.gifPreferredProvider))
+                                        syncToValue(app.settings.gifPreferredProvider)
                                     }
                                     Component.onCompleted: syncFromSettings()
                                     Connections {
