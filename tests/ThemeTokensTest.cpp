@@ -75,6 +75,19 @@ double deltaE(const QString &a, const QString &b)
                      + std::pow(la[2] - lb[2], 2));
 }
 
+// QML comments removed, so a "does this file USE token X" scan is not
+// defeated — or falsely tripped — by prose. Line comments and block comments
+// only; QML has no other comment form. String contents are left alone, which
+// is safe here because every caller is looking for a bare token reference.
+QString stripComments(const QString &qml)
+{
+    QString out = qml;
+    out.remove(QRegularExpression(QStringLiteral("/\\*.*?\\*/"),
+                                  QRegularExpression::DotMatchesEverythingOption));
+    out.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
+    return out;
+}
+
 // Source-over composite of `top` at `alpha` onto opaque `bottom`, both
 // #RRGGBB — what a translucent wash actually renders as. Used to assert
 // legibility over tinted rows (the mention wash) instead of guessing.
@@ -729,7 +742,64 @@ private Q_SLOTS:
             QCOMPARE(cppPalette, qmlPalette);
         }
 
-        // Under Storm a sender name sits near bolt-yellow chrome. An ink that
+            // A chip paints its ink on a 14% tint OF THAT SAME INK, and its
+        // border on a 32% one, so the ink's real background is not a theme
+        // surface — it is a wash of itself. Tuning the inks against the plain
+        // surfaces alone left the light themes at 3.83-4.04 on ~10px chip
+        // labels, which get no large-text exemption. Every family, every
+        // surface a chip can sit on.
+        {
+            const QStringList chipSurfaces = {
+                QStringLiteral("_bgLight"), QStringLiteral("_cardLight"),
+                QStringLiteral("_cardElevatedLight"),
+                QStringLiteral("_hoverLight"),
+                QStringLiteral("_warBg"), QStringLiteral("_warCard"),
+                QStringLiteral("_warCardElevated"),
+                QStringLiteral("_mosBg"), QStringLiteral("_mosCard"),
+                QStringLiteral("_mosCardElevated"),
+                QStringLiteral("_bgDark"), QStringLiteral("_cardDark"),
+                QStringLiteral("_cardElevatedDark"),
+                QStringLiteral("_graBg"), QStringLiteral("_norBg"),
+                QStringLiteral("_purBg"), QStringLiteral("_indBg"),
+                QStringLiteral("_teaBg"), QStringLiteral("_stoCanvas"),
+                QStringLiteral("_stoPanel"),
+            };
+            const QStringList lightInkNames = {
+                QStringLiteral("_dangerInkLight"), QStringLiteral("_warnInkLight"),
+                QStringLiteral("_okInkLight"), QStringLiteral("_infoInkLight"),
+            };
+            const QStringList darkInkNames = {
+                QStringLiteral("_dangerInkDark"), QStringLiteral("_warnInkDark"),
+                QStringLiteral("_okInkDark"), QStringLiteral("_infoInkDark"),
+            };
+            for (const QString &inkName : lightInkNames + darkInkNames) {
+                const QString ink = m_colors.value(inkName);
+                QVERIFY2(!ink.isEmpty(),
+                         qPrintable(QStringLiteral("missing %1").arg(inkName)));
+                const bool lightInk = lightInkNames.contains(inkName);
+                for (const QString &surfaceName : chipSurfaces) {
+                    const QString surface = m_colors.value(surfaceName);
+                    if (surface.isEmpty())
+                        continue;
+                    // A light-mode ink is only ever painted on a light
+                    // surface, and vice versa.
+                    const bool lightSurface =
+                        luminance(surface) > 0.18;
+                    if (lightInk != lightSurface)
+                        continue;
+                    const QString fill = composite(ink, 0.14, surface);
+                    const double ratio = contrast(ink, fill);
+                    QVERIFY2(ratio >= 4.5,
+                             qPrintable(QStringLiteral(
+                                 "chip ink %1 (%2) on its own 14%% fill over "
+                                 "%3 = %4 (< 4.5)")
+                                 .arg(inkName, ink, surfaceName)
+                                 .arg(ratio, 0, 'f', 2)));
+                }
+            }
+        }
+
+    // Under Storm a sender name sits near bolt-yellow chrome. An ink that
         // close to the brand accent reads as chrome rather than as a person.
         const QRegularExpression boltRe(QStringLiteral(
             "_stoBolt\\s*:\\s*\"(#[0-9A-Fa-f]{6})\""));
@@ -1029,8 +1099,16 @@ private Q_SLOTS:
         // a C++ literal would put a literal dot-wildcard and a BACKSPACE
         // byte in the pattern, and the guard would pass forever (caught in
         // review: the first version of this test was exactly that no-op).
-        const QString settings = readAll(QStringLiteral(SETTINGS_QML_PATH));
-        QVERIFY2(!settings.isEmpty(), "SettingsScreen.qml not readable");
+        const QString settingsRaw = readAll(QStringLiteral(SETTINGS_QML_PATH));
+        QVERIFY2(!settingsRaw.isEmpty(), "SettingsScreen.qml not readable");
+        // Strip comments before the ban check. This guard is about which
+        // tokens the surface USES, and a comment naming a token is not a use
+        // — the 2026-08-21 round explained a fix with the words "Basic's
+        // BusyIndicator inks palette.dark, which Main.qml maps to
+        // AppTheme.textSecondary", and that prose failed the test while the
+        // code beneath it correctly used AppTheme.bolt. A guard that forbids
+        // NAMING the mistake you just fixed punishes the explanation.
+        const QString settings = stripComments(settingsRaw);
         const QStringList banned = {
             QStringLiteral("AppTheme\\.text\\b"),
             QStringLiteral("AppTheme\\.textPrimary\\b"),
@@ -1061,7 +1139,7 @@ private Q_SLOTS:
         // per SPEC-storm-language §5). If this stops matching, the guard
         // has gone inert — fail loudly instead of passing forever.
         const QString themedControl =
-            readAll(QStringLiteral(QML_DIR "/RoomDelegate.qml"));
+            stripComments(readAll(QStringLiteral(QML_DIR "/RoomDelegate.qml")));
         QVERIFY2(!themedControl.isEmpty(), "RoomDelegate.qml not readable");
         bool controlHit = false;
         for (const QString &pattern : banned) {

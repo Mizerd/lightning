@@ -410,13 +410,19 @@ QtObject {
     // The dark danger and success ARE Storm's own _stoDanger / _stoSuccess,
     // deliberately: before this round the same concept rendered as #FF8FA0
     // inside a menu (storm namespace) and #DC2626 outside it, in one window.
-    readonly property color _dangerInkLight:   "#B32F36"
+    // Darkened one step in review: a chip paints its ink on a 14% tint of
+    // THAT SAME INK, and the original values were tuned only against the
+    // plain surfaces (4.68-4.85). The self-tint spent the rest of the margin
+    // and the light themes landed at 3.83-4.04 on ~10px chip labels, which
+    // get no large-text exemption. These clear 4.62 on their own tint and
+    // 5.6+ on plain surfaces; chipInkOnItsOwnFillIsReadable pins both.
+    readonly property color _dangerInkLight:   "#9F2A30"
     readonly property color _dangerInkDark:    "#FFA7AF"
-    readonly property color _warnInkLight:     "#8F5200"
+    readonly property color _warnInkLight:     "#814A00"
     readonly property color _warnInkDark:      "#FFAD67"
-    readonly property color _okInkLight:       "#06703C"
+    readonly property color _okInkLight:       "#056435"
     readonly property color _okInkDark:        "#63D6A3"
-    readonly property color _infoInkLight:     "#0067AC"
+    readonly property color _infoInkLight:     "#005994"
     readonly property color _infoInkDark:      "#73CEFC"
     // Destructive FILL steps. These DARKEN on interaction where the accent
     // LIGHTENS, and that is not an inconsistency: #DC2626 already measures
