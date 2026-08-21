@@ -83,6 +83,8 @@ private slots:
 
     // --- directory swap ---
     void swapsTheInstallationAtomically();
+    void preservedPortableDataSurvivesTheSwap();
+    void preservedPortableDataIsNeverPromotedOver();
     void swapFromASingleTopLevelFolder();
     void refusesAnInvalidLayoutBeforeTouchingTheTarget();
     void rollsBackWhenPromotionFails();
@@ -173,6 +175,80 @@ void UpdaterPortableSwapTest::swapsTheInstallationAtomically()
     QVERIFY(QFileInfo::exists(m_dir.path()));
 }
 
+// The portable data root holds the user's settings, their sealed Matrix
+// session, the Rust SDK store and the E2EE crypto store — inside the
+// installation, because that is what makes the folder copyable. The swap
+// moves every top-level entry of the installation into the backup and then
+// deletes the backup, so without an explicit preserve set the FIRST ordinary
+// in-app update takes all of it. The user would come back to a first-run
+// login and a NEW Matrix device, losing every Megolm key that was not in
+// server-side backup — presented as a successful update.
+//
+// This case fails on a tree without preserveNames: `data/` ends up in the
+// backup and the assertions below find nothing at the target.
+void UpdaterPortableSwapTest::preservedPortableDataSurvivesTheSwap()
+{
+    QVERIFY(buildInstallation(m_staged, QByteArray("new")));
+    QVERIFY(buildInstallation(m_target, QByteArray("old")));
+
+    const QString secrets =
+        QDir(m_target).absoluteFilePath(QStringLiteral("data/secrets"));
+    QVERIFY(QDir().mkpath(secrets));
+    const QString keyPath =
+        QDir(secrets).absoluteFilePath(QStringLiteral("secrets.key"));
+    const QByteArray keyBytes("sealed-session-key-bytes");
+    QVERIFY(writeFile(keyPath, keyBytes));
+    const QString storePath = QDir(m_target).absoluteFilePath(
+        QStringLiteral("data/matrix/alice_example.org/store.sqlite"));
+    QVERIFY(QDir().mkpath(QFileInfo(storePath).absolutePath()));
+    QVERIFY(writeFile(storePath, QByteArray("crypto-store")));
+
+    const ReplaceResult result =
+        swapDirectory(m_staged, m_target, m_backup, kExe,
+                      QStringList{QStringLiteral("data")});
+    QVERIFY2(result.ok(), replaceErrorName(result.error));
+
+    // The application really was replaced...
+    QVERIFY(installationHasMarker(m_target, QByteArray("new")));
+    // ...and the user's state is still there, byte for byte.
+    QFile key(keyPath);
+    QVERIFY2(key.exists(), "the portable secret key was destroyed by the swap");
+    QVERIFY(key.open(QIODevice::ReadOnly));
+    QCOMPARE(key.readAll(), keyBytes);
+    QVERIFY2(QFileInfo::exists(storePath),
+             "the portable Matrix/crypto store was destroyed by the swap");
+
+    // It must never have entered the backup either — step 4 deletes that, and
+    // on Windows a surviving backup is cleared by the NEXT update.
+    QVERIFY(!QFileInfo::exists(
+        QDir(m_backup).absoluteFilePath(QStringLiteral("data"))));
+}
+
+// A package that shipped a top-level `data/` must not overwrite live user
+// state with it. The user's data outranks a directory the packager should
+// not have included.
+void UpdaterPortableSwapTest::preservedPortableDataIsNeverPromotedOver()
+{
+    QVERIFY(buildInstallation(m_staged, QByteArray("new")));
+    QVERIFY(writeFile(QDir(m_staged).absoluteFilePath(
+                          QStringLiteral("data/config/settings.ini")),
+                      QByteArray("shipped-by-mistake")));
+    QVERIFY(buildInstallation(m_target, QByteArray("old")));
+    const QString live = QDir(m_target).absoluteFilePath(
+        QStringLiteral("data/config/settings.ini"));
+    QVERIFY(QDir().mkpath(QFileInfo(live).absolutePath()));
+    QVERIFY(writeFile(live, QByteArray("the-users-real-settings")));
+
+    const ReplaceResult result =
+        swapDirectory(m_staged, m_target, m_backup, kExe,
+                      QStringList{QStringLiteral("data")});
+    QVERIFY2(result.ok(), replaceErrorName(result.error));
+
+    QFile settings(live);
+    QVERIFY(settings.open(QIODevice::ReadOnly));
+    QCOMPARE(settings.readAll(), QByteArray("the-users-real-settings"));
+}
+
 void UpdaterPortableSwapTest::swapFromASingleTopLevelFolder()
 {
     const QString inner =
@@ -213,7 +289,7 @@ void UpdaterPortableSwapTest::rollsBackWhenPromotionFails()
     hooks.beforePromoteRename = [] { return false; };
 
     const ReplaceResult result =
-        swapDirectory(m_staged, m_target, m_backup, kExe, hooks);
+        swapDirectory(m_staged, m_target, m_backup, kExe, QStringList(), hooks);
     QVERIFY(!result.ok());
     QCOMPARE(result.error, ReplaceError::PromoteFailed);
     QVERIFY(result.rolledBack);
@@ -237,7 +313,7 @@ void UpdaterPortableSwapTest::rollsBackWhenTheBackupRenameFails()
     hooks.beforeBackupRename = [] { return false; };
 
     const ReplaceResult result =
-        swapDirectory(m_staged, m_target, m_backup, kExe, hooks);
+        swapDirectory(m_staged, m_target, m_backup, kExe, QStringList(), hooks);
     QVERIFY(!result.ok());
     QCOMPARE(result.error, ReplaceError::BackupFailed);
     QVERIFY(result.rolledBack);
@@ -371,7 +447,7 @@ void UpdaterPortableSwapTest::copyFallbackStillSwapsAndRollsBack()
     ReplaceHooks hooks;
     hooks.forceCopyFallback = true;
 
-    ReplaceResult result = swapDirectory(m_staged, m_target, m_backup, kExe, hooks);
+    ReplaceResult result = swapDirectory(m_staged, m_target, m_backup, kExe, QStringList(), hooks);
     QVERIFY2(result.ok(), replaceErrorName(result.error));
     QVERIFY(result.usedCopyFallback);
     QVERIFY(installationHasMarker(m_target, QByteArray("new")));
@@ -383,7 +459,7 @@ void UpdaterPortableSwapTest::copyFallbackStillSwapsAndRollsBack()
     QVERIFY(buildInstallation(m_target, QByteArray("current")));
     hooks.beforePromoteRename = [] { return false; };
 
-    result = swapDirectory(m_staged, m_target, m_backup, kExe, hooks);
+    result = swapDirectory(m_staged, m_target, m_backup, kExe, QStringList(), hooks);
     QVERIFY(!result.ok());
     QVERIFY(result.rolledBack);
     QVERIFY(installationHasMarker(m_target, QByteArray("current")));

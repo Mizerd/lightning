@@ -128,12 +128,19 @@ QStringList directoryEntryNames(const QString &directory)
 // FILE_SHARE_DELETE, which is why a running .exe can be renamed on Windows),
 // so the entries move and the directory itself simply stays put.
 bool moveDirectoryEntries(const QString &from, const QString &to,
-                          QStringList *movedNames)
+                          QStringList *movedNames,
+                          const QStringList &preserveNames = QStringList())
 {
     const QDir source(from);
     const QDir destination(to);
     const QStringList names = directoryEntryNames(from);
     for (const QString &name : names) {
+        // Left exactly where it is: not moved, not backed up, not promoted
+        // over. See swapDirectory's `preserveNames` note — this is what stops
+        // a portable update carrying the user's session and crypto store into
+        // a backup that step 4 then deletes.
+        if (preserveNames.contains(name, Qt::CaseInsensitive))
+            continue;
         if (!QDir().rename(source.absoluteFilePath(name),
                            destination.absoluteFilePath(name)))
             return false;
@@ -384,6 +391,7 @@ QString resolveStagedRoot(const QString &stagedDir,
 ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
                             const QString &backupDir,
                             const QString &expectedExecutableName,
+                            const QStringList &preserveNames,
                             const ReplaceHooks &hooks)
 {
     const QFileInfo stagedInfo(stagedDir);
@@ -494,7 +502,8 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
                            /*rolledBack=*/true);
     }
     QStringList backedUp;
-    if (!moveDirectoryEntries(cleanTarget, cleanBackup, &backedUp)) {
+    if (!moveDirectoryEntries(cleanTarget, cleanBackup, &backedUp,
+                              preserveNames)) {
         moveEntriesBack(cleanBackup, cleanTarget, backedUp);
         removeTreeGuarded(cleanBackup, cleanTarget);
         removeTreeGuarded(scratch, cleanTarget);
@@ -536,7 +545,11 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
     // Step 3: promote — again entry by entry, because the target directory
     // still exists (step 2 emptied it rather than moving it), so there is no
     // name to rename the scratch tree onto.
-    if (!moveDirectoryEntries(scratch, cleanTarget, nullptr)) {
+    // The preserved entries are still sitting in the target, so a package
+    // that shipped one of those names would collide with live user state.
+    // Skip it rather than rename over it: the user's data outranks a
+    // directory the packager should not have included in the first place.
+    if (!moveDirectoryEntries(scratch, cleanTarget, nullptr, preserveNames)) {
         if (!rollback()) {
             ReplaceResult failure =
                 replaceFail(ReplaceError::RollbackFailed,

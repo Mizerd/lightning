@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 #include <functional>
 
@@ -82,9 +83,26 @@ ReplaceResult replaceFileAtomically(const QString &newFile,
 //
 // On success the previous directory is removed. On any failure the previous
 // directory is restored and the target is left exactly as it was found.
+// `preserveNames` are top-level entries of `targetDir` that the swap must
+// leave exactly where they are: never moved into the backup, never promoted
+// over, never deleted. It exists for ONE case and it is a data-loss guard.
+//
+// A PORTABLE installation keeps its entire persistent state — settings, the
+// sealed Matrix session, the Rust SDK store and the E2EE crypto store — in a
+// directory INSIDE the installation, because that is what makes the folder
+// copyable to another machine. The swap below moves every top-level entry of
+// the installation into the backup and then deletes the backup, so without
+// this the first in-app update would take the user's session and Megolm keys
+// with it. The promoted installation would then start with no state at all:
+// a fresh login, and a NEW Matrix device issued by the server, losing access
+// to history that was encrypted to the old one.
+//
+// An installed (MSI / Setup) build passes an empty set — its state lives in
+// %LOCALAPPDATA% and the registry and was never inside the install directory.
 ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
                             const QString &backupDir,
                             const QString &expectedExecutableName,
+                            const QStringList &preserveNames = QStringList(),
                             const ReplaceHooks &hooks = ReplaceHooks());
 
 // Resolves the effective source root inside a staged extraction, applying the

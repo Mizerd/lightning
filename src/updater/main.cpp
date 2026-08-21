@@ -18,6 +18,7 @@
 #include "updater/InstallStrategies.h"
 #include "updater/ProcessWaiter.h"
 #include "updater/SafeArchive.h"
+#include "storage/PortableMode.h"
 #include "updater/UpdaterArgs.h"
 
 #include <QCoreApplication>
@@ -145,8 +146,18 @@ updater::ReplaceResult runPortableSwap(const updater::UpdaterArguments &args,
 
     const QString backup = QDir(parent).absoluteFilePath(
         QStringLiteral("lightning-previous-version"));
+    // The portable data directory NEVER takes part in the swap. It holds the
+    // user's settings, their sealed Matrix session, the Rust SDK store and the
+    // E2EE crypto store, all of which live inside the installation precisely
+    // so the folder can be copied to another machine. Without this the swap
+    // moves it into the backup and step 4 deletes it, and the promoted build
+    // starts with no state: a fresh login and a NEW Matrix device, losing
+    // access to everything encrypted to the old one.
     return updater::swapDirectory(staging.path(), args.targetPath, backup,
-                                  kPortableExecutableName);
+                                  kPortableExecutableName,
+                                  QStringList{
+                                      QString::fromLatin1(
+                                          lightning::portable::kDataDirName)});
 }
 
 updater::ReplaceResult runAppImageReplace(const updater::UpdaterArguments &args)
