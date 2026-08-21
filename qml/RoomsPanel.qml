@@ -509,6 +509,19 @@ Rectangle {
             }
         }
 
+        // A hairline between the CONTROLS above (filter chips, search) and
+        // the LIST below. Without it the chips read as the first rows of the
+        // list rather than as chrome acting on it — reported 2026-08-21:
+        // "a line to seperate the controls like all people rooms and search
+        // from the acctual list". borderStrong rather than border: this
+        // divides two regions of one pane, where the pane's own edges use
+        // the quieter tone.
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 1
+            color: AppTheme.stormBorderStrong
+        }
+
         // ── Room list with DM / ROOMS section headers ─────────────────────
         // The empty-state label lives in this wrapper Item, NOT inside the
         // ListView: children declared inside a view are reparented into its

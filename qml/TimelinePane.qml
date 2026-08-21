@@ -3234,96 +3234,65 @@ Rectangle {
                     }
                     if (wantSkip === skip && wantRows === rows)
                         return
-                    // A PRECONDITION, not an input. The shift below is
-                    // computed from the released rows' own heights and never
-                    // from the anchor — but if the reader's row cannot be
-                    // resolved at all, the view is in an incoherent state
-                    // (mid-reset, nothing materialised yet), and applying a
-                    // structural change there is how the reverted retained-
-                    // window attempt ended up dumping the reader. Bail
-                    // instead. (An earlier draft also captured the anchor's
-                    // offset here; the measured-height correction below never
-                    // needed it, so it was dead weight — §18 review.)
-                    if (wantSkip !== skip) {
-                        // Clamped to row 0: while the reader is pinned at the
-                        // live edge contentY parks at -topMargin, BELOW row
-                        // 0's own y, and viewRowAtContentY() has no row to
-                        // name there. That is the bottom, not an incoherent
-                        // view — and treating it as one meant the window
-                        // could never be reduced from exactly the place the
-                        // reader is most likely to be sitting (2026-08-20).
-                        const anchorRow = Math.max(0,
-                                                   viewRowAtContentY(contentY))
-                        if (!itemAtViewRow(anchorRow)
-                            || eventIdAtViewRow(anchorRow) === "")
-                            return
-                    }
-                    // Releasing rows at the HEAD moves every kept row by
-                    // exactly the released height, so measure it from the
-                    // real items BEFORE they are gone. Reading contentHeight
-                    // after the fact instead was the first attempt and it
-                    // failed by 3053 px: the Column has not relaid out yet,
-                    // so every geometry read is still the OLD content. The
-                    // Column has no inter-row spacing, so a plain sum is
-                    // exact rather than an estimate.
-                    let shift = 0
-                    if (wantSkip > skip) {
-                        for (let r = 0; r < wantSkip - skip; ++r) {
-                            const gone = itemAtViewRow(r)
-                            if (gone)
-                                shift -= gone.height
-                        }
-                    }
+                    // ── The correction ──────────────────────────────
+                    //
+                    // Hold the READER'S OWN ROW at the same offset on
+                    // screen, measured before and after. This replaced a
+                    // per-row height sum, and a live capture is why:
+                    //
+                    //   winSkip 212 -> 300, contentH 35802 -> 21976,
+                    //   topDist 2855 -> 17406
+                    //
+                    // The sum returned ~0 where the true shift was ~13826 px,
+                    // and the reader was thrown the whole way. It has to:
+                    // `itemAtViewRow()` over the released range asks for the
+                    // NEWEST rows, which is the far end of the view from a
+                    // reader parked in history — those delegates may be
+                    // unmaterialised (the proxy's reveal is paced) or
+                    // unmeasured, and either answers zero. Summing what is
+                    // being taken away is guessing; measuring what is being
+                    // KEPT is not.
+                    //
+                    // The anchor is resolved by stable id, so it survives the
+                    // renumbering the skip change causes, and it is by
+                    // definition on screen — the window is built around the
+                    // visible range, so it is never in the released set.
+                    //
+                    // This is NOT the deferred snap this file warns about.
+                    // That one ran through Qt.callLater, BEFORE the Column
+                    // relaid out, so it read a stale y and clamped against
+                    // new content. forceLayout() below is the positioner's
+                    // synchronous flush: by the time the anchor is re-read,
+                    // the geometry is the new geometry.
+                    const anchorRow = Math.max(0, viewRowAtContentY(contentY))
+                    const anchorItem = itemAtViewRow(anchorRow)
+                    const anchorEventId = eventIdAtViewRow(anchorRow)
+                    // A reader whose row cannot be resolved at all is in an
+                    // incoherent view (mid-reset, nothing materialised), and
+                    // applying a structural change there is how the reverted
+                    // retained-window attempt dumped the reader. Bail.
+                    if (!anchorItem || anchorEventId === "")
+                        return
+                    const anchorOffset = anchorItem.y - contentY
+
                     app.timelineView.setWindow(wantSkip, wantRows)
-                    if (wantSkip < skip) {
-                        // EXISTENCE IS NOT MEASUREMENT. The proxy does build
-                        // the restored rows synchronously, but a row's height
-                        // comes from its ColumnLayout and a QQuickLayout only
-                        // applies its implicit size from updatePolish() — so
-                        // a row created in THIS turn reads height == 0. The
-                        // old comment here claimed the opposite while
-                        // tryLandNavigationTarget()'s own header, added in the
-                        // same commit, documents the hazard exactly.
-                        //
-                        // The consequence was the whole point of the window:
-                        // `shift` summed to ~0, no compensation was applied,
-                        // and restoring the window threw the reader by
-                        // however many rows it had just re-exposed. That is
-                        // the teleport that survived the navigation fixes —
-                        // it is visible in a session log as a burst of
-                        // re-fetches for media that was already cached, i.e.
-                        // a mass delegate rebuild.
-                        //
-                        // forceLayout() is the positioner's own synchronous
-                        // flush, exactly as the landing path uses it: one
-                        // call, no waiting, no second correction afterwards.
-                        rowColumn.forceLayout()
-                        for (let r2 = 0; r2 < skip - wantSkip; ++r2) {
-                            const added = itemAtViewRow(r2)
-                            if (added) {
-                                shift += added.height
-                                // Still zero after the flush means the
-                                // correction is about to be wrong by this
-                                // row's height. Count it rather than guess —
-                                // a non-zero value in a capture names this
-                                // mechanism instead of the anchor machinery.
-                                if (added.height <= 0)
-                                    ++diagWindowUnmeasuredRows
-                            }
-                        }
+                    // Existence is not measurement: a row's height comes from
+                    // its ColumnLayout, which only applies its implicit size
+                    // from updatePolish(), so anything created in this turn
+                    // reads zero until the positioner has run.
+                    rowColumn.forceLayout()
+
+                    const movedRow = viewRowForStableId(anchorEventId)
+                    const movedItem = movedRow >= 0 ? itemAtViewRow(movedRow)
+                                                    : null
+                    if (movedItem) {
+                        contentY = movedItem.y - anchorOffset
+                    } else {
+                        // The anchor did not survive, which should be
+                        // impossible for an on-screen row. Count it rather
+                        // than apply a correction computed from nothing.
+                        ++diagWindowUnmeasuredRows
                     }
-                    // ONE exact write, and deliberately no deferred
-                    // follow-up. A `Qt.callLater` snap by anchor id was tried
-                    // and it BROKE this: it runs before the Column has
-                    // relaid out, so it read the anchor's stale y, computed a
-                    // target from the OLD geometry, and clamped it against
-                    // the NEW (shorter) content — landing the reader at the
-                    // very top instead of where they were. The measured
-                    // shift above needs no follow-up, and not adding a second
-                    // correction path keeps this clear of the anchor
-                    // machinery CLAUDE.md §16 warns about.
-                    if (shift !== 0)
-                        contentY = contentY + shift
                     ++diagWindowApplications
                     updateStickAndPaginate()
                     captureViewAnchor()

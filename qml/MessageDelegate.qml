@@ -418,6 +418,20 @@ Item {
         var eventId = root.eventIdForActions()
         if (eventId === "" || root.isVirtualRow || root.isStateActivity)
             return
+        // Dismiss any transient row surface FIRST. The picker and this menu
+        // are both Popup.Item in one overlay, so the last one opened paints
+        // and hit-tests on top — and a menu opened over the emoji grid covers
+        // the very thing the reader is trying to click. z cannot fix that
+        // (see TimelinePane's note); mutual exclusion can.
+        //
+        // Reached through `timelineView`, NOT through the pane root: a
+        // delegate only ever sees its view, so a pane-root function is
+        // invisible here. That is the same unreachability that silently
+        // killed the reader-popover click in the 2026-08-19 round, and this
+        // contract was declared on the view in the 2026-08-21 round and then
+        // never called from here — which is why the picker kept being covered.
+        if (root.timelineView && root.timelineView.closeTransientRowSurfaces)
+            root.timelineView.closeTransientRowSurfaces()
         menuEventId = eventId
         var p = alreadyInOverlaySpace
                 ? Qt.point(x, y)
@@ -3095,17 +3109,24 @@ Item {
                             model.mediaKey || "",
                             model.mediaFilename || "download")
                 }
-                AppMenuItem {
-                    objectName: "copyImageMenuItem"
-                    iconName: "content_copy"
-                    text: qsTr("Copy image")
-                    // Images only (the raster clipboard is meaningless for video/
-                    // files), same availability gates as Save as.
-                    visible: model.isImage === true
-                             && model.mediaSourceAvailable === true
-                             && app.mediaBridge.supported
-                    onTriggered: app.copyImageToClipboard(model.mediaKey || "")
-                }
+            }
+            // A SIBLING of "Save as…", not a child of it. Nested inside, this
+            // became a child ITEM of that row and painted on top of it — two
+            // labels overlapping in the same 32px strip, which is the
+            // "Sopy asnage" in the 2026-08-21 screenshot. A Menu lays out its
+            // own AppMenuItem children; one nested in another is not in that
+            // list and gets no row of its own.
+            AppMenuItem {
+                objectName: "copyImageMenuItem"
+                iconName: "content_copy"
+                text: qsTr("Copy image")
+                // Images only (the raster clipboard is meaningless for video/
+                // files), same availability gates as Save as.
+                visible: model.isImage === true
+                         && model.mediaSourceAvailable === true
+                         && app.mediaBridge.supported
+                enabled: visible && root.menuEventId !== ""
+                onTriggered: app.copyImageToClipboard(model.mediaKey || "")
             }
             // v0.6.6 UX rework: GIF starring moved OFF this
             // menu entirely — it is now a Discord-style hover

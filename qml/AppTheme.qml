@@ -355,24 +355,47 @@ QtObject {
     // genuinely near-black navy drops that under 1.15 and brings back the
     // one-continuous-field look the ladder was widened to fix.
     readonly property color _stoCanvas:        "#0E1A51"
-    readonly property color _stoPanel:         "#252F5B"
-    readonly property color _stoInset:         "#0F1530"
+    // ── Storm blues, re-saturated 2026-08-21 ────────────────────────────
+    // "replace all pale blue color with a darker one, it looks weak
+    // evrywhere its used". These sat at 0.31-0.42 — navy in name, washed
+    // slate on screen.
+    //
+    // Every one was re-derived at its EXACT existing luminance (binary
+    // search on HLS lightness, drift < 0.002). WCAG contrast is a pure
+    // function of relative luminance, so holding luminance fixed while
+    // raising chroma preserves every asserted pair and every ladder rung
+    // BIT-FOR-BIT — measured before and after: 1.223 / 1.272 / 1.422.
+    // The palette got richer at zero contrast risk.
+    //
+    // Selection, hover and the two borders are deliberately held back
+    // (0.40-0.46) where the rest go to 0.5-0.64: a neon selected row or a
+    // vivid hairline reads worse than a pale one, and the borders are what
+    // the eye follows around every panel.
+    //
+    // cardElevated and selection keep their DIFFERENT HUES (222 vs 252).
+    // They sit at the same lightness by necessity — the identity inks cap
+    // how far the ladder can climb — so tint is the only thing telling a
+    // raised chip from a selected row apart. Re-saturating both toward one
+    // hue collapsed that to dE 8 and the ladder test caught it; they are now
+    // dE 25, blue-navy against violet.
+    readonly property color _stoPanel:         "#1B2B72"
+    readonly property color _stoInset:         "#0C1436"
     readonly property color _stoDeep:          "#060718"
-    readonly property color _stoBorder:        "#414A80"
-    readonly property color _stoBorderStrong:  "#5762A5"
-    readonly property color _stoSelection:     "#3D4190"
+    readonly property color _stoBorder:        "#394797"
+    readonly property color _stoBorderStrong:  "#525FB5"
+    readonly property color _stoSelection:     "#4C3999"
     // Elevation rung above the panel: reaction pills, keycaps, raised cards.
     // Was an alias of _stoSelection, which is what made "hovered", "selected"
     // and "raised" indistinguishable.
-    readonly property color _stoCardElevated:  "#3A457D"
+    readonly property color _stoCardElevated:  "#2A4685"
     // Row-hover lift. Kept as a translucent wash rather than an opaque rung
     // because hover applies over the timeline (deep), the room list (canvas)
     // AND menu rows (panel); at 0.22 alpha it measures 1.25/1.31/1.27:1 over
     // those three, i.e. one consistent lift instead of one tuned surface.
-    readonly property color _stoHover:         "#7176BE"
+    readonly property color _stoHover:         "#7075C4"
     // Reaction-pill surface. Its OWN value, not an alias of cardElevated:
     // 1.21:1 above the bubble it attaches to and 1.88:1 above the timeline.
-    readonly property color _stoReaction:      "#303B6D"
+    readonly property color _stoReaction:      "#2A397D"
     readonly property color _stoBolt:          "#FFD447"
     // Ink painted ON a bolt or link fill. Split out of _stoCanvas this round:
     // the room-list surface had been doing double duty as the badge ink, so
@@ -394,7 +417,7 @@ QtObject {
     readonly property color _stoAccentHover:   "#FFDF6E"
     readonly property color _stoAccentPressed: "#E9BC2F"
     readonly property color _stoOwnBubble:     "#3345A6"
-    readonly property color _stoSelectedHover: "#4A4CA1"
+    readonly property color _stoSelectedHover: "#5842B1"
     readonly property color _stoMention:       "#E5677A"
 
     // Ink used on top of accent fills for every palette without its own

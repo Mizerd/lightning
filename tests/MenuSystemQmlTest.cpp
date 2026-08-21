@@ -541,21 +541,34 @@ private slots:
                      ->property("color").value<QColor>(),
                  tealBorderStrong);
 
-        // Storm (11) always resolves to the fixed §1 literal, regardless of
-        // which legacy theme was active immediately beforehand.
+        // Storm (11) always resolves to ONE fixed value, regardless of which
+        // legacy theme was active immediately beforehand — that invariance is
+        // what this case is about, not the particular hex.
         //
-        // The literal moved #5762A5 -> #5762A5 in the 2026-08-21 design round,
-        // when Storm's surface ladder was widened: every step but one was
-        // below the visible threshold (deep->canvas measured 1.025:1), which
-        // is what made the theme read as flat. The ASSERTION here is unchanged
-        // — Storm still resolves to one fixed value and a legacy theme still
-        // does not — only the value it resolves to.
+        // It used to assert a copied literal, and the 2026-08-21 rounds moved
+        // that literal twice (the ladder widening, then the re-saturation),
+        // breaking a test whose subject had not changed either time. It now
+        // reads the TOKEN and checks the property against it, then leaves and
+        // returns to prove the value is stable across a round trip. A copied
+        // hex here only ever tested that nobody had touched the palette.
         m_root->setProperty("themeMode", 11);
         QTRY_COMPARE(chip->property("border").value<QObject *>()
                          ->property("color").value<QColor>(),
-                     QColor(QStringLiteral("#5762A5")));
-        QCOMPARE(token("tokStormBorderStrong"),
-                 QColor(QStringLiteral("#5762A5")));
+                     token("tokStormBorderStrong"));
+        const QColor stormBorderStrong = token("tokStormBorderStrong");
+        QVERIFY2(stormBorderStrong != tealBorderStrong
+                     && stormBorderStrong != indigoBorderStrong,
+                 "Storm must resolve to its OWN border, not a legacy theme's");
+
+        // Round trip: away to a legacy theme and back. Storm must land on the
+        // same value both times.
+        m_root->setProperty("themeMode", 10);
+        QTRY_COMPARE(token("tokStormBorderStrong"), tealBorderStrong);
+        m_root->setProperty("themeMode", 11);
+        QTRY_COMPARE(token("tokStormBorderStrong"), stormBorderStrong);
+        QCOMPARE(chip->property("border").value<QObject *>()
+                     ->property("color").value<QColor>(),
+                 stormBorderStrong);
 
         m_root->setProperty("themeMode", 9);
     }

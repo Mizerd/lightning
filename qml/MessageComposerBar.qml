@@ -1112,6 +1112,17 @@ Item {
                         }
                         placeholderTextColor: AppTheme.textMuted
                         font.pixelSize: AppTheme.scaled(14)
+                        // Vertical padding set EXPLICITLY. This app picks up
+                        // the platform Breeze style for TextArea (it even logs
+                        // an assignment error from it), so the style's own
+                        // padding decides where the first line sits — and it
+                        // is not symmetric here: the placeholder and the text
+                        // rendered visibly below the centre of a single-line
+                        // composer while every icon beside them was centred.
+                        // Equal top and bottom is what makes one line centre;
+                        // the field still grows to the 6-line cap above.
+                        topPadding: AppTheme.spacing6
+                        bottomPadding: AppTheme.spacing6
                         wrapMode: TextArea.Wrap
                         enabled: app.currentRoomId !== ""
                         text: app.composer.text
