@@ -95,20 +95,21 @@ QtObject {
     readonly property bool storm: effectiveTheme === 11
 
     // ---- Raw palette literals (retained; the token test reads these). ----
-    readonly property color _bgLight:            "#EBF0F7"
-    readonly property color _bgDark:             "#0F172A"
-    readonly property color _sidebarLight:       "#F4F8FC"
-    readonly property color _sidebarDark:        "#111827"
+    readonly property color _bgLight:            "#E4EDF7"
+    readonly property color _railLight:            "#D8E1EB"
+    readonly property color _bgDark:             "#09182C"
+    readonly property color _sidebarLight:       "#EEF5FE"
+    readonly property color _sidebarDark:        "#1B263B"
     readonly property color _cardLight:          "#FFFFFF"
-    readonly property color _cardDark:           "#192332"
-    readonly property color _cardElevatedLight:  "#E8EEF7"
-    readonly property color _cardElevatedDark:   "#1F2A3A"
-    readonly property color _hoverLight:         "#DCE8FF"
-    readonly property color _hoverDark:          "#1F325B"
-    readonly property color _selectedLight:      "#BEDBFF"
-    readonly property color _selectedDark:       "#26438F"
-    readonly property color _selectedHoverLight: "#A9CEFF"
-    readonly property color _selectedHoverDark:  "#314FA3"
+    readonly property color _cardDark:           "#273246"
+    readonly property color _cardElevatedLight:  "#EFF9FF"
+    readonly property color _cardElevatedDark:   "#333D50"
+    readonly property color _hoverLight:         "#CEE3FA"
+    readonly property color _hoverDark:          "#2B4A6A"
+    readonly property color _selectedLight:      "#AAD4FF"
+    readonly property color _selectedDark:       "#13588B"
+    readonly property color _selectedHoverLight: "#94C7F9"
+    readonly property color _selectedHoverDark:  "#286599"
     readonly property color _selectedTextLight:  "#1E293B"
     readonly property color _selectedTextDark:   "#F8FAFC"
     readonly property color _accentBlue:         "#1D57FF"
@@ -121,20 +122,22 @@ QtObject {
     readonly property color _accentInfo:         "#0CAEF6"
     readonly property color _textPrimaryLight:   "#1E293B"
     readonly property color _textPrimaryDark:    "#F8FAFC"
-    readonly property color _textSecondaryLight: "#5B6B84"
+    readonly property color _textSecondaryLight: "#4C5661"
     readonly property color _textSecondaryDark:  "#CBD5E1"
-    readonly property color _textMutedLight:     "#5B6B82"
+    readonly property color _textMutedLight:     "#525C68"
     readonly property color _textMutedDark:      "#94A3B8"
     readonly property color _textDisabledLight:  "#A8B3C4"
     readonly property color _textDisabledDark:   "#64748B"
     readonly property color _borderLight:        "#C4D2E7"
-    readonly property color _borderDark:         "#334155"
+    readonly property color _borderDark:         "#394859"
     readonly property color _borderStrongLight:  "#7A94B6"
-    readonly property color _borderStrongDark:   "#475569"
-    readonly property color _inputBgLight:       "#FFFFFF"
-    readonly property color _inputBgDark:        "#111827"
-    readonly property color _codeBlockLight:     "#E3EAF5"
-    readonly property color _codeBlockDark:      "#0B1220"
+    readonly property color _borderStrongDark:   "#526172"
+    readonly property color _inputBgLight:       "#E8F1FB"
+    readonly property color _inputBgDark:        "#0E1F30"
+    readonly property color _codeBlockLight:     "#CDDFF3"
+    readonly property color _lightLink:            "#005FB5"
+    readonly property color _codeBlockDark:      "#000E1F"
+    readonly property color _midLink:              "#8CC3FF"
 
     // Lightning Dark — cool near-black, calmer than the navy Midnight.
     readonly property color _dkBg:            "#0D1117"
@@ -163,50 +166,53 @@ QtObject {
     readonly property color _dkLink:          "#9EAAFC"
 
     // Graphite — neutral dark grey.
-    readonly property color _graBg:            "#1A1A1D"
-    readonly property color _graSidebar:       "#202024"
-    readonly property color _graCard:          "#26262B"
-    readonly property color _graCardElevated:  "#303036"
-    readonly property color _graHover:         "#34343B"
-    readonly property color _graSelected:      "#3E4048"
-    readonly property color _graSelectedHover: "#4A4C55"
+    readonly property color _graBg:            "#141417"
+    readonly property color _graSidebar:       "#1D1E21"
+    readonly property color _graCard:          "#27272B"
+    readonly property color _graCardElevated:  "#38383D"
+    readonly property color _graHover:         "#4B4B53"
+    readonly property color _graSelected:      "#55586C"
+    readonly property color _graSelectedHover: "#61667B"
     readonly property color _graSelectedText:  "#F5F5F7"
     readonly property color _graTextPrimary:   "#F5F5F7"
     readonly property color _graTextSecondary: "#C7C7CC"
     readonly property color _graTextMuted:     "#9A9AA2"
-    readonly property color _graTextDisabled:  "#6A6A72"
-    readonly property color _graBorder:        "#37373E"
-    readonly property color _graBorderStrong:  "#4A4A52"
-    readonly property color _graInputBg:       "#202024"
-    readonly property color _graCodeBlock:     "#141416"
+    readonly property color _graTextDisabled:  "#79787F"
+    readonly property color _graBorder:        "#43444A"
+    readonly property color _graBorderStrong:  "#5C5C64"
+    readonly property color _graInputBg:       "#151518"
+    readonly property color _graCodeBlock:     "#0D0D11"
+    readonly property color _graLink:              "#A8AFF9"
     readonly property color _graAccent:        "#2E6EEB"
     readonly property color _graAccentHover:   "#4680ED"
     readonly property color _graAccentPressed: "#305EB8"
     readonly property color _graOwnBubble:     "#314D9A"
-    readonly property color _graOtherBubble:   "#303036"
+    readonly property color _graOtherBubble:   "#2D2D32"
 
     // Nord — polar-night surfaces, frost accent.
     readonly property color _norBg:            "#2E3440"
-    readonly property color _norSidebar:       "#2B303B"
+    readonly property color _norRail:              "#1E232E"
+    readonly property color _norSidebar:       "#262C38"
     readonly property color _norCard:          "#3B4252"
-    readonly property color _norCardElevated:  "#434C5E"
-    readonly property color _norHover:         "#3B4252"
-    readonly property color _norSelected:      "#4C566A"
-    readonly property color _norSelectedHover: "#5A6377"
+    readonly property color _norCardElevated:  "#444D61"
+    readonly property color _norHover:         "#4C566A"
+    readonly property color _norSelected:      "#4A6285"
+    readonly property color _norSelectedHover: "#587197"
     readonly property color _norSelectedText:  "#ECEFF4"
     readonly property color _norTextPrimary:   "#ECEFF4"
     readonly property color _norTextSecondary: "#D8DEE9"
     readonly property color _norTextMuted:     "#ABB2C0"
-    readonly property color _norTextDisabled:  "#727A8A"
-    readonly property color _norBorder:        "#434C5E"
-    readonly property color _norBorderStrong:  "#4C566A"
-    readonly property color _norInputBg:       "#2B303B"
+    readonly property color _norTextDisabled:  "#949CAC"
+    readonly property color _norBorder:        "#464F62"
+    readonly property color _norBorderStrong:  "#5A6478"
+    readonly property color _norInputBg:       "#21262F"
     readonly property color _norCodeBlock:     "#292E39"
-    readonly property color _norAccent:        "#4D6D95"
-    readonly property color _norAccentHover:   "#4D7CB2"
-    readonly property color _norAccentPressed: "#415C7E"
-    readonly property color _norOwnBubble:     "#415C7E"
-    readonly property color _norOtherBubble:   "#3B4252"
+    readonly property color _norLink:              "#9DE4FF"
+    readonly property color _norAccent:        "#5E81AC"
+    readonly property color _norAccentHover:   "#6C8FBA"
+    readonly property color _norAccentPressed: "#4E6E96"
+    readonly property color _norOwnBubble:     "#3B5A80"
+    readonly property color _norOtherBubble:   "#3F4757"
 
     // Purple Dusk — deep violet surfaces.
     readonly property color _purBg:            "#17142A"
@@ -242,110 +248,115 @@ QtObject {
     readonly property color _purOtherBubble:   "#3C3261"
 
     // Warm — light cream surfaces with an amber accent.
-    readonly property color _warBg:            "#F6F1E7"
-    readonly property color _warSidebar:       "#FBF7EF"
+    readonly property color _warBg:            "#F1E7D7"
+    readonly property color _warRail:              "#EBDFCE"
+    readonly property color _warSidebar:       "#F9EFE1"
     readonly property color _warCard:          "#FFFDF8"
-    readonly property color _warCardElevated:  "#F1E9DB"
-    readonly property color _warHover:         "#EDE2CE"
-    readonly property color _warSelected:      "#E0CBA4"
-    readonly property color _warSelectedHover: "#D5BC8E"
+    readonly property color _warCardElevated:  "#FCF4E8"
+    readonly property color _warHover:         "#EEDFC6"
+    readonly property color _warSelected:      "#E7CCA8"
+    readonly property color _warSelectedHover: "#DABC92"
     readonly property color _warSelectedText:  "#3B3428"
     readonly property color _warTextPrimary:   "#3B3428"
-    readonly property color _warTextSecondary: "#6B5F4C"
+    readonly property color _warTextSecondary: "#675944"
     readonly property color _warTextMuted:     "#6E6350"
     readonly property color _warTextDisabled:  "#B3A78F"
     readonly property color _warBorder:        "#DCD0B8"
     readonly property color _warBorderStrong:  "#C2B394"
-    readonly property color _warInputBg:       "#FFFDF8"
-    readonly property color _warCodeBlock:     "#EFE7D6"
-    readonly property color _warAccent:        "#C2410C"
-    readonly property color _warAccentHover:   "#D9581F"
-    readonly property color _warAccentPressed: "#A83809"
-    readonly property color _warOwnBubble:     "#8F420C"
-    readonly property color _warOtherBubble:   "#EDE2CE"
+    readonly property color _warInputBg:       "#F5ECDE"
+    readonly property color _warCodeBlock:     "#E7DAC5"
+    readonly property color _warLink:              "#00598B"
+    readonly property color _warAccent:        "#A34C00"
+    readonly property color _warAccentHover:   "#BC5A05"
+    readonly property color _warAccentPressed: "#8A3F00"
+    readonly property color _warOwnBubble:     "#7A3A05"
+    readonly property color _warOtherBubble:   "#FFE0CC"
 
     // Moss Light — design-handoff light theme (option 1a).
-    readonly property color _mosBg:            "#F1F9F3"
-    readonly property color _mosRail:          "#E7EFE8"
-    readonly property color _mosSidebar:       "#EDF5EE"
+    readonly property color _mosBg:            "#E3EFE6"
+    readonly property color _mosRail:          "#D8E5DB"
+    readonly property color _mosSidebar:       "#ECF6EF"
     readonly property color _mosCard:          "#FFFFFF"
-    readonly property color _mosCardElevated:  "#F5FCF6"
-    readonly property color _mosHover:         "#E1EBE3"
-    readonly property color _mosSelected:      "#E2F4EE"
-    readonly property color _mosSelectedHover: "#D5EEE5"
-    readonly property color _mosSelectedText:  "#0D6E55"
-    readonly property color _mosTextPrimary:   "#1C1E21"
-    readonly property color _mosTextSecondary: "#5B6067"
-    readonly property color _mosTextMuted:     "#6A6F76"
-    readonly property color _mosTextDisabled:  "#9AA0A6"
-    readonly property color _mosBorder:        "#DEE8E0"
-    readonly property color _mosBorderStrong:  "#C9D5CB"
-    readonly property color _mosInputBg:       "#FFFFFF"
-    readonly property color _mosCodeBlock:     "#E1EBE3"
-    readonly property color _mosAccent:        "#12A67F"
-    readonly property color _mosAccentHover:   "#15B78C"
-    readonly property color _mosAccentPressed: "#0F8F6D"
-    readonly property color _mosAccentSoft:    "#E2F4EE"
-    readonly property color _mosAccentBorder:  "#BFE6DA"
+    readonly property color _mosCardElevated:  "#EFFAF1"
+    readonly property color _mosHover:         "#D4E6D8"
+    readonly property color _mosSelected:      "#D1F1E5"
+    readonly property color _mosSelectedHover: "#AFDACA"
+    readonly property color _mosSelectedText:  "#006242"
+    readonly property color _mosTextPrimary:   "#161D18"
+    readonly property color _mosTextSecondary: "#4E5A51"
+    readonly property color _mosTextMuted:     "#57625A"
+    readonly property color _mosTextDisabled:  "#8D9890"
+    readonly property color _mosBorder:        "#D2E2D6"
+    readonly property color _mosBorderStrong:  "#A0B2A4"
+    readonly property color _mosInputBg:       "#E9F2EB"
+    readonly property color _mosCodeBlock:     "#CBDFD0"
+    readonly property color _mosLink:              "#00734E"
+    readonly property color _mosAccent:        "#007757"
+    readonly property color _mosAccentHover:   "#00654A"
+    readonly property color _mosAccentPressed: "#005440"
+    readonly property color _mosAccentSoft:    "#D1F1E5"
+    readonly property color _mosAccentBorder:  "#7DBAA0"
     readonly property color _mosOwnBubble:     "#0D6E55"
-    readonly property color _mosOtherBubble:   "#E1EBE3"
+    readonly property color _mosOtherBubble:   "#D9EADE"
     readonly property color _mosMention:       "#E04848"
 
     // Indigo Night — design-handoff dark theme (option 2a).
-    readonly property color _indBg:            "#101016"
+    readonly property color _indBg:            "#1F1D26"
     readonly property color _indRail:          "#0E0E14"
-    readonly property color _indSidebar:       "#14141B"
-    readonly property color _indCard:          "#1B1B24"
-    readonly property color _indCardElevated:  "#2A2A36"
-    readonly property color _indHover:         "#1D1D26"
-    readonly property color _indSelected:      "#25253D"
-    readonly property color _indSelectedHover: "#25263F"
+    readonly property color _indSidebar:       "#292632"
+    readonly property color _indCard:          "#32303D"
+    readonly property color _indCardElevated:  "#3D3A4A"
+    readonly property color _indHover:         "#484455"
+    readonly property color _indSelected:      "#3D415F"
+    readonly property color _indSelectedHover: "#474C6E"
     readonly property color _indSelectedText:  "#C3C5FF"
     readonly property color _indTextPrimary:   "#E8E8EF"
     readonly property color _indTextSecondary: "#A4A6B8"
-    readonly property color _indTextMuted:     "#8D8FA0"
+    readonly property color _indTextMuted:     "#9E9BA6"
     readonly property color _indTextDisabled:  "#6F7183"
-    readonly property color _indBorder:        "#23232D"
-    readonly property color _indBorderStrong:  "#33333F"
-    readonly property color _indInputBg:       "#1D1D26"
-    readonly property color _indCodeBlock:     "#0B0B10"
+    readonly property color _indBorder:        "#423E4E"
+    readonly property color _indBorderStrong:  "#5A5768"
+    readonly property color _indInputBg:       "#24212C"
+    readonly property color _indCodeBlock:     "#100C18"
+    readonly property color _indLink:              "#ACAAFD"
     readonly property color _indAccent:        "#4A4EED"
     readonly property color _indAccentHover:   "#5C61F0"
     readonly property color _indAccentPressed: "#4043CC"
     readonly property color _indAccentSoft:    "#25253D"
     readonly property color _indAccentBorder:  "#303057"
     readonly property color _indOwnBubble:     "#3E409E"
-    readonly property color _indOtherBubble:   "#2A2A36"
+    readonly property color _indOtherBubble:   "#32303D"
     readonly property color _indMention:       "#E5677A"
     readonly property color _indOnline:        "#63D6A3"
 
     // Deep Teal — design-handoff dark theme (option 2b). Accent fills use
     // dark ink (the accent itself is bright).
-    readonly property color _teaBg:            "#031919"
-    readonly property color _teaRail:          "#001112"
-    readonly property color _teaSidebar:       "#091F20"
-    readonly property color _teaCard:          "#0C2526"
-    readonly property color _teaCardElevated:  "#133334"
-    readonly property color _teaHover:         "#112D2E"
-    readonly property color _teaSelected:      "#003834"
-    readonly property color _teaSelectedHover: "#004540"
+    readonly property color _teaBg:            "#022323"
+    readonly property color _teaRail:          "#000909"
+    readonly property color _teaSidebar:       "#0C3031"
+    readonly property color _teaCard:          "#163D3D"
+    readonly property color _teaCardElevated:  "#214B4B"
+    readonly property color _teaHover:         "#225056"
+    readonly property color _teaSelected:      "#1C544E"
+    readonly property color _teaSelectedHover: "#216059"
     readonly property color _teaSelectedText:  "#DEF5F0"
     readonly property color _teaTextPrimary:   "#E6ECEC"
     readonly property color _teaTextSecondary: "#B9C8C8"
     readonly property color _teaTextMuted:     "#8FA5A8"
     readonly property color _teaTextDisabled:  "#5F7A7E"
-    readonly property color _teaBorder:        "#193535"
-    readonly property color _teaBorderStrong:  "#224849"
-    readonly property color _teaInputBg:       "#051C1D"
-    readonly property color _teaCodeBlock:     "#001415"
+    readonly property color _teaBorder:        "#284E4E"
+    readonly property color _teaBorderStrong:  "#406666"
+    readonly property color _teaInputBg:       "#082929"
+    readonly property color _teaCodeBlock:     "#000C0C"
+    readonly property color _teaLink:              "#61C4C7"
     readonly property color _teaAccent:        "#27C2AD"
     readonly property color _teaAccentHover:   "#3FD2BE"
     readonly property color _teaAccentPressed: "#1EA593"
-    readonly property color _teaAccentSoft:    "#112928"
+    readonly property color _teaAccentSoft:    "#13403D"
     readonly property color _teaAccentBorder:  "#1F4A44"
     readonly property color _teaAccentText:    "#062A25"
     readonly property color _teaOwnBubble:     "#1C4A43"
-    readonly property color _teaOtherBubble:   "#133334"
+    readonly property color _teaOtherBubble:   "#163D3D"
     readonly property color _teaMention:       "#E5677A"
 
     // Storm — the 0.6.5 brand theme (selectable id 11). Deep navy surfaces,
@@ -549,16 +560,16 @@ QtObject {
     // visible step off ITS OWN theme's message surface — lighter on the dark
     // themes, darker on the light ones — with the theme's secondary ink kept
     // at >= 4.6:1 on it (measured worst case 4.71, on Warm).
-    readonly property color _lightReaction:    "#FBFDFF"
+    readonly property color _lightReaction:    "#DCE9F8"
     readonly property color _dkReaction:       "#464C57"
-    readonly property color _graReaction:      "#333339"
-    readonly property color _midReaction:      "#252E3D"
-    readonly property color _norReaction:      "#474E5E"
+    readonly property color _graReaction:      "#38434C"
+    readonly property color _midReaction:      "#394A5E"
+    readonly property color _norReaction:      "#2F596A"
     readonly property color _purReaction:      "#444058"
-    readonly property color _warReaction:      "#EADECF"
-    readonly property color _mosReaction:      "#D6E3D9"
-    readonly property color _indReaction:      "#2A2A33"
-    readonly property color _teaReaction:      "#1B3334"
+    readonly property color _warReaction:      "#E4D5BD"
+    readonly property color _mosReaction:      "#D0E3D5"
+    readonly property color _indReaction:      "#1F3F52"
+    readonly property color _teaReaction:      "#275454"
 
     // ---- Media / scrim chrome (theme-invariant by design). ----
     // The image viewer and the video control bar are committed-dark surfaces:
@@ -582,8 +593,17 @@ QtObject {
         textDisabled: _textDisabledLight, border: _borderLight,
         borderStrong: _borderStrongLight, accent: _accentBlue,
         accentHover: _accentBlueHover, accentPressed: _accentBluePressed,
-        ownBubble: _outgoingBubbleBlue, otherBubble: _hoverLight,
-        reaction: _lightReaction
+        ownBubble: _outgoingBubbleBlue,
+        reaction: _lightReaction,
+        // `link` cannot be the accent: white-on-accent is pinned
+        // at 3:1, which CAPS the accent's luminance, while an AA
+        // link needs more than that cap on the raised surfaces.
+        // Over-determined, so links get their own ink.
+        link: _lightLink, rail: _railLight,
+        // NOT _hoverLight, which is what it was: one literal served both the
+        // incoming bubble AND row hover, so pointing at a message in a DM
+        // dissolved its bubble into the row highlight.
+        otherBubble: _cardElevatedLight
     })
     readonly property var _dark: ({
         background: _dkBg, sidebar: _dkSidebar, surface: _dkCard,
@@ -616,7 +636,12 @@ QtObject {
         borderStrong: _borderStrongDark, accent: _accentBlue,
         accentHover: _accentBlueHover, accentPressed: _accentBluePressed,
         ownBubble: _outgoingBubbleBlue, otherBubble: _cardElevatedDark,
-        reaction: _midReaction
+        reaction: _midReaction,
+        // `link` cannot be the accent: white-on-accent is pinned
+        // at 3:1, which CAPS the accent's luminance, while an AA
+        // link needs more than that cap on the raised surfaces.
+        // Over-determined, so links get their own ink.
+        link: _midLink, rail: _bgDark
     })
     readonly property var _graphite: ({
         background: _graBg, sidebar: _graSidebar, surface: _graCard,
@@ -629,7 +654,12 @@ QtObject {
         borderStrong: _graBorderStrong, accent: _graAccent,
         accentHover: _graAccentHover, accentPressed: _graAccentPressed,
         ownBubble: _graOwnBubble, otherBubble: _graOtherBubble,
-        reaction: _graReaction
+        reaction: _graReaction,
+        // `link` cannot be the accent: white-on-accent is pinned
+        // at 3:1, which CAPS the accent's luminance, while an AA
+        // link needs more than that cap on the raised surfaces.
+        // Over-determined, so links get their own ink.
+        link: _graLink
     })
     readonly property var _nord: ({
         background: _norBg, sidebar: _norSidebar, surface: _norCard,
@@ -642,7 +672,12 @@ QtObject {
         borderStrong: _norBorderStrong, accent: _norAccent,
         accentHover: _norAccentHover, accentPressed: _norAccentPressed,
         ownBubble: _norOwnBubble, otherBubble: _norOtherBubble,
-        reaction: _norReaction
+        reaction: _norReaction,
+        // `link` cannot be the accent: white-on-accent is pinned
+        // at 3:1, which CAPS the accent's luminance, while an AA
+        // link needs more than that cap on the raised surfaces.
+        // Over-determined, so links get their own ink.
+        link: _norLink, rail: _norRail
     })
     readonly property var _purple: ({
         background: _purBg, sidebar: _purSidebar, surface: _purCard,
@@ -673,7 +708,12 @@ QtObject {
         borderStrong: _warBorderStrong, accent: _warAccent,
         accentHover: _warAccentHover, accentPressed: _warAccentPressed,
         ownBubble: _warOwnBubble, otherBubble: _warOtherBubble,
-        reaction: _warReaction
+        reaction: _warReaction,
+        // `link` cannot be the accent: white-on-accent is pinned
+        // at 3:1, which CAPS the accent's luminance, while an AA
+        // link needs more than that cap on the raised surfaces.
+        // Over-determined, so links get their own ink.
+        link: _warLink, rail: _warRail
     })
     readonly property var _moss: ({
         background: _mosBg, rail: _mosRail, sidebar: _mosSidebar,
@@ -687,7 +727,12 @@ QtObject {
         accentHover: _mosAccentHover, accentPressed: _mosAccentPressed,
         accentSoft: _mosAccentSoft, accentBorder: _mosAccentBorder,
         ownBubble: _mosOwnBubble, otherBubble: _mosOtherBubble,
-        mention: _mosMention, online: _mosAccent, reaction: _mosReaction
+        mention: _mosMention, online: _mosAccent, reaction: _mosReaction,
+        // `link` cannot be the accent: white-on-accent is pinned
+        // at 3:1, which CAPS the accent's luminance, while an AA
+        // link needs more than that cap on the raised surfaces.
+        // Over-determined, so links get their own ink.
+        link: _mosLink
     })
     readonly property var _indigo: ({
         background: _indBg, rail: _indRail, sidebar: _indSidebar,
@@ -701,7 +746,12 @@ QtObject {
         accentHover: _indAccentHover, accentPressed: _indAccentPressed,
         accentSoft: _indAccentSoft, accentBorder: _indAccentBorder,
         ownBubble: _indOwnBubble, otherBubble: _indOtherBubble,
-        mention: _indMention, online: _indOnline, reaction: _indReaction
+        mention: _indMention, online: _indOnline, reaction: _indReaction,
+        // `link` cannot be the accent: white-on-accent is pinned
+        // at 3:1, which CAPS the accent's luminance, while an AA
+        // link needs more than that cap on the raised surfaces.
+        // Over-determined, so links get their own ink.
+        link: _indLink
     })
     readonly property var _teal: ({
         background: _teaBg, rail: _teaRail, sidebar: _teaSidebar,
@@ -716,7 +766,12 @@ QtObject {
         accentSoft: _teaAccentSoft, accentBorder: _teaAccentBorder,
         accentText: _teaAccentText,
         ownBubble: _teaOwnBubble, otherBubble: _teaOtherBubble,
-        mention: _teaMention, online: _teaAccent, reaction: _teaReaction
+        mention: _teaMention, online: _teaAccent, reaction: _teaReaction,
+        // `link` cannot be the accent: white-on-accent is pinned
+        // at 3:1, which CAPS the accent's luminance, while an AA
+        // link needs more than that cap on the raised surfaces.
+        // Over-determined, so links get their own ink.
+        link: _teaLink
     })
     // Storm's shell mapping. accent stays bolt for the sanctioned roles
     // (focus, checked state, ONE primary action, the Home tile) — the roles
