@@ -343,10 +343,14 @@ set(APP_SOURCES
 
     src/storage/AppDataPaths.h
     src/storage/AppDataPaths.cpp
+    src/storage/PortableMode.h
+    src/storage/PortableMode.cpp
     src/storage/CacheStore.h
     src/storage/CacheStore.cpp
     src/storage/SecretStore.h
     src/storage/SecretStore.cpp
+    src/storage/PortableSecretStore.h
+    src/storage/PortableSecretStore.cpp
     src/storage/InsecureFallbackSecretStore.h
     src/storage/InsecureFallbackSecretStore.cpp
     src/storage/LibSecretStore.h
@@ -991,14 +995,50 @@ if(BUILD_TESTING)
     qt_add_executable(app-data-paths-test
         tests/AppDataPathsTest.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(app-data-paths-test PRIVATE src)
     target_link_libraries(app-data-paths-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME app-data-paths COMMAND app-data-paths-test)
 
+    # 2026-08-21: Windows true portability. Portable mode has to be decided
+    # BEFORE the first QSettings exists — after that the registry has already
+    # been touched and redirecting would leave state in two places — so the
+    # decision runs where there is no QCoreApplication and the executable
+    # directory comes from a platform API rather than applicationDirPath().
+    # The POLICY carries no platform guard, which is what lets all of it be
+    # tested here. The relocation cases are the point of the whole feature:
+    # state written under one root must resolve from another, with nothing
+    # retaining the old absolute path.
+    qt_add_executable(portable-mode-test
+        tests/PortableModeTest.cpp
+        src/storage/PortableMode.cpp
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(portable-mode-test PRIVATE src)
+    target_link_libraries(portable-mode-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME portable-mode COMMAND portable-mode-test)
+
+    # The portable session store. Deliberately does NOT compile PortableMode:
+    # the store takes its directory as a constructor argument, so this suite
+    # is hermetic and needs neither the portable decision nor its test seam.
+    # SecretStore.h only — SecretStore.cpp would drag in the WinCred and
+    # libsecret backends this suite exists to be independent of.
+    qt_add_executable(portable-secret-store-test
+        tests/PortableSecretStoreTest.cpp
+        src/storage/PortableSecretStore.h
+        src/storage/PortableSecretStore.cpp
+        src/storage/SecretStore.h
+    )
+    target_include_directories(portable-secret-store-test PRIVATE src)
+    target_link_libraries(portable-secret-store-test
+        PRIVATE Qt6::Core Qt6::Test OpenSSL::Crypto)
+    add_test(NAME portable-secret-store COMMAND portable-secret-store-test)
+
     qt_add_executable(rust-session-lifecycle-test
         tests/RustSessionLifecycleTest.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
         src/matrix/RustSessionPolicy.cpp
     )
     target_include_directories(rust-session-lifecycle-test PRIVATE src)
@@ -1011,6 +1051,7 @@ if(BUILD_TESTING)
         src/app/SettingsManager.cpp
         src/storage/SecretStore.h
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(settings-session-test PRIVATE src)
     target_link_libraries(settings-session-test PRIVATE Qt6::Core Qt6::Test)
@@ -1024,6 +1065,7 @@ if(BUILD_TESTING)
         src/auth/AccountManager.cpp
         src/storage/SecretStore.h
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(account-registry-test PRIVATE src)
     target_link_libraries(account-registry-test PRIVATE Qt6::Core Qt6::Test)
@@ -1037,6 +1079,7 @@ if(BUILD_TESTING)
         src/app/SettingsManager.cpp
         src/storage/SecretStore.h
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     qt_add_resources(emoji-catalog-test "emoji-test-data"
         PREFIX "/qt/qml/MatrixClient"
@@ -1056,6 +1099,7 @@ if(BUILD_TESTING)
         src/app/SettingsManager.cpp
         src/storage/SecretStore.h
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(custom-app-icon-test PRIVATE src)
     target_link_libraries(custom-app-icon-test PRIVATE
@@ -1108,6 +1152,7 @@ if(BUILD_TESTING)
         src/app/SettingsManager.cpp
         src/storage/SecretStore.h
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     qt_add_resources(emoji-catalog-recent-emoji-test "emoji-recent-test-data"
         PREFIX "/qt/qml/MatrixClient"
@@ -1208,6 +1253,7 @@ if(BUILD_TESTING)
         src/matrix/MediaHelpers.cpp
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(gif-send-controller-dedup-test PRIVATE src)
     target_link_libraries(gif-send-controller-dedup-test PRIVATE
@@ -1257,6 +1303,7 @@ if(BUILD_TESTING)
         src/matrix/RustSessionPolicy.cpp
         src/storage/SecretStore.h
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(session-store-identity-test PRIVATE src)
     target_link_libraries(session-store-identity-test PRIVATE Qt6::Core Qt6::Test)
@@ -1358,6 +1405,7 @@ if(BUILD_TESTING)
         # MockMatrixClient's registry-backed restore needs these:
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(gif-send-controller-test PRIVATE src)
     target_link_libraries(gif-send-controller-test PRIVATE
@@ -1755,6 +1803,7 @@ if(BUILD_TESTING)
         tests/CacheStoreSecurityTest.cpp
         src/storage/CacheStore.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(cache-store-security-test PRIVATE src)
     target_link_libraries(cache-store-security-test PRIVATE Qt6::Core Qt6::Sql Qt6::Test)
@@ -1785,6 +1834,7 @@ if(BUILD_TESTING)
         src/app/SettingsManager.h
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
         src/models/MentionTokenizer.h
         src/models/MentionTokenizer.cpp
         src/models/MarkdownFormat.h
@@ -2033,6 +2083,7 @@ if(BUILD_TESTING)
         # MockMatrixClient's registry-backed restore needs these:
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(room-discovery-test PRIVATE src)
     target_link_libraries(room-discovery-test PRIVATE
@@ -2053,6 +2104,7 @@ if(BUILD_TESTING)
         src/matrix/MediaHelpers.cpp
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(message-search-test PRIVATE src)
     target_link_libraries(message-search-test PRIVATE
@@ -2074,6 +2126,7 @@ if(BUILD_TESTING)
         src/matrix/MediaHelpers.cpp
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(uia-session-test PRIVATE src)
     target_link_libraries(uia-session-test PRIVATE
@@ -2102,6 +2155,7 @@ if(BUILD_TESTING)
         src/matrix/MediaHelpers.cpp
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(moderation-test PRIVATE src)
     target_link_libraries(moderation-test PRIVATE
@@ -2144,6 +2198,7 @@ if(BUILD_TESTING)
         src/matrix/MediaHelpers.cpp
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
         # Header only (settings-session-test precedent): AUTOMOC supplies
         # the SecretStore metaobject; the .cpp would drag in the real
         # backends this suite must not depend on.
@@ -2252,6 +2307,7 @@ if(BUILD_TESTING)
         src/matrix/MediaHelpers.cpp
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
         # Header only (settings-session-test precedent): AUTOMOC supplies
         # the SecretStore metaobject; the .cpp would drag in the real
         # backends this suite must not depend on.
@@ -2339,6 +2395,7 @@ if(BUILD_TESTING)
         # MockMatrixClient's registry-backed restore needs these:
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
         # v0.7.x: ThreadController's draft hooks pull in the store.
         src/app/DraftStore.h
         src/app/DraftStore.cpp
@@ -2467,6 +2524,8 @@ if(BUILD_TESTING)
         tests/NotificationManagerTest.cpp
         src/notifications/NotificationManager.h
         src/notifications/NotificationManager.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
         src/notifications/FallbackAvatar.h
         src/notifications/FallbackAvatar.cpp
         src/matrix/EventPreview.h
@@ -2497,6 +2556,7 @@ if(BUILD_TESTING)
         src/app/SettingsManager.cpp
         src/storage/SecretStore.h
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )
@@ -2665,6 +2725,7 @@ if(BUILD_TESTING)
         # MockMatrixClient's registry-backed restore needs these:
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(quick-switcher-test PRIVATE src)
     target_link_libraries(quick-switcher-test PRIVATE
@@ -2688,6 +2749,7 @@ if(BUILD_TESTING)
         src/app/SettingsManager.h
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(presence-manager-test PRIVATE src)
     target_link_libraries(presence-manager-test PRIVATE
@@ -2907,6 +2969,7 @@ if(BUILD_TESTING)
         src/matrix/MediaHelpers.cpp
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(screenshot-demo-data-test PRIVATE src)
     target_link_libraries(screenshot-demo-data-test PRIVATE
@@ -2948,6 +3011,7 @@ if(BUILD_TESTING)
             src/matrix/MediaHelpers.cpp
             src/app/SettingsManager.cpp
             src/storage/AppDataPaths.cpp
+            src/storage/PortableMode.cpp
         )
         target_include_directories(screenshot-demo-media-test PRIVATE src)
         qt_add_resources(screenshot-demo-media-test "demo-media"
@@ -2971,6 +3035,7 @@ if(BUILD_TESTING)
             src/matrix/MediaHelpers.cpp
             src/app/SettingsManager.cpp
             src/storage/AppDataPaths.cpp
+            src/storage/PortableMode.cpp
         )
         target_include_directories(screenshot-demo-interactions-test PRIVATE src)
         target_link_libraries(screenshot-demo-interactions-test PRIVATE
@@ -3054,6 +3119,7 @@ if(BUILD_TESTING)
         # MockMatrixClient's registry-backed restore needs these:
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
     )
     target_include_directories(mention-suggestion-test PRIVATE src)
     target_link_libraries(mention-suggestion-test PRIVATE
@@ -3236,7 +3302,12 @@ if(BUILD_TESTING)
         tests/UpdateManagerStateTest.cpp
         ${_update_crypto_sources}
         src/update/UpdateDownloader.cpp
-        src/update/UpdateManager.cpp)
+        src/update/UpdateManager.cpp
+        # UpdateManager stages downloads under the Lightning-owned cache root,
+        # which is portable-aware — a portable copy must stage inside its own
+        # folder rather than %LOCALAPPDATA%.
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp)
     target_include_directories(update-manager-state-test PRIVATE src)
     # The suite scans the update sources to prove no GitHub API is reachable
     # from them. Give it the path rather than letting it guess from the binary
