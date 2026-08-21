@@ -201,8 +201,12 @@ Popup {
     }
 
     background: Rectangle {
-        // Deliberate scrim: readable over both themes.
-        color: Qt.rgba(0, 0, 0, 0.85)
+        // The viewer chrome is deliberately dark on EVERY theme — it sits
+        // over arbitrary user media, so it cannot follow the palette. That
+        // is what the scrim* tokens are for; this file used to hardcode
+        // nine different values for the role, including two of Lightning
+        // Dark's own text inks copied out of AppTheme by value.
+        color: AppTheme.scrimSurface
     }
 
     contentItem: FocusScope {
@@ -357,14 +361,48 @@ Popup {
                 }
             }
 
-            BusyIndicator {
+            // Basic's BusyIndicator inks palette.dark — the theme's
+            // secondary TEXT colour — which on an 85%-black scrim is
+            // barely perceptible. A ring with a travelling head, in the
+            // scrim ink, so loading actually reads as loading.
+            Item {
+                id: viewerSpinner
                 anchors.centerIn: parent
-                running: viewer.opened && !viewer.bridgeFailed
-                         && ((viewer.usesBridge && viewer.bridgeSource === ""
-                              && viewer.animatedSource === "")
-                             || staticImage.status === Image.Loading
-                             || animatedImage.status === Image.Loading)
+                implicitWidth: 34
+                implicitHeight: 34
+                width: implicitWidth
+                height: implicitHeight
+                readonly property bool running:
+                    viewer.opened && !viewer.bridgeFailed
+                    && ((viewer.usesBridge && viewer.bridgeSource === ""
+                         && viewer.animatedSource === "")
+                        || staticImage.status === Image.Loading
+                        || animatedImage.status === Image.Loading)
                 visible: running
+                Rectangle {
+                    anchors.fill: parent
+                    radius: width / 2
+                    color: "transparent"
+                    border.width: 3
+                    border.color: AppTheme.scrimSurfaceRaised
+                }
+                Item {
+                    anchors.fill: parent
+                    transformOrigin: Item.Center
+                    Rectangle {
+                        width: 9; height: 9; radius: 4.5
+                        color: AppTheme.scrimInk
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        y: -3
+                    }
+                    RotationAnimator on rotation {
+                        running: viewerSpinner.visible && !AppTheme.reducedMotion
+                        from: 0
+                        to: 360
+                        duration: 900
+                        loops: Animation.Infinite
+                    }
+                }
             }
             ColumnLayout {
                 anchors.centerIn: parent
@@ -374,10 +412,14 @@ Popup {
                 spacing: AppTheme.spacing8
                 Label {
                     text: qsTr("The image could not be loaded.")
-                    color: "#F8FAFC"
+                    color: AppTheme.scrimInk
                 }
                 AppButton {
                     Layout.alignment: Qt.AlignHCenter
+                    // Primary, not secondary: a secondary button's ink is
+                    // the theme's textPrimary, which on a light theme is
+                    // near-black — invisible on this scrim.
+                    kind: "primary"
                     text: qsTr("Retry")
                     onClicked: viewer.loadCurrent()
                 }
@@ -393,10 +435,10 @@ Popup {
                 iconName: "chevron_left"
                 iconSize: 26
                 implicitWidth: 40; implicitHeight: 40
-                iconColorOverride: "#FFFFFF"
+                iconColorOverride: AppTheme.scrimInk
                 background: Rectangle {
-                    radius: 20
-                    color: "#66000000"
+                    radius: AppTheme.radiusPill
+                    color: AppTheme.scrimBackdrop
                 }
                 Accessible.name: qsTr("Previous image")
                 onClicked: viewer.showAt(viewer.currentIndex - 1)
@@ -411,10 +453,10 @@ Popup {
                 iconName: "chevron_right"
                 iconSize: 26
                 implicitWidth: 40; implicitHeight: 40
-                iconColorOverride: "#FFFFFF"
+                iconColorOverride: AppTheme.scrimInk
                 background: Rectangle {
-                    radius: 20
-                    color: "#66000000"
+                    radius: AppTheme.radiusPill
+                    color: AppTheme.scrimBackdrop
                 }
                 Accessible.name: qsTr("Next image")
                 onClicked: viewer.showAt(viewer.currentIndex + 1)
@@ -441,9 +483,9 @@ Popup {
                 Label {
                     Layout.fillWidth: true
                     text: viewer.current !== null ? viewer.current.filename : ""
-                    color: "#F8FAFC"
-                    font.pixelSize: AppTheme.fontSizeM
-                    font.weight: Font.DemiBold
+                    color: AppTheme.scrimInk
+                    font.pixelSize: AppTheme.textBody
+                    font.weight: AppTheme.weightStrong
                     elide: Label.ElideMiddle
                 }
                 Label {
@@ -454,8 +496,8 @@ Popup {
                                 .arg(Qt.formatDateTime(viewer.current.timestamp,
                                                        "d MMM yyyy hh:mm"))
                           : ""
-                    color: "#94A3B8"
-                    font.pixelSize: AppTheme.fontSizeXS
+                    color: AppTheme.scrimInkMuted
+                    font.pixelSize: AppTheme.textMeta
                     elide: Label.ElideRight
                 }
             }
@@ -464,7 +506,7 @@ Popup {
                 iconName: "close"
                 iconSize: 20
                 implicitWidth: 36; implicitHeight: 36
-                iconColorOverride: "#FFFFFF"
+                iconColorOverride: AppTheme.scrimInk
                 Accessible.name: qsTr("Close image viewer")
                 onClicked: viewer.close()
             }
@@ -479,10 +521,10 @@ Popup {
             anchors.bottomMargin: AppTheme.spacing16
             width: toolbarRow.implicitWidth + AppTheme.spacing12 * 2
             height: 44
-            radius: 22
-            color: "#D9111111"
+            radius: AppTheme.radiusPill
+            color: AppTheme.scrimSurface
             border.width: 1
-            border.color: "#33FFFFFF"
+            border.color: AppTheme.scrimBorder
             visible: opacity > 0
             opacity: chrome.shown ? 1.0 : 0.0
             Behavior on opacity {
@@ -500,16 +542,16 @@ Popup {
                     iconName: "zoom_out"
                     iconSize: 20
                     implicitWidth: 32; implicitHeight: 32
-                    iconColorOverride: "#FFFFFF"
+                    iconColorOverride: AppTheme.scrimInk
                     Accessible.name: qsTr("Zoom out")
                     onClicked: viewer.zoomStep(1 / 1.2)
                 }
                 Label {
                     objectName: "viewerZoomLabel"
                     text: viewer.percentZoom + "%"
-                    color: "#E6FFFFFF"
-                    font.pixelSize: AppTheme.fontSizeS
-                    font.weight: Font.DemiBold
+                    color: AppTheme.scrimInkStrong
+                    font.pixelSize: AppTheme.textMeta
+                    font.weight: AppTheme.weightStrong
                     horizontalAlignment: Text.AlignHCenter
                     Layout.minimumWidth: 44
                 }
@@ -518,13 +560,13 @@ Popup {
                     iconName: "zoom_in"
                     iconSize: 20
                     implicitWidth: 32; implicitHeight: 32
-                    iconColorOverride: "#FFFFFF"
+                    iconColorOverride: AppTheme.scrimInk
                     Accessible.name: qsTr("Zoom in")
                     onClicked: viewer.zoomStep(1.2)
                 }
                 Rectangle {
                     width: 1; height: 22
-                    color: "#33FFFFFF"
+                    color: AppTheme.scrimBorder
                     Layout.leftMargin: 4
                     Layout.rightMargin: 4
                 }
@@ -533,7 +575,7 @@ Popup {
                     iconName: "fit_screen"
                     iconSize: 20
                     implicitWidth: 32; implicitHeight: 32
-                    iconColorOverride: "#FFFFFF"
+                    iconColorOverride: AppTheme.scrimInk
                     Accessible.name: qsTr("Fit to window")
                     ToolTip.text: qsTr("Fit to window (F)")
                     ToolTip.visible: hovered
@@ -553,23 +595,23 @@ Popup {
                     onClicked: viewer.actualSize()
                     background: Rectangle {
                         radius: AppTheme.radiusSm
-                        color: actualSizeButton.hovered ? "#33FFFFFF"
-                                                        : "transparent"
+                        color: actualSizeButton.hovered
+                               ? AppTheme.scrimSurfaceRaised : "transparent"
                         border.width: actualSizeButton.visualFocus ? 2 : 0
                         border.color: AppTheme.focusRing
                     }
                     contentItem: Label {
                         text: "1:1"
-                        color: "#E6FFFFFF"
-                        font.pixelSize: AppTheme.fontSizeS
-                        font.weight: Font.Bold
+                        color: AppTheme.scrimInkStrong
+                        font.pixelSize: AppTheme.textMeta
+                        font.weight: AppTheme.weightBold
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
                 }
                 Rectangle {
                     width: 1; height: 22
-                    color: "#33FFFFFF"
+                    color: AppTheme.scrimBorder
                     Layout.leftMargin: 4
                     Layout.rightMargin: 4
                     visible: viewer.usesBridge
@@ -580,7 +622,7 @@ Popup {
                     iconName: "download"
                     iconSize: 20
                     implicitWidth: 32; implicitHeight: 32
-                    iconColorOverride: "#FFFFFF"
+                    iconColorOverride: AppTheme.scrimInk
                     Accessible.name: qsTr("Save image as…")
                     onClicked: {
                         if (viewer.current !== null) {
@@ -610,7 +652,7 @@ Popup {
                 property bool ok: true
                 visible: text.length > 0
                 color: ok ? AppTheme.success : AppTheme.danger
-                font.pixelSize: AppTheme.fontSizeS
+                font.pixelSize: AppTheme.textMeta
                 Timer {
                     id: saveNoticeTimer
                     interval: 5000
@@ -622,8 +664,8 @@ Popup {
                 visible: viewer.entries.length > 1
                 text: qsTr("%1 of %2").arg(viewer.currentIndex + 1)
                                       .arg(viewer.entries.length)
-                color: "#94A3B8"
-                font.pixelSize: AppTheme.fontSizeS
+                color: AppTheme.scrimInkMuted
+                font.pixelSize: AppTheme.textMeta
             }
         }
     }

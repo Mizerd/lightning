@@ -102,6 +102,15 @@ ColumnLayout {
         return (n / (1024 * 1024)).toFixed(1) + " MB"
     }
 
+    // Progress bar, styled once.
+    //
+    // main.cpp sets QQuickStyle "Basic", whose ProgressBar fills in
+    // palette.dark on a palette.midlight track — Main.qml maps those to
+    // AppTheme.textSecondary and AppTheme.border, so the download bar (the
+    // most-watched progress affordance in the app) rendered as body-text
+    // GREY on a hairline, square-ended, directly under a text-size slider
+    // that fills bolt on stormInset. Same geometry as that slider's track:
+    // 4px, pill ends, stormInset behind, bolt in front.
     component UpdateCard: Pane {
         Layout.fillWidth: true
         background: Rectangle {
@@ -114,15 +123,19 @@ ColumnLayout {
     Label {
         text: qsTr("Updates")
         color: AppTheme.stormText
-        font.pixelSize: AppTheme.fontSectionTitle
-        font.weight: Font.DemiBold
+        font.pixelSize: AppTheme.textTitle
+        // Matches the other settings section headings, which were
+        // ExtraBold(800) while this one was DemiBold(600) for no reason.
+        font.weight: AppTheme.weightBold
     }
     Label {
         Layout.fillWidth: true
         Layout.topMargin: -AppTheme.spacing8
         wrapMode: Text.WordWrap
+        lineHeight: AppTheme.lineHeightBody
+        lineHeightMode: Text.ProportionalHeight
         color: AppTheme.stormTextMuted
-        font.pixelSize: AppTheme.fontSecondary
+        font.pixelSize: AppTheme.textBody
         text: qsTr("Check for and install new Lightning releases. Every "
                    + "download is verified against a signed manifest "
                    + "before it is ever installed.")
@@ -136,8 +149,8 @@ ColumnLayout {
             Label {
                 text: qsTr("This installation")
                 color: AppTheme.stormTextSecondary
-                font.pixelSize: AppTheme.fontSecondary
-                font.weight: Font.DemiBold
+                font.pixelSize: AppTheme.textBody
+                font.weight: AppTheme.weightStrong
             }
             Label {
                 objectName: "updateCurrentVersionLabel"
@@ -148,13 +161,13 @@ ColumnLayout {
             Label {
                 objectName: "updateInstallTypeLabel"
                 color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.fontCaption
+                font.pixelSize: AppTheme.textMeta
                 text: qsTr("Installation type: %1")
                       .arg(root.um ? root.um.installTypeLabel : "")
             }
             Label {
                 color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.fontCaption
+                font.pixelSize: AppTheme.textMeta
                 text: qsTr("Update channel: Stable")
             }
         }
@@ -168,8 +181,8 @@ ColumnLayout {
             Label {
                 text: qsTr("Automatic checks")
                 color: AppTheme.stormTextSecondary
-                font.pixelSize: AppTheme.fontSecondary
-                font.weight: Font.DemiBold
+                font.pixelSize: AppTheme.textBody
+                font.weight: AppTheme.weightStrong
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -177,6 +190,8 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormText
                     text: qsTr("Automatically check for updates")
                 }
@@ -196,8 +211,10 @@ ColumnLayout {
                 objectName: "updateAutomaticChecksCaption"
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.fontCaption
+                font.pixelSize: AppTheme.textMeta
                 // ON by default since v0.7.3 — the copy must state the
                 // real default, and the privacy guarantees below are
                 // unchanged: Lightning contacts only the release server,
@@ -221,8 +238,10 @@ ColumnLayout {
                          && !isNaN(root.um.lastCheckTime.getTime())
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.fontCaption
+                font.pixelSize: AppTheme.textMeta
                 text: qsTr("Last checked: %1").arg(
                     root.um && root.um.lastCheckTime
                     && !isNaN(root.um.lastCheckTime.getTime())
@@ -245,8 +264,10 @@ ColumnLayout {
                 visible: root.isDevOrUnknown
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.fontCaption
+                font.pixelSize: AppTheme.textMeta
                 text: qsTr("Automatic installation is disabled for this "
                            + "build. A manual check may still report "
                            + "whether a newer version exists.")
@@ -264,8 +285,8 @@ ColumnLayout {
             Label {
                 text: qsTr("Status")
                 color: AppTheme.stormTextSecondary
-                font.pixelSize: AppTheme.fontSecondary
-                font.weight: Font.DemiBold
+                font.pixelSize: AppTheme.textBody
+                font.weight: AppTheme.weightStrong
             }
 
             // Non-error diagnostic context ("not downgrading", "prerelease
@@ -284,8 +305,10 @@ ColumnLayout {
                          && root.um.statusDetail !== root.um.handoffSummary
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.fontCaption
+                font.pixelSize: AppTheme.textMeta
                 text: root.um ? root.um.statusDetail : ""
             }
 
@@ -300,8 +323,10 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormDanger
-                    font.pixelSize: AppTheme.fontCaption
+                    font.pixelSize: AppTheme.textMeta
                     text: root.installRefusedReason
                 }
                 AppButton {
@@ -317,6 +342,8 @@ ColumnLayout {
                 visible: root.um && root.um.state === UpdateManager.Idle
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 color: AppTheme.stormTextMuted
                 text: qsTr("Updates haven't been checked yet.")
             }
@@ -325,7 +352,7 @@ ColumnLayout {
                 objectName: "updateCheckingBlock"
                 visible: root.um && root.um.state === UpdateManager.Checking
                 spacing: AppTheme.spacing8
-                ProgressBar {
+                AppProgressBar {
                     indeterminate: true
                     Layout.preferredWidth: 120
                 }
@@ -339,7 +366,7 @@ ColumnLayout {
                 objectName: "updateUpToDateLabel"
                 visible: root.um && root.um.state === UpdateManager.UpToDate
                 color: AppTheme.stormSuccess
-                font.weight: Font.DemiBold
+                font.weight: AppTheme.weightStrong
                 text: qsTr("Lightning is up to date.")
             }
 
@@ -355,8 +382,10 @@ ColumnLayout {
                     objectName: "updateAvailableVersionLabel"
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormText
-                    font.weight: Font.DemiBold
+                    font.weight: AppTheme.weightStrong
                     text: qsTr("Lightning %1 is available (you have %2).")
                           .arg(root.um ? root.um.latestVersion : "")
                           .arg(root.um ? root.um.currentVersion : "")
@@ -364,7 +393,7 @@ ColumnLayout {
                 Label {
                     visible: root.um && root.um.totalBytes > 0
                     color: AppTheme.stormTextMuted
-                    font.pixelSize: AppTheme.fontCaption
+                    font.pixelSize: AppTheme.textMeta
                     text: qsTr("Download size: %1")
                           .arg(root.formatBytes(
                               root.um ? root.um.totalBytes : 0))
@@ -372,8 +401,10 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormTextMuted
-                    font.pixelSize: AppTheme.fontCaption
+                    font.pixelSize: AppTheme.textMeta
                     text: qsTr("Update method: %1")
                           .arg(root.um ? root.um.installTypeLabel : "")
                 }
@@ -390,6 +421,8 @@ ColumnLayout {
                         objectName: "updateManagedMessage"
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         color: AppTheme.stormTextSecondary
                         text: root.installType === "linux-flatpak"
                             ? qsTr("Updates for this installation are managed by Flatpak.")
@@ -422,7 +455,7 @@ ColumnLayout {
                                 textFormat: Text.PlainText
                                 color: AppTheme.stormText
                                 font.family: AppTheme.monoFont
-                                font.pixelSize: AppTheme.fontCaption
+                                font.pixelSize: AppTheme.textMeta
                                 text: root.managedHelpCommand
                             }
                             AppButton {
@@ -476,7 +509,7 @@ ColumnLayout {
                     color: AppTheme.stormTextSecondary
                     text: qsTr("Downloading update…")
                 }
-                ProgressBar {
+                AppProgressBar {
                     objectName: "updateDownloadProgressBar"
                     Layout.fillWidth: true
                     from: 0
@@ -485,7 +518,7 @@ ColumnLayout {
                 }
                 Label {
                     color: AppTheme.stormTextMuted
-                    font.pixelSize: AppTheme.fontCaption
+                    font.pixelSize: AppTheme.textMeta
                     text: root.um && root.um.totalBytes > 0
                         ? qsTr("%1 of %2")
                             .arg(root.formatBytes(root.um.downloadedBytes))
@@ -505,7 +538,7 @@ ColumnLayout {
                 objectName: "updateVerifyingBlock"
                 visible: root.um && root.um.state === UpdateManager.Verifying
                 spacing: AppTheme.spacing8
-                ProgressBar {
+                AppProgressBar {
                     indeterminate: true
                     Layout.preferredWidth: 120
                 }
@@ -533,6 +566,8 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormTextSecondary
                     text: qsTr("Update %1 downloaded and verified.")
                           .arg(root.um ? root.um.latestVersion : "")
@@ -563,7 +598,7 @@ ColumnLayout {
                 objectName: "updateInstallingBlock"
                 visible: root.um && root.um.state === UpdateManager.Installing
                 spacing: AppTheme.spacing8
-                ProgressBar {
+                AppProgressBar {
                     indeterminate: true
                     Layout.preferredWidth: 120
                 }
@@ -593,8 +628,10 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormText
-                    font.weight: Font.DemiBold
+                    font.weight: AppTheme.weightStrong
                     // NOT "is installed". This state means the verified
                     // artifact has been handed to the updater helper, which
                     // waits for Lightning to exit before touching anything —
@@ -608,8 +645,10 @@ ColumnLayout {
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormTextMuted
-                    font.pixelSize: AppTheme.fontCaption
+                    font.pixelSize: AppTheme.textMeta
                     // The manager words this differently for the two entry
                     // points (quitting now vs. applying on your own next
                     // quit), so bind it rather than restating it here.
@@ -634,6 +673,8 @@ ColumnLayout {
                     objectName: "updateLastResultLabel"
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     // lastUpdateError comes from a file on disk. Plain text
                     // explicitly, never the AutoText rich-text heuristic.
                     textFormat: Text.PlainText
@@ -667,15 +708,19 @@ ColumnLayout {
                     objectName: "updateErrorMessageLabel"
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormDanger
-                    font.weight: Font.DemiBold
+                    font.weight: AppTheme.weightStrong
                     text: root.um ? root.um.errorMessage : ""
                 }
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormTextMuted
-                    font.pixelSize: AppTheme.fontCaption
+                    font.pixelSize: AppTheme.textMeta
                     text: qsTr("Lightning never installs an update that "
                                + "fails verification. There is no way "
                                + "to bypass this check.")

@@ -58,7 +58,7 @@ Item {
         contentHeight: panel.implicitHeight + AppTheme.spacingXL * 2
         boundsBehavior: Flickable.StopAtBounds
         clip: true
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
         // Same wheel/touchpad feel as the room timeline; see
         // qml/SmoothWheelArea.qml.
         SmoothWheelArea {}
@@ -109,9 +109,13 @@ Item {
                     Label {
                         text: "Lightning"
                         color: AppTheme.text
-                        font.family: AppTheme.uiFont
-                        font.pixelSize: 15
-                        font.weight: Font.ExtraBold
+                        // The wordmark is the one place the brand face is
+                        // unambiguously right — displayFont keeps Space
+                        // Grotesk here now that menuFont has moved to the
+                        // user's chosen UI face everywhere else.
+                        font.family: AppTheme.displayFont
+                        font.pixelSize: AppTheme.textTitle
+                        font.weight: AppTheme.weightDisplay
                         font.letterSpacing: 0.3
                     }
                 }
@@ -122,10 +126,14 @@ Item {
                           : qsTr("Sign in")
                     color: AppTheme.text
                     font.family: AppTheme.uiFont
-                    font.pixelSize: 22
-                    font.weight: Font.ExtraBold
+                    font.pixelSize: AppTheme.textDisplay
+                    font.weight: AppTheme.weightDisplay
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    // Display leading, not body leading: 1.5 on a 22px
+                    // heading opens a gap the eye reads as two headings.
+                    lineHeight: AppTheme.lineHeightDisplay
+                    lineHeightMode: Text.ProportionalHeight
                 }
                 Label {
                     text: {
@@ -139,8 +147,10 @@ Item {
                     }
                     color: AppTheme.textMuted
                     font.family: AppTheme.uiFont
-                    font.pixelSize: 12
+                    font.pixelSize: AppTheme.textMeta
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     Layout.fillWidth: true
                     Layout.bottomMargin: AppTheme.spacingXS
                 }
@@ -149,7 +159,7 @@ Item {
                     text: qsTr("Homeserver URL")
                     color: AppTheme.textMuted
                     font.family: AppTheme.uiFont
-                    font.pixelSize: 12
+                    font.pixelSize: AppTheme.textMeta
                 }
                 AppTextField {
                     id: homeserverField
@@ -200,7 +210,7 @@ Item {
                     text: qsTr("User")
                     color: AppTheme.textMuted
                     font.family: AppTheme.uiFont
-                    font.pixelSize: 12
+                    font.pixelSize: AppTheme.textMeta
                 }
                 AppTextField {
                     id: userField
@@ -215,7 +225,7 @@ Item {
                     text: qsTr("Password")
                     color: AppTheme.textMuted
                     font.family: AppTheme.uiFont
-                    font.pixelSize: 12
+                    font.pixelSize: AppTheme.textMeta
                 }
                 // Password field + reveal toggle share one row.
                 RowLayout {
@@ -261,9 +271,11 @@ Item {
                     text: app.auth.lastError
                     color: AppTheme.error
                     font.family: AppTheme.uiFont
-                    font.pixelSize: 12
+                    font.pixelSize: AppTheme.textMeta
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                 }
 
                 AppButton {
@@ -330,11 +342,13 @@ Item {
                         objectName: "browserLoginWaitingLabel"
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         text: qsTr("Finish signing in with the page that opened "
                                    + "in your browser, then return to Lightning.")
                         color: AppTheme.textMuted
                         font.family: AppTheme.uiFont
-                        font.pixelSize: 12
+                        font.pixelSize: AppTheme.textMeta
                     }
                     AppButton {
                         objectName: "browserLoginCancelButton"
@@ -358,11 +372,13 @@ Item {
                     Layout.fillWidth: true
                     Layout.topMargin: AppTheme.spacingXS
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     text: qsTr("This homeserver uses a single sign-on method "
                                + "Lightning does not support.")
                     color: AppTheme.textMuted
                     font.family: AppTheme.uiFont
-                    font.pixelSize: 12
+                    font.pixelSize: AppTheme.textMeta
                 }
 
                 // ── Local-session repair card ───────────────────────────
@@ -668,20 +684,24 @@ Item {
                             objectName: "loginRepairHeadline"
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
                             text: repair.info ? repair.info.headline : ""
                             color: AppTheme.text
                             font.family: AppTheme.uiFont
-                            font.weight: Font.DemiBold
-                            font.pixelSize: 13
+                            font.weight: AppTheme.weightStrong
+                            font.pixelSize: AppTheme.textBody
                         }
                         Label {
                             objectName: "loginRepairBody"
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
                             text: repair.info ? repair.info.body : ""
                             color: AppTheme.textMuted
                             font.family: AppTheme.uiFont
-                            font.pixelSize: 12
+                            font.pixelSize: AppTheme.textMeta
                         }
 
                         RowLayout {
@@ -743,10 +763,12 @@ Item {
                             objectName: "loginRepairResult"
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
                             visible: repairPanel.statusText !== ""
                             text: repairPanel.statusText
                             color: repairPanel.statusOk ? AppTheme.success : AppTheme.danger
-                            font.pixelSize: 12
+                            font.pixelSize: AppTheme.textMeta
                         }
                     }
                 }
@@ -777,6 +799,24 @@ Item {
                     // keyboard Enter/Space press activates first.
                     onOpened: repairConfirmCancelButton.forceActiveFocus()
 
+                    // Basic's Dialog header is a Label on a square
+                    // palette.window strip; supply the app's own title
+                    // treatment so this reads as one surface with the card
+                    // behind it.
+                    header: Label {
+                        text: repairConfirmDialog.title
+                        visible: text.length > 0
+                        color: AppTheme.textPrimary
+                        font.family: AppTheme.menuFont
+                        font.pixelSize: AppTheme.textTitle
+                        font.weight: AppTheme.weightBold
+                        wrapMode: Text.WordWrap
+                        leftPadding: AppTheme.spacing16
+                        rightPadding: AppTheme.spacing16
+                        topPadding: AppTheme.spacing16
+                        bottomPadding: AppTheme.spacing8
+                    }
+
                     background: Rectangle {
                         color: AppTheme.surface
                         border.color: AppTheme.border
@@ -789,6 +829,8 @@ Item {
                             objectName: "loginRepairConfirmBody"
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
                             text: confirmState.kind === "remove"
                                 ? qsTr("Remove %1 from this device? Its local Lightning "
                                        + "data, encryption store, and sign-in are deleted "
@@ -801,29 +843,33 @@ Item {
                         RowLayout {
                             Layout.fillWidth: true
                             Item { Layout.fillWidth: true }
-                            Button {
+                            // Both were raw stock Buttons until 2026-08-21,
+                            // and the two disagreed about everything: Cancel
+                            // kept Basic's 100x40 SQUARE box (no background
+                            // override, so implicitHeight came from Basic's
+                            // 40), while the destructive one replaced the
+                            // background with a Rectangle carrying no
+                            // implicit size and landed at ~30px. Different
+                            // heights, different radii, different colour
+                            // systems, side by side — and the destructive
+                            // one acknowledged neither hover nor keyboard
+                            // focus, having dropped Basic's focus border
+                            // with the background it replaced. AppButton
+                            // gives both one geometry and all three states.
+                            AppButton {
                                 id: repairConfirmCancelButton
                                 objectName: "loginRepairCancel"
                                 text: qsTr("Cancel")
                                 focus: true
                                 onClicked: repairConfirmDialog.close()
                             }
-                            Button {
+                            AppButton {
                                 objectName: "loginRepairConfirmAction"
+                                kind: "dangerPrimary"
                                 text: confirmState.kind === "remove"
                                       ? qsTr("Remove")
                                       : (confirmState.info ? confirmState.info.primaryLabel : "")
                                 Accessible.name: qsTr("Confirm: %1").arg(text)
-                                contentItem: Label {
-                                    text: parent.text
-                                    color: AppTheme.dangerText
-                                    horizontalAlignment: Text.AlignHCenter
-                                }
-                                background: Rectangle {
-                                    color: parent.down ? Qt.darker(AppTheme.danger, 1.2)
-                                                       : AppTheme.danger
-                                    radius: AppTheme.radiusSm
-                                }
                                 onClicked: {
                                     var kind = confirmState.kind
                                     var target = confirmState.userId

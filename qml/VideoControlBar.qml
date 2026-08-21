@@ -57,7 +57,13 @@ FocusScope {
         anchors.fill: parent
         gradient: Gradient {
             GradientStop { position: 0.0; color: "transparent" }
-            GradientStop { position: 1.0; color: "#B3000000" }
+            // Committed dark on every theme: the bar sits over
+            // arbitrary video. scrimSurface is the shared "chrome over
+            // media" value — this used to be one of three different black
+            // alphas invented across three media files (70/85/90%), which
+            // is why the control bar, the volume popup and the image
+            // viewer never matched each other.
+            GradientStop { position: 1.0; color: AppTheme.scrimSurface }
         }
     }
 
@@ -73,7 +79,7 @@ FocusScope {
             iconName: bar.playing ? "pause" : "play_arrow"
             iconSize: 20
             implicitWidth: 30; implicitHeight: 30
-            iconColorOverride: "#FFFFFF"
+            iconColorOverride: AppTheme.scrimInk
             enabled: bar.player
                      && bar.player.source.toString().length > 0
             Accessible.name: bar.playing ? qsTr("Pause video")
@@ -100,7 +106,7 @@ FocusScope {
                 width: seekSlider.availableWidth
                 height: 4
                 radius: 2
-                color: "#59FFFFFF"
+                color: AppTheme.scrimSurfaceHover
                 Rectangle {
                     width: seekSlider.visualPosition * parent.width
                     height: parent.height
@@ -115,7 +121,7 @@ FocusScope {
                 y: seekSlider.topPadding
                    + seekSlider.availableHeight / 2 - height / 2
                 width: 12; height: 12; radius: 6
-                color: "#FFFFFF"
+                color: AppTheme.scrimInk
                 visible: seekSlider.enabled
             }
         }
@@ -124,9 +130,9 @@ FocusScope {
             objectName: "videoTimeLabel"
             text: bar.formatMs(bar.player ? bar.player.position : 0)
                   + " / " + bar.formatMs(bar.player ? bar.player.duration : 0)
-            color: "#E6FFFFFF"
-            font.pixelSize: 10
-            font.weight: Font.DemiBold
+            color: AppTheme.scrimInkStrong
+            font.pixelSize: AppTheme.textMicro
+            font.weight: AppTheme.weightStrong
             Layout.leftMargin: 2
             Layout.rightMargin: 2
         }
@@ -154,15 +160,17 @@ FocusScope {
             onClicked: speedMenu.popup(speedButton, 0, -speedMenu.height - 4)
             background: Rectangle {
                 radius: AppTheme.radiusSm
-                color: speedButton.hovered ? "#33FFFFFF" : "transparent"
+                color: speedButton.hovered ? AppTheme.scrimSurfaceRaised
+                                           : "transparent"
                 border.width: speedButton.visualFocus ? 2 : 0
                 border.color: AppTheme.focusRing
             }
             contentItem: Label {
                 text: bar._rateLabel + "×"
-                color: bar._rateIndex === 2 ? "#E6FFFFFF" : AppTheme.accent
-                font.pixelSize: 10
-                font.weight: Font.Bold
+                color: bar._rateIndex === 2 ? AppTheme.scrimInkStrong
+                                            : AppTheme.accent
+                font.pixelSize: AppTheme.textMicro
+                font.weight: AppTheme.weightBold
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
             }
@@ -175,7 +183,7 @@ FocusScope {
             iconName: "more_vert"
             iconSize: 18
             implicitWidth: 30; implicitHeight: 30
-            iconColorOverride: "#FFFFFF"
+            iconColorOverride: AppTheme.scrimInk
             Accessible.name: qsTr("More playback controls")
             onClicked: overflowMenu.popup(this, 0, -overflowMenu.height - 4)
         }
@@ -186,7 +194,7 @@ FocusScope {
             iconName: bar.expandIcon
             iconSize: 18
             implicitWidth: 30; implicitHeight: 30
-            iconColorOverride: "#FFFFFF"
+            iconColorOverride: AppTheme.scrimInk
             Accessible.name: bar.expandIcon === "open_in_full"
                              ? qsTr("Expand video") : qsTr("Exit expanded video")
             ToolTip.text: Accessible.name
@@ -200,7 +208,7 @@ FocusScope {
             iconName: "close"
             iconSize: 18
             implicitWidth: 30; implicitHeight: 30
-            iconColorOverride: "#FFFFFF"
+            iconColorOverride: AppTheme.scrimInk
             Accessible.name: qsTr("Close player")
             onClicked: bar.closeRequested()
         }

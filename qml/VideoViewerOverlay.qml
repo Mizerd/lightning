@@ -47,9 +47,9 @@ Popup {
     }
 
     background: Rectangle {
-        // Deliberate scrim, matching ImageViewerOverlay: readable over both
-        // themes.
-        color: Qt.rgba(0, 0, 0, 0.85)
+        // Committed dark on every theme, matching ImageViewerOverlay — the
+        // shared scrim token rather than a second copy of the same alpha.
+        color: AppTheme.scrimSurface
     }
 
     contentItem: FocusScope {

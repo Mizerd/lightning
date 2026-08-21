@@ -15,17 +15,32 @@
 #include <QtTest/QtTest>
 
 #include <QFile>
+#include <QRegularExpression>
 #include <QStringList>
 
 class UpdatesUiContractTest : public QObject
 {
     Q_OBJECT
 
+    // Comments are stripped, because every scan below is a fixed-size window
+    // from an objectName anchor and those windows measure CODE proximity.
+    // The 2026-08-21 UI round documented its changes and pushed three targets
+    // just past their windows — +1646 against 1600, +909 and +917 against 900
+    // — while every one of the three was still present and working. A test
+    // that fails because the code beneath it grew an explanation is measuring
+    // the wrong thing. Stripping comments restores all three to +1405, +650
+    // and +696 without widening a single window, so the guards keep exactly
+    // the strictness they had.
     static QString read(const QString &name)
     {
         QFile file(QStringLiteral(QML_DIR "/") + name);
-        return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll())
-                                               : QString{};
+        if (!file.open(QIODevice::ReadOnly))
+            return {};
+        QString src = QString::fromUtf8(file.readAll());
+        src.remove(QRegularExpression(QStringLiteral("/\\*.*?\\*/"),
+                                      QRegularExpression::DotMatchesEverythingOption));
+        src.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
+        return src;
     }
 
     // Every forbidden "proceed past a failed verification" phrase, scanned

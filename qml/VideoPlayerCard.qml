@@ -215,7 +215,8 @@ Item {
         // colored stripes glued to the video (maintainer screenshot,
         // 2026-08-12). Black is the universal letterbox and makes the
         // gutters read as part of the player, exactly like the expanded
-        // overlay's scrim.
+        // overlay's scrim. This is one of the SANCTIONED literals: a
+        // letterbox is not a themed surface and has no token, by design.
         color: "#000000"
         radius: AppTheme.radiusSm
         border.color: AppTheme.border
@@ -280,10 +281,40 @@ Item {
             onDoubleTapped: videoOverlay.openFor(player, output)
         }
 
-        BusyIndicator {
+        // Basic's BusyIndicator inks palette.dark (the theme's secondary
+        // TEXT colour), which on a black letterbox is barely visible.
+        Item {
+            id: cardSpinner
             anchors.centerIn: output
-            running: root.buffering && root.fetchState !== "failed"
-            visible: running
+            implicitWidth: 28
+            implicitHeight: 28
+            width: implicitWidth
+            height: implicitHeight
+            visible: root.buffering && root.fetchState !== "failed"
+            Rectangle {
+                anchors.fill: parent
+                radius: width / 2
+                color: "transparent"
+                border.width: 3
+                border.color: AppTheme.scrimSurfaceRaised
+            }
+            Item {
+                anchors.fill: parent
+                transformOrigin: Item.Center
+                Rectangle {
+                    width: 8; height: 8; radius: 4
+                    color: AppTheme.scrimInk
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: -2.5
+                }
+                RotationAnimator on rotation {
+                    running: cardSpinner.visible && !AppTheme.reducedMotion
+                    from: 0
+                    to: 360
+                    duration: 900
+                    loops: Animation.Infinite
+                }
+            }
         }
         ColumnLayout {
             anchors.centerIn: output
@@ -291,8 +322,11 @@ Item {
             spacing: AppTheme.spacing8
             Label {
                 text: qsTr("This video cannot be played")
-                color: AppTheme.textMuted
-                font.pixelSize: 12
+                // On the black letterbox, not on a theme surface: a light
+                // theme's textMuted is a mid grey that all but disappears
+                // here.
+                color: AppTheme.scrimInkMuted
+                font.pixelSize: AppTheme.textMeta
                 Layout.alignment: Qt.AlignHCenter
             }
             AppButton {

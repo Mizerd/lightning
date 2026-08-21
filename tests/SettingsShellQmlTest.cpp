@@ -98,8 +98,56 @@ private:
         return expr.evaluate().value<QColor>();
     }
 
+    // Bring `target` inside its nearest Flickable ancestor's viewport, but
+    // ONLY when it is actually outside it — scrolling an already-visible
+    // control would move the page under tests that assert positions.
+    //
+    // Settings pages grew taller in the 2026-08-21 UI round, and a click at
+    // an item's scene centre then landed OUTSIDE the window. Qt reports that
+    // as "Mouse event at X, Y occurs outside target window" and drops it, so
+    // the suite failed on a control that works perfectly — the click simply
+    // never arrived. A user scrolls before clicking; so does this.
+    void ensureVisible(QQuickItem *target)
+    {
+        QQuickItem *flick = target->parentItem();
+        while (flick && !flick->inherits("QQuickFlickable"))
+            flick = flick->parentItem();
+        if (!flick)
+            return;
+        auto *content = flick->property("contentItem").value<QQuickItem *>();
+        if (!content)
+            return;
+        const qreal viewH = flick->height();
+        const qreal top = target->mapToItem(content, QPointF(0, 0)).y();
+        const qreal bottom = top + target->height();
+        const qreal contentY = flick->property("contentY").toReal();
+        if (top >= contentY && bottom <= contentY + viewH)
+            return; // already fully visible
+        const qreal contentH = flick->property("contentHeight").toReal();
+        const qreal want = qBound(0.0, top - viewH / 2 + target->height() / 2,
+                                  qMax(0.0, contentH - viewH));
+        flick->setProperty("contentY", want);
+        QCoreApplication::processEvents();
+    }
+
+    // Y within the nearest Flickable's contentItem — i.e. the position that
+    // does NOT change when the page scrolls. Reflow guards must measure this
+    // rather than a scene coordinate, or a scroll (which is not a reflow)
+    // reads as content having moved.
+    qreal contentPosY(QQuickItem *target) const
+    {
+        QQuickItem *flick = target->parentItem();
+        while (flick && !flick->inherits("QQuickFlickable"))
+            flick = flick->parentItem();
+        auto *content = flick
+            ? flick->property("contentItem").value<QQuickItem *>() : nullptr;
+        return content ? target->mapToItem(content, QPointF(0, 0)).y()
+                       : target->mapToScene(QPointF(0, 0)).y();
+    }
+
     void clickItem(QQuickItem *target)
     {
+        ensureVisible(target);
         const QPointF center = target->mapToScene(
             QPointF(target->width() / 2, target->height() / 2));
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
@@ -279,8 +327,24 @@ private slots:
         QVERIFY(sliderRight.x() <= windowWidth + 0.5);
     }
 
-    void featuredThemeCardsPaintFixedPalettes()
+    void featuredThemeCardsPaintTheirRealPalettes()
     {
+        // Every featured card now reads AppTheme.paletteForTheme(id) — no
+        // card carries a colour of its own. Assert against the SAME raw
+        // per-theme literals that function returns, so this test moves with
+        // a palette retune instead of pinning yesterday's copy of it.
+        //
+        // Read the underscore literals, never the routed aliases
+        // (AppTheme.stormDeep/bolt are `storm ? _sto* : <active theme>`, so
+        // they only equal Storm's value while Storm is active — sampling
+        // those would compare each card against whatever theme the test
+        // happens to run under).
+        //
+        // History: cards 8/9/10 used to hold hand-copied hex literals and
+        // had drifted far enough that Indigo Night and Deep Teal previewed
+        // a room list lighter than their canvas while both real themes ship
+        // it darker. The literals — and this test's copies of them — are
+        // gone; drift is now structurally impossible.
         struct Expect {
             const char *preview;
             const char *accentBar;
@@ -289,23 +353,11 @@ private slots:
         };
         const Expect expected[] = {
             { "themeCardPreview_8", "themeCardAccentBar_8",
-              QColor("#f7f7f5"), QColor("#12a67f") },
+              themeColor("_mosBg"), themeColor("_mosAccent") },
             { "themeCardPreview_9", "themeCardAccentBar_9",
-              QColor("#101016"), QColor("#7c7ff2") },
+              themeColor("_indBg"), themeColor("_indAccent") },
             { "themeCardPreview_10", "themeCardAccentBar_10",
-              QColor("#0e1416"), QColor("#27c2ad") },
-            // Storm's preview is NOT a fixed literal like the three above —
-            // it reads AppTheme.paletteForTheme(11) live (see
-            // SettingsScreen.qml's featuredThemeFlow.stormPreview), which
-            // returns the RAW _storm palette values unconditionally,
-            // regardless of the active theme. AppTheme.stormDeep/bolt are a
-            // different thing: routed aliases (`storm ? _stoDeep :
-            // background` / `storm ? _stoBolt : accent`) that only equal
-            // the Storm literal when Storm itself is the active theme —
-            // sampling those here would silently compare against whatever
-            // theme this test happens to be running under instead of
-            // Storm's real values. Read the same raw underscore literals
-            // paletteForTheme(11) actually returns instead.
+              themeColor("_teaBg"), themeColor("_teaAccent") },
             { "themeCardPreview_11", "themeCardAccentBar_11",
               themeColor("_stoDeep"), themeColor("_stoBolt") },
         };
@@ -449,34 +501,36 @@ private slots:
         // it even one pixel.
         auto *anchor = item("messageLayoutControl");
         QVERIFY(anchor);
-        const qreal anchorY = anchor->mapToScene(QPointF(0, 0)).y();
+        // Scroll-invariant: clickItem() may scroll a control into view,
+        // and a scroll is not a reflow.
+        const qreal anchorY = contentPosY(anchor);
 
         auto *matchSwitch = item("matchSystemSwitch");
         QVERIFY(matchSwitch);
         clickItem(matchSwitch);
-        QCOMPARE(anchor->mapToScene(QPointF(0, 0)).y(), anchorY);
+        QCOMPARE(contentPosY(anchor), anchorY);
         clickItem(matchSwitch); // toggle back off "match system"
         QCoreApplication::processEvents();
-        QCOMPARE(anchor->mapToScene(QPointF(0, 0)).y(), anchorY);
+        QCOMPARE(contentPosY(anchor), anchorY);
 
         auto *mossCard = item("featuredThemeCard_8");
         QVERIFY(mossCard);
         mossCard->forceActiveFocus();
         QTRY_VERIFY(mossCard->hasActiveFocus());
-        QCOMPARE(anchor->mapToScene(QPointF(0, 0)).y(), anchorY);
+        QCOMPARE(contentPosY(anchor), anchorY);
 
         // The Timeline card: "Show room activity" sits directly above the
         // wheel-speed combo. Toggling the checkbox must not move the combo.
         auto *wheelCombo = item("timelineWheelSpeedCombo");
         QVERIFY(wheelCombo);
-        const qreal comboY = wheelCombo->mapToScene(QPointF(0, 0)).y();
+        const qreal comboY = contentPosY(wheelCombo);
         auto *activityCheck = item("showRoomActivityCheck");
         QVERIFY(activityCheck);
         clickItem(activityCheck);
-        QCOMPARE(wheelCombo->mapToScene(QPointF(0, 0)).y(), comboY);
+        QCOMPARE(contentPosY(wheelCombo), comboY);
         clickItem(activityCheck); // restore
         QCoreApplication::processEvents();
-        QCOMPARE(wheelCombo->mapToScene(QPointF(0, 0)).y(), comboY);
+        QCOMPARE(contentPosY(wheelCombo), comboY);
 
         m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
         QCoreApplication::processEvents();

@@ -245,8 +245,8 @@ Item {
             text: root.visibleName
             color: root.active ? AppTheme.stormText : AppTheme.stormTextSecondary
             font.family: AppTheme.menuFont
-            font.pixelSize: AppTheme.fontQuery
-            font.weight: Font.Bold
+            font.pixelSize: AppTheme.textTitle
+            font.weight: AppTheme.weightBold
             elide: Label.ElideRight
         }
         Label {
@@ -254,8 +254,10 @@ Item {
             text: root.userId
             color: root.active ? AppTheme.stormTextMuted
                                 : AppTheme.stormTextFaint
+            // Mono is right for a Matrix ID; 10px was not — a user id is
+            // the thing you read to tell two accounts apart.
             font.family: AppTheme.monoFont
-            font.pixelSize: AppTheme.fontChip
+            font.pixelSize: AppTheme.textMeta
             elide: Label.ElideMiddle
         }
 
@@ -278,9 +280,10 @@ Item {
                 Layout.fillWidth: true
                 text: root.metaText
                 color: AppTheme.stormTextMuted
-                font.family: AppTheme.monoFont
-                font.pixelSize: AppTheme.fontChip
-                font.weight: Font.DemiBold
+                // "Connected · 4 spaces" is prose, not an identifier — the
+                // mono face was carrying ordinary UI text.
+                font.pixelSize: AppTheme.textMeta
+                font.weight: AppTheme.weightMedium
                 elide: Label.ElideRight
             }
             RowLayout {
@@ -288,15 +291,16 @@ Item {
                 spacing: 2
                 Icon {
                     name: "check"
-                    size: AppTheme.fontMonoXS + 1
+                    size: AppTheme.textMeta
                     color: AppTheme.stormSuccess
                 }
                 Label {
                     text: qsTr("E2EE")
                     color: AppTheme.stormSuccess
-                    font.family: AppTheme.monoFont
-                    font.pixelSize: AppTheme.fontChip
-                    font.weight: Font.DemiBold
+                    // Badge role: textMicro is exactly this — a small,
+                    // bold, non-mono chip label.
+                    font.pixelSize: AppTheme.textMicro
+                    font.weight: AppTheme.weightBold
                 }
             }
         }

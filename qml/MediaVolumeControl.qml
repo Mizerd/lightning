@@ -16,7 +16,7 @@ IconButton {
 
     iconName: !audio || audio.muted || audio.volume <= 0
               ? "volume_off" : "volume_up"
-    iconColorOverride: scrim ? "#FFFFFF" : ""
+    iconColorOverride: scrim ? AppTheme.scrimInk : ""
     enabled: audio !== null
     Accessible.name: audio && (audio.muted || audio.volume <= 0)
                      ? qsTr("Unmute") : qsTr("Mute")
@@ -101,9 +101,12 @@ IconButton {
         closePolicy: Popup.NoAutoClose
         background: Rectangle {
             radius: AppTheme.radiusMd
-            color: root.scrim ? "#E6000000" : AppTheme.surfaceElevated
-            border.width: root.scrim ? 0 : 1
-            border.color: AppTheme.border
+            color: root.scrim ? AppTheme.scrimSurface : AppTheme.surfaceElevated
+            // The scrim popup used to draw NO border, so a near-black
+            // panel floated on near-black video with nothing to separate
+            // them. The same hairline the rest of the media chrome uses.
+            border.width: 1
+            border.color: root.scrim ? AppTheme.scrimBorder : AppTheme.border
         }
         HoverHandler { id: popupHover }
         // Keyboard/pointer must be able to leave without a dead popup: any
@@ -139,7 +142,7 @@ IconButton {
                 width: 6
                 height: volumeSlider.availableHeight
                 radius: width / 2
-                color: root.scrim ? "#59FFFFFF" : AppTheme.borderStrong
+                color: root.scrim ? AppTheme.scrimSurfaceHover : AppTheme.borderStrong
                 // Filled portion grows from the BOTTOM: a vertical slider's
                 // visualPosition is 0 at the top, so the fill starts at
                 // visualPosition and runs to the end.
@@ -160,9 +163,9 @@ IconButton {
                 width: 14
                 height: 14
                 radius: width / 2
-                color: root.scrim ? "#FFFFFF" : AppTheme.accent
+                color: root.scrim ? AppTheme.scrimInk : AppTheme.accent
                 border.width: 2
-                border.color: root.scrim ? "#33000000" : AppTheme.surface
+                border.color: root.scrim ? AppTheme.scrimBackdrop : AppTheme.surface
             }
         }
     }

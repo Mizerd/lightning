@@ -400,8 +400,8 @@ Rectangle {
                                      : (root.filename || qsTr("Audio"))
                 color: root.fetchState === "failed"
                        ? AppTheme.danger : AppTheme.text
-                font.pixelSize: 12
-                font.weight: Font.Medium
+                font.pixelSize: AppTheme.textMeta
+                font.weight: AppTheme.weightStrong
                 elide: Label.ElideMiddle
                 Layout.fillWidth: true
             }
@@ -524,7 +524,7 @@ Rectangle {
                 Layout.fillWidth: true
                 elide: Label.ElideRight
                 color: AppTheme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: AppTheme.textMeta
             }
         }
 
@@ -577,8 +577,8 @@ Rectangle {
                 text: audioSpeedButton.rate + "×"
                 color: Math.abs(audioSpeedButton.rate - 1.0) < 0.001
                        ? AppTheme.textMuted : AppTheme.accent
-                font.pixelSize: 10
-                font.weight: Font.DemiBold
+                font.pixelSize: AppTheme.textMicro
+                font.weight: AppTheme.weightBold
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
             }
