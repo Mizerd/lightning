@@ -338,6 +338,21 @@ public:
         Q_UNUSED(roomId);
         Q_UNUSED(unread);
     }
+    // Element-parity favourites, stored as the Matrix `m.favourite` room
+    // tag so the flag is the ACCOUNT's, shared with every other client.
+    // Backends without tag support report false and the affordance is not
+    // offered — a device-local "favourite" would silently disagree with
+    // Element, which is worse than not having one.
+    //
+    // Never optimistic: the row's flag comes from the backend's own room
+    // payload after the write lands, so a refused write leaves the list
+    // exactly as it was.
+    virtual bool supportsRoomFavourites() const { return false; }
+    virtual void setRoomFavourite(const QString &roomId, bool favourite)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(favourite);
+    }
     // Mark a room read without opening it. Distinct from sendReadReceipt,
     // which can only ever point at an event in the LOADED timeline — empty
     // for a room that is not open, which made marking a closed room read a

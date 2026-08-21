@@ -36,6 +36,11 @@ Item {
     signal rejectInvite()
     signal markRead()
     signal markUnread()
+    // Element-parity favourites. Carries the value to WRITE, not a toggle
+    // request: the menu reads the room's current flag and the row never
+    // flips it locally, so a refused server write cannot leave the row and
+    // the account disagreeing.
+    signal setFavourite(bool on)
     // v0.6.5 (SPEC 1d): the delegate stays signal-only for every mutation —
     // the host (RoomsPanel) performs the actual app.settings/app.roomInfo
     // calls, exactly like markRead/markUnread today.
@@ -451,6 +456,23 @@ Item {
                       ? (model.name || "")
                       : ((model.canonicalAlias || "").length > 0
                          ? model.canonicalAlias : (model.name || ""))
+        // Element classic puts Favourite at the top of the room menu, as a
+        // toggle showing the CURRENT state. Offered only where the backend
+        // can write the tag: a device-local "favourite" would mean something
+        // different here than on every other client on the account.
+        AppMenuItem {
+            objectName: "roomFavouriteItem"
+            visible: app.roomList.roomFavouritesSupported
+            // One glyph for both states: the icon font is Material Symbols
+            // at FILL=0, so "star" is already the OUTLINE and there is no
+            // filled counterpart to switch to. The row's text carries the
+            // state, which is how the read/unread rows below do it too.
+            iconName: "star"
+            text: model.isFavourite === true ? qsTr("Remove from favourites")
+                                             : qsTr("Add to favourites")
+            onTriggered: root.setFavourite(model.isFavourite !== true)
+        }
+        AppMenuSeparator { visible: app.roomList.roomFavouritesSupported }
         AppMenuItem {
             iconName: "check"
             text: qsTr("Mark as read")

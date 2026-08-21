@@ -2709,6 +2709,10 @@ if(BUILD_TESTING)
         src/matrix/MatrixClient.cpp
     )
     target_include_directories(room-state-model-test PRIVATE src)
+    # The section-label contract reads RoomsPanel.qml: a category C++ can
+    # emit with no label in QML renders under the wrong header.
+    target_compile_definitions(room-state-model-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(room-state-model-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-state-model COMMAND room-state-model-test)
 

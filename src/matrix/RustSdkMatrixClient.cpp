@@ -1937,6 +1937,15 @@ void RustSdkMatrixClient::setRoomMarkedUnread(const QString &roomId, bool unread
     if (!result.isEmpty()) qCWarning(lcRust) << "marked-unread command rejected";
 }
 
+void RustSdkMatrixClient::setRoomFavourite(const QString &roomId, bool favourite)
+{
+    if (!m_rustHandle || roomId.isEmpty()) return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_favourite(
+        m_rustHandle, room.constData(), favourite ? 1 : 0));
+    if (!result.isEmpty()) qCWarning(lcRust) << "favourite command rejected";
+}
+
 void RustSdkMatrixClient::markRoomRead(const QString &roomId)
 {
     if (!m_rustHandle || roomId.isEmpty()) return;
@@ -3634,6 +3643,11 @@ RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
     room.encryptionKnown =
         obj.value(QStringLiteral("encryption_known")).toBool(false);
     room.isSpace = obj.value(QStringLiteral("is_space")).toBool(room.isSpace);
+    // Defaults to FALSE, not to the previous value, exactly like is_direct
+    // below: un-favouriting a room must actually clear the flag. Defaulting
+    // to the old value would latch a favourite on for the rest of the
+    // session the moment one payload arrived without the field.
+    room.isFavourite = obj.value(QStringLiteral("is_favourite")).toBool(false);
     room.isDirect = obj.value(QStringLiteral("is_direct")).toBool(false);
     room.directUserId = obj.value(QStringLiteral("direct_user_id")).toString();
     room.directUserIds.clear();

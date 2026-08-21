@@ -79,6 +79,11 @@ public:
     void acceptInvite(const QString &roomId) override;
     void rejectInvite(const QString &roomId) override;
     void setRoomMarkedUnread(const QString &roomId, bool unread) override;
+    // The mock has no server to disagree with, so unlike the HTTP backend it
+    // DOES offer favourites: the flag is the fixture's own state, which is
+    // what makes the Favourites section reachable in a QML/demo run.
+    bool supportsRoomFavourites() const override { return true; }
+    void setRoomFavourite(const QString &roomId, bool favourite) override;
     bool isLoggedIn() const override { return m_loggedIn; }
     QString currentUserId() const override { return m_userId; }
     QString homeserverUrl() const override { return m_homeserver; }

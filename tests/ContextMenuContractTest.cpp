@@ -5,6 +5,7 @@
 // QmlBindingContractTest.cpp's read()/bounded-block scanning style; never
 // weakens an assertion, only adds new ones for the new SPEC 1a/1d rows.
 
+#include <QRegularExpression>
 #include <QtTest/QtTest>
 
 #include <QFile>
@@ -184,6 +185,30 @@ private Q_SLOTS:
         QVERIFY(!block.isEmpty());
         QVERIFY(block.contains(QStringLiteral(
             "menuWidth: AppTheme.menuWidthRoom")));
+    }
+
+    // Element classic's Favourite toggle, and the two things that keep it
+    // honest: it is hidden on a backend that cannot write room tags, and it
+    // sends the value to WRITE rather than asking the row to toggle itself.
+    void roomMenuOffersFavouritesOnlyWhereTheBackendCanWriteTheTag()
+    {
+        const QString delegate = read(QStringLiteral("RoomDelegate.qml"));
+        const QString block = roomMenuBlock(delegate);
+        QVERIFY(!block.isEmpty());
+        QVERIFY(block.contains(QStringLiteral("objectName: \"roomFavouriteItem\"")));
+        QVERIFY(block.contains(QStringLiteral(
+            "visible: app.roomList.roomFavouritesSupported")));
+        // The row never flips the flag itself — it asks for the OPPOSITE of
+        // what the model currently reports, and the model waits for the
+        // backend. A bare `root.setFavourite()` or a local assignment here
+        // would be an optimistic apply.
+        QVERIFY(block.contains(QStringLiteral(
+            "onTriggered: root.setFavourite(model.isFavourite !== true)")));
+        // An ASSIGNMENT only — `model.isFavourite ===` is the read above
+        // and must not trip this.
+        QVERIFY(!block.contains(
+            QRegularExpression(QStringLiteral("model\\.isFavourite\\s*=(?!=)"))));
+        QVERIFY(delegate.contains(QStringLiteral("signal setFavourite(bool on)")));
     }
 
     void notificationsFlyoutUsesRealSettingAndPureRadioBindings()

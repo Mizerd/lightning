@@ -54,6 +54,9 @@ void RoomListModel::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::loggedOut,
                 this, &RoomListModel::clearProfileCaches);
     }
+    // The capability is a property of the backend, so swapping the client
+    // (backend selection, account switch) is the one moment it can change.
+    Q_EMIT roomFavouritesSupportedChanged();
     refresh();
 }
 
@@ -107,10 +110,7 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case EncryptedRole:          return r.encrypted;
     case IsSpaceRole:            return r.isSpace;
     case MemberCountRole:        return static_cast<int>(r.members.size());
-    case CategoryRole:           return r.membership == RoomInfo::Invited
-                                     ? QStringLiteral("invite")
-                                     : (r.isDirect ? QStringLiteral("dm")
-                                                   : QStringLiteral("room"));
+    case CategoryRole:           return categoryOf(r);
     case HighlightCountRole:     return r.highlightCount;
     case MarkedUnreadRole:       return r.markedUnread;
     case HasUnreadRole:          return r.hasUnreadMessages;
@@ -123,6 +123,7 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
         }
         return QStringLiteral("joined");
     case IsDirectRole:           return r.isDirect;
+    case IsFavouriteRole:        return r.isFavourite;
     case DirectUserIdRole:       return r.directUserId;
     case InviterRole:            return r.inviterDisplayName.isEmpty()
                                      ? r.inviterUserId : r.inviterDisplayName;
@@ -156,6 +157,7 @@ QHash<int, QByteArray> RoomListModel::roleNames() const
         { HasUnreadRole,          "hasUnread" },
         { MembershipRole,         "membership" },
         { IsDirectRole,           "isDirect" },
+        { IsFavouriteRole,        "isFavourite" },
         { DirectUserIdRole,       "directUserId" },
         { InviterRole,            "inviter" },
         { InvitePendingRole,      "invitePending" },
@@ -432,8 +434,10 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded) con
             if (passesFilter(r))
                 desired.append(r);
         }
-        // Invitations are separate, followed by Matrix m.direct rooms and
-        // normal joined rooms. Member count is deliberately irrelevant.
+        // Invitations are separate, then favourites, then Matrix m.direct
+        // rooms, then normal joined rooms — groupIndexOf() owns that order
+        // and the `category` role reads the same function. Member count is
+        // deliberately irrelevant.
         // v0.7.x room upgrades: a room whose successor the user can reach
         // sorts BELOW every live room. Deliberately a demotion and not a
         // filter — the old room stays present, openable and readable, which
@@ -446,13 +450,10 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded) con
         // "PEOPLE"/"ROOMS" header at the bottom of the list — and it would
         // demote a superseded INVITE out of the top block, breaking the
         // "invitations are separate" rule stated above.
-        const auto groupOf = [](const RoomInfo &room) {
-            return room.membership == RoomInfo::Invited ? 0 : (room.isDirect ? 1 : 2);
-        };
         std::stable_sort(desired.begin(), desired.end(),
-                         [&groupOf, &superseded](const RoomInfo &a, const RoomInfo &b) {
-            const int aGroup = groupOf(a);
-            const int bGroup = groupOf(b);
+                         [&superseded](const RoomInfo &a, const RoomInfo &b) {
+            const int aGroup = groupIndexOf(a);
+            const int bGroup = groupIndexOf(b);
             if (aGroup != bGroup)
                 return aGroup < bGroup;
             const bool aOld = superseded.contains(a.id);
@@ -691,6 +692,61 @@ void RoomListModel::markRoomRead(const QString &roomId)
 void RoomListModel::markRoomUnread(const QString &roomId)
 {
     if (m_client) m_client->setRoomMarkedUnread(roomId, true);
+}
+
+// The section a row belongs to, and the ONLY classification in this file.
+//
+// RoomsPanel opens one header per contiguous run of the `category` role, so
+// desiredRooms() has to sort by exactly this classification: an ordering
+// that disagrees with the string splits a category into two runs and the
+// list grows a second "PEOPLE" header further down. Both callers read this
+// one function so they cannot drift apart.
+int RoomListModel::groupIndexOf(const RoomInfo &room)
+{
+    // Invitations stay first — they need action, and a room the user has not
+    // joined cannot carry their tags anyway.
+    if (room.membership == RoomInfo::Invited)
+        return 0;
+    // A favourite outranks its own kind, as in Element classic: a
+    // favourited DM appears under Favourites and NOT also under People.
+    if (room.isFavourite)
+        return 1;
+    return room.isDirect ? 2 : 3;
+}
+
+QString RoomListModel::categoryOf(const RoomInfo &room)
+{
+    switch (groupIndexOf(room)) {
+    case 0:  return QStringLiteral("invite");
+    case 1:  return QStringLiteral("favourite");
+    case 2:  return QStringLiteral("dm");
+    default: return QStringLiteral("room");
+    }
+}
+
+bool RoomListModel::roomFavouritesSupported() const
+{
+    return m_client && m_client->supportsRoomFavourites();
+}
+
+bool RoomListModel::isRoomFavourite(const QString &roomId) const
+{
+    if (!m_client)
+        return false;
+    for (const auto &r : m_client->rooms()) {
+        if (r.id == roomId)
+            return r.isFavourite;
+    }
+    return false;
+}
+
+void RoomListModel::setRoomFavourite(const QString &roomId, bool favourite)
+{
+    // Deliberately no local write: the flag is account state, and the row
+    // must keep showing what the ACCOUNT holds until the backend confirms
+    // the tag changed. A refused write therefore leaves the row where it is
+    // instead of parking it under a Favourites header it does not belong in.
+    if (m_client) m_client->setRoomFavourite(roomId, favourite);
 }
 
 QString RoomListModel::roomPermalink(const QString &roomId,

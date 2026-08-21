@@ -2536,6 +2536,23 @@ void MockMatrixClient::setRoomMarkedUnread(const QString &roomId, bool unread)
     }
 }
 
+void MockMatrixClient::setRoomFavourite(const QString &roomId, bool favourite)
+{
+    for (RoomInfo &r : m_rooms) {
+        if (r.id != roomId)
+            continue;
+        if (r.isFavourite == favourite)
+            return;
+        r.isFavourite = favourite;
+        // roomsChanged, not roomUpdated: favouriting MOVES the row into
+        // another section, and roomUpdated only starts RoomListModel's
+        // COALESCING timer. Both paths re-sort, but this one is a direct
+        // response to a click and should land on the same frame.
+        Q_EMIT roomsChanged();
+        return;
+    }
+}
+
 void MockMatrixClient::setState(ConnectionState s)
 {
     if (m_state == s)

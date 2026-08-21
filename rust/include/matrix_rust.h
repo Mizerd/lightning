@@ -121,6 +121,12 @@ char *mx_rust_set_marked_unread(void *client, const char *room_id, int unread);
  * manual unread flag. Answers on read_marker_advanced, or room_action_error
  * with action="mark_read". */
 char *mx_rust_mark_room_read(void *client, const char *room_id);
+/* Add or remove a room's m.favourite tag through Room::set_is_favourite,
+ * which also drops a conflicting m.lowpriority tag. NOT optimistic: success
+ * re-emits the room list carrying the SDK's own is_favourite, and a refusal
+ * answers room_action_error with action="favourite" and changes nothing. */
+char *mx_rust_set_room_favourite(void *client, const char *room_id,
+                                 int favourite);
 /* Send attachment bytes to a room whose live timeline is NOT open — the
  * forwarding path. Routes through Room::send_attachment; the SDK still
  * encrypts for the target room when that room is encrypted. Answers on

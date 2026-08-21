@@ -2033,6 +2033,49 @@ pub unsafe extern "C" fn mx_rust_set_marked_unread(
     })
 }
 
+/// Add or remove this room's `m.favourite` tag.
+///
+/// `Room::set_is_favourite` is the whole implementation: it writes the tag
+/// AND drops a conflicting `m.lowpriority` tag, so the two mutually
+/// exclusive states cannot both be set. Nothing here hand-builds tag
+/// account data.
+///
+/// Deliberately NOT optimistic. The success path re-emits the room list, so
+/// the Favourites section comes from `Room::is_favourite()` after the server
+/// accepted the write — a rejection leaves the row exactly as it was rather
+/// than showing a favourite the account does not have.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_favourite(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    favourite: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            // `tag_order` stays None: Matrix orders tagged rooms by an
+            // optional 0..1 float, and Lightning sorts the Favourites
+            // section by activity like every other section. Inventing an
+            // order here would write a preference into the ACCOUNT that no
+            // Lightning surface can see or edit, and that other clients
+            // would then honour.
+            match room.set_is_favourite(favourite != 0, None).await {
+                Ok(()) => enqueue_rooms(&events, &client).await,
+                Err(_) => enqueue(&events, json!({
+                    "type": "room_action_error", "action": "favourite"
+                })),
+            }
+        });
+        Ok(String::new())
+    })
+}
+
 /// Send attachment bytes to a room whose live timeline is NOT open.
 ///
 /// The timeline-scoped `mx_rust_timeline_send_attachment_bytes` refuses any
@@ -7718,6 +7761,12 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "unread_count": room.num_unread_notifications().max(notifications.notification_count),
         "highlight_count": room.num_unread_mentions().max(notifications.highlight_count),
         "marked_unread": room.is_marked_unread(),
+        // Element-parity favourites. The `m.favourite` room tag IS the
+        // storage — Lightning invents no list of its own, so a favourite set
+        // from Element or Element X is already true here. Read from the
+        // SDK's own notable-tag bit on RoomInfo (kept current by the sync
+        // loop's room-account-data handling), never by parsing account data.
+        "is_favourite": room.is_favourite(),
         "has_unread_messages": room.num_unread_messages() > 0,
         "encrypted": room.encryption_state().is_encrypted(),
         // v0.7.x (review H1): the SDK's EncryptionState is a TRI-state and

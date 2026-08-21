@@ -22,6 +22,11 @@ class RoomListModel : public QAbstractListModel
     // mode the pinned (currently open) room stays visible so reading a
     // room does not yank its row out from under the selection.
     Q_PROPERTY(int filterMode READ filterMode WRITE setFilterMode NOTIFY filterModeChanged)
+    // False on a backend that cannot write room tags. The affordance is then
+    // not offered at all: a device-local "favourite" would silently disagree
+    // with the account every other client reads.
+    Q_PROPERTY(bool roomFavouritesSupported READ roomFavouritesSupported
+                   NOTIFY roomFavouritesSupportedChanged)
 public:
     enum Roles {
         RoomIdRole = Qt::UserRole + 1,
@@ -40,6 +45,9 @@ public:
         HasUnreadRole,
         MembershipRole,
         IsDirectRole,
+        // Matrix `m.favourite` room tag. Account state shared with every
+        // other client, never a Lightning-local list.
+        IsFavouriteRole,
         DirectUserIdRole,
         InviterRole,
         InvitePendingRole,
@@ -84,6 +92,12 @@ public:
     Q_INVOKABLE void rejectInvite(const QString &roomId);
     Q_INVOKABLE void markRoomRead(const QString &roomId);
     Q_INVOKABLE void markRoomUnread(const QString &roomId);
+    // Element-parity favourites (Matrix `m.favourite` room tag). The toggle
+    // is NOT applied locally — see the .cpp. isRoomFavourite() answers from
+    // the client's room set, so it is correct for a room the active Space
+    // filter is currently hiding.
+    Q_INVOKABLE bool isRoomFavourite(const QString &roomId) const;
+    Q_INVOKABLE void setRoomFavourite(const QString &roomId, bool favourite);
     // v0.6.5 (SPEC 1d): pure formatting helper for "Copy room link" — prefers
     // the canonical alias over the bare room id, matching
     // TimelineModel::messagePermalink's existing percent-encoding convention
@@ -103,6 +117,12 @@ public:
     // v0.7 account switching: drop DM profile lookups resolved under the
     // previous account's authority, then rebuild from the client.
     void clearProfileCaches();
+
+    bool roomFavouritesSupported() const;
+    // The one classification: section string and sort group read the same
+    // function so a category can never be split across two runs.
+    static int groupIndexOf(const RoomInfo &room);
+    static QString categoryOf(const RoomInfo &room);
 
     void resetRooms(const QList<RoomInfo> &rooms);
     bool appendRooms(const QList<RoomInfo> &rooms);
@@ -161,4 +181,5 @@ Q_SIGNALS:
     void searchQueryChanged();
     void filterGenerationChanged();
     void filterModeChanged();
+    void roomFavouritesSupportedChanged();
 };

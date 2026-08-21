@@ -38,6 +38,12 @@ struct RoomInfo {
     // must fail closed while this is false.
     bool encryptionKnown = true;
     bool isSpace = false;
+    // Element-parity favourites, backed by the Matrix `m.favourite` room
+    // tag. Lightning keeps NO list of its own — a room favourited in
+    // Element is favourite here and vice versa. False on a backend that
+    // does not carry tags, which is honest: absent, not "not favourite by
+    // decision".
+    bool isFavourite = false;
     bool isDirect = false;
     QString directUserId;
     // Every target user this room's m.direct account-data mapping lists —
@@ -111,6 +117,13 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         && a.encrypted == b.encrypted
         && a.encryptionKnown == b.encryptionKnown
         && a.isSpace == b.isSpace
+        // Omitting this had exactly the failure the tombstone note below
+        // describes: a room whose m.favourite tag just changed compared
+        // equal to its pre-tag self, replaceRoom skipped the dataChanged,
+        // and the row MOVED into the Favourites section while still
+        // reporting its old category — so the section header and the rows
+        // under it disagreed until something else about the room changed.
+        && a.isFavourite == b.isFavourite
         && a.isDirect == b.isDirect && a.directUserId == b.directUserId
         && a.directUserIds == b.directUserIds
         && a.canonicalAlias == b.canonicalAlias

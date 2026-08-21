@@ -30,6 +30,10 @@ public:
     QString accepted;
     QString rejected;
     QString marked;
+    QString favouriteRoom;
+    int favouriteWrites = 0;
+    bool lastFavourite = false;
+    bool favouritesSupported = true;
     quint64 profileOp = 0;
     QString profileUser;
 
@@ -73,6 +77,16 @@ public:
     {
         if (unread) marked = id;
     }
+    bool supportsRoomFavourites() const override { return favouritesSupported; }
+    // Deliberately does NOT touch `mirror`: a real backend only reflects the
+    // tag back once the server accepted it, and these tests assert that the
+    // model shows nothing until that happens.
+    void setRoomFavourite(const QString &id, bool favourite) override
+    {
+        favouriteRoom = id;
+        lastFavourite = favourite;
+        ++favouriteWrites;
+    }
 };
 
 } // namespace
@@ -100,6 +114,9 @@ private Q_SLOTS:
     void searchFiltersNameAndAliasAndFindsInvites();
     void filterModeSplitsPeopleRoomsUnreads();
     void identityColorKeyPolicyForDms();
+    void favouritesFormTheirOwnSectionAboveEverythingButInvites();
+    void favouriteToggleIsNeverAppliedLocally();
+    void everyCategoryTheModelEmitsHasASectionLabel();
 };
 
 void RoomStateModelTest::directClassificationUsesMDirectOnly()
@@ -613,6 +630,145 @@ void RoomStateModelTest::identityColorKeyPolicyForDms()
     QCOMPARE(model.findRoom(dm.id)
                  .value(QStringLiteral("identityColorKey")).toString(),
              QStringLiteral("@ga:example.org"));
+}
+
+// Element classic pins a Favourites section above People and Rooms, and a
+// favourited DM lives THERE rather than in both places. RoomsPanel opens one
+// header per contiguous run of the `category` role, so this also pins the
+// property that makes the headers work at all: each category is exactly one
+// run, which is only true while the sort and the role read the same
+// classification (RoomListModel::groupIndexOf).
+void RoomStateModelTest::favouritesFormTheirOwnSectionAboveEverythingButInvites()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto invite = room(QStringLiteral("!invite:example.org"));
+    invite.membership = RoomInfo::Invited;
+    auto favouriteDm = room(QStringLiteral("!favdm:example.org"), true, 2);
+    favouriteDm.isFavourite = true;
+    auto favouriteRoom = room(QStringLiteral("!favroom:example.org"));
+    favouriteRoom.isFavourite = true;
+    const auto plainDm = room(QStringLiteral("!dm:example.org"), true, 2);
+    const auto plainRoom = room(QStringLiteral("!room:example.org"));
+    // Deliberately shuffled: the ordering must come from the sort, not from
+    // the order the backend happened to hand rooms over in.
+    client.mirror = { plainRoom, favouriteDm, invite, plainDm, favouriteRoom };
+    model.setClient(&client);
+    QCOMPARE(model.rowCount(), 5);
+
+    QStringList categories;
+    for (int i = 0; i < model.rowCount(); ++i) {
+        categories << model.data(model.index(i), RoomListModel::CategoryRole)
+                          .toString();
+    }
+    QCOMPARE(categories,
+             (QStringList{ QStringLiteral("invite"), QStringLiteral("favourite"),
+                           QStringLiteral("favourite"), QStringLiteral("dm"),
+                           QStringLiteral("room") }));
+    // Every category is ONE contiguous run — a second "People" header
+    // halfway down the list is the failure this guards.
+    QStringList runs;
+    for (const QString &category : std::as_const(categories)) {
+        if (runs.isEmpty() || runs.constLast() != category)
+            runs << category;
+    }
+    QCOMPARE(runs.size(), 4);
+
+    // The favourited DM reports the favourite section AND is still a DM, so
+    // the People filter keeps it (Element does the same).
+    const auto rowOf = [&model](const QString &roomId) {
+        for (int i = 0; i < model.rowCount(); ++i) {
+            if (model.data(model.index(i), RoomListModel::RoomIdRole)
+                    .toString() == roomId)
+                return i;
+        }
+        return -1;
+    };
+    QVERIFY(model.data(model.index(rowOf(favouriteDm.id)),
+                       RoomListModel::IsDirectRole).toBool());
+    QVERIFY(model.data(model.index(rowOf(favouriteDm.id)),
+                       RoomListModel::IsFavouriteRole).toBool());
+    QVERIFY(!model.data(model.index(rowOf(plainDm.id)),
+                        RoomListModel::IsFavouriteRole).toBool());
+    model.setFilterMode(1); // People
+    QCOMPARE(model.rowCount(), 3); // invite always passes, + both DMs
+    QCOMPARE(model.data(model.index(rowOf(favouriteDm.id)),
+                        RoomListModel::CategoryRole).toString(),
+             QStringLiteral("favourite"));
+}
+
+// The tag is ACCOUNT state. Flipping the row locally would show a favourite
+// the account does not have whenever the server refuses the write — and
+// worse, would park the row under a Favourites header it does not belong in.
+void RoomStateModelTest::favouriteToggleIsNeverAppliedLocally()
+{
+    FakeClient client;
+    RoomListModel model;
+    client.mirror = { room(QStringLiteral("!room:example.org")) };
+    model.setClient(&client);
+    QVERIFY(model.roomFavouritesSupported());
+    QVERIFY(!model.isRoomFavourite(QStringLiteral("!room:example.org")));
+
+    model.setRoomFavourite(QStringLiteral("!room:example.org"), true);
+    QCOMPARE(client.favouriteRoom, QStringLiteral("!room:example.org"));
+    QCOMPARE(client.favouriteWrites, 1);
+    QVERIFY(client.lastFavourite);
+    // The backend has not confirmed anything, so nothing moved.
+    QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
+             QStringLiteral("room"));
+    QVERIFY(!model.data(model.index(0), RoomListModel::IsFavouriteRole).toBool());
+
+    // Only the backend reflecting the tag back changes the row.
+    client.mirror[0].isFavourite = true;
+    Q_EMIT client.roomsChanged();
+    QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
+             QStringLiteral("favourite"));
+    QVERIFY(model.isRoomFavourite(QStringLiteral("!room:example.org")));
+
+    client.favouritesSupported = false;
+    QVERIFY(!model.roomFavouritesSupported());
+}
+
+// categoryOf() is read by RoomsPanel's `section.property`, and its section
+// delegate ends in a bare `: qsTr("Rooms")` fallback — so a category added
+// here without a label there does not fail, it renders "Rooms" over a
+// section that is not rooms. That is exactly how the Favourites section
+// would have shipped mislabelled.
+void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
+{
+    QFile file(QStringLiteral(QML_DIR "/RoomsPanel.qml"));
+    QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(file.fileName()));
+    const QString source = QString::fromUtf8(file.readAll());
+
+    RoomInfo probe;
+    probe.membership = RoomInfo::Invited;
+    QStringList emitted{ RoomListModel::categoryOf(probe) };
+    probe.membership = RoomInfo::Joined;
+    probe.isFavourite = true;
+    emitted << RoomListModel::categoryOf(probe);
+    probe.isFavourite = false;
+    probe.isDirect = true;
+    emitted << RoomListModel::categoryOf(probe);
+    probe.isDirect = false;
+    emitted << RoomListModel::categoryOf(probe);
+    QCOMPARE(emitted,
+             (QStringList{ QStringLiteral("invite"), QStringLiteral("favourite"),
+                           QStringLiteral("dm"), QStringLiteral("room") }));
+
+    // "room" is the delegate's fallback branch and carries no test, so it is
+    // checked by its label instead.
+    for (const QString &category : std::as_const(emitted)) {
+        if (category == QStringLiteral("room"))
+            continue;
+        QVERIFY2(source.contains(QStringLiteral("section === \"%1\"")
+                                     .arg(category)),
+                 qPrintable(QStringLiteral("RoomsPanel has no section label "
+                                           "for category '%1'")
+                                .arg(category)));
+    }
+    QVERIFY(source.contains(QStringLiteral("qsTr(\"Favourites\")")));
+    QVERIFY(source.contains(QStringLiteral("qsTr(\"Rooms\")")));
 }
 
 QTEST_GUILESS_MAIN(RoomStateModelTest)

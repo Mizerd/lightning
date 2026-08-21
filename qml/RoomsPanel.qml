@@ -549,8 +549,10 @@ Rectangle {
 
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
-            // Section grouping driven by the "category" role from RoomListModel.
-            // C++ sorts DMs first so "dm" section appears above "room" section.
+            // Section grouping driven by the "category" role from
+            // RoomListModel. C++ sorts by RoomListModel::groupIndexOf(),
+            // which is the same function the role reads: invites, then
+            // favourites, then DMs, then rooms.
             section.property: "category"
             section.criteria: ViewSection.FullString
             // Element pins its group headers. The default (InlineLabels)
@@ -576,7 +578,13 @@ Rectangle {
                     // decorative typography carrying wayfinding text, and it
                     // was re-typed inline in seven places across the app.
                     // These are the shared section-label tokens.
+                    //
+                    // One label per RoomListModel::categoryOf() value: the
+                    // last branch is a FALLBACK, so a category with no case
+                    // here renders "Rooms" over a section that is not rooms
+                    // rather than failing. Keep the two in step.
                     text: section === "invite" ? qsTr("Invites")
+                          : section === "favourite" ? qsTr("Favourites")
                           : section === "dm" ? qsTr("People") : qsTr("Rooms")
                     color: AppTheme.sectionLabelColor
                     font.family: AppTheme.menuSectionFont
@@ -594,6 +602,8 @@ Rectangle {
                 onRejectInvite: app.roomList.rejectInvite(model.roomId)
                 onMarkRead: app.roomList.markRoomRead(model.roomId)
                 onMarkUnread: app.roomList.markRoomUnread(model.roomId)
+                onSetFavourite: (on) =>
+                    app.roomList.setRoomFavourite(model.roomId, on)
                 onSetNotificationMode: (mode) =>
                     app.setRoomNotificationMode(model.roomId, mode)
                 onCopyRoomLink: {
