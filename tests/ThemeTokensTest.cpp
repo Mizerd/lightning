@@ -8,6 +8,7 @@
 #include <QRegularExpression>
 #include <QtTest/QtTest>
 
+#include <array>
 #include <cmath>
 
 namespace {
@@ -42,6 +43,34 @@ double contrast(const QString &fg, const QString &bg)
     const double hi = std::max(lf, lb);
     const double lo = std::min(lf, lb);
     return (hi + 0.05) / (lo + 0.05);
+}
+
+// CIE76 colour difference in Lab. Contrast answers "is this legible on that
+// background"; it says nothing about whether two INKS are telling each other
+// apart, and identity colouring needs exactly that. dE below ~10 reads as the
+// same colour to a viewer.
+double deltaE(const QString &a, const QString &b)
+{
+    auto toLab = [](const QString &hex) {
+        auto ch = [&hex](int i) {
+            return channelLinear(hex.mid(1 + i * 2, 2).toInt(nullptr, 16)
+                                 / 255.0);
+        };
+        const double r = ch(0), g = ch(1), bl = ch(2);
+        const double X = 0.4124 * r + 0.3576 * g + 0.1805 * bl;
+        const double Y = 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+        const double Z = 0.0193 * r + 0.1192 * g + 0.9505 * bl;
+        auto f = [](double t) {
+            return t > 0.008856 ? std::cbrt(t) : 7.787 * t + 16.0 / 116.0;
+        };
+        const double fx = f(X / 0.95047), fy = f(Y), fz = f(Z / 1.08883);
+        return std::array<double, 3>{ 116.0 * fy - 16.0, 500.0 * (fx - fy),
+                                      200.0 * (fy - fz) };
+    };
+    const auto la = toLab(a);
+    const auto lb = toLab(b);
+    return std::sqrt(std::pow(la[0] - lb[0], 2) + std::pow(la[1] - lb[1], 2)
+                     + std::pow(la[2] - lb[2], 2));
 }
 
 // Source-over composite of `top` at `alpha` onto opaque `bottom`, both
@@ -447,6 +476,79 @@ private Q_SLOTS:
         };
         check(lightInks, lightSurfaces);
         check(darkInks, darkSurfaces);
+    }
+
+    // Contrast alone let the palette rot: every ink cleared 4.5:1 against
+    // every surface while two PAIRS of them were the same colour as each
+    // other (hues 20.8/24.9 and 147.7/150.0, dE 5.6 dark and 7.4 light). The
+    // palette advertised nine identities and delivered seven, and no test
+    // could see it because legibility was never the failing property.
+    void identityColoursAreTellableApartFromEachOther()
+    {
+        const auto arrayOf = [this](const char *name) -> QStringList {
+            const QRegularExpression re(QStringLiteral(
+                "property\\s+var\\s+%1\\s*:\\s*\\[([^\\]]*)\\]")
+                .arg(QLatin1String(name)));
+            const auto match = re.match(m_theme);
+            QStringList out;
+            if (!match.hasMatch())
+                return out;
+            const QRegularExpression hex(QStringLiteral("#[0-9A-Fa-f]{6}"));
+            auto it = hex.globalMatch(match.captured(1));
+            while (it.hasNext())
+                out.append(it.next().captured(0));
+            return out;
+        };
+
+        // 12 is a deliberate floor rather than the 18.1 the current palette
+        // achieves: it forbids a genuine collision without freezing the exact
+        // hues, so a future restyle has room to move.
+        const double kMinSeparation = 12.0;
+        for (const char *name :
+             { "_nameInksDark", "_nameInksLight", "avatarPalette" }) {
+            const QStringList inks = arrayOf(name);
+            QVERIFY2(inks.size() == 9,
+                     qPrintable(QStringLiteral("%1 is not 9 entries")
+                                    .arg(QLatin1String(name))));
+            for (int i = 0; i < inks.size(); ++i) {
+                for (int j = i + 1; j < inks.size(); ++j) {
+                    const double d = deltaE(inks.at(i), inks.at(j));
+                    QVERIFY2(d >= kMinSeparation,
+                             qPrintable(QStringLiteral(
+                                 "%1[%2]=%3 and [%4]=%5 are the same colour "
+                                 "(dE %6 < %7)")
+                                 .arg(QLatin1String(name)).arg(i)
+                                 .arg(inks.at(i)).arg(j).arg(inks.at(j))
+                                 .arg(d, 0, 'f', 1)
+                                 .arg(kMinSeparation, 0, 'f', 1)));
+                }
+            }
+        }
+
+        // The avatar disc carries WHITE initials, so its fill is the one
+        // place in this palette where legibility is about the fill itself.
+        for (const QString &fill : arrayOf("avatarPalette")) {
+            const double ratio = contrast(fill, QStringLiteral("#FFFFFF"));
+            QVERIFY2(ratio >= 4.5,
+                     qPrintable(QStringLiteral(
+                         "avatar fill %1 fails white initials (%2 < 4.5)")
+                         .arg(fill).arg(ratio, 0, 'f', 2)));
+        }
+
+        // Under Storm a sender name sits near bolt-yellow chrome. An ink that
+        // close to the brand accent reads as chrome rather than as a person.
+        const QRegularExpression boltRe(QStringLiteral(
+            "_stoBolt\\s*:\\s*\"(#[0-9A-Fa-f]{6})\""));
+        const auto boltMatch = boltRe.match(m_theme);
+        QVERIFY2(boltMatch.hasMatch(), "could not read _stoBolt");
+        const QString bolt = boltMatch.captured(1);
+        for (const QString &ink : arrayOf("_nameInksDark")) {
+            const double d = deltaE(ink, bolt);
+            QVERIFY2(d >= 20.0,
+                     qPrintable(QStringLiteral(
+                         "name ink %1 is too close to the Storm bolt %2 "
+                         "(dE %3 < 20)").arg(ink, bolt).arg(d, 0, 'f', 1)));
+        }
     }
 
     void mentionWashKeepsBodyTextReadable()

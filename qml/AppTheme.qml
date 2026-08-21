@@ -751,11 +751,15 @@ QtObject {
     readonly property color trustCaptionDim:  "#6F7EB6"
     readonly property color trustVerifyInk:   "#C9D2F2"
 
-    // Deterministic initials-avatar palette from the design handoff; shared
-    // by every theme so a user or room keeps one colour everywhere.
+    // Deterministic initials-avatar palette, shared by every theme so a user
+    // or room keeps one colour everywhere. Nine hues at 4/28/44/95/155/192/
+    // 225/272/325 degrees, matched index-for-index to the name inks below as
+    // mid-tone disc fills: every entry clears 4.5:1 against the WHITE initials
+    // it carries (lowest 4.52), and the closest pair is dE 22, so two users
+    // never get the same disc.
     readonly property var avatarPalette: [
-        "#2F8F5B", "#A3542F", "#6D5BD0", "#3A6EA5", "#B04A7E",
-        "#C9662A", "#4A8F6D", "#B3823A", "#A05A92"
+        "#D04339", "#AE6424", "#8F7224", "#4F822B", "#2E8460",
+        "#2F7F93", "#4163C8", "#8941C8", "#C84190"
     ]
     // The ONE identity hash behind avatar fills and sender-name inks, so a
     // user's avatar disc and name label always agree on the hue family.
@@ -779,13 +783,33 @@ QtObject {
     // #1F7A49/#2F7455 pair computed 4.16/4.37 there and failed AA). The
     // theme-token test enforces this matrix; do not edit an ink without
     // re-running it.
+    //
+    // 2026-08-21: rebalanced WARM and de-duplicated. The previous set spent
+    // two of its nine slots on collisions — hues 20.8/24.9 and 147.7/150.0 —
+    // so its closest pair was dE 5.6 (dark) and 7.4 (light), which is "the
+    // same colour" to a reader: two users hashed to indistinguishable names.
+    // The replacement walks nine separated hues (4/28/44/95/155/192/225/272/
+    // 325) with the centre of gravity moved warm — coral, orange, gold and
+    // rose, plus a warm-leaning olive — and its closest pair is dE 18.1 dark
+    // / 24.5 light.
+    //
+    // A full hue sweep clears 4.5:1 on EVERY hue in both modes, so the gate
+    // below never constrained the hue choice; the old palette's coldness was
+    // a choice, not a limit.
+    //
+    // One Storm trap, measured: the brand accent is _stoBolt #FFD447, and a
+    // gold slot at hue 50 / sat 0.75 lands dE 10 from it — a sender's name
+    // then reads as brand chrome. The gold slot is therefore hue 44 at the
+    // lower saturation that buys dE 37. Minimum bolt clearance across this
+    // set is 37; do not raise that slot's saturation or move its hue toward
+    // 48 without re-checking it.
     readonly property var _nameInksDark: [
-        "#79D6A4", "#F2B08D", "#C0B4F5", "#9CC4EF", "#F1ACCD",
-        "#F2B183", "#93D5B4", "#E2C387", "#E5ACD7"
+        "#F6ACA7", "#F4B176", "#D4BD7D", "#96CF6E", "#7ECEAC",
+        "#87C9D9", "#AEBEEF", "#D3B2F0", "#F1ACD4"
     ]
     readonly property var _nameInksLight: [
-        "#196B3F", "#96481F", "#5B48C0", "#2F5E93", "#A03A6E",
-        "#9C4A12", "#27654A", "#7D5A17", "#8E4680"
+        "#C31F13", "#9C4F0D", "#776128", "#416B24", "#2A6F52",
+        "#276B7C", "#2D58D7", "#8A31D8", "#B81E78"
     ]
     // Deterministic per-user display-name colour (Element-style identity
     // colouring). Falls back to the primary ink when there is no stable
