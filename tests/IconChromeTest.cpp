@@ -175,8 +175,17 @@ private Q_SLOTS:
         QDir qmlDir(QStringLiteral(QML_DIR));
         // Icon { name: "x" } and IconButton { iconName: "x" } must both
         // resolve in the codepoint map.
-        const QRegularExpression use(
-            QStringLiteral("(?:icon[nN]ame|name): \"([a-z0-9_]+)\""));
+        //
+        // Anchored on the Icon TYPE rather than matching a bare `name:`
+        // anywhere: `name:` is also how a QML State identifies itself, so the
+        // loose form reported AppScrollBar's `State { name: "active" }` as an
+        // unmapped icon. Verified equivalent — anchoring drops that one match
+        // and loses no real icon reference anywhere in qml/.
+        const QRegularExpression useProp(
+            QStringLiteral("icon[nN]ame:\\s*\"([a-z0-9_]+)\""));
+        const QRegularExpression useIcon(
+            QStringLiteral("\\bIcon\\s*\\{[^{}]*?\\bname:\\s*\"([a-z0-9_]+)\""),
+            QRegularExpression::DotMatchesEverythingOption);
         const auto entries =
             qmlDir.entryList({QStringLiteral("*.qml")}, QDir::Files);
         for (const QString &name : entries) {
@@ -184,13 +193,15 @@ private Q_SLOTS:
                 continue;
             const QString content =
                 readAll(qmlDir.filePath(name));
-            auto uses = use.globalMatch(content);
-            while (uses.hasNext()) {
-                const QString icon = uses.next().captured(1);
-                QVERIFY2(mapped.contains(icon),
-                         qPrintable(QStringLiteral("%1 references unmapped "
-                                                   "icon '%2'")
-                                        .arg(name, icon)));
+            for (const QRegularExpression &use : { useProp, useIcon }) {
+                auto uses = use.globalMatch(content);
+                while (uses.hasNext()) {
+                    const QString icon = uses.next().captured(1);
+                    QVERIFY2(mapped.contains(icon),
+                             qPrintable(QStringLiteral("%1 references unmapped "
+                                                       "icon '%2'")
+                                            .arg(name, icon)));
+                }
             }
         }
     }

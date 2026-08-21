@@ -44,14 +44,19 @@ Row {
                      || modelData.enabled === undefined
                      || modelData.enabled === true
             implicitWidth: segText.implicitWidth + (root.dense ? 12 : 24)
-            implicitHeight: root.dense ? 26 : 30
+            implicitHeight: root.dense ? AppTheme.buttonHeightSm
+                                       : AppTheme.buttonHeight
             hoverEnabled: true
             focusPolicy: Qt.TabFocus
+            // A disabled segment is not a target: it must not offer a tip it
+            // cannot act on, and AbstractButton keeps `hovered` true while
+            // disabled, so the guard has to be explicit.
+            opacity: enabled ? 1.0 : 0.55
             Accessible.role: Accessible.RadioButton
             Accessible.name: segLabel
             ToolTip.text: typeof modelData === "string"
                           ? "" : (modelData.tip || "")
-            ToolTip.visible: hovered && ToolTip.text.length > 0
+            ToolTip.visible: enabled && hovered && ToolTip.text.length > 0
             ToolTip.delay: 400
             onClicked: root.activated(segValue)
 
@@ -87,34 +92,50 @@ Row {
                          : AppTheme.textSecondary
                 }
                 font.family: root.storm ? AppTheme.menuFont : AppTheme.uiFont
-                font.pixelSize: root.dense ? 12 : 13
-                font.weight: Font.Bold
+                font.pixelSize: root.dense ? AppTheme.textMeta
+                                           : AppTheme.textBody
+                font.weight: AppTheme.weightStrong
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
             }
             background: Rectangle {
-                radius: AppTheme.radiusMd
+                radius: AppTheme.buttonRadius
                 color: {
+                    // A disabled segment used to fall through to exactly what
+                    // an enabled, unselected, unhovered one renders —
+                    // transparent with no border — so the ONLY cue was a
+                    // one-step ink change that reads as a glitch rather than
+                    // a state. It now carries a faint field of its own, on
+                    // top of the 0.55 opacity above.
+                    if (!segment.enabled)
+                        return Qt.alpha(AppTheme.borderStrong,
+                                        segment.selected ? 0.60 : 0.35)
                     if (root.storm)
                         return segment.selected ? AppTheme.stormSelection
-                             : segment.enabled && (segment.down || segment.hovered)
+                             : (segment.down || segment.hovered)
                                ? Qt.alpha(AppTheme.stormSelection, 0.55)
                                : "transparent"
-                    return segment.selected ? (AppTheme.storm
-                                               ? AppTheme.bolt
-                                               : AppTheme.accentSoft)
-                         : segment.enabled && (segment.down || segment.hovered)
-                           ? AppTheme.hover : "transparent"
+                    if (segment.selected)
+                        return AppTheme.storm ? AppTheme.bolt
+                                              : AppTheme.accentSoft
+                    return segment.down ? AppTheme.buttonGhostPressed
+                         : segment.hovered ? AppTheme.buttonGhostHover
+                         : "transparent"
                 }
                 border.width: root.storm && segment.selected ? 1 : 0
                 border.color: AppTheme.stormBorderStrong
             }
+            // Inset focus ring — see the note in AppButton.qml. Segments sit
+            // 2px apart, so an outset ring landed on the neighbour.
             Rectangle {
                 anchors.fill: parent
-                anchors.margins: -3
-                radius: AppTheme.radiusMd + 3
+                radius: AppTheme.buttonRadius
                 color: "transparent"
-                border.color: root.storm ? AppTheme.bolt : AppTheme.focusRing
+                border.color: {
+                    if (segment.selected && AppTheme.storm && !root.storm)
+                        return AppTheme.boltInk
+                    return root.storm ? AppTheme.bolt : AppTheme.focusRing
+                }
                 border.width: 2
                 visible: segment.visualFocus
             }

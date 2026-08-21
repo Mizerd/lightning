@@ -10,7 +10,9 @@ import MatrixClient
 // highlighted state renders for both pointer hover and keyboard focus.
 //
 // Storm skin (SPEC-storm-language §3.2): 32px rows, radius 8, constant 6px
-// content inset, 17px muted icon, Space Grotesk 13/600 labels. The
+// content inset, 17px muted icon, and the shared interactive-label recipe
+// (the UI face at textBody/600 — menuFont resolves to uiFont since the
+// 2026-08-21 type pass, so a menu no longer runs a second sans face). The
 // highlighted row fills stormSelection, brightens icon (bolt) and label
 // (stormText), flips its keycap to bolt/panel, and grows the signature
 // edge-bolt caret overhanging the row's left edge. Danger rows ink
@@ -73,9 +75,12 @@ MenuItem {
             Layout.fillWidth: true
             text: root.text
             elide: Label.ElideRight
+            // Exactly AppButton's label recipe. A menu row and a button can
+            // sit in the same popover; they used to render the same face at
+            // the same size in two different weights (DemiBold vs Bold).
             font.family: AppTheme.menuFont
-            font.pixelSize: AppTheme.fontSecondary
-            font.weight: Font.DemiBold
+            font.pixelSize: AppTheme.textBody
+            font.weight: AppTheme.weightStrong
             color: root.radio && !root.radioSelected && root.enabled
                    && !root._active ? AppTheme.stormTextMuted : root._ink
         }

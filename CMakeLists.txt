@@ -532,6 +532,14 @@ set(APP_QML_FILES
     qml/AppTextField.qml
     qml/AppComboBox.qml
     qml/AppSwitch.qml
+    # 2026-08-21 control-system round: themed replacements for the Qt Basic
+    # controls that were reaching production unstyled — square-cornered
+    # dialogs with grey stock buttons, body-text-grey progress bars and
+    # spinners, and a scrollbar that never saw a Lightning colour.
+    qml/AppDialog.qml
+    qml/AppProgressBar.qml
+    qml/AppBusyIndicator.qml
+    qml/AppScrollBar.qml
     qml/LoginScreen.qml
     qml/SettingsScreen.qml
     qml/SmoothWheelArea.qml

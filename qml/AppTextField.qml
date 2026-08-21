@@ -3,9 +3,9 @@ import QtQuick.Controls
 import MatrixClient
 
 // Lightning single-line text field: flat themed surface, subtle 1px border
-// that turns accent on focus, 8px radius, themed selection and placeholder —
-// never a native recessed frame. Optional leading search glyph and a clear
-// button that appears with text.
+// that turns accent on focus, themed selection and placeholder — never a
+// native recessed frame. Optional leading search glyph and a clear button
+// that appears with text.
 //
 // Storm skin (SPEC-storm-language §3.8): `storm: true` on storm surfaces —
 // stormInset fill, 1px stormBorder, focus promotes to a bolt border with a
@@ -17,11 +17,11 @@ TextField {
     property bool clearButton: false
     property bool storm: false
 
-    implicitHeight: 32
+    implicitHeight: AppTheme.buttonHeight
     hoverEnabled: true
-    leftPadding: searchIcon ? 32 : 12
-    rightPadding: clearButton && text.length > 0 ? 32 : 12
-    font.pixelSize: 13
+    leftPadding: searchIcon ? 32 : AppTheme.buttonPaddingH
+    rightPadding: clearButton && text.length > 0 ? 32 : AppTheme.buttonPaddingH
+    font.pixelSize: AppTheme.textBody
     color: storm ? AppTheme.stormText : AppTheme.textPrimary
     placeholderTextColor: storm ? AppTheme.stormTextMuted : AppTheme.textMuted
     selectionColor: storm ? AppTheme.stormSelection : AppTheme.accentSoft
@@ -31,7 +31,12 @@ TextField {
     background: Rectangle {
         radius: AppTheme.radiusMd
         color: root.storm ? AppTheme.stormInset : AppTheme.inputBackground
-        border.width: root.activeFocus ? (root.storm ? 1.5 : 2) : 1
+        // Integer weights only. The storm skin used to focus at 1.5px and the
+        // themed skin at 2px, so the same field showed focus at two different
+        // weights depending on its host — and a 1.5px border cannot land on a
+        // pixel boundary at DPR 1.0, so it rendered as two half-covered rows
+        // of antialiasing next to the 1px borders beside it.
+        border.width: root.activeFocus ? 2 : 1
         border.color: {
             if (root.storm)
                 return root.activeFocus ? AppTheme.bolt
@@ -71,9 +76,7 @@ TextField {
         anchors.right: parent.right
         anchors.rightMargin: 4
         anchors.verticalCenter: parent.verticalCenter
-        implicitWidth: 24
-        implicitHeight: 24
-        radius: 6
+        size: "sm"
         iconName: "close"
         iconSize: 14
         Accessible.name: qsTr("Clear text")

@@ -67,6 +67,9 @@ ApplicationWindow {
     Rectangle { objectName: "tokStormPanel"; visible: false; color: AppTheme.stormPanel }
     Rectangle { objectName: "tokInputBg"; visible: false; color: AppTheme.inputBackground }
     Rectangle { objectName: "tokCardElevated"; visible: false; color: AppTheme.cardElevated }
+    Rectangle { objectName: "tokDangerFill"; visible: false; color: AppTheme.buttonDangerFill }
+    Rectangle { objectName: "tokDangerInk"; visible: false; color: AppTheme.buttonDangerInk }
+    Rectangle { objectName: "tokFocusRing"; visible: false; color: AppTheme.focusRing }
 
     Column {
         x: 24
@@ -84,6 +87,11 @@ ApplicationWindow {
                 text: "Save"
                 enabled: false
             }
+            AppButton {
+                objectName: "destructiveButton"
+                kind: "dangerPrimary"
+                text: "Delete"
+            }
         }
 
         SegmentedControl {
@@ -92,6 +100,7 @@ ApplicationWindow {
                 { label: "Overview", value: "overview" },
                 { label: "People", value: "people" },
                 { label: "Media", value: "media" },
+                { label: "Files", value: "files", enabled: false },
             ]
             current: "people"
         }
@@ -216,13 +225,74 @@ private slots:
         assertFlatFill(img, danger, token("tokBackground"), "danger-rest");
         assertFlatFill(img, disabled, token("tokCardElevated"), "disabled");
         // Danger label is the danger tone, not the primary/secondary text.
-        auto *label = danger->property("contentItem").value<QQuickItem *>();
+        // The label is now a named child of the content item rather than the
+        // content item itself: AppButton carries an optional leading icon, so
+        // its contentItem is the centring wrapper around the icon+label pair.
+        auto *label = findItem(danger, QStringLiteral("buttonLabel"));
         QVERIFY(label);
         const QColor dangerText = label->property("color").value<QColor>();
         auto *saveLabel =
-            item("primaryButton")->property("contentItem").value<QQuickItem *>();
+            findItem(item("primaryButton"), QStringLiteral("buttonLabel"));
         QVERIFY(saveLabel);
         QVERIFY(dangerText != saveLabel->property("color").value<QColor>());
+    }
+
+    // 2026-08-21. The destructive CONFIRM of a destructive dialog is not a
+    // quiet outlined button: "danger" stays the quiet one, "dangerPrimary" is
+    // the committed one, and it must be a real fill with dangerText on it —
+    // never `danger` used as a background, which is now an INK token and
+    // measures 3.03-4.03:1 on Storm's surfaces.
+    void destructiveKindIsASolidFillWithItsOwnInk()
+    {
+        const QImage img = m_window->grabWindow();
+        auto *destructive = item("destructiveButton");
+        QVERIFY(destructive);
+        assertFlatFill(img, destructive, token("tokDangerFill"), "destructive");
+        auto *label = findItem(destructive, QStringLiteral("buttonLabel"));
+        QVERIFY(label);
+        QCOMPARE(label->property("color").value<QColor>(), token("tokDangerInk"));
+    }
+
+    // Every kind rides ONE geometry: same height, same corner. Before the
+    // ladder a dialog footer could hold a 30px outlined button beside a 40px
+    // square stock one.
+    void everyKindSharesOneGeometry()
+    {
+        const char *kinds[] = { "secondaryButton", "primaryButton",
+                                "dangerButton", "destructiveButton" };
+        auto *reference = item("secondaryButton");
+        QVERIFY(reference);
+        for (const char *name : kinds) {
+            auto *button = item(name);
+            QVERIFY2(button, name);
+            QCOMPARE(button->height(), reference->height());
+            auto *background =
+                button->property("background").value<QQuickItem *>();
+            QVERIFY2(background, name);
+            QCOMPARE(background->property("radius").toInt(),
+                     reference->property("background").value<QQuickItem *>()
+                         ->property("radius").toInt());
+        }
+    }
+
+    // A disabled segment used to fall through to exactly what an enabled,
+    // unselected, unhovered one renders — transparent, no border — so the
+    // only cue was a single ink step that reads as a rendering glitch.
+    void disabledSegmentIsVisiblyDistinctFromAnUnselectedOne()
+    {
+        auto *disabled = item("segments_files");
+        auto *unselected = item("segments_overview");
+        QVERIFY(disabled && unselected);
+        QVERIFY(!disabled->property("enabled").toBool());
+        QVERIFY2(disabled->opacity() < unselected->opacity(),
+                 "disabled segment renders at full strength");
+        const QImage img = m_window->grabWindow();
+        const QPointF a = disabled->mapToScene(QPointF(8, disabled->height() / 2));
+        const QPointF b = unselected->mapToScene(QPointF(8, unselected->height() / 2));
+        QVERIFY2(channelDelta(sampleAvg(img, QRect(int(a.x()), int(a.y()), 2, 2)),
+                              sampleAvg(img, QRect(int(b.x()), int(b.y()), 2, 2)))
+                     > 2,
+                 "disabled and unselected segments paint the same field");
     }
 
     void segmentedSelectionIsAccentSoftChipNotOutlinedRectangles()

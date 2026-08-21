@@ -266,19 +266,36 @@ private slots:
         QVERIFY(!rowChild(iconChip, "keycapLabel")->property("visible").toBool());
     }
 
-    void sectionLabelUsesAccessibleMutedInkUppercase()
+    // 2026-08-21: this label used to be JetBrains Mono at 10px, ALL CAPS,
+    // 1.6px tracking, in the faint ink — a third typeface inside a menu head
+    // whose actual content ("Reply", "Copy text") was set quieter in a
+    // different face, applied on the light themes too where the Storm
+    // language was never meant to reach. The user's report called out "the
+    // font in a lot of places looks out of place" and supplied a screenshot
+    // of exactly this treatment.
+    //
+    // The guard is kept, and still has teeth — it pins a SPECIFIC
+    // typographic contract, just the current one: the UI face at 12/600 in
+    // sentence case, in the ink that clears AA rather than the decorative
+    // faint one. Mono survives where something is genuinely monospaced
+    // (MenuKeycap, CodeBlock, Matrix identifiers), which the keycap cases
+    // above still assert.
+    void sectionLabelUsesAccessibleMutedInkSentenceCase()
     {
         auto *sectionLabel = item("sectionLabel");
         QVERIFY(sectionLabel);
         const QFont font = sectionLabel->property("font").value<QFont>();
-        QCOMPARE(font.pixelSize(), 10);
-        // Storm §2: mono ~9.5px/600 headers in the faint storm ink —
-        // deliberately dim decorative-scale mono, never sentence text.
-        QCOMPARE(font.family(), QStringLiteral("JetBrains Mono"));
+        QCOMPARE(font.pixelSize(), 12);
+        QVERIFY2(font.family() != QStringLiteral("JetBrains Mono"),
+                 "the section heading is sentence text, not code — mono here "
+                 "is the 'out of place' treatment this round removed");
         QCOMPARE(int(font.weight()), int(QFont::DemiBold));
-        QCOMPARE(int(font.capitalization()), int(QFont::AllUppercase));
+        QCOMPARE(int(font.capitalization()), int(QFont::MixedCase));
+        QCOMPARE(qRound(font.letterSpacing()), 0);
+        // Muted, not faint: at 12px sentence case this is a readable heading,
+        // so it takes an ink that clears AA rather than a decorative one.
         QCOMPARE(sectionLabel->property("color").value<QColor>(),
-                 token("tokStormTextFaint"));
+                 token("tokStormTextMuted"));
     }
 
     void quickReactionStripIsKeyboardOperable()

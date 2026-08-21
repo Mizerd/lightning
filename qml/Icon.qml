@@ -125,7 +125,10 @@ Text {
     })
 
     text: _codepoints[name] !== undefined ? _codepoints[name] : ""
-    font.family: "Material Symbols Rounded"
+    // The family comes from AppTheme like every other face in the app. It was
+    // the one raw family literal in the tree that was neither a deliberate
+    // preview nor a mirror, which also made it invisible to a family sweep.
+    font.family: AppTheme.iconFont
     font.pixelSize: size
     color: AppTheme.textSecondary
     verticalAlignment: Text.AlignVCenter

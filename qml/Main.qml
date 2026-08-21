@@ -112,7 +112,33 @@ ApplicationWindow {
     // "ToolTip attached property must be attached to an object deriving from
     // Item" — which the QML-warning suites correctly fail on.
     Item {
+        id: sharedToolTipGuard
         objectName: "sharedToolTipPlainTextGuard"
+
+        // The same shared instance also carries the app's most-seen popup
+        // chrome, and it was the only popup in the product that was not
+        // rounded: Basic's ToolTip background is a square Rectangle outlined
+        // in `palette.dark`, which Main.qml maps to the theme's secondary
+        // TEXT colour — a text-weight grey hairline around every tip, on a
+        // UI whose hairlines are AppTheme.border.
+        //
+        // These are imperative assignments rather than bindings because the
+        // instance is created by the style, not declared here — so they must
+        // be re-applied whenever the palette moves, which is what the
+        // Connections below is for. Fill and ink already follow the palette.
+        function applyToolTipChrome() {
+            const shared = ToolTip.toolTip
+            if (!shared)
+                return
+            const bg = shared.background
+            if (!bg)
+                return
+            if (bg.radius !== undefined)
+                bg.radius = AppTheme.radiusMd
+            if (bg.border !== undefined)
+                bg.border.color = AppTheme.border
+        }
+
         Component.onCompleted: {
             // Touching `contentItem` forces the lazy instance to exist.
             // Guarded: a style whose tooltip content is not a Text simply has
@@ -121,6 +147,14 @@ ApplicationWindow {
             if (shared && shared.contentItem
                     && shared.contentItem.textFormat !== undefined)
                 shared.contentItem.textFormat = Text.PlainText
+            applyToolTipChrome()
+        }
+
+        Connections {
+            target: AppTheme
+            function onEffectiveThemeChanged() {
+                sharedToolTipGuard.applyToolTipChrome()
+            }
         }
     }
 
@@ -284,9 +318,9 @@ ApplicationWindow {
                     font.pixelSize: 26
                     font.weight: Font.ExtraBold
                 }
-                BusyIndicator {
+                AppBusyIndicator {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: 26; height: 26
+                    size: 26
                     running: app.currentScreen === 3
                 }
                 Label {
