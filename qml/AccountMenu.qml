@@ -107,8 +107,8 @@ Popup {
                 text: footerBtn.text
                 color: footerBtn._ink
                 font.family: AppTheme.menuFont
-                font.pixelSize: 12
-                font.weight: Font.DemiBold
+                font.pixelSize: AppTheme.textMeta
+                font.weight: AppTheme.weightStrong
             }
             Item { Layout.fillWidth: true }
         }
@@ -146,15 +146,11 @@ Popup {
                 size: 14
                 color: AppTheme.bolt
             }
-            Label {
-                text: qsTr("Accounts")
-                color: AppTheme.stormTextMuted
-                font.family: AppTheme.monoFont
-                font.pixelSize: AppTheme.fontChip
-                font.weight: Font.DemiBold
-                font.letterSpacing: AppTheme.trackingStorm
-                font.capitalization: Font.AllUppercase
-            }
+            // The section-label recipe lives in MenuSectionLabel; this used
+            // to be a hand-typed copy of it, which is how the treatment
+            // drifts. Reuse the component so restyling it moves every
+            // section header in the app at once.
+            MenuSectionLabel { text: qsTr("Accounts") }
             Item { Layout.fillWidth: true }
             AbstractButton {
                 id: manageLabel
@@ -178,8 +174,11 @@ Popup {
                     // ring and the presence dot in bolt.
                     color: AppTheme.stormLink
                     font.family: AppTheme.menuFont
-                    font.pixelSize: AppTheme.fontMonoXS
-                    font.weight: Font.DemiBold
+                    // fontMonoXS is the MONO identity-string size; on a UI
+                    // face it just rendered this link a pixel smaller than
+                    // every other meta label beside it.
+                    font.pixelSize: AppTheme.textMeta
+                    font.weight: AppTheme.weightStrong
                     font.underline: manageLabel.hovered
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
@@ -245,7 +244,7 @@ Popup {
                        + (rows - 1) * heightProbe.implicitHeight
                        + (rows - 1) * AppTheme.spacing10
             }
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
             delegate: IdentityCard {
                 id: card
@@ -381,6 +380,24 @@ Popup {
             radius: AppTheme.radiusLg
         }
 
+        // Qt Quick Controls Basic renders `title` as a bold default-font
+        // Label on a palette.light bar. The background below was themed but
+        // the header never was, so this popover's two confirmations carried
+        // the one piece of stock chrome left in the file. `title` is kept —
+        // it is what the accessibility tree reads.
+        header: Label {
+            text: removeConfirm.title
+            color: AppTheme.stormText
+            font.family: AppTheme.menuFont
+            font.pixelSize: AppTheme.textTitle
+            font.weight: AppTheme.weightBold
+            elide: Label.ElideRight
+            leftPadding: AppTheme.spacing16
+            rightPadding: AppTheme.spacing16
+            topPadding: AppTheme.spacing16
+            bottomPadding: AppTheme.spacing8
+        }
+
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing12
             Label {
@@ -390,6 +407,8 @@ Popup {
                            + "from this computer only. Messages stay on the "
                            + "server, and other accounts are not affected.")
                       .arg(removeConfirm.targetUserId)
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormText
             }
@@ -437,6 +456,24 @@ Popup {
             radius: AppTheme.radiusLg
         }
 
+        // Qt Quick Controls Basic renders `title` as a bold default-font
+        // Label on a palette.light bar. The background below was themed but
+        // the header never was, so this popover's two confirmations carried
+        // the one piece of stock chrome left in the file. `title` is kept —
+        // it is what the accessibility tree reads.
+        header: Label {
+            text: signOutConfirm.title
+            color: AppTheme.stormText
+            font.family: AppTheme.menuFont
+            font.pixelSize: AppTheme.textTitle
+            font.weight: AppTheme.weightBold
+            elide: Label.ElideRight
+            leftPadding: AppTheme.spacing16
+            rightPadding: AppTheme.spacing16
+            topPadding: AppTheme.spacing16
+            bottomPadding: AppTheme.spacing8
+        }
+
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing12
             Label {
@@ -446,6 +483,8 @@ Popup {
                            + "removed from this computer; your messages stay "
                            + "on the server, and encrypted history may need "
                            + "your recovery key after the next sign-in.")
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormText
             }

@@ -118,8 +118,8 @@ Dialog {
             Label {
                 text: qsTr("Discard this poll draft?")
                 color: AppTheme.stormText
-                font.pixelSize: 14
-                font.weight: Font.DemiBold
+                font.pixelSize: AppTheme.textSubtitle
+                font.weight: AppTheme.weightStrong
             }
             RowLayout {
                 spacing: AppTheme.spacing8
@@ -172,8 +172,11 @@ Dialog {
                 text: qsTr("Create a poll")
                 color: AppTheme.stormText
                 font.family: AppTheme.menuFont
-                font.pixelSize: AppTheme.fontSizeL
-                font.weight: Font.DemiBold
+                // Was fontSizeL/DemiBold — the same 16px as the other nine
+                // dialogs but a weight lighter, so this header alone read
+                // faint next to every dialog opened from the same composer.
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightBold
                 Layout.fillWidth: true
             }
             IconButton {
@@ -199,7 +202,7 @@ Dialog {
             contentHeight: pollBody.implicitHeight
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             // Same wheel/touchpad feel as the room timeline; see
             // qml/SmoothWheelArea.qml.
             SmoothWheelArea {}
@@ -215,7 +218,7 @@ Dialog {
                     Layout.alignment: Qt.AlignTop
                     spacing: AppTheme.spacing8
 
-                    MenuSectionLabel { text: qsTr("QUESTION") }
+                    MenuSectionLabel { text: qsTr("Question") }
                     AppTextField {
                         storm: true
                         id: questionField
@@ -227,7 +230,7 @@ Dialog {
                     }
 
                     MenuSectionLabel {
-                        text: qsTr("OPTIONS")
+                        text: qsTr("Options")
                         Layout.topMargin: AppTheme.spacing8
                     }
                     Repeater {
@@ -318,8 +321,8 @@ Dialog {
                             Label {
                                 text: qsTr("Add answer")
                                 color: AppTheme.stormLink
-                                font.pixelSize: AppTheme.fontSizeS
-                                font.weight: Font.DemiBold
+                                font.pixelSize: AppTheme.textBody
+                                font.weight: AppTheme.weightStrong
                             }
                         }
                         TapHandler {
@@ -359,15 +362,19 @@ Dialog {
                                 Label {
                                     text: qsTr("Hide results until the poll ends")
                                     color: AppTheme.stormText
-                                    font.pixelSize: 13
+                                    font.pixelSize: AppTheme.textBody
                                     Layout.fillWidth: true
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     wrapMode: Text.Wrap
                                 }
                                 Label {
                                     text: qsTr("Voters see the tallies only after you end the poll.")
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: 11
+                                    font.pixelSize: AppTheme.textMeta
                                     Layout.fillWidth: true
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     wrapMode: Text.Wrap
                                 }
                             }
@@ -385,8 +392,10 @@ Dialog {
                             Label {
                                 text: qsTr("Allow choosing multiple answers")
                                 color: AppTheme.stormText
-                                font.pixelSize: 13
+                                font.pixelSize: AppTheme.textBody
                                 Layout.fillWidth: true
+                                lineHeight: AppTheme.lineHeightBody
+                                lineHeightMode: Text.ProportionalHeight
                                 wrapMode: Text.Wrap
                             }
                             AppSwitch {
@@ -406,7 +415,7 @@ Dialog {
                     Layout.alignment: Qt.AlignTop
                     spacing: AppTheme.spacing8
 
-                    MenuSectionLabel { text: qsTr("PREVIEW · AS SENT") }
+                    MenuSectionLabel { text: qsTr("Preview · as sent") }
 
                     // Storm: the preview module is a stormInset panel like
                     // every other nested module. "AS SENT" promises CONTENT
@@ -436,8 +445,10 @@ Dialog {
                                       : qsTr("Ask a question…")
                                 color: questionField.text.trim().length > 0
                                        ? AppTheme.stormText : AppTheme.stormTextMuted
-                                font.pixelSize: AppTheme.fontResult
-                                font.weight: Font.Bold
+                                font.pixelSize: AppTheme.textSubtitle
+                                font.weight: AppTheme.weightBold
+                                lineHeight: AppTheme.lineHeightBody
+                                lineHeightMode: Text.ProportionalHeight
                                 wrapMode: Text.WordWrap
                             }
 
@@ -470,7 +481,7 @@ Dialog {
                                             text: previewOption.modelData
                                             color: previewOption.first
                                                    ? AppTheme.stormText : AppTheme.stormTextSecondary
-                                            font.pixelSize: AppTheme.fontSizeS
+                                            font.pixelSize: AppTheme.textBody
                                             elide: Label.ElideRight
                                         }
                                     }
@@ -480,7 +491,9 @@ Dialog {
                                     visible: root.previewAnswers.length === 0
                                     text: qsTr("Options appear here as you type them.")
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.fontSizeXS
+                                    font.pixelSize: AppTheme.textMeta
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     wrapMode: Text.WordWrap
                                     Layout.fillWidth: true
                                 }
@@ -494,7 +507,7 @@ Dialog {
                                       ? qsTr("0 votes · anonymous")
                                       : qsTr("0 votes")
                                 color: AppTheme.stormTextMuted
-                                font.pixelSize: AppTheme.fontSizeXS
+                                font.pixelSize: AppTheme.textMeta
                             }
                         }
                     }

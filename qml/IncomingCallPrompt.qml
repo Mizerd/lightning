@@ -93,8 +93,8 @@ Rectangle {
                 Layout.fillWidth: true
                 text: root.titleText
                 color: AppTheme.stormText
-                font.pixelSize: AppTheme.fontSecondary
-                font.weight: Font.Bold
+                font.pixelSize: AppTheme.textBody
+                font.weight: AppTheme.weightBold
                 elide: Label.ElideRight
             }
         }
@@ -102,9 +102,11 @@ Rectangle {
         Label {
             Layout.fillWidth: true
             visible: root.ringing
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextMuted
-            font.pixelSize: AppTheme.fontCaption
+            font.pixelSize: AppTheme.textMeta
             // Localpart only — the timeline's own no-bare-MXID restraint.
             text: {
                 var caller = app.calls.callerUserId

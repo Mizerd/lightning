@@ -29,9 +29,9 @@ ColumnLayout {
         // states — the press is
         // acknowledged immediately and
         // the peer wait is named.
-        BusyIndicator {
-            implicitWidth: 18
-            implicitHeight: 18
+        AppBusyIndicator {
+            color: AppTheme.bolt
+            size: 18
             visible: running
             // While a QR code is on
             // screen the user is meant
@@ -48,6 +48,8 @@ ColumnLayout {
         Label {
             objectName: "verificationStatusLabel"
             Layout.fillWidth: true
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.WordWrap
             color: app.verificationState === "done"
                    ? AppTheme.stormSuccess
@@ -199,8 +201,10 @@ ColumnLayout {
             objectName: "verificationQrHint"
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.WordWrap
-            font.pixelSize: AppTheme.fontCaption
+            font.pixelSize: AppTheme.textMeta
             color: AppTheme.stormTextMuted
             Accessible.role: Accessible.StaticText
             Accessible.name: text
@@ -292,13 +296,15 @@ ColumnLayout {
                     }
                     Label {
                         text: modelData.description || ""
-                        font.pixelSize: AppTheme.fontCaption
+                        font.pixelSize: AppTheme.textMeta
                         color: AppTheme.stormTextMuted
                         horizontalAlignment: Text.AlignHCenter
                         // Wrap, never elide: the user is
                         // asked to COMPARE this word across
                         // devices — a truncated word is
                         // worse than a two-line caption.
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.Wrap
                         maximumLineCount: 2
                         Layout.fillWidth: true

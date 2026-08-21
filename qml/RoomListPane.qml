@@ -114,7 +114,7 @@ Rectangle {
                 onClicked: app.openRoom(model.roomId)
             }
 
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
             // v0.4.6: state-aware empty label so a user staring at a
             // blank room list gets an honest read on what's happening.

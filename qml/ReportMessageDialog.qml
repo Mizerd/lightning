@@ -54,8 +54,8 @@ Dialog {
             text: qsTr("Report message")
             color: AppTheme.stormText
             font.family: AppTheme.menuFont
-            font.pixelSize: 16
-            font.weight: Font.Bold
+            font.pixelSize: AppTheme.textTitle
+            font.weight: AppTheme.weightBold
         }
         Label {
             Layout.fillWidth: true
@@ -64,7 +64,12 @@ Dialog {
                        + "one message. It is not sent to the message's "
                        + "author.")
             color: AppTheme.stormTextSecondary
-            font.pixelSize: 12
+            // Dialog body copy is textBody with the shared leading, not the
+            // 12px meta size: a wrapping paragraph set at chip size with the
+            // font's own default leading is the densest text in the app.
+            font.pixelSize: AppTheme.textBody
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.Wrap
         }
         AppTextField {

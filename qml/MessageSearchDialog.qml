@@ -64,12 +64,15 @@ Dialog {
                 text: qsTr("Search messages")
                 color: AppTheme.stormText
                 font.family: AppTheme.menuFont
-                font.pixelSize: 16
-                font.weight: Font.Bold
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightBold
                 Layout.fillWidth: true
             }
             IconButton {
+                storm: true
                 iconName: "close"
+                iconSize: 18
+                implicitWidth: 28; implicitHeight: 28
                 Accessible.name: qsTr("Close")
                 onClicked: root.close()
             }
@@ -93,7 +96,9 @@ Dialog {
             text: qsTr("Server-side search — messages in end-to-end "
                        + "encrypted rooms are not included.")
             color: AppTheme.stormTextMuted
-            font.pixelSize: 11
+            font.pixelSize: AppTheme.textMeta
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.Wrap
         }
 
@@ -105,7 +110,7 @@ Dialog {
             clip: true
             spacing: AppTheme.spacing4
             model: app.messageSearch
-            ScrollBar.vertical: ScrollBar {}
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             keyNavigationEnabled: true
             onAtYEndChanged: {
                 if (atYEnd && app.messageSearch.canLoadMore)
@@ -158,10 +163,15 @@ Dialog {
                                 text: resultRow.senderDisplayName.length > 0
                                       ? resultRow.senderDisplayName
                                       : resultRow.sender
-                                color: AppTheme.stormText
+                                // The identity ink, as in the timeline: a
+                                // result row named the sender in the same
+                                // grey as everything else, so the app's one
+                                // real source of colour stopped at the
+                                // timeline's edge.
+                                color: AppTheme.userColor(resultRow.sender)
                                 font.family: AppTheme.menuFont
-                                font.pixelSize: AppTheme.scaled(12)
-                                font.weight: Font.DemiBold
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.weight: AppTheme.weightStrong
                                 elide: Label.ElideRight
                                 Layout.maximumWidth: 180
                             }
@@ -169,7 +179,10 @@ Dialog {
                                 text: qsTr("in %1").arg(resultRow.roomName)
                                 color: AppTheme.stormTextMuted
                                 font.family: AppTheme.menuFont
-                                font.pixelSize: 11
+                                // Was an unscaled 11 beside a scaled sender
+                                // name: at 140% the row sheared, one label
+                                // pinned while its neighbour grew.
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
                             }
@@ -182,7 +195,7 @@ Dialog {
                                 }
                                 color: AppTheme.stormTextMuted
                                 font.family: AppTheme.menuFont
-                                font.pixelSize: 11
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             }
                         }
                         Label {
@@ -190,7 +203,9 @@ Dialog {
                             text: resultRow.body
                             color: AppTheme.stormTextSecondary
                             font.family: AppTheme.menuFont
-                            font.pixelSize: AppTheme.scaled(12)
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
                             wrapMode: Text.Wrap
                             maximumLineCount: 2
                             elide: Label.ElideRight
@@ -202,16 +217,18 @@ Dialog {
             Item {
                 anchors.fill: parent
                 visible: resultsList.count === 0
-                BusyIndicator {
+                AppBusyIndicator {
                     anchors.centerIn: parent
                     running: app.messageSearch.state === "loading"
                     visible: running
+                    color: AppTheme.bolt
                 }
                 Label {
                     anchors.centerIn: parent
                     visible: app.messageSearch.state === "no_results"
                     text: qsTr("No messages found")
                     color: AppTheme.stormTextMuted
+                    font.pixelSize: AppTheme.textBody
                 }
                 ColumnLayout {
                     anchors.centerIn: parent
@@ -221,6 +238,7 @@ Dialog {
                         Layout.alignment: Qt.AlignHCenter
                         text: qsTr("The search could not be completed.")
                         color: AppTheme.stormTextMuted
+                        font.pixelSize: AppTheme.textBody
                     }
                     AppButton {
                         Layout.alignment: Qt.AlignHCenter
@@ -234,6 +252,7 @@ Dialog {
                     visible: app.messageSearch.state === "idle"
                     text: qsTr("Type to search across your rooms")
                     color: AppTheme.stormTextMuted
+                    font.pixelSize: AppTheme.textBody
                 }
             }
         }
@@ -243,7 +262,7 @@ Dialog {
             visible: app.messageSearch.state === "loading_more"
             text: qsTr("Loading more…")
             color: AppTheme.stormTextMuted
-            font.pixelSize: 11
+            font.pixelSize: AppTheme.textMeta
         }
     }
 }

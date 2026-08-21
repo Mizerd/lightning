@@ -187,10 +187,14 @@ Dialog {
             Label {
                 text: chip.text
                 color: AppTheme.stormTextMuted
-                font.family: AppTheme.monoFont
-                font.pixelSize: AppTheme.fontChip
-                font.weight: Font.DemiBold
-                font.capitalization: Font.AllUppercase
+                // Was 10px mono UPPERCASE. These are the dialog's primary
+                // mode switch — the labels the eye lands on first — set as
+                // a terminal HUD caption in a face the font picker cannot
+                // even select. The chip vocabulary is the UI face at meta
+                // size.
+                font.family: AppTheme.menuFont
+                font.pixelSize: AppTheme.textMeta
+                font.weight: AppTheme.weightStrong
             }
         }
         background: Rectangle {
@@ -266,8 +270,8 @@ Dialog {
                     : qsTr("New conversation")
                 color: AppTheme.stormText
                 font.family: AppTheme.menuFont
-                font.pixelSize: 16
-                font.weight: Font.Bold
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightBold
                 elide: Label.ElideRight
             }
             IconButton {
@@ -293,7 +297,9 @@ Dialog {
                        + "Lightning figures out the rest.")
             color: AppTheme.stormTextMuted
             font.family: AppTheme.menuFont
-            font.pixelSize: AppTheme.fontSecondary
+            font.pixelSize: AppTheme.textBody
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.WordWrap
         }
 
@@ -313,8 +319,10 @@ Dialog {
                 anchors.margins: AppTheme.spacing8
                 text: app.conversations.errorMessage
                 color: AppTheme.stormDanger
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
-                font.pixelSize: AppTheme.fontSizeS
+                font.pixelSize: AppTheme.textBody
                 verticalAlignment: Text.AlignVCenter
             }
         }
@@ -329,7 +337,7 @@ Dialog {
             contentHeight: tabColumn.implicitHeight
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             // Same wheel/touchpad feel as the room timeline; see
             // qml/SmoothWheelArea.qml.
             SmoothWheelArea {}
@@ -399,7 +407,7 @@ Dialog {
                 visible: root.busy
                 text: qsTr("Working…")
                 color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.fontSizeS
+                font.pixelSize: AppTheme.textBody
                 onVisibleChanged: if (!visible) opacity = 1.0
                 SequentialAnimation on opacity {
                     running: root.busy && !AppTheme.reducedMotion
@@ -501,8 +509,8 @@ Dialog {
                             text: qsTr("Create room “%1”")
                                 .arg(createRoomSuggestion.seededName)
                             color: AppTheme.stormText
-                            font.pixelSize: AppTheme.fontResult
-                            font.weight: Font.Bold
+                            font.pixelSize: AppTheme.textSubtitle
+                            font.weight: AppTheme.weightBold
                             elide: Label.ElideRight
                         }
                         Label {
@@ -517,12 +525,14 @@ Dialog {
                                 : (root.roomEncrypted
                                     ? qsTr("Private · encrypted · invite-only by default")
                                     : qsTr("Private · not encrypted · invite-only by default"))
-                            // Storm §4 2i metadata row: mono UPPERCASE faint.
-                            color: AppTheme.stormTextFaint
-                            font.family: AppTheme.monoFont
-                            font.pixelSize: AppTheme.fontMicro
-                            font.capitalization: Font.AllUppercase
-                            font.letterSpacing: 0.5
+                            // Was 9px mono UPPERCASE with 0.5 tracking:
+                            // "PRIVATE · ENCRYPTED · INVITE-ONLY BY
+                            // DEFAULT" is a sentence, and shouting it in a
+                            // 9px terminal face made the row's actual
+                            // meaning the hardest thing on it to read.
+                            color: AppTheme.stormTextMuted
+                            font.family: AppTheme.menuFont
+                            font.pixelSize: AppTheme.textMeta
                             elide: Label.ElideRight
                         }
                     }
@@ -571,8 +581,8 @@ Dialog {
                             text: root.selectedDisplayName.length > 0
                                   ? root.selectedDisplayName : root.selectedUserId
                             color: AppTheme.stormText
-                            font.pixelSize: AppTheme.fontSizeM
-                            font.weight: Font.Bold
+                            font.pixelSize: AppTheme.textSubtitle
+                            font.weight: AppTheme.weightBold
                             elide: Label.ElideRight
                         }
                         Label {
@@ -580,7 +590,7 @@ Dialog {
                             visible: root.selectedDisplayName.length > 0
                             text: root.selectedUserId
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.fontSizeS
+                            font.pixelSize: AppTheme.textBody
                             elide: Label.ElideMiddle
                         }
                     }
@@ -612,7 +622,7 @@ Dialog {
                          && app.conversations.existingDms.length > 0
                 text: qsTr("You already share a direct message with this user")
                 color: AppTheme.stormTextSecondary
-                font.pixelSize: AppTheme.fontSizeS
+                font.pixelSize: AppTheme.textBody
             }
             Repeater {
                 model: root.selectedUserId !== ""
@@ -650,7 +660,7 @@ Dialog {
                             Layout.fillWidth: true
                             text: existingRow.dmName
                             color: AppTheme.stormText
-                            font.pixelSize: AppTheme.fontSizeM
+                            font.pixelSize: AppTheme.textSubtitle
                             elide: Label.ElideRight
                         }
                         AppButton {
@@ -697,7 +707,9 @@ Dialog {
                 Layout.fillWidth: true
                 text: qsTr("Direct messages are end-to-end encrypted.")
                 color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.fontSizeXS
+                font.pixelSize: AppTheme.textMeta
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
             }
         }
@@ -718,7 +730,7 @@ Dialog {
                 text: qsTr("Room name")
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.menuFont
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.textMeta
             }
             AppTextField {
                 storm: true
@@ -740,7 +752,9 @@ Dialog {
                 Layout.fillWidth: true
                 text: qsTr("The room needs a name.")
                 color: AppTheme.stormDanger
-                font.pixelSize: AppTheme.fontSizeXS
+                font.pixelSize: AppTheme.textMeta
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
             }
 
@@ -749,7 +763,7 @@ Dialog {
                 text: qsTr("Topic (optional)")
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.menuFont
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.textMeta
             }
             AppTextField {
                 storm: true
@@ -768,7 +782,7 @@ Dialog {
                 text: qsTr("Visibility")
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.menuFont
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.textMeta
             }
             SegmentedControl {
                 objectName: "roomVisibility"
@@ -787,7 +801,9 @@ Dialog {
                       ? qsTr("Anyone can find and join this room.")
                       : qsTr("Only people you invite can join this room.")
                 color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.fontSizeXS
+                font.pixelSize: AppTheme.textMeta
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
             }
 
@@ -813,8 +829,8 @@ Dialog {
                         text: qsTr("End-to-end encryption")
                         color: root.roomIsPublic ? AppTheme.stormTextFaint
                                                  : AppTheme.stormText
-                        font.pixelSize: AppTheme.fontSizeS
-                        font.weight: Font.Bold
+                        font.pixelSize: AppTheme.textBody
+                        font.weight: AppTheme.weightBold
                     }
                     Label {
                         objectName: "roomEncryptCaption"
@@ -828,7 +844,9 @@ Dialog {
                                        + "message.")
                         color: !root.roomIsPublic && !root.roomEncrypted
                                ? AppTheme.stormDanger : AppTheme.stormTextMuted
-                        font.pixelSize: AppTheme.fontSizeXS
+                        font.pixelSize: AppTheme.textMeta
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.WordWrap
                     }
                     TapHandler {
@@ -844,7 +862,7 @@ Dialog {
                 text: qsTr("Address (optional)")
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.menuFont
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.textMeta
             }
             AppTextField {
                 storm: true
@@ -878,7 +896,7 @@ Dialog {
                     Layout.fillWidth: true
                     text: qsTr("Add to the current Space")
                     color: AppTheme.stormText
-                    font.pixelSize: AppTheme.fontSizeS
+                    font.pixelSize: AppTheme.textBody
                     TapHandler {
                         enabled: addToSpaceSwitch.enabled
                         onTapped: addToSpaceSwitch.toggled()
@@ -891,7 +909,7 @@ Dialog {
                 text: qsTr("Invite people (optional)")
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.menuFont
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.textMeta
             }
             Flow {
                 Layout.fillWidth: true
@@ -913,7 +931,7 @@ Dialog {
                             Label {
                                 text: modelData
                                 color: AppTheme.stormText
-                                font.pixelSize: AppTheme.fontSizeS
+                                font.pixelSize: AppTheme.textBody
                                 // A Flow wraps BETWEEN chips, never inside
                                 // one — cap a single long MXID so one chip
                                 // can never outgrow the dialog card.
@@ -959,7 +977,7 @@ Dialog {
                 text: qsTr("Room picture (optional)")
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.menuFont
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.textMeta
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -1053,15 +1071,17 @@ Dialog {
                            + "left rail. It is a real Matrix Space, not a "
                            + "local folder.")
                 color: AppTheme.stormTextMuted
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
-                font.pixelSize: AppTheme.fontSizeXS
+                font.pixelSize: AppTheme.textMeta
             }
 
             Label {
                 text: qsTr("Space name")
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.menuFont
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.textMeta
             }
             AppTextField {
                 storm: true
@@ -1083,7 +1103,9 @@ Dialog {
                 Layout.fillWidth: true
                 text: qsTr("The Space needs a name.")
                 color: AppTheme.stormDanger
-                font.pixelSize: AppTheme.fontSizeXS
+                font.pixelSize: AppTheme.textMeta
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
             }
 
@@ -1092,7 +1114,7 @@ Dialog {
                 text: qsTr("Description (optional)")
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.menuFont
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.textMeta
             }
             AppTextField {
                 storm: true
@@ -1111,7 +1133,7 @@ Dialog {
                 text: qsTr("Visibility")
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.menuFont
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.textMeta
             }
             SegmentedControl {
                 objectName: "spaceVisibility"
@@ -1130,7 +1152,9 @@ Dialog {
                       ? qsTr("Anyone can find and join this Space.")
                       : qsTr("Only people you invite can see this Space.")
                 color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.fontSizeXS
+                font.pixelSize: AppTheme.textMeta
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
             }
 

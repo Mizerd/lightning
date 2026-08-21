@@ -387,8 +387,8 @@ Popup {
                     ? qsTr("Type a command…")
                     : qsTr("Jump to a room, person, or Space…")
                 font.family: AppTheme.menuFont
-                font.pixelSize: AppTheme.fontQuery
-                font.weight: Font.Medium
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightMedium
                 color: AppTheme.stormText
                 placeholderTextColor: AppTheme.stormTextMuted
                 selectionColor: AppTheme.stormSelection
@@ -511,10 +511,13 @@ Popup {
                         color: scopeChip.selected ? AppTheme.boltInk
                                                   : scopeChip.hovered ? AppTheme.stormText
                                                   : AppTheme.stormTextMuted
-                        font.family: AppTheme.monoFont
-                        font.pixelSize: AppTheme.fontChip
-                        font.weight: Font.DemiBold
-                        font.capitalization: Font.AllUppercase
+                        // Was 10px mono UPPERCASE. Three words of ordinary
+                        // wayfinding text set as a terminal HUD label reads
+                        // slower and smaller than the list it filters; the
+                        // chip vocabulary is the UI face at meta size.
+                        font.family: AppTheme.menuFont
+                        font.pixelSize: AppTheme.textMeta
+                        font.weight: AppTheme.weightStrong
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -546,7 +549,7 @@ Popup {
                   ? qsTr("No matching rooms")
                   : qsTr("Type to search your rooms")
             color: AppTheme.stormTextMuted
-            font.pixelSize: AppTheme.fontSecondary
+            font.pixelSize: AppTheme.textBody
         }
         Label {
             visible: switcher.commandMode && switcher.commandRows.length === 0
@@ -555,7 +558,7 @@ Popup {
             horizontalAlignment: Text.AlignHCenter
             text: qsTr("No matching actions")
             color: AppTheme.stormTextMuted
-            font.pixelSize: AppTheme.fontSecondary
+            font.pixelSize: AppTheme.textBody
         }
 
         // ── Navigate mode: sectioned rooms/people/spaces/invites list ─────
@@ -575,7 +578,7 @@ Popup {
             model: app.quickSwitcher
             currentIndex: -1
             keyNavigationEnabled: false
-            ScrollBar.vertical: ScrollBar {}
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
             section.property: "category"
             section.criteria: ViewSection.FullString
@@ -639,8 +642,8 @@ Popup {
                             color: row.highlighted ? AppTheme.stormText
                                                    : AppTheme.stormTextSecondary
                             font.family: AppTheme.menuFont
-                            font.pixelSize: AppTheme.fontResult
-                            font.weight: Font.DemiBold
+                            font.pixelSize: AppTheme.textSubtitle
+                            font.weight: AppTheme.weightStrong
                             elide: Label.ElideRight
                         }
                         Label {
@@ -651,12 +654,17 @@ Popup {
                             // row's subtitle brightens one step.
                             color: row.highlighted ? AppTheme.stormTextSecondary
                                                  : AppTheme.stormTextMuted
-                            // §0 reserves mono for identities; category
-                            // words ("Invitation", "Space") stay in the UI
-                            // face. Every real identity starts @/#/!.
-                            font.family: /^[@#!]/.test(model.subtitle || "")
-                                         ? AppTheme.monoFont : AppTheme.uiFont
-                            font.pixelSize: AppTheme.fontMonoXS
+                            // §0's "mono for identities" rule made the
+                            // typeface change from ROW TO ROW down a single
+                            // vertical list — a room row set Manrope over
+                            // Manrope, the user row beneath it Manrope over
+                            // JetBrains Mono. Mono stays for content that is
+                            // genuinely monospaced (code, keycaps); a result
+                            // subtitle is not. One face down the list.
+                            font.family: AppTheme.uiFont
+                            // fontMonoXS is the mono identity-string size —
+                            // the wrong token now that this is not mono.
+                            font.pixelSize: AppTheme.textMeta
                             elide: Label.ElideRight
                         }
                     }
@@ -682,7 +690,7 @@ Popup {
             model: commandRowModel
             currentIndex: -1
             keyNavigationEnabled: false
-            ScrollBar.vertical: ScrollBar {}
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
             delegate: ItemDelegate {
                 id: cmdRow
@@ -761,8 +769,8 @@ Popup {
                             color: cmdRow.highlighted ? AppTheme.stormText
                                                       : AppTheme.stormTextSecondary
                             font.family: AppTheme.menuFont
-                            font.pixelSize: AppTheme.fontResult
-                            font.weight: Font.DemiBold
+                            font.pixelSize: AppTheme.textSubtitle
+                            font.weight: AppTheme.weightStrong
                             elide: Label.ElideRight
                         }
                         Label {
@@ -773,13 +781,12 @@ Popup {
                             // muted ink — faint is reserved for decorative
                             // mono headers (AA note in AppTheme).
                             color: AppTheme.stormTextMuted
-                            // Same §0 rule as the navigate list: mono is
-                            // reserved for identities (@/#/!), never the
-                            // category words some entity rows carry.
-                            font.family: /^[@#!]/.test(model.subtitle || "")
-                                ? AppTheme.monoFont : AppTheme.uiFont
-                            font.pixelSize: model.kind === "entity"
-                                ? AppTheme.fontMonoXS : AppTheme.fontMonoSm
+                            // One face down the list, same reasoning as the
+                            // navigate list above — and one SIZE too: action
+                            // rows and entity rows were a pixel apart for no
+                            // reason a reader could name.
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
                             elide: Label.ElideRight
                         }
                     }
@@ -817,42 +824,46 @@ Popup {
                         text: "↑↓"
                         color: AppTheme.stormTextMuted
                         font.family: AppTheme.monoFont
-                        font.pixelSize: AppTheme.fontMonoSm
-                        font.weight: Font.Bold
+                        font.pixelSize: AppTheme.textMeta
+                        font.weight: AppTheme.weightBold
                     }
                     Label {
                         text: qsTr("navigate")
                         color: AppTheme.stormTextMuted
-                        font.family: AppTheme.monoFont
-                        font.pixelSize: AppTheme.fontMonoSm
+                        // The KEY glyph beside it stays mono — it is a
+                        // keycap. The word is prose and belongs in the UI
+                        // face; setting it in mono is what made this bar
+                        // read as a terminal status line.
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
                     }
                 }
                 Row {
                     spacing: AppTheme.spacing4
                     Icon {
                         name: "keyboard_return"
-                        size: AppTheme.fontMonoSm + 2
+                        size: AppTheme.textMeta + 2
                         color: AppTheme.stormTextMuted
                     }
                     Label {
                         text: qsTr("open")
                         color: AppTheme.stormTextMuted
-                        font.family: AppTheme.monoFont
-                        font.pixelSize: AppTheme.fontMonoSm
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
                     }
                 }
                 Row {
                     spacing: AppTheme.spacing4
                     Icon {
                         name: "keyboard_tab"
-                        size: AppTheme.fontMonoSm + 2
+                        size: AppTheme.textMeta + 2
                         color: AppTheme.stormTextMuted
                     }
                     Label {
                         text: qsTr("sections")
                         color: AppTheme.stormTextMuted
-                        font.family: AppTheme.monoFont
-                        font.pixelSize: AppTheme.fontMonoSm
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
                     }
                 }
                 Row {
@@ -861,14 +872,14 @@ Popup {
                         text: "ESC"
                         color: AppTheme.stormTextMuted
                         font.family: AppTheme.monoFont
-                        font.pixelSize: AppTheme.fontMonoSm
-                        font.weight: Font.Bold
+                        font.pixelSize: AppTheme.textMeta
+                        font.weight: AppTheme.weightBold
                     }
                     Label {
                         text: qsTr("dismiss")
                         color: AppTheme.stormTextMuted
-                        font.family: AppTheme.monoFont
-                        font.pixelSize: AppTheme.fontMonoSm
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
                     }
                 }
             }
@@ -881,8 +892,8 @@ Popup {
                 elide: Label.ElideRight
                 text: qsTr("Try “theme indigo night” · “switch to alice” · “open privacy”")
                 color: AppTheme.stormTextMuted
-                font.family: AppTheme.monoFont
-                font.pixelSize: AppTheme.fontMonoSm
+                font.family: AppTheme.uiFont
+                font.pixelSize: AppTheme.textMeta
             }
         }
     }

@@ -226,12 +226,15 @@ Dialog {
                 text: qsTr("Discover rooms")
                 color: AppTheme.stormText
                 font.family: AppTheme.menuFont
-                font.pixelSize: 16
-                font.weight: Font.Bold
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightBold
                 Layout.fillWidth: true
             }
             IconButton {
+                storm: true
                 iconName: "close"
+                iconSize: 18
+                implicitWidth: 28; implicitHeight: 28
                 Accessible.name: qsTr("Close")
                 onClicked: root.close()
             }
@@ -262,7 +265,9 @@ Dialog {
             visible: app.discovery.errorMessage.length > 0
             text: app.discovery.errorMessage
             color: AppTheme.danger
-            font.pixelSize: 12
+            font.pixelSize: AppTheme.textBody
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.Wrap
             Accessible.name: text
         }
@@ -308,7 +313,7 @@ Dialog {
                 clip: true
                 spacing: AppTheme.spacing4
                 model: app.discovery.directory
-                ScrollBar.vertical: ScrollBar {}
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                 onAtYEndChanged: {
                     if (atYEnd && app.discovery.directory.canLoadMore)
                         app.discovery.directory.loadMore()
@@ -363,24 +368,34 @@ Dialog {
                                     text: directoryRow.visibleName
                                     color: AppTheme.stormText
                                     font.family: AppTheme.menuFont
-                                    font.pixelSize: 13
-                                    font.weight: Font.DemiBold
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
                                     elide: Label.ElideRight
                                     Layout.maximumWidth: 240
                                 }
-                                Label {
+                                // Both of these were 10px grey words floating
+                                // beside the room name with nothing to mark
+                                // them as metadata. They are exactly what
+                                // StatusChip is for, and the chip vocabulary
+                                // gives each one its own tone instead of one
+                                // undifferentiated grey.
+                                StatusChip {
+                                    storm: true
                                     visible: directoryRow.isSpace
-                                    text: qsTr("Space")
-                                    color: AppTheme.stormTextMuted
-                                    font.pixelSize: 10
+                                    tone: "accent"
+                                    label: qsTr("Space")
                                 }
-                                Label {
+                                StatusChip {
+                                    storm: true
                                     visible: !directoryRow.joined
                                              && root.joinRuleLabel(
                                                  directoryRow.joinRule).length > 0
-                                    text: root.joinRuleLabel(directoryRow.joinRule)
-                                    color: AppTheme.stormTextMuted
-                                    font.pixelSize: 10
+                                    // A knock is a request, not a refusal:
+                                    // warning, while plain "invite only"
+                                    // stays neutral.
+                                    tone: directoryRow.rowKnocks ? "warning"
+                                                                 : "neutral"
+                                    label: root.joinRuleLabel(directoryRow.joinRule)
                                 }
                             }
                             Label {
@@ -396,7 +411,7 @@ Dialog {
                                     return bits.join(" · ")
                                 }
                                 color: AppTheme.stormTextMuted
-                                font.pixelSize: 11
+                                font.pixelSize: AppTheme.textMeta
                                 elide: Label.ElideRight
                                 maximumLineCount: 1
                             }
@@ -405,7 +420,7 @@ Dialog {
                             visible: directoryRow.knocked
                             text: qsTr("Request pending")
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: 11
+                            font.pixelSize: AppTheme.textMeta
                         }
                         AppButton {
                             visible: directoryRow.joined
@@ -442,16 +457,18 @@ Dialog {
                     anchors.fill: parent
                     visible: directoryList.count === 0
 
-                    BusyIndicator {
+                    AppBusyIndicator {
                         anchors.centerIn: parent
                         running: app.discovery.directory.state === "loading"
                         visible: running
+                        color: AppTheme.bolt
                     }
                     Label {
                         anchors.centerIn: parent
                         visible: app.discovery.directory.state === "no_results"
                         text: qsTr("No rooms found")
                         color: AppTheme.stormTextMuted
+                        font.pixelSize: AppTheme.textBody
                     }
                     ColumnLayout {
                         anchors.centerIn: parent
@@ -482,7 +499,7 @@ Dialog {
                 visible: app.discovery.directory.state === "loading_more"
                 text: qsTr("Loading more…")
                 color: AppTheme.stormTextMuted
-                font.pixelSize: 11
+                font.pixelSize: AppTheme.textMeta
             }
         }
 
@@ -523,10 +540,11 @@ Dialog {
                 }
             }
 
-            BusyIndicator {
+            AppBusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
                 running: app.discovery.resolveState === "resolving"
                 visible: running
+                color: AppTheme.bolt
             }
 
             Label {
@@ -536,7 +554,9 @@ Dialog {
                       ? qsTr("That link points at a person, not a room.")
                       : qsTr("That is not a valid room address or link.")
                 color: AppTheme.danger
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.textBody
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.Wrap
             }
 
@@ -578,8 +598,8 @@ Dialog {
                                       || root.resolved.target || ""
                                 color: AppTheme.stormText
                                 font.family: AppTheme.menuFont
-                                font.pixelSize: 14
-                                font.weight: Font.Bold
+                                font.pixelSize: AppTheme.textSubtitle
+                                font.weight: AppTheme.weightBold
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
                             }
@@ -597,7 +617,7 @@ Dialog {
                                     return bits.join(" · ")
                                 }
                                 color: AppTheme.stormTextMuted
-                                font.pixelSize: 11
+                                font.pixelSize: AppTheme.textMeta
                                 elide: Label.ElideRight
                             }
                         }
@@ -608,7 +628,9 @@ Dialog {
                                  && (root.resolved.topic || "").length > 0
                         text: root.resolved.topic || ""
                         color: AppTheme.stormTextSecondary
-                        font.pixelSize: 12
+                        font.pixelSize: AppTheme.textBody
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.Wrap
                         maximumLineCount: 3
                         elide: Label.ElideRight
@@ -620,7 +642,9 @@ Dialog {
                                    + "the server does not allow previewing "
                                    + "it. You can still try to join.")
                         color: AppTheme.stormTextMuted
-                        font.pixelSize: 12
+                        font.pixelSize: AppTheme.textBody
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.Wrap
                     }
                     Label {
@@ -628,7 +652,9 @@ Dialog {
                         visible: root.resolvedMembership === "banned"
                         text: qsTr("You are banned from this room.")
                         color: AppTheme.danger
-                        font.pixelSize: 12
+                        font.pixelSize: AppTheme.textBody
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.Wrap
                     }
                     AppTextField {
@@ -647,7 +673,7 @@ Dialog {
                             visible: root.resolvedMembership === "knocked"
                             text: qsTr("Request pending")
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: 12
+                            font.pixelSize: AppTheme.textMeta
                         }
                         AppButton {
                             visible: root.resolvedMembership === "joined"

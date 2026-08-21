@@ -60,12 +60,19 @@ Dialog {
                 text: qsTr("Forward message")
                 color: AppTheme.stormText
                 font.family: AppTheme.menuFont
-                font.pixelSize: 16
-                font.weight: Font.Bold
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightBold
                 Layout.fillWidth: true
             }
             IconButton {
+                // 28/18 is the dialog close-button size used by every other
+                // dialog in this family; IconButton's own 34/21 default made
+                // this one visibly larger than the identical control in the
+                // dialog opened right beside it.
+                storm: true
                 iconName: "close"
+                iconSize: 18
+                implicitWidth: 28; implicitHeight: 28
                 Accessible.name: qsTr("Close")
                 onClicked: root.close()
             }
@@ -76,7 +83,9 @@ Dialog {
             Layout.fillWidth: true
             text: app.forward.previewText
             color: AppTheme.stormTextSecondary
-            font.pixelSize: 12
+            font.pixelSize: AppTheme.textMeta
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.Wrap
             elide: Text.ElideRight
             maximumLineCount: 2
@@ -89,7 +98,9 @@ Dialog {
             visible: app.forward.error.length > 0
             text: app.forward.error
             color: AppTheme.danger
-            font.pixelSize: 12
+            font.pixelSize: AppTheme.textMeta
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.Wrap
             Accessible.name: text
         }
@@ -116,7 +127,7 @@ Dialog {
             clip: true
             spacing: AppTheme.spacing4
             model: app.roomList
-            ScrollBar.vertical: ScrollBar {}
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
             delegate: Rectangle {
                 id: targetRow
@@ -168,16 +179,28 @@ Dialog {
                             text: targetRow.visibleName
                             color: AppTheme.stormText
                             font.family: AppTheme.menuFont
-                            font.pixelSize: 13
-                            font.weight: Font.DemiBold
+                            font.pixelSize: AppTheme.textBody
+                            font.weight: AppTheme.weightStrong
                             elide: Label.ElideRight
                             Layout.fillWidth: true
                         }
-                        Label {
+                        // Encryption is a positive state, and it was the only
+                        // thing on this row with nothing to say it: a bare
+                        // 10px grey word. A lock in the success ink reads at
+                        // a glance and matches the room header's own lock.
+                        RowLayout {
                             visible: targetRow.encrypted
-                            text: qsTr("Encrypted")
-                            color: AppTheme.stormTextMuted
-                            font.pixelSize: 10
+                            spacing: AppTheme.spacing4
+                            Icon {
+                                name: "lock"
+                                size: 12
+                                color: AppTheme.stormSuccess
+                            }
+                            Label {
+                                text: qsTr("Encrypted")
+                                color: AppTheme.stormTextMuted
+                                font.pixelSize: AppTheme.textMeta
+                            }
                         }
                     }
                     AppButton {
@@ -199,6 +222,7 @@ Dialog {
                 visible: targetList.count === 0
                 text: qsTr("No rooms")
                 color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textBody
             }
         }
     }

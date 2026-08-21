@@ -133,8 +133,8 @@ Popup {
                 objectName: "verificationDialogTitle"
                 text: qsTr("Verify this session")
                 color: AppTheme.stormText
-                font.pixelSize: AppTheme.fontSizeRoom
-                font.weight: Font.Bold
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightBold
                 elide: Label.ElideRight
             }
             IconButton {
@@ -152,9 +152,11 @@ Popup {
             Layout.leftMargin: AppTheme.spacing16
             Layout.rightMargin: AppTheme.spacing16
             Layout.bottomMargin: AppTheme.spacing8
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextMuted
-            font.pixelSize: AppTheme.fontSecondary
+            font.pixelSize: AppTheme.textBody
             // Says what verification is FOR. "Verify this session" alone
             // does not tell anyone why they should bother, and the honest
             // answer is short.

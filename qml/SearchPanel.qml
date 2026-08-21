@@ -178,8 +178,10 @@ Rectangle {
                 text: root.filterEditing ? qsTr("Search filters")
                                          : qsTr("Search messages")
                 color: AppTheme.textPrimary
-                font.pixelSize: 15
-                font.weight: Font.Bold
+                // The shared pane-header role (16), same as the room list
+                // header and Room Information beside it.
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightBold
                 Layout.fillWidth: true
             }
             IconButton {
@@ -244,7 +246,9 @@ Rectangle {
                         Layout.fillWidth: true
                         text: qsTr("The server cannot search end-to-end encrypted room history. You can still find text in messages currently loaded on this device.")
                         color: AppTheme.textSecondary
-                        font.pixelSize: 12
+                        font.pixelSize: AppTheme.textBody
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.Wrap
                     }
                     AppButton {
@@ -261,7 +265,9 @@ Rectangle {
                 Layout.rightMargin: AppTheme.spacing12
                 text: qsTr("Server-side search. Additional filters are applied to a bounded result window.")
                 color: AppTheme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: AppTheme.textMeta
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.Wrap
             }
 
@@ -292,7 +298,7 @@ Rectangle {
                 spacing: AppTheme.spacing4
                 model: app.messageSearch
                 keyNavigationEnabled: true
-                ScrollBar.vertical: ScrollBar {}
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                 onAtYEndChanged: {
                     if (atYEnd && app.messageSearch.canLoadMore)
                         app.messageSearch.loadMore()
@@ -335,9 +341,10 @@ Rectangle {
                                 Label {
                                     text: resultDelegate.senderDisplayName
                                           || resultDelegate.sender
-                                    color: AppTheme.textPrimary
-                                    font.pixelSize: AppTheme.scaled(12)
-                                    font.weight: Font.DemiBold
+                                    // Identity ink, as in the timeline.
+                                    color: AppTheme.userColor(resultDelegate.sender)
+                                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                    font.weight: AppTheme.weightStrong
                                     elide: Label.ElideRight
                                     Layout.fillWidth: true
                                 }
@@ -345,14 +352,18 @@ Rectangle {
                                     text: new Date(Number(resultDelegate.timestampMs))
                                               .toLocaleDateString(Qt.locale(), Locale.ShortFormat)
                                     color: AppTheme.textMuted
-                                    font.pixelSize: 10
+                                    // Was an unscaled 10 beside a scaled
+                                    // sender name: at 140% this row sheared.
+                                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 }
                             }
                             Label {
                                 Layout.fillWidth: true
                                 text: resultDelegate.body
                                 color: AppTheme.textSecondary
-                                font.pixelSize: AppTheme.scaled(12)
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                lineHeight: AppTheme.lineHeightBody
+                                lineHeightMode: Text.ProportionalHeight
                                 wrapMode: Text.Wrap
                                 maximumLineCount: 3
                                 elide: Label.ElideRight
@@ -368,11 +379,11 @@ Rectangle {
                         id: footerCol
                         anchors.centerIn: parent
                         spacing: AppTheme.spacing8
-                        BusyIndicator {
+                        AppBusyIndicator {
                             visible: app.messageSearch.state === "loading"
                                      || app.messageSearch.state === "loading_more"
                             running: visible
-                            implicitWidth: 24; implicitHeight: 24
+                            size: 24
                             Layout.alignment: Qt.AlignHCenter
                         }
                         Label {
@@ -382,7 +393,7 @@ Rectangle {
                                   ? qsTr("Search could not be completed.")
                                   : qsTr("No matching messages")
                             color: AppTheme.textMuted
-                            font.pixelSize: 12
+                            font.pixelSize: AppTheme.textBody
                         }
                         AppButton {
                             visible: app.messageSearch.canLoadMore
@@ -401,7 +412,7 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             contentWidth: availableWidth
 
             ColumnLayout {
@@ -451,8 +462,8 @@ Rectangle {
                     Layout.leftMargin: AppTheme.spacing12
                     Layout.rightMargin: AppTheme.spacing12
                     spacing: AppTheme.spacing6
-                    Label { text: qsTr("Date"); color: AppTheme.textPrimary; font.weight: Font.Bold }
-                    Label { text: qsTr("Use local dates in YYYY-MM-DD format"); color: AppTheme.textMuted; font.pixelSize: 10 }
+                    Label { text: qsTr("Date"); color: AppTheme.textPrimary; font.weight: AppTheme.weightBold }
+                    Label { text: qsTr("Use local dates in YYYY-MM-DD format"); color: AppTheme.textMuted; font.pixelSize: AppTheme.textMeta }
                     AppTextField {
                         Layout.fillWidth: true
                         placeholderText: qsTr("On or after, YYYY-MM-DD")
@@ -472,7 +483,9 @@ Rectangle {
                         Layout.fillWidth: true
                         text: root.dateError
                         color: AppTheme.danger
-                        font.pixelSize: 10
+                        font.pixelSize: AppTheme.textMeta
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.Wrap
                     }
                 }
@@ -482,8 +495,8 @@ Rectangle {
                     Layout.leftMargin: AppTheme.spacing12
                     Layout.rightMargin: AppTheme.spacing12
                     spacing: AppTheme.spacing6
-                    Label { text: qsTr("Has"); color: AppTheme.textPrimary; font.weight: Font.Bold }
-                    Label { text: qsTr("Contains any selected content type"); color: AppTheme.textMuted; font.pixelSize: 10 }
+                    Label { text: qsTr("Has"); color: AppTheme.textPrimary; font.weight: AppTheme.weightBold }
+                    Label { text: qsTr("Contains any selected content type"); color: AppTheme.textMuted; font.pixelSize: AppTheme.textMeta }
                     Flow {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing6
@@ -510,8 +523,8 @@ Rectangle {
                     Layout.rightMargin: AppTheme.spacing12
                     Layout.bottomMargin: AppTheme.spacing12
                     spacing: AppTheme.spacing6
-                    Label { text: qsTr("Pinned"); color: AppTheme.textPrimary; font.weight: Font.Bold }
-                    Label { text: qsTr("Whether the message is pinned"); color: AppTheme.textMuted; font.pixelSize: 10 }
+                    Label { text: qsTr("Pinned"); color: AppTheme.textPrimary; font.weight: AppTheme.weightBold }
+                    Label { text: qsTr("Whether the message is pinned"); color: AppTheme.textMuted; font.pixelSize: AppTheme.textMeta }
                     AppComboBox {
                         Layout.fillWidth: true
                         model: [qsTr("Any"), qsTr("Pinned"), qsTr("Not pinned")]

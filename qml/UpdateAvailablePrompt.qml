@@ -87,10 +87,12 @@ Rectangle {
             }
             Label {
                 Layout.fillWidth: true
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormText
-                font.pixelSize: AppTheme.fontSecondary
-                font.weight: Font.Bold
+                font.pixelSize: AppTheme.textBody
+                font.weight: AppTheme.weightBold
                 text: qsTr("Lightning %1 is available")
                       .arg(root.um ? root.um.latestVersion : "")
             }
@@ -98,9 +100,11 @@ Rectangle {
 
         Label {
             Layout.fillWidth: true
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextSecondary
-            font.pixelSize: AppTheme.fontCaption
+            font.pixelSize: AppTheme.textMeta
             text: qsTr("You have %1.").arg(root.um ? root.um.currentVersion : "")
         }
 

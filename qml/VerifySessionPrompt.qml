@@ -97,17 +97,19 @@ Rectangle {
                 Layout.fillWidth: true
                 text: qsTr("Verify this session")
                 color: AppTheme.stormText
-                font.pixelSize: AppTheme.fontSecondary
-                font.weight: Font.Bold
+                font.pixelSize: AppTheme.textBody
+                font.weight: AppTheme.weightBold
                 elide: Label.ElideRight
             }
         }
 
         Label {
             Layout.fillWidth: true
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextMuted
-            font.pixelSize: AppTheme.fontCaption
+            font.pixelSize: AppTheme.textMeta
             text: qsTr("Until you do, your other sessions won't share "
                        + "encryption keys with this one, so some encrypted "
                        + "messages may stay unreadable here.")

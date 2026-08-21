@@ -68,7 +68,11 @@ ColumnLayout {
         searchIcon: !root.omniboxStyle
         clearButton: true
         leftPadding: root.omniboxStyle ? 38 : (searchIcon ? 32 : 12)
-        font.pixelSize: root.omniboxStyle ? 14 : 13
+        // The omnibox is the dialog's subject, not a field beside other
+        // fields — it takes the title size. Everywhere else the picker is
+        // one control among many and stays at body size.
+        font.pixelSize: root.omniboxStyle ? AppTheme.textTitle
+                                          : AppTheme.textBody
         placeholderText: root.omniboxStyle
             ? qsTr("Type a name, an @user ID, or a #room address…")
             : qsTr("Search people, or enter a full Matrix ID…")
@@ -148,7 +152,7 @@ ColumnLayout {
         }
         color: app.conversations.userSearch.state === "error"
                ? AppTheme.stormDanger : AppTheme.stormTextMuted
-        font.pixelSize: AppTheme.fontSizeS
+        font.pixelSize: AppTheme.textBody
     }
 
     ListView {
@@ -162,7 +166,7 @@ ColumnLayout {
         model: root.model
         currentIndex: -1
         keyNavigationEnabled: true
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        ScrollBar.vertical: AppScrollBar { thin: true; policy: ScrollBar.AsNeeded }
 
         function selectRow(row) {
             var userId = root.model.userIdAt(row)
@@ -211,8 +215,8 @@ ColumnLayout {
                         color: row.highlighted ? AppTheme.stormText
                                                : AppTheme.stormTextSecondary
                         font.family: AppTheme.menuFont
-                        font.pixelSize: AppTheme.fontSizeM
-                        font.weight: Font.DemiBold
+                        font.pixelSize: AppTheme.textSubtitle
+                        font.weight: AppTheme.weightStrong
                         elide: Label.ElideRight
                     }
                     Label {
@@ -227,14 +231,17 @@ ColumnLayout {
                 }
                 // v0.5.11: provenance chip so the user understands where a
                 // result came from (directory vs a confirmed exact lookup).
-                Label {
+                // The comment above already calls this a chip; it was a
+                // faint bare word. StatusChip is the shared pill, and the
+                // info tone separates provenance from the row's own inks.
+                StatusChip {
                     readonly property string src: model.source || "directory"
+                    storm: true
+                    tone: "info"
                     visible: src !== "directory"
-                    text: src === "exact_local" ? qsTr("From your server")
-                        : src === "exact_mxid"  ? qsTr("Exact Matrix ID")
-                        : ""
-                    color: AppTheme.stormTextFaint
-                    font.pixelSize: AppTheme.fontSizeXS
+                    label: src === "exact_local" ? qsTr("From your server")
+                         : src === "exact_mxid"  ? qsTr("Exact Matrix ID")
+                         : ""
                 }
             }
             background: Rectangle {

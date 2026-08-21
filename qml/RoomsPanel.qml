@@ -98,10 +98,18 @@ Rectangle {
         spacing: 0
 
         // ── Workspace header: brand mark + workspace name ────────────────
+        // 2026-08-21: pinned to 60px and given the trailing hairline every
+        // other column already had. The four column headers used to be 46 /
+        // 60 / 58 / 54 px tall with a rule under only three of them, so a
+        // wide window drew three horizontal lines at three heights and left
+        // the fourth column open — the single clearest "assembled from
+        // parts" tell in the shell. 60 is the timeline header's height, the
+        // one this column sits next to.
         Rectangle {
             Layout.fillWidth: true
             color: AppTheme.sidebar
-            implicitHeight: headerRow.implicitHeight + AppTheme.spacing12 * 2
+            implicitHeight: Math.max(
+                60, headerRow.implicitHeight + AppTheme.spacing12 * 2)
 
             // v0.6.5 (C5): the wordmark reads "Lightning ⚡" — the bolt trails
             // the workspace name on a shared baseline, one glyph, no banner
@@ -147,8 +155,8 @@ Rectangle {
                         return app.spaces.spaceName(id) || qsTr("Lightning")
                     }
                     color: AppTheme.textPrimary
-                    font.pixelSize: AppTheme.fontRoomTitle
-                    font.weight: Font.ExtraBold
+                    font.pixelSize: AppTheme.textTitle
+                    font.weight: AppTheme.weightBold
                     elide: Label.ElideRight
 
                     // When a real Space is selected the workspace title is a
@@ -192,6 +200,12 @@ Rectangle {
                     Accessible.ignored: true
                 }
             }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 1
+            color: AppTheme.border
         }
 
         // ── Search bar + new-conversation button ─────────────────────────
@@ -255,7 +269,7 @@ Rectangle {
                             placeholderText: qsTr("Search")
                             Accessible.name: qsTr("Search rooms")
                             onTextChanged: app.roomList.searchQuery = text
-                            font.pixelSize: AppTheme.fontSizeS
+                            font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                             color: AppTheme.textPrimary
                             placeholderTextColor: AppTheme.textMuted
                             selectionColor: AppTheme.accentSoft
@@ -323,7 +337,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             color: AppTheme.sidebar
-            implicitHeight: filterChips.implicitHeight + AppTheme.spacing8
+            implicitHeight: filterChips.implicitHeight + AppTheme.spacing6 * 2
             // storm: deliberately left false — the room-list family keeps
             // the default themed treatment (same rule as MenuKeycap here).
             SegmentedControl {
@@ -446,14 +460,42 @@ Rectangle {
             anchors.centerIn: parent
             width: Math.max(240, Math.min(400, parent ? parent.width - 32 : 400))
             modal: true
-            standardButtons: Dialog.Ok
+            // Was `standardButtons: Dialog.Ok` with no background override,
+            // i.e. Basic's square canvas-coloured panel and a 100x40 stock
+            // grey button — under Storm the panel was the same colour as the
+            // screen behind it. Same chrome as leaveRoomConfirm above now, so
+            // the failure of an action looks like the action that failed.
+            standardButtons: Dialog.NoButton
+            closePolicy: Popup.CloseOnEscape
             property string roomLabel: ""
             property string messageText: ""
             title: qsTr("Couldn't leave \"%1\"").arg(leaveRoomFailedDialog.roomLabel)
-            contentItem: Label {
-                text: leaveRoomFailedDialog.messageText
-                wrapMode: Text.WordWrap
-                color: AppTheme.textPrimary
+
+            background: Rectangle {
+                color: AppTheme.surface
+                border.color: AppTheme.border
+                radius: AppTheme.radiusLg
+            }
+
+            contentItem: ColumnLayout {
+                spacing: AppTheme.spacing12
+                Label {
+                    Layout.fillWidth: true
+                    text: leaveRoomFailedDialog.messageText
+                    wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
+                    color: AppTheme.textPrimary
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    AppButton {
+                        text: qsTr("Close")
+                        focus: true
+                        onClicked: leaveRoomFailedDialog.close()
+                    }
+                }
             }
         }
         Connections {
@@ -492,12 +534,19 @@ Rectangle {
             // leak across model rows).
             reuseItems: true
 
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
             // Section grouping driven by the "category" role from RoomListModel.
             // C++ sorts DMs first so "dm" section appears above "room" section.
             section.property: "category"
             section.criteria: ViewSection.FullString
+            // Element pins its group headers. The default (InlineLabels)
+            // scrolls the label away with its content, so halfway down a long
+            // ROOMS section nothing on screen says which group you are in.
+            // The delegate is opaque sidebar, so it occludes the rows it
+            // floats over correctly; ListView already raises the current
+            // section label above them.
+            section.labelPositioning: ViewSection.CurrentLabelAtStart
             section.delegate: Rectangle {
                 required property string section
                 width: roomList.width
@@ -509,12 +558,18 @@ Rectangle {
                         left: parent.left; verticalCenter: parent.verticalCenter
                         leftMargin: AppTheme.spacing12
                     }
-                    text: section === "invite" ? qsTr("INVITES")
-                          : section === "dm" ? qsTr("PEOPLE") : qsTr("ROOMS")
-                    color: AppTheme.textMuted
-                    font.pixelSize: AppTheme.fontSizeXS
-                    font.weight: Font.ExtraBold
-                    font.letterSpacing: 1.2
+                    // Sentence case on the UI face, not 11px ExtraBold caps
+                    // at 1.2px tracking: uppercase-plus-tracking is
+                    // decorative typography carrying wayfinding text, and it
+                    // was re-typed inline in seven places across the app.
+                    // These are the shared section-label tokens.
+                    text: section === "invite" ? qsTr("Invites")
+                          : section === "dm" ? qsTr("People") : qsTr("Rooms")
+                    color: AppTheme.sectionLabelColor
+                    font.family: AppTheme.menuSectionFont
+                    font.pixelSize: AppTheme.menuSectionSize
+                    font.weight: AppTheme.menuSectionWeight
+                    font.letterSpacing: AppTheme.menuSectionTracking
                 }
             }
 
@@ -544,23 +599,123 @@ Rectangle {
         }
 
         // Empty / loading state — centred over the (empty) list area.
-        Label {
+        // 2026-08-21: was one grey sentence floating in a 300px void. An
+        // empty pane is a designed state, not a missing one: glyph, a
+        // heading that names the state, one honest line, and the actions
+        // that actually resolve it. The actions are the SAME dialogs the
+        // header buttons open, so there is one create path, not two.
+        ColumnLayout {
+            id: roomListEmptyState
+            objectName: "roomListEmptyState"
             visible: roomList.count === 0
             anchors.centerIn: parent
             width: parent.width - AppTheme.spacing24 * 2
-            horizontalAlignment: Text.AlignHCenter
-            wrapMode: Text.WordWrap
-            text: {
-                if (!app.loggedIn) return qsTr("Sign in to see rooms")
-                if (!app.initialSyncDone) return qsTr("Loading rooms…")
-                if (app.spaces && app.spaces.activeSpaceId &&
-                        app.spaces.activeSpaceId !== "" &&
-                        app.spaces.activeSpaceId !== "@orphans")
-                    return qsTr("No rooms in this Space")
-                return qsTr("No joined rooms")
+            spacing: AppTheme.spacing12
+
+            readonly property bool searching:
+                app.roomList && (app.roomList.searchQuery || "").length > 0
+            readonly property bool inSpace:
+                app.spaces && app.spaces.activeSpaceId
+                && app.spaces.activeSpaceId !== ""
+                && app.spaces.activeSpaceId !== "@orphans"
+            // "Signed out", "still syncing" and "genuinely empty" are three
+            // different facts and the pane says which one it is — offering
+            // "New message" while the initial sync is still running would
+            // invite the user to act on an answer we do not have yet.
+            readonly property int phase: !app.loggedIn ? 0
+                                       : !app.initialSyncDone ? 1
+                                       : searching ? 2
+                                       : 3
+
+            Rectangle {
+                Layout.alignment: Qt.AlignHCenter
+                implicitWidth: 56
+                implicitHeight: 56
+                radius: width / 2
+                color: AppTheme.chipNeutralFill
+                Icon {
+                    anchors.centerIn: parent
+                    name: roomListEmptyState.phase === 0 ? "account_circle"
+                          : roomListEmptyState.phase === 2 ? "search"
+                                                           : "forum"
+                    size: 26
+                    color: AppTheme.textMuted
+                }
             }
-            color: AppTheme.textMuted
-            font.pixelSize: AppTheme.fontSizeS
+
+            Label {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: {
+                    switch (roomListEmptyState.phase) {
+                    case 0:  return qsTr("Sign in to see rooms")
+                    case 1:  return qsTr("Loading rooms…")
+                    case 2:  return qsTr("No matches")
+                    default: return roomListEmptyState.inSpace
+                                    ? qsTr("This Space is empty")
+                                    : qsTr("No conversations yet")
+                    }
+                }
+                color: AppTheme.textPrimary
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                visible: text.length > 0
+                text: {
+                    switch (roomListEmptyState.phase) {
+                    case 0:  return ""
+                    case 1:  return qsTr("Your rooms appear here once the "
+                                         + "first sync finishes.")
+                    case 2:  return qsTr("Nothing in this list matches "
+                                         + "\"%1\".")
+                                    .arg(app.roomList.searchQuery)
+                    default: return roomListEmptyState.inSpace
+                                    ? qsTr("Rooms added to this Space will "
+                                           + "show up here.")
+                                    : qsTr("Start a direct message, or find "
+                                           + "a room to join.")
+                    }
+                }
+                color: AppTheme.textMuted
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+            }
+
+            AppButton {
+                objectName: "roomListClearSearchButton"
+                Layout.alignment: Qt.AlignHCenter
+                visible: roomListEmptyState.phase === 2
+                text: qsTr("Clear search")
+                onClicked: roomSearch.clear()
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignHCenter
+                spacing: AppTheme.spacing8
+                visible: roomListEmptyState.phase === 3
+                AppButton {
+                    objectName: "roomListEmptyNewButton"
+                    kind: "primary"
+                    visible: app.loggedIn && app.conversations
+                             && app.conversations.supported
+                    text: qsTr("New message")
+                    onClicked: newConversationDialog.openDialog()
+                }
+                AppButton {
+                    objectName: "roomListEmptyDiscoverButton"
+                    visible: app.loggedIn && app.discovery
+                             && app.discovery.supported
+                    text: qsTr("Explore rooms")
+                    onClicked: discoverJoinDialog.openDialog()
+                }
+            }
         }
         // Desktop autoscroll (2026-08-18 tester report). Sibling of the
         // view, middle button only, so row clicks and hover are untouched.

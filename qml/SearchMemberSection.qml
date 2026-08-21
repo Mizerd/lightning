@@ -28,12 +28,12 @@ ColumnLayout {
     Label {
         text: root.title
         color: AppTheme.textPrimary
-        font.weight: Font.Bold
+        font.weight: AppTheme.weightBold
     }
     Label {
         text: root.description
         color: AppTheme.textMuted
-        font.pixelSize: 10
+        font.pixelSize: AppTheme.textMeta
     }
     AppButton {
         Layout.fillWidth: true
@@ -74,7 +74,7 @@ ColumnLayout {
         clip: true
         spacing: 2
         model: root.members
-        ScrollBar.vertical: ScrollBar {}
+        ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
         delegate: ItemDelegate {
             id: memberRow
             required property var modelData
@@ -106,8 +106,12 @@ ColumnLayout {
                         Layout.fillWidth: true
                         text: memberRow.modelData.displayName
                               || memberRow.modelData.userId
-                        color: AppTheme.textPrimary
-                        font.pixelSize: 12
+                        // Identity ink: the whole point of this list is
+                        // picking one person out of it.
+                        color: AppTheme.userColor(
+                                   memberRow.modelData.userId || "")
+                        font.pixelSize: AppTheme.textBody
+                        font.weight: AppTheme.weightStrong
                         elide: Label.ElideRight
                     }
                     Label {
@@ -116,11 +120,12 @@ ColumnLayout {
                         Layout.fillWidth: true
                         text: memberRow.modelData.userId
                         color: AppTheme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: AppTheme.textMeta
                         elide: Label.ElideMiddle
                     }
                 }
                 CheckBox {
+                    palette.windowText: AppTheme.textPrimary
                     checked: root.selectedValues.indexOf(
                                  memberRow.modelData.userId) >= 0
                     Accessible.name: qsTr("Select %1")

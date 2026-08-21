@@ -133,7 +133,7 @@ Dialog {
                                           : AppTheme.stormTextFaint
                 font.family: AppTheme.menuFont
                 font.pixelSize: 13
-                font.weight: Font.Bold
+                font.weight: AppTheme.weightBold
             }
         }
         background: Rectangle {
@@ -167,8 +167,8 @@ Dialog {
                   : qsTr("Invite people")
             color: AppTheme.stormText
             font.family: AppTheme.menuFont
-            font.pixelSize: 16
-            font.weight: Font.Bold
+            font.pixelSize: AppTheme.textTitle
+            font.weight: AppTheme.weightBold
             elide: Label.ElideRight
         }
 
@@ -189,7 +189,9 @@ Dialog {
             text: app.conversations.errorMessage
             color: AppTheme.stormDanger
             wrapMode: Text.WordWrap
-            font.pixelSize: AppTheme.fontSizeS
+            font.pixelSize: AppTheme.textBody
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
         }
 
         UserPicker {
@@ -236,7 +238,9 @@ Dialog {
                     : qsTr("%1 has already been invited.").arg(userId)
             color: AppTheme.stormTextMuted
             wrapMode: Text.WordWrap
-            font.pixelSize: AppTheme.fontSizeS
+            font.pixelSize: AppTheme.textBody
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
         }
 
         // ── Token chips + per-user results (scrolls when height-
@@ -251,7 +255,7 @@ Dialog {
             contentHeight: inviteBodyColumn.implicitHeight
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             // Same wheel/touchpad feel as the room timeline; see
             // qml/SmoothWheelArea.qml.
             SmoothWheelArea {}
@@ -299,8 +303,8 @@ Dialog {
                                 Label {
                                     text: chip.label
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.fontSizeS
-                                    font.weight: Font.DemiBold
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
                                     // A Flow wraps BETWEEN chips, never
                                     // inside one — cap a single long name/
                                     // MXID so one chip can never outgrow
@@ -342,9 +346,12 @@ Dialog {
                             Label {
                                 Layout.fillWidth: true
                                 text: modelData.userId
-                                color: AppTheme.stormText
+                                // Identity ink: a column of MXIDs in one
+                                // grey is the hardest thing in this dialog
+                                // to read a specific line out of.
+                                color: AppTheme.userColor(modelData.userId)
                                 elide: Label.ElideMiddle
-                                font.pixelSize: AppTheme.fontSizeS
+                                font.pixelSize: AppTheme.textBody
                             }
                             Icon {
                                 visible: modelData.state === "ok"
@@ -367,7 +374,7 @@ Dialog {
                                 color: modelData.state === "ok" ? AppTheme.stormSuccess
                                      : modelData.state === "failed" ? AppTheme.stormDanger
                                      : AppTheme.stormTextMuted
-                                font.pixelSize: AppTheme.fontSizeS
+                                font.pixelSize: AppTheme.textBody
                             }
                         }
                     }
@@ -378,10 +385,11 @@ Dialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
-            BusyIndicator {
+            AppBusyIndicator {
                 visible: app.conversations.busy
                 running: visible
-                implicitWidth: 20; implicitHeight: 20
+                size: 20
+                color: AppTheme.bolt
             }
             Item { Layout.fillWidth: true }
             AppButton {

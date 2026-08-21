@@ -359,10 +359,15 @@ Popup {
             Label {
                 Layout.fillWidth: true
                 text: root.visibleName
-                color: AppTheme.stormText
+                // The identity ink, hashed from the MXID exactly as the
+                // timeline sender name and the avatar disc are. This
+                // popover is ABOUT one person; rendering their name in the
+                // same grey as the panel chrome threw away the one colour
+                // the app already knows is theirs.
+                color: AppTheme.userColor(root.userId)
                 font.family: AppTheme.menuFont
-                font.pixelSize: 16
-                font.weight: Font.Bold
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightBold
                 elide: Label.ElideRight
             }
             Label {
@@ -384,7 +389,7 @@ Popup {
                     : root.presenceUnavailable ? qsTr("Presence unavailable")
                     : ""
                 color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.fontSecondary
+                font.pixelSize: AppTheme.textBody
                 elide: Label.ElideRight
                 Accessible.role: Accessible.StaticText
                 Accessible.name: text
@@ -403,27 +408,32 @@ Popup {
                     // faint stays reserved for decorative mono (AA note in
                     // AppTheme).
                     color: AppTheme.stormTextMuted
-                    font.pixelSize: AppTheme.fontSecondary
+                    font.pixelSize: AppTheme.textBody
                 }
                 // Outline chips (§1 yellow discipline): the bolt fill on
                 // this surface belongs to the Message primary alone.
+                // Two different powers rendered as one grey pill. The
+                // chip vocabulary now has six families; bolt stays reserved
+                // for the Message primary below (§1 yellow discipline), so
+                // these take the link and info tones rather than the accent
+                // fill.
                 StatusChip {
                     visible: root.role === "administrator" || root.role === "creator"
                     storm: true
-                    tone: "neutral"
+                    tone: "accent"
                     label: qsTr("Administrator")
                 }
                 StatusChip {
                     visible: root.role === "moderator"
                     storm: true
-                    tone: "neutral"
+                    tone: "info"
                     label: qsTr("Moderator")
                 }
                 Label {
                     visible: root.isOwn
                     text: qsTr("(you)")
                     color: AppTheme.stormTextMuted
-                    font.pixelSize: AppTheme.fontSecondary
+                    font.pixelSize: AppTheme.textBody
                 }
                 Item { Layout.fillWidth: true }
             }
@@ -464,7 +474,7 @@ Popup {
                             color: AppTheme.boltInk
                             font.family: AppTheme.menuFont
                             font.pixelSize: 13
-                            font.weight: Font.Bold
+                            font.weight: AppTheme.weightBold
                         }
                         Item { Layout.fillWidth: true }
                     }
@@ -520,7 +530,7 @@ Popup {
                             color: AppTheme.stormTextSecondary
                             font.family: AppTheme.menuFont
                             font.pixelSize: 13
-                            font.weight: Font.Bold
+                            font.weight: AppTheme.weightBold
                         }
                         Item { Layout.fillWidth: true }
                     }
@@ -569,15 +579,15 @@ Popup {
                     Label {
                         text: qsTr("Role")
                         color: AppTheme.stormTextMuted
-                        font.pixelSize: 11
-                        font.weight: Font.Bold
+                        font.pixelSize: AppTheme.textMeta
+                        font.weight: AppTheme.weightBold
                     }
                     Label {
                         Layout.fillWidth: true
                         text: root.roleLabel
                         color: AppTheme.stormText
-                        font.pixelSize: AppTheme.fontSecondary
-                        font.weight: Font.Bold
+                        font.pixelSize: AppTheme.textBody
+                        font.weight: AppTheme.weightBold
                         elide: Label.ElideRight
                     }
                 }
@@ -616,8 +626,8 @@ Popup {
                                        ? AppTheme.stormTextSecondary
                                        : AppTheme.stormTextFaint
                                 font.family: AppTheme.menuFont
-                                font.pixelSize: 12
-                                font.weight: Font.Bold
+                                font.pixelSize: AppTheme.textMeta
+                                font.weight: AppTheme.weightBold
                                 elide: Label.ElideRight
                             }
                             background: Rectangle {
@@ -641,7 +651,9 @@ Popup {
                     Layout.fillWidth: true
                     text: root.roleError
                     color: AppTheme.danger
-                    font.pixelSize: 11
+                    font.pixelSize: AppTheme.textMeta
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     wrapMode: Text.Wrap
                     Accessible.name: text
                 }
@@ -703,17 +715,26 @@ Popup {
                                 color: modButton.modInk
                                 font.family: AppTheme.menuFont
                                 font.pixelSize: 13
-                                font.weight: Font.Bold
+                                font.weight: AppTheme.weightBold
                             }
                             Item { Layout.fillWidth: true }
                         }
+                        // Matches AppButton's storm danger treatment exactly
+                        // (stormDangerSoft hover on a 30%-alpha outline).
+                        // A full-strength danger outline around a resting
+                        // button reads as an error box, and hovering to
+                        // stormSelection made a destructive control give the
+                        // same feedback as a neutral one.
                         background: Rectangle {
                             radius: AppTheme.radiusTile
                             color: (modButton.hovered || modButton.down)
-                                   ? AppTheme.stormSelection : "transparent"
+                                   ? (modButton.modelData.danger
+                                      ? AppTheme.stormDangerSoft
+                                      : AppTheme.stormSelection)
+                                   : "transparent"
                             border.width: 1
                             border.color: modButton.modelData.danger
-                                          ? AppTheme.danger
+                                          ? AppTheme.stormDangerBorder
                                           : AppTheme.stormBorderStrong
                         }
                         onClicked: {
@@ -761,18 +782,20 @@ Popup {
                                                     : AppTheme.danger
                             font.family: AppTheme.menuFont
                             font.pixelSize: 13
-                            font.weight: Font.Bold
+                            font.weight: AppTheme.weightBold
                         }
                         Item { Layout.fillWidth: true }
                     }
                     background: Rectangle {
                         radius: AppTheme.radiusTile
                         color: (ignoreButton.hovered || ignoreButton.down)
-                               ? AppTheme.stormSelection : "transparent"
+                               ? (root.userIgnored ? AppTheme.stormSelection
+                                                   : AppTheme.stormDangerSoft)
+                               : "transparent"
                         border.width: 1
                         border.color: root.userIgnored
                                       ? AppTheme.stormBorderStrong
-                                      : AppTheme.danger
+                                      : AppTheme.stormDangerBorder
                     }
                     onClicked: {
                         root.ignoreNotice = ""
@@ -788,7 +811,9 @@ Popup {
                     text: root.ignoreNotice
                     color: root.ignoreNoticeError ? AppTheme.danger
                                                   : AppTheme.stormTextMuted
-                    font.pixelSize: 11
+                    font.pixelSize: AppTheme.textMeta
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     wrapMode: Text.Wrap
                     Accessible.name: text
                 }
@@ -809,8 +834,10 @@ Popup {
                             : qsTr("Unban %1? They will be able to join again.")
                                   .arg(root.visibleName)
                     color: AppTheme.stormText
-                    font.pixelSize: AppTheme.fontSecondary
-                    font.weight: Font.Bold
+                    font.pixelSize: AppTheme.textBody
+                    font.weight: AppTheme.weightBold
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     wrapMode: Text.Wrap
                 }
                 AppTextField {
@@ -833,7 +860,9 @@ Popup {
                         Layout.fillWidth: true
                         text: qsTr("Invite back after unbanning")
                         color: AppTheme.stormTextSecondary
-                        font.pixelSize: AppTheme.fontSecondary
+                        font.pixelSize: AppTheme.textBody
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.Wrap
                         TapHandler {
                             onTapped: root.inviteBackChecked
@@ -883,7 +912,9 @@ Popup {
                     Layout.fillWidth: true
                     text: root.modError
                     color: AppTheme.danger
-                    font.pixelSize: 11
+                    font.pixelSize: AppTheme.textMeta
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     wrapMode: Text.Wrap
                     Accessible.name: text
                 }
@@ -924,7 +955,7 @@ Popup {
                 visible: false
                 text: qsTr("Matrix ID copied")
                 color: AppTheme.stormTextMuted
-                font.pixelSize: 11
+                font.pixelSize: AppTheme.textMeta
                 Accessible.name: text
                 Timer {
                     id: copiedTimer

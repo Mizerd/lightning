@@ -91,9 +91,31 @@ Rectangle {
     width: dotSize
     height: dotSize
     radius: dotSize / 2
-    border.color: ring
-    border.width: 2
-    color: presenceState === "online" ? AppTheme.presenceOnline
-         : presenceState === "unavailable" ? AppTheme.presenceAway
-         : AppTheme.presenceOffline
+    // The outer disc is the RING that separates the dot from the avatar
+    // underneath — it was drawn as a 2px border, which meant the state
+    // colour and the ring shared one Rectangle and the state could only ever
+    // be a solid fill.
+    color: ring
+
+    // The state disc. Same painted area as before (dotSize - 2*2), so
+    // online and away are pixel-identical; offline becomes a RING instead of
+    // a solid dot. Three presence states rendered as three solid dots of
+    // near-equal weight meant "offline" attracted as much of the eye as
+    // "online" — and told apart by hue alone, which a red/green-blind reader
+    // cannot do at 6px. Hollow vs solid is a difference in FORM, and it
+    // matches how Element X draws the same three states.
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: 2
+        radius: width / 2
+        readonly property bool _offline:
+            dot.presenceState !== "online"
+            && dot.presenceState !== "unavailable"
+        color: dot.presenceState === "online" ? AppTheme.presenceOnline
+             : dot.presenceState === "unavailable" ? AppTheme.presenceAway
+                                                   : "transparent"
+        // Whole pixels: a fractional border renders soft at 1.0 DPR.
+        border.width: _offline ? Math.max(1, Math.round(dot.dotSize * 0.2)) : 0
+        border.color: AppTheme.presenceOffline
+    }
 }

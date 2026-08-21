@@ -84,7 +84,7 @@ Rectangle {
             clip: true
             spacing: AppTheme.spacing4
 
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
             delegate: Item {
                 id: spaceItem
@@ -200,10 +200,21 @@ Rectangle {
                         !spaceItem.isPseudo && (model.level || 0) > 0 ? 5 : 0
                     y: 4
                     radius: AppTheme.radiusLg
-                    // Home is a persistent accent tile per the handoff; the
-                    // pseudo "other rooms" tile stays neutral; real Spaces
-                    // paint through the shared Avatar below.
-                    color: spaceItem.isHome ? AppTheme.accent
+                    // 2026-08-21: Home used to be a permanent solid 40x40
+                    // accent block — the single largest patch of bolt on
+                    // screen, present whether or not Home was the active
+                    // view. With the wordmark glyph, the focus ring, every
+                    // active icon chip, the selected-room edge and every
+                    // primary button also bolt, the accent was carrying five
+                    // jobs at once and therefore signalling none of them.
+                    //
+                    // ACTIVE is now ONE language for every tile in the rail:
+                    // the accent ring above, plus a soft accent WASH here
+                    // (a tint, not a block). Painting the active Home tile
+                    // solid bolt could not work either way round — the ring
+                    // is bolt, so a bolt fill four pixels inside it reads as
+                    // one yellow blob rather than as "you are here".
+                    color: spaceItem.isActive ? AppTheme.accentSoft
                            : spaceItem.isPseudo ? AppTheme.cardElevated
                                                 : "transparent"
 
@@ -216,8 +227,12 @@ Rectangle {
                         visible: spaceItem.isPseudo
                         name: spaceItem.isHome ? "home" : "workspaces"
                         size: spaceItem.isHome ? 22 : 20
-                        color: spaceItem.isHome ? AppTheme.accentText
-                                                : AppTheme.textSecondary
+                        // Follows the tile: accent ink on the active wash,
+                        // the plain icon ink otherwise. accentText was the
+                        // ink for the solid fill that no longer exists, and
+                        // on a soft wash it is unreadable.
+                        color: spaceItem.isActive ? AppTheme.accent
+                                                  : AppTheme.textSecondary
                     }
 
                     // Real Space avatar (palette initials fallback) via the
@@ -255,8 +270,8 @@ Rectangle {
                             anchors.centerIn: parent
                             text: model.unreadTotal > 99
                                   ? "99+" : model.unreadTotal.toString()
-                            font.pixelSize: 10
-                            font.weight: Font.ExtraBold
+                            font.pixelSize: AppTheme.textMicro
+                            font.weight: AppTheme.weightBold
                             color: model.highlightTotal > 0 ? AppTheme.dangerText
                                                             : AppTheme.accentText
                         }
@@ -310,11 +325,13 @@ Rectangle {
                     }
                 }
 
-                ToolTip {
-                    visible: spaceHover.hovered
-                    text: spaceItem.Accessible.name
-                    delay: 500
-                }
+                // Attached, not a declared child: a declared ToolTip is a
+                // full Popup (background + Label) instantiated PER ROW, and
+                // the attached form reuses the one shared instance Main.qml
+                // hardens to plain text.
+                ToolTip.visible: spaceHover.hovered
+                ToolTip.text: spaceItem.Accessible.name
+                ToolTip.delay: 500
 
                 // Inline expansion: up to revealCount of the space's top
                 // rooms as 28px tiles, then a "+N" pill revealing 5 more.
@@ -404,12 +421,10 @@ Rectangle {
                                         expansionRoomRow.modelData.roomId)
                                 }
                             }
-                            ToolTip {
-                                visible: roomHover.hovered
-                                text: expansionRoomRow.modelData.name
-                                      || expansionRoomRow.modelData.roomId
-                                delay: 300
-                            }
+                            ToolTip.visible: roomHover.hovered
+                            ToolTip.text: expansionRoomRow.modelData.name
+                                          || expansionRoomRow.modelData.roomId
+                            ToolTip.delay: 300
                             Accessible.role: Accessible.Button
                             Accessible.name: expansionRoomRow.modelData.name
                                              || expansionRoomRow.modelData
@@ -440,8 +455,8 @@ Rectangle {
                                           5,
                                           spaceItem.revealedRooms.length
                                           - spaceItem.revealCount)
-                                font.pixelSize: 10
-                                font.weight: Font.ExtraBold
+                                font.pixelSize: AppTheme.textMicro
+                                font.weight: AppTheme.weightBold
                                 color: AppTheme.textSecondary
                             }
                         }
@@ -450,11 +465,9 @@ Rectangle {
                             onTapped:
                                 root.showMoreRooms(spaceItem.ownSpaceId)
                         }
-                        ToolTip {
-                            visible: moreHover.hovered
-                            text: qsTr("Show more rooms")
-                            delay: 300
-                        }
+                        ToolTip.visible: moreHover.hovered
+                        ToolTip.text: qsTr("Show more rooms")
+                        ToolTip.delay: 300
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Show more rooms")
                     }
@@ -560,8 +573,12 @@ Rectangle {
                 width: 10
                 height: 10
                 radius: 5
-                color: app.sessionVerificationWarning ? AppTheme.danger
-                                                      : AppTheme.warning
+                // `danger`/`warning` became INK-ONLY roles on 2026-08-21
+                // (they route light on dark themes so they stay AA as text);
+                // a badge is a FILL and must ask for the saturated fill by
+                // name, or the dot renders as a pale rose smudge on the rail.
+                color: app.sessionVerificationWarning ? AppTheme.dangerFill
+                                                      : AppTheme.warningFill
                 border.color: AppTheme.rail
                 border.width: 2
             }
@@ -648,11 +665,9 @@ Rectangle {
                 z: -1
             }
             TapHandler { onTapped: railAccountMenu.open() }
-            ToolTip {
-                visible: accountHover.hovered
-                text: app.accounts ? (app.accounts.activeUserId || "") : ""
-                delay: 500
-            }
+            ToolTip.visible: accountHover.hovered
+            ToolTip.text: app.accounts ? (app.accounts.activeUserId || "") : ""
+            ToolTip.delay: 500
 
             AccountMenu {
                 id: railAccountMenu

@@ -41,6 +41,14 @@ Rectangle {
     property string colorKey: ""
     // Explicit initials font size; 0 derives from the avatar size.
     property int labelSize: 0
+    // Identity colour is not just the initials fallback: an avatar that
+    // HAS a bitmap used to paint no identity colour at all, so a room list
+    // where everyone has a photo carried none of the palette the app
+    // derives per person. A 1px rim in that person's own colour puts the
+    // identity back on every avatar without touching the photo itself.
+    // Suppressed below 28px — the read-receipt chips and inline mention
+    // avatars are too small for a rim to read as anything but noise.
+    property bool identityRing: size >= 28
     // Perf: rows outside the viewport set this false so their loading
     // skeletons stop animating — every other Skeleton in the app gates on
     // rowOnScreen, and hundreds of off-screen infinite animations kept the
@@ -206,8 +214,11 @@ Rectangle {
         }
     }
 
-    // Loading: quiet shape-matched skeleton — never a random palette flash
-    // that a decoded bitmap then replaces.
+    // Loading: shape-matched skeleton, washed with the identity colour
+    // rather than the neutral card tone. It is the same colour the initials
+    // fallback and the rim use, so an avatar that resolves late settles
+    // INTO its identity instead of flashing a grey disc first — no random
+    // palette flash, because the wash is derived from the same stable key.
     Skeleton {
         objectName: "avatarSkeleton"
         anchors.fill: parent
@@ -215,6 +226,9 @@ Rectangle {
         active: root.onScreen
         circle: root.circle
         radius: root.circle ? Math.min(width, height) / 2 : root.squareRadius
+        color: root._paletteKey.length > 0
+               ? Qt.alpha(root._paletteColor(root._paletteKey), 0.28)
+               : AppTheme.cardElevated
     }
 
     Label {
@@ -258,5 +272,27 @@ Rectangle {
             if (status === Image.Error)
                 root.refresh()
         }
+    }
+
+    // The identity rim. Declared AFTER the Image on purpose: the root
+    // Rectangle's own border would be painted beneath its children, so a
+    // border set on `root` would be hidden by the bitmap that fills it.
+    // Drawn INSIDE the bounds (a Rectangle border always is), which is
+    // also the only option here — the avatar occupies exactly `size`, so
+    // an outset ring would bleed into whatever sits beside it.
+    Rectangle {
+        objectName: "avatarIdentityRing"
+        anchors.fill: parent
+        visible: root.identityRing
+                 && root.presentationState === "ready"
+                 && root._paletteKey.length > 0
+        color: "transparent"
+        radius: root.radius
+        border.width: 1
+        // Low alpha on purpose: at full strength this reads as a selection
+        // state rather than an identity, and every avatar would be
+        // competing with the one the user actually clicked.
+        border.color: Qt.alpha(root._paletteColor(root._paletteKey), 0.45)
+        antialiasing: true
     }
 }

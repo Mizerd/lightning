@@ -154,12 +154,16 @@ Rectangle {
                     Layout.fillWidth: true
                     text: qsTr("Room information")
                     color: AppTheme.textPrimary
-                    font.pixelSize: 15
-                    font.weight: Font.ExtraBold
+                    // The pane-header role: 16, matching the room-list
+                    // header on the same shell row. It was 15 here and 16
+                    // there, which is exactly the kind of one-pixel
+                    // difference that reads as "nobody chose".
+                    font.pixelSize: AppTheme.textTitle
+                    font.weight: AppTheme.weightDisplay
                 }
                 IconButton {
                     implicitWidth: 30; implicitHeight: 30
-                    radius: 7
+                    radius: AppTheme.radiusControl
                     iconName: "close"
                     iconSize: 18
                     Accessible.name: qsTr("Close room information")
@@ -210,7 +214,7 @@ Rectangle {
             contentHeight: overviewColumn.implicitHeight
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             SmoothWheelArea {}
 
             ColumnLayout {
@@ -233,8 +237,8 @@ Rectangle {
                               ? qsTr("Notifications")
                               : qsTr("Notifications (this device)")
                         color: AppTheme.textSecondary
-                        font.pixelSize: AppTheme.fontSecondary
-                        font.weight: Font.DemiBold
+                        font.pixelSize: AppTheme.textBody
+                        font.weight: AppTheme.weightStrong
                     }
                     AppComboBox {
                         id: notificationModeCombo
@@ -317,9 +321,11 @@ Rectangle {
                     }
                     Label {
                         Layout.fillWidth: true
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.WordWrap
                         color: AppTheme.textMuted
-                        font.pixelSize: AppTheme.fontCaption
+                        font.pixelSize: AppTheme.textMeta
                         // Backend-honest, phrased exactly like the room
                         // context-menu flyout disclaimer ("saved", not
                         // continuously synced; a failed write is admitted).
@@ -371,8 +377,10 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: root.roomData.name || qsTr("(unnamed room)")
                                 color: AppTheme.textPrimary
-                                font.pixelSize: AppTheme.fontSizeRoom
-                                font.weight: Font.DemiBold
+                                font.pixelSize: AppTheme.textTitle
+                                font.weight: AppTheme.weightStrong
+                                lineHeight: AppTheme.lineHeightBody
+                                lineHeightMode: Text.ProportionalHeight
                                 wrapMode: Text.Wrap
                             }
                             RowLayout {
@@ -386,15 +394,15 @@ Rectangle {
                                 Label {
                                     text: qsTr("End-to-end encrypted")
                                     color: AppTheme.textSecondary
-                                    font.pixelSize: AppTheme.fontSizeS
-                                    font.weight: Font.DemiBold
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
                                 }
                             }
                             Label {
                                 visible: root.roomData.encrypted !== true
                                 text: qsTr("Not encrypted")
                                 color: AppTheme.textMuted
-                                font.pixelSize: AppTheme.fontSizeS
+                                font.pixelSize: AppTheme.textBody
                             }
                         }
                     }
@@ -404,8 +412,10 @@ Rectangle {
                         visible: (root.roomData.topic || "").length > 0
                         text: root.roomData.topic || ""
                         color: AppTheme.textSecondary
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.Wrap
-                        font.pixelSize: AppTheme.fontSizeS
+                        font.pixelSize: AppTheme.textBody
                     }
 
                     Label {
@@ -413,7 +423,7 @@ Rectangle {
                               .arg(app.roomInfo.joinedCount)
                               .arg(app.roomInfo.invitedCount)
                         color: AppTheme.textMuted
-                        font.pixelSize: AppTheme.fontSizeS
+                        font.pixelSize: AppTheme.textBody
                     }
 
                     AppButton {
@@ -448,8 +458,8 @@ Rectangle {
                     Label {
                         text: qsTr("Edit room")
                         color: AppTheme.textSecondary
-                        font.pixelSize: AppTheme.fontSizeS
-                        font.weight: Font.DemiBold
+                        font.pixelSize: AppTheme.textBody
+                        font.weight: AppTheme.weightStrong
                     }
                     RowLayout {
                         visible: app.roomInfo.canEditAvatar
@@ -510,13 +520,15 @@ Rectangle {
                         Layout.fillWidth: true
                         text: app.roomInfo.editError
                         color: AppTheme.danger
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.WordWrap
-                        font.pixelSize: AppTheme.fontSizeS
+                        font.pixelSize: AppTheme.textBody
                     }
-                    BusyIndicator {
+                    AppBusyIndicator {
                         visible: app.roomInfo.editPending
                         running: visible
-                        implicitWidth: 18; implicitHeight: 18
+                        size: 18
                     }
                 }
 
@@ -543,8 +555,8 @@ Rectangle {
                     Label {
                         text: qsTr("Access")
                         color: AppTheme.textSecondary
-                        font.pixelSize: AppTheme.fontSizeS
-                        font.weight: Font.DemiBold
+                        font.pixelSize: AppTheme.textBody
+                        font.weight: AppTheme.weightStrong
                     }
 
                     // Join rule. The three settable rules are the ones that
@@ -562,7 +574,7 @@ Rectangle {
                         Label {
                             text: qsTr("Who can join")
                             color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontCaption
+                            font.pixelSize: AppTheme.textMeta
                         }
                         AppComboBox {
                             id: joinRuleCombo
@@ -605,9 +617,11 @@ Rectangle {
                         Label {
                             Layout.fillWidth: true
                             visible: parent.restricted
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
                             wrapMode: Text.WordWrap
                             color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontCaption
+                            font.pixelSize: AppTheme.textMeta
                             text: qsTr("Members of a space can join. "
                                        + "Lightning can't change "
                                        + "space-restricted access yet.")
@@ -623,7 +637,7 @@ Rectangle {
                         Label {
                             text: qsTr("Published address")
                             color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontCaption
+                            font.pixelSize: AppTheme.textMeta
                         }
                         RowLayout {
                             Layout.fillWidth: true
@@ -684,9 +698,11 @@ Rectangle {
                         }
                         Label {
                             Layout.fillWidth: true
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
                             wrapMode: Text.WordWrap
                             color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontCaption
+                            font.pixelSize: AppTheme.textMeta
                             text: qsTr("Publishing an address lets people "
                                        + "find and join this room by name. "
                                        + "Leave it empty to remove it.")
@@ -713,8 +729,10 @@ Rectangle {
                         Layout.fillWidth: true
                         text: app.roomInfo.leaveError
                         color: AppTheme.danger
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.WordWrap
-                        font.pixelSize: AppTheme.fontSizeS
+                        font.pixelSize: AppTheme.textBody
                     }
                 }
                 Item { Layout.preferredHeight: AppTheme.spacing16 }
@@ -743,13 +761,13 @@ Rectangle {
                           ? qsTr("No pinned messages")
                           : qsTr("%n pinned message(s)", "", app.pinned.total)
                     color: AppTheme.textSecondary
-                    font.pixelSize: AppTheme.fontSizeS
-                    font.weight: Font.DemiBold
+                    font.pixelSize: AppTheme.textBody
+                    font.weight: AppTheme.weightStrong
                 }
-                BusyIndicator {
+                AppBusyIndicator {
                     visible: app.pinned.loading || app.pinned.pending
                     running: visible
-                    implicitWidth: 16; implicitHeight: 16
+                    size: 16
                 }
             }
 
@@ -758,9 +776,11 @@ Rectangle {
                 Layout.leftMargin: AppTheme.spacing12
                 Layout.rightMargin: AppTheme.spacing12
                 visible: app.pinned.truncated
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
                 color: AppTheme.textMuted
-                font.pixelSize: AppTheme.fontCaption
+                font.pixelSize: AppTheme.textMeta
                 text: qsTr("Showing the most recent pins. This room pins "
                            + "more than Lightning loads at once.")
             }
@@ -770,10 +790,12 @@ Rectangle {
                 Layout.leftMargin: AppTheme.spacing12
                 Layout.rightMargin: AppTheme.spacing12
                 visible: app.pinned.error.length > 0
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
                 text: app.pinned.error
                 color: AppTheme.danger
-                font.pixelSize: AppTheme.fontSizeS
+                font.pixelSize: AppTheme.textBody
             }
 
             ListView {
@@ -861,9 +883,17 @@ Rectangle {
                                     text: pinDelegate.resolved
                                           ? pinDelegate.senderName
                                           : qsTr("Message unavailable")
-                                    color: AppTheme.textPrimary
-                                    font.pixelSize: AppTheme.fontSizeS
-                                    font.weight: Font.DemiBold
+                                    // Identity ink, as in the timeline. An
+                                    // UNRESOLVED pin has no sender to hash,
+                                    // so it keeps the neutral ink — colouring
+                                    // "Message unavailable" would imply a
+                                    // person who is not there.
+                                    color: pinDelegate.resolved
+                                           ? AppTheme.userColor(
+                                                 pinDelegate.modelData.sender || "")
+                                           : AppTheme.textPrimary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
                                 }
                                 Label {
                                     visible: pinDelegate.resolved
@@ -874,16 +904,18 @@ Rectangle {
                                           .toLocaleDateString(
                                               Qt.locale(), Locale.ShortFormat)
                                     color: AppTheme.textMuted
-                                    font.pixelSize: AppTheme.fontCaption
+                                    font.pixelSize: AppTheme.textMeta
                                 }
                             }
                             Label {
                                 Layout.fillWidth: true
                                 elide: Label.ElideRight
                                 maximumLineCount: 2
+                                lineHeight: AppTheme.lineHeightBody
+                                lineHeightMode: Text.ProportionalHeight
                                 wrapMode: Text.WordWrap
                                 color: AppTheme.textSecondary
-                                font.pixelSize: AppTheme.fontSizeS
+                                font.pixelSize: AppTheme.textBody
                                 // Media and non-text pins get a typed label
                                 // instead of a body that would read as
                                 // nothing; a deleted or still-encrypted pin
@@ -983,7 +1015,7 @@ Rectangle {
                 Layout.leftMargin: AppTheme.spacing12
                 text: qsTr("Loading members…")
                 color: AppTheme.textMuted
-                font.pixelSize: AppTheme.fontSizeS
+                font.pixelSize: AppTheme.textBody
             }
             Label {
                 visible: app.roomInfo.truncated
@@ -993,8 +1025,10 @@ Rectangle {
                       .arg(app.roomInfo.members.length)
                       .arg(app.roomInfo.joinedCount + app.roomInfo.invitedCount)
                 color: AppTheme.textMuted
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
-                font.pixelSize: AppTheme.fontSizeXS
+                font.pixelSize: AppTheme.textMeta
             }
 
             ListView {
@@ -1011,7 +1045,7 @@ Rectangle {
                             ? app.roomInfo.filterMembers(root.memberFilter)
                             : snapshot
                 }
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                 // Same wheel/touchpad feel as the room timeline; see
                 // qml/SmoothWheelArea.qml.
                 SmoothWheelArea {}
@@ -1065,8 +1099,13 @@ Rectangle {
                                     text: modelData.displayName.length > 0
                                           ? modelData.displayName
                                           : modelData.userId
-                                    color: AppTheme.textPrimary
-                                    font.pixelSize: AppTheme.fontSizeM
+                                    // Identity ink — the member list is the
+                                    // one place a reader scans for a
+                                    // specific person, and it was a column
+                                    // of identical grey.
+                                    color: AppTheme.userColor(modelData.userId || "")
+                                    font.pixelSize: AppTheme.textSubtitle
+                                    font.weight: AppTheme.weightStrong
                                     elide: Label.ElideRight
                                 }
                                 Label {
@@ -1074,7 +1113,7 @@ Rectangle {
                                              && modelData.displayName.length > 0
                                     text: modelData.userId
                                     color: AppTheme.textMuted
-                                    font.pixelSize: AppTheme.fontSizeXS
+                                    font.pixelSize: AppTheme.textMeta
                                     elide: Label.ElideMiddle
                                     Layout.fillWidth: true
                                 }
@@ -1084,38 +1123,39 @@ Rectangle {
                                          && modelData.ambiguous !== true
                                 text: modelData.userId
                                 color: AppTheme.textMuted
-                                font.pixelSize: AppTheme.fontSizeXS
+                                font.pixelSize: AppTheme.textMeta
                                 elide: Label.ElideMiddle
                                 Layout.fillWidth: true
                             }
                         }
-                        Label {
+                        // These four were bare coloured words, two of them
+                        // (Admin, Mod) in the SAME accent — different powers
+                        // rendered identically. StatusChip carries the six
+                        // tone families and keeps the pill geometry shared
+                        // with every other status chip in the app.
+                        StatusChip {
                             visible: modelData.membership === "invited"
-                            text: qsTr("Invited")
-                            color: AppTheme.warning
-                            font.pixelSize: AppTheme.fontSizeXS
+                            tone: "warning"
+                            label: qsTr("Invited")
                         }
                         // Banned members ride the snapshot since the unban
                         // round (sorted last) — mark them so the list
                         // doesn't read as "still here".
-                        Label {
+                        StatusChip {
                             visible: modelData.membership === "banned"
-                            text: qsTr("Banned")
-                            color: AppTheme.danger
-                            font.pixelSize: AppTheme.fontSizeXS
+                            tone: "danger"
+                            label: qsTr("Banned")
                         }
-                        Label {
+                        StatusChip {
                             visible: modelData.role === "administrator"
                                      || modelData.role === "creator"
-                            text: qsTr("Admin")
-                            color: AppTheme.accent
-                            font.pixelSize: AppTheme.fontSizeXS
+                            tone: "accent"
+                            label: qsTr("Admin")
                         }
-                        Label {
+                        StatusChip {
                             visible: modelData.role === "moderator"
-                            text: qsTr("Mod")
-                            color: AppTheme.accent
-                            font.pixelSize: AppTheme.fontSizeXS
+                            tone: "info"
+                            label: qsTr("Mod")
                         }
                     }
                     ToolTip.text: modelData.userId
@@ -1139,8 +1179,10 @@ Rectangle {
                            + "this conversation. Scroll the timeline up to "
                            + "load more history.")
                 color: AppTheme.textMuted
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
-                font.pixelSize: AppTheme.fontCaption
+                font.pixelSize: AppTheme.textMeta
             }
 
             ListView {
@@ -1154,7 +1196,7 @@ Rectangle {
                     var deps = app.timeline.count
                     return app.timeline.mediaEntries().slice().reverse()
                 }
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                 // Same wheel/touchpad feel as the room timeline; see
                 // qml/SmoothWheelArea.qml.
                 SmoothWheelArea {}
@@ -1164,7 +1206,7 @@ Rectangle {
                     visible: mediaList.count === 0
                     text: qsTr("No media in the loaded history.")
                     color: AppTheme.textMuted
-                    font.pixelSize: AppTheme.fontSecondary
+                    font.pixelSize: AppTheme.textBody
                 }
 
                 delegate: ItemDelegate {
@@ -1192,7 +1234,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: modelData.filename || qsTr("(unnamed)")
                                 color: AppTheme.textPrimary
-                                font.pixelSize: AppTheme.fontSecondary
+                                font.pixelSize: AppTheme.textBody
                                 elide: Label.ElideMiddle
                             }
                             Label {
@@ -1202,7 +1244,7 @@ Rectangle {
                                       .arg(Qt.formatDateTime(modelData.timestamp,
                                                              "d MMM hh:mm"))
                                 color: AppTheme.textMuted
-                                font.pixelSize: AppTheme.fontCaption
+                                font.pixelSize: AppTheme.textMeta
                                 elide: Label.ElideRight
                             }
                         }
@@ -1269,6 +1311,8 @@ Rectangle {
                 text: qsTr("You will stop receiving messages from this room. "
                            + "Server history is not deleted, and you can be "
                            + "invited again later.")
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
                 color: AppTheme.textPrimary
             }

@@ -117,12 +117,14 @@ Dialog {
             text: qsTr("Update available")
             color: AppTheme.stormText
             font.family: AppTheme.menuFont
-            font.pixelSize: 16
-            font.weight: Font.Bold
+            font.pixelSize: AppTheme.textTitle
+            font.weight: AppTheme.weightBold
         }
         Label {
             objectName: "updateDialogVersionLabel"
             Layout.fillWidth: true
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.Wrap
             color: AppTheme.stormTextSecondary
             text: qsTr("Lightning %1 is available (you have %2).")
@@ -132,15 +134,17 @@ Dialog {
         Label {
             visible: root.um && root.um.totalBytes > 0
             color: AppTheme.stormTextMuted
-            font.pixelSize: 12
+            font.pixelSize: AppTheme.textMeta
             text: qsTr("Download size: %1")
                   .arg(root.formatBytes(root.um ? root.um.totalBytes : 0))
         }
         Label {
             Layout.fillWidth: true
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.Wrap
             color: AppTheme.stormTextMuted
-            font.pixelSize: 12
+            font.pixelSize: AppTheme.textMeta
             text: qsTr("Update method: %1")
                   .arg(root.um ? root.um.installTypeLabel : "")
         }
@@ -149,8 +153,8 @@ Dialog {
             visible: root.um && root.um.releaseNotes.length > 0
             text: qsTr("What's new")
             color: AppTheme.stormTextSecondary
-            font.pixelSize: 12
-            font.weight: Font.DemiBold
+            font.pixelSize: AppTheme.textMeta
+            font.weight: AppTheme.weightStrong
         }
         ScrollView {
             visible: root.um && root.um.releaseNotes.length > 0
@@ -168,7 +172,7 @@ Dialog {
                 textFormat: TextEdit.PlainText
                 text: root.um ? root.um.releaseNotes : ""
                 color: AppTheme.stormTextSecondary
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.textMeta
                 selectByMouse: true
                 background: Rectangle {
                     color: AppTheme.stormInset
@@ -189,7 +193,7 @@ Dialog {
             wrapMode: Text.WrapAnywhere
             textFormat: Text.PlainText
             color: AppTheme.stormTextMuted
-            font.pixelSize: 11
+            font.pixelSize: AppTheme.textMeta
             font.family: AppTheme.monoFont
             text: root.um && root.um.releaseNotesUrl
                   ? root.um.releaseNotesUrl.toString() : ""
@@ -201,6 +205,8 @@ Dialog {
             objectName: "updateDialogManagedMessage"
             visible: root.packageManaged
             Layout.fillWidth: true
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.Wrap
             color: AppTheme.stormTextSecondary
             text: root.installType === "linux-flatpak"
@@ -220,9 +226,11 @@ Dialog {
             spacing: AppTheme.spacing4
             Label {
                 Layout.fillWidth: true
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.Wrap
                 color: AppTheme.stormTextMuted
-                font.pixelSize: 11
+                font.pixelSize: AppTheme.textMeta
                 text: root.managedHelpExplanation
             }
             RowLayout {
@@ -235,7 +243,7 @@ Dialog {
                     textFormat: Text.PlainText
                     color: AppTheme.stormText
                     font.family: AppTheme.monoFont
-                    font.pixelSize: 12
+                    font.pixelSize: AppTheme.textMeta
                     text: root.managedHelpCommand
                 }
                 AppButton {

@@ -59,8 +59,8 @@ Dialog {
             text: qsTr("Confirm it's you")
             color: AppTheme.stormText
             font.family: AppTheme.menuFont
-            font.pixelSize: 16
-            font.weight: Font.Bold
+            font.pixelSize: AppTheme.textTitle
+            font.weight: AppTheme.weightBold
         }
         Label {
             Layout.fillWidth: true
@@ -73,7 +73,9 @@ Dialog {
                          + "for this action.")
                         .arg(app.uia.stages.join(", "))
             color: AppTheme.stormTextSecondary
-            font.pixelSize: 12
+            font.pixelSize: AppTheme.textBody
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.Wrap
         }
         Label {
@@ -81,7 +83,7 @@ Dialog {
             visible: app.uia.wrongPassword
             text: qsTr("That password was not accepted. Try again.")
             color: AppTheme.danger
-            font.pixelSize: 12
+            font.pixelSize: AppTheme.textMeta
             wrapMode: Text.Wrap
             Accessible.name: text
         }
