@@ -304,6 +304,23 @@ void PaginationController::saveFollowingLatest(const QString &roomId)
     saveScrollAnchor(roomId, {}, 0, true);
 }
 
+void PaginationController::cancelNavigation()
+{
+    if (m_navigationPurpose == NavigationPurpose::None)
+        return;
+    // The message is deliberately KEPT (clearMessage = false): if a jump was
+    // reporting progress to the reader, replacing that with silence reads as
+    // the click having done nothing. Only the navigation itself stops.
+    //
+    // In-flight pagination is left alone on purpose. It is already paid for,
+    // the rows it returns are useful to whoever is now reading, and
+    // cancelling it would make a gesture during a load look like a stall.
+    // What must not happen is the RESULT being applied to the view, and
+    // clearing the purpose is exactly what prevents locateNavigationTarget()
+    // from emitting targetLocated().
+    clearNavigation(/*clearMessage=*/false);
+}
+
 void PaginationController::restoreScrollAnchor(const QString &roomId)
 {
     if (roomId.isEmpty() || roomId != m_roomId)

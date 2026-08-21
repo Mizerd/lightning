@@ -2240,6 +2240,30 @@ Rectangle {
                     navigationLandingTimer.stop()
                     ++diagNavigationAbandoned
                 }
+                // True once the reader has moved this room's view themselves.
+                // Cleared on model reset, because the next room's view is not
+                // one they have taken a position in yet.
+                property bool readerControlledSinceReset: false
+                // The single "the reader is driving" entry point for every
+                // genuine gesture.
+                //
+                // Retiring the QML landing alone is not enough. A scroll
+                // anchor RESTORE runs on the controller and can spend up to
+                // kMaxNavigationBatches real backward paginations — five to
+                // fifteen seconds — before it emits targetLocated and arms a
+                // landing. That landing does not exist yet when the reader
+                // starts scrolling, so there is nothing for
+                // abandonNavigationLanding() to cancel; it appears later and
+                // teleports them to the position the room opened at. So this
+                // reaches the controller as well, and the flag catches the
+                // remaining race where the restore is armed between the
+                // gesture and the cancel.
+                function noteReaderTookControl() {
+                    readerControlledSinceReset = true
+                    if (app.pagination)
+                        app.pagination.cancelNavigation()
+                    abandonNavigationLanding()
+                }
                 function beginNavigationLanding(row, pixelOffset, highlight) {
                     // Hold the target by STABLE ID, never by row number. This
                     // landing can wait up to 12 frames, and a backward
@@ -3788,7 +3812,7 @@ Rectangle {
                         // driving now"; without this the pending landing
                         // survives the whole gesture and teleports the view
                         // back the moment its target becomes measurable.
-                        timeline.abandonNavigationLanding()
+                        timeline.noteReaderTookControl()
                         // Positive delta on either axis is the OLDER
                         // direction on this rotated view (see wheelTargetY /
                         // pixelTargetY, which both take the negated value).
@@ -3839,8 +3863,8 @@ Rectangle {
                 // glide still in flight would fight it — the same interlock
                 // the scrollbar and middle-click autoscroll already use. Only
                 // drag/flick (never a programmatic write) reaches these.
-                onDragStarted: { cancelWheelMotion(); abandonNavigationLanding() }
-                onFlickStarted: { cancelWheelMotion(); abandonNavigationLanding() }
+                onDragStarted: { cancelWheelMotion(); noteReaderTookControl() }
+                onFlickStarted: { cancelWheelMotion(); noteReaderTookControl() }
 
                 Component.onDestruction: cancelWheelMotion()
 
@@ -4058,6 +4082,21 @@ Rectangle {
                                 timeline.distanceFromTop()
                     }
                     function onTargetLocated(row, pixelOffset, highlight) {
+                        // `highlight` is the discriminator between the two
+                        // kinds of navigation, and they deserve opposite
+                        // answers here. True means a REPLY jump — the reader
+                        // asked for it, so it wins even if they scrolled
+                        // while it resolved. False means a scroll-anchor
+                        // RESTORE, which is a convenience nobody asked for;
+                        // once the reader has moved this room's view
+                        // themselves, restoring the position the room opened
+                        // at is a teleport, not a service. cancelNavigation()
+                        // usually stops this arriving at all — this covers
+                        // the race where the restore was armed in between.
+                        if (!highlight && timeline.readerControlledSinceReset) {
+                            ++timeline.diagNavigationAbandoned
+                            return
+                        }
                         // Reply navigation takes control immediately.
                         timeline.cancelWheelMotion()
                         root.stopAutoscroll()
@@ -4200,6 +4239,9 @@ Rectangle {
                         timeline.navigationPendingRow = -1
                         timeline.navigationPendingId = ""
                         navigationLandingTimer.stop()
+                        // A fresh room is one the reader has not taken a
+                        // position in yet, so its anchor restore is welcome.
+                        timeline.readerControlledSinceReset = false
                         // Re-engage the presentation gate for the fresh
                         // snapshot. Recompute only after this whole signal
                         // dispatch settles: the pagination controller's own
@@ -4337,7 +4379,7 @@ Rectangle {
                     timeline.cancelWheelMotion()
                     // Dragging the handle is the reader driving the view, so
                     // it retires an unlanded jump exactly as the wheel does.
-                    timeline.abandonNavigationLanding()
+                    timeline.noteReaderTookControl()
                     timeline.contentY = timeline.wheelMaxY() - frac * span
                     timeline.updateStickAndPaginate()
                 }
@@ -4479,7 +4521,7 @@ Rectangle {
                     timeline.cancelWheelMotion()
                     // Same reasoning as the wheel handler: starting an
                     // autoscroll gesture is the reader taking the view.
-                    timeline.abandonNavigationLanding()
+                    timeline.noteReaderTookControl()
                 }
                 onScrolled: timeline.updateStickAndPaginate()
             }

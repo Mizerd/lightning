@@ -1224,6 +1224,79 @@ private Q_SLOTS:
                  "growth cancelled the continuation; the run must read as "
                  "ended, not still active");
     }
+
+    // A scroll-anchor RESTORE can spend up to kMaxNavigationBatches real
+    // backward paginations before it locates its target — comfortably five to
+    // fifteen seconds. Retiring the landing in the view cannot help, because
+    // the landing does not exist yet while the reader is scrolling: the
+    // restore arms one AFTERWARDS and yanks them back to where the room
+    // opened. The reader's gesture has to be able to reach the controller.
+    void cancellingNavigationStopsASlowRestoreFromEverLanding()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 5, false);
+
+        // The reader had a position in this room, and its event is NOT
+        // loaded — exactly the case that goes out to the network.
+        controller.saveScrollAnchor(kRoomA, QStringLiteral("$deep-anchor"),
+                                    120.0, /*followingLatest=*/false);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+        controller.restoreScrollAnchor(kRoomA);
+        QCOMPARE(located.count(), 0); // still hunting; nothing to apply yet
+
+        // The reader scrolls. Their gesture reaches the controller.
+        controller.cancelNavigation();
+
+        // Now let a batch complete that DOES contain the anchor event.
+        // Without the cancel this emits targetLocated and teleports the view.
+        client.beginLoading(kRoomA);
+        client.completeEvents(kRoomA,
+                              { makeEvent(QStringLiteral("$deep-anchor")) },
+                              false);
+        QTest::qWait(50);
+        QCOMPARE(located.count(), 0);
+
+        // Retired, not merely paused: later batches never revive it.
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 5, true);
+        QTest::qWait(50);
+        QCOMPARE(located.count(), 0);
+    }
+
+    // The cancel is scoped to an in-flight navigation. An explicit reply jump
+    // issued afterwards must still work, or "I scrolled once" would silently
+    // disable jumping for the rest of the session.
+    void cancellingNavigationDoesNotDisableLaterJumps()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeEvents(kRoomA,
+                              { makeEvent(QStringLiteral("$loaded")) }, false);
+
+        controller.cancelNavigation(); // nothing in flight: a no-op
+
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+        controller.jumpToEvent(QStringLiteral("$loaded"));
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(located.at(0).at(2).toBool(), true); // a jump highlights
+    }
 };
 
 QTEST_GUILESS_MAIN(PaginationControllerTest)

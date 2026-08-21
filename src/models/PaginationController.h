@@ -157,6 +157,17 @@ public:
                                       bool followingLatest);
     Q_INVOKABLE void restoreScrollAnchor(const QString &roomId);
     Q_INVOKABLE void saveFollowingLatest(const QString &roomId);
+    // Retire an in-flight navigation because the reader took the view.
+    //
+    // A Restore started by restoreScrollAnchor() can spend up to
+    // kMaxNavigationBatches REAL backward paginations — comfortably five to
+    // fifteen seconds — before it locates its target and emits
+    // targetLocated(). Cancelling the landing in the view is not enough on
+    // its own: the view can only retire a landing that is already armed, and
+    // this one gets armed AFTER the reader started scrolling. Without a way
+    // to reach the controller, the restore still lands and yanks the reader
+    // back to the position the room was opened at.
+    Q_INVOKABLE void cancelNavigation();
 
     // Monotonic controller generation. Bumped on room change, timeline
     // reset, and sign-out; exposed so anchor bookkeeping can reject stale
