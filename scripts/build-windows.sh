@@ -282,8 +282,66 @@ sign_windows_file "$STAGE_DIR/lightning-updater.exe"
 short_sha="${SOURCE_SHA:0:7}"
 artifact_base="Lightning-${BASE_VERSION}-${short_sha}-windows-x86_64"
 portable="$WINDOWS_DIST/${artifact_base}-portable.zip"
+
+# --- portable.marker: THE ORDERING BELOW IS THE ENTIRE MECHANISM -------------
+#
+# All three Windows packages (portable ZIP, MSI, NSIS setup) are produced from
+# this ONE staged tree. Lightning decides at startup whether it is a portable
+# installation by looking for a file named exactly "portable.marker" beside its
+# own executable, and it does that BEFORE the first QSettings is constructed --
+# there is no later opportunity to change its mind. Presence of the file is the
+# only signal; its contents are never parsed.
+#
+# So the file must exist in the stage for exactly the span of the `zip` call and
+# for nothing else:
+#
+#   * absent when wixl reads the stage  -> an MSI install writes to
+#     %LOCALAPPDATA% and HKCU exactly as it does today;
+#   * absent when makensis reads the stage (installer.nsi takes the whole tree
+#     with `File /r "${STAGE_DIR}/*"`) -> a setup.exe install likewise;
+#   * present in the ZIP -> an extracted folder keeps its settings, Matrix
+#     session, SDK store and crypto state inside itself and is copyable to
+#     another machine.
+#
+# A future edit that moves the `zip` invocation below the MSI/NSIS steps would
+# silently break portable mode for every user of the ZIP *and* make both
+# installed builds claim to be portable -- neither failure produces a build
+# error, which is why this is spelled out rather than left to the reading. The
+# validation script asserts both halves against the FINAL artifacts.
+portable_marker="$STAGE_DIR/portable.marker"
+cat >"$portable_marker" <<'PORTABLE_MARKER'
+This file makes Lightning run in portable mode.
+
+While it sits beside Lightning.exe, Lightning keeps everything it SAVES --
+settings, your signed-in Matrix session, the Matrix SDK store and the
+end-to-end-encryption state -- in the "data" folder next to this file. None of
+that goes to the Windows registry, AppData or Credential Manager.
+
+While it is running it still uses the normal Windows temporary folder for
+things it is playing or recording right now -- a video you open, a voice
+message you record. Those are deleted when you sign out or close Lightning,
+and nothing is read back from them on the next start, so they do not need to
+travel with the folder. A crash can leave one behind.
+
+Close Lightning before copying this folder anywhere. Copying it while
+Lightning is running can capture a database mid-write.
+
+Anyone who has a copy of this folder has your signed-in Matrix session. Treat
+it like a password, and delete it when you are done with it.
+
+Deleting this file makes Lightning behave like an installed copy again; the
+data folder is left alone but is no longer read.
+PORTABLE_MARKER
+
 ( cd "$WINDOWS_DIST" && find Lightning -type f -print0 | LC_ALL=C sort -z \
     | xargs -0 zip -X -q "$portable" )
+
+# Immediately, and before anything else reads the stage. `die` rather than a
+# bare rm so a filesystem that refused the delete cannot ship an installer that
+# detects as portable.
+rm -f "$portable_marker"
+[[ ! -e "$portable_marker" ]] || \
+    die "portable.marker survived into the installer stage; MSI/NSIS would detect as portable"
 
 # All three Windows packages come from this one staged tree, so the compiled-in
 # install type can only describe one of them. It says windows-portable, which is

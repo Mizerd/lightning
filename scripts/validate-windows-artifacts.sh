@@ -155,6 +155,17 @@ grep -Fq 'lightning-updater.exe' "$REPORTS/msi-File.idt" || \
 # not write. Nothing else in the pipeline would notice.
 grep -Fq '.lightning-install-type' "$REPORTS/msi-File.idt" || \
     die "MSI does not contain the .lightning-install-type marker"
+# The other half of the same coin. portable.marker is written into the stage for
+# the duration of the `zip` call and removed immediately after (build-windows.sh
+# documents the ordering). If it ever leaked into the MSI, an installed copy
+# would put its settings, Matrix session and crypto store inside Program Files /
+# %LOCALAPPDATA%\Programs -- a directory Windows Installer owns and will replace
+# or remove -- instead of the per-user locations it is supposed to use. This is
+# the strongest available proof for the MSI because wixl records every payload
+# file by name in the File table.
+if grep -Fq 'portable.marker' "$REPORTS/msi-File.idt"; then
+    die "MSI contains portable.marker; an installed copy would detect as portable"
+fi
 grep -Fq 'StartMenuShortcut' "$REPORTS/msi-Shortcut.idt" || die "MSI shortcut is missing"
 upgrade_code="$(jq -er '.upgrade_code' "$REPORTS/msi-identity.json")"
 grep -Fq "$upgrade_code" "$REPORTS/msi-Upgrade.idt" || die "MSI UpgradeCode mismatch"
@@ -175,20 +186,255 @@ file -b "$setup" | grep -Eq '^PE32\+ executable.*\(GUI\), x86-64' || \
 # tree assertion at the top of this script, `File /r "${STAGE_DIR}/*"` taking
 # the whole stage, and smoke-windows-wine.sh actually running `setup /S` under
 # Wine and asserting lightning-updater.exe lands next to Lightning.exe.
-
-unzip -l "$portable" >"$REPORTS/portable-contents.txt"
-grep -Fq 'Lightning/Lightning.exe' "$REPORTS/portable-contents.txt" || \
-    die "portable ZIP does not contain Lightning.exe"
-grep -Fq 'Lightning/lightning-updater.exe' "$REPORTS/portable-contents.txt" || \
-    die "portable ZIP does not contain lightning-updater.exe"
-# ...and the portable ZIP must NOT carry it: the portable build relies on the
-# compiled-in windows-portable value, and an inherited windows-msi marker
-# would send a portable user through msiexec against a directory no MSI owns.
-if grep -Fq '.lightning-install-type' "$REPORTS/portable-contents.txt"; then
-    die "portable ZIP must not contain an install-type marker"
+#
+# The same limitation applies to proving portable.marker is ABSENT from the NSIS
+# payload: `strings` cannot see inside a /SOLID lzma payload, so there is no
+# direct assertion to make here. What IS assertable is the property that makes
+# it true: installer.nsi takes the whole stage with `File /r "${STAGE_DIR}/*"`,
+# makensis runs after build-windows.sh has removed the marker, and the stage is
+# still on disk now. So the stage must not contain it at this point. That is a
+# structural check, not an ordering proof -- an edit that moved the `zip` step
+# below makensis would defeat it, which is why the MSI File-table check above
+# (a real proof) and the extraction check below (a real proof) exist as well.
+if [[ -e "$STAGE/portable.marker" ]]; then
+    die "portable.marker is still in the stage; the NSIS payload would carry it"
 fi
-grep -Fq 'Lightning/plugins/platforms/qwindows.dll' "$REPORTS/portable-contents.txt" || \
-    die "portable ZIP does not contain qwindows.dll"
+
+# --- The artifact the user actually downloads --------------------------------
+#
+# Everything above inspects $STAGE, the tree the packages were built FROM. That
+# is not evidence about the ZIP. The ZIP is assembled by a separate `find | zip`
+# step, it deliberately carries a file the stage no longer has, and it is what
+# gets extracted onto a machine with no Qt, no MinGW runtime and no build tree.
+# So the portable checks run against a fresh extraction of the FINAL artifact.
+unzip -l "$portable" >"$REPORTS/portable-contents.txt"
+PORTABLE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/lightning-portable-check.XXXXXX")"
+cleanup_portable_root() {
+    [[ "${PORTABLE_ROOT:-}" == */lightning-portable-check.* ]] && rm -rf -- "$PORTABLE_ROOT"
+}
+trap cleanup_portable_root EXIT
+unzip -qq "$portable" -d "$PORTABLE_ROOT"
+EXTRACTED="$PORTABLE_ROOT/Lightning"
+[[ -d "$EXTRACTED" ]] || die "portable ZIP does not extract to a Lightning/ directory"
+
+for required in \
+    "$EXTRACTED/Lightning.exe" \
+    "$EXTRACTED/lightning-updater.exe" \
+    "$EXTRACTED/qt.conf" \
+    "$EXTRACTED/portable.marker"; do
+    [[ -f "$required" ]] || \
+        die "extracted portable ZIP is missing: ${required#"$EXTRACTED/"}"
+done
+# Portable mode is decided by this file's PRESENCE beside the executable, before
+# the first QSettings exists in the process. Without it the extracted folder
+# behaves like an installed copy: registry, %LOCALAPPDATA%, Credential Manager,
+# and a second login on the next PC -- the exact defect the portable ZIP is for.
+# Nothing reads its contents, so this asserts only that it is a real file.
+[[ -s "$EXTRACTED/portable.marker" ]] || die "portable.marker in the ZIP is empty"
+# An inherited windows-msi marker would send a portable user through msiexec
+# against a directory no MSI owns.
+[[ ! -e "$EXTRACTED/.lightning-install-type" ]] || \
+    die "portable ZIP must not contain an install-type marker"
+for forbidden in "$EXTRACTED/qml/QtTest" "$EXTRACTED/qml/Qt/test" \
+    "$EXTRACTED/Qt6Test.dll" "$EXTRACTED/Qt6QuickTest.dll"; do
+    [[ ! -e "$forbidden" ]] || \
+        die "test-only Qt runtime found in the extracted portable ZIP: $forbidden"
+done
+
+# Runtime closure over the EXTRACTED tree. The required plugin set, the QML
+# import set and the system-DLL allowlist are read out of stage-windows-runtime.py
+# itself rather than restated here: a duplicated DLL list rots the first time the
+# staging script changes, and a rotted allowlist fails in the direction that
+# passes. Nothing in this check is version-pinned -- the FFmpeg runtime is proven
+# by walking the media plugin's imports, not by naming avcodec-61.dll.
+python3 - "$SCRIPT_DIR/stage-windows-runtime.py" "$EXTRACTED" \
+    "$REPORTS/portable-runtime-closure.json" <<'PY'
+import importlib.util
+import json
+import pathlib
+import re
+import subprocess
+import sys
+
+stage_script, root, report = (
+    pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+)
+
+# The staging script guards its own main() behind __name__, so importing it has
+# no side effects; this is a data read, not a second invocation.
+spec = importlib.util.spec_from_file_location("stage_windows_runtime", stage_script)
+staging = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(staging)
+system_dlls = {name.lower() for name in staging.SYSTEM_DLLS}
+
+errors: list[str] = []
+
+for directory, names in staging.PLUGIN_FILES.items():
+    for name in names:
+        if not (root / "plugins" / directory / name).is_file():
+            errors.append(f"missing Qt plugin: plugins/{directory}/{name}")
+for name in staging.QML_RUNTIME_ENTRIES:
+    if not (root / "qml" / name).is_dir():
+        errors.append(f"missing QML runtime import: qml/{name}")
+
+pe_files = sorted(
+    p for p in root.rglob("*")
+    if p.is_file() and p.suffix.lower() in {".exe", ".dll"}
+)
+if not pe_files:
+    errors.append("extracted tree contains no PE files at all")
+present = {p.name.lower(): p for p in pe_files}
+
+
+def objdump(flag: str, path: pathlib.Path) -> str:
+    return subprocess.check_output(
+        ["x86_64-w64-mingw32-objdump", flag, str(path)], text=True
+    )
+
+
+graph: dict[str, list[str]] = {}
+unresolved: dict[str, list[str]] = {}
+for pe in pe_files:
+    rel = str(pe.relative_to(root))
+    header = objdump("-f", pe)
+    # Every bundled PE, not a hand-typed subset: one 32-bit or ELF file in the
+    # payload makes the folder unusable on the target machine, and it would be
+    # discovered by the user, not here.
+    if "architecture: i386:x86-64" not in header:
+        errors.append(f"not an x86-64 PE: {rel}")
+    if "file format pei-x86-64" not in header:
+        errors.append(f"not a PE32+ image: {rel}")
+    needed = sorted(
+        set(re.findall(r"DLL Name:\s*(\S+)", objdump("-p", pe))), key=str.casefold
+    )
+    graph[rel] = needed
+    for dll in needed:
+        key = dll.lower()
+        if key in present or key in system_dlls:
+            continue
+        if key.startswith(("api-ms-win-", "ext-ms-win-")):
+            continue
+        unresolved.setdefault(dll, []).append(rel)
+
+for dll, importers in sorted(unresolved.items()):
+    errors.append(
+        f"{dll} is imported by {', '.join(importers)} but is neither in the "
+        "package nor on the system-DLL allowlist"
+    )
+
+# The FFmpeg decode backend, proven by the import walk instead of by a directory
+# listing: if the plugin is present but its runtime libraries are not reachable
+# from it, Qt silently falls back to WMF and video playback stalls. Matched by
+# family so a Qt or FFmpeg version bump does not need an edit here.
+ffmpeg_families = {"avcodec", "avformat", "avutil", "swresample", "swscale"}
+plugin = root / "plugins/multimedia/ffmpegmediaplugin.dll"
+reachable: set[str] = set()
+if plugin.is_file():
+    queue = [str(plugin.relative_to(root))]
+    seen: set[str] = set()
+    while queue:
+        current = queue.pop(0)
+        if current in seen:
+            continue
+        seen.add(current)
+        for dll in graph.get(current, []):
+            key = dll.lower()
+            target = present.get(key)
+            if target is None:
+                continue
+            reachable.add(key)
+            queue.append(str(target.relative_to(root)))
+missing_ffmpeg = sorted(
+    family for family in ffmpeg_families
+    if not any(name.startswith(family) for name in reachable)
+)
+if missing_ffmpeg:
+    errors.append(
+        "FFmpeg runtime not reachable from plugins/multimedia/ffmpegmediaplugin.dll: "
+        + ", ".join(missing_ffmpeg)
+    )
+
+report.write_text(
+    json.dumps(
+        {
+            "root": "Lightning",
+            "pe_files": sorted(str(p.relative_to(root)) for p in pe_files),
+            "imports": dict(sorted(graph.items())),
+            "ffmpeg_reachable": sorted(reachable & {
+                name for name in reachable
+                if any(name.startswith(f) for f in ffmpeg_families)
+            }),
+            "errors": errors,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+if errors:
+    for message in errors:
+        print(f"error: {message}", file=sys.stderr)
+    raise SystemExit(1)
+print(f"extracted portable runtime closed over {len(pe_files)} PE files")
+PY
+
+# qt.conf is what points the extracted folder at its own plugins and QML imports.
+# One absolute path in it and the folder resolves against the build machine's
+# sysroot, which does not exist on the user's PC -- and, on a machine where a
+# same-named directory does exist, would load code from outside the folder.
+while IFS= read -r qtconf_value; do
+    case "$qtconf_value" in
+        /*|[A-Za-z]:[\\/]*|*'\\'*)
+            die "qt.conf carries a non-relative path: $qtconf_value" ;;
+    esac
+done < <(sed -n 's/^[^=]*=[[:space:]]*//p' "$EXTRACTED/qt.conf")
+
+# ...and no build/CI path anywhere else in the payload either. The extracted tree
+# is scanned in full: text files line by line (so a hit names the file and the
+# offending text, which is what makes a false positive diagnosable rather than
+# mysterious) and PE files through the same `strings` scan the stage gets.
+: >"$REPORTS/portable-path-scan.txt"
+# TWO patterns, because "our build machine leaked into the artifact" and
+# "this binary was compiled in a sysroot" are different facts.
+#
+# `leak_pattern` is applied to EVERY file including the upstream Qt and FFmpeg
+# DLLs. Nothing here can legitimately appear in a shipped artifact: a CI token
+# is a credential, and /root/ or /builds/ is this pipeline's own filesystem.
+#
+# `own_pattern` adds the paths that are only damning in something WE compiled —
+# the MinGW sysroot prefix and this repository's own source root. It is applied
+# to Lightning-owned PE files and to every packaged text file, and deliberately
+# NOT to upstream DLLs: Qt and FFmpeg are *built inside* /usr/x86_64-w64-mingw32
+# by the container image, so that string is present in their payload as a matter
+# of course. Scanning them with it would fail the job on its own dependencies,
+# which is a broken check rather than a strict one.
+leak_pattern='(/root/|/builds/|CI_JOB_TOKEN|glrt-|glpat-|gldt-)'
+own_pattern='(/home/[a-z_][a-z0-9_-]*|/usr/x86_64-w64-mingw32|/usr/src/lightning-deploy)'
+lightning_owned_pe='^(Lightning\.exe|lightning-updater\.exe)$'
+while IFS= read -r candidate; do
+    rel="${candidate#"$PORTABLE_ROOT/"}"
+    case "$(file -b --mime-type "$candidate")" in
+        text/*|application/json|application/xml)
+            # Text files are ours by definition (qt.conf, build-info.json, the
+            # marker), so they get the strict pattern.
+            if grep -EnI "$leak_pattern|$own_pattern" "$candidate" \
+                | sed "s|^|$rel:|" >>"$REPORTS/portable-path-scan.txt"; then
+                die "build or CI path found in packaged text file: $rel (see reports/portable-path-scan.txt)"
+            fi
+            ;;
+        *)
+            scan_pattern="$leak_pattern"
+            if [[ "$(basename "$candidate")" =~ $lightning_owned_pe ]]; then
+                scan_pattern="$leak_pattern|$own_pattern"
+            fi
+            if { strings -a "$candidate"; strings -a -el "$candidate"; } 2>/dev/null \
+                | grep -Eq "$scan_pattern"; then
+                die "build or CI path found in packaged binary: $rel"
+            fi
+            ;;
+    esac
+done < <(find "$EXTRACTED" -type f -print)
 
 # The SignPath artifact boundary: the unsigned Lightning-owned payload must
 # exist on its own, with a checksum, so a future signing job has a deterministic
