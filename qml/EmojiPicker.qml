@@ -96,7 +96,15 @@ AnchoredPopup {
     // own surface — the 2026-08-18 round believed it did, and the barrier
     // that actually works is the press sink in `background` below, which
     // carries the mechanism. dim: false keeps the look.
-    modal: true
+    // NOT modal. Modality was added in the 2026-08-18 round as a press
+    // barrier, on a premise that is false (a Popup does not consume a press
+    // that lands INSIDE it — blockInput() returns false there), so it never
+    // bought the barrier. What it did buy was a grabbed overlay, which is why
+    // the timeline could not be scrolled while the picker was open.
+    //
+    // The barrier now lives where presses actually are: each grid cell
+    // consumes its own, and the background sink catches the picker's chrome.
+    modal: false
     dim: false
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -460,11 +468,33 @@ AnchoredPopup {
                                     }
                                 }
                             }
-                            TapHandler {
+                            // A MouseArea, NOT a TapHandler, and the
+                            // difference is the whole bug.
+                            //
+                            // A pointer handler GRABS the point but never
+                            // ACCEPTS the event, so Qt keeps delivering the
+                            // same press down the hit list. The picker's
+                            // background press sink then received it too,
+                            // accepted it, and took the exclusive grab — which
+                            // CANCELS the handler's grab, so no tap was ever
+                            // emitted and selecting an emoji silently did
+                            // nothing. The barrier meant to stop presses
+                            // escaping the picker was eating the picker's own
+                            // clicks.
+                            //
+                            // A MouseArea accepts the press, so delivery stops
+                            // here: the cell gets its click AND nothing behind
+                            // the picker ever sees it. Grid flicking is
+                            // unaffected — preventStealing is false, so the
+                            // Flickable still takes the grab on a drag.
+                            MouseArea {
+                                anchors.fill: parent
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                onLongPressed: if (cell.hasSkinTones) cell.openVariants()
-                                onTapped: (eventPoint, button) => {
-                                    if (button === Qt.RightButton && cell.hasSkinTones)
+                                onPressAndHold: if (cell.hasSkinTones)
+                                                    cell.openVariants()
+                                onClicked: (mouse) => {
+                                    if (mouse.button === Qt.RightButton
+                                            && cell.hasSkinTones)
                                         cell.openVariants()
                                     else
                                         picker.choose(cell.emoji)

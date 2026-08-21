@@ -27,18 +27,62 @@ class EmojiPickerContractTest : public QObject
     Q_OBJECT
 private Q_SLOTS:
     // 2026-08-18 tester report #2 (screenshot-proven): a right-click on a
-    // tone-capable tile in the reaction picker ALSO opened the message
-    // context menu underneath — TapHandlers are non-exclusive across
-    // subtrees, so the picker must be MODAL (input barrier) while keeping
-    // dim off and close-on-press-outside.
-    void pickerIsAModalInputBarrier()
+    // tone-capable tile ALSO opened the message context menu underneath.
+    // TapHandlers are non-exclusive across subtrees, so SOMETHING has to
+    // consume the press.
+    //
+    // That something is NOT modality, and this case used to require it.
+    // Disassembling Qt 6.11 settles it: QQuickPopup::mousePressEvent sets
+    // accepted = blockInput(), and blockInput() returns FALSE when the press
+    // is inside the popup's own item — so a modal popup does not consume a
+    // press that lands ON it, only presses outside. Modality never closed the
+    // leak; it just grabbed the overlay, which is why the timeline could not
+    // be scrolled while the picker was open (2026-08-21).
+    //
+    // Worse, the background press sink added to compensate ATE THE PICKER'S
+    // OWN CLICKS: a TapHandler grabs without accepting, so the sink received
+    // the same press, accepted it, took the exclusive grab and cancelled the
+    // handler — selecting an emoji silently did nothing.
+    //
+    // The barrier now lives where the presses are. Each grid cell consumes
+    // its own with a MouseArea (accepting stops delivery dead), and the
+    // background sink catches only the picker's chrome, where nothing else
+    // competes for the grab.
+    void everyPressInsideThePickerIsConsumedByThePicker()
     {
-        QFile f(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
-        QVERIFY(f.open(QIODevice::ReadOnly));
-        const QString src = QString::fromUtf8(f.readAll());
-        QVERIFY(src.contains(QStringLiteral("modal: true")));
+        const QString src = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
+        QVERIFY(!src.isEmpty());
         QVERIFY(src.contains(QStringLiteral("dim: false")));
-        QVERIFY(!src.contains(QStringLiteral("modal: false")));
+
+        // The CELL consumes its own press. A TapHandler here is the defect:
+        // it grabs without accepting, so the press keeps travelling.
+        const int cellIdx = src.indexOf(QStringLiteral("picker.choose(cell.emoji)"));
+        QVERIFY2(cellIdx > 0, "the emoji cell's choose path is gone");
+        const QString cellBlock = src.mid(qMax(0, cellIdx - 900), 1200);
+        QVERIFY2(cellBlock.contains(QStringLiteral("MouseArea")),
+                 "the emoji cell must consume its own press with a MouseArea "
+                 "— a TapHandler grabs without accepting, so the press "
+                 "reaches the message row underneath");
+        QVERIFY2(cellBlock.contains(QStringLiteral("Qt.LeftButton | Qt.RightButton")),
+                 "the cell must take BOTH buttons: right-click opens skin "
+                 "tones, and an unhandled right press is the original leak");
+
+        // The chrome still has its all-buttons sink, below the content.
+        QVERIFY2(src.contains(QStringLiteral("acceptedButtons: Qt.AllButtons")),
+                 "the picker background must still sink presses on its chrome");
+
+        // And modality is NOT the mechanism. Scoped to the ROOT picker —
+        // everything before the nested tone popup, which is a small transient
+        // that may keep its own modality — so the assertion cannot be
+        // satisfied or broken by the wrong object.
+        const int toneIdx = src.indexOf(QStringLiteral("id: tonePopup"));
+        QVERIFY2(toneIdx > 0, "tonePopup is gone");
+        const QString rootOnly = src.left(toneIdx);
+        QVERIFY2(rootOnly.contains(QStringLiteral("modal: false")),
+                 "the picker must not be modal — modality does not buy the "
+                 "input barrier and it blocks scrolling the timeline behind "
+                 "the open picker");
+        QVERIFY(!rootOnly.contains(QStringLiteral("modal: true")));
     }
 
     void widthAndPaddingMatchSpec()

@@ -144,7 +144,11 @@ AnchoredPopup {
     // MessageDelegate's context-menu TapHandler underneath (the emoji
     // picker's background carries the full mechanism). dim: false keeps the
     // look unchanged.
-    modal: true
+    // NOT modal — same reasoning as EmojiPicker: modality was never the
+    // press barrier (a Popup does not consume a press landing inside it), and
+    // a grabbed overlay is what stopped the timeline scrolling while the
+    // picker was open. The tiles and the background sink consume presses.
+    modal: false
     dim: false
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside

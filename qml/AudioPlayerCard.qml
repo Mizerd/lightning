@@ -281,7 +281,7 @@ Rectangle {
     implicitHeight: cardRow.implicitHeight + 12
                     + (coverArtBox.visible
                        ? coverArtBox.implicitHeight + 6 : 0)
-    color: AppTheme.surfaceElevated
+    color: AppTheme.embedSurface
     radius: AppTheme.radiusSm
     border.color: AppTheme.border
     border.width: 1
@@ -331,7 +331,7 @@ Rectangle {
         width: implicitWidth
         height: implicitHeight
         radius: AppTheme.radiusMd
-        color: AppTheme.surfaceElevated
+        color: AppTheme.embedSurface
         border.width: 1
         border.color: AppTheme.border
         clip: true

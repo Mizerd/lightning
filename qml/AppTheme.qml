@@ -876,6 +876,19 @@ QtObject {
     // hovered row and a raised card were one tone on Storm. The selected
     // (own-reaction) pill rides accentSoft — the sanctioned "this is your
     // current selection" accent tint — with accentBorder around it.
+    // In-timeline EMBED cards: voice/audio, polls, link previews, file and
+    // video placeholders. These sit on the TIMELINE ground — the deepest
+    // surface in the theme, with a transparent bubble over it in the Modern
+    // layout — not on a panel. cardElevated is the step above a PANEL, so
+    // used here it rendered as a pale block floating on near-black, which is
+    // the 2026-08-21 report "the voice message poll and other imbed color
+    // like the one from links is too pale make it dark blue".
+    //
+    // This is the raised-but-DARK step: still clearly lifted off the ground,
+    // still unmistakably navy rather than slate.
+    readonly property color embedSurface: storm ? _stoPanel : cardElevated
+    readonly property color embedBorder:  storm ? _stoBorder : border
+
     readonly property color reactionBackground:  _p.reaction !== undefined
                                                  ? _p.reaction : cardElevated
     readonly property color reactionBorder:      border

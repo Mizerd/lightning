@@ -3394,7 +3394,7 @@ Item {
 
             implicitWidth: displayWidth
             implicitHeight: Math.max(1, displayWidth * aspectRatio)
-            color: AppTheme.cardElevated
+            color: AppTheme.embedSurface
             radius: AppTheme.radiusSm
             clip: true
 
@@ -3618,7 +3618,7 @@ Item {
                             (card.p.imageHeight > 0 && card.p.imageWidth > 0)
                             ? width * (card.p.imageHeight / card.p.imageWidth)
                             : 140) : 0
-                        color: AppTheme.cardElevated
+                        color: AppTheme.embedSurface
                         radius: AppTheme.radiusSm
                         clip: true
                         Image {
@@ -4548,7 +4548,7 @@ Item {
                 objectName: "videoNoThumbPlaceholder"
                 anchors.fill: parent
                 radius: AppTheme.radiusSm
-                color: AppTheme.surfaceElevated
+                color: AppTheme.embedSurface
                 border.color: AppTheme.border
                 border.width: 1
                 visible: videoBox.showPlaceholder
@@ -4730,7 +4730,7 @@ Item {
             objectName: "fileCard"
             implicitWidth: Math.min(340, bubble.width)
             implicitHeight: fileRow.implicitHeight + 16
-            color: AppTheme.surfaceElevated
+            color: AppTheme.embedSurface
             radius: AppTheme.radiusMd
             border.color: AppTheme.border
             border.width: 1
@@ -4943,7 +4943,7 @@ Item {
             // the Bubbles layout (bubble sizes itself from content width).
             implicitWidth: 420
             implicitHeight: pollColumn.implicitHeight + 20
-            color: AppTheme.surfaceElevated
+            color: AppTheme.embedSurface
             radius: AppTheme.radiusMd
             border.color: AppTheme.border
             border.width: 1
