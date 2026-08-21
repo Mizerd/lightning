@@ -808,10 +808,23 @@ void SettingsManager::setCustomAppIconEnabled(bool enabled)
 
 int SettingsManager::notificationPreview() const
 {
-    // 1 = sender only: the privacy-preserving default.
+    // 0 = sender AND message.
+    //
+    // This was 1 (sender only) and a tester reported the obvious consequence:
+    // "notification should include message, not just the notification that i
+    // received a message". A notification that cannot tell you what happened
+    // is one you have to act on to read, which is the opposite of what it is
+    // for, and every mainstream chat client shows the message by default.
+    //
+    // The privacy modes are KEPT and are one click away in
+    // Settings -> Notifications; what changed is which of them is the default.
+    // The bar for that is whether a desktop notification is a reasonable place
+    // for message text, and on a personal machine it is. A user who shares a
+    // screen has modes 1 and 2, and an ENCRYPTED room's body still only
+    // appears once the SDK has decrypted it locally.
     const int mode =
-        m_store->value(QStringLiteral("notifications/preview"), 1).toInt();
-    return (mode < 0 || mode > 2) ? 1 : mode;
+        m_store->value(QStringLiteral("notifications/preview"), 0).toInt();
+    return (mode < 0 || mode > 2) ? 0 : mode;
 }
 
 void SettingsManager::setNotificationPreview(int mode)

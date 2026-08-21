@@ -113,6 +113,7 @@ class TimelineModelDiffTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void consecutiveDeletionsCollapseIntoOneRow();
     void init();
     void cleanup();
 
@@ -194,6 +195,62 @@ void TimelineModelDiffTest::cleanup()
     delete m_client;
     m_model = nullptr;
     m_client = nullptr;
+}
+
+// A moderator clearing twenty messages should cost one row, exactly as a run
+// of twenty joins already does. The model answers this per row so the delegate
+// never walks its neighbours: the FIRST redacted row of a run reports itself
+// the leader and carries the run's length; the rest report false and zero and
+// render nothing.
+void TimelineModelDiffTest::consecutiveDeletionsCollapseIntoOneRow()
+{
+    auto redacted = [](const QString &id) {
+        auto e = makeEvent(id, QString());
+        e.redacted = true;
+        return e;
+    };
+    // m0, [del, del, del], m1, [del], m2
+    m_client->mirror = {
+        makeEvent(QStringLiteral("$a"), QStringLiteral("m0")),
+        redacted(QStringLiteral("$r1")),
+        redacted(QStringLiteral("$r2")),
+        redacted(QStringLiteral("$r3")),
+        makeEvent(QStringLiteral("$b"), QStringLiteral("m1")),
+        redacted(QStringLiteral("$r4")),
+        makeEvent(QStringLiteral("$c"), QStringLiteral("m2")),
+    };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(m_model->rowCount(), 7);
+
+    const auto leader = [this](int row) {
+        return m_model->data(m_model->index(row),
+                             TimelineModel::DeletedGroupLeaderRole).toBool();
+    };
+    const auto count = [this](int row) {
+        return m_model->data(m_model->index(row),
+                             TimelineModel::DeletedGroupCountRole).toInt();
+    };
+
+    // The run of three: one leader carrying 3, two silent followers.
+    QVERIFY(leader(1));
+    QCOMPARE(count(1), 3);
+    QVERIFY(!leader(2));
+    QVERIFY(!leader(3));
+    QCOMPARE(count(2), 0);
+    QCOMPARE(count(3), 0);
+
+    // A visible message ENDS a run: the single deletion after it is its own
+    // leader with a count of 1, not a continuation of the run above.
+    QVERIFY(leader(5));
+    QCOMPARE(count(5), 1);
+
+    // An ordinary message reports leader TRUE, so a delegate can bind
+    // `visible: deletedGroupLeader` without also testing `redacted` — binding
+    // it the other way round would hide every message in the room.
+    QVERIFY(leader(0));
+    QVERIFY(leader(4));
+    QVERIFY(leader(6));
+    QCOMPARE(count(0), 0);
 }
 
 void TimelineModelDiffTest::appendAddsRow()

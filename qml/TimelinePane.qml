@@ -5173,6 +5173,11 @@ Rectangle {
             property var hierarchyRows: []
             property string addNotice: ""
             property bool settingsOpen: false
+            // A Space IS a Matrix room, so it has a real member list — the
+            // same roster Room Information reads, already pointed at this
+            // Space (canManageChildren below relies on exactly that). It was
+            // simply never surfaced here.
+            property bool peopleOpen: false
 
             InvitePeopleDialog {
                 id: spaceInviteDialog
@@ -5554,6 +5559,19 @@ Rectangle {
                             }
                         }
                         AppButton {
+                            objectName: "spacePeopleButton"
+                            // Gated on the roster actually being THIS Space's:
+                            // app.roomInfo follows the Room Information panel,
+                            // which may still be pointing at a room.
+                            visible: app.roomInfo
+                                     && app.roomInfo.roomId === spaceHome.spaceId
+                            text: spaceHome.peopleOpen
+                                  ? qsTr("Hide people")
+                                  : qsTr("People (%1)").arg(
+                                        (app.roomInfo.members || []).length)
+                            onClicked: spaceHome.peopleOpen = !spaceHome.peopleOpen
+                        }
+                        AppButton {
                             objectName: "spaceSettingsButton"
                             text: spaceHome.settingsOpen
                                   ? qsTr("Hide settings") : qsTr("Space settings")
@@ -5571,6 +5589,115 @@ Rectangle {
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
+                    }
+
+                    // Space members. The same roster Room Information reads,
+                    // which is already pointed at this Space — a Space IS a
+                    // Matrix room, so its members are real members and nothing
+                    // Space-specific is invented to list them.
+                    Rectangle {
+                        objectName: "spacePeopleCard"
+                        visible: spaceHome.peopleOpen
+                                 && app.roomInfo
+                                 && app.roomInfo.roomId === spaceHome.spaceId
+                        Layout.fillWidth: true
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.cardElevated
+                        border.color: AppTheme.border
+                        border.width: 1
+                        implicitHeight: spacePeopleCol.implicitHeight
+                                        + AppTheme.spacing16 * 2
+
+                        ColumnLayout {
+                            id: spacePeopleCol
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: AppTheme.spacing16
+                            spacing: AppTheme.spacing8
+
+                            Label {
+                                text: qsTr("People in this Space")
+                                color: AppTheme.textPrimary
+                                font.pixelSize: AppTheme.textBody
+                                font.weight: AppTheme.weightStrong
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                text: qsTr("Members of the Space itself. Its rooms each have their own members.")
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.textMeta
+                            }
+
+                            Flow {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacing8
+                                Repeater {
+                                    // BOUNDED: a large Space would otherwise
+                                    // instantiate one delegate per member in a
+                                    // non-virtualized Flow, on the frame the
+                                    // card becomes visible.
+                                    model: (app.roomInfo.members || []).slice(0, 60)
+                                    delegate: Rectangle {
+                                        id: spaceMemberChip
+                                        required property var modelData
+                                        radius: AppTheme.radiusPill
+                                        color: chipHover.hovered ? AppTheme.hover
+                                                                 : AppTheme.surface
+                                        border.color: AppTheme.border
+                                        border.width: 1
+                                        implicitWidth: Math.min(
+                                            chipRow.implicitWidth + AppTheme.spacing12, 240)
+                                        implicitHeight: 34
+                                        HoverHandler {
+                                            id: chipHover
+                                            cursorShape: Qt.PointingHandCursor
+                                        }
+                                        TapHandler {
+                                            onTapped: senderProfilePopover.openFor(
+                                                          spaceMemberChip.modelData)
+                                        }
+                                        RowLayout {
+                                            id: chipRow
+                                            anchors.fill: parent
+                                            anchors.leftMargin: AppTheme.spacing4
+                                            anchors.rightMargin: AppTheme.spacing10
+                                            spacing: AppTheme.spacing6
+                                            Avatar {
+                                                size: 26
+                                                name: spaceMemberChip.modelData.displayName
+                                                      || spaceMemberChip.modelData.userId
+                                                mxc: spaceMemberChip.modelData.avatarUrl || ""
+                                                colorKey: spaceMemberChip.modelData.userId
+                                                circle: true
+                                            }
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: spaceMemberChip.modelData.displayName
+                                                      || spaceMemberChip.modelData.userId
+                                                color: AppTheme.textPrimary
+                                                font.pixelSize: AppTheme.textMeta
+                                                elide: Label.ElideRight
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                visible: (app.roomInfo.members || []).length > 60
+                                // The cap is disclosed rather than silently
+                                // truncating: a Space with 200 members must
+                                // not look like it has 60.
+                                text: qsTr("Showing the first 60 of %1.")
+                                      .arg((app.roomInfo.members || []).length)
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.textMeta
+                            }
+                        }
                     }
 
                     // Space settings — the Space IS a Matrix room; edits go

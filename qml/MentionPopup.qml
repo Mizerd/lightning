@@ -41,6 +41,23 @@ Popup {
 
     signal chosen(string userId, string displayName)
 
+    // A member with no display name must read as their LOCALPART, never as
+    // the full MXID. The row already shows the MXID on its second line, so
+    // the MXID fallback printed the same string twice and made a nameless
+    // user look like the app was showing usernames on purpose — which is
+    // exactly how it was reported.
+    function localpartOf(userId) {
+        var s = String(userId)
+        if (s.charAt(0) === "@")
+            s = s.substring(1)
+        var colon = s.indexOf(":")
+        return colon > 0 ? s.substring(0, colon) : s
+    }
+    function nameFor(m) {
+        return (m && m.displayName && m.displayName.length > 0)
+               ? m.displayName : root.localpartOf(m ? m.userId : "")
+    }
+
     parent: Overlay.overlay
     focus: false
     // The composer drives open/close; auto-close (focus/press-outside) would
@@ -90,9 +107,7 @@ Popup {
         var m = suggestions.get(currentIndex)
         if (!m || !m.userId)
             return
-        var name = (m.displayName && m.displayName.length > 0)
-                   ? m.displayName : m.userId
-        root.chosen(m.userId, name)
+        root.chosen(m.userId, root.nameFor(m))
     }
 
     // administrator/creator -> ADMIN, moderator -> MOD, everything else
@@ -240,8 +255,7 @@ Popup {
                         Layout.alignment: Qt.AlignVCenter
                         size: AppTheme.scaled(28)
                         circle: true
-                        name: (model.displayName && model.displayName.length > 0)
-                              ? model.displayName : model.userId
+                        name: root.nameFor(model)
                         mxc: model.avatarMxc
                         colorKey: model.userId
                     }
@@ -253,8 +267,7 @@ Popup {
                             Layout.fillWidth: true
                             textFormat: Text.RichText
                             text: root.highlightedName(
-                                (model.displayName && model.displayName.length > 0)
-                                ? model.displayName : model.userId, root.query,
+                                root.nameFor(model), root.query,
                                 rowDelegate.isSelected ? AppTheme.bolt
                                                        : AppTheme.stormText)
                             color: rowDelegate.isSelected

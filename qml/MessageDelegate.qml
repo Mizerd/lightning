@@ -92,6 +92,14 @@ Item {
         isVirtualRow && model.eventType === 7
         && model.dividerIntroducesVisibleContent === false
 
+    // A redacted row that is NOT the first of its run renders nothing: the
+    // leader carries the whole run's "N messages deleted" line. `=== false`
+    // deliberately, matching dividerSuppressed above — a host whose model
+    // lacks the role reads `undefined` and keeps one row per deletion rather
+    // than silently hiding every deleted message.
+    readonly property bool deletedFollower:
+        model.redacted === true && model.deletedGroupLeader === false
+
     // Settings → Appearance → Message layout (0 Modern, 1 Bubbles, 2
     // Compact). The thread panel always keeps the Modern rows; Bubbles
     // applies only to direct-message timelines (never ordinary rooms).
@@ -145,8 +153,10 @@ Item {
             || app.cryptoBootstrap.phase
                 === CryptoBootstrapModel.NoBackupAvailable)
     visible: roomActivityVisible && !suppressedAsThreadRoot && !dividerSuppressed
+             && !deletedFollower
     readonly property real naturalImplicitHeight:
-        (!roomActivityVisible || suppressedAsThreadRoot || dividerSuppressed) ? 0
+        (!roomActivityVisible || suppressedAsThreadRoot || dividerSuppressed
+         || deletedFollower) ? 0
         : isVirtualRow ? virtualRow.implicitHeight
         : isStateActivity ? stateActivity.implicitHeight
         : layout.implicitHeight + messageTopSpacing
@@ -1566,7 +1576,18 @@ Item {
                             // twice — the RichText document would otherwise
                             // still be built for an invisible item.
                             if (root.hasMessageSegments) return ""
-                            if (model.redacted) return qsTr("[message deleted]")
+                            if (model.redacted) {
+                                // A run of deletions collapses to one line.
+                                // TimelineModel groups them exactly the way it
+                                // groups state changes, so a moderator
+                                // clearing twenty messages costs one row here
+                                // instead of twenty identical ones.
+                                return model.deletedGroupCount > 1
+                                    ? qsTr("%n message(s) deleted",
+                                           "collapsed run of redactions",
+                                           model.deletedGroupCount)
+                                    : qsTr("[message deleted]")
+                            }
                             // The poll card presents the question; the body
                             // is only the MSC1767 fallback for old clients.
                             if (model.isPoll === true) return ""

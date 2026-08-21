@@ -3907,9 +3907,39 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
 
     auto roomIt = m_rooms.find(roomId);
     if (roomIt != m_rooms.end()) {
-        roomIt->lastMessagePreview = previewFor(timelineEvent);
-        roomIt->lastActivity = timelineEvent.timestamp;
-        Q_EMIT roomUpdated(roomId);
+        // What may move a room up the list is deliberately NARROW.
+        //
+        // Reported as "clicking an older room moves it upwards, then it drops
+        // back down". Opening a room subscribes it in sliding sync and its
+        // BACKLOG then arrives here as ordinary live appends (the same
+        // mechanism behind the 0.7.3 self-notification fix), so every one of
+        // those appends was writing lastActivity — reordering the list from
+        // history — until the next authoritative room-list reconcile put it
+        // back. The user saw a room jump and fall for no reason they caused.
+        //
+        // Three rules, and each excludes a real case seen in that report:
+        //   * a VIRTUAL row (date divider, read marker, timeline start) is
+        //     not activity at all;
+        //   * a StateChange is not activity either — a member joining or
+        //     leaving must not raise a silent room above one that is being
+        //     talked in, which is the "hidden room updates" the tester
+        //     suspected;
+        //   * activity NEVER moves backwards. That is what makes replayed
+        //     history harmless: an older event cannot lower a room, and a
+        //     re-delivered one cannot reorder anything.
+        // updateRoomPreviewFrom() already skipped virtual rows; this path did
+        // not, and it is the one every live event takes.
+        const bool countsAsActivity = !timelineEvent.isVirtual()
+            && timelineEvent.type != TimelineEvent::StateChange;
+        if (countsAsActivity) {
+            roomIt->lastMessagePreview = previewFor(timelineEvent);
+            if (timelineEvent.timestamp.isValid()
+                && (!roomIt->lastActivity.isValid()
+                    || timelineEvent.timestamp > roomIt->lastActivity)) {
+                roomIt->lastActivity = timelineEvent.timestamp;
+            }
+            Q_EMIT roomUpdated(roomId);
+        }
     }
 }
 
@@ -3923,8 +3953,13 @@ void RustSdkMatrixClient::updateRoomPreviewFrom(
         if (event.isVirtual())
             continue;
         roomIt->lastMessagePreview = previewFor(event);
-        if (event.timestamp.isValid())
+        // Same monotonicity rule as the append path: this is fed newest-first
+        // CANDIDATES, including ones re-read from history.
+        if (event.timestamp.isValid()
+            && (!roomIt->lastActivity.isValid()
+                || event.timestamp > roomIt->lastActivity)) {
             roomIt->lastActivity = event.timestamp;
+        }
         Q_EMIT roomUpdated(roomId);
         return;
     }

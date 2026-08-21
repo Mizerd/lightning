@@ -449,6 +449,51 @@ int TimelineModel::stateGroupLeaderRow(int row) const
     return leader;
 }
 
+// Deliberately the same shape as stateGroupLeaderRow, including walking
+// THROUGH virtual rows: a date divider between two deletions does not make
+// them two separate events to a reader. A run is broken only by a row that is
+// actually visible.
+int TimelineModel::deletedGroupLeaderRow(int row) const
+{
+    if (row < 0 || row >= m_events.size() || !m_events.at(row).redacted)
+        return -1;
+
+    int leader = row;
+    int probe = row - 1;
+    while (probe >= 0) {
+        const auto &e = m_events.at(probe);
+        if (e.redacted) {
+            leader = probe;
+            --probe;
+            continue;
+        }
+        if (e.isVirtual()) {
+            --probe;
+            continue;
+        }
+        break;
+    }
+    return leader;
+}
+
+int TimelineModel::deletedGroupLengthFrom(int leaderRow) const
+{
+    if (leaderRow < 0 || leaderRow >= m_events.size())
+        return 0;
+    int count = 0;
+    for (int row = leaderRow; row < m_events.size(); ++row) {
+        const auto &e = m_events.at(row);
+        if (e.redacted) {
+            ++count;
+            continue;
+        }
+        if (e.isVirtual())
+            continue;
+        break;
+    }
+    return count;
+}
+
 int TimelineModel::stateActivityRowCount() const
 {
     int count = 0;
@@ -636,9 +681,16 @@ void TimelineModel::emitPresentationGroupingChanged(int first, int last)
     // cross the immediate insertion boundary. Expand only across that run;
     // visible message/media rows terminate it. This remains proportional to
     // the affected group rather than to all loaded history.
+    //
+    // REDACTED rows join the predicate for the same reason state rows are in
+    // it: they group, so redacting one message changes the leader and the
+    // count of every other row in its run, and a dataChanged that stopped at
+    // the redacted row itself would leave the rest of the run displaying a
+    // stale count.
     const auto groupingRunRow = [this](int row) {
         const auto &event = m_events.at(row);
-        return event.type == TimelineEvent::StateChange || event.isVirtual();
+        return event.type == TimelineEvent::StateChange || event.isVirtual()
+            || event.redacted;
     };
     while (first > 0 && groupingRunRow(first))
         --first;
@@ -647,7 +699,9 @@ void TimelineModel::emitPresentationGroupingChanged(int first, int last)
 
     Q_EMIT dataChanged(index(first), index(last),
                        { StateGroupIdRole, StateGroupLeaderRole,
-                         StateGroupEntriesRole, SameSenderAsPreviousRole,
+                         StateGroupEntriesRole,
+                         DeletedGroupLeaderRole, DeletedGroupCountRole,
+                         SameSenderAsPreviousRole,
                          BeginsSenderGroupRole, ContinuesSenderGroupRole,
                          EndsSenderGroupRole, ShowSenderIdentityRole,
                          // A divider's answer is decided by the rows of the
@@ -957,6 +1011,18 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         if (leader != raw) return QVariantList{};
         return stateGroupEntriesFrom(leader);
     }
+    case DeletedGroupLeaderRole: {
+        const int leader = deletedGroupLeaderRow(raw);
+        // A non-redacted row reports TRUE so a delegate can bind
+        // `visible: deletedGroupLeader` without also testing `redacted`
+        // and hiding every ordinary message.
+        return leader < 0 || leader == raw;
+    }
+    case DeletedGroupCountRole: {
+        const int leader = deletedGroupLeaderRow(raw);
+        if (leader != raw) return 0;
+        return deletedGroupLengthFrom(leader);
+    }
     default:                     return {};
     }
 }
@@ -1022,6 +1088,8 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { StateGroupIdRole,         "stateGroupId" },
         { StateGroupLeaderRole,     "stateGroupLeader" },
         { StateGroupEntriesRole,    "stateGroupEntries" },
+        { DeletedGroupLeaderRole,   "deletedGroupLeader" },
+        { DeletedGroupCountRole,    "deletedGroupCount" },
         { SenderAvatarMxcRole,      "senderAvatarMxc" },
         { SenderInitialsRole,       "senderInitials" },
         { BeginsSenderGroupRole,    "beginsSenderGroup" },

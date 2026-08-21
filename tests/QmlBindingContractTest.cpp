@@ -602,10 +602,18 @@ private Q_SLOTS:
         // same expression — a date divider whose entire run is hidden. It is
         // the same mechanism (zero height, row stays in the authoritative
         // model), so it belongs in this assertion rather than beside it.
+        //
+        // 2026-08-22: a FOURTH — every redacted row after the first of its
+        // run, which the leader replaces with one "N messages deleted" line.
+        // Same mechanism again: the rows stay in the model and the model
+        // still counts them, so a deletion never changes what the timeline
+        // knows, only what it draws.
         QVERIFY(delegate.contains(QStringLiteral("dividerSuppressed")));
+        QVERIFY(delegate.contains(QStringLiteral("deletedFollower")));
         QVERIFY(delegate.contains(QStringLiteral(
             "(!roomActivityVisible || suppressedAsThreadRoot"
-            " || dividerSuppressed) ? 0")));
+            " || dividerSuppressed"
+            "\n         || deletedFollower) ? 0")));
         QVERIFY(settings.contains(QStringLiteral("Show room activity")));
         QVERIFY(settings.contains(QStringLiteral(
             "onToggled: app.settings.showRoomActivity = checked")));

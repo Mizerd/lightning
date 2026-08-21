@@ -118,6 +118,13 @@ public:
         StateGroupIdRole,
         StateGroupLeaderRole,
         StateGroupEntriesRole,
+        // Consecutive REDACTED rows collapse the same way a run of state
+        // changes does: the first row of a run reports itself the leader and
+        // carries the run's length, and the rest render nothing. A moderator
+        // clearing twenty messages should cost twenty lines of "[message
+        // deleted]" exactly as little as twenty joins cost twenty lines.
+        DeletedGroupLeaderRole,
+        DeletedGroupCountRole,
         SenderAvatarMxcRole,
         SenderInitialsRole,
         BeginsSenderGroupRole,
@@ -407,6 +414,11 @@ private:
     // markers, timeline-start) — only a visible message/media event ends a
     // group. See TimelineModel.cpp for the rationale.
     int stateGroupLeaderRow(int row) const;
+    // First row of the run of redacted messages containing `row`, or -1 when
+    // that row is not redacted. Mirrors stateGroupLeaderRow, including its
+    // transparency through virtual rows.
+    int deletedGroupLeaderRow(int row) const;
+    int deletedGroupLengthFrom(int leaderRow) const;
     QVariantList stateGroupEntriesFrom(int leaderRow) const;
     // Re-read grouping roles only around a structural boundary. New rows
     // already query their correct roles on first bind; only their existing
