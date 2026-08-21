@@ -3611,6 +3611,13 @@ Rectangle {
                 // only while the timeline holds active focus — so a focused
                 // composer, search field, dialog, or menu keeps its keys.
                 function keyboardPage(direction) {   // -1 up, +1 down
+                    // Paging is the reader driving, exactly as the wheel is —
+                    // a keyboard-only reader was still being teleported. This
+                    // belongs here rather than in beginWheelTo(), which
+                    // goToLatest()/goToEarliestLoaded() also use and which a
+                    // future programmatic caller could reach; all three
+                    // callers of keyboardPage are Keys handlers.
+                    noteReaderTookControl()
                     // The table is rotated: increasing logical contentY moves
                     // physically upward toward older rows.
                     beginWheelTo(contentY - direction * height * 0.9)
@@ -4523,7 +4530,28 @@ Rectangle {
                     // autoscroll gesture is the reader taking the view.
                     timeline.noteReaderTookControl()
                 }
-                onScrolled: timeline.updateStickAndPaginate()
+                onScrolled: {
+                    timeline.updateStickAndPaginate()
+                    // The scroller writes contentY directly, which leaves
+                    // Flickable.moving false, and updateStickAndPaginate()
+                    // does not touch the settle timer — so for the whole
+                    // gesture userScrollActive was FALSE. That is not a
+                    // cosmetic detail: captureViewAnchor() never ran, so
+                    // every coalesced content-height change (a pagination
+                    // prepend, an image or link preview resolving, a late
+                    // decryption) reached maintainViewAnchor()'s IDLE branch
+                    // and ABSOLUTELY restored contentY to the pre-gesture
+                    // anchor — a teleport back to where the reader started.
+                    // saveRoomPosition() never ran either.
+                    //
+                    // Restarting the settle timer makes the autoscroll a
+                    // first-class scroll owner: the same re-base branch, the
+                    // same settle-time anchor capture, position save and row
+                    // window pass the wheel already gets. Deliberately NOT a
+                    // fourth term on userScrollActive — one settle path is
+                    // what the wheel relies on.
+                    scrollSettleTimer.restart()
+                }
             }
 
             // v0.7: Space Home — never an ordinary room timeline/composer.
