@@ -74,25 +74,25 @@ QtObject {
     readonly property color _sidebarLight:       "#F4F8FC"
     readonly property color _sidebarDark:        "#111827"
     readonly property color _cardLight:          "#FFFFFF"
-    readonly property color _cardDark:           "#1E293B"
+    readonly property color _cardDark:           "#192332"
     readonly property color _cardElevatedLight:  "#E8EEF7"
-    readonly property color _cardElevatedDark:   "#243244"
+    readonly property color _cardElevatedDark:   "#1F2A3A"
     readonly property color _hoverLight:         "#DCE8FF"
-    readonly property color _hoverDark:          "#243B6B"
+    readonly property color _hoverDark:          "#1F325B"
     readonly property color _selectedLight:      "#BEDBFF"
-    readonly property color _selectedDark:       "#2D4FA8"
+    readonly property color _selectedDark:       "#26438F"
     readonly property color _selectedHoverLight: "#A9CEFF"
-    readonly property color _selectedHoverDark:  "#3A5DC0"
+    readonly property color _selectedHoverDark:  "#314FA3"
     readonly property color _selectedTextLight:  "#1E293B"
     readonly property color _selectedTextDark:   "#F8FAFC"
-    readonly property color _accentBlue:         "#4F7CFF"
-    readonly property color _accentBlueHover:    "#6B91FF"
-    readonly property color _accentBluePressed:  "#3D66E0"
-    readonly property color _outgoingBubbleBlue: "#3558C9"
+    readonly property color _accentBlue:         "#1D57FF"
+    readonly property color _accentBlueHover:    "#3569FF"
+    readonly property color _accentBluePressed:  "#214ED1"
+    readonly property color _outgoingBubbleBlue: "#2D4BAB"
     readonly property color _accentGreen:        "#22C55E"
     readonly property color _accentWarning:      "#E5A23C"
     readonly property color _accentDanger:       "#DC2626"
-    readonly property color _accentInfo:         "#38BDF8"
+    readonly property color _accentInfo:         "#0CAEF6"
     readonly property color _textPrimaryLight:   "#1E293B"
     readonly property color _textPrimaryDark:    "#F8FAFC"
     readonly property color _textSecondaryLight: "#5B6B84"
@@ -103,7 +103,7 @@ QtObject {
     readonly property color _textDisabledDark:   "#64748B"
     readonly property color _borderLight:        "#C4D2E7"
     readonly property color _borderDark:         "#334155"
-    readonly property color _borderStrongLight:  "#9DB0C9"
+    readonly property color _borderStrongLight:  "#7A94B6"
     readonly property color _borderStrongDark:   "#475569"
     readonly property color _inputBgLight:       "#FFFFFF"
     readonly property color _inputBgDark:        "#111827"
@@ -114,17 +114,17 @@ QtObject {
     readonly property color _dkBg:            "#0D1117"
     readonly property color _dkSidebar:       "#10161D"
     readonly property color _dkCard:          "#161C26"
-    readonly property color _dkCardElevated:  "#1E2633"
-    readonly property color _dkHover:         "#202A3A"
-    readonly property color _dkSelected:      "#2C4170"
-    readonly property color _dkSelectedHover: "#395088"
+    readonly property color _dkCardElevated:  "#19202B"
+    readonly property color _dkHover:         "#1B2431"
+    readonly property color _dkSelected:      "#25375F"
+    readonly property color _dkSelectedHover: "#304474"
     readonly property color _dkSelectedText:  "#F0F4FA"
     readonly property color _dkTextPrimary:   "#E9EEF6"
     readonly property color _dkTextSecondary: "#B7C2D4"
     readonly property color _dkTextMuted:     "#8D9AB0"
     readonly property color _dkTextDisabled:  "#5C6A80"
-    readonly property color _dkBorder:        "#273143"
-    readonly property color _dkBorderStrong:  "#3A4762"
+    readonly property color _dkBorder:        "#212A39"
+    readonly property color _dkBorderStrong:  "#313C53"
     readonly property color _dkInputBg:       "#10161D"
     readonly property color _dkCodeBlock:     "#0A0E14"
 
@@ -145,10 +145,10 @@ QtObject {
     readonly property color _graBorderStrong:  "#4A4A52"
     readonly property color _graInputBg:       "#202024"
     readonly property color _graCodeBlock:     "#141416"
-    readonly property color _graAccent:        "#5B8DEF"
-    readonly property color _graAccentHover:   "#77A2F2"
-    readonly property color _graAccentPressed: "#4372CE"
-    readonly property color _graOwnBubble:     "#3A5BB5"
+    readonly property color _graAccent:        "#2E6EEB"
+    readonly property color _graAccentHover:   "#4680ED"
+    readonly property color _graAccentPressed: "#305EB8"
+    readonly property color _graOwnBubble:     "#314D9A"
     readonly property color _graOtherBubble:   "#303036"
 
     // Nord — polar-night surfaces, frost accent.
@@ -168,10 +168,10 @@ QtObject {
     readonly property color _norBorderStrong:  "#4C566A"
     readonly property color _norInputBg:       "#2B303B"
     readonly property color _norCodeBlock:     "#292E39"
-    readonly property color _norAccent:        "#5E81AC"
-    readonly property color _norAccentHover:   "#6D93C0"
-    readonly property color _norAccentPressed: "#4C6C94"
-    readonly property color _norOwnBubble:     "#4C6C94"
+    readonly property color _norAccent:        "#4D6D95"
+    readonly property color _norAccentHover:   "#4D7CB2"
+    readonly property color _norAccentPressed: "#415C7E"
+    readonly property color _norOwnBubble:     "#415C7E"
     readonly property color _norOtherBubble:   "#3B4252"
 
     // Purple Dusk — deep violet surfaces.
@@ -255,7 +255,7 @@ QtObject {
     readonly property color _indCardElevated:  "#2A2A36"
     readonly property color _indHover:         "#1D1D26"
     readonly property color _indSelected:      "#25253D"
-    readonly property color _indSelectedHover: "#2C2D4A"
+    readonly property color _indSelectedHover: "#25263F"
     readonly property color _indSelectedText:  "#C3C5FF"
     readonly property color _indTextPrimary:   "#E8E8EF"
     readonly property color _indTextSecondary: "#A4A6B8"
@@ -265,12 +265,12 @@ QtObject {
     readonly property color _indBorderStrong:  "#33333F"
     readonly property color _indInputBg:       "#1D1D26"
     readonly property color _indCodeBlock:     "#0B0B10"
-    readonly property color _indAccent:        "#7C7FF2"
-    readonly property color _indAccentHover:   "#9295F5"
-    readonly property color _indAccentPressed: "#6568D6"
+    readonly property color _indAccent:        "#4A4EED"
+    readonly property color _indAccentHover:   "#5C61F0"
+    readonly property color _indAccentPressed: "#4043CC"
     readonly property color _indAccentSoft:    "#25253D"
-    readonly property color _indAccentBorder:  "#383966"
-    readonly property color _indOwnBubble:     "#4A4CB8"
+    readonly property color _indAccentBorder:  "#303057"
+    readonly property color _indOwnBubble:     "#3E409E"
     readonly property color _indOtherBubble:   "#2A2A36"
     readonly property color _indMention:       "#E5677A"
     readonly property color _indOnline:        "#63D6A3"
@@ -354,7 +354,7 @@ QtObject {
     // At this value the rail->list step is 1.223; taking the list to a
     // genuinely near-black navy drops that under 1.15 and brings back the
     // one-continuous-field look the ladder was widened to fix.
-    readonly property color _stoCanvas:        "#121757"
+    readonly property color _stoCanvas:        "#121655"
     // ── Storm blues: chroma, not HLS saturation ─────────────────────────
     //
     // The first pass re-saturated these by HLS `s`, which is NOT perceptual
@@ -402,24 +402,24 @@ QtObject {
     // raised chip from a selected row apart. Re-saturating both toward one
     // hue collapsed that to dE 8 and the ladder test caught it; they are now
     // dE 25, blue-navy against violet.
-    readonly property color _stoPanel:         "#22267B"
-    readonly property color _stoInset:         "#0C1436"
-    readonly property color _stoDeep:          "#020622"
-    readonly property color _stoBorder:        "#394797"
-    readonly property color _stoBorderStrong:  "#525FB5"
-    readonly property color _stoSelection:     "#2F39B2"
+    readonly property color _stoPanel:         "#202473"
+    readonly property color _stoInset:         "#0A112E"
+    readonly property color _stoDeep:          "#02051D"
+    readonly property color _stoBorder:        "#303C80"
+    readonly property color _stoBorderStrong:  "#434F9D"
+    readonly property color _stoSelection:     "#283097"
     // Elevation rung above the panel: reaction pills, keycaps, raised cards.
     // Was an alias of _stoSelection, which is what made "hovered", "selected"
     // and "raised" indistinguishable.
-    readonly property color _stoCardElevated:  "#284394"
+    readonly property color _stoCardElevated:  "#22397E"
     // Row-hover lift. Kept as a translucent wash rather than an opaque rung
     // because hover applies over the timeline (deep), the room list (canvas)
     // AND menu rows (panel); at 0.22 alpha it measures 1.25/1.31/1.27:1 over
     // those three, i.e. one consistent lift instead of one tuned surface.
-    readonly property color _stoHover:         "#7075C4"
+    readonly property color _stoHover:         "#6469BF"
     // Reaction-pill surface. Its OWN value, not an alias of cardElevated:
     // 1.21:1 above the bubble it attaches to and 1.88:1 above the timeline.
-    readonly property color _stoReaction:      "#283688"
+    readonly property color _stoReaction:      "#24317B"
     readonly property color _stoBolt:          "#FFD447"
     // Ink painted ON a bolt or link fill. Split out of _stoCanvas this round:
     // the room-list surface had been doing double duty as the badge ink, so
@@ -440,8 +440,8 @@ QtObject {
     // pill carries white ink, and #FF8FA0 is too light under it.
     readonly property color _stoAccentHover:   "#FFDF6E"
     readonly property color _stoAccentPressed: "#E9BC2F"
-    readonly property color _stoOwnBubble:     "#3345A6"
-    readonly property color _stoSelectedHover: "#3A43C9"
+    readonly property color _stoOwnBubble:     "#2B3B8D"
+    readonly property color _stoSelectedHover: "#3037AD"
     readonly property color _stoMention:       "#E5677A"
 
     // Ink used on top of accent fills for every palette without its own
@@ -508,7 +508,7 @@ QtObject {
     readonly property color _lightReaction:    "#FBFDFF"
     readonly property color _dkReaction:       "#252B35"
     readonly property color _graReaction:      "#333339"
-    readonly property color _midReaction:      "#2B3648"
+    readonly property color _midReaction:      "#252E3D"
     readonly property color _norReaction:      "#474E5E"
     readonly property color _purReaction:      "#37314E"
     readonly property color _warReaction:      "#EADECF"

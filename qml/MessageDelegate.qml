@@ -2093,23 +2093,30 @@ Item {
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: -3
-                // `parent` is bubbleRow — the FULL timeline width — while
-                // the message content is clamped to
-                // timelineContentMaxWidth (760). On a maximised window that
-                // put React/Reply/More roughly 390px to the right of the
-                // text they act on, in dead space with no visual connection
-                // to the row; Element anchors its hover toolbar to the top-
-                // right of the event tile's own content box. Pull the bar
-                // back by however much empty gutter the content column
-                // leaves, so it lands on the content's right edge at any
-                // width and collapses to the old behaviour on a narrow pane
-                // (where bubble already reaches the row edge).
+                // `parent` is bubbleRow — the FULL timeline width. The bar
+                // sits at the row's top-RIGHT CORNER, which is where Element
+                // puts it (`mx_MessageActionBar` is `right: 8px` on an event
+                // tile that spans the whole timeline panel).
+                //
+                // The 2026-08-21 round briefly pulled the bar left by the
+                // content column's empty gutter, to land it on the text's
+                // own right edge. That was WRONG in practice and Rokas
+                // reported it: the content column is clamped to
+                // timelineContentMaxWidth, so the "content edge" is a
+                // CONSTANT — the bar rendered at the same fixed x on every
+                // row, floating mid-row with nothing under it, and short
+                // rows looked no different from long ones. A corner is a
+                // landmark; a fixed offset into open space is not.
+                //
+                // The margin clears the overlaid vertical scrollbar
+                // (AppScrollBar sits on the Flickable's right edge and this
+                // row is not inset from it) so the bar can never render
+                // underneath the handle.
                 //
                 // Still a plain in-row anchor: no mapToItem, which is what
                 // the reverted overlay bar was and could not survive the
                 // rows' 180-degree rotation.
-                anchors.rightMargin: 2 + Math.max(
-                    0, bubbleRow.width - (bubble.x + bubble.width))
+                anchors.rightMargin: AppTheme.scrollbarWidth + AppTheme.spacing2
                 z: 3
                 // Created on first need, then latched alive for the
                 // delegate's lifetime; visibility gates afterwards. The
