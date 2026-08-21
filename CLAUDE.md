@@ -1365,6 +1365,76 @@ their index explicitly.
 
 Lessons only; features are described in §7, SHAs point into `git log`.
 
+**2026-08-21 UI rework round (`c3f2393..17e269e`, 13 commits).** Emoji
+input, the scroll teleport, mentions, and a design-system rebuild.
+
+*The scroll teleport — FOUR paths, and the reported one was not the
+obvious one.* (1) The navigation-landing budget added in `f4e6525` was
+CONVERGENCE-based: it reset whenever `count`/`layoutRowsAtLastPass`
+changed, and during a scroll BOTH change constantly (pagination, the row
+window's settle, every Column pass), so it re-armed forever and fired
+whenever the target became measurable. Now has an absolute ~2 s ceiling.
+(2) **The actual "about 10 seconds"** is a scroll-anchor RESTORE:
+`restoreScrollAnchor` can spend up to `kMaxNavigationBatches` (8) REAL
+network paginations before emitting `targetLocated`, and its target IS
+"a spot I was at before". Cancelling the landing in the VIEW cannot help
+— the landing does not exist yet when the reader starts scrolling — so
+`PaginationController::cancelNavigation()` exists and
+`noteReaderTookControl()` calls it. (3) Middle-click autoscroll left
+`userScrollActive` FALSE for the whole gesture (it writes contentY
+directly so `moving` stays false, and `updateStickAndPaginate` never
+restarted the settle timer), so `maintainViewAnchor()` took its IDLE
+branch and ABSOLUTELY restored contentY on the next content-height
+change. Pre-existing since v0.7.4. (4) Keyboard paging retired nothing.
+GENERALISE: a convergence budget needs an absolute ceiling, and the
+reader taking the view must reach EVERY layer that can move it.
+
+*A Popup does NOT consume a press that lands on it.*
+`QQuickPopup::mousePressEvent` sets `accepted = blockInput()`, and
+`blockInput()` returns FALSE when `popupItem == item` — so delivery keeps
+walking down to items behind the overlay. **`modal: true` blocks presses
+OUTSIDE a popup only.** The 2026-08-18 emoji fix rested on the opposite
+premise and was inert. Left presses survived by ACCIDENT (GridView is a
+Flickable, and Flickable is constructed `LeftButton`-only); right presses
+reached MessageDelegate's `Qt.RightButton` TapHandler. Fix: an
+all-buttons `MouseArea` sink in the popup's `background:` (bottom-most
+hit-testable item, below `contentItem`). Do NOT fix with `z`.
+
+*`visible: running` on a shared busy indicator is a permanent latch.*
+Hosts use the inverse idiom `running: visible`; together they cycle, and
+`QQuickItem::visible` is EFFECTIVE visibility, so an indicator created
+under a hidden ancestor writes `running=false`, then `explicitVisible=false`,
+and nothing re-triggers either. Silent (no `visibleChanged`, so no
+binding-loop warning) and order-independent. A component owns its
+animation; the HOST owns visibility.
+
+*A defaulted C++ parameter that QML must pass fails silently.*
+`setMentionStyle` gained `linkColor` and NOTHING passed it, so every URL
+and every non-self mention rendered in the accent for the whole round.
+Pin the arity in a test.
+
+*Colour: measure before believing the symptom.* "Needs more colour"
+turned out to be SEPARATION — Storm is the app's MOST saturated shell
+(Lab chroma 27.1 vs Moss Light 0.8), but every surface step was below
+1.25:1 and `cardElevated`/`hover`/`selected`/`reactionBackground` were one
+literal. The ladder has a hard ceiling written into AppTheme: dark
+identity inks must clear 4.5:1 on four surfaces, capping them at
+luminance 0.0757, which four 1.25 rungs reach exactly. Separately,
+contrast is NOT sufficient for identity colours — nine sender inks were
+really seven (closest pair dE 5.6/7.4) while every one passed AA, because
+legibility was never the failing property. And an ink used as the base of
+its own 14% chip fill must be checked against THAT, not against the
+surface.
+
+*Six of seven test failures were bad tests, not bad code* — a ban regex
+matching a token named in a COMMENT, an icon regex matching
+`State { name: }`, three fixed-window source scans defeated by added
+comments, a click helper that never scrolled (Qt DROPS a press outside the
+window), and a reflow guard measuring scene coordinates so a scroll read
+as a reflow. Ask what an assertion meant to measure before deciding who is
+wrong; repoint it with teeth rather than deleting it. `qmlformat` over
+`qml/*.qml` is a seconds-long parse gate worth running before any build.
+
 **2026-08-19 design-deficit pass.** The reader popover's click was DEAD:
 delegates reach the pane only through their `timelineView` (the rotated
 Flickable), and `openReceiptList` was a pane-root function, so the
@@ -1653,6 +1723,14 @@ matrix-sdk-ui 0.18 are in `docs/receipt-semantics.md`. **NOT TESTED**.
 
 Highest value first:
 
+- **LOOK AT THE 2026-08-21 UI ROUND ON A REAL DESKTOP.** It changed ~60
+  QML files, every one of the 11 themes' surfaces, the type scale and the
+  identity palette, and NOT ONE PIXEL of it has been seen. Offscreen
+  suites and computed contrast are all the evidence there is. Highest
+  value here: the emoji picker actually taking a right-click, the reply
+  quote, the room list, the mention chip, and Storm's widened surface
+  ladder. Anything that looks wrong is cheap to fix now and expensive
+  after it ships.
 - **Run `docs/element-interop-checklist.md` live** (encrypted both
   directions, threads, voice, video+poster, reactions incl. the D3
   hammer test, pins, edit, redaction, key-recovery cycle).
