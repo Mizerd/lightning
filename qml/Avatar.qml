@@ -41,14 +41,12 @@ Rectangle {
     property string colorKey: ""
     // Explicit initials font size; 0 derives from the avatar size.
     property int labelSize: 0
-    // Identity colour is not just the initials fallback: an avatar that
-    // HAS a bitmap used to paint no identity colour at all, so a room list
-    // where everyone has a photo carried none of the palette the app
-    // derives per person. A 1px rim in that person's own colour puts the
-    // identity back on every avatar without touching the photo itself.
-    // Suppressed below 28px — the read-receipt chips and inline mention
-    // avatars are too small for a rim to read as anything but noise.
-    property bool identityRing: size >= 28
+    // NOTE: a 1px identity rim around every avatar was tried in the
+    // 2026-08-21 round and REMOVED at Rokas's request the same day — "im
+    // not a fan of the avatr and room color frames". It read as chrome
+    // competing with selection rather than as identity. Do not re-add it.
+    // Identity colour lives in the initials fallback and in the sender
+    // name, which is where it carries meaning.
     // Perf: rows outside the viewport set this false so their loading
     // skeletons stop animating — every other Skeleton in the app gates on
     // rowOnScreen, and hundreds of off-screen infinite animations kept the
@@ -274,25 +272,4 @@ Rectangle {
         }
     }
 
-    // The identity rim. Declared AFTER the Image on purpose: the root
-    // Rectangle's own border would be painted beneath its children, so a
-    // border set on `root` would be hidden by the bitmap that fills it.
-    // Drawn INSIDE the bounds (a Rectangle border always is), which is
-    // also the only option here — the avatar occupies exactly `size`, so
-    // an outset ring would bleed into whatever sits beside it.
-    Rectangle {
-        objectName: "avatarIdentityRing"
-        anchors.fill: parent
-        visible: root.identityRing
-                 && root.presentationState === "ready"
-                 && root._paletteKey.length > 0
-        color: "transparent"
-        radius: root.radius
-        border.width: 1
-        // Low alpha on purpose: at full strength this reads as a selection
-        // state rather than an identity, and every avatar would be
-        // competing with the one the user actually clicked.
-        border.color: Qt.alpha(root._paletteColor(root._paletteKey), 0.45)
-        antialiasing: true
-    }
 }

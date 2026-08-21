@@ -2162,6 +2162,12 @@ Rectangle {
                 // silent returns, so a jump that did nothing looked exactly
                 // like one that worked, which is why reply navigation stayed
                 // broken for so long with nobody able to point at a line.
+                // Rows that still measured ZERO after a layout flush when
+                // the row window corrected contentY. Non-zero means a window
+                // move threw the reader by that much — it names this
+                // mechanism instead of the anchor machinery, which three
+                // reverted fixes blamed wrongly.
+                property int diagWindowUnmeasuredRows: 0
                 property int diagNavigationLandings: 0
                 property int diagNavigationUnresolved: 0
                 // Jumps the reader overrode by scrolling before they landed.
@@ -3042,6 +3048,12 @@ Rectangle {
                         + " winSkip=" + rowWindowSkip
                         + " winApplies=" + diagWindowApplications
                         + " winExtendNew=" + diagWindowNewEndExtensions
+                        // Non-zero names the row window as the thing that
+                        // moved the reader: it corrected contentY using rows
+                        // that still measured zero after a layout flush. The
+                        // offscreen harness cannot reproduce that state, so a
+                        // real capture is the only way to see it.
+                        + " winUnmeasured=" + diagWindowUnmeasuredRows
                         // Cost, and what the loaded timeline is MADE of.
                         // gestureMs is wall clock across the whole gesture;
                         // worstNotchMs is the slowest single wheel event,
@@ -3264,12 +3276,40 @@ Rectangle {
                     }
                     app.timelineView.setWindow(wantSkip, wantRows)
                     if (wantSkip < skip) {
-                        // Restored rows exist immediately (the proxy builds
-                        // them synchronously), so they can be measured now.
+                        // EXISTENCE IS NOT MEASUREMENT. The proxy does build
+                        // the restored rows synchronously, but a row's height
+                        // comes from its ColumnLayout and a QQuickLayout only
+                        // applies its implicit size from updatePolish() — so
+                        // a row created in THIS turn reads height == 0. The
+                        // old comment here claimed the opposite while
+                        // tryLandNavigationTarget()'s own header, added in the
+                        // same commit, documents the hazard exactly.
+                        //
+                        // The consequence was the whole point of the window:
+                        // `shift` summed to ~0, no compensation was applied,
+                        // and restoring the window threw the reader by
+                        // however many rows it had just re-exposed. That is
+                        // the teleport that survived the navigation fixes —
+                        // it is visible in a session log as a burst of
+                        // re-fetches for media that was already cached, i.e.
+                        // a mass delegate rebuild.
+                        //
+                        // forceLayout() is the positioner's own synchronous
+                        // flush, exactly as the landing path uses it: one
+                        // call, no waiting, no second correction afterwards.
+                        rowColumn.forceLayout()
                         for (let r2 = 0; r2 < skip - wantSkip; ++r2) {
                             const added = itemAtViewRow(r2)
-                            if (added)
+                            if (added) {
                                 shift += added.height
+                                // Still zero after the flush means the
+                                // correction is about to be wrong by this
+                                // row's height. Count it rather than guess —
+                                // a non-zero value in a capture names this
+                                // mechanism instead of the anchor machinery.
+                                if (added.height <= 0)
+                                    ++diagWindowUnmeasuredRows
+                            }
                         }
                     }
                     // ONE exact write, and deliberately no deferred
@@ -3370,18 +3410,30 @@ Rectangle {
                         return false
                     // Restored rows land at the HEAD, which pushes every kept
                     // row further from content y 0 by exactly their summed
-                    // height. Measure the real items — the proxy builds them
-                    // synchronously, the Column has no inter-row spacing, so
-                    // the sum is exact rather than an estimate. contentHeight
-                    // is NOT usable here: the Column has not relaid out yet
-                    // and every geometry read is still the old content (this
-                    // is the same trap applyRowWindow() documents).
+                    // height. The proxy builds them synchronously and the
+                    // Column has no inter-row spacing, so the sum IS exact —
+                    // but only once they have been laid out. A row's height
+                    // comes from its ColumnLayout, and a QQuickLayout applies
+                    // its implicit size from updatePolish(), so a row created
+                    // in this turn measures ZERO and the correction silently
+                    // becomes ~0. See applyRowWindow(), which had the same
+                    // bug and the same too-confident comment.
+                    //
+                    // Worse here than there: the glide handler re-enters this
+                    // every frame while the position sits at the synthetic
+                    // edge, so an uncorrected extension can repeat until the
+                    // whole skip is consumed — a stall plus a jump to the
+                    // live edge.
                     let shift = 0
                     const added = count - before
+                    rowColumn.forceLayout()
                     for (let r = 0; r < added; ++r) {
                         const item = itemAtViewRow(r)
-                        if (item)
+                        if (item) {
                             shift += item.height
+                            if (item.height <= 0)
+                                ++diagWindowUnmeasuredRows
+                        }
                     }
                     if (shift !== 0) {
                         contentY = contentY + shift
@@ -5115,7 +5167,13 @@ Rectangle {
         Rectangle {
             id: spaceHome
             objectName: "spaceHomePane"
-            color: AppTheme.surface
+            // The PANE ground, not `surface`. Space Home fills the content
+            // area exactly as the timeline does, and `surface` is the raised
+            // card tone — so it rendered as one enormous card and read as the
+            // palest thing on screen ("even more pale", 2026-08-21). Cards
+            // INSIDE it still use surface/cardElevated, which is what gives
+            // them their lift.
+            color: AppTheme.background
 
             readonly property string spaceId:
                 app.spaces ? app.spaces.activeSpaceId : ""

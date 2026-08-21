@@ -342,7 +342,19 @@ QtObject {
     // than a fifth and sixth rung. The name inks were rebuilt and measured in
     // the round before this one and are NOT to be retuned to buy headroom:
     // if a surface move breaks the identity matrix, move the SURFACE back.
-    readonly property color _stoCanvas:        "#181F41"
+    // The room / people list ground. Deepened and enriched 2026-08-21 on
+    // Rokas's report that it "looks kinda pale": #181F41 was only 46%
+    // saturated, so it read as slate rather than as the theme's navy. This
+    // is 70% at a LOWER luminance — HLS lightness goes up, luminance goes
+    // down, because a saturated blue carries far less of it than a greyish
+    // tone at the same nominal lightness.
+    //
+    // It cannot go much darker than this without merging into _stoDeep,
+    // which is the ground on BOTH sides of it (the rail and the timeline).
+    // At this value the rail->list step is 1.223; taking the list to a
+    // genuinely near-black navy drops that under 1.15 and brings back the
+    // one-continuous-field look the ladder was widened to fix.
+    readonly property color _stoCanvas:        "#0E1A51"
     readonly property color _stoPanel:         "#252F5B"
     readonly property color _stoInset:         "#0F1530"
     readonly property color _stoDeep:          "#060718"

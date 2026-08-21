@@ -1,5 +1,9 @@
 #include "app/RoomInfoController.h"
 
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(lcRoomInfo, "lightning.roominfo")
+
 #include "matrix/MatrixClient.h"
 
 #include <QUrl>
@@ -162,6 +166,18 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
         snapshot.value(QStringLiteral("canManageSpaceChildren")).toBool();
     m_usersDefaultPowerLevel =
         snapshot.value(QStringLiteral("usersDefaultPowerLevel")).toLongLong();
+    // Space Home's Remove / Mark-as-suggested / Invite controls are gated on
+    // canManageSpaceChildren and canInvite, and when a gate reads false they
+    // simply are not rendered — which is indistinguishable, from the outside,
+    // from the surface having lost them. Booleans and a power level only; the
+    // room id is already truncated by the shared logging helper elsewhere and
+    // is deliberately NOT repeated here.
+    qCDebug(lcRoomInfo)
+        << "member snapshot power gates ownLevel=" << m_ownPowerLevel
+        << "canInvite=" << m_canInvite
+        << "canManageSpaceChildren=" << m_canManageSpaceChildren
+        << "canChangePowerLevels=" << m_canChangePowerLevels
+        << "joined=" << m_joinedCount;
     m_joinRule = snapshot.value(QStringLiteral("joinRule")).toString();
     m_canonicalAlias =
         snapshot.value(QStringLiteral("canonicalAlias")).toString();

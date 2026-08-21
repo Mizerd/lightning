@@ -1277,6 +1277,14 @@ private Q_SLOTS:
                                            "(%2 -> %3)")
                                 .arg(after2Offset - backOffset)
                                 .arg(backOffset).arg(after2Offset)));
+        // NOTE, measured 2026-08-21: with the layout flush in
+        // applyRowWindow() disabled, this counter is still ZERO here. The
+        // offscreen harness lays the restored rows out before this reads
+        // them, so it CANNOT reproduce the unmeasured-row hazard the flush
+        // guards against. Do not read a pass here as evidence that the
+        // hazard is absent in production — it is evidence that this fixture
+        // does not exercise it.
+        QCOMPARE(timeline->property("diagWindowUnmeasuredRows").toInt(), 0);
     }
 
     // ── 2026-08-19: speculative media waits for a settle ───────────────
