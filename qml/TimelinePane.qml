@@ -369,8 +369,8 @@ Rectangle {
                             .arg(receiptListPopover.totalOthers)
                 color: AppTheme.stormText
                 font.family: AppTheme.menuFont
-                font.pixelSize: 15
-                font.weight: Font.Bold
+                font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
+                font.weight: AppTheme.weightBold
             }
             ListView {
                 objectName: "receiptReaderList"
@@ -383,7 +383,12 @@ Rectangle {
                 clip: true
                 spacing: 2
                 model: receiptListPopover.readers
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                // Shared themed bar. A stock ScrollBar is the Basic style's,
+                // which paints from the OS palette (main.cpp sets the Basic
+                // style and never installs a QPalette), so it neither follows
+                // the selected Lightning theme nor changes when the theme
+                // does.
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                 delegate: Item {
                     id: readerDelegate
                     required property var modelData
@@ -422,8 +427,8 @@ Rectangle {
                                       || readerDelegate.modelData.userId
                                 color: AppTheme.stormText
                                 font.family: AppTheme.menuFont
-                                font.pixelSize: 14
-                                font.weight: Font.Medium
+                                font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                                font.weight: AppTheme.weightMedium
                                 elide: Label.ElideRight
                             }
                             Label {
@@ -433,7 +438,7 @@ Rectangle {
                                           readerDelegate.modelData.tsMs)
                                 color: AppTheme.stormTextMuted
                                 font.family: AppTheme.menuFont
-                                font.pixelSize: 12
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 elide: Label.ElideRight
                             }
                         }
@@ -450,7 +455,7 @@ Rectangle {
                                receiptListPopover.unnamed)
                     color: AppTheme.stormTextMuted
                     font.family: AppTheme.menuFont
-                    font.pixelSize: 11
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     topPadding: 4
                 }
             }
@@ -493,6 +498,15 @@ Rectangle {
         anchors.centerIn: parent
         onOpened: timeline.claimTransientInteraction("profile")
         onClosed: timeline.releaseTransientInteraction("profile")
+    }
+    // Room-scoped invite, opened from the empty-room block. A separate
+    // instance from Space Home's (which is scoped to the Space it is showing
+    // and lives inside a Loader that is not active while a room is open), so
+    // neither can inherit the other's target room.
+    InvitePeopleDialog {
+        id: roomInviteDialog
+        objectName: "roomInviteDialog"
+        parent: Overlay.overlay
     }
 
     // Every floating surface that is anchored to, or snapshotted from, a
@@ -713,14 +727,17 @@ Rectangle {
                                 return qsTr("Home")
                             }
                             color: AppTheme.text
-                            font.pixelSize: 15
-                            font.weight: Font.ExtraBold
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
+                            font.weight: AppTheme.weightBold
+                            elide: Label.ElideRight
+                            Layout.maximumWidth: header.width * 0.5
                         }
                         Icon {
                             id: encryptionLock
                             visible: root.currentRoom.encrypted === true
                             name: "lock"
-                            size: 13
+                            size: 14
                             color: AppTheme.textMuted
                             Accessible.role: Accessible.StaticText
                             Accessible.name: qsTr("Room encrypted")
@@ -733,7 +750,8 @@ Rectangle {
                     Label {
                         text: root.currentRoom.topic || ""
                         color: AppTheme.textMuted
-                        font.pixelSize: 12
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         visible: text.length > 0
                         Layout.fillWidth: true
                         elide: Label.ElideRight
@@ -773,7 +791,11 @@ Rectangle {
                         Accessible.name: qsTr("Voice call — coming soon")
                         ToolTip.text: qsTr("Voice calls are coming soon")
                         ToolTip.visible: hovered
-                        ToolTip.delay: 500
+                        // Shorter than the other header buttons' 500 ms: this
+                        // is the one control here that cannot be pressed, so
+                        // the reason has to arrive as fast as the
+                        // disappointment does.
+                        ToolTip.delay: 200
                         onClicked: app.calls.placeCall(app.currentRoomId)
                     }
                     // Pinned-messages shortcut: shown only when the room
@@ -877,16 +899,16 @@ Rectangle {
             readonly property bool showPredecessor:
                 app.roomUpgrade.predecessorRoomId.length > 0
             visible: showUpgraded || showPredecessor
-            implicitHeight: upgradeCol.implicitHeight + AppTheme.spacingS * 2
+            implicitHeight: upgradeCol.implicitHeight + AppTheme.spacing12 * 2
             radius: AppTheme.radiusLg
-            color: AppTheme.surface
-            border.color: AppTheme.border
+            color: AppTheme.chipInfoFill
+            border.color: AppTheme.chipInfoBorder
             border.width: 1
 
             ColumnLayout {
                 id: upgradeCol
                 anchors.fill: parent
-                anchors.margins: AppTheme.spacingS
+                anchors.margins: AppTheme.spacing12
                 spacing: AppTheme.spacingS
 
                 RowLayout {
@@ -894,13 +916,22 @@ Rectangle {
                     spacing: AppTheme.spacingS
                     visible: roomUpgradeBanner.showUpgraded
 
+                    Icon {
+                        Layout.alignment: Qt.AlignVCenter
+                        name: "info"
+                        size: 18
+                        color: AppTheme.chipInfoInk
+                    }
                     Text {
                         Layout.fillWidth: true
                         text: qsTr("This room has been upgraded.")
                         color: AppTheme.textPrimary
-                        font.pixelSize: AppTheme.fontBody
+                        font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                        font.weight: AppTheme.weightMedium
                         font.family: AppTheme.uiFont
                         wrapMode: Text.WordWrap
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         Accessible.role: Accessible.StaticText
                         Accessible.name: text
                     }
@@ -926,9 +957,11 @@ Rectangle {
                     visible: app.roomUpgrade.error.length > 0
                     text: app.roomUpgrade.error
                     color: AppTheme.danger
-                    font.pixelSize: AppTheme.fontSecondary
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     font.family: AppTheme.uiFont
                     wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     Accessible.role: Accessible.StaticText
                     Accessible.name: text
                 }
@@ -938,13 +971,25 @@ Rectangle {
                     spacing: AppTheme.spacingS
                     visible: roomUpgradeBanner.showPredecessor
 
+                    // Both rows can be visible at once (a room may be a
+                    // successor AND a predecessor), so this one carries its
+                    // own leading glyph rather than hanging unaligned beside
+                    // the upgraded row's.
+                    Icon {
+                        Layout.alignment: Qt.AlignVCenter
+                        name: "arrow_back"
+                        size: 18
+                        color: AppTheme.textMuted
+                    }
                     Text {
                         Layout.fillWidth: true
                         text: qsTr("This room replaced an earlier one.")
                         color: AppTheme.textSecondary
-                        font.pixelSize: AppTheme.fontSecondary
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         font.family: AppTheme.uiFont
                         wrapMode: Text.WordWrap
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         Accessible.role: Accessible.StaticText
                         Accessible.name: text
                     }
@@ -1078,7 +1123,8 @@ Rectangle {
                                             .arg(app.timeline.searchResultCount)
                           : (findField.text.length > 0 ? qsTr("No matches") : "")
                     color: AppTheme.textMuted
-                    font.pixelSize: 12
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 }
                 IconButton {
                     visible: !root.findHistoryMode
@@ -1121,7 +1167,7 @@ Rectangle {
                 clip: true
                 spacing: 2
                 model: root.findHistoryMode ? app.messageSearch : null
-                ScrollBar.vertical: ScrollBar {}
+                ScrollBar.vertical: AppScrollBar {}
                 onAtYEndChanged: {
                     if (atYEnd && app.messageSearch.canLoadMore)
                         app.messageSearch.loadMore()
@@ -1168,8 +1214,9 @@ Rectangle {
                                       ? historyRow.senderDisplayName
                                       : historyRow.sender
                                 color: AppTheme.text
-                                font.pixelSize: AppTheme.scaled(12)
-                                font.weight: Font.DemiBold
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                                font.weight: AppTheme.weightStrong
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
                             }
@@ -1181,14 +1228,16 @@ Rectangle {
                                         Qt.locale(), Locale.ShortFormat)
                                 }
                                 color: AppTheme.textMuted
-                                font.pixelSize: 11
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             }
                         }
                         Label {
                             Layout.fillWidth: true
                             text: historyRow.body
                             color: AppTheme.textSecondary
-                            font.pixelSize: AppTheme.scaled(12)
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             elide: Label.ElideRight
                             maximumLineCount: 1
                         }
@@ -1208,8 +1257,10 @@ Rectangle {
                           : app.messageSearch.state === "error"
                             ? qsTr("The search could not be completed.")
                             : ""
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                color: app.messageSearch.state === "error"
+                       ? AppTheme.danger : AppTheme.textMuted
+                font.family: AppTheme.uiFont
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 elide: Label.ElideRight
             }
             }
@@ -2511,6 +2562,29 @@ Rectangle {
                     sharedReactionPicker.targetEventId = eventId
                     sharedReactionPicker.anchorPoint = point
                     sharedReactionPicker.open()
+                }
+                // The mutual-exclusion half of C6, reachable from a row.
+                //
+                // The reaction picker and a message context menu are both
+                // Popup.Item in the same window overlay, so the one opened
+                // LAST paints and hit-tests on top — and a menu opened over
+                // an already-open picker covered the emoji grid entirely.
+                // That is NOT solvable with z (see the C6 note above: raising
+                // the picker only covers the action bar, which stays
+                // hit-testable underneath). The two surfaces must be
+                // mutually exclusive instead, and the closer has to live
+                // HERE rather than on the pane root: delegates reach the
+                // pane only through `timelineView`, so closeRowAnchoredSurfaces()
+                // as a pane-root function is invisible to them — the exact
+                // unreachability that silently swallowed every reader-list
+                // click in the 2026-08-19 round.
+                //
+                // Contract: MessageDelegate.openContextMenu() calls this
+                // BEFORE it assigns menuEventId, so opening a message menu
+                // always dismisses an open picker, tone popup or profile
+                // popover first.
+                property var closeTransientRowSurfaces: function() {
+                    root.closeRowAnchoredSurfaces()
                 }
                 property var openSenderProfile: function(member) {
                     senderProfilePopover.openFor(member)
@@ -4089,17 +4163,26 @@ Rectangle {
                                 timeline.distanceFromTop()
                     }
                     function onTargetLocated(row, pixelOffset, highlight) {
-                        // `highlight` is the discriminator between the two
-                        // kinds of navigation, and they deserve opposite
-                        // answers here. True means a REPLY jump — the reader
-                        // asked for it, so it wins even if they scrolled
-                        // while it resolved. False means a scroll-anchor
-                        // RESTORE, which is a convenience nobody asked for;
-                        // once the reader has moved this room's view
-                        // themselves, restoring the position the room opened
-                        // at is a teleport, not a service. cancelNavigation()
-                        // usually stops this arriving at all — this covers
-                        // the race where the restore was armed in between.
+                        // `highlight` distinguishes a REPLY jump (true) from
+                        // a scroll-anchor RESTORE (false), and the gate below
+                        // is about which of them may still land AFTER the
+                        // reader has taken the view.
+                        //
+                        // Be clear about what this does NOT do: a deliberate
+                        // gesture cancels EVERY pending jump, reply included,
+                        // through noteReaderTookControl(). That is intended.
+                        // A reply jump that has to paginate can take seconds,
+                        // and landing it mid-gesture is the same teleport the
+                        // round exists to remove — the reader's hands beat a
+                        // click they have already scrolled away from.
+                        //
+                        // What the gate adds is the case the cancel cannot
+                        // reach: the reader scrolls, and a RESTORE that was
+                        // already in flight resolves just afterwards. Nobody
+                        // asked for that one, so it is dropped. A reply jump
+                        // issued after a gesture still lands normally —
+                        // readerControlledSinceReset only ever blocks the
+                        // non-highlight case.
                         if (!highlight && timeline.readerControlledSinceReset) {
                             ++timeline.diagNavigationAbandoned
                             return
@@ -4339,16 +4422,13 @@ Rectangle {
                 // degrees, so an attached vertical bar renders on the visual
                 // LEFT and its handle travels backwards. The bar is declared
                 // as an UNROTATED sibling below and mapped explicitly.
-
-                Label {
-                    anchors.centerIn: parent
-                    // The no-room state is now the Home surface below; this
-                    // label only covers an empty selected room.
-                    visible: app.currentRoomId !== ""
-                             && timeline.count === 0 && timeline.presentationReady
-                    text: qsTr("No messages yet")
-                    color: AppTheme.textMuted
-                }
+                //
+                // For the same reason there is no empty-state label in here
+                // either: a Flickable reparents its visual children into the
+                // rotated contentItem, so the old centred "No messages yet"
+                // Label rendered UPSIDE DOWN. It now lives with the loading
+                // surface and the jump pill, which are siblings of this
+                // Flickable precisely so they read the right way up.
             }
 
             // Timeline scrollbar, deliberately OUTSIDE the rotated Flickable
@@ -4357,7 +4437,12 @@ Rectangle {
             // oldest loaded row) and the visual BOTTOM is wheelMinY (the
             // newest) — the mapping below is that inversion, in both
             // directions so dragging still works.
-            ScrollBar {
+            //
+            // AppScrollBar only restyles the handle and groove — every
+            // property this block relies on (size, position, pressed, the
+            // AsNeeded auto-fade) is ScrollBar's own, so the inversion and
+            // the imperative-position Binding below are untouched by it.
+            AppScrollBar {
                 id: timelineScrollBar
                 orientation: Qt.Vertical
                 policy: ScrollBar.AsNeeded
@@ -4439,9 +4524,9 @@ Rectangle {
                     Row {
                         id: paginationPill
                         anchors.centerIn: parent
-                        spacing: 6
-                        BusyIndicator {
-                            width: 16; height: 16
+                        spacing: AppTheme.spacing6
+                        AppBusyIndicator {
+                            size: 16
                             anchors.verticalCenter: parent.verticalCenter
                             running: app.pagination.presentationState
                                      === PaginationController.Loading
@@ -4455,26 +4540,61 @@ Rectangle {
                                   : qsTr("Could not load older messages —")
                             color: app.pagination.presentationState
                                    === PaginationController.Failed
-                                   ? AppTheme.error : AppTheme.textMuted
-                            font.pixelSize: 11
+                                   ? AppTheme.danger : AppTheme.textMuted
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                            font.weight: AppTheme.weightMedium
                         }
                         // v0.6.5: an inline text link — reads AppTheme.link
                         // (periwinkle under Storm), not accent (bolt,
                         // reserved for selection/focus/the one primary
                         // action), consistent with every other inline
                         // "Retry"/action link in the timeline.
-                        Label {
+                        //
+                        // An AbstractButton, not a Label with a MouseArea on
+                        // it: as a bare label the ONLY way to retry a failed
+                        // backfill was a mouse click — no focus, no Space or
+                        // Return, nothing in the accessibility tree.
+                        AbstractButton {
+                            id: paginationRetryButton
+                            objectName: "paginationRetryButton"
                             anchors.verticalCenter: parent.verticalCenter
                             visible: app.pagination.presentationState
                                      === PaginationController.Failed
-                            text: qsTr("Retry")
-                            color: AppTheme.link
-                            font.pixelSize: 11
-                            font.underline: true
+                            focusPolicy: Qt.StrongFocus
+                            hoverEnabled: true
+                            implicitWidth: paginationRetryLabel.implicitWidth
+                                           + AppTheme.spacing8
+                            implicitHeight: paginationRetryLabel.implicitHeight
+                                            + AppTheme.spacing4
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("Retry loading older messages")
+                            onClicked: app.pagination.retry()
+                            background: Rectangle {
+                                radius: AppTheme.radiusSm
+                                color: paginationRetryButton.hovered
+                                       ? AppTheme.buttonGhostHover
+                                       : "transparent"
+                                border.width:
+                                    paginationRetryButton.visualFocus ? 2 : 0
+                                border.color: AppTheme.focusRing
+                            }
+                            Label {
+                                id: paginationRetryLabel
+                                anchors.centerIn: parent
+                                text: qsTr("Retry")
+                                color: AppTheme.link
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.weight: AppTheme.weightMedium
+                                font.underline: true
+                            }
+                            // Cursor only — a MouseArea that accepted buttons
+                            // here would swallow the button's own clicks.
                             MouseArea {
                                 anchors.fill: parent
+                                acceptedButtons: Qt.NoButton
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: app.pagination.retry()
                             }
                         }
                     }
@@ -4573,8 +4693,8 @@ Rectangle {
                 Row {
                     anchors.centerIn: parent
                     spacing: AppTheme.spacingS
-                    BusyIndicator {
-                        width: 18; height: 18
+                    AppBusyIndicator {
+                        size: 18
                         anchors.verticalCenter: parent.verticalCenter
                         running: !timeline.presentationReady
                     }
@@ -4582,7 +4702,118 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         text: qsTr("Loading conversation…")
                         color: AppTheme.textMuted
-                        font.pixelSize: 12
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        font.weight: AppTheme.weightMedium
+                    }
+                }
+            }
+
+            // Empty room — a real start-of-conversation block, not one line
+            // of grey text floating in a void. Element gives this state an
+            // identity (the room's own avatar and name), one honest sentence
+            // and the actions that belong there; three of Lightning's four
+            // panes gave it a single muted Label, and this is the one a new
+            // user lands on first.
+            //
+            // An UNROTATED sibling of the timeline: the label this replaces
+            // was a child of the rotation: 180 Flickable and therefore drew
+            // upside down.
+            //
+            // Wording stays deliberately modest. `count === 0 &&
+            // presentationReady` means "nothing is loaded", which is not the
+            // same claim as "this room has no history" — a room whose
+            // backfill has not produced a visible row yet reaches this state
+            // too — so the headline says what is known and the supporting
+            // line invites the obvious next action instead of asserting the
+            // beginning of the conversation.
+            Item {
+                objectName: "timelineEmptyState"
+                anchors.fill: parent
+                visible: app.currentRoomId !== "" && timeline.count === 0
+                         && timeline.presentationReady
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width - AppTheme.spacing24 * 2, 380)
+                    spacing: AppTheme.spacing12
+                    Avatar {
+                        Layout.alignment: Qt.AlignHCenter
+                        size: 64
+                        squareRadius: AppTheme.radiusLg
+                        name: root.currentRoom.name || app.currentRoomId
+                        mxc: root.currentRoom.avatarUrl || ""
+                        colorKey: root.currentRoom.identityColorKey
+                                  || app.currentRoomId
+                        circle: root.currentRoom.isDirect === true
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        text: root.currentRoom.name || qsTr("No messages yet")
+                        color: AppTheme.text
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textDisplay)
+                        font.weight: AppTheme.weightDisplay
+                        elide: Label.ElideRight
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
+                        text: root.currentRoom.isDirect === true
+                              ? qsTr("No messages here yet. Say hello.")
+                              : qsTr("No messages here yet. Start the conversation.")
+                        color: AppTheme.textMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                    }
+                    // Stated only when the SDK says the room is encrypted —
+                    // never as reassuring decoration on a room whose state we
+                    // have not read.
+                    RowLayout {
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: AppTheme.spacingXS
+                        visible: root.currentRoom.encrypted === true
+                        Icon {
+                            // Neutral, not green: green would read as a
+                            // verification badge, and this is a room-state
+                            // fact, not a trust claim.
+                            name: "lock"
+                            size: 14
+                            color: AppTheme.textMuted
+                        }
+                        Label {
+                            text: qsTr("Messages are end-to-end encrypted")
+                            color: AppTheme.textMuted
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        }
+                    }
+                    RowLayout {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.topMargin: AppTheme.spacingS
+                        spacing: AppTheme.spacingS
+                        AppButton {
+                            objectName: "emptyRoomInviteButton"
+                            kind: "primary"
+                            text: qsTr("Invite people")
+                            // Fails CLOSED: the roster controller may be
+                            // pointed at another room (a Space home, the
+                            // info panel's room), and an offer we cannot
+                            // honour is worse than no offer.
+                            visible: app.roomInfo
+                                     && app.roomInfo.supported
+                                     && app.roomInfo.roomId === app.currentRoomId
+                                     && app.roomInfo.canInvite
+                            onClicked: roomInviteDialog.openFor(app.currentRoomId)
+                        }
+                        AppButton {
+                            objectName: "emptyRoomInfoButton"
+                            text: qsTr("Room information")
+                            visible: app.roomInfo && app.roomInfo.supported
+                            onClicked: root.toggleRoomInfo()
+                        }
                     }
                 }
             }
@@ -4644,8 +4875,8 @@ Rectangle {
                               ? "99+" : jumpToLatestButton.newCount
                         color: AppTheme.accentText
                         font.family: AppTheme.uiFont
-                        font.pixelSize: 12
-                        font.weight: Font.ExtraBold
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        font.weight: AppTheme.weightBold
                     }
                 }
                 Rectangle {
@@ -4667,12 +4898,19 @@ Rectangle {
                 visible: app.pagination.navigationMessage.length > 0
                 text: app.pagination.navigationMessage
                 color: AppTheme.text
-                padding: AppTheme.spacingS
+                font.family: AppTheme.uiFont
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                font.weight: AppTheme.weightMedium
+                leftPadding: AppTheme.spacing12
+                rightPadding: AppTheme.spacing12
+                topPadding: AppTheme.spacing6
+                bottomPadding: AppTheme.spacing6
                 z: 21
                 background: Rectangle {
-                    color: AppTheme.surface
-                    border.color: AppTheme.border
-                    radius: AppTheme.radiusSm
+                    color: AppTheme.cardElevated
+                    border.color: AppTheme.borderStrong
+                    border.width: 1
+                    radius: AppTheme.radiusPill
                 }
             }
         }
@@ -4692,8 +4930,9 @@ Rectangle {
             color: AppTheme.background
             FontMetrics {
                 id: typingMetrics
+                font.family: AppTheme.uiFont
                 font.italic: true
-                font.pixelSize: 11
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
             }
             Label {
                 id: typingLabel
@@ -4709,8 +4948,9 @@ Rectangle {
                 Accessible.ignored: text.length === 0
                 elide: Text.ElideRight
                 color: AppTheme.textMuted
+                font.family: AppTheme.uiFont
                 font.italic: true
-                font.pixelSize: 11
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 Behavior on opacity { NumberAnimation { duration: 120 } }
             }
         }
@@ -4732,20 +4972,32 @@ Rectangle {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             visible: saveResult.text.length > 0
-            height: saveResult.implicitHeight + 6
-            color: AppTheme.background
-            Label {
-                id: saveResult
-                property bool ok: true
+            height: saveResult.implicitHeight + AppTheme.spacing8
+            color: AppTheme.cardElevated
+            Row {
                 anchors.left: parent.left
                 anchors.leftMargin: AppTheme.spacingM
                 anchors.verticalCenter: parent.verticalCenter
-                color: ok ? AppTheme.success : AppTheme.danger
-                font.pixelSize: 11
-                Timer {
-                    id: saveResultTimer
-                    interval: 5000
-                    onTriggered: saveResult.text = ""
+                spacing: AppTheme.spacingXS
+                Icon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: saveResult.ok ? "check_circle" : "error"
+                    size: 14
+                    color: saveResult.ok ? AppTheme.success : AppTheme.danger
+                }
+                Label {
+                    id: saveResult
+                    property bool ok: true
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: ok ? AppTheme.success : AppTheme.danger
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    font.weight: AppTheme.weightMedium
+                    Timer {
+                        id: saveResultTimer
+                        interval: 5000
+                        onTriggered: saveResult.text = ""
+                    }
                 }
             }
             }
@@ -5165,6 +5417,7 @@ Rectangle {
                 contentHeight: spaceCol.implicitHeight + AppTheme.spacing24 * 2
                 boundsBehavior: Flickable.StopAtBounds
                 clip: true
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
                 ColumnLayout {
                     id: spaceCol
@@ -5190,8 +5443,8 @@ Rectangle {
                                 text: spaceHome.info.name || qsTr("Space")
                                 color: AppTheme.text
                                 font.family: AppTheme.uiFont
-                                font.pixelSize: 22
-                                font.weight: Font.ExtraBold
+                                font.pixelSize: AppTheme.scaled(AppTheme.textDisplay)
+                                font.weight: AppTheme.weightDisplay
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
                             }
@@ -5199,8 +5452,11 @@ Rectangle {
                                 visible: (spaceHome.info.topic || "").length > 0
                                 text: spaceHome.info.topic || ""
                                 color: AppTheme.textSecondary
-                                font.pixelSize: 13
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                                 wrapMode: Text.WordWrap
+                                lineHeight: AppTheme.lineHeightBody
+                                lineHeightMode: Text.ProportionalHeight
                                 maximumLineCount: 3
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
@@ -5216,7 +5472,8 @@ Rectangle {
                                     return line
                                 }
                                 color: AppTheme.textMuted
-                                font.pixelSize: 12
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             }
                         }
                     }
@@ -5269,7 +5526,8 @@ Rectangle {
                         visible: spaceHome.addNotice.length > 0
                         text: spaceHome.addNotice
                         color: AppTheme.textMuted
-                        font.pixelSize: 12
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
                     }
@@ -5306,8 +5564,12 @@ Rectangle {
                             spacing: AppTheme.spacingS
                             Label {
                                 text: qsTr("Avatar")
-                                color: AppTheme.textMuted
-                                font.pixelSize: 12
+                                color: AppTheme.textSecondary
+                                font.family: AppTheme.menuSectionFont
+                                font.pixelSize:
+                                    AppTheme.scaled(AppTheme.menuSectionSize)
+                                font.weight: AppTheme.menuSectionWeight
+                                font.letterSpacing: AppTheme.menuSectionTracking
                             }
                             RowLayout {
                                 Layout.fillWidth: true
@@ -5339,8 +5601,12 @@ Rectangle {
                             }
                             Label {
                                 text: qsTr("Name")
-                                color: AppTheme.textMuted
-                                font.pixelSize: 12
+                                color: AppTheme.textSecondary
+                                font.family: AppTheme.menuSectionFont
+                                font.pixelSize:
+                                    AppTheme.scaled(AppTheme.menuSectionSize)
+                                font.weight: AppTheme.menuSectionWeight
+                                font.letterSpacing: AppTheme.menuSectionTracking
                             }
                             RowLayout {
                                 Layout.fillWidth: true
@@ -5366,8 +5632,12 @@ Rectangle {
                             }
                             Label {
                                 text: qsTr("Topic")
-                                color: AppTheme.textMuted
-                                font.pixelSize: 12
+                                color: AppTheme.textSecondary
+                                font.family: AppTheme.menuSectionFont
+                                font.pixelSize:
+                                    AppTheme.scaled(AppTheme.menuSectionSize)
+                                font.weight: AppTheme.menuSectionWeight
+                                font.letterSpacing: AppTheme.menuSectionTracking
                             }
                             RowLayout {
                                 Layout.fillWidth: true
@@ -5395,7 +5665,8 @@ Rectangle {
                                          && app.roomInfo.editError.length > 0
                                 text: app.roomInfo ? app.roomInfo.editError : ""
                                 color: AppTheme.danger
-                                font.pixelSize: 12
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                             }
@@ -5414,7 +5685,11 @@ Rectangle {
                                     text: qsTr("Leaving does not remove the "
                                                + "rooms inside it.")
                                     color: AppTheme.textMuted
-                                    font.pixelSize: 11
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize:
+                                        AppTheme.scaled(AppTheme.textMeta)
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
                                 }
                             }
                         }
@@ -5431,19 +5706,29 @@ Rectangle {
                         Layout.topMargin: AppTheme.spacingS
                         spacing: AppTheme.spacing8
                         Label {
+                            // NOTE: the uppercase string is pinned by
+                            // SpaceSettingsContractTest (which uses it as a
+                            // section end marker) and ElementParityContract-
+                            // Test, so the sentence-case section recipe the
+                            // design system introduced cannot land here
+                            // without moving those two files in the same
+                            // change. The weight and size are on the scale;
+                            // only the casing is still legacy.
                             text: qsTr("ROOMS AND SPACES")
-                            color: AppTheme.textMuted
+                            color: AppTheme.textSecondary
                             font.family: AppTheme.uiFont
-                            font.pixelSize: 11
-                            font.weight: Font.ExtraBold
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                            font.weight: AppTheme.weightStrong
                             font.letterSpacing: 0.8
                         }
                         Label {
                             visible: spaceHome.selectedCount > 0
                             text: qsTr("%n selected", "",
                                        spaceHome.selectedCount)
-                            color: AppTheme.textSecondary
-                            font.pixelSize: 11
+                            color: AppTheme.chipAccentInk
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                            font.weight: AppTheme.weightMedium
                         }
                         Item { Layout.fillWidth: true }
                         AppButton {
@@ -5497,7 +5782,8 @@ Rectangle {
                         text: qsTr("No rooms or spaces match “%1”.")
                                   .arg(spaceHome.childFilter)
                         color: AppTheme.textMuted
-                        font.pixelSize: 12
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         wrapMode: Text.Wrap
                     }
 
@@ -5520,8 +5806,9 @@ Rectangle {
                             Label {
                                 text: qsTr("No rooms yet")
                                 color: AppTheme.text
-                                font.pixelSize: 14
-                                font.weight: Font.DemiBold
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.scaled(AppTheme.textSubtitle)
+                                font.weight: AppTheme.weightStrong
                             }
                             Label {
                                 Layout.fillWidth: true
@@ -5529,8 +5816,11 @@ Rectangle {
                                            + "your existing rooms to organise "
                                            + "it under this Space.")
                                 color: AppTheme.textSecondary
-                                font.pixelSize: 12
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 wrapMode: Text.WordWrap
+                                lineHeight: AppTheme.lineHeightBody
+                                lineHeightMode: Text.ProportionalHeight
                             }
                         }
                     }
@@ -5619,10 +5909,11 @@ Rectangle {
                                             color: AppTheme.text
                                             font.family: AppTheme.uiFont
                                             font.pixelSize: AppTheme.scaled(
-                                                AppTheme.fontBody)
+                                                AppTheme.textBody)
                                             font.weight:
                                                 unifiedRow.modelData.hasUnread
-                                                ? Font.Bold : Font.Medium
+                                                ? AppTheme.weightBold
+                                                : AppTheme.weightMedium
                                             elide: Label.ElideRight
                                             Layout.maximumWidth:
                                                 parent.width * 0.7
@@ -5630,40 +5921,65 @@ Rectangle {
                                         // Element parity: the row itself
                                         // says whether the account is in
                                         // it — one list, honest badges.
-                                        RowLayout {
+                                        // Joined and Suggested are two
+                                        // different KINDS of fact, so they
+                                        // take two different chip families
+                                        // rather than a loose green ink and
+                                        // a grey outline: membership is a
+                                        // success state, "suggested" is the
+                                        // Space owner's recommendation.
+                                        Rectangle {
                                             visible: unifiedRow.modelData
                                                          .joined === true
-                                            spacing: 2
-                                            Icon {
-                                                name: "check"
-                                                size: 12
-                                                color: AppTheme.success
-                                            }
-                                            Label {
-                                                text: qsTr("Joined")
-                                                color: AppTheme.success
-                                                font.pixelSize: 11
-                                                font.weight: Font.DemiBold
+                                            implicitHeight: AppTheme.chipHeight
+                                            implicitWidth: joinedChipRow.implicitWidth
+                                                           + AppTheme.chipPaddingH * 2
+                                            radius: AppTheme.chipRadius
+                                            color: AppTheme.chipSuccessFill
+                                            border.color: AppTheme.chipSuccessBorder
+                                            border.width: 1
+                                            Row {
+                                                id: joinedChipRow
+                                                anchors.centerIn: parent
+                                                spacing: 2
+                                                Icon {
+                                                    anchors.verticalCenter:
+                                                        parent.verticalCenter
+                                                    name: "check"
+                                                    size: 12
+                                                    color: AppTheme.chipSuccessInk
+                                                }
+                                                Label {
+                                                    anchors.verticalCenter:
+                                                        parent.verticalCenter
+                                                    text: qsTr("Joined")
+                                                    color: AppTheme.chipSuccessInk
+                                                    font.family: AppTheme.uiFont
+                                                    font.pixelSize: AppTheme.scaled(
+                                                        AppTheme.textMicro)
+                                                    font.weight: AppTheme.weightStrong
+                                                }
                                             }
                                         }
                                         Label {
                                             visible: unifiedRow.modelData
                                                          .suggested === true
                                             text: qsTr("Suggested")
-                                            color: AppTheme.textMuted
-                                            font.pixelSize: 10
-                                            leftPadding:
-                                                AppTheme.keycapPaddingH
-                                            rightPadding:
-                                                AppTheme.keycapPaddingH
+                                            color: AppTheme.chipAccentInk
+                                            font.family: AppTheme.uiFont
+                                            font.pixelSize: AppTheme.scaled(
+                                                AppTheme.textMicro)
+                                            font.weight: AppTheme.weightStrong
+                                            leftPadding: AppTheme.chipPaddingH
+                                            rightPadding: AppTheme.chipPaddingH
                                             topPadding:
                                                 AppTheme.keycapPaddingV
                                             bottomPadding:
                                                 AppTheme.keycapPaddingV
                                             background: Rectangle {
-                                                radius: AppTheme.radiusPill
-                                                color: AppTheme.cardElevated
-                                                border.color: AppTheme.border
+                                                radius: AppTheme.chipRadius
+                                                color: AppTheme.chipAccentFill
+                                                border.color: AppTheme.chipAccentBorder
                                                 border.width: 1
                                             }
                                         }
@@ -5691,7 +6007,9 @@ Rectangle {
                                             return ""
                                         }
                                         color: AppTheme.textMuted
-                                        font.pixelSize: 11
+                                        font.family: AppTheme.uiFont
+                                        font.pixelSize: AppTheme.scaled(
+                                            AppTheme.textMeta)
                                         elide: Label.ElideRight
                                     }
                                 }
@@ -5699,7 +6017,7 @@ Rectangle {
                                     visible: (unifiedRow.modelData
                                                   .highlightCount || 0) > 0
                                     radius: height / 2
-                                    color: AppTheme.danger
+                                    color: AppTheme.dangerFill
                                     implicitHeight: 18
                                     implicitWidth: Math.max(
                                         18, childMention.implicitWidth + 10)
@@ -5707,9 +6025,11 @@ Rectangle {
                                         id: childMention
                                         anchors.centerIn: parent
                                         text: "@"
-                                        color: AppTheme.accentText
-                                        font.pixelSize: 10
-                                        font.weight: Font.ExtraBold
+                                        color: AppTheme.dangerText
+                                        font.family: AppTheme.uiFont
+                                        font.pixelSize: AppTheme.scaled(
+                                            AppTheme.textMicro)
+                                        font.weight: AppTheme.weightBold
                                     }
                                 }
                                 Rectangle {
@@ -5730,17 +6050,32 @@ Rectangle {
                                               ? "99+"
                                               : unifiedRow.modelData
                                                     .unreadCount
-                                        color: AppTheme.accentText
-                                        font.pixelSize: 11
-                                        font.weight: Font.ExtraBold
+                                        color: AppTheme.boltInk
+                                        font.family: AppTheme.uiFont
+                                        font.pixelSize: AppTheme.scaled(
+                                            AppTheme.textMicro)
+                                        font.weight: AppTheme.weightBold
                                     }
                                 }
                                 Label {
                                     visible: unifiedRow.modelData.membership
                                              === "knocked"
                                     text: qsTr("Request pending")
-                                    color: AppTheme.textMuted
-                                    font.pixelSize: 11
+                                    color: AppTheme.chipWarningInk
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.scaled(
+                                        AppTheme.textMicro)
+                                    font.weight: AppTheme.weightStrong
+                                    leftPadding: AppTheme.chipPaddingH
+                                    rightPadding: AppTheme.chipPaddingH
+                                    topPadding: AppTheme.keycapPaddingV
+                                    bottomPadding: AppTheme.keycapPaddingV
+                                    background: Rectangle {
+                                        radius: AppTheme.chipRadius
+                                        color: AppTheme.chipWarningFill
+                                        border.color: AppTheme.chipWarningBorder
+                                        border.width: 1
+                                    }
                                 }
                                 AppButton {
                                     visible: unifiedRow.modelData.joined
@@ -5825,7 +6160,8 @@ Rectangle {
                         Layout.fillWidth: true
                         text: app.discovery.errorMessage
                         color: AppTheme.danger
-                        font.pixelSize: 12
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         wrapMode: Text.Wrap
                     }
                 }
@@ -5861,8 +6197,8 @@ Rectangle {
                                    removeChildConfirm.roomIds.length)
                         color: AppTheme.stormText
                         font.family: AppTheme.menuFont
-                        font.pixelSize: 14
-                        font.weight: Font.Bold
+                        font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
+                        font.weight: AppTheme.weightBold
                     }
                     Label {
                         text: qsTr("The rooms keep existing and you stay "
@@ -5870,7 +6206,7 @@ Rectangle {
                                    + "Space's list.")
                         color: AppTheme.stormTextSecondary
                         font.family: AppTheme.menuFont
-                        font.pixelSize: 12
+                        font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -5922,14 +6258,14 @@ Rectangle {
                             .arg(spaceHome.info.name || qsTr("this Space"))
                         color: AppTheme.stormText
                         font.family: AppTheme.menuFont
-                        font.pixelSize: 14
-                        font.weight: Font.Bold
+                        font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
+                        font.weight: AppTheme.weightBold
                     }
                     Label {
                         text: qsTr("The rooms inside stay untouched.")
                         color: AppTheme.stormTextSecondary
                         font.family: AppTheme.menuFont
-                        font.pixelSize: 12
+                        font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                     }
                     RowLayout {
                         spacing: AppTheme.spacingS
@@ -5990,8 +6326,8 @@ Rectangle {
                             .arg(spaceHome.info.name || qsTr("this Space"))
                         color: AppTheme.stormText
                         font.family: AppTheme.menuFont
-                        font.pixelSize: 15
-                        font.weight: Font.Bold
+                        font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
+                        font.weight: AppTheme.weightBold
                     }
                     AppTextField {
                         objectName: "spaceAddRoomSearch"
@@ -6011,7 +6347,7 @@ Rectangle {
                         text: qsTr("No rooms to add.")
                         color: AppTheme.stormTextMuted
                         font.family: AppTheme.menuFont
-                        font.pixelSize: 12
+                        font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                     }
                     ListView {
                         Layout.fillWidth: true
@@ -6019,6 +6355,9 @@ Rectangle {
                         clip: true
                         model: addRoomPopup.results
                         spacing: 2
+                        ScrollBar.vertical: AppScrollBar {
+                            policy: ScrollBar.AsNeeded
+                        }
                         delegate: Rectangle {
                             required property var modelData
                             width: ListView.view.width
@@ -6044,7 +6383,8 @@ Rectangle {
                                     text: modelData.name || qsTr("Room")
                                     color: AppTheme.stormText
                                     font.family: AppTheme.menuFont
-                                    font.pixelSize: 13
+                                    font.pixelSize: AppTheme.scaled(
+                                        AppTheme.textBody)
                                     elide: Label.ElideRight
                                 }
                                 Label {
@@ -6052,7 +6392,8 @@ Rectangle {
                                     text: qsTr("Already added")
                                     color: AppTheme.stormTextMuted
                                     font.family: AppTheme.menuFont
-                                    font.pixelSize: 11
+                                    font.pixelSize: AppTheme.scaled(
+                                        AppTheme.textMeta)
                                 }
                                 AppButton {
                                     visible: modelData.alreadyChild !== true
@@ -6142,8 +6483,9 @@ Rectangle {
                 anchors.centerIn: parent
                 text: qsTr("Drop files to attach")
                 color: AppTheme.textPrimary
-                font.pixelSize: 13
-                font.weight: Font.DemiBold
+                font.family: AppTheme.uiFont
+                font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                font.weight: AppTheme.weightStrong
             }
         }
     }

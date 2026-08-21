@@ -84,12 +84,16 @@ Item {
             contentItem: RowLayout {
                 id: summaryContent
                 spacing: AppTheme.spacingXS
-                Label {
+                // Was a geometric-shapes Unicode triangle at 10px — the
+                // only chevron in the app not drawn from the icon font, so
+                // it sat at a different weight and baseline from every
+                // other disclosure control.
+                Icon {
                     objectName: "stateActivityChevron"
                     visible: root.canExpand
-                    text: root.expanded ? "▾" : "▸"
+                    name: root.expanded ? "expand_more" : "chevron_right"
+                    size: AppTheme.scaled(AppTheme.textSubtitle)
                     color: AppTheme.textMuted
-                    font.pixelSize: 10
                 }
                 Label {
                     id: summaryLabel
@@ -110,7 +114,7 @@ Item {
                         return qsTr("%1 room updates").arg(root.entryCount)
                     }
                     color: AppTheme.textMuted
-                    font.pixelSize: 11
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     elide: Label.ElideRight
                 }
             }
@@ -165,7 +169,9 @@ Item {
                     // renders the characters and fetches nothing.
                     textFormat: Text.PlainText
                     color: AppTheme.textMuted
-                    font.pixelSize: 11
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     wrapMode: Text.WordWrap
                     Accessible.name: text
                 }

@@ -325,29 +325,26 @@ Rectangle {
                     Accessible.name: qsTr("Code")
                 }
 
-                ScrollBar.vertical: ScrollBar {
+                // Before AppScrollBar existed this was the ONE
+                // hand-styled scrollbar in the repository (a flat
+                // borderStrong pill, no hover or press step). It now rides
+                // the shared control, so the code block and every other
+                // scrolling surface finally agree — and `thin` keeps it from
+                // widening on hover inside a message row, where the extra
+                // 4px would reflow the block's reserved bar band.
+                ScrollBar.vertical: AppScrollBar {
                     objectName: "codeBlockVerticalScrollBar"
+                    thin: true
                     policy: root.verticalOverflow ? ScrollBar.AlwaysOn
                                                   : ScrollBar.AlwaysOff
                     interactive: true
-                    width: 8
-                    contentItem: Rectangle {
-                        implicitWidth: 6
-                        radius: 3
-                        color: AppTheme.borderStrong
-                    }
                 }
-                ScrollBar.horizontal: ScrollBar {
+                ScrollBar.horizontal: AppScrollBar {
                     objectName: "codeBlockHorizontalScrollBar"
+                    thin: true
                     policy: root.horizontalOverflow ? ScrollBar.AlwaysOn
                                                     : ScrollBar.AlwaysOff
                     interactive: true
-                    height: 8
-                    contentItem: Rectangle {
-                        implicitHeight: 6
-                        radius: 3
-                        color: AppTheme.borderStrong
-                    }
                 }
             }
 

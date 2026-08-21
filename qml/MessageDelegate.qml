@@ -568,6 +568,87 @@ Item {
             root.timelineView.navigateToEvent(target)
     }
 
+    // ---- Reply-quote identity (2026-08-21 reply restyle) ----------------
+    // Element puts the QUOTED sender's own colour on the quote's rule and
+    // name, which is what makes a one-line quote scannable — you know who
+    // you are about to jump to before you read a word of it. This is the
+    // same deterministic hash the message header below uses, so a person's
+    // quote and their own messages agree on one hue.
+    //
+    // The key is the raw MXID. `replyToSenderId` is NOT a TimelineModel role
+    // yet — ReplyToSenderRole resolves a DISPLAY NAME, and hashing that
+    // would give the same person a DIFFERENT colour in the quote than on
+    // their own message, which is worse than no colour at all. Reading the
+    // absent role yields undefined (the established degradation pattern in
+    // this file, cf. readReceiptsTotal), userColor("") falls back to the
+    // primary ink, and the quote is neutral-but-legible until the role
+    // lands — at which point it colours itself with no change here.
+    readonly property string replySenderKey: model.replyToSenderId || ""
+    // Inside an own outgoing bubble the quote sits on saturated accent, so
+    // the identity inks — tuned for contrast against surface / card /
+    // other-bubble — do not apply and the bubble's own ink family does.
+    // Same two-branch shape as the body ink and the status line.
+    readonly property bool replyOnOwnBubble:
+        bubbleMode && model.isOwn === true
+    readonly property color replySenderInk:
+        replyOnOwnBubble ? AppTheme.ownBubbleText
+                         : AppTheme.userColor(replySenderKey)
+    readonly property color replyBodyInk:
+        replyOnOwnBubble ? AppTheme.onAccentMuted : AppTheme.textSecondary
+
+    // ---- Read-receipt rail clearance -----------------------------------
+    // The facepile is a zero-height overlay painted UPWARD from the row's
+    // bottom edge at the ROW's right margin (a fixed rail, maintainer
+    // decision 2026-08-14), while the content column stops at
+    // timelineContentMaxWidth. The reaction Flow already reserves the
+    // rail's width; the body never did, so once the pane was narrower than
+    // roughly 820px — the 320px pane minimum, the thread panel open, a
+    // laptop screen — four avatars landed directly on the last line of the
+    // message.
+    //
+    // Reserve EXACTLY the overlap, and only when there is one: an
+    // unconditional reservation would shave the rail's width off every
+    // message body on a wide window for a facepile that is nowhere near it.
+    // Modern/Compact only — in Bubbles the bubble's width IS its content's
+    // width, so feeding a content constraint back from it closes a loop,
+    // and that layout already handles the collision with the tap-band
+    // exclusion on the bubble.
+    readonly property real receiptRailReserve:
+        (!root.bubbleMode && readReceiptStrip.visible)
+        ? Math.max(0, (bubble.x + bubble.width)
+                      - Math.max(root.avatarGutterWidth,
+                                 readReceiptStrip.width - receiptRow.width)
+                      + AppTheme.spacingXS)
+        : 0
+
+    // Date-divider wording. A divider that always spells out
+    // "pirmadienis, 17 rugpjūčio 2025" makes the reader do arithmetic to
+    // answer the only question it is there for — is this today? Element
+    // branches Today / Yesterday / weekday-within-a-week / date, and drops
+    // the year while it is the current one.
+    //
+    // `now` is sampled at binding time and is NOT reactive: a session left
+    // open across midnight keeps yesterday's "Today" until the row is
+    // rebuilt. Accepted — the alternative is a per-row clock dependency on
+    // a surface that instantiates one item per loaded day.
+    function dayLabel(ts) {
+        if (!ts || typeof ts.getFullYear !== "function")
+            return ""
+        var stamp = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate())
+        if (isNaN(stamp.getTime()))
+            return ""
+        var now = new Date()
+        var today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        var days = Math.round((today.getTime() - stamp.getTime()) / 86400000)
+        if (days === 0) return qsTr("Today")
+        if (days === 1) return qsTr("Yesterday")
+        if (days > 1 && days < 7)
+            return Qt.locale().toString(ts, "dddd")
+        return Qt.locale().toString(
+            ts, ts.getFullYear() === now.getFullYear() ? "d MMMM"
+                                                       : "d MMMM yyyy")
+    }
+
     // v0.5.11: link-preview state for this row, resolved by
     // LinkPreviewController. Calling previewFor() may dispatch an automatic
     // request (unencrypted rooms with auto-load on); encrypted rooms stay in
@@ -609,10 +690,28 @@ Item {
         id: virtualRow
         visible: root.isVirtualRow
         width: parent.width
-        implicitHeight: unreadDivider.visible ? 28
+        // A day boundary is the strongest structural break a timeline has,
+        // and it used to get LESS vertical air (label + 8px total) than the
+        // 12px gap between two consecutive sender groups, while rendering
+        // as an unadorned scrap of grey text with no rule. It now shares
+        // the unread divider's rule-label-rule idiom — two dividers in one
+        // file must not speak two visual languages — at the same 30px row
+        // height, with the rules in `border` so the day break stays quieter
+        // than the unread break it sits near.
+        implicitHeight: unreadDivider.visible ? 30
                         : virtualLabel.active
-                        ? virtualLabel.height + AppTheme.spacingS
+                        ? Math.max(30, virtualLabel.implicitHeight
+                                       + AppTheme.spacingS * 2)
                         : 0
+        // Computed on the ROW, not inside the Loader's Label: it is also
+        // the Loader's `active` guard, so a divider whose text resolves
+        // empty (an invalid timestamp) creates no item at all rather than a
+        // Label born holding "" — the permanent-viewport-observer hazard
+        // documented immediately below.
+        readonly property string dividerText:
+            model.eventType === 7 ? root.dayLabel(model.timestamp)
+            : model.eventType === 9 ? qsTr("Beginning of conversation")
+            : ""
         // ── 2026-08-19 scroll round: THE expensive QML mistake ─────────
         // A Loader, never an always-created Label. Mechanism, verified in
         // qtdeclarative 6.11.1 sources:
@@ -634,21 +733,45 @@ Item {
         // empty on a VIRTUAL (date-divider / read-marker) row.
         Loader {
             id: virtualLabel
-            anchors.centerIn: parent
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            // Start the rule at the message content indent so the divider
+            // lines up with the timeline instead of floating in the avatar
+            // gutter.
+            anchors.leftMargin: root.avatarGutterWidth
+            anchors.rightMargin: AppTheme.spacingS
             // `!dividerSuppressed`: an orphan date divider creates no label
             // at all, which is also what zeroes virtualRow's implicitHeight
-            // below — the row occupies no space rather than drawing an empty
+            // above — the row occupies no space rather than drawing an empty
             // one.
             active: root.isVirtualRow && model.eventType !== 8
                     && !root.dividerSuppressed
-            sourceComponent: Label {
-                text: model.eventType === 7
-                      ? Qt.locale().toString(model.timestamp,
-                                             "dddd, d MMMM yyyy")
-                      : (model.eventType === 9
-                         ? qsTr("Beginning of conversation") : "")
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                    && virtualRow.dividerText.length > 0
+            sourceComponent: RowLayout {
+                objectName: "timelineDayDivider"
+                spacing: AppTheme.spacingM
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 1
+                    color: AppTheme.border
+                }
+                Label {
+                    objectName: "timelineDayDividerLabel"
+                    text: virtualRow.dividerText
+                    color: AppTheme.textMuted
+                    // Message-stream text, not container chrome: it must
+                    // follow the text-size setting like the timestamps and
+                    // the message body it sits between.
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    font.weight: AppTheme.weightStrong
+                    Accessible.name: text
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 1
+                    color: AppTheme.border
+                }
             }
         }
         RowLayout {
@@ -657,7 +780,12 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            spacing: AppTheme.spacingS
+            // Same inset and gap as the day divider above: one divider
+            // idiom, two semantics (border rules for the day break, the
+            // unread tone for the unread break).
+            anchors.leftMargin: root.avatarGutterWidth
+            anchors.rightMargin: AppTheme.spacingS
+            spacing: AppTheme.spacingM
             // SDK receipt tracking (which the receipt chips require) also
             // revives the SDK's ReadMarker virtual row. While the reader
             // is pinned to the bottom, the own-receipt ack cycle
@@ -689,8 +817,11 @@ Item {
                 objectName: "unreadDividerLabel"
                 text: qsTr("New messages")
                 color: AppTheme.unreadBadge
-                font.pixelSize: 11
-                font.weight: Font.DemiBold
+                // Scaled for the same reason the day divider is: both are
+                // markers inside the message stream, and at 140% a 11px
+                // fixed label beside a 20px body reads as a rendering bug.
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                font.weight: AppTheme.weightStrong
                 Accessible.name: text
             }
             Rectangle {
@@ -722,18 +853,32 @@ Item {
 
     Rectangle {
         id: rowHighlight
-        visible: !root.isVirtualRow && !root.isStateActivity
-                 && (rowHover.hovered || root.actionsPinned
-                     || root.navigationHighlightId === (model.eventId || ""))
+        // C5: the VIEW says what is highlighted. Reading app.pagination here
+        // lit up the wrong timeline — a room jump highlighted the matching id
+        // inside an open thread panel, which is a different navigation.
+        readonly property bool navigationLanded:
+            root.navigationHighlightId === (model.eventId || "")
+        readonly property bool wanted:
+            !root.isVirtualRow && !root.isStateActivity
+            && (rowHover.hovered || root.actionsPinned || navigationLanded)
+        // Opacity, not `visible`. A reply jump used to SLAM a saturated
+        // selected-blue block on and then off again with no easing when
+        // PaginationController's 1800ms timer fired — it read as a
+        // rendering glitch rather than as "this is the message you asked
+        // for", and the thread panel's equivalent landing has always been
+        // a soft 120ms animated accent border. One user action must not
+        // have two visual languages.
+        visible: opacity > 0
+        opacity: wanted ? 1 : 0
+        Behavior on opacity {
+            NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+        }
+        Behavior on color { ColorAnimation { duration: 130 } }
         x: -AppTheme.spacingXS
         y: layout.y
         width: root.width + AppTheme.spacingXS * 2
         height: layout.height
-        // C5: the VIEW says what is highlighted. Reading app.pagination here
-        // lit up the wrong timeline — a room jump highlighted the matching id
-        // inside an open thread panel, which is a different navigation.
-        color: root.navigationHighlightId === (model.eventId || "")
-               ? AppTheme.selected : AppTheme.hover
+        color: navigationLanded ? AppTheme.selected : AppTheme.hover
         // Design shell: message-row hover highlight is the soft theme tint
         // at an 8px radius — no border, no elevation.
         radius: AppTheme.radiusMd
@@ -837,7 +982,10 @@ Item {
                         text: Qt.formatDateTime(model.timestamp, "hh:mm")
                         horizontalAlignment: Text.AlignRight
                         color: AppTheme.textMuted
-                        font.pixelSize: 9
+                        // Scaled like the identity-line timestamp it stands
+                        // in for; a fixed 9px beside a scaled sender line
+                        // was the widest gap in the row at 140%.
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                         Accessible.name: qsTr("Sent at %1").arg(text)
                     }
                 }
@@ -873,38 +1021,40 @@ Item {
                 // needed.
                 height: implicitHeight
                 implicitHeight: bubbleContent.implicitHeight + root.bubblePad * 2
-                // v0.6.0 checkpoint 11: mentions get a subtle tint — direct
-                // mentions stronger than room-wide @room. v0.6.5: reads
-                // mentionHighlight, not accent — under Storm, accent is
-                // bolt, reserved for selection/focus/one primary action;
-                // washing every mentioned row in it would both over-yellow
-                // the timeline and (composited at low alpha over a dark
-                // surface) read as a hueless brown rather than an
-                // attention tint. mentionHighlight falls back to accent for
-                // every legacy theme (pixel-identical) and resolves to the
-                // Storm mention-rose under Storm, consistent with
-                // mentionBadge's own tone.
-                // v0.6.5 live-feedback: the wash at full 0.14/0.07 alpha
-                // read as "too heavy/red" and made the reaction chips that
-                // sit on this same background lose all contrast ("black
-                // boxes over washed rows" — a chip's own translucent fill
-                // compositing on top of an already-tinted row muddies
-                // both). Cut the wash to a much quieter background tint and
-                // moved the real signal to a left edge bar instead (below)
-                // — a direct mention gets deliberate bolt yellow (the
-                // personal "you were called out" case the design's yellow
-                // discipline exists for); a room-wide @room stays neutral.
+                // ── THE MENTIONED-ROW WASH IS GONE (2026-08-21) ──────────
+                // History: v0.6.0 washed a mentioned row in
+                // `mentionHighlight`; v0.6.5 live feedback called it "too
+                // heavy/red" and the alpha was cut 0.14/0.07 -> 0.05/0.03
+                // (345f4d1) rather than removed. It came back as the SAME
+                // report this round — "tagging a person creates a red box
+                // around it" — and the mechanism is now measured: Storm
+                // routes `mentionHighlight` to `_stoMention` #E5677A, the
+                // rose the room list uses for its MENTION BADGE, and the
+                // three other design themes carry the same red family. The
+                // wash is therefore a rounded rectangle in the app's
+                // DANGER hue drawn around every message that mentions you,
+                // so a routine ping reads as an error state. Cutting the
+                // alpha only made a red box fainter; it never stopped
+                // being red.
+                //
+                // The edge bar below already exists precisely because the
+                // wash was judged too loud once — it is the deliberate
+                // signal (bolt for "you", neutral for @room) and it is
+                // enough. Removing the fill also fixes the second half of
+                // that live-feedback report: a reaction chip's own
+                // translucent fill compositing on top of a tinted row
+                // muddied both ("black boxes over washed rows"), and
+                // there is now no tint to composite onto.
+                //
+                // If a wash is ever wanted back, it belongs in AppTheme as
+                // a `mentionRowWash` token pointed at something that is
+                // NOT the danger family — not at `mentionHighlight`, whose
+                // job is the badge.
                 color: root.bubbleMode
                        ? (model.isOwn === true ? AppTheme.ownBubble
                                                : AppTheme.otherBubble)
-                       : model.mentionsMe === true
-                       ? Qt.alpha(AppTheme.mentionHighlight, 0.05)
-                       : model.mentionsRoom === true
-                         ? Qt.alpha(AppTheme.mentionHighlight, 0.03)
-                         : "transparent"
-                radius: root.bubbleMode ? 16
-                        : model.mentionsMe === true || model.mentionsRoom === true
-                        ? AppTheme.radiusSm : 0
+                       : "transparent"
+                radius: root.bubbleMode ? 16 : 0
                 topLeftRadius: root.bubbleMode
                                ? (model.isOwn === true ? 16 : 4) : radius
                 topRightRadius: root.bubbleMode
@@ -912,9 +1062,12 @@ Item {
                 opacity: model.redacted ? 0.65 : 1.0
 
                 // v0.6.5 live-feedback: the mention edge bar. Sits flush at
-                // the bubble's own left edge, inside its rounded corner —
-                // bubbleContent below gets a matching extra left inset so
-                // the bar never overlaps the sender/body text.
+                // the bubble's own left edge — bubbleContent below gets a
+                // matching extra left inset so the bar never overlaps the
+                // sender/body text. Since the wash above was removed this
+                // is the WHOLE signal, so it is rounded at both ends
+                // instead of reading as a cut-off slab against a fill that
+                // no longer exists.
                 readonly property bool mentionBarVisible:
                     !root.bubbleMode
                     && (model.mentionsMe === true || model.mentionsRoom === true)
@@ -923,7 +1076,10 @@ Item {
                     anchors.left: parent.left
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
+                    anchors.topMargin: 1
+                    anchors.bottomMargin: 1
                     width: 3
+                    radius: 1
                     color: model.mentionsMe === true
                            ? AppTheme.bolt : AppTheme.borderStrong
                 }
@@ -1038,7 +1194,10 @@ Item {
                             sourceComponent: Label {
                                 text: model.sender
                                 color: AppTheme.textMuted
-                                font.pixelSize: 10
+                                // Message data, not chrome: it sits on the
+                                // identity line beside a scaled name and a
+                                // scaled timestamp and has to move with them.
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                                 elide: Label.ElideMiddle
                             }
                         }
@@ -1052,31 +1211,83 @@ Item {
                         }
                     }
 
-                    // Reply preview — v0.6.5 live-feedback restyle: the old
-                    // full-width flat-fill band read as an "ugly full-width
-                    // band". Element-classic quote treatment instead:
-                    // content-width (sized to what it actually holds, never
-                    // stretched edge-to-edge), an inset fill that reads as
-                    // a nested card, and a left accent bar rather than the
-                    // dead `border.width: 0` this used to carry.
+                    // ── Reply quote (2026-08-21 rebuild) ─────────────────
+                    // Element's quote tile: a rule in the QUOTED SENDER's
+                    // identity ink, the name in that same ink, one
+                    // ellipsised line of body, and NO resting fill.
+                    //
+                    // What was wrong before, in order of severity:
+                    //
+                    //  * The fill was `AppTheme.hover` — the exact token the
+                    //    row highlight painted underneath it — so pointing
+                    //    at a reply made its quote DISSOLVE into the row.
+                    //    And in four palettes (Lightning Light, Nordic,
+                    //    Warm, Moss Light) `hover` is byte-identical to
+                    //    `otherBubble`, so an incoming DM bubble's quote had
+                    //    zero contrast at rest as well. A quote needs no
+                    //    fill: the rule is the signifier, and leaving the
+                    //    resting state transparent is what lets hover mean
+                    //    something.
+                    //  * It was the only coloured thing in the bubble that
+                    //    never branched on Bubbles-for-DMs, so inside an own
+                    //    outgoing bubble a pale slab of grey-blue sat in
+                    //    saturated accent.
+                    //  * Both labels were raw `font.pixelSize: 11`, so the
+                    //    90-140% text-size setting did not reach the quote
+                    //    at all: at 140% an ~20px body carried an 11px
+                    //    ribbon.
+                    //  * implicitWidth/implicitHeight named only the text
+                    //    column and ignored the 34px thumbnail beside it, so
+                    //    an image reply elided ~40px early and the thumb was
+                    //    cropped to 34x31 by PreserveAspectCrop.
+                    //  * It capped at a hardcoded 320px while every sibling
+                    //    binds to `bubble.width` — eliding at 320 of an
+                    //    available 760 in the room, and exceeding the 340px
+                    //    thread panel.
+                    //  * Two stacked 11px labels made the quote ~48% of a
+                    //    one-line reply row: the thing being quoted
+                    //    outweighed the thing being said. It is ONE row now.
+                    //
+                    // The ↰ was also dropped: a Unicode arrow inside a
+                    // translatable string, rendered in the UI face (so it
+                    // falls back to a system font wherever the codepoint is
+                    // missing) and kept by ElideRight while the display name
+                    // it decorates is cut. The mapped Material Symbols
+                    // "reply" glyph is the same signifier without any of
+                    // that.
                     Rectangle {
                         id: replyBox
                         objectName: "replyNavigationTarget"
                         visible: model.replyToEventId && model.replyToEventId.length > 0
                                  && !model.redacted
-                        readonly property int barWidth: 3
-                        Layout.alignment: Qt.AlignLeft
-                        Layout.maximumWidth: 320
-                        implicitWidth: replyLayout.implicitWidth + barWidth + 16
-                        implicitHeight: replyLayout.implicitHeight + 8
-                        color: AppTheme.hover
-                        radius: 6
+                        readonly property int barWidth: 2
+                        // Bind to the bubble like every sibling (media,
+                        // preview card, metaRow) instead of a constant that
+                        // is simultaneously too small for the room and too
+                        // large for the thread panel. Spanning the message's
+                        // own width is also what makes the left rule read as
+                        // a rule rather than as the edge of a pill.
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: bubble.width
+                        Layout.bottomMargin: 2
+                        implicitWidth: replyRowWrap.implicitWidth
+                                       + replyBox.barWidth + 16
+                        implicitHeight: replyRowWrap.implicitHeight + 8
+                        // Transparent at rest; the hover tint is drawn from
+                        // the quoted sender's own ink so the feedback
+                        // belongs to the tile instead of repeating the row
+                        // highlight it sits on.
+                        color: replyHover.hovered
+                               ? Qt.alpha(root.replySenderInk, 0.12)
+                               : "transparent"
+                        Behavior on color { ColorAnimation { duration: 90 } }
+                        radius: AppTheme.radiusSm
                         // A quote block that navigates is a control, and it
                         // was reachable only with a mouse: no tab stop, no
                         // key activation, no focus ring, and an accessible
                         // name that never said whose message it goes to.
                         activeFocusOnTab: true
-                        border.width: activeFocus ? 1 : 0
+                        border.width: activeFocus ? 2 : 0
                         border.color: AppTheme.focusRing
                         Accessible.role: Accessible.Button
                         Accessible.name: (model.replyToSender || "").length > 0
@@ -1095,6 +1306,10 @@ Item {
                             root.navigateToReplyTarget()
                             event.accepted = true
                         }
+                        // The tile responded to nothing on hover although
+                        // the cursor changed shape over it — so it never
+                        // read as clickable.
+                        HoverHandler { id: replyHover }
                         TapHandler {
                             cursorShape: Qt.PointingHandCursor
                             // Routes through the view contract, never
@@ -1111,38 +1326,64 @@ Item {
                             anchors.left: parent.left
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
-                            color: AppTheme.borderStrong
+                            anchors.topMargin: 1
+                            anchors.bottomMargin: 1
+                            // Rounded so the rule's ends do not fill in the
+                            // arc the box's own radius cuts out on hover —
+                            // the square-corners-inside-a-rounded-box edge
+                            // this block used to show.
+                            radius: 1
+                            color: root.replySenderInk
+                            opacity: replyHover.hovered ? 1.0 : 0.8
+                            Behavior on opacity { NumberAnimation { duration: 90 } }
                         }
                         RowLayout {
                             id: replyRowWrap
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
+                            // verticalCenter, NOT top+bottom: anchoring both
+                            // edges stretched the row to the box height the
+                            // box had computed from the TEXT alone, which is
+                            // what squashed a 34px thumbnail to 31px.
+                            anchors.verticalCenter: parent.verticalCenter
                             anchors.leftMargin: replyBox.barWidth + 8
                             anchors.rightMargin: 8
-                            anchors.topMargin: 4
-                            anchors.bottomMargin: 4
                             spacing: 6
+                            Icon {
+                                name: "reply"
+                                size: AppTheme.scaled(13)
+                                color: root.replySenderInk
+                                opacity: 0.75
+                                Layout.alignment: Qt.AlignVCenter
+                            }
                             // 2026-08-18 tester report #2: an image reply
                             // target shows a small thumbnail — same media
                             // bridge, same registry, keyed by the reply
-                            // target's own event id.
+                            // target's own event id. 24px on ONE line now,
+                            // with the corner baked by MediaImageProvider's
+                            // "|shape:round:" suffix (the message image and
+                            // the video poster already use it) rather than a
+                            // per-row MultiEffect mask, which costs two
+                            // extra render passes per item per frame.
                             Image {
                                 id: replyThumb
+                                readonly property string bridgeSource:
+                                    (model.replyToMediaKey || "").length > 0
+                                    ? app.mediaBridge.mediaSource(
+                                          model.replyToMediaKey, "thumb")
+                                    : ""
                                 visible: (model.replyToMediaKey || "").length > 0
                                          && status !== Image.Error
                                          && app.mediaBridge.supported
-                                Layout.preferredWidth: 34
-                                Layout.preferredHeight: 34
+                                Layout.preferredWidth: 24
+                                Layout.preferredHeight: 24
+                                Layout.maximumHeight: 24
                                 Layout.alignment: Qt.AlignVCenter
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
-                                sourceSize.width: 68
-                                source: visible && model.replyToMediaKey
-                                        ? app.mediaBridge.mediaSource(
-                                              model.replyToMediaKey, "thumb")
-                                        : ""
+                                sourceSize.width: 48
+                                source: visible && bridgeSource.length > 0
+                                        ? bridgeSource + "|shape:round:160" : ""
                                 Connections {
                                     target: app.mediaBridge
                                     enabled: (model.replyToMediaKey || "")
@@ -1157,32 +1398,41 @@ Item {
                                                 app.mediaBridge.mediaSource(
                                                     model.replyToMediaKey,
                                                     "thumb")
+                                                + "|shape:round:160"
                                     }
                                 }
                             }
-                        ColumnLayout {
-                            id: replyLayout
-                            Layout.fillWidth: true
-                            spacing: 0
                             Label {
-                                text: model.replyToSender
-                                      ? qsTr("↰ %1").arg(model.replyToSender)
-                                      : qsTr("↰ Reply")
-                                color: AppTheme.textSecondary
-                                font.pixelSize: 11
+                                objectName: "replyQuoteSender"
+                                text: model.replyToSender || qsTr("Reply")
+                                color: root.replySenderInk
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.weight: AppTheme.weightStrong
+                                elide: Label.ElideRight
+                                maximumLineCount: 1
+                                // A user-chosen display name must not be
+                                // allowed to eat the quoted line it
+                                // introduces; the body keeps the rest.
+                                // A FIXED cap, deliberately — deriving it
+                                // from replyRowWrap.width closes a loop in
+                                // Bubbles mode, where the bubble's width is
+                                // its content's implicit width and this
+                                // Label is part of that content. The message
+                                // header above caps the same way (320).
+                                Layout.maximumWidth: AppTheme.scaled(180)
+                            }
+                            Label {
+                                objectName: "replyQuoteBody"
+                                text: model.replyToPreview
+                                      || qsTr("(original message not loaded)")
+                                color: root.replyBodyInk
+                                opacity: replyHover.hovered ? 1.0 : 0.85
+                                Behavior on opacity { NumberAnimation { duration: 90 } }
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
                                 maximumLineCount: 1
                             }
-                            Label {
-                                text: model.replyToPreview || qsTr("(original message not loaded)")
-                                color: AppTheme.textMuted
-                                font.pixelSize: 11
-                                elide: Label.ElideRight
-                                Layout.fillWidth: true
-                                maximumLineCount: 1
-                            }
-                        }
                         }
                     }
 
@@ -1335,6 +1585,23 @@ Item {
                                 ? 13 : AppTheme.fontSizeM)
                         }
                         font.italic: model.redacted || model.undecryptable === true
+                        // NO lineHeight here, and it is not an oversight.
+                        // The design system asks for
+                        // AppTheme.lineHeightBody on every wrapping text
+                        // item, and a wrapped message paragraph genuinely
+                        // does run tighter inside itself (~1.2, the font's
+                        // own hhea metrics) than the 12px gap between two
+                        // senders — which is what makes a busy room read as
+                        // a wall. But `lineHeight`/`lineHeightMode` are
+                        // QQuickText properties and this is a TextEdit
+                        // (selectByMouse + RichText + link activation), so
+                        // assigning them is a hard "cannot assign to
+                        // non-existent property" component error, not a
+                        // no-op — verified with qmllint 6.11.1 against the
+                        // resolved QtQuick module. Setting the leading here
+                        // needs either a `line-height` declaration emitted
+                        // by MessageHtml::sanitize (C++) or a move off
+                        // TextEdit; both are outside a presentation change.
                         wrapMode: Text.Wrap
                         readOnly: true
                         // ColumnLayout incubates children before bubbleRow has
@@ -1347,6 +1614,9 @@ Item {
                         Layout.maximumWidth: bubble.width > 8
                                              ? Math.min(720, bubble.width - 8)
                                              : 560
+                        // Keep the last line clear of the receipt rail —
+                        // see receiptRailReserve.
+                        Layout.rightMargin: root.receiptRailReserve
                         textFormat: Text.RichText
                         selectByMouse: true
                         Accessible.name: model.body || ""
@@ -1399,6 +1669,7 @@ Item {
                         Layout.maximumWidth: bubble.width > 8
                                              ? Math.min(720, bubble.width - 8)
                                              : 560
+                        Layout.rightMargin: root.receiptRailReserve
                         sourceComponent: ColumnLayout {
                             spacing: 4
                             // ONE accessible reading for the whole message,
@@ -1484,6 +1755,10 @@ Item {
                                                 : root.compactMode
                                                   || root.inThreadPanel
                                                 ? 13 : AppTheme.fontSizeM)
+                                            // No lineHeight, same reason
+                                            // as the single-body path
+                                            // above: TextEdit has no such
+                                            // property.
                                             wrapMode: Text.Wrap
                                             readOnly: true
                                             textFormat: Text.RichText
@@ -1561,7 +1836,7 @@ Item {
                                 return qsTr("Waiting for keys…")
                             }
                             color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             font.italic: true
                         }
                         // v0.6.5: these are inline text links (underlined,
@@ -1576,7 +1851,7 @@ Item {
                         Label {
                             text: qsTr("Retry decryption")
                             color: AppTheme.link
-                            font.pixelSize: 10
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             font.underline: true
                             MouseArea {
                                 anchors.fill: parent
@@ -1587,7 +1862,7 @@ Item {
                         Label {
                             text: qsTr("Security settings")
                             color: AppTheme.link
-                            font.pixelSize: 10
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             font.underline: true
                             MouseArea {
                                 anchors.fill: parent
@@ -1665,7 +1940,9 @@ Item {
                             visible: model.isOwn && model.status === 2
                             text: qsTr("Retry")
                             color: AppTheme.link
-                            font.pixelSize: 10
+                            // Its sibling one line up is already
+                            // scaled(10); the two are one status line.
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                             font.underline: true
                             MouseArea {
                                 anchors.fill: parent
@@ -1802,7 +2079,23 @@ Item {
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: -3
-                anchors.rightMargin: 2
+                // `parent` is bubbleRow — the FULL timeline width — while
+                // the message content is clamped to
+                // timelineContentMaxWidth (760). On a maximised window that
+                // put React/Reply/More roughly 390px to the right of the
+                // text they act on, in dead space with no visual connection
+                // to the row; Element anchors its hover toolbar to the top-
+                // right of the event tile's own content box. Pull the bar
+                // back by however much empty gutter the content column
+                // leaves, so it lands on the content's right edge at any
+                // width and collapses to the old behaviour on a narrow pane
+                // (where bubble already reaches the row edge).
+                //
+                // Still a plain in-row anchor: no mapToItem, which is what
+                // the reverted overlay bar was and could not survive the
+                // rows' 180-degree rotation.
+                anchors.rightMargin: 2 + Math.max(
+                    0, bubbleRow.width - (bubble.x + bubble.width))
                 z: 3
                 // Created on first need, then latched alive for the
                 // delegate's lifetime; visibility gates afterwards. The
@@ -1994,9 +2287,10 @@ Item {
                     objectName: "reactionChip"
                     // Design §3: own reaction = accent-soft fill + accent
                     // border + accent-text; others = neutral chip. Pill radius,
-                    // 9px side / 3px vertical padding, min height 22. Fill
-                    // darkens slightly on hover — paint only, geometry never
-                    // moves on hover/press/selected.
+                    // 9px side / 3px vertical padding, min height 22. Every
+                    // state is PAINT ONLY — geometry never moves on
+                    // hover/press/focus/selected, because these chips wrap
+                    // in a Flow and a 1px growth would reflow the row.
                     // v0.6.5 live-feedback: "add deliberate yellow" for byMe
                     // chips — the softer accentBorder fallback read as too
                     // faint to register as "you reacted here" at a glance
@@ -2008,11 +2302,62 @@ Item {
                     // over-yellow case the design's own discipline warns
                     // against; the crisp ring is enough to read as "mine").
                     readonly property color baseFill: modelData.byMe
-                        ? AppTheme.accentSoft : AppTheme.reactionBackground
-                    color: reactionHover.hovered ? Qt.darker(baseFill, 1.08) : baseFill
+                        ? AppTheme.reactionSelectedBackground
+                        : AppTheme.reactionBackground
+                    // Qt.darker BOTH ways was backwards on the eight dark
+                    // themes: the pill moved toward the near-black row
+                    // behind it, so pointing at the most-clicked control in
+                    // a chat client made it RECEDE. Lift on dark, deepen on
+                    // light — one predicate, both directions.
+                    readonly property color hoverFill:
+                        AppTheme.dark ? Qt.lighter(baseFill, 1.35)
+                                      : Qt.darker(baseFill, 1.07)
+                    color: reactionMouse.pressed
+                           ? (AppTheme.dark ? Qt.lighter(baseFill, 1.6)
+                                            : Qt.darker(baseFill, 1.14))
+                           : reactionHover.hovered ? hoverFill : baseFill
+                    Behavior on color { ColorAnimation { duration: 80 } }
                     radius: AppTheme.radiusPill
-                    border.color: modelData.byMe ? AppTheme.accent : AppTheme.border
-                    border.width: modelData.byMe ? 1.5 : 1
+                    border.color: modelData.byMe
+                                  ? AppTheme.accent
+                                  : reactionHover.hovered
+                                    ? AppTheme.borderStrong : AppTheme.border
+                    // Whole pixels only: a 1.5px border cannot land on a
+                    // pixel boundary at DPR 1 and rendered as two rows of
+                    // half-covered antialiasing — soft exactly where the
+                    // "you reacted" signal has to be crisp.
+                    border.width: modelData.byMe ? 2 : 1
+                    // The chip was a bare Rectangle: Accessible.role said
+                    // Button but a Rectangle is not a focus stop, so Tab
+                    // never reached it and nothing ever drew focus.
+                    activeFocusOnTab: true
+                    Keys.onReturnPressed: (event) => {
+                        app.composer.reactTo(root.eventIdForActions(),
+                                             modelData.key)
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        app.composer.reactTo(root.eventIdForActions(),
+                                             modelData.key)
+                        event.accepted = true
+                    }
+                    Keys.onSpacePressed: (event) => {
+                        app.composer.reactTo(root.eventIdForActions(),
+                                             modelData.key)
+                        event.accepted = true
+                    }
+                    // Drawn INSIDE the pill, not at the shared -4px outset:
+                    // chips sit in a Flow with 4px spacing and an outset
+                    // ring would cross its neighbour and the read-receipt
+                    // rail beside the last one.
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: reactionChip.activeFocus
+                        color: "transparent"
+                        radius: reactionChip.radius
+                        border.width: 2
+                        border.color: AppTheme.focusRing
+                    }
                     implicitWidth: reactionRow.implicitWidth + 18
                     // reactionRow.implicitHeight is deterministic now: both
                     // labels below are pinned to a fixed 16px content height,
@@ -2024,7 +2369,11 @@ Item {
                     // and the count label's vertical position within it —
                     // varied chip to chip. Chip chrome stays unscaled by
                     // design (it's interface chrome, not message-body text).
-                    implicitHeight: Math.max(22, reactionRow.implicitHeight + 6)
+                    // The 22px floor scales with the chip's own text:
+                    // pinning it while the labels grow would let a 140%
+                    // count overflow its pill.
+                    implicitHeight: Math.max(AppTheme.scaled(22),
+                                             reactionRow.implicitHeight + 6)
                     HoverHandler { id: reactionHover }
 
                     // ── Who reacted (C2) ─────────────────────────────────
@@ -2098,25 +2447,33 @@ Item {
                         spacing: 5
                         Label {
                             Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredHeight: 16
+                            Layout.preferredHeight: AppTheme.scaled(16)
                             text: modelData.key
-                            font.pixelSize: 12
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             verticalAlignment: Text.AlignVCenter
                         }
                         Label {
                             Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredHeight: 16
+                            Layout.preferredHeight: AppTheme.scaled(16)
                             text: modelData.count
-                            color: modelData.byMe ? AppTheme.selectedText : AppTheme.textSecondary
-                            font.pixelSize: 12
-                            font.weight: Font.Bold
+                            color: modelData.byMe
+                                   ? AppTheme.reactionSelectedInk
+                                   : AppTheme.reactionInk
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                            font.weight: AppTheme.weightBold
                             verticalAlignment: Text.AlignVCenter
                         }
                     }
                     MouseArea {
+                        id: reactionMouse
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: app.composer.reactTo(root.eventIdForActions(), modelData.key)
+                        // Deliberately does NOT take focus, for the same
+                        // reason the reply quote does not: a click here must
+                        // not pull the caret out of the composer mid-
+                        // sentence. Tab reaches the same control.
+                        onClicked: app.composer.reactTo(
+                                       root.eventIdForActions(), modelData.key)
                     }
                     Accessible.role: Accessible.Button
                     Accessible.name: modelData.byMe
@@ -2134,6 +2491,88 @@ Item {
                     Accessible.onPressAction:
                         app.composer.reactTo(root.eventIdForActions(), modelData.key)
                 }
+            }
+
+            // Element's inline "+" pill, closing the reaction row. Joining
+            // an EXISTING reaction was one click; adding a NEW one to a
+            // message that already had reactions meant finding the hover
+            // toolbar — which, before this round, floated hundreds of pixels
+            // to the right of the row. This puts the affordance where the
+            // hand already is. It reuses the SHARED picker through the same
+            // openReactionPickerFor() the toolbar button calls, so it costs
+            // no extra popup instance per row.
+            Rectangle {
+                id: reactionAddChip
+                objectName: "reactionAddChip"
+                // The same geometry contract as the chips beside it: paint
+                // changes on hover/press/focus, geometry never moves.
+                visible: !model.redacted
+                         && (model.eventId || "").length > 0
+                         && model.eventId.indexOf("local:") !== 0
+                implicitWidth: AppTheme.scaled(34)
+                implicitHeight: Math.max(AppTheme.scaled(22),
+                                         addChipGlyph.implicitHeight + 6)
+                radius: AppTheme.radiusPill
+                color: addChipMouse.pressed
+                       ? (AppTheme.dark
+                          ? Qt.lighter(AppTheme.reactionBackground, 1.6)
+                          : Qt.darker(AppTheme.reactionBackground, 1.14))
+                       : addChipHover.hovered
+                         ? (AppTheme.dark
+                            ? Qt.lighter(AppTheme.reactionBackground, 1.35)
+                            : Qt.darker(AppTheme.reactionBackground, 1.07))
+                         : "transparent"
+                Behavior on color { ColorAnimation { duration: 80 } }
+                // Outlined at rest so it reads as "add", not as a reaction
+                // somebody left; it fills in only once pointed at.
+                border.width: 1
+                border.color: addChipHover.hovered ? AppTheme.borderStrong
+                                                   : AppTheme.border
+                activeFocusOnTab: true
+                function activate() {
+                    if (root.timelineView)
+                        root.timelineView.pinnedActionsKey = root.actionKey
+                    root.openReactionPickerFor(root.eventIdForActions(),
+                                               reactionAddChip)
+                }
+                Keys.onReturnPressed: (event) => {
+                    reactionAddChip.activate(); event.accepted = true
+                }
+                Keys.onEnterPressed: (event) => {
+                    reactionAddChip.activate(); event.accepted = true
+                }
+                Keys.onSpacePressed: (event) => {
+                    reactionAddChip.activate(); event.accepted = true
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    visible: reactionAddChip.activeFocus
+                    color: "transparent"
+                    radius: reactionAddChip.radius
+                    border.width: 2
+                    border.color: AppTheme.focusRing
+                }
+                Icon {
+                    id: addChipGlyph
+                    anchors.centerIn: parent
+                    name: "add_reaction"
+                    size: AppTheme.scaled(14)
+                    color: addChipHover.hovered ? AppTheme.textPrimary
+                                                : AppTheme.textMuted
+                }
+                HoverHandler { id: addChipHover }
+                MouseArea {
+                    id: addChipMouse
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: reactionAddChip.activate()
+                }
+                ToolTip.text: qsTr("Add reaction")
+                ToolTip.visible: addChipHover.hovered
+                ToolTip.delay: 500
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Add reaction")
+                Accessible.onPressAction: reactionAddChip.activate()
             }
         }
 
@@ -2241,9 +2680,13 @@ Item {
                 spacing: -4
                 // The ring must paint what the row currently shows — a
                 // bare AppTheme.background ring punches visible holes
-                // into the hover/selection tint.
+                // into the hover/selection tint. Since the row highlight
+                // now FADES, the ring has to fade with it or the discs
+                // flash a fully-opaque tint over a half-faded row.
                 readonly property color hoverTint:
                     rowHighlight.visible ? rowHighlight.color : "transparent"
+                readonly property real hoverTintOpacity:
+                    rowHighlight.visible ? rowHighlight.opacity : 0
                 Repeater {
                     // Array model + modelData, the same shape the reaction
                     // chips use: each delegate carries its receipt
@@ -2272,6 +2715,8 @@ Item {
                             radius: chip.radius
                             color: chip.parent ? chip.parent.hoverTint
                                                : "transparent"
+                            opacity: chip.parent
+                                     ? chip.parent.hoverTintOpacity : 0
                         }
                         Avatar {
                             anchors.centerIn: parent
@@ -2298,8 +2743,12 @@ Item {
                         anchors.centerIn: parent
                         text: "+" + readReceiptStrip.overflowCount
                         color: AppTheme.textSecondary
-                        font.pixelSize: 9
-                        font.weight: Font.Bold
+                        // The rail's geometry is fixed (18px avatar discs),
+                        // so this label is genuinely chrome and does NOT
+                        // scale — but it goes through the token rather than
+                        // a bare 9.
+                        font.pixelSize: AppTheme.fontMicro
+                        font.weight: AppTheme.weightBold
                     }
                 }
 
@@ -2816,7 +3265,7 @@ Item {
     property var detailsDialogItem: null
     Component {
         id: detailsDialogComponent
-        Dialog {
+        AppDialog {
                 id: messageDetailsDialog
                 objectName: "messageDetailsDialog"
                 parent: Overlay.overlay
@@ -2824,6 +3273,11 @@ Item {
                 modal: true
                 title: qsTr("Message details")
                 standardButtons: Dialog.Ok
+                // The body Labels ink from the GENERAL namespace
+                // (AppTheme.text / textMuted), so the panel must be the
+                // general surface too — a storm panel under general inks
+                // pairs two different routing tables.
+                storm: false
                 property var details: ({})
                 width: Math.min(520, parent ? parent.width - 32 : 520)
                 contentItem: ColumnLayout {
@@ -2954,7 +3408,7 @@ Item {
                     anchors.centerIn: parent
                     text: "GIF"
                     color: AppTheme.scrimInk
-                    font.pixelSize: 9
+                    font.pixelSize: AppTheme.fontMicro
                     font.weight: Font.Bold
                 }
             }
@@ -3041,8 +3495,8 @@ Item {
                         Label {
                             text: card.p.host || ""
                             color: AppTheme.link
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                            font.weight: AppTheme.weightStrong
                             elide: Label.ElideRight
                             Layout.fillWidth: true
                         }
@@ -3054,7 +3508,7 @@ Item {
                               : qsTr("Previews load from the linked website.")
                         color: root.roomEncrypted ? AppTheme.warning
                                                   : AppTheme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -3114,7 +3568,7 @@ Item {
                         Label {
                             text: qsTr("Preview unavailable")
                             color: AppTheme.textMuted
-                            font.pixelSize: 11
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             Layout.fillWidth: true
                         }
                     }
@@ -3193,7 +3647,7 @@ Item {
                                 anchors.centerIn: parent
                                 text: "GIF"
                                 color: AppTheme.scrimInk
-                                font.pixelSize: 9
+                                font.pixelSize: AppTheme.fontMicro
                                 font.weight: Font.Bold
                             }
                         }
@@ -3204,7 +3658,7 @@ Item {
                                  && (card.p.siteName || "").length > 0
                         text: card.p.siteName || ""
                         color: AppTheme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                         elide: Label.ElideRight
                         Layout.fillWidth: true
                     }
@@ -3213,8 +3667,8 @@ Item {
                                  && (card.p.title || "").length > 0
                         text: card.p.title || ""
                         color: AppTheme.text
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        font.weight: AppTheme.weightStrong
                         wrapMode: Text.WordWrap
                         maximumLineCount: 2
                         elide: Label.ElideRight
@@ -3225,7 +3679,11 @@ Item {
                                  && (card.p.description || "").length > 0
                         text: card.p.description || ""
                         color: AppTheme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        // A wrapping paragraph inside a card needs the same
+                        // leading rule as the message body it sits under.
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.WordWrap
                         maximumLineCount: 3
                         elide: Label.ElideRight
@@ -3234,7 +3692,7 @@ Item {
                     Label {
                         text: card.p.host || ""
                         color: AppTheme.link
-                        font.pixelSize: 10
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                         elide: Label.ElideRight
                         Layout.fillWidth: true
                     }
@@ -3527,7 +3985,7 @@ Item {
                     anchors.centerIn: parent
                     text: "GIF"
                     color: AppTheme.scrimInk
-                    font.pixelSize: 9
+                    font.pixelSize: AppTheme.fontMicro
                     font.weight: Font.Bold
                 }
             }
@@ -3758,7 +4216,7 @@ Item {
                       ? qsTr("Image failed to load — click to retry")
                       : qsTr("(image unavailable)")
                 color: AppTheme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 visible: img.status === Image.Error || imageBox.bridgeFailed
             }
         }
@@ -3860,7 +4318,7 @@ Item {
                 wrapMode: Text.WordWrap
                 text: qsTr("Sticker failed to load — click to retry")
                 color: AppTheme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 visible: stickerImg.status === Image.Error
                          || stickerBox.bridgeFailed
             }
@@ -4085,7 +4543,7 @@ Item {
                     Label {
                         text: model.mediaFilename || model.body || qsTr("Video")
                         color: AppTheme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         elide: Label.ElideMiddle
                         Layout.maximumWidth: videoBox.dispW - 48
                         Layout.alignment: Qt.AlignHCenter
@@ -4150,7 +4608,7 @@ Item {
                         text: videoBox.formatDuration(model.mediaDurationMs)
                               || qsTr("Video")
                         color: AppTheme.scrimInk
-                        font.pixelSize: 9
+                        font.pixelSize: AppTheme.fontMicro
                         font.weight: Font.Bold
                     }
                 }
@@ -4324,8 +4782,8 @@ Item {
                     Label {
                         text: model.mediaFilename || model.body || qsTr("File")
                         color: AppTheme.text
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        font.weight: AppTheme.weightStrong
                         elide: Label.ElideMiddle
                         Layout.fillWidth: true
                     }
@@ -4347,7 +4805,7 @@ Item {
                                ? AppTheme.danger
                                : fileCard.savedFlash ? AppTheme.success
                                : AppTheme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                         elide: Label.ElideRight
                         Layout.fillWidth: true
                     }
@@ -4356,7 +4814,8 @@ Item {
                 // Download / save state action. MediaBridge saves are
                 // atomic (no progress or cancel API) — the in-flight state
                 // is honest-indeterminate, never a fake percentage.
-                BusyIndicator {
+                AppBusyIndicator {
+                    size: 26
                     visible: fileCard.saving
                     running: visible
                     Layout.preferredWidth: 26
