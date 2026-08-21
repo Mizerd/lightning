@@ -46,6 +46,17 @@ QtObject {
     // System dark-mode hint from the platform (QStyleHints::colorScheme),
     // pushed in from Main.qml via AppController.systemDarkMode.
     property bool systemDark: false
+    // ---- Custom theme (SettingsManager::CustomTheme, id 12) ----
+    // A SPARSE map of role -> "#RRGGBB" laid over `customBase`'s palette,
+    // pushed in from Main.qml as app.customTheme.colors. Sparse on purpose:
+    // overriding three colours overrides three colours and everything else
+    // keeps following the base theme. CustomThemeStore::sanitize() has
+    // already dropped unknown roles and malformed values before this sees
+    // them; the guard in _custom below is a second gate, because this is the
+    // one palette whose contents a user can hand-edit in a config file.
+    property var customOverrides: ({})
+    property int customBase: 11
+
     // v0.7: app-wide reduced-motion hint consumed by loading skeletons and
     // other decorative animation. False by default; a future accessibility
     // setting or platform hint can drive it without touching consumers.
@@ -58,10 +69,25 @@ QtObject {
     readonly property int effectiveTheme: mode === 0
                                           ? (systemDark ? 11 : 8)
                                           : mode
+    // WCAG relative luminance of a QML color. Used only to classify a
+    // CUSTOM palette as light or dark — the presets are known by id.
+    function relativeLuminance(c) {
+        function lin(v) {
+            return v <= 0.03928 ? v / 12.92
+                                : Math.pow((v + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+    }
+
     // Any preset that is not one of the light surfaces is dark (used by
-    // overlay chrome).
-    readonly property bool dark: effectiveTheme !== 1 && effectiveTheme !== 7
-                                 && effectiveTheme !== 8
+    // overlay chrome). A CUSTOM theme is classified by its own background
+    // instead: the user can build a light palette on a dark base, and
+    // inheriting the base's answer would leave shadows and scrims fighting
+    // the surface they sit on.
+    readonly property bool dark: effectiveTheme === 12
+                                 ? relativeLuminance(_p.background) < 0.18
+                                 : (effectiveTheme !== 1 && effectiveTheme !== 7
+                                    && effectiveTheme !== 8)
     // True while the Storm brand theme (11) is the effective palette. Views
     // never branch on this — it exists so the storm* token namespace below
     // can route between the Storm literals and each legacy theme's own
@@ -112,21 +138,29 @@ QtObject {
 
     // Lightning Dark — cool near-black, calmer than the navy Midnight.
     readonly property color _dkBg:            "#0D1117"
-    readonly property color _dkSidebar:       "#10161D"
-    readonly property color _dkCard:          "#161C26"
-    readonly property color _dkCardElevated:  "#19202B"
-    readonly property color _dkHover:         "#1B2431"
-    readonly property color _dkSelected:      "#25375F"
-    readonly property color _dkSelectedHover: "#304474"
+    readonly property color _dkSidebar:       "#1B242F"
+    readonly property color _dkCard:          "#2A3140"
+    readonly property color _dkCardElevated:  "#303E52"
+    readonly property color _dkHover:         "#3D4964"
+    readonly property color _dkSelected:      "#3C527E"
+    readonly property color _dkSelectedHover: "#4B5E94"
     readonly property color _dkSelectedText:  "#F0F4FA"
     readonly property color _dkTextPrimary:   "#E9EEF6"
     readonly property color _dkTextSecondary: "#B7C2D4"
-    readonly property color _dkTextMuted:     "#8D9AB0"
-    readonly property color _dkTextDisabled:  "#5C6A80"
-    readonly property color _dkBorder:        "#212A39"
-    readonly property color _dkBorderStrong:  "#313C53"
-    readonly property color _dkInputBg:       "#10161D"
-    readonly property color _dkCodeBlock:     "#0A0E14"
+    readonly property color _dkTextMuted:     "#98A5BB"
+    readonly property color _dkTextDisabled:  "#7A889F"
+    readonly property color _dkBorder:        "#4C596D"
+    readonly property color _dkBorderStrong:  "#5D6B87"
+    readonly property color _dkInputBg:       "#35373B"
+    readonly property color _dkCodeBlock:     "#212224"
+    // Lightning Dark's own link/mention ink. It used to inherit _accentBlue
+    // through `link: _p.link !== undefined ? _p.link : _p.accent`, which was
+    // already below AA on this theme (3.48 on the ground, 3.01 on an incoming
+    // bubble) and got worse when the ladder above rose while the ink did not:
+    // 2.39 on surface, 1.65 on hover. Same accent hue family, lighter — 8.66
+    // on background, 5.96 on surface, 4.96 on cardElevated. _accentBlue
+    // itself is NOT moved: Lightning Light depends on it at 4.75/5.44.
+    readonly property color _dkLink:          "#9EAAFC"
 
     // Graphite — neutral dark grey.
     readonly property color _graBg:            "#1A1A1D"
@@ -175,27 +209,37 @@ QtObject {
     readonly property color _norOtherBubble:   "#3B4252"
 
     // Purple Dusk — deep violet surfaces.
-    readonly property color _purBg:            "#1E1B2E"
-    readonly property color _purSidebar:       "#241F35"
-    readonly property color _purCard:          "#2A2440"
-    readonly property color _purCardElevated:  "#332C4E"
-    readonly property color _purHover:         "#372E57"
-    readonly property color _purSelected:      "#4A3D7A"
-    readonly property color _purSelectedHover: "#574899"
+    readonly property color _purBg:            "#17142A"
+    readonly property color _purSidebar:       "#2B2642"
+    readonly property color _purCard:          "#3C3455"
+    readonly property color _purCardElevated:  "#4A4168"
+    readonly property color _purHover:         "#56487E"
+    readonly property color _purSelected:      "#594992"
+    readonly property color _purSelectedHover: "#6B57BB"
     readonly property color _purSelectedText:  "#F3EEFF"
     readonly property color _purTextPrimary:   "#F3EEFF"
     readonly property color _purTextSecondary: "#D6CCF0"
-    readonly property color _purTextMuted:     "#A99FC7"
-    readonly property color _purTextDisabled:  "#726899"
-    readonly property color _purBorder:        "#3A3255"
-    readonly property color _purBorderStrong:  "#4C4270"
-    readonly property color _purInputBg:       "#241F35"
-    readonly property color _purCodeBlock:     "#161327"
-    readonly property color _purAccent:        "#7C5CD6"
-    readonly property color _purAccentHover:   "#9370E0"
-    readonly property color _purAccentPressed: "#6748BE"
-    readonly property color _purOwnBubble:     "#6748BE"
-    readonly property color _purOtherBubble:   "#332C4E"
+    readonly property color _purTextMuted:     "#B5ABD6"
+    readonly property color _purTextDisabled:  "#988DC1"
+    readonly property color _purBorder:        "#5D537E"
+    readonly property color _purBorderStrong:  "#716598"
+    readonly property color _purInputBg:       "#150F32"
+    readonly property color _purCodeBlock:     "#0D0819"
+    // Purple Dusk's link ink. The accent CANNOT do this job, and the reason is
+    // over-determined rather than a tuning miss: white-on-accent is asserted
+    // at 3:1, which caps any accent at luminance 0.30, while an AA link needs
+    // 0.36 on this theme's surface and 0.46 on cardElevated. Even the raised
+    // accent leaves every URL in every message at 3.20 / 2.58. Held to the
+    // shell's violet hue. 6.17 on surface, 4.99 on cardElevated, 4.27 on
+    // hover. Honest limit: 3.41 inside your own outgoing bubble — Storm has
+    // the same shape (_stoLink on _stoOwnBubble is 3.71), so it is an app-wide
+    // pattern rather than a Purple defect.
+    readonly property color _purLink:          "#C7B2FC"
+    readonly property color _purAccent:        "#8F73E9"
+    readonly property color _purAccentHover:   "#9D7EEA"
+    readonly property color _purAccentPressed: "#7D5ED6"
+    readonly property color _purOwnBubble:     "#6452A4"
+    readonly property color _purOtherBubble:   "#3C3261"
 
     // Warm — light cream surfaces with an amber accent.
     readonly property color _warBg:            "#F6F1E7"
@@ -506,11 +550,11 @@ QtObject {
     // themes, darker on the light ones — with the theme's secondary ink kept
     // at >= 4.6:1 on it (measured worst case 4.71, on Warm).
     readonly property color _lightReaction:    "#FBFDFF"
-    readonly property color _dkReaction:       "#252B35"
+    readonly property color _dkReaction:       "#464C57"
     readonly property color _graReaction:      "#333339"
     readonly property color _midReaction:      "#252E3D"
     readonly property color _norReaction:      "#474E5E"
-    readonly property color _purReaction:      "#37314E"
+    readonly property color _purReaction:      "#444058"
     readonly property color _warReaction:      "#EADECF"
     readonly property color _mosReaction:      "#D6E3D9"
     readonly property color _indReaction:      "#2A2A33"
@@ -551,8 +595,15 @@ QtObject {
         textDisabled: _dkTextDisabled, border: _dkBorder,
         borderStrong: _dkBorderStrong, accent: _accentBlue,
         accentHover: _accentBlueHover, accentPressed: _accentBluePressed,
-        ownBubble: _outgoingBubbleBlue, otherBubble: _dkCardElevated,
-        reaction: _dkReaction
+        ownBubble: _outgoingBubbleBlue, otherBubble: _dkCard,
+        // NOT _dkCardElevated: that is the same literal cardElevated uses, so
+        // a raised chip drawn ON an incoming bubble (link preview, poll, the
+        // pagination and navigation pills, the Qt `button` palette role) was
+        // invisible — ratio 1.000. Pointing the bubble at the panel tone puts
+        // the chip 1.201 above it and matches what Lightning Light and Storm
+        // already do. _dkCard is already in the test's darkInkSurfaces(), so
+        // the bubble surface keeps its 13-ink coverage with no test edit.
+        reaction: _dkReaction, link: _dkLink
     })
     readonly property var _midnight: ({
         background: _bgDark, sidebar: _sidebarDark, surface: _cardDark,
@@ -604,7 +655,12 @@ QtObject {
         borderStrong: _purBorderStrong, accent: _purAccent,
         accentHover: _purAccentHover, accentPressed: _purAccentPressed,
         ownBubble: _purOwnBubble, otherBubble: _purOtherBubble,
-        reaction: _purReaction
+        // The rail shares the timeline's ground rather than the room list's
+        // surface (what Storm does too). Without it `rail` falls back to
+        // `sidebar` and the 68px spaces rail and the 300px room list are one
+        // colour with no edge between them — 1.000, dE 0.00.
+        rail: _purBg,
+        reaction: _purReaction, link: _purLink
     })
     readonly property var _warm: ({
         background: _warBg, sidebar: _warSidebar, surface: _warCard,
@@ -707,29 +763,68 @@ QtObject {
         { id: 4,  name: qsTr("Midnight") },
         { id: 5,  name: qsTr("Nordic") },
         { id: 6,  name: qsTr("Purple Dusk") },
-        { id: 7,  name: qsTr("Warm") }
+        { id: 7,  name: qsTr("Warm") },
+        // The user-authored palette. Listed LAST and only once it exists —
+        // an empty custom theme in the picker is a row that does nothing.
+        // Settings → Appearance offers the editor separately, so this entry
+        // is purely for re-selecting a theme already built.
+        { id: 12, name: qsTr("Your theme") }
     ]
 
-    // Palette lookup for rendering theme preview cards. Must route exactly
-    // like _p below; keys missing from pre-handoff palettes (rail,
+    // THE theme-id -> palette switch. One switch, three consumers (_p, the
+    // preview cards, and the custom theme's base lookup) so a new theme
+    // cannot be routed in one place and missed in another.
+    function rawPaletteForTheme(id) {
+        switch (id) {
+        case 1:  return _light
+        case 2:  return _dark
+        case 3:  return _graphite
+        case 4:  return _midnight
+        case 5:  return _nord
+        case 6:  return _purple
+        case 7:  return _warm
+        case 8:  return _moss
+        case 9:  return _indigo
+        case 10: return _teal
+        case 11: return _storm
+        case 12: return _custom
+        default: return _storm
+        }
+    }
+
+    // The user-authored palette: `customBase`'s preset with the user's own
+    // colours laid over it.
+    //
+    // The base is clamped to a real PRESET, never to 12 — a custom theme
+    // based on the custom theme is a cycle, and QML would resolve it as an
+    // undefined palette rather than as an error.
+    readonly property var _custom: {
+        var base = rawPaletteForTheme(
+            (customBase >= 1 && customBase <= 11) ? customBase : 11)
+        var out = {}
+        for (var k in base)
+            out[k] = base[k]
+        var ov = customOverrides
+        if (ov) {
+            for (var role in ov) {
+                var v = ov[role]
+                // Second gate. CustomThemeStore already sanitised this, but
+                // it is the one palette whose contents reach a config file a
+                // user can edit by hand, and an unparseable colour here
+                // paints the shell transparent rather than failing loudly.
+                if (typeof v === "string" && /^#[0-9A-Fa-f]{6}$/.test(v))
+                    out[role] = v
+            }
+        }
+        return out
+    }
+
+    // Palette lookup for rendering theme preview cards. Routes through
+    // rawPaletteForTheme above; keys missing from pre-handoff palettes (rail,
     // accentSoft, accentBorder, accentText) are filled with the same
     // fallbacks the semantic aliases use.
     function paletteForTheme(id) {
-        var p
-        switch (id) {
-        case 1:  p = _light; break
-        case 2:  p = _dark; break
-        case 3:  p = _graphite; break
-        case 4:  p = _midnight; break
-        case 5:  p = _nord; break
-        case 6:  p = _purple; break
-        case 7:  p = _warm; break
-        case 8:  p = _moss; break
-        case 9:  p = _indigo; break
-        case 10: p = _teal; break
-        case 11: p = _storm; break
-        default: p = _p; break
-        }
+        var p = rawPaletteForTheme(id)
         return {
             background: p.background,
             rail: p.rail !== undefined ? p.rail : p.sidebar,
@@ -738,31 +833,24 @@ QtObject {
             hover: p.hover,
             border: p.border,
             accent: p.accent,
+            // These MUST match the semantic aliases below, and for a long
+            // time they did not: the aliases fall back to `selected` and
+            // `borderStrong`, these fell back to translucent accent. So a
+            // Settings preview card painted accent chrome the running theme
+            // never renders, for every palette without explicit keys — themes
+            // 1 through 7. criticalPairsMeetContrast pins _dkSelectedText
+            // against _dkSelected precisely BECAUSE accentSoft resolves to
+            // selected, so the alias path is the one the contract believes.
             accentSoft: p.accentSoft !== undefined ? p.accentSoft
-                                                   : Qt.alpha(p.accent, 0.16),
+                                                   : p.selected,
             accentBorder: p.accentBorder !== undefined ? p.accentBorder
-                                                       : Qt.alpha(p.accent, 0.35),
+                                                       : p.borderStrong,
             textPrimary: p.textPrimary,
             textMuted: p.textMuted
         }
     }
 
-    readonly property var _p: {
-        switch (effectiveTheme) {
-        case 1:  return _light
-        case 2:  return _dark       // Lightning Dark
-        case 3:  return _graphite
-        case 4:  return _midnight   // Midnight
-        case 5:  return _nord
-        case 6:  return _purple
-        case 7:  return _warm
-        case 8:  return _moss
-        case 9:  return _indigo
-        case 10: return _teal
-        case 11: return _storm
-        default: return _light
-        }
-    }
+    readonly property var _p: rawPaletteForTheme(effectiveTheme)
 
     // ---- Semantic aliases (preferred). ----
     readonly property color background:          _p.background

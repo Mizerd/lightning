@@ -1201,21 +1201,36 @@ private Q_SLOTS:
                                         .arg(preset, role)));
             }
         }
-        for (int id = 1; id <= 11; ++id) {
+        // Every valid SettingsManager::Theme id, INCLUDING the custom
+        // palette (12), must be routed. There is exactly ONE switch now —
+        // rawPaletteForTheme() — feeding _p, the Settings preview cards and
+        // the custom theme's base lookup alike. It used to be two, and the
+        // second one's default branch returned the ACTIVE palette, so a
+        // missing case painted a wrong-but-plausible preview card that no
+        // runtime suite would have caught.
+        for (int id = 1; id <= 12; ++id) {
             const QRegularExpression routed(
                 QStringLiteral("case\\s+%1\\s*:\\s*return\\s+_").arg(id));
             QVERIFY2(m_theme.contains(routed),
                      qPrintable(QStringLiteral("theme id %1 not routed").arg(id)));
-            // paletteForTheme() has its own switch (`case N: p = _x; break`)
-            // feeding the Settings preview cards. Its default branch returns
-            // the ACTIVE palette, so a missing case paints a wrong-but-
-            // plausible preview no runtime suite would catch.
-            const QRegularExpression preview(
-                QStringLiteral("case\\s+%1\\s*:\\s*p\\s*=\\s*_").arg(id));
-            QVERIFY2(m_theme.contains(preview),
-                     qPrintable(QStringLiteral(
-                         "theme id %1 missing from paletteForTheme").arg(id)));
         }
+        QVERIFY2(m_theme.contains(QStringLiteral("function rawPaletteForTheme")),
+                 "the single theme-id -> palette switch is gone");
+        QVERIFY2(m_theme.contains(QStringLiteral(
+                     "readonly property var _p: rawPaletteForTheme(effectiveTheme)")),
+                 "_p must route through rawPaletteForTheme, not a second switch");
+        QVERIFY2(m_theme.contains(QStringLiteral("var p = rawPaletteForTheme(id)")),
+                 "paletteForTheme must route through rawPaletteForTheme");
+
+        // The custom palette is a MERGE, not a literal, so it cannot be
+        // checked for the full role set the way a preset is — it inherits it.
+        // What must hold is that it starts from a real preset and that the
+        // base can never be the custom theme itself, which would be a cycle
+        // QML resolves as an undefined palette rather than as an error.
+        const QRegularExpression customBase(
+            QStringLiteral("customBase\\s*>=\\s*1\\s*&&\\s*customBase\\s*<=\\s*11"));
+        QVERIFY2(m_theme.contains(customBase),
+                 "the custom theme's base must be clamped to a real preset");
     }
 
     void lightThemeIsNotInvertedDark()
