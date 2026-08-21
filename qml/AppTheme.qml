@@ -38,7 +38,11 @@ QtObject {
     // Main.qml as settings.textScale / 100. Applies to message/content text
     // through scaled(); fixed chrome and icon sizes stay unscaled.
     property real textScale: 1.0
-    function scaled(px) { return Math.round(px * textScale) }
+    // Content text scale. Folds in the UI font's optical correction so the
+    // text-size slider and the font picker stay independent; Manrope (the
+    // default) has factor 1.0, so nothing changes unless the user picks
+    // another family. Fixed chrome and icon sizes stay unscaled.
+    function scaled(px) { return Math.round(px * textScale * uiFontOptical) }
     // System dark-mode hint from the platform (QStyleHints::colorScheme),
     // pushed in from Main.qml via AppController.systemDarkMode.
     property bool systemDark: false
@@ -217,12 +221,12 @@ QtObject {
     readonly property color _warOtherBubble:   "#EDE2CE"
 
     // Moss Light — design-handoff light theme (option 1a).
-    readonly property color _mosBg:            "#F7F7F5"
-    readonly property color _mosRail:          "#ECEDED"
-    readonly property color _mosSidebar:       "#F2F3F1"
+    readonly property color _mosBg:            "#F1F9F3"
+    readonly property color _mosRail:          "#E7EFE8"
+    readonly property color _mosSidebar:       "#EDF5EE"
     readonly property color _mosCard:          "#FFFFFF"
-    readonly property color _mosCardElevated:  "#FAFAF9"
-    readonly property color _mosHover:         "#E8E9E7"
+    readonly property color _mosCardElevated:  "#F5FCF6"
+    readonly property color _mosHover:         "#E1EBE3"
     readonly property color _mosSelected:      "#E2F4EE"
     readonly property color _mosSelectedHover: "#D5EEE5"
     readonly property color _mosSelectedText:  "#0D6E55"
@@ -230,17 +234,17 @@ QtObject {
     readonly property color _mosTextSecondary: "#5B6067"
     readonly property color _mosTextMuted:     "#6A6F76"
     readonly property color _mosTextDisabled:  "#9AA0A6"
-    readonly property color _mosBorder:        "#E4E6E4"
-    readonly property color _mosBorderStrong:  "#CFD3CF"
+    readonly property color _mosBorder:        "#DEE8E0"
+    readonly property color _mosBorderStrong:  "#C9D5CB"
     readonly property color _mosInputBg:       "#FFFFFF"
-    readonly property color _mosCodeBlock:     "#E8E9E7"
+    readonly property color _mosCodeBlock:     "#E1EBE3"
     readonly property color _mosAccent:        "#12A67F"
     readonly property color _mosAccentHover:   "#15B78C"
     readonly property color _mosAccentPressed: "#0F8F6D"
     readonly property color _mosAccentSoft:    "#E2F4EE"
     readonly property color _mosAccentBorder:  "#BFE6DA"
     readonly property color _mosOwnBubble:     "#0D6E55"
-    readonly property color _mosOtherBubble:   "#E8E9E7"
+    readonly property color _mosOtherBubble:   "#E1EBE3"
     readonly property color _mosMention:       "#E04848"
 
     // Indigo Night — design-handoff dark theme (option 2a).
@@ -273,23 +277,23 @@ QtObject {
 
     // Deep Teal — design-handoff dark theme (option 2b). Accent fills use
     // dark ink (the accent itself is bright).
-    readonly property color _teaBg:            "#0E1416"
-    readonly property color _teaRail:          "#0A0F11"
-    readonly property color _teaSidebar:       "#111A1D"
-    readonly property color _teaCard:          "#132024"
-    readonly property color _teaCardElevated:  "#182428"
-    readonly property color _teaHover:         "#182428"
-    readonly property color _teaSelected:      "#152E2C"
-    readonly property color _teaSelectedHover: "#1D3B39"
+    readonly property color _teaBg:            "#031919"
+    readonly property color _teaRail:          "#001112"
+    readonly property color _teaSidebar:       "#091F20"
+    readonly property color _teaCard:          "#0C2526"
+    readonly property color _teaCardElevated:  "#133334"
+    readonly property color _teaHover:         "#112D2E"
+    readonly property color _teaSelected:      "#003834"
+    readonly property color _teaSelectedHover: "#004540"
     readonly property color _teaSelectedText:  "#DEF5F0"
     readonly property color _teaTextPrimary:   "#E6ECEC"
     readonly property color _teaTextSecondary: "#B9C8C8"
     readonly property color _teaTextMuted:     "#8FA5A8"
     readonly property color _teaTextDisabled:  "#5F7A7E"
-    readonly property color _teaBorder:        "#1C2A2E"
-    readonly property color _teaBorderStrong:  "#234046"
-    readonly property color _teaInputBg:       "#182428"
-    readonly property color _teaCodeBlock:     "#0A1113"
+    readonly property color _teaBorder:        "#193535"
+    readonly property color _teaBorderStrong:  "#224849"
+    readonly property color _teaInputBg:       "#051C1D"
+    readonly property color _teaCodeBlock:     "#001415"
     readonly property color _teaAccent:        "#27C2AD"
     readonly property color _teaAccentHover:   "#3FD2BE"
     readonly property color _teaAccentPressed: "#1EA593"
@@ -297,7 +301,7 @@ QtObject {
     readonly property color _teaAccentBorder:  "#1F4A44"
     readonly property color _teaAccentText:    "#062A25"
     readonly property color _teaOwnBubble:     "#1C4A43"
-    readonly property color _teaOtherBubble:   "#182428"
+    readonly property color _teaOtherBubble:   "#133334"
     readonly property color _teaMention:       "#E5677A"
 
     // Storm — the 0.6.5 brand theme (selectable id 11). Deep navy surfaces,
@@ -305,19 +309,69 @@ QtObject {
     // ALSO the fixed values behind the theme-invariant trust card and the
     // storm* namespace when Storm is the effective theme; the token test
     // parses them by name.
-    readonly property color _stoCanvas:        "#0A0F24"
-    readonly property color _stoPanel:         "#0D1B45"
-    readonly property color _stoInset:         "#0A1231"
-    readonly property color _stoDeep:          "#080C1C"
-    readonly property color _stoBorder:        "#1B2C60"
-    readonly property color _stoBorderStrong:  "#2B3C78"
-    readonly property color _stoSelection:     "#132558"
+    //
+    // 2026-08-21 SURFACE-LADDER REBUILD. The audited defect was NOT a lack of
+    // hue — Storm measured the most saturated shell in the app (Lab chroma
+    // 27.1 against Moss Light's 0.8). It was a lack of SEPARATION: every rung
+    // but one sat below 1.25:1 (deep→canvas 1.025, canvas→panel 1.138,
+    // panel→selection 1.138), and cardElevated / hover / selected were the
+    // SAME literal #132558, so a hovered row, a selected row and a raised
+    // card were one tone. The whole left half of the window read as one
+    // continuous field carried by 1px borders.
+    //
+    // The rebuilt ladder, measured (WCAG ratio between adjacent surfaces):
+    //   deep → canvas             1.247   (was 1.025)
+    //   canvas → panel            1.248   (was 1.138)
+    //   panel → cardElevated      1.422   (was 1.138, and it was the SAME
+    //                                      literal as hover and selected)
+    //   panel → selection         1.441   (was 1.138)
+    //   selection → selectedHover 1.205   (was 1.187)
+    // cardElevated and selection are deliberately SIBLINGS, not rungs: they
+    // sit at the same L* (31.0 / 31.3) and are told apart by tint — elevated
+    // stays neutral navy (Lab C 35.6, h 291), selection carries the
+    // periwinkle link hue (C 49.9, h 297), CIE76 dE 15. Elevation and state
+    // are different meanings and must not be read off the same axis.
+    //
+    // WHY THE LADDER STOPS WHERE IT DOES — do not "fix" this by pushing the
+    // rungs further apart. tests/ThemeTokensTest.cpp requires every dark
+    // display-name ink to clear 4.5:1 on _stoCanvas, _stoPanel, _stoSelection
+    // and (since this round) _stoCardElevated. The dimmest of those inks has
+    // relative luminance 0.5156, which caps ANY of those surfaces at
+    // luminance 0.0757. Four 1.25:1 rungs from a near-black ground reach that
+    // cap exactly, which is why cardElevated/selection are siblings rather
+    // than a fifth and sixth rung. The name inks were rebuilt and measured in
+    // the round before this one and are NOT to be retuned to buy headroom:
+    // if a surface move breaks the identity matrix, move the SURFACE back.
+    readonly property color _stoCanvas:        "#181F41"
+    readonly property color _stoPanel:         "#252F5B"
+    readonly property color _stoInset:         "#0F1530"
+    readonly property color _stoDeep:          "#060718"
+    readonly property color _stoBorder:        "#414A80"
+    readonly property color _stoBorderStrong:  "#5762A5"
+    readonly property color _stoSelection:     "#3D4190"
+    // Elevation rung above the panel: reaction pills, keycaps, raised cards.
+    // Was an alias of _stoSelection, which is what made "hovered", "selected"
+    // and "raised" indistinguishable.
+    readonly property color _stoCardElevated:  "#3A457D"
+    // Row-hover lift. Kept as a translucent wash rather than an opaque rung
+    // because hover applies over the timeline (deep), the room list (canvas)
+    // AND menu rows (panel); at 0.22 alpha it measures 1.25/1.31/1.27:1 over
+    // those three, i.e. one consistent lift instead of one tuned surface.
+    readonly property color _stoHover:         "#7176BE"
+    // Reaction-pill surface. Its OWN value, not an alias of cardElevated:
+    // 1.21:1 above the bubble it attaches to and 1.88:1 above the timeline.
+    readonly property color _stoReaction:      "#303B6D"
     readonly property color _stoBolt:          "#FFD447"
+    // Ink painted ON a bolt or link fill. Split out of _stoCanvas this round:
+    // the room-list surface had been doing double duty as the badge ink, so
+    // the ladder could not lift the sidebar without darkening every pill
+    // label. 13.34:1 on bolt, 7.08:1 on the periwinkle unread pill.
+    readonly property color _stoBoltInk:       "#0A0F24"
     readonly property color _stoText:          "#F2F4FF"
     readonly property color _stoTextSecondary: "#C9D2F2"
-    readonly property color _stoTextMuted:     "#7D8BBF"
-    readonly property color _stoTextFaint:     "#5C6BA3"
-    readonly property color _stoDanger:        "#FF8FA0"
+    readonly property color _stoTextMuted:     "#9CA3D2"
+    readonly property color _stoTextFaint:     "#7881B5"
+    readonly property color _stoDanger:        "#FFA7AF"
     readonly property color _stoSuccess:       "#63D6A3"
     readonly property color _stoLink:          "#9295F5"
     // Storm derivatives that the spec table does not carry: hover/pressed
@@ -328,12 +382,85 @@ QtObject {
     readonly property color _stoAccentHover:   "#FFDF6E"
     readonly property color _stoAccentPressed: "#E9BC2F"
     readonly property color _stoOwnBubble:     "#3345A6"
-    readonly property color _stoSelectedHover: "#1A3070"
+    readonly property color _stoSelectedHover: "#4A4CA1"
     readonly property color _stoMention:       "#E5677A"
 
     // Ink used on top of accent fills for every palette without its own
     // accentText (the contrast test reads this literal by name).
     readonly property color _onAccent:         "#FFFFFF"
+
+    // ---- Status INK, per mode (2026-08-21). ----
+    // `danger` used to be a theme-invariant #DC2626 applied as INK at ~40
+    // call sites. It measures 4.03 / 3.93 / 3.45 / 3.03:1 on Storm's four
+    // surfaces — below AA on all of them — and no test asserted it, because
+    // the only Storm danger the suite checked was the ROUTED _stoDanger.
+    // The same red is fine as a FILL under white text, so the role is split:
+    // _accentDanger stays the FILL (dangerFill, asserted against dangerText)
+    // and these are the INKS.
+    //
+    // Two constraints fix these values and neither is negotiable:
+    //   * a dark-mode status ink renders on Nordic's #434C5E elevated card
+    //     (luminance 0.0717), so it needs luminance >= 0.4977 — the same
+    //     ceiling that makes the dark identity inks pastel;
+    //   * a light-mode status ink renders on Warm's #EDE2CE other-bubble, so
+    //     it needs luminance <= 0.1319.
+    // Measured worst case over every surface in the theme test's matrices:
+    // danger 4.68/4.85, warning 4.69/4.85, success 4.80/4.83, info 4.91/4.63.
+    //
+    // The dark danger and success ARE Storm's own _stoDanger / _stoSuccess,
+    // deliberately: before this round the same concept rendered as #FF8FA0
+    // inside a menu (storm namespace) and #DC2626 outside it, in one window.
+    readonly property color _dangerInkLight:   "#B32F36"
+    readonly property color _dangerInkDark:    "#FFA7AF"
+    readonly property color _warnInkLight:     "#8F5200"
+    readonly property color _warnInkDark:      "#FFAD67"
+    readonly property color _okInkLight:       "#06703C"
+    readonly property color _okInkDark:        "#63D6A3"
+    readonly property color _infoInkLight:     "#0067AC"
+    readonly property color _infoInkDark:      "#73CEFC"
+    // Destructive FILL steps. These DARKEN on interaction where the accent
+    // LIGHTENS, and that is not an inconsistency: #DC2626 already measures
+    // only 4.83:1 against the white label it carries, so a lighter hover
+    // takes the pair below AA — the first attempt at #EF4444 measured 3.76
+    // and the assertion below caught it. 5.72:1 and 7.45:1.
+    readonly property color _dangerFillHover:  "#C81F1F"
+    readonly property color _dangerFillPressed:"#A81919"
+    // Away presence. It is a DOT, so it is held to the 3:1 graphical-object
+    // bar rather than 4.5:1 — but it must clear the Storm bolt by CIE76 dE,
+    // or an away contact reads as a highlighted one. The old invariant
+    // #C9B23A measured dE 18.3 from #FFD447 and `warning` #E5A23C measured
+    // 23.8, so three unrelated signals all rendered as "bolt". These clear
+    // at dE 38.5 (dark) and 47.4 (light); warning now clears at 33.8 / 53.8.
+    readonly property color _awayLight:        "#BA671B"
+    readonly property color _awayDark:         "#F59349"
+
+    // ---- Reaction-pill surfaces (2026-08-21). ----
+    // reactionBackground was an alias of cardElevated, so on Storm a pill,
+    // a hovered row and a selected row were one navy. Each value is one
+    // visible step off ITS OWN theme's message surface — lighter on the dark
+    // themes, darker on the light ones — with the theme's secondary ink kept
+    // at >= 4.6:1 on it (measured worst case 4.71, on Warm).
+    readonly property color _lightReaction:    "#FBFDFF"
+    readonly property color _dkReaction:       "#252B35"
+    readonly property color _graReaction:      "#333339"
+    readonly property color _midReaction:      "#2B3648"
+    readonly property color _norReaction:      "#474E5E"
+    readonly property color _purReaction:      "#37314E"
+    readonly property color _warReaction:      "#EADECF"
+    readonly property color _mosReaction:      "#D6E3D9"
+    readonly property color _indReaction:      "#2A2A33"
+    readonly property color _teaReaction:      "#1B3334"
+
+    // ---- Media / scrim chrome (theme-invariant by design). ----
+    // The image viewer and the video control bar are committed-dark surfaces:
+    // they sit over arbitrary media, so they do NOT follow the theme. Before
+    // this round they carried nine different literals across two files with
+    // exactly one token (scrimInk) to their name, which is why the token
+    // audit could report "covered" for a role painted entirely by hex.
+    // _scrimBase is the OPAQUE equivalent of scrimSurface's #D9111111 — it
+    // exists so the theme test can assert the scrim inks against a real
+    // background instead of an 8-digit ARGB the contrast maths cannot read.
+    readonly property color _scrimBase:        "#111111"
 
     // ---- Resolved palette object for the effective theme. ----
     readonly property var _light: ({
@@ -346,7 +473,8 @@ QtObject {
         textDisabled: _textDisabledLight, border: _borderLight,
         borderStrong: _borderStrongLight, accent: _accentBlue,
         accentHover: _accentBlueHover, accentPressed: _accentBluePressed,
-        ownBubble: _outgoingBubbleBlue, otherBubble: _hoverLight
+        ownBubble: _outgoingBubbleBlue, otherBubble: _hoverLight,
+        reaction: _lightReaction
     })
     readonly property var _dark: ({
         background: _dkBg, sidebar: _dkSidebar, surface: _dkCard,
@@ -358,7 +486,8 @@ QtObject {
         textDisabled: _dkTextDisabled, border: _dkBorder,
         borderStrong: _dkBorderStrong, accent: _accentBlue,
         accentHover: _accentBlueHover, accentPressed: _accentBluePressed,
-        ownBubble: _outgoingBubbleBlue, otherBubble: _dkCardElevated
+        ownBubble: _outgoingBubbleBlue, otherBubble: _dkCardElevated,
+        reaction: _dkReaction
     })
     readonly property var _midnight: ({
         background: _bgDark, sidebar: _sidebarDark, surface: _cardDark,
@@ -370,7 +499,8 @@ QtObject {
         textDisabled: _textDisabledDark, border: _borderDark,
         borderStrong: _borderStrongDark, accent: _accentBlue,
         accentHover: _accentBlueHover, accentPressed: _accentBluePressed,
-        ownBubble: _outgoingBubbleBlue, otherBubble: _cardElevatedDark
+        ownBubble: _outgoingBubbleBlue, otherBubble: _cardElevatedDark,
+        reaction: _midReaction
     })
     readonly property var _graphite: ({
         background: _graBg, sidebar: _graSidebar, surface: _graCard,
@@ -382,7 +512,8 @@ QtObject {
         textDisabled: _graTextDisabled, border: _graBorder,
         borderStrong: _graBorderStrong, accent: _graAccent,
         accentHover: _graAccentHover, accentPressed: _graAccentPressed,
-        ownBubble: _graOwnBubble, otherBubble: _graOtherBubble
+        ownBubble: _graOwnBubble, otherBubble: _graOtherBubble,
+        reaction: _graReaction
     })
     readonly property var _nord: ({
         background: _norBg, sidebar: _norSidebar, surface: _norCard,
@@ -394,7 +525,8 @@ QtObject {
         textDisabled: _norTextDisabled, border: _norBorder,
         borderStrong: _norBorderStrong, accent: _norAccent,
         accentHover: _norAccentHover, accentPressed: _norAccentPressed,
-        ownBubble: _norOwnBubble, otherBubble: _norOtherBubble
+        ownBubble: _norOwnBubble, otherBubble: _norOtherBubble,
+        reaction: _norReaction
     })
     readonly property var _purple: ({
         background: _purBg, sidebar: _purSidebar, surface: _purCard,
@@ -406,7 +538,8 @@ QtObject {
         textDisabled: _purTextDisabled, border: _purBorder,
         borderStrong: _purBorderStrong, accent: _purAccent,
         accentHover: _purAccentHover, accentPressed: _purAccentPressed,
-        ownBubble: _purOwnBubble, otherBubble: _purOtherBubble
+        ownBubble: _purOwnBubble, otherBubble: _purOtherBubble,
+        reaction: _purReaction
     })
     readonly property var _warm: ({
         background: _warBg, sidebar: _warSidebar, surface: _warCard,
@@ -418,7 +551,8 @@ QtObject {
         textDisabled: _warTextDisabled, border: _warBorder,
         borderStrong: _warBorderStrong, accent: _warAccent,
         accentHover: _warAccentHover, accentPressed: _warAccentPressed,
-        ownBubble: _warOwnBubble, otherBubble: _warOtherBubble
+        ownBubble: _warOwnBubble, otherBubble: _warOtherBubble,
+        reaction: _warReaction
     })
     readonly property var _moss: ({
         background: _mosBg, rail: _mosRail, sidebar: _mosSidebar,
@@ -432,7 +566,7 @@ QtObject {
         accentHover: _mosAccentHover, accentPressed: _mosAccentPressed,
         accentSoft: _mosAccentSoft, accentBorder: _mosAccentBorder,
         ownBubble: _mosOwnBubble, otherBubble: _mosOtherBubble,
-        mention: _mosMention, online: _mosAccent
+        mention: _mosMention, online: _mosAccent, reaction: _mosReaction
     })
     readonly property var _indigo: ({
         background: _indBg, rail: _indRail, sidebar: _indSidebar,
@@ -446,7 +580,7 @@ QtObject {
         accentHover: _indAccentHover, accentPressed: _indAccentPressed,
         accentSoft: _indAccentSoft, accentBorder: _indAccentBorder,
         ownBubble: _indOwnBubble, otherBubble: _indOtherBubble,
-        mention: _indMention, online: _indOnline
+        mention: _indMention, online: _indOnline, reaction: _indReaction
     })
     readonly property var _teal: ({
         background: _teaBg, rail: _teaRail, sidebar: _teaSidebar,
@@ -461,7 +595,7 @@ QtObject {
         accentSoft: _teaAccentSoft, accentBorder: _teaAccentBorder,
         accentText: _teaAccentText,
         ownBubble: _teaOwnBubble, otherBubble: _teaOtherBubble,
-        mention: _teaMention, online: _teaAccent
+        mention: _teaMention, online: _teaAccent, reaction: _teaReaction
     })
     // Storm's shell mapping. accent stays bolt for the sanctioned roles
     // (focus, checked state, ONE primary action, the Home tile) — the roles
@@ -476,8 +610,8 @@ QtObject {
     // yellow moment (review NIT1 corrected the earlier fallback claim).
     readonly property var _storm: ({
         background: _stoDeep, rail: _stoDeep, sidebar: _stoCanvas,
-        surface: _stoPanel, cardElevated: _stoSelection,
-        hover: Qt.alpha(_stoSelection, 0.55),
+        surface: _stoPanel, cardElevated: _stoCardElevated,
+        hover: Qt.alpha(_stoHover, 0.22),
         selected: _stoSelection, selectedHover: _stoSelectedHover,
         selectedText: _stoText, inputBg: _stoInset,
         codeBlock: _stoDeep, textPrimary: _stoText,
@@ -487,8 +621,9 @@ QtObject {
         accentHover: _stoAccentHover, accentPressed: _stoAccentPressed,
         accentSoft: Qt.alpha(_stoBolt, 0.14),
         accentBorder: Qt.alpha(_stoBolt, 0.35),
-        accentText: _stoCanvas,
+        accentText: _stoBoltInk,
         ownBubble: _stoOwnBubble, otherBubble: _stoPanel,
+        reaction: _stoReaction,
         unreadBadge: _stoLink, mentionHighlight: _stoMention,
         mention: _stoMention, online: _stoSuccess, link: _stoLink
     })
@@ -566,6 +701,10 @@ QtObject {
 
     // ---- Semantic aliases (preferred). ----
     readonly property color background:          _p.background
+    // Role names for the three shell regions. They are aliases on purpose —
+    // reach for the one that says what the surface IS (the window's ground,
+    // the nav column, a side panel) rather than for `background`/`sidebar`,
+    // so a future theme can pull them apart without a call-site sweep.
     readonly property color windowBackground:    background
     readonly property color sidebar:             _p.sidebar
     readonly property color navBackground:       sidebar
@@ -597,17 +736,51 @@ QtObject {
     readonly property color accentBorder:        _p.accentBorder !== undefined
                                                  ? _p.accentBorder
                                                  : _p.borderStrong
-    readonly property color success:             _accentGreen
-    readonly property color warning:             _accentWarning
-    readonly property color danger:              _accentDanger
+    // ---- Status roles: INK and FILL are different colours. ----
+    // Before 2026-08-21 these four were theme-invariant literals used for
+    // both jobs, and `danger` #DC2626 measured 3.03–4.03:1 on Storm's four
+    // surfaces — below AA everywhere on the brand theme, at ~40 ink call
+    // sites, with no test asserting it. INK now routes by mode (and can be
+    // overridden per palette via the `_p` idiom the other roles use); FILL
+    // keeps the saturated mid-tone that white text sits on.
+    //
+    // Pick by role, not by name: text, icons and inline labels take
+    // `danger` / `warning` / `success` / `info`; a solid destructive button
+    // or badge takes `dangerFill` with `dangerText` on it.
+    readonly property color success:             _p.success !== undefined
+                                                 ? _p.success
+                                                 : (dark ? _okInkDark
+                                                         : _okInkLight)
+    readonly property color warning:             _p.warning !== undefined
+                                                 ? _p.warning
+                                                 : (dark ? _warnInkDark
+                                                         : _warnInkLight)
+    readonly property color danger:              _p.danger !== undefined
+                                                 ? _p.danger
+                                                 : (dark ? _dangerInkDark
+                                                         : _dangerInkLight)
+    readonly property color info:                _p.info !== undefined
+                                                 ? _p.info
+                                                 : (dark ? _infoInkDark
+                                                         : _infoInkLight)
+    // Solid destructive fills (Remove, Leave, Sign out …). Theme-invariant
+    // on purpose: a destructive confirmation reads the same everywhere, and
+    // white-on-red is the one pair every user already knows.
+    readonly property color dangerFill:          _accentDanger
+    readonly property color dangerFillHover:     _dangerFillHover
+    readonly property color dangerFillPressed:   _dangerFillPressed
     readonly property color dangerText:          "#FFFFFF"
+    // Solid non-destructive status fills, for badges that need a filled
+    // chip rather than a tinted one. Ink on all three is dangerText.
+    readonly property color successFill:         _accentGreen
+    readonly property color warningFill:         _accentWarning
+    readonly property color infoFill:            _accentInfo
     // v0.6.5 danger roles (SPEC §0 names "mentionBadge/danger red"; the two
     // diverge, so they are split by role): dangerInk for icon/label ink,
     // the soft tint pair for destructive-row fills and warning-chip borders.
     readonly property color dangerInk:           danger
     readonly property color dangerSoft:          Qt.alpha(mentionBadge, 0.10)
     readonly property color dangerBorder:        Qt.alpha(mentionBadge, 0.25)
-    readonly property color info:                _accentInfo
     readonly property color textPrimary:         _p.textPrimary
     readonly property color textSecondary:       _p.textSecondary
     readonly property color textMuted:           _p.textMuted
@@ -657,9 +830,18 @@ QtObject {
     readonly property color outgoingBubble:      ownMessageBubble
     readonly property color bubbleOverlay:       "#26000000"
     readonly property color bubbleOverlaySubtle: "#0F000000"
-    // Reactions and badges.
-    readonly property color reactionBackground:  cardElevated
-    readonly property color reactionSelectedBackground: selected
+    // Reactions and badges. reactionBackground is its OWN per-theme surface,
+    // not an alias of cardElevated: aliasing it meant a reaction pill, a
+    // hovered row and a raised card were one tone on Storm. The selected
+    // (own-reaction) pill rides accentSoft — the sanctioned "this is your
+    // current selection" accent tint — with accentBorder around it.
+    readonly property color reactionBackground:  _p.reaction !== undefined
+                                                 ? _p.reaction : cardElevated
+    readonly property color reactionBorder:      border
+    readonly property color reactionInk:         textSecondary
+    readonly property color reactionSelectedBackground: accentSoft
+    readonly property color reactionSelectedBorder:     accentBorder
+    readonly property color reactionSelectedInk:        textPrimary
     readonly property color reactionHighlight:   selected
     // Unread pill fill — accent by default; Storm overrides it (periwinkle)
     // so a busy room list is not a wall of bolt-yellow pills (§1 discipline).
@@ -672,9 +854,22 @@ QtObject {
     readonly property color mentionHighlight:    _p.mentionHighlight !== undefined
                                                  ? _p.mentionHighlight : accent
     // Mention red — the design themes carry their exact handoff hue; older
-    // palettes fall back to the shared danger red.
+    // palettes fall back to the shared danger FILL, never to `danger`: this
+    // is a filled pill carrying white ink, and `danger` became a light rose
+    // on the dark themes this round (a rose pill under white text is
+    // unreadable — the exact regression this fallback would have shipped).
     readonly property color mentionBadge:        _p.mention !== undefined
-                                                 ? _p.mention : danger
+                                                 ? _p.mention : _accentDanger
+    // The inline "@name" chip inside message text. A tinted wash plus the
+    // body ink, deliberately WITHOUT a border: an outlined chip reads as a
+    // red error box around the name rather than as a highlight.
+    readonly property color mentionChipFill:     Qt.alpha(mentionHighlight, 0.16)
+    readonly property color mentionChipInk:      textPrimary
+    readonly property color mentionChipBorder:   "transparent"
+    // The same chip when it is YOU being mentioned: the accent tint, so the
+    // row that concerns the reader is the one that carries the accent.
+    readonly property color mentionSelfFill:     accentSoft
+    readonly property color mentionSelfInk:      textPrimary
     readonly property color undecryptableText:   textMuted
     // Highlight semantics (jumped-to message rows, active thread affordances).
     readonly property color pressedSurface:      selectedHover
@@ -684,8 +879,131 @@ QtObject {
     // offline = the theme's muted ink — visibly "off" on every palette).
     readonly property color presenceOnline:      _p.online !== undefined
                                                  ? _p.online : success
-    readonly property color presenceAway:        "#C9B23A"
+    // Away was a theme-invariant #C9B23A: CIE76 dE 18.3 from the Storm bolt
+    // #FFD447, so an away contact rendered as brand chrome. Routed by mode
+    // and moved to amber-orange, clearing the bolt at dE 38.5 / 47.4.
+    readonly property color presenceAway:        _p.away !== undefined
+                                                 ? _p.away
+                                                 : (dark ? _awayDark
+                                                         : _awayLight)
     readonly property color presenceOffline:     textMuted
+
+    // ---- Control surfaces (2026-08-21). ----
+    // Buttons, icon chips and segmented controls were computing their own
+    // hover and pressed steps with Qt.darker(AppTheme.bolt, 1.05 / 1.12) at
+    // four call sites, which (a) made hover DARKER where the designed step
+    // is LIGHTER, so hover read as pressed, and (b) produced a different
+    // result on each of the eleven palettes that no parse-based test can
+    // see. Every state below is a theme-routed token. Reach for these
+    // instead of multiplying a colour at the call site.
+    readonly property color buttonPrimaryFill:    accent
+    readonly property color buttonPrimaryHover:   accentHover
+    readonly property color buttonPrimaryPressed: accentPressed
+    readonly property color buttonPrimaryInk:     accentText
+    readonly property color buttonNeutralFill:    cardElevated
+    readonly property color buttonNeutralHover:   selected
+    readonly property color buttonNeutralPressed: selectedHover
+    readonly property color buttonNeutralInk:     textPrimary
+    readonly property color buttonNeutralBorder:  border
+    // Ghost = no resting fill; the surface only appears under the pointer.
+    readonly property color buttonGhostHover:     hover
+    readonly property color buttonGhostPressed:   selected
+    readonly property color buttonGhostInk:       textSecondary
+    readonly property color buttonDangerFill:     dangerFill
+    readonly property color buttonDangerHover:    dangerFillHover
+    readonly property color buttonDangerPressed:  dangerFillPressed
+    readonly property color buttonDangerInk:      dangerText
+    // A disabled control keeps its shape and loses its voice. WCAG exempts
+    // disabled controls from the contrast minimum, which is why the ink is
+    // allowed to be textDisabled here and nowhere else.
+    readonly property color buttonDisabledFill:   cardElevated
+    readonly property color buttonDisabledInk:    textDisabled
+    readonly property color buttonDisabledBorder: border
+    // Three heights, one radius, one horizontal rhythm.
+    readonly property int   buttonHeightSm:       26
+    readonly property int   buttonHeight:         32
+    readonly property int   buttonHeightLg:       40
+    readonly property int   buttonRadius:         radiusTile   // 9
+    readonly property int   buttonPaddingH:       spacing12
+    readonly property int   buttonPaddingHSm:     spacing8
+    readonly property int   buttonIconGap:        spacing6
+    readonly property int   buttonMinWidth:       72
+
+    // ---- Status chips. ----
+    // A chip is a TINT of its own ink, never a solid accent: before this
+    // round StatusChip folded "accent", "onAccent" and "bolt" into one
+    // bolt-yellow fill and everything else into one muted periwinkle, so
+    // ACTIVE, MOD and VERIFIED were the same pill. Six families, each with
+    // its own ink; the fill is that ink at 14% and the border at 32%, so a
+    // chip cannot drift away from the ink it carries.
+    readonly property color chipNeutralInk:    textSecondary
+    readonly property color chipNeutralFill:   Qt.alpha(textSecondary, 0.14)
+    readonly property color chipNeutralBorder: Qt.alpha(textSecondary, 0.32)
+    readonly property color chipAccentInk:     link
+    readonly property color chipAccentFill:    Qt.alpha(link, 0.14)
+    readonly property color chipAccentBorder:  Qt.alpha(link, 0.32)
+    readonly property color chipSuccessInk:    success
+    readonly property color chipSuccessFill:   Qt.alpha(success, 0.14)
+    readonly property color chipSuccessBorder: Qt.alpha(success, 0.32)
+    readonly property color chipWarningInk:    warning
+    readonly property color chipWarningFill:   Qt.alpha(warning, 0.14)
+    readonly property color chipWarningBorder: Qt.alpha(warning, 0.32)
+    readonly property color chipDangerInk:     danger
+    readonly property color chipDangerFill:    Qt.alpha(danger, 0.14)
+    readonly property color chipDangerBorder:  Qt.alpha(danger, 0.32)
+    readonly property color chipInfoInk:       info
+    readonly property color chipInfoFill:      Qt.alpha(info, 0.14)
+    readonly property color chipInfoBorder:    Qt.alpha(info, 0.32)
+    // The one SOLID chip: "this is the current selection / this is verified".
+    // Reserve it — the audit found the bolt already doing five jobs at once
+    // (brand mark, home tile, focus ring, active state, primary action), and
+    // an accent that means five things means none of them.
+    readonly property color chipBoltFill:      bolt
+    readonly property color chipBoltInk:       boltInk
+    readonly property int   chipHeight:        20
+    readonly property int   chipRadius:        radiusPill
+    readonly property int   chipPaddingH:      spacing8
+
+    // ---- Scrollbars. ----
+    // The track stays out of the way; the handle is a theme ink, so it is
+    // legible on every surface without a per-pane literal.
+    readonly property color scrollbarTrack:         "transparent"
+    readonly property color scrollbarTrackHover:    Qt.alpha(border, 0.35)
+    readonly property color scrollbarHandle:        borderStrong
+    readonly property color scrollbarHandleHover:   textDisabled
+    readonly property color scrollbarHandlePressed: textMuted
+    readonly property int   scrollbarWidth:      10
+    readonly property int   scrollbarWidthThin:   6
+    readonly property int   scrollbarRadius:     radiusPill
+    readonly property int   scrollbarMargin:      2
+
+    // ---- Elevation. ----
+    // `shadow` (above) is the single per-theme tint; these are the three
+    // sanctioned steps, so a stacked popover can sit visibly above the
+    // popover that opened it instead of both borrowing the card shadow.
+    readonly property color shadowSoft:          dark ? "#40000000"
+                                                      : "#0D000000"
+    readonly property color shadowStrong:        dark ? "#8C000000"
+                                                      : "#26000000"
+    readonly property int   elevationCardBlur:      8
+    readonly property int   elevationCardY:         2
+    readonly property int   elevationPopoverBlur:  18
+    readonly property int   elevationPopoverY:      6
+    readonly property int   elevationModalBlur:    32
+    readonly property int   elevationModalY:       12
+
+    // ---- Media / scrim chrome. ----
+    // Committed dark, on every theme: these paint over arbitrary media, so
+    // they must not follow the palette. The image viewer and the video
+    // control bar carried nine literals between them and one token before
+    // this round; that is the whole family.
+    readonly property color scrimBackdrop:       "#66000000"  // behind media
+    readonly property color scrimSurface:        "#D9111111"  // chrome bar
+    readonly property color scrimSurfaceRaised:  "#33FFFFFF"  // button on it
+    readonly property color scrimSurfaceHover:   "#59FFFFFF"
+    readonly property color scrimBorder:         "#33FFFFFF"
+    readonly property color scrimInkStrong:      "#E6FFFFFF"
+    readonly property color scrimInkMuted:       "#94A3B8"
 
     // ---- Trust-card brand constants (SPEC 1r). ----
     // ---- Storm surface language (0.6.5). ----
@@ -708,7 +1026,7 @@ QtObject {
     // THE accent — active/selected/complete/primary ONLY (legacy: accent).
     readonly property color bolt:               storm ? _stoBolt : accent
     // Ink painted ON a bolt/accent fill (primary buttons, count pills).
-    readonly property color boltInk:            storm ? _stoCanvas : accentText
+    readonly property color boltInk:            storm ? _stoBoltInk : accentText
     readonly property color stormText:          storm ? _stoText : textPrimary
     readonly property color stormTextSecondary: storm ? _stoTextSecondary : textSecondary
     readonly property color stormTextMuted:     storm ? _stoTextMuted : textMuted
@@ -825,7 +1143,10 @@ QtObject {
     readonly property color text:                textPrimary
     readonly property color muted:               textMuted
     readonly property color selectedBg:          selected
-    readonly property color error:               _accentDanger
+    // Legacy name for the danger INK (RoomDelegate's failed-send marker and
+    // four other call sites). Follows `danger`, so it is readable on every
+    // theme; a destructive FILL must ask for dangerFill by name.
+    readonly property color error:               danger
 
     // ---- Spacing scale. ----
     readonly property int spacing2:  2
@@ -910,34 +1231,102 @@ QtObject {
     readonly property int timelineContentMaxWidth: 760
 
     // ---- Typography. ----
-    readonly property int fontSizeXS:        11
-    readonly property int fontSizeS:         13
-    readonly property int fontSizeM:         14
-    readonly property int fontSizeRoom:      16
-    readonly property int fontSizeHeader:    18
-    readonly property int fontSizePageTitle: 24
-    readonly property int fontSizeL:         fontSizeRoom
-    readonly property int fontSizeXL:        fontSizeHeader
+    //
+    // THE TYPE SCALE (2026-08-21). Use these six names and nothing else.
+    //
+    // The audit that produced them counted 15 distinct rendered sizes,
+    // reached through 24 token names carrying 11 values PLUS 262 bare
+    // numeric literals in qml/. Three names for one number (fontSizeS ==
+    // fontSecondary == fontMono == 13; fontSizeXS == fontCaption ==
+    // fontMonoXS == 11) meant no call site could tell which one was right,
+    // so authors typed the number instead — which is what makes the UI read
+    // as accidental rather than designed. Element ships about five sizes.
+    //
+    //   token          px  weight            role
+    //   textDisplay    22  weightDisplay 800 login hero, empty-state hero,
+    //                                        verification panel headline
+    //   textTitle      16  weightBold    700 dialog titles, pane headers,
+    //                                        settings section headings
+    //   textSubtitle   14  weightStrong  600 group headers, section labels,
+    //                                        result-row titles
+    //   textBody       14  weightBody    400 message body, list primary,
+    //                                        menu item labels
+    //   textMeta       12  weightMedium  500 timestamps, subtitles, chips,
+    //                                        secondary rows, reaction counts
+    //   textMicro      10  weightBold    700 unread badges and keycaps ONLY
+    //
+    // Five numeric sizes (10/12/14/16/22) and three line heights. A "strong"
+    // variant of body is a WEIGHT change at textBody, never a size change.
+    //
+    // Everything below this block is retained so the 78 files that already
+    // consume the old names keep compiling and rendering exactly as they do
+    // today; each is annotated with the scale token that supersedes it.
+    // Convert a file when you are already editing it — do NOT do a global
+    // sweep in the same change as a behaviour fix.
+    readonly property int textDisplay:   22
+    readonly property int textTitle:     16
+    readonly property int textSubtitle:  14
+    readonly property int textBody:      14
+    readonly property int textMeta:      12
+    readonly property int textMicro:     10
 
-    readonly property int fontPageTitle:     fontSizePageTitle // 24
-    readonly property int fontSectionTitle:  fontSizeHeader    // 18
-    readonly property int fontRoomTitle:     fontSizeRoom      // 16
-    readonly property int fontBody:          fontSizeM         // 14
-    readonly property int fontSecondary:     fontSizeS         // 13
-    readonly property int fontMessageSender: 12
-    readonly property int fontCaption:       fontSizeXS        // 11
-    readonly property int fontMono:          fontSizeS
+    // Three weights carry every role. The tree currently uses five
+    // (DemiBold 98, Bold 65, ExtraBold 28, Medium 8, plus Normal and one
+    // `font.bold: true`), which is more variation than the design has roles
+    // for. font.weight takes an int in Qt 6, so these are usable directly.
+    readonly property int weightBody:    400
+    readonly property int weightMedium:  500
+    readonly property int weightStrong:  600
+    readonly property int weightBold:    700
+    readonly property int weightDisplay: 800
+
+    // Leading. Message body text sets NO lineHeight today — in the entire
+    // tree `lineHeight` appears twice, and neither is a message — so Qt
+    // falls back to the font's own hhea metrics and the UI-font picker
+    // silently changes chat leading by 13% (Manrope 1.366em, Inter 1.210em).
+    // Set `lineHeight: AppTheme.lineHeightBody; lineHeightMode:
+    // Text.ProportionalHeight` on every WRAPPING text item; single-line
+    // chrome keeps the default.
+    readonly property real lineHeightBody:    1.5
+    readonly property real lineHeightTight:   1.3
+    readonly property real lineHeightDisplay: 1.2
+
+    // ---- Superseded size tokens (retained; do not add new call sites). ----
+    readonly property int fontSizeXS:        11   // -> textMeta / textMicro
+    readonly property int fontSizeS:         13   // -> textBody / textMeta
+    readonly property int fontSizeM:         14   // -> textBody
+    readonly property int fontSizeRoom:      16   // -> textTitle
+    readonly property int fontSizeHeader:    18   // -> textTitle
+    // DEAD: zero call sites in qml/, src/ or tests/ before this round.
+    // fontSizePageTitle and fontSizeXL are kept only because removing a
+    // token is a separate, sweepable change; fontPageTitle is REQUIRED by
+    // tests/ThemeTokensTest.cpp and is therefore given the real display
+    // role instead (22, the size five hero labels already use as a literal).
+    readonly property int fontSizePageTitle: 24   // DEAD -> textDisplay
+    readonly property int fontSizeL:         fontSizeRoom
+    readonly property int fontSizeXL:        fontSizeHeader // DEAD -> textTitle
+
+    readonly property int fontPageTitle:     textDisplay       // 22
+    readonly property int fontSectionTitle:  fontSizeHeader    // 18 -> textTitle
+    readonly property int fontRoomTitle:     fontSizeRoom      // 16 -> textTitle
+    readonly property int fontBody:          fontSizeM         // 14 -> textBody
+    // NOTE the misnomer: `fontSecondary` is the size of the PRIMARY menu-item
+    // label. -> textBody.
+    readonly property int fontSecondary:     fontSizeS         // 13 -> textBody
+    readonly property int fontMessageSender: 12                // -> textMeta
+    readonly property int fontCaption:       fontSizeXS        // 11 -> textMeta
+    readonly property int fontMono:          fontSizeS         // 13 -> textBody
     // v0.6.5 menu-language sizes. font.pixelSize is an int in Qt, so the
     // spec's half-pixel sizes are resolved to whole numbers (rounded up so
     // small ink stays legible). Chrome sizes — never wrapped in scaled().
     readonly property int fontMicro:     9   // trust captions, GIF badge, role chips
-    readonly property int fontChip:      10  // keycaps, section labels, ACTIVE chip
-    readonly property int fontMonoXS:    11  // mono identity strings (10.5–11 in spec)
-    readonly property int fontMonoSm:    12  // footer hints, status lines (11.5–12)
-    readonly property int fontResult:    14  // result-row titles (13.5 in spec)
-    readonly property int fontQuery:     15  // search/omnibox query, card names
-    readonly property int fontTrustName: 17  // trust-card display name
-    readonly property int fontNavTitle:  17  // Settings-nav pane title (SPEC 1v, 17px/800)
+    readonly property int fontChip:      10  // keycaps, section labels -> textMicro
+    readonly property int fontMonoXS:    11  // mono identity strings -> textMeta
+    readonly property int fontMonoSm:    12  // footer hints, status lines -> textMeta
+    readonly property int fontResult:    14  // result-row titles -> textSubtitle
+    readonly property int fontQuery:     15  // search/omnibox query -> textTitle
+    readonly property int fontTrustName: 17  // trust-card display name -> textTitle
+    readonly property int fontNavTitle:  17  // Settings-nav pane title -> textTitle
 
     // ---- Font families. ----
     // The selectable bundled UI families ship with Lightning (data/fonts,
@@ -946,6 +1335,23 @@ QtObject {
     // fallbacks for stripped-down builds. Mono, icon, and emoji roles are
     // deliberately not affected by the UI font selection.
     property string uiFont:          "Manrope"
+    // The bundled UI families differ by up to 13% in x-height, so choosing
+    // "Source Sans 3" shrinks apparent text ~11% with no size change — two
+    // settings that are supposed to be independent, coupled through the font
+    // metrics. This normalises every family to Manrope's 0.540em x-height
+    // (OS/2 sxHeight / unitsPerEm, read from data/fonts). Manrope itself is
+    // 1.0, so the DEFAULT rendering is byte-identical to before.
+    function opticalScale(family) {
+        switch (family) {
+        case "Inter":            return 0.99
+        case "Plus Jakarta Sans": return 1.01
+        case "IBM Plex Sans":    return 1.05
+        case "Source Sans 3":    return 1.13
+        case "Space Grotesk":    return 1.11
+        default:                 return 1.0
+        }
+    }
+    readonly property real uiFontOptical: opticalScale(uiFont)
     readonly property var    uiFontFamilies:  [
         "Manrope",
         "Inter",
@@ -955,6 +1361,10 @@ QtObject {
         "system-ui",
         "sans-serif"
     ]
+    // The icon face. Icon.qml hard-coded this string with no token and no
+    // fallback list, which is the only raw family literal in the tree that
+    // is neither a deliberate preview nor a mirror.
+    readonly property string iconFont:         "Material Symbols Rounded"
     readonly property string monoFont:         "JetBrains Mono"
     readonly property var    monoFontFamilies: [
         "JetBrains Mono",
@@ -964,15 +1374,48 @@ QtObject {
         "monospace"
     ]
     // v0.6.5: brand face — originally the trust surface only (SPEC 1r); the
-    // Storm language (SPEC-storm-language §2) extends it to every menu item
-    // label, title and button. Still never a timeline/body face, and still
-    // deliberately absent from the Settings font choices.
+    // Storm language (SPEC-storm-language §2) then extended it to every menu
+    // item label, title and button. It is BACK to the trust surface and the
+    // wordmark (2026-08-21) — see menuFont below.
     readonly property string brandFont:         "Space Grotesk"
     readonly property var    brandFontFamilies: [
         "Space Grotesk",
         "Manrope",
         "sans-serif"
     ]
-    // Storm role alias: the menu-surface label face (§2).
-    readonly property string menuFont:          brandFont
+    // The wordmark / trust-surface face, by role rather than by brand name.
+    readonly property string displayFont:       brandFont
+
+    // The menu-surface label face. It was a hard alias of brandFont, applied
+    // at 61 call sites — every menu item, every dialog title, the quick
+    // switcher, the member popover, Settings chrome, even message-search
+    // result bodies — while the timeline next to them rendered Manrope. Three
+    // things were wrong with that:
+    //   * it is not theme-routed, so the Storm display language shipped on
+    //     Lightning Light, Moss Light, Nordic and Warm, where it was never
+    //     designed to appear;
+    //   * it is deliberately absent from the Settings font list, so a user
+    //     who picks "Inter" still got Space Grotesk on half the UI — the
+    //     picker was lying;
+    //   * Space Grotesk's x-height is 0.486em against Manrope's 0.540em, so
+    //     a 13px menu label optically reads ~11.7px beside 13px Manrope. The
+    //     sizes were specified per-face with no optical correction, which is
+    //     why the chrome reads lighter and smaller than the body it borders.
+    // menuFont now follows the user's chosen UI face. The brand face is kept
+    // for the wordmark and the trust card, which is what it was drawn for.
+    // (opticalScale() above still carries Space Grotesk's factor, so a
+    // surface that deliberately reaches for displayFont can correct for it.)
+    readonly property string menuFont:          uiFont
+
+    // Menu / popover SECTION labels ("ROOMS", "RECENTLY", the message-menu
+    // context header). The current treatment is JetBrains Mono at 10px with
+    // 1.6px tracking in full caps — decorative terminal typography carrying
+    // wayfinding text, re-typed inline in seven places, and not theme-routed
+    // either. These tokens are the replacement: sentence case, UI face,
+    // meta size, strong weight, no tracking. Keep mono for what is genuinely
+    // monospaced — code, keycaps, and Matrix identifiers.
+    readonly property string menuSectionFont:    uiFont
+    readonly property int    menuSectionSize:    textMeta
+    readonly property int    menuSectionWeight:  weightStrong
+    readonly property real   menuSectionTracking: 0.0
 }

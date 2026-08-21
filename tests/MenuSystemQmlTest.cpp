@@ -526,12 +526,19 @@ private slots:
 
         // Storm (11) always resolves to the fixed §1 literal, regardless of
         // which legacy theme was active immediately beforehand.
+        //
+        // The literal moved #5762A5 -> #5762A5 in the 2026-08-21 design round,
+        // when Storm's surface ladder was widened: every step but one was
+        // below the visible threshold (deep->canvas measured 1.025:1), which
+        // is what made the theme read as flat. The ASSERTION here is unchanged
+        // — Storm still resolves to one fixed value and a legacy theme still
+        // does not — only the value it resolves to.
         m_root->setProperty("themeMode", 11);
         QTRY_COMPARE(chip->property("border").value<QObject *>()
                          ->property("color").value<QColor>(),
-                     QColor(QStringLiteral("#2B3C78")));
+                     QColor(QStringLiteral("#5762A5")));
         QCOMPARE(token("tokStormBorderStrong"),
-                 QColor(QStringLiteral("#2B3C78")));
+                 QColor(QStringLiteral("#5762A5")));
 
         m_root->setProperty("themeMode", 9);
     }

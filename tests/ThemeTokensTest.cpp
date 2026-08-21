@@ -6,10 +6,12 @@
 
 #include <QFile>
 #include <QRegularExpression>
+#include <QSet>
 #include <QtTest/QtTest>
 
 #include <array>
 #include <cmath>
+#include <functional>
 
 namespace {
 
@@ -151,11 +153,65 @@ private Q_SLOTS:
             QStringLiteral("accentPressed"), QStringLiteral("accentText"),
             QStringLiteral("success"), QStringLiteral("warning"),
             QStringLiteral("danger"), QStringLiteral("info"),
+            // Status FILLS are a different role from status INK — the 40
+            // ink call sites and the destructive buttons had been sharing
+            // one #DC2626 that was below AA as ink on every Storm surface.
+            QStringLiteral("dangerFill"), QStringLiteral("dangerFillHover"),
+            QStringLiteral("dangerFillPressed"), QStringLiteral("dangerText"),
+            QStringLiteral("successFill"), QStringLiteral("warningFill"),
+            QStringLiteral("infoFill"),
             // Messaging
             QStringLiteral("incomingBubble"), QStringLiteral("outgoingBubble"),
             QStringLiteral("codeBlock"), QStringLiteral("reactionBackground"),
+            QStringLiteral("reactionBorder"), QStringLiteral("reactionInk"),
             QStringLiteral("reactionSelectedBackground"),
+            QStringLiteral("reactionSelectedBorder"),
             QStringLiteral("unreadBadge"), QStringLiteral("mentionBadge"),
+            QStringLiteral("mentionChipFill"), QStringLiteral("mentionChipInk"),
+            // Presence
+            QStringLiteral("presenceOnline"), QStringLiteral("presenceAway"),
+            QStringLiteral("presenceOffline"),
+            // Controls — every button state is a token, because the four
+            // call sites that computed their own with Qt.darker() produced
+            // a different result on each of the eleven palettes.
+            QStringLiteral("buttonPrimaryFill"),
+            QStringLiteral("buttonPrimaryHover"),
+            QStringLiteral("buttonPrimaryPressed"),
+            QStringLiteral("buttonPrimaryInk"),
+            QStringLiteral("buttonNeutralFill"),
+            QStringLiteral("buttonNeutralHover"),
+            QStringLiteral("buttonNeutralPressed"),
+            QStringLiteral("buttonNeutralInk"),
+            QStringLiteral("buttonNeutralBorder"),
+            QStringLiteral("buttonGhostHover"),
+            QStringLiteral("buttonGhostPressed"),
+            QStringLiteral("buttonDangerFill"),
+            QStringLiteral("buttonDangerHover"),
+            QStringLiteral("buttonDangerPressed"),
+            QStringLiteral("buttonDisabledFill"),
+            QStringLiteral("buttonDisabledInk"),
+            // Chips — six families so ACTIVE, MOD and VERIFIED stop being
+            // the same pill.
+            QStringLiteral("chipNeutralInk"), QStringLiteral("chipNeutralFill"),
+            QStringLiteral("chipAccentInk"), QStringLiteral("chipAccentFill"),
+            QStringLiteral("chipSuccessInk"), QStringLiteral("chipSuccessFill"),
+            QStringLiteral("chipWarningInk"), QStringLiteral("chipWarningFill"),
+            QStringLiteral("chipDangerInk"), QStringLiteral("chipDangerFill"),
+            QStringLiteral("chipInfoInk"), QStringLiteral("chipInfoFill"),
+            QStringLiteral("chipBoltFill"), QStringLiteral("chipBoltInk"),
+            // Scrollbars
+            QStringLiteral("scrollbarTrack"), QStringLiteral("scrollbarHandle"),
+            QStringLiteral("scrollbarHandleHover"),
+            QStringLiteral("scrollbarHandlePressed"),
+            // Elevation
+            QStringLiteral("shadow"), QStringLiteral("shadowSoft"),
+            QStringLiteral("shadowStrong"),
+            // Committed-dark media chrome (theme-invariant by design)
+            QStringLiteral("scrimBackdrop"), QStringLiteral("scrimSurface"),
+            QStringLiteral("scrimSurfaceRaised"),
+            QStringLiteral("scrimSurfaceHover"), QStringLiteral("scrimBorder"),
+            QStringLiteral("scrimInk"), QStringLiteral("scrimInkStrong"),
+            QStringLiteral("scrimInkMuted"),
             // Focus / overlay
             QStringLiteral("focusRing"), QStringLiteral("overlayScrim"),
             // Storm namespace (theme-routed; bolt ink pairs with bolt fills)
@@ -168,8 +224,15 @@ private Q_SLOTS:
             QVERIFY2(m_theme.contains(decl),
                      qPrintable(QStringLiteral("missing token: %1").arg(token)));
         }
-        // Semantic typography roles.
+        // Semantic typography roles. The first six are THE scale (2026-08-21);
+        // the rest are the pre-scale names, kept because 78 files consume them.
         const QStringList type = {
+            QStringLiteral("textDisplay"), QStringLiteral("textTitle"),
+            QStringLiteral("textSubtitle"), QStringLiteral("textBody"),
+            QStringLiteral("textMeta"), QStringLiteral("textMicro"),
+            QStringLiteral("weightBody"), QStringLiteral("weightMedium"),
+            QStringLiteral("weightStrong"), QStringLiteral("weightBold"),
+            QStringLiteral("weightDisplay"),
             QStringLiteral("fontPageTitle"), QStringLiteral("fontSectionTitle"),
             QStringLiteral("fontRoomTitle"), QStringLiteral("fontMessageSender"),
             QStringLiteral("fontBody"), QStringLiteral("fontSecondary"),
@@ -181,6 +244,90 @@ private Q_SLOTS:
             QVERIFY2(m_theme.contains(decl),
                      qPrintable(QStringLiteral("missing type token: %1").arg(token)));
         }
+        // Leading. The message body sets no lineHeight, so the UI-font
+        // picker silently changes chat leading by 13% (Manrope 1.366em vs
+        // Inter 1.210em). The tokens must exist before a consumer can fix it.
+        for (const QString &token : { QStringLiteral("lineHeightBody"),
+                                      QStringLiteral("lineHeightTight"),
+                                      QStringLiteral("lineHeightDisplay") }) {
+            const QRegularExpression decl(
+                QStringLiteral("property\\s+real\\s+%1\\b").arg(token));
+            QVERIFY2(m_theme.contains(decl),
+                     qPrintable(QStringLiteral("missing leading token: %1")
+                                    .arg(token)));
+        }
+        // Font families are tokens too — Icon.qml hard-coded the icon face.
+        for (const QString &token : { QStringLiteral("uiFont"),
+                                      QStringLiteral("monoFont"),
+                                      QStringLiteral("iconFont"),
+                                      QStringLiteral("displayFont"),
+                                      QStringLiteral("menuFont"),
+                                      QStringLiteral("menuSectionFont") }) {
+            const QRegularExpression decl(
+                QStringLiteral("property\\s+string\\s+%1\\b").arg(token));
+            QVERIFY2(m_theme.contains(decl),
+                     qPrintable(QStringLiteral("missing family token: %1")
+                                    .arg(token)));
+        }
+    }
+
+    // The scale is only a scale if it is small, ordered, and made of the
+    // values it claims. 15 rendered sizes reached through 24 names is what
+    // this exists to prevent coming back.
+    void theTypeScaleIsSmallAndOrdered()
+    {
+        // Resolves one level of alias, because the retained pre-scale names
+        // are declared as aliases ONTO the scale (`fontPageTitle:
+        // textDisplay`) — that is the point of them.
+        std::function<int(const char *, int)> intToken =
+            [this, &intToken](const char *name, int depth) -> int {
+            if (depth > 2)
+                return -1;
+            const QRegularExpression re(
+                QStringLiteral("property\\s+int\\s+%1\\s*:\\s*(\\w+)")
+                    .arg(QLatin1String(name)));
+            const auto m = re.match(m_theme);
+            if (!m.hasMatch())
+                return -1;
+            const QString value = m.captured(1);
+            bool numeric = false;
+            const int direct = value.toInt(&numeric);
+            return numeric ? direct
+                           : intToken(value.toUtf8().constData(), depth + 1);
+        };
+        const int display = intToken("textDisplay", 0);
+        const int title = intToken("textTitle", 0);
+        const int subtitle = intToken("textSubtitle", 0);
+        const int body = intToken("textBody", 0);
+        const int meta = intToken("textMeta", 0);
+        const int micro = intToken("textMicro", 0);
+        for (int v : { display, title, subtitle, body, meta, micro })
+            QVERIFY2(v > 0, "a scale token is missing or is not a literal int");
+        QVERIFY2(display > title, "textDisplay must be larger than textTitle");
+        QVERIFY2(title > subtitle, "textTitle must be larger than textSubtitle");
+        QVERIFY2(subtitle >= body, "textSubtitle must not be smaller than body");
+        QVERIFY2(body > meta, "textBody must be larger than textMeta");
+        QVERIFY2(meta > micro, "textMeta must be larger than textMicro");
+        // Five distinct numbers, not six: subtitle and body deliberately
+        // share a size and differ by WEIGHT.
+        QSet<int> distinct{ display, title, subtitle, body, meta, micro };
+        QVERIFY2(distinct.size() <= 5,
+                 qPrintable(QStringLiteral("the scale has %1 distinct sizes; "
+                                           "five is the budget")
+                                .arg(distinct.size())));
+        QCOMPARE(subtitle, body);
+        // Weights: exactly the five named steps, ascending.
+        const int w[] = { intToken("weightBody", 0), intToken("weightMedium", 0),
+                          intToken("weightStrong", 0), intToken("weightBold", 0),
+                          intToken("weightDisplay", 0) };
+        for (int i = 1; i < 5; ++i)
+            QVERIFY2(w[i] > w[i - 1], "weights must ascend");
+        QCOMPARE(w[0], 400);
+        QCOMPARE(w[4], 800);
+        // fontPageTitle was declared at 24 and used NOWHERE while three
+        // ad-hoc display sizes (22/26/28) existed as literals. It is
+        // required by this suite, so it gets the real display role.
+        QCOMPARE(intToken("fontPageTitle", 0), display);
     }
 
     void criticalPairsMeetContrast()
@@ -234,8 +381,40 @@ private Q_SLOTS:
             // Incoming bubble body, both themes.
             { "_textPrimaryLight", "_hoverLight", 4.5 },
             { "_textPrimaryDark", "_cardElevatedDark", 4.5 },
-            // Danger buttons: white label on danger red.
+            // Danger buttons: white label on danger red, in all three states.
             { "dangerText", "_accentDanger", 4.5 },
+            { "dangerText", "_dangerFillHover", 4.5 },
+            { "dangerText", "_dangerFillPressed", 4.5 },
+            // Reaction pills: each theme's own surface, carrying that
+            // theme's secondary ink (the count) and primary ink (the emoji
+            // fallback glyph). reactionBackground used to be an alias of
+            // cardElevated, so no pair could exist at all.
+            { "_textSecondaryLight", "_lightReaction", 4.5 },
+            { "_textPrimaryLight", "_lightReaction", 4.5 },
+            { "_dkTextSecondary", "_dkReaction", 4.5 },
+            { "_dkTextPrimary", "_dkReaction", 4.5 },
+            { "_graTextSecondary", "_graReaction", 4.5 },
+            { "_graTextPrimary", "_graReaction", 4.5 },
+            { "_textSecondaryDark", "_midReaction", 4.5 },
+            { "_textPrimaryDark", "_midReaction", 4.5 },
+            { "_norTextSecondary", "_norReaction", 4.5 },
+            { "_norTextPrimary", "_norReaction", 4.5 },
+            { "_purTextSecondary", "_purReaction", 4.5 },
+            { "_purTextPrimary", "_purReaction", 4.5 },
+            { "_warTextSecondary", "_warReaction", 4.5 },
+            { "_warTextPrimary", "_warReaction", 4.5 },
+            { "_mosTextSecondary", "_mosReaction", 4.5 },
+            { "_mosTextPrimary", "_mosReaction", 4.5 },
+            { "_indTextSecondary", "_indReaction", 4.5 },
+            { "_indTextPrimary", "_indReaction", 4.5 },
+            { "_teaTextSecondary", "_teaReaction", 4.5 },
+            { "_teaTextPrimary", "_teaReaction", 4.5 },
+            // Committed-dark media chrome. scrimSurface is an 8-digit ARGB
+            // that the contrast maths cannot read, so its OPAQUE equivalent
+            // _scrimBase stands in — which is what the bar composites to
+            // over dark media anyway.
+            { "scrimInk", "_scrimBase", 4.5 },
+            { "scrimInkMuted", "_scrimBase", 4.5 },
             // Controls/badges (large or bold UI text): ≥ 3:1.
             { "_onAccent", "_accentBlue", 3.0 },
             // Ink-on-accent for the themes that had no pair at any
@@ -367,10 +546,23 @@ private Q_SLOTS:
             { "_stoText", "_stoSelection", 4.5 },
             { "_stoTextMuted", "_stoInset", 4.5 },
             { "_stoBolt", "_stoPanel", 4.5 },
-            { "_stoCanvas", "_stoBolt", 4.5 },   // boltInk on a bolt fill
+            // MOVED 2026-08-21, not deleted: boltInk was `_stoCanvas`, so
+            // the room-list surface doubled as the ink on every bolt and
+            // unread pill and the ladder could not lift the sidebar without
+            // darkening every pill label. The ink is now its own literal
+            // and the pair moves with it — same assertion, honest operand.
+            { "_stoBoltInk", "_stoBolt", 4.5 },  // boltInk on a bolt fill
             { "_stoDanger", "_stoPanel", 4.5 },
             { "_stoSuccess", "_stoPanel", 4.5 },
             { "_stoLink", "_stoPanel", 4.5 },
+            // The new elevation rung carries chips and raised cards.
+            { "_stoText", "_stoCardElevated", 4.5 },
+            { "_stoTextSecondary", "_stoCardElevated", 4.5 },
+            { "_stoBolt", "_stoCardElevated", 4.5 },
+            { "_stoSuccess", "_stoCardElevated", 4.5 },
+            // Reaction pills are their own surface on every theme now.
+            { "_stoTextSecondary", "_stoReaction", 4.5 },
+            { "_stoText", "_stoReaction", 4.5 },
             //   Full-app shell readability (theme 11):
             { "_stoText", "_stoDeep", 4.5 },
             { "_stoTextSecondary", "_stoDeep", 4.5 },
@@ -378,7 +570,8 @@ private Q_SLOTS:
             { "_stoText", "_stoCanvas", 4.5 },
             { "_stoTextMuted", "_stoCanvas", 4.5 },
             { "_stoText", "_stoSelectedHover", 4.5 }, // selection ink on hover
-            { "_stoCanvas", "_stoLink", 4.5 },     // badge ink on unread pill
+            // MOVED with boltInk, above: the unread-pill ink is _stoBoltInk.
+            { "_stoBoltInk", "_stoLink", 4.5 },    // badge ink on unread pill
             { "ownBubbleText", "_stoOwnBubble", 4.5 },
             { "onAccentMuted", "_stoOwnBubble", 4.5 },
         };
@@ -428,34 +621,8 @@ private Q_SLOTS:
         QCOMPARE(lightInks.size(), 9);
         QCOMPARE(darkInks.size(), 9);
 
-        const QStringList lightSurfaces = {
-            // Lightning Light, Warm, Moss Light: bg / card / elevated /
-            // other-bubble.
-            QStringLiteral("_bgLight"), QStringLiteral("_cardLight"),
-            QStringLiteral("_cardElevatedLight"), QStringLiteral("_hoverLight"),
-            QStringLiteral("_warBg"), QStringLiteral("_warCard"),
-            QStringLiteral("_warCardElevated"), QStringLiteral("_warOtherBubble"),
-            QStringLiteral("_mosBg"), QStringLiteral("_mosCard"),
-            QStringLiteral("_mosCardElevated"), QStringLiteral("_mosOtherBubble"),
-        };
-        const QStringList darkSurfaces = {
-            QStringLiteral("_bgDark"), QStringLiteral("_cardDark"),
-            QStringLiteral("_cardElevatedDark"),
-            QStringLiteral("_dkBg"), QStringLiteral("_dkCard"),
-            QStringLiteral("_dkCardElevated"),
-            QStringLiteral("_graBg"), QStringLiteral("_graCard"),
-            QStringLiteral("_graCardElevated"), QStringLiteral("_graOtherBubble"),
-            QStringLiteral("_norBg"), QStringLiteral("_norCard"),
-            QStringLiteral("_norCardElevated"), QStringLiteral("_norOtherBubble"),
-            QStringLiteral("_purBg"), QStringLiteral("_purCard"),
-            QStringLiteral("_purCardElevated"), QStringLiteral("_purOtherBubble"),
-            QStringLiteral("_indBg"), QStringLiteral("_indCard"),
-            QStringLiteral("_indCardElevated"), QStringLiteral("_indOtherBubble"),
-            QStringLiteral("_teaBg"), QStringLiteral("_teaCard"),
-            QStringLiteral("_teaCardElevated"), QStringLiteral("_teaOtherBubble"),
-            QStringLiteral("_stoCanvas"), QStringLiteral("_stoPanel"),
-            QStringLiteral("_stoSelection"),
-        };
+        const QStringList lightSurfaces = lightInkSurfaces();
+        const QStringList darkSurfaces = darkInkSurfaces();
 
         const auto check = [this](const QStringList &inkList,
                                   const QStringList &surfaceNames) {
@@ -575,6 +742,215 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral(
                          "name ink %1 is too close to the Storm bolt %2 "
                          "(dE %3 < 20)").arg(ink, bolt).arg(d, 0, 'f', 1)));
+        }
+    }
+
+private:
+    // Every surface a per-user or status INK can land on. Shared so a new
+    // ink family cannot be asserted against a narrower list than the one the
+    // identity inks are held to.
+    static QStringList lightInkSurfaces()
+    {
+        return {
+            // Lightning Light, Warm, Moss Light: bg / card / elevated /
+            // other-bubble.
+            QStringLiteral("_bgLight"), QStringLiteral("_cardLight"),
+            QStringLiteral("_cardElevatedLight"), QStringLiteral("_hoverLight"),
+            QStringLiteral("_warBg"), QStringLiteral("_warCard"),
+            QStringLiteral("_warCardElevated"), QStringLiteral("_warOtherBubble"),
+            QStringLiteral("_mosBg"), QStringLiteral("_mosCard"),
+            QStringLiteral("_mosCardElevated"), QStringLiteral("_mosOtherBubble"),
+        };
+    }
+    static QStringList darkInkSurfaces()
+    {
+        return {
+            QStringLiteral("_bgDark"), QStringLiteral("_cardDark"),
+            QStringLiteral("_cardElevatedDark"),
+            QStringLiteral("_dkBg"), QStringLiteral("_dkCard"),
+            QStringLiteral("_dkCardElevated"),
+            QStringLiteral("_graBg"), QStringLiteral("_graCard"),
+            QStringLiteral("_graCardElevated"), QStringLiteral("_graOtherBubble"),
+            QStringLiteral("_norBg"), QStringLiteral("_norCard"),
+            QStringLiteral("_norCardElevated"), QStringLiteral("_norOtherBubble"),
+            QStringLiteral("_purBg"), QStringLiteral("_purCard"),
+            QStringLiteral("_purCardElevated"), QStringLiteral("_purOtherBubble"),
+            QStringLiteral("_indBg"), QStringLiteral("_indCard"),
+            QStringLiteral("_indCardElevated"), QStringLiteral("_indOtherBubble"),
+            QStringLiteral("_teaBg"), QStringLiteral("_teaCard"),
+            QStringLiteral("_teaCardElevated"), QStringLiteral("_teaOtherBubble"),
+            QStringLiteral("_stoCanvas"), QStringLiteral("_stoPanel"),
+            QStringLiteral("_stoSelection"),
+            // ADDED 2026-08-21 with the Storm ladder rebuild: cardElevated
+            // stopped being an alias of _stoSelection, so it is a real
+            // surface a sender name renders on and has to be checked.
+            QStringLiteral("_stoCardElevated"),
+        };
+    }
+
+private Q_SLOTS:
+    // The mechanical cause of the reported "monochrome" shell. Storm is the
+    // MOST saturated palette in the app (Lab chroma 27.1 against Moss
+    // Light's 0.8) — it never lacked hue, it lacked SEPARATION: deep→canvas
+    // measured 1.025:1, canvas→panel 1.138, panel→selection 1.138, and
+    // cardElevated / hover / selected were literally the same #132558. A
+    // contrast suite could not see any of that, because every one of those
+    // surfaces still passed its ink pairs.
+    void stormSurfaceLadderIsVisible()
+    {
+        const auto c = [this](const char *name) { return m_colors.value(QLatin1String(name)); };
+        struct Rung { const char *lo; const char *hi; double minimum; };
+        const Rung rungs[] = {
+            { "_stoDeep", "_stoCanvas", 1.22 },          // timeline -> room list
+            { "_stoCanvas", "_stoPanel", 1.22 },         // room list -> bubble
+            { "_stoPanel", "_stoCardElevated", 1.22 },   // bubble -> raised chip
+            { "_stoPanel", "_stoSelection", 1.22 },      // bubble -> selected row
+            { "_stoSelection", "_stoSelectedHover", 1.16 },
+            { "_stoPanel", "_stoReaction", 1.15 },       // bubble -> reaction pill
+        };
+        for (const Rung &r : rungs) {
+            const QString lo = c(r.lo);
+            const QString hi = c(r.hi);
+            QVERIFY2(!lo.isEmpty() && !hi.isEmpty(),
+                     qPrintable(QStringLiteral("missing rung: %1 / %2")
+                                    .arg(QLatin1String(r.lo), QLatin1String(r.hi))));
+            const double ratio = contrast(lo, hi);
+            QVERIFY2(ratio >= r.minimum,
+                     qPrintable(QStringLiteral("storm rung %1 -> %2 = %3 "
+                                               "(< %4) — invisible step")
+                                    .arg(QLatin1String(r.lo),
+                                         QLatin1String(r.hi))
+                                    .arg(ratio, 0, 'f', 3)
+                                    .arg(r.minimum)));
+        }
+        // No two roles may collapse onto one literal again. cardElevated and
+        // selection sit at the same lightness ON PURPOSE (elevation and
+        // state are different meanings and must not be read off one axis),
+        // so they are separated by TINT and the floor here is a colour
+        // difference, not a contrast ratio.
+        const QStringList distinct = { QStringLiteral("_stoDeep"),
+                                       QStringLiteral("_stoCanvas"),
+                                       QStringLiteral("_stoPanel"),
+                                       QStringLiteral("_stoCardElevated"),
+                                       QStringLiteral("_stoSelection"),
+                                       QStringLiteral("_stoSelectedHover"),
+                                       QStringLiteral("_stoReaction"),
+                                       QStringLiteral("_stoHover") };
+        for (int i = 0; i < distinct.size(); ++i) {
+            for (int j = i + 1; j < distinct.size(); ++j) {
+                QVERIFY2(m_colors.value(distinct.at(i))
+                             != m_colors.value(distinct.at(j)),
+                         qPrintable(QStringLiteral("%1 and %2 are the same "
+                                                   "literal again")
+                                        .arg(distinct.at(i), distinct.at(j))));
+            }
+        }
+        QVERIFY2(deltaE(c("_stoCardElevated"), c("_stoSelection")) >= 12.0,
+                 "elevated and selected sit at one lightness, so the tint "
+                 "between them is the only thing telling them apart");
+        // Structural: the palette object must not re-alias the roles.
+        QVERIFY2(m_theme.contains(QStringLiteral("cardElevated: _stoCardElevated")),
+                 "_storm must map cardElevated to its own literal");
+        QVERIFY2(m_theme.contains(QStringLiteral("reaction: _stoReaction")),
+                 "_storm must map reaction to its own literal");
+        QVERIFY2(m_theme.contains(QStringLiteral("hover: Qt.alpha(_stoHover")),
+                 "_storm hover must ride its own wash, not the selection");
+    }
+
+    // `danger` was a theme-invariant #DC2626 used as INK at ~40 call sites
+    // and measured 3.03-4.03:1 on Storm's four surfaces — below AA on the
+    // brand theme, everywhere, with no assertion anywhere in this file. The
+    // only Storm danger the suite checked was the ROUTED _stoDanger, which
+    // is why it passed for a year. Status ink is now held to exactly the
+    // matrix the identity inks are held to.
+    void statusInksAreReadableOnEveryThemeSurface()
+    {
+        const auto check = [this](const char *ink, const QStringList &surfaces,
+                                  double minimum) {
+            const QString value = m_colors.value(QLatin1String(ink));
+            QVERIFY2(!value.isEmpty(),
+                     qPrintable(QStringLiteral("missing status ink: %1")
+                                    .arg(QLatin1String(ink))));
+            for (const QString &surfaceName : surfaces) {
+                const QString surface = m_colors.value(surfaceName);
+                QVERIFY2(!surface.isEmpty(),
+                         qPrintable(QStringLiteral("missing surface: %1")
+                                        .arg(surfaceName)));
+                const double ratio = contrast(value, surface);
+                QVERIFY2(ratio >= minimum,
+                         qPrintable(QStringLiteral("status ink %1 (%2) on "
+                                                   "%3 (%4) = %5 (< %6)")
+                                        .arg(QLatin1String(ink), value,
+                                             surfaceName, surface)
+                                        .arg(ratio, 0, 'f', 2)
+                                        .arg(minimum)));
+            }
+        };
+        const QStringList light = lightInkSurfaces();
+        const QStringList dark = darkInkSurfaces();
+        for (const char *ink : { "_dangerInkLight", "_warnInkLight",
+                                 "_okInkLight", "_infoInkLight" })
+            check(ink, light, 4.5);
+        for (const char *ink : { "_dangerInkDark", "_warnInkDark",
+                                 "_okInkDark", "_infoInkDark" })
+            check(ink, dark, 4.5);
+        // Presence is a DOT, not text: WCAG's graphical-object bar is 3:1.
+        // Stated explicitly so nobody "upgrades" it to 4.5 and drives the
+        // away amber back into the bolt's neighbourhood to satisfy it.
+        check("_awayLight", light, 3.0);
+        check("_awayDark", dark, 3.0);
+        // Routing, not just values: the four roles must go through _p with
+        // a mode fallback, or a future palette cannot override them and the
+        // whole family silently reverts to one invariant literal.
+        for (const char *role : { "success", "warning", "danger", "info" }) {
+            const QRegularExpression routed(
+                QStringLiteral("property\\s+color\\s+%1:\\s*_p\\.%1\\s*!==\\s*undefined")
+                    .arg(QLatin1String(role)));
+            QVERIFY2(m_theme.contains(routed),
+                     qPrintable(QStringLiteral("%1 must route through _p")
+                                    .arg(QLatin1String(role))));
+        }
+        // A destructive FILL is a different role from destructive INK. If
+        // these ever collapse back into one token the ink fails AA again.
+        QVERIFY2(m_colors.value(QStringLiteral("dangerFill"))
+                     != m_colors.value(QStringLiteral("_dangerInkDark")),
+                 "dangerFill and the dark danger ink must stay distinct");
+        // ONE danger and ONE success on the dark themes. Before this round
+        // the same concept rendered as _stoDanger #FF8FA0 inside a menu and
+        // `danger` #DC2626 outside it, in one window; the fix is only real
+        // while the two literals stay equal, and they are separate literals
+        // (Storm's are part of the SPEC §1 table the trust card pins), so
+        // the equality is asserted rather than assumed.
+        QCOMPARE(m_colors.value(QStringLiteral("_stoDanger")),
+                 m_colors.value(QStringLiteral("_dangerInkDark")));
+        QCOMPARE(m_colors.value(QStringLiteral("_stoSuccess")),
+                 m_colors.value(QStringLiteral("_okInkDark")));
+    }
+
+    // Yellow discipline, extended past the identity inks. The Storm bolt is
+    // the app's reserved "active / selected / verified" signal; anything
+    // near it in colour reads as brand chrome rather than as its own state.
+    // presenceAway measured dE 18.3 from #FFD447 and `warning` 23.8, so an
+    // away contact, a warning chip and the accent were three yellows a
+    // reader could not separate — the exact rule the identity round wrote
+    // for the gold name-ink slot, never applied to these two.
+    void yellowSignalsStayClearOfTheBrandAccent()
+    {
+        const QString bolt = m_colors.value(QStringLiteral("_stoBolt"));
+        QVERIFY2(!bolt.isEmpty(), "missing _stoBolt");
+        const char *yellowish[] = { "_awayDark", "_awayLight",
+                                    "_warnInkDark", "_warnInkLight" };
+        for (const char *name : yellowish) {
+            const QString value = m_colors.value(QLatin1String(name));
+            QVERIFY2(!value.isEmpty(),
+                     qPrintable(QStringLiteral("missing %1").arg(QLatin1String(name))));
+            const double d = deltaE(value, bolt);
+            QVERIFY2(d >= 25.0,
+                     qPrintable(QStringLiteral("%1 (%2) is too close to the "
+                                               "brand bolt %3 (dE %4 < 25) — "
+                                               "it will read as chrome")
+                                    .arg(QLatin1String(name), value, bolt)
+                                    .arg(d, 0, 'f', 1)));
         }
     }
 
@@ -809,6 +1185,18 @@ private Q_SLOTS:
             QStringLiteral("#1d2b30"), QStringLiteral("#152023"),
             QStringLiteral("#27c2ad"), QStringLiteral("#FFFFFF"),
             QStringLiteral("#40000000"),
+            // 2026-08-21: Moss Light and Deep Teal took 4 and 8 units of
+            // their own accent hue into their surfaces (both measured as
+            // near-grey shells: Lab chroma 0.8 and 5.3). The preview cards
+            // in SettingsScreen.qml paint FIXED copies of those literals,
+            // so they are stale until that file is swept — the values are
+            // allowed here in advance so the sweep is not blocked by this
+            // guard. tests/SettingsShellQmlTest.cpp asserts the same
+            // literals and has to move in the same change.
+            QStringLiteral("#f1f9f3"), QStringLiteral("#e7efe8"),
+            QStringLiteral("#d6dfd8"), QStringLiteral("#e1ebe3"),
+            QStringLiteral("#031919"), QStringLiteral("#091f20"),
+            QStringLiteral("#193535"), QStringLiteral("#0c2526"),
         };
         for (const QString &path : files) {
             QString content = readAll(path);
