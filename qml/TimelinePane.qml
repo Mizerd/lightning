@@ -684,7 +684,20 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 60
-            color: AppTheme.surface
+            // `sidebar`, the PANE tone — not `surface`, the CARD tone.
+            //
+            // Under Storm both the room header and the composer card resolved
+            // to the same literal, so a card with a radius and a border was
+            // exactly the colour of the wall behind it: measured 1.000:1. One
+            // hex was painting the chrome AND the content, which is most of
+            // what "the message box and the imbeds are very pale" meant — the
+            // embeds were not low-chroma, they had no relationship to
+            // anything. On `sidebar` the header runs continuous with the room
+            // list beside it (one top strip, as Element has), the composer
+            // card lifts off it at 1.272, and the 1px stormBorder already
+            // under this row keeps the edge. Both inks the header uses are
+            // already asserted against this surface.
+            color: AppTheme.sidebar
             RowLayout {
                 id: header
                 anchors.fill: parent

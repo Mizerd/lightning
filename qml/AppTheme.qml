@@ -354,7 +354,31 @@ QtObject {
     // At this value the rail->list step is 1.223; taking the list to a
     // genuinely near-black navy drops that under 1.15 and brings back the
     // one-continuous-field look the ladder was widened to fix.
-    readonly property color _stoCanvas:        "#0E1A51"
+    readonly property color _stoCanvas:        "#121757"
+    // ── Storm blues: chroma, not HLS saturation ─────────────────────────
+    //
+    // The first pass re-saturated these by HLS `s`, which is NOT perceptual
+    // chroma — and the error compounded up the ladder. Measured Lab C* per
+    // unit L* before: canvas 3.24, panel 2.29, reaction 1.67, cardElevated
+    // 1.31. So the HIGHER and LARGER a surface sat, the greyer it actually
+    // was, and cardElevated — the link preview, reaction pills, keycaps —
+    // ended up the palest rung in the theme. WCAG is a pure function of
+    // luminance, so the whole test matrix was blind to it.
+    //
+    // Re-derived at bit-identical luminance, targeting C* directly: ladder
+    // chroma +23% overall, every rung and every asserted pair unchanged.
+    //
+    // _stoDeep matters most and is easiest to miss: it is ~55% of the
+    // window's pixels and carried C* 9.3 — a near-neutral black rather than a
+    // navy. #020622 nearly doubles it for free.
+    //
+    // _stoSelection and _stoSelectedHover were the ONLY Storm surfaces with
+    // R > G — that channel inversion is what made the selected room read
+    // purple against a navy list, and it reaches ~38 call sites (menu
+    // highlight, combo selection, emoji hover, text selection), so it was not
+    // one row. Moved into the navy family; dE from cardElevated is 25.6
+    // against a floor of 12.
+    //
     // ── Storm blues, re-saturated 2026-08-21 ────────────────────────────
     // "replace all pale blue color with a darker one, it looks weak
     // evrywhere its used". These sat at 0.31-0.42 — navy in name, washed
@@ -378,16 +402,16 @@ QtObject {
     // raised chip from a selected row apart. Re-saturating both toward one
     // hue collapsed that to dE 8 and the ladder test caught it; they are now
     // dE 25, blue-navy against violet.
-    readonly property color _stoPanel:         "#1B2B72"
+    readonly property color _stoPanel:         "#22267B"
     readonly property color _stoInset:         "#0C1436"
-    readonly property color _stoDeep:          "#060718"
+    readonly property color _stoDeep:          "#020622"
     readonly property color _stoBorder:        "#394797"
     readonly property color _stoBorderStrong:  "#525FB5"
-    readonly property color _stoSelection:     "#4C3999"
+    readonly property color _stoSelection:     "#2F39B2"
     // Elevation rung above the panel: reaction pills, keycaps, raised cards.
     // Was an alias of _stoSelection, which is what made "hovered", "selected"
     // and "raised" indistinguishable.
-    readonly property color _stoCardElevated:  "#2A4685"
+    readonly property color _stoCardElevated:  "#284394"
     // Row-hover lift. Kept as a translucent wash rather than an opaque rung
     // because hover applies over the timeline (deep), the room list (canvas)
     // AND menu rows (panel); at 0.22 alpha it measures 1.25/1.31/1.27:1 over
@@ -395,7 +419,7 @@ QtObject {
     readonly property color _stoHover:         "#7075C4"
     // Reaction-pill surface. Its OWN value, not an alias of cardElevated:
     // 1.21:1 above the bubble it attaches to and 1.88:1 above the timeline.
-    readonly property color _stoReaction:      "#2A397D"
+    readonly property color _stoReaction:      "#283688"
     readonly property color _stoBolt:          "#FFD447"
     // Ink painted ON a bolt or link fill. Split out of _stoCanvas this round:
     // the room-list surface had been doing double duty as the badge ink, so
@@ -417,7 +441,7 @@ QtObject {
     readonly property color _stoAccentHover:   "#FFDF6E"
     readonly property color _stoAccentPressed: "#E9BC2F"
     readonly property color _stoOwnBubble:     "#3345A6"
-    readonly property color _stoSelectedHover: "#5842B1"
+    readonly property color _stoSelectedHover: "#3A43C9"
     readonly property color _stoMention:       "#E5677A"
 
     // Ink used on top of accent fills for every palette without its own

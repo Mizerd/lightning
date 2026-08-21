@@ -63,6 +63,7 @@ ApplicationWindow {
     Rectangle { objectName: "tokSelectedText"; visible: false; color: AppTheme.selectedText }
     Rectangle { objectName: "tokBolt"; visible: false; color: AppTheme.bolt }
     Rectangle { objectName: "tokBoltInk"; visible: false; color: AppTheme.boltInk }
+    Rectangle { objectName: "tokStormText"; visible: false; color: AppTheme.stormText }
     Rectangle { objectName: "tokSurface"; visible: false; color: AppTheme.surface }
     Rectangle { objectName: "tokStormPanel"; visible: false; color: AppTheme.stormPanel }
     Rectangle { objectName: "tokInputBg"; visible: false; color: AppTheme.inputBackground }
@@ -372,20 +373,38 @@ private slots:
     // (canvas-dark ink, meant for a SOLID bolt fill) — dark-on-dark. The
     // selected segment must be the solid bolt "current selection" moment
     // with boltInk on it. This fails on the pre-fix SegmentedControl.
-    void stormRoutesSelectedSegmentToSolidBolt()
+    void stormRoutesSelectedSegmentToASoftAccentField()
     {
         m_root->setProperty("themeMode", 11); // Storm
         QCoreApplication::processEvents();
         const QImage img = m_window->grabWindow();
         auto *selected = item("segments_people");
         QVERIFY(selected);
-        assertFlatFill(img, selected, token("tokBolt"),
-                       "selected-segment-storm");
+        // 2026-08-21: the selected segment is a SOFT accent field, not a
+        // solid bolt fill.
+        //
+        // roomFilterMode defaults to 0 ("All"), so the solid treatment put a
+        // permanent block of the app's loudest colour in the navigation
+        // column at its factory setting — an independent colour pass counted
+        // bolt seven times in one screenshot and named this the single
+        // biggest dilution of "bolt means active". Bolt now belongs to the
+        // primary button.
+        //
+        // The guard keeps its teeth in both directions: the fill must be the
+        // soft field, the ink must be the readable one, and the fill must NOT
+        // be the solid bolt.
+        const QColor selectedFill = sampleAvg(
+            img, QRect(int(selected->mapToScene(QPointF(8, 6)).x()),
+                       int(selected->mapToScene(QPointF(8, 6)).y()), 2, 2));
+        QVERIFY2(channelDelta(selectedFill, token("tokBolt")) > kTolerance,
+                 qPrintable(QStringLiteral(
+                     "the selected segment is a solid bolt fill again (%1)")
+                     .arg(selectedFill.name())));
         auto *label =
             selected->property("contentItem").value<QQuickItem *>();
         QVERIFY(label);
         QCOMPARE(label->property("color").value<QColor>(),
-                 token("tokBoltInk"));
+                 token("tokStormText"));
         m_root->setProperty("themeMode", 9);
         QCoreApplication::processEvents();
     }

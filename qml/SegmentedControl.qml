@@ -87,7 +87,7 @@ Row {
                     // its sanctioned solid-bolt treatment.
                     return !segment.enabled ? AppTheme.textDisabled
                          : segment.selected ? (AppTheme.storm
-                                               ? AppTheme.boltInk
+                                               ? AppTheme.stormText
                                                : AppTheme.selectedText)
                          : AppTheme.textSecondary
                 }
@@ -116,8 +116,18 @@ Row {
                                ? Qt.alpha(AppTheme.stormSelection, 0.55)
                                : "transparent"
                     if (segment.selected)
-                        return AppTheme.storm ? AppTheme.bolt
-                                              : AppTheme.accentSoft
+                        // accentSoft under Storm too, NOT a solid bolt fill.
+                        //
+                        // roomFilterMode defaults to 0 = "All", so a control
+                        // sitting at its factory value carried a permanent
+                        // solid block of the app's loudest colour in the
+                        // navigation column. Bolt has to mean active/needs-you
+                        // or it means nothing, and it was already spent seven
+                        // times in one screenshot. The soft field still reads
+                        // as selected (stormText on it measures 8.85-14.21
+                        // over every ground) and the solid fill is reserved
+                        // for the primary button.
+                        return AppTheme.accentSoft
                     return segment.down ? AppTheme.buttonGhostPressed
                          : segment.hovered ? AppTheme.buttonGhostHover
                          : "transparent"

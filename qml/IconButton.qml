@@ -118,8 +118,15 @@ AbstractButton {
                 if (root.active)
                     return root.enabled ? AppTheme.stormSelection
                                         : AppTheme.stormInset
+                // HOVER is not SELECTION. Both branches returned
+                // stormSelection, so a toggled-ON icon and one you were merely
+                // pointing at were the same colour, with no border or ink to
+                // tell them apart — six of these sit in the room header alone.
+                // `hover` is the translucent wash built for exactly this, and
+                // it reads over every ground it lands on (measured 1.25 /
+                // 1.31 / 1.27 against deep / canvas / panel).
                 return (root.enabled && (root.down || root.hovered))
-                       ? AppTheme.stormSelection : "transparent"
+                       ? AppTheme.hover : "transparent"
             }
             if (root.fill)
                 return !root.enabled ? AppTheme.buttonDisabledFill

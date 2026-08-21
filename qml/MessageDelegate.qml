@@ -3474,7 +3474,7 @@ Item {
             implicitHeight: st === "loaded" ? naturalH
                                             : Math.max(naturalH, reservedH)
             color: cardHover.hovered && card.st === "loaded"
-                   ? AppTheme.hover : AppTheme.surfaceElevated
+                   ? AppTheme.hover : AppTheme.embedSurface
             radius: AppTheme.radiusMd
             border.color: AppTheme.border
             border.width: 1
