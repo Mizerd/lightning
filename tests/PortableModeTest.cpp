@@ -46,6 +46,7 @@ private Q_SLOTS:
     void unresolvableExecutableDirectoryYieldsNoRootRatherThanAppData();
     void cacheRootFollowsThePortableTree();
     void prepareDataRootCreatesTheWholeTree();
+    void everyScratchAndUpdatePathStaysInsideTheFolder();
     void prepareDataRootRefusesAnUnwritableFolderWithoutFallingBack();
     void relocationKeepsSettingsWithNoReferenceToTheOldRoot();
 
@@ -375,7 +376,8 @@ void PortableModeTest::prepareDataRootCreatesTheWholeTree()
                                QStringLiteral("secrets"),
                                QStringLiteral("cache"),
                                QStringLiteral("logs"),
-                               QStringLiteral("matrix")}) {
+                               QStringLiteral("matrix"),
+                               QStringLiteral("temp")}) {
         QVERIFY2(QFileInfo(root + QLatin1Char('/') + sub).isDir(),
                  qPrintable(sub));
     }
@@ -397,6 +399,77 @@ void PortableModeTest::prepareDataRootCreatesTheWholeTree()
     // rather than quietly creating a tree somewhere.
     lightning::portable::setPortableOverrideForTest(false, exeDir.path());
     QVERIFY(!lightning::portable::prepareDataRoot().isEmpty());
+}
+
+// 2026-08-21: an external audit found three paths that still left the folder,
+// which is the one promise portable mode makes. Two were scratch
+// (QDir::tempPath() for voice recordings and animated media), and the third
+// was the UPDATER — it staged the new version and the displaced old one in
+// the PARENT of the portable folder, so a successful update on a USB stick
+// left `lightning-previous-version` sitting beside `Lightning\` and required
+// the parent to be writable.
+//
+// This pins the contract as PATHS, which is what the audit actually checked.
+void PortableModeTest::everyScratchAndUpdatePathStaysInsideTheFolder()
+{
+    QTemporaryDir exeDir;
+    QVERIFY(exeDir.isValid());
+    lightning::portable::setPortableOverrideForTest(true, exeDir.path());
+    QCOMPARE(lightning::portable::prepareDataRoot(), QString());
+
+    const QString root = QDir(lightning::portable::dataRoot()).canonicalPath();
+    QVERIFY(!root.isEmpty());
+
+    // Everything Lightning chooses to write lives under data/.
+    for (const QString &path : {lightning::portable::configDir(),
+                                lightning::portable::secretsDir(),
+                                lightning::portable::cacheDir(),
+                                lightning::portable::logsDir(),
+                                lightning::portable::tempDir(),
+                                lightning::portable::updateWorkDir(),
+                                lightning::portable::mediaScratchRoot()}) {
+        QVERIFY2(!path.isEmpty(), "a portable path resolved empty");
+        QVERIFY2(QDir::cleanPath(path).startsWith(root),
+                 qPrintable(QStringLiteral("escapes the folder: %1 (root %2)")
+                                .arg(path, root)));
+    }
+
+    // The media scratch root IS the portable temp dir — not the OS one.
+    QCOMPARE(lightning::portable::mediaScratchRoot(),
+             lightning::portable::tempDir());
+    // ...and NOT the OS temp directory, which is where it used to go. (The
+    // containment loop above is the real guarantee; this names the specific
+    // regression so a failure reads as what it is. Compared against the bare
+    // path, since this fixture's own folder happens to live under /tmp.)
+    QVERIFY2(lightning::portable::mediaScratchRoot() != QDir::tempPath(),
+             "decrypted media scratch is still the OS temp directory");
+
+    // Not portable: the scratch root goes back to the OS temp directory, so
+    // an installed build is completely unaffected by any of this.
+    lightning::portable::setPortableOverrideForTest(false, exeDir.path());
+    QCOMPARE(lightning::portable::mediaScratchRoot(), QDir::tempPath());
+    QVERIFY(lightning::portable::tempDir().isEmpty());
+    QVERIFY(lightning::portable::updateWorkDir().isEmpty());
+
+    // Stale scratch sweeping: ours by prefix, and NOTHING else. This runs
+    // unattended at startup over a directory the user owns.
+    lightning::portable::setPortableOverrideForTest(true, exeDir.path());
+    const QString temp = lightning::portable::tempDir();
+    QVERIFY(QDir().mkpath(temp + QStringLiteral("/lightning-voice-abc")));
+    QVERIFY(QDir().mkpath(temp + QStringLiteral("/lightning-animated-xyz")));
+    QVERIFY(QDir().mkpath(temp + QStringLiteral("/somebody-elses-data")));
+    QFile keep(temp + QStringLiteral("/notes.txt"));
+    QVERIFY(keep.open(QIODevice::WriteOnly));
+    keep.write("keep me");
+    keep.close();
+
+    QCOMPARE(lightning::portable::cleanStaleTempDirs(), 2);
+    QVERIFY(!QFileInfo::exists(temp + QStringLiteral("/lightning-voice-abc")));
+    QVERIFY(!QFileInfo::exists(temp + QStringLiteral("/lightning-animated-xyz")));
+    QVERIFY2(QFileInfo(temp + QStringLiteral("/somebody-elses-data")).isDir(),
+             "the sweep removed a directory it did not create");
+    QVERIFY2(QFileInfo::exists(temp + QStringLiteral("/notes.txt")),
+             "the sweep removed a file");
 }
 
 void PortableModeTest::prepareDataRootRefusesAnUnwritableFolderWithoutFallingBack()

@@ -249,6 +249,21 @@ QString subdir(QLatin1String suffix)
 } // namespace
 
 QString configDir()  { return subdir(QLatin1String("/config")); }
+QString tempDir()    { return subdir(QLatin1String("/temp")); }
+QString updateWorkDir() { return subdir(QLatin1String("/update-work")); }
+
+QString mediaScratchRoot()
+{
+    // ONE definition for every decrypted-media path. A second call site that
+    // reached for QDir::tempPath() directly would write decrypted payloads
+    // outside a portable folder and nothing would report it.
+    if (isPortable()) {
+        const QString dir = tempDir();
+        if (!dir.isEmpty())
+            return dir;
+    }
+    return QDir::tempPath();
+}
 QString secretsDir() { return subdir(QLatin1String("/secrets")); }
 QString cacheDir()   { return subdir(QLatin1String("/cache")); }
 QString logsDir()    { return subdir(QLatin1String("/logs")); }
@@ -302,6 +317,7 @@ QString prepareDataRoot()
         root + QLatin1String("/cache"),
         root + QLatin1String("/logs"),
         root + QLatin1String("/matrix"),
+        root + QLatin1String("/temp"),
     };
     for (const QString &dir : wanted) {
         if (!QDir().mkpath(dir)) {
@@ -352,6 +368,34 @@ QString prepareDataRoot()
     }
     QFile::remove(probe);
     return {};
+}
+
+int cleanStaleTempDirs()
+{
+    const QString root = tempDir();
+    if (root.isEmpty())
+        return 0;
+    // Only OUR prefixes, and only directories. A portable folder is the
+    // user's own, and this runs unattended at startup — it must not be
+    // capable of removing anything it did not create.
+    static const QStringList kOurs = {
+        QStringLiteral("lightning-voice-*"),
+        QStringLiteral("lightning-animated-*"),
+        QStringLiteral("lightning-playable-*"),
+    };
+    int removed = 0;
+    QDir dir(root);
+    const auto stale = dir.entryInfoList(kOurs, QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QFileInfo &info : stale) {
+        // A symlink is not one of ours no matter what it is named, and
+        // removeRecursively() would follow it out of the folder.
+        if (info.isSymLink())
+            continue;
+        QDir victim(info.absoluteFilePath());
+        if (victim.removeRecursively())
+            ++removed;
+    }
+    return removed;
 }
 
 } // namespace lightning::portable

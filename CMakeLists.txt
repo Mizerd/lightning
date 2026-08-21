@@ -2048,6 +2048,7 @@ if(BUILD_TESTING)
         src/app/ForwardController.cpp
         src/media/MediaBridge.h
         src/media/MediaBridge.cpp
+        src/storage/PortableMode.cpp
         src/media/PlayableFileWriter.h
         src/media/PlayableFileWriter.cpp
         src/app/GuiStallTracer.cpp
@@ -2582,6 +2583,7 @@ if(BUILD_TESTING)
         tests/MediaBridgeTest.cpp
         src/media/MediaBridge.h
         src/media/MediaBridge.cpp
+        src/storage/PortableMode.cpp
         src/media/PlayableFileWriter.h
         src/media/PlayableFileWriter.cpp
         src/app/GuiStallTracer.cpp
@@ -2608,6 +2610,9 @@ if(BUILD_TESTING)
         tests/VoiceRecorderTest.cpp
         src/media/VoiceRecorder.h
         src/media/VoiceRecorder.cpp
+        # mediaScratchRoot(): the recorder writes into the portable
+        # folder when portable, the OS temp directory otherwise.
+        src/storage/PortableMode.cpp
     )
     target_include_directories(voice-recorder-test PRIVATE src)
     target_link_libraries(voice-recorder-test

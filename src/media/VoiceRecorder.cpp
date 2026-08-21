@@ -1,5 +1,8 @@
 #include "media/VoiceRecorder.h"
 
+#include "storage/PortableMode.h"
+
+
 #include <QAudioBuffer>
 #include <QAudioDevice>
 #include <QAudioFormat>
@@ -93,8 +96,11 @@ bool VoiceRecorder::available()
 bool VoiceRecorder::ensureCaptureChain()
 {
     if (!m_dir) {
+        // Same scratch root as every other decrypted-media path — inside the
+        // portable folder when portable, the OS temp directory otherwise.
         m_dir = std::make_unique<QTemporaryDir>(
-            QDir::tempPath() + QStringLiteral("/lightning-voice-XXXXXX"));
+            lightning::portable::mediaScratchRoot()
+            + QStringLiteral("/lightning-voice-XXXXXX"));
         if (!m_dir->isValid()) {
             m_dir.reset();
             return false;

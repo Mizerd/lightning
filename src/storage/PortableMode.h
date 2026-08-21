@@ -104,6 +104,38 @@ QString configDir();
 QString secretsDir();
 QString cacheDir();
 QString logsDir();
+// Scratch space for decrypted playable media and voice recordings.
+//
+// These used QDir::tempPath() unconditionally, which on Windows is under
+// %LOCALAPPDATA%\Temp — outside the folder. That was once documented as a
+// deliberate exception on the grounds that decrypted media should not be
+// written onto a USB stick; Rokas overruled it on 2026-08-21, wanting
+// everything Lightning controls inside the tree.
+//
+// Be clear about what that costs: the payload of a video being played and of
+// a voice message being recorded now lives beside the ciphertext on whatever
+// medium the folder is on. The files are still session-scoped, still 0600,
+// still wiped on sign-out / account switch / exit — but a crash leaves them
+// on the stick rather than in the OS temp directory. Given the folder ALREADY
+// carries the sealed session and the crypto store, this does not widen the
+// threat model: possession of the folder was already possession of the
+// account (see PortableSecretStore).
+QString tempDir();
+// Root for session-scoped decrypted media: playable temp files, animated GIF
+// frames and voice recordings. tempDir() when portable, QDir::tempPath()
+// otherwise. Lives here rather than in MediaBridge because it is a PATH
+// decision, and because the voice recorder must reach it without linking the
+// whole media bridge.
+QString mediaScratchRoot();
+// Remove scratch directories left by a previous run that crashed before its
+// QTemporaryDir destructor ran. Called once at startup, portable mode only;
+// returns the number removed. Never touches a directory that is not ours.
+int cleanStaleTempDirs();
+// Where the updater does its work: the extraction staging directory and the
+// displaced previous version. Inside `data`, which is what keeps a portable
+// update from writing into the PARENT of the folder — and `data` is the one
+// name the swap preserves, so a backup here survives the swap that creates it.
+QString updateWorkDir();
 
 // PURE helpers, for tests and for anyone who needs the decision over an
 // injected directory rather than the running process's own.

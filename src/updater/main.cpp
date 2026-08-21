@@ -119,12 +119,40 @@ int runExternalInstaller(const updater::InstallPlan &plan)
 updater::ReplaceResult runPortableSwap(const updater::UpdaterArguments &args,
                                        QString *archiveError)
 {
-    // Extract into a private staging directory that lives beside the target,
-    // so the later rename never crosses a filesystem, and so a failure leaves
-    // nothing behind.
-    const QString parent = QFileInfo(args.targetPath).absolutePath();
-    QTemporaryDir staging(QDir(parent).absoluteFilePath(
-        QStringLiteral("lightning-update-staging-")));
+    // Extract into a private staging directory INSIDE the portable tree.
+    //
+    // This used to live in the PARENT of the folder, together with the
+    // backup below, which broke the one promise portable mode makes: after a
+    // successful update a USB stick was left holding
+    //   USB:\Lightning\  and  USB:\lightning-previous-version\
+    // and the update required the PARENT to be writable, not just the folder.
+    //
+    // `data` is the single name swapDirectory PRESERVES, so a directory under
+    // it is not moved into the backup by step 2 and its path stays valid for
+    // the whole swap. It is also inside the target, so the promote is still a
+    // same-filesystem rename.
+    const QString workRoot = QDir(args.targetPath).absoluteFilePath(
+        QString::fromLatin1(lightning::portable::kDataDirName)
+        + QStringLiteral("/update-work"));
+    if (!QDir().mkpath(workRoot)) {
+        *archiveError = QStringLiteral("cannot create the update work directory");
+        updater::ReplaceResult failure;
+        failure.error = updater::ReplaceError::TargetNotWritable;
+        failure.message = *archiveError;
+        return failure;
+    }
+    // A previous-version directory left by the LAST update. On Windows step 4
+    // cannot delete it while the updater's own moved DLLs are mapped, so it is
+    // deliberately left behind — which means clearing it is this run's job.
+    // swapDirectory refuses to start when its backup path already exists, so
+    // without this the SECOND update always fails.
+    QDir stale(QDir(workRoot).absoluteFilePath(
+        QStringLiteral("previous-version")));
+    if (stale.exists())
+        stale.removeRecursively();
+
+    QTemporaryDir staging(QDir(workRoot).absoluteFilePath(
+        QStringLiteral("staging-")));
     staging.setAutoRemove(true);
     if (!staging.isValid()) {
         *archiveError = QStringLiteral("cannot create a staging directory");
@@ -144,8 +172,8 @@ updater::ReplaceResult runPortableSwap(const updater::UpdaterArguments &args,
         return failure;
     }
 
-    const QString backup = QDir(parent).absoluteFilePath(
-        QStringLiteral("lightning-previous-version"));
+    const QString backup = QDir(workRoot).absoluteFilePath(
+        QStringLiteral("previous-version"));
     // The portable data directory NEVER takes part in the swap. It holds the
     // user's settings, their sealed Matrix session, the Rust SDK store and the
     // E2EE crypto store, all of which live inside the installation precisely

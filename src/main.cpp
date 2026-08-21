@@ -751,6 +751,46 @@ int main(int argc, char *argv[])
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
                            lightning::portable::configDir());
+
+        // ── Qt's OWN caches ────────────────────────────────────────────────
+        //
+        // Lightning's cache abstraction was already redirected; Qt's was not,
+        // and Qt writes on its own initiative. The QML disk cache and the Qt
+        // Quick graphics/shader pipeline cache both default to
+        // QStandardPaths::CacheLocation, which on Windows is under
+        // %LOCALAPPDATA% — outside the folder, with nothing in this codebase
+        // pointing at it. Neither holds anything private, but "portable" here
+        // means Lightning writes nothing persistent outside its own tree, and
+        // these were two quiet exceptions.
+        //
+        // The QML cache is REDIRECTED (documented env var, keeps the startup
+        // win). The shader cache is DISABLED rather than redirected: its path
+        // is not settable by environment, only through a per-window
+        // QQuickGraphicsConfiguration, and a portable copy that silently keeps
+        // writing outside the folder because one window was constructed
+        // without that call is the failure mode this mode exists to prevent.
+        // The cost is recompiling pipelines on each launch — a first-frame
+        // cost, not a running one. Refusing beats leaking.
+        //
+        // Set before QGuiApplication, because Qt reads both at construction.
+        qputenv("QML_DISK_CACHE_PATH",
+                QDir::toNativeSeparators(
+                    lightning::portable::cacheDir()
+                    + QStringLiteral("/qmlcache")).toLocal8Bit());
+        QDir().mkpath(lightning::portable::cacheDir()
+                      + QStringLiteral("/qmlcache"));
+        qputenv("QT_DISABLE_SHADER_DISK_CACHE", "1");
+
+        // Scratch directories from a run that crashed before its
+        // QTemporaryDir destructor executed. Ours only, by name prefix, and
+        // never a symlink.
+        const int swept = lightning::portable::cleanStaleTempDirs();
+        if (swept > 0) {
+            QTextStream(stderr)
+                << "portable: removed " << swept
+                << " stale media scratch director"
+                << (swept == 1 ? "y" : "ies") << "\n";
+        }
     }
 
     // Interface zoom (Settings → Appearance, Ctrl+= / Ctrl+-): Qt reads

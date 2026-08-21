@@ -1,5 +1,8 @@
 #include "media/MediaBridge.h"
 
+#include "storage/PortableMode.h"
+
+
 #include "app/GuiStallTracer.h"
 
 #include "matrix/MatrixClient.h"
@@ -96,7 +99,8 @@ MediaBridge::MediaBridge(QObject *parent)
 {
     m_failureClock.start();
     m_animatedDir = std::make_unique<QTemporaryDir>(
-        QDir::tempPath() + QStringLiteral("/lightning-animated-XXXXXX"));
+        lightning::portable::mediaScratchRoot()
+        + QStringLiteral("/lightning-animated-XXXXXX"));
     // The watchdog reclaims concurrency slots pinned by ops the backend never
     // completes; without it a handful of orphaned fetches permanently stalls
     // the pipeline. A 5s cadence bounds the extra latency to reclaim a stuck
@@ -1757,7 +1761,8 @@ void MediaBridge::clear()
     m_playableNameSalt.clear(); // next session gets fresh unguessable names
     m_animatedDir.reset(); // recursively removes decrypted temporary files
     m_animatedDir = std::make_unique<QTemporaryDir>(
-        QDir::tempPath() + QStringLiteral("/lightning-animated-XXXXXX"));
+        lightning::portable::mediaScratchRoot()
+        + QStringLiteral("/lightning-animated-XXXXXX"));
 }
 
 void MediaBridge::onLoggedOut()
