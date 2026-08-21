@@ -510,7 +510,7 @@ Item {
             Layout.fillWidth: true
             text: root.attachmentNotice
             color: AppTheme.warning
-            font.pixelSize: 11
+            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
             wrapMode: Text.WordWrap
         }
 
@@ -649,7 +649,8 @@ Item {
                             Label {
                                 text: model.fileName
                                 color: AppTheme.textPrimary
-                                font.pixelSize: 11
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.weight: AppTheme.weightMedium
                                 elide: Label.ElideMiddle
                                 Layout.maximumWidth: 140
                             }
@@ -663,7 +664,7 @@ Item {
                                 }
                                 color: model.state === "failed" ? AppTheme.danger
                                                                 : AppTheme.textMuted
-                                font.pixelSize: 10
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 elide: Label.ElideRight
                                 Layout.maximumWidth: 140
                             }
@@ -671,7 +672,7 @@ Item {
                         IconButton {
                             visible: model.state === "failed"
                             implicitWidth: 20; implicitHeight: 20
-                            radius: 5
+                            radius: AppTheme.radiusSm
                             iconName: "refresh"
                             iconSize: 14
                             Accessible.name: qsTr("Retry sending %1").arg(model.fileName)
@@ -683,7 +684,7 @@ Item {
                         IconButton {
                             enabled: model.state !== "dispatching"
                             implicitWidth: 20; implicitHeight: 20
-                            radius: 5
+                            radius: AppTheme.radiusSm
                             iconName: "close"
                             iconSize: 13
                             Accessible.name: qsTr("Remove attachment %1").arg(model.fileName)
@@ -729,9 +730,21 @@ Item {
                 anchors.right: parent.right
                 spacing: 0
 
-                // Reply / Edit / Thread banner (top row when active; keeps
-                // the toolbar+input hierarchy intact below it).
-                RowLayout {
+                // Reply / Edit / Thread context strip.
+                //
+                // Element draws the message you are answering as the SAME
+                // quote its timeline draws — an accent rule, the target on
+                // its own line, one ellipsised line of body, clearly
+                // subordinate. This was ONE interpolated string ("Replying
+                // to X: Y") at a raw 11px in a single muted ink: sender and
+                // quote indistinguishable, no way back to the message, and
+                // the RAW body (see root.previewLine).
+                //
+                // The empty-Label ItemObservesViewport hazard documented in
+                // MessageDelegate.qml does not apply here: this strip is a
+                // sibling of the timeline, not a descendant, so a contentY
+                // change never walks it.
+                Item {
                     id: contextRow
                     objectName: "composerContextBanner"
                     visible: app.composer.isReplying || app.composer.isEditing
@@ -739,51 +752,160 @@ Item {
                     Layout.fillWidth: true
                     Layout.leftMargin: AppTheme.spacing12 + 2
                     Layout.rightMargin: AppTheme.spacing8
-                    Layout.topMargin: AppTheme.spacing4
-                    spacing: AppTheme.spacing6
-                    // 2026-08-18 tester report #2: replying to an image
-                    // shows its thumbnail while typing too — same bridge
-                    // key the timeline quote uses.
-                    Image {
-                        visible: app.composer.isReplying
-                                 && (app.composer.replyingToMediaKey || "")
-                                        .length > 0
-                                 && status !== Image.Error
-                                 && app.mediaBridge.supported
-                        Layout.preferredWidth: 22
-                        Layout.preferredHeight: 22
-                        Layout.alignment: Qt.AlignVCenter
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        sourceSize.width: 44
-                        source: visible
-                                ? app.mediaBridge.mediaSource(
-                                      app.composer.replyingToMediaKey,
-                                      "thumb")
-                                : ""
+                    Layout.topMargin: AppTheme.spacing8
+                    Layout.bottomMargin: AppTheme.spacing6
+                    implicitHeight: contextLayout.implicitHeight
+
+                    // Only a REPLY has somewhere to go back to; editing and
+                    // the thread banner describe a state, not a target
+                    // event, so neither is offered as a control.
+                    readonly property bool jumpable:
+                        app.composer.isReplying && !app.composer.isEditing
+                        && (app.composer.replyingToEventId || "").length > 0
+                    readonly property string titleText: {
+                        if (app.composer.isEditing)
+                            return qsTr("Editing message")
+                        if (app.composer.inThread)
+                            return qsTr("Replying in thread")
+                        return qsTr("Replying to %1")
+                                   .arg(app.composer.replyingToSender
+                                        || qsTr("someone"))
                     }
-                    Label {
-                        text: {
-                            if (app.composer.isEditing)
-                                return qsTr("Editing message")
-                            if (app.composer.inThread)
-                                return qsTr("Replying in thread: %1").arg(app.composer.threadPreview || "")
-                            return qsTr("Replying to %1: %2")
-                                        .arg(app.composer.replyingToSender || qsTr("someone"))
-                                        .arg(app.composer.replyingToPreview || "")
+                    readonly property string bodyText: {
+                        if (app.composer.isEditing)
+                            return ""
+                        if (app.composer.inThread)
+                            return root.previewLine(app.composer.threadPreview)
+                        return root.previewLine(app.composer.replyingToPreview)
+                    }
+                    function jumpToTarget() {
+                        if (contextRow.jumpable)
+                            app.pagination.jumpToEvent(
+                                app.composer.replyingToEventId)
+                    }
+
+                    activeFocusOnTab: visible && jumpable
+                    Accessible.role: jumpable ? Accessible.Button
+                                              : Accessible.StaticText
+                    Accessible.name: contextRow.bodyText.length > 0
+                                     ? contextRow.titleText + ": "
+                                       + contextRow.bodyText
+                                     : contextRow.titleText
+                    Accessible.onPressAction: contextRow.jumpToTarget()
+                    Keys.onReturnPressed: contextRow.jumpToTarget()
+                    Keys.onEnterPressed: contextRow.jumpToTarget()
+                    Keys.onSpacePressed: contextRow.jumpToTarget()
+
+                    // The whole strip is the target, as in the timeline —
+                    // and deliberately does NOT take focus: the caret stays
+                    // in the field the user is typing in.
+                    TapHandler {
+                        enabled: contextRow.jumpable
+                        onTapped: contextRow.jumpToTarget()
+                    }
+                    HoverHandler {
+                        id: contextHover
+                        enabled: contextRow.jumpable
+                        cursorShape: Qt.PointingHandCursor
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: -3
+                        radius: AppTheme.radiusSm
+                        color: "transparent"
+                        border.color: AppTheme.focusRing
+                        border.width: 2
+                        visible: contextRow.activeFocus
+                    }
+
+                    RowLayout {
+                        id: contextLayout
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        spacing: AppTheme.spacing8
+
+                        // The quote rule: the reply signifier the timeline
+                        // quote uses, so the two read as one component
+                        // rather than as two unrelated captions.
+                        Rectangle {
+                            Layout.fillHeight: true
+                            Layout.preferredWidth: 2
+                            radius: 1
+                            color: contextHover.hovered ? AppTheme.accentHover
+                                                        : AppTheme.accent
+                            Behavior on color { ColorAnimation { duration: 90 } }
                         }
-                        color: AppTheme.textMuted
-                        font.pixelSize: 11
-                        elide: Label.ElideRight
-                        Layout.fillWidth: true
-                    }
-                    IconButton {
-                        implicitWidth: 22; implicitHeight: 22
-                        radius: 5
-                        iconName: "close"
-                        iconSize: 14
-                        Accessible.name: qsTr("Cancel")
-                        onClicked: app.composer.cancelReplyOrEdit()
+
+                        // 2026-08-18 tester report #2: replying to an image
+                        // shows its thumbnail while typing too — same bridge
+                        // key the timeline quote uses. The rounded corner is
+                        // BAKED into the cached bitmap by MediaImageProvider
+                        // ("|shape:rsq:<permille of the edge>"), never a
+                        // per-item MultiEffect mask (Avatar.qml records the
+                        // per-frame cost of the mask approach).
+                        Image {
+                            visible: app.composer.isReplying
+                                     && (app.composer.replyingToMediaKey || "")
+                                            .length > 0
+                                     && status !== Image.Error
+                                     && app.mediaBridge.supported
+                            Layout.preferredWidth: 26
+                            Layout.preferredHeight: 26
+                            Layout.alignment: Qt.AlignVCenter
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            sourceSize.width: 52
+                            source: visible
+                                    ? app.mediaBridge.mediaSource(
+                                          app.composer.replyingToMediaKey,
+                                          "thumb") + "|shape:rsq:230"
+                                    : ""
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
+                            spacing: 0
+                            Label {
+                                objectName: "composerContextTitle"
+                                Layout.fillWidth: true
+                                text: contextRow.titleText
+                                textFormat: Text.PlainText
+                                color: AppTheme.textPrimary
+                                font.pixelSize:
+                                    AppTheme.scaled(AppTheme.textMeta)
+                                font.weight: AppTheme.weightStrong
+                                elide: Label.ElideRight
+                                maximumLineCount: 1
+                            }
+                            Label {
+                                objectName: "composerContextBody"
+                                Layout.fillWidth: true
+                                visible: contextRow.bodyText.length > 0
+                                text: contextRow.bodyText
+                                textFormat: Text.PlainText
+                                color: AppTheme.textSecondary
+                                font.pixelSize:
+                                    AppTheme.scaled(AppTheme.textMeta)
+                                elide: Label.ElideRight
+                                maximumLineCount: 1
+                            }
+                        }
+                        IconButton {
+                            Layout.alignment: Qt.AlignVCenter
+                            implicitWidth: 24; implicitHeight: 24
+                            radius: AppTheme.radiusControl
+                            iconName: "close"
+                            iconSize: 16
+                            Accessible.name: app.composer.isEditing
+                                             ? qsTr("Cancel editing")
+                                             : qsTr("Cancel reply")
+                            ToolTip.text: Accessible.name
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: app.composer.cancelReplyOrEdit()
+                        }
                     }
                 }
                 Rectangle {
@@ -822,7 +944,7 @@ Item {
                         IconButton {
                             objectName: "composerFormat_" + modelData.key
                             implicitWidth: 28; implicitHeight: 28
-                            radius: 6
+                            radius: AppTheme.radiusControl
                             iconName: modelData.icon
                             iconSize: 18
                             enabled: app.currentRoomId !== ""
@@ -854,7 +976,7 @@ Item {
                         IconButton {
                             objectName: "composerFormat_" + modelData.key
                             implicitWidth: 28; implicitHeight: 28
-                            radius: 6
+                            radius: AppTheme.radiusControl
                             iconName: modelData.icon
                             iconSize: 18
                             enabled: app.currentRoomId !== ""
@@ -896,9 +1018,9 @@ Item {
                         objectName: "composerAttachButton"
                         Layout.alignment: Qt.AlignVCenter
                         implicitWidth: 28; implicitHeight: 28
-                        radius: 6
+                        radius: AppTheme.radiusControl
                         iconName: "add_circle"
-                        iconSize: 22
+                        iconSize: 20
                         enabled: app.currentRoomId !== ""
                         Accessible.name: qsTr("Attach files or create a poll")
                         onClicked: {
@@ -932,7 +1054,7 @@ Item {
                         // width to the text field (see inputFlick).
                         visible: !root.compactInputRow
                         implicitWidth: 28; implicitHeight: 28
-                        radius: 6
+                        radius: AppTheme.radiusControl
                         iconName: "edit_square"
                         iconSize: 20
                         // Pure presentation toggle — usable regardless of the
@@ -976,7 +1098,7 @@ Item {
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         flickableDirection: Flickable.VerticalFlick
-                        ScrollBar.vertical: ScrollBar {}
+                        ScrollBar.vertical: AppScrollBar { thin: true }
 
                         TextArea.flickable: TextArea {
                         id: input
@@ -1111,9 +1233,9 @@ Item {
                         // keeps the action reachable rather than dropping it.
                         visible: !root.compactInputRow
                         implicitWidth: 28; implicitHeight: 28
-                        radius: 6
+                        radius: AppTheme.radiusControl
                         iconName: "mood"
-                        iconSize: 22
+                        iconSize: 20
                         enabled: app.currentRoomId !== ""
                         Accessible.name: qsTr("Insert emoji")
                         ToolTip.text: qsTr("Emoji")
@@ -1122,8 +1244,17 @@ Item {
                         onClicked: root.openEmojiPicker()
                     }
 
-                    // GIF keycap (design: mono 11/700, 1.5px border, radius 5
-                    // — a bordered text chip, not an icon).
+                    // GIF: a mono text glyph, treated as one of the row's
+                    // icon buttons.
+                    //
+                    // It used to be the only bordered chip among five
+                    // borderless glyph buttons — a permanent 1.5px outline
+                    // (which cannot land on a pixel boundary at DPR 1) around
+                    // a ~19px pill centred in a 28px button, at radius 5
+                    // where its neighbours use radiusControl, and the only
+                    // control in the row that did not react to being pressed.
+                    // It read as "selected", or as a different class of
+                    // control. Element uses a plain glyph here.
                     AbstractButton {
                         id: gifButton
                         objectName: "composerGifButton"
@@ -1149,33 +1280,43 @@ Item {
                                 anchors.centerIn: parent
                                 text: qsTr("GIF")
                                 font.family: AppTheme.monoFont
-                                font.pixelSize: 11
-                                font.weight: Font.Bold
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.weight: AppTheme.weightBold
                                 leftPadding: 4
                                 rightPadding: 4
-                                topPadding: 2
-                                bottomPadding: 2
-                                color: gifButton.enabled ? AppTheme.icon
-                                                         : AppTheme.textDisabled
+                                // Ink follows IconButton's themed rule, so
+                                // the glyph brightens with its neighbours
+                                // rather than sitting one step behind them.
+                                // The hover/down branch is the half that was
+                                // missing: the comment claimed it and the
+                                // binding did not, so the glyph stayed at
+                                // rest ink while every neighbouring icon
+                                // lifted.
+                                color: !gifButton.enabled
+                                       ? AppTheme.textDisabled
+                                       : (gifButton.down || gifButton.hovered)
+                                         ? AppTheme.textPrimary
+                                         : AppTheme.icon
                             }
                         }
-                        background: Item {
-                            Rectangle {
-                                objectName: "composerGifKeycap"
-                                anchors.centerIn: parent
-                                width: gifCap.implicitWidth
-                                height: gifCap.implicitHeight
-                                radius: 5
-                                color: gifButton.hovered ? AppTheme.hover
-                                                         : "transparent"
-                                border.color: AppTheme.borderStrong
-                                border.width: 1.5
-                            }
+                        background: Rectangle {
+                            objectName: "composerGifKeycap"
+                            anchors.fill: parent
+                            radius: AppTheme.radiusControl
+                            border.width: 0
+                            // The same three states IconButton draws (rest /
+                            // hover / down), so pressing it is visible.
+                            color: gifButton.enabled
+                                   && (gifButton.down || gifButton.hovered)
+                                   ? AppTheme.hover : "transparent"
                         }
+                        // INSET, matching IconButton. An outset ring here
+                        // overlapped the neighbouring glyph buttons' own
+                        // chrome in a 28px row with no spare gutter, so one
+                        // control's focus state drew on top of another's.
                         Rectangle {
                             anchors.fill: parent
-                            anchors.margins: -3
-                            radius: 8
+                            radius: AppTheme.radiusControl
                             color: "transparent"
                             border.color: AppTheme.focusRing
                             border.width: 2
@@ -1195,9 +1336,9 @@ Item {
                         objectName: "composerMicButton"
                         Layout.alignment: Qt.AlignVCenter
                         implicitWidth: 28; implicitHeight: 28
-                        radius: 6
+                        radius: AppTheme.radiusControl
                         iconName: "mic"
-                        iconSize: 22
+                        iconSize: 20
                         visible: !root.voiceActive
                         enabled: app.currentRoomId !== ""
                                  && app.composer.attachmentsSupported
@@ -1251,7 +1392,10 @@ Item {
                             Rectangle {
                                 id: voiceDot
                                 width: 8; height: 8; radius: 4
-                                color: AppTheme.danger
+                                // A solid dot is a FILL: `danger` became an
+                                // ink-only role on 2026-08-21 and resolves to
+                                // a light rose on the dark themes.
+                                color: AppTheme.dangerFill
                                 // Solid while finalizing; pulsing while
                                 // live (steady with reduced motion).
                                 property real t: 0
@@ -1277,8 +1421,8 @@ Item {
                                     return m + ":" + (s < 10 ? "0" : "") + s
                                 }
                                 color: AppTheme.text
-                                font.pixelSize: 12
-                                font.weight: Font.DemiBold
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.weight: AppTheme.weightStrong
                             }
                             // Pause / resume (2026-08-18 tester report).
                             // A paused recording keeps the microphone and
@@ -1377,10 +1521,10 @@ Item {
                         objectName: "composerSendButton"
                         Layout.alignment: Qt.AlignVCenter
                         implicitWidth: 34; implicitHeight: 34
-                        radius: 9
+                        radius: AppTheme.radiusTile
                         fill: true
                         iconName: app.composer.isEditing ? "check" : "send"
-                        iconSize: 19
+                        iconSize: 20
                         enabled: app.composer.canSend
                         Accessible.name: app.composer.isEditing
                                          ? qsTr("Save edit") : qsTr("Send message")
@@ -1396,6 +1540,32 @@ Item {
             }
             }
         }
+    }
+
+    // Presentation-only normalization for the reply / thread preview lines.
+    //
+    // The TIMELINE quote is normalized once in C++, at the ingest choke
+    // point (matrix::preview::normalizePreviewText), and the comment there
+    // records why: "a Lightning-sent mention contains the matrix.to markdown
+    // link verbatim". MessageComposer::beginReply stores
+    // `visibleTextForEvent(...).substring(0, 80)` instead, so this strip
+    // rendered raw "[Name](https://matrix.to/#/@x:y)" — the exact regression
+    // already fixed once for the timeline — and a multi-line target grew the
+    // banner until it shoved the composer card upwards.
+    //
+    // These are the same three rules as the C++ function (mention link ->
+    // its label, U+2028/U+2029 -> space, whitespace runs collapsed). The
+    // real fix is to route beginReply through that choke point so there is
+    // ONE implementation; until it is, the composer must not show markup.
+    function previewLine(text) {
+        if (!text)
+            return ""
+        return String(text)
+            .replace(/\[([^\]\n]{1,120})\]\(https:\/\/matrix\.to\/#\/[^)\s]{1,512}\)/g,
+                     "$1")
+            .replace(/[\u2028\u2029]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
     }
 
     // Room display name for the "Message #room" placeholder (rooms get the

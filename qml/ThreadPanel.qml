@@ -32,6 +32,46 @@ Rectangle {
         return room && room.name ? room.name : ""
     }
 
+    // Presentation-only normalization for the reply preview.
+    //
+    // ThreadController::beginReply stores `visibleTextForEvent(...).left(80)`
+    // verbatim, so this banner rendered the raw matrix.to markdown a mention
+    // leaves in the plain body, and folded nothing — the same defect the
+    // TIMELINE quote had before matrix::preview::normalizePreviewText became
+    // its choke point. Mirrors that function's three rules; identical to
+    // MessageComposerBar.previewLine, and both should disappear once
+    // beginReply routes through the C++ one.
+    function previewLine(text) {
+        if (!text)
+            return ""
+        return String(text)
+            .replace(/\[([^\]\n]{1,120})\]\(https:\/\/matrix\.to\/#\/[^)\s]{1,512}\)/g,
+                     "$1")
+            .replace(/[\u2028\u2029]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+    }
+
+    // List-row recency, kept byte-identical to RoomDelegate.activityLabel()
+    // and HomePane.activityLabel(). The thread list used a private
+    // "d MMM hh:mm", so the same moment read one way in the room list and
+    // another two panels away. (Three copies of this now exist because the
+    // three hosts are unrelated components with no shared JS module; that
+    // is a known duplication, not an accident — see the report.)
+    function activityLabel(when) {
+        if (!when || isNaN(when.getTime()) || when.getTime() <= 0)
+            return ""
+        var now = new Date()
+        var days = Math.floor((now - when) / 86400000)
+        if (when.toDateString() === now.toDateString())
+            return Qt.formatTime(when, Qt.locale().timeFormat(Locale.ShortFormat))
+        if (days < 2) return qsTr("Yesterday")
+        if (days < 7) return Qt.formatDate(when, "ddd")
+        if (when.getFullYear() === now.getFullYear())
+            return Qt.formatDate(when, "d MMM")
+        return Qt.formatDate(when, "MMM yyyy")
+    }
+
     // v0.6.0 checkpoint 5: per-thread scroll restoration (session-local).
     // Positions are keyed by the composite thread timeline id and saved when
     // scrolling settles; reopening the same thread restores the position
@@ -123,10 +163,10 @@ Rectangle {
                 IconButton {
                     objectName: "threadBackToListButton"
                     visible: app.thread.active && app.thread.listOpen
-                    implicitWidth: 28; implicitHeight: 28
-                    radius: 6
+                    implicitWidth: 30; implicitHeight: 30
+                    radius: AppTheme.radiusControl
                     iconName: "arrow_back"
-                    iconSize: 16
+                    iconSize: 18
                     Accessible.name: qsTr("Back to threads")
                     onClicked: app.thread.close()
                 }
@@ -137,59 +177,45 @@ Rectangle {
                 }
                 Label {
                     text: app.thread.active ? qsTr("Thread") : qsTr("Threads")
-                    color: AppTheme.text
-                    font.pixelSize: 15
-                    font.weight: Font.ExtraBold
+                    color: AppTheme.textPrimary
+                    // The pane-header role from the type scale, not a
+                    // fifteenth hand-picked size.
+                    font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
+                    font.weight: AppTheme.weightBold
                 }
                 Label {
                     Layout.fillWidth: true
                     text: panel.panelRoomName
                     color: AppTheme.textMuted
-                    font.pixelSize: 12
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     elide: Label.ElideRight
                 }
                 // v0.6.0 checkpoint 5: MSC4306 follow state. Hidden until the
                 // homeserver confirms support — never a pretend toggle.
-                AbstractButton {
+                AppButton {
                     id: followButton
                     objectName: "threadFollowButton"
                     visible: app.thread.active && app.thread.followSupported
                     enabled: !app.thread.followBusy
-                    hoverEnabled: true
-                    focusPolicy: Qt.TabFocus
-                    implicitWidth: followLabel.implicitWidth + 12
-                    implicitHeight: 24
-                    Accessible.role: Accessible.Button
-                    Accessible.name: followLabel.text
+                    size: "sm"
+                    // A width floor makes sense in a dialog footer; in a
+                    // 340px panel header it would eat the room name.
+                    minWidth: 0
+                    text: app.thread.followed ? qsTr("Unfollow")
+                                              : qsTr("Follow")
                     ToolTip.text: app.thread.followed
                                   ? qsTr("Stop following this thread")
                                   : qsTr("Follow this thread")
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
                     onClicked: app.thread.setFollowed(!app.thread.followed)
-                    contentItem: Label {
-                        id: followLabel
-                        text: app.thread.followed ? qsTr("Unfollow")
-                                                  : qsTr("Follow")
-                        color: followButton.enabled ? AppTheme.accent
-                                                    : AppTheme.textDisabled
-                        font.pixelSize: 11
-                        font.weight: Font.Bold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        radius: 6
-                        color: followButton.hovered ? AppTheme.hover
-                                                    : "transparent"
-                    }
                 }
                 IconButton {
                     objectName: "threadCloseButton"
                     implicitWidth: 30; implicitHeight: 30
-                    radius: 7
+                    radius: AppTheme.radiusControl
                     iconName: "close"
-                    iconSize: 20
+                    iconSize: 18
                     Accessible.name: qsTr("Close thread")
                     ToolTip.text: qsTr("Close thread")
                     ToolTip.visible: hovered
@@ -210,25 +236,53 @@ Rectangle {
                 anchors.centerIn: parent
                 spacing: AppTheme.spacingS
                 visible: app.thread.listLoading && threadListView.count === 0
-                BusyIndicator {
-                    width: 22; height: 22
+                AppBusyIndicator {
+                    size: 22
                     running: visible
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
                 Label {
                     text: qsTr("Loading threads…")
                     color: AppTheme.textMuted
-                    font.pixelSize: 11
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 }
             }
-            Label {
+            // Every empty state in the app was a single muted sentence with
+            // no icon and no explanation of what would fill it.
+            ColumnLayout {
                 anchors.centerIn: parent
+                width: Math.min(parent.width - AppTheme.spacing24 * 2, 260)
                 visible: !app.thread.listLoading && threadListView.count === 0
-                text: app.thread.listFailed
-                      ? qsTr("Threads could not be loaded.")
-                      : qsTr("No threads in this room yet.")
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                spacing: AppTheme.spacing8
+                Icon {
+                    Layout.alignment: Qt.AlignHCenter
+                    name: app.thread.listFailed ? "error" : "forum"
+                    size: 28
+                    color: AppTheme.textDisabled
+                }
+                Label {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: app.thread.listFailed
+                          ? qsTr("Threads could not be loaded.")
+                          : qsTr("No threads in this room yet.")
+                    color: AppTheme.textSecondary
+                    font.pixelSize: AppTheme.scaled(AppTheme.textSubtitle)
+                    font.weight: AppTheme.weightStrong
+                    wrapMode: Text.Wrap
+                }
+                Label {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    visible: !app.thread.listFailed
+                    text: qsTr("Reply in a thread from a message's menu to "
+                               + "start one.")
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    wrapMode: Text.Wrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
+                }
             }
 
             ListView {
@@ -238,89 +292,161 @@ Rectangle {
                 clip: true
                 model: app.thread.threadList
                 spacing: 1
-                delegate: Rectangle {
+                // Thread rows are the same TILE as a room row, deliberately.
+                //
+                // They used to be avatar-less and set on a private 9/10/11px
+                // scale, so opening the Threads view dropped the reader into
+                // a denser, flatter list that looked like a different
+                // application — and the hover chip spanned the full panel
+                // width, so its radius was clipped flat at both edges. Element
+                // uses one tile language for its room and thread lists.
+                delegate: Item {
+                    id: threadRow
                     width: threadListView.width
-                    color: rowHover.hovered ? AppTheme.hover : "transparent"
-                    radius: AppTheme.radiusMd
-                    implicitHeight: listEntry.implicitHeight
-                                    + AppTheme.spacingS * 2
-                    HoverHandler { id: rowHover }
-                    TapHandler {
-                        onTapped: app.thread.openThread(
-                            app.currentRoomId, modelData.rootEventId || "")
+                    height: listEntry.implicitHeight + AppTheme.spacing10 * 2
+
+                    readonly property string rowSender:
+                        modelData.rootSenderName || ""
+                    // The thread-list entry carries the root sender's MXID
+                    // (RustSdkMatrixClient's "rootSender"), so the name can
+                    // take the SAME identity ink as the timeline and the
+                    // avatar the same stable fallback colour. Never hash the
+                    // display name: it would disagree with every other
+                    // surface showing this person.
+                    readonly property string rowSenderId:
+                        modelData.rootSender || ""
+                    readonly property bool rowUnread: modelData.unread === true
+
+                    function open() {
+                        app.thread.openThread(app.currentRoomId,
+                                              modelData.rootEventId || "")
                     }
-                    ColumnLayout {
+
+                    // The row was tap-only: reachable with a mouse, invisible
+                    // to the keyboard despite being the list's only action.
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: {
+                        var parts = [threadRow.rowSender,
+                                     modelData.rootPreview || "",
+                                     qsTr("%n reply(s)", "",
+                                          modelData.replyCount || 0)]
+                        if (threadRow.rowUnread)
+                            parts.push(qsTr("Unread"))
+                        return parts.filter(function(x) { return x.length > 0 })
+                                    .join(", ")
+                    }
+                    Accessible.onPressAction: threadRow.open()
+                    Keys.onReturnPressed: threadRow.open()
+                    Keys.onEnterPressed: threadRow.open()
+                    Keys.onSpacePressed: threadRow.open()
+
+                    Rectangle {
+                        anchors.fill: parent
+                        // The 4px gutter the room list leaves for exactly the
+                        // same reason: a full-bleed chip has no visible
+                        // corners.
+                        anchors.leftMargin: AppTheme.spacing4
+                        anchors.rightMargin: AppTheme.spacing4
+                        radius: AppTheme.radiusMd
+                        color: rowHover.hovered ? AppTheme.hover : "transparent"
+                        border.width: threadRow.activeFocus ? 2 : 0
+                        border.color: AppTheme.focusRing
+                        HoverHandler { id: rowHover }
+                        TapHandler { onTapped: threadRow.open() }
+                    }
+
+                    RowLayout {
                         id: listEntry
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: AppTheme.spacingM
-                        anchors.rightMargin: AppTheme.spacingM
-                        spacing: 2
-                        RowLayout {
-                            spacing: AppTheme.spacingS
-                            Rectangle {
-                                visible: modelData.unread === true
-                                width: 7; height: 7; radius: 3.5
-                                color: AppTheme.accent
+                        anchors.leftMargin: AppTheme.spacing12
+                        anchors.rightMargin: AppTheme.spacing12
+                        spacing: AppTheme.spacing10
+
+                        Avatar {
+                            Layout.alignment: Qt.AlignTop
+                            size: 30
+                            name: threadRow.rowSender
+                            colorKey: threadRow.rowSenderId
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacing6
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: threadRow.rowSender
+                                    color: AppTheme.userColor(
+                                        threadRow.rowSenderId)
+                                    font.pixelSize:
+                                        AppTheme.scaled(AppTheme.textBody)
+                                    font.weight: AppTheme.weightStrong
+                                    elide: Label.ElideRight
+                                }
+                                Label {
+                                    text: panel.activityLabel(
+                                        modelData.latestTimestamp)
+                                    color: AppTheme.textMuted
+                                    font.pixelSize:
+                                        AppTheme.scaled(AppTheme.textMeta)
+                                }
+                                Rectangle {
+                                    visible: threadRow.rowUnread
+                                    Layout.preferredWidth: 8
+                                    Layout.preferredHeight: 8
+                                    Layout.alignment: Qt.AlignVCenter
+                                    radius: 4
+                                    color: AppTheme.unreadBadge
+                                }
                             }
                             Label {
-                                text: modelData.rootSenderName || ""
-                                color: AppTheme.text
-                                font.pixelSize: 11
-                                font.weight: Font.DemiBold
+                                Layout.fillWidth: true
+                                text: modelData.rootPreview || ""
+                                color: threadRow.rowUnread
+                                       ? AppTheme.textPrimary
+                                       : AppTheme.textSecondary
+                                font.pixelSize:
+                                    AppTheme.scaled(AppTheme.textMeta)
+                                elide: Label.ElideRight
+                                maximumLineCount: 1
                             }
-                            Item { Layout.fillWidth: true }
                             Label {
-                                text: modelData.latestTimestamp
-                                      ? Qt.formatDateTime(
-                                            modelData.latestTimestamp,
-                                            "d MMM hh:mm")
-                                      : ""
+                                Layout.fillWidth: true
+                                text: qsTr("%n reply(s)", "",
+                                           modelData.replyCount || 0)
+                                      + ((modelData.latestPreview || "").length > 0
+                                         ? " · " + (modelData.latestSenderName || "")
+                                           + ": " + modelData.latestPreview
+                                         : "")
                                 color: AppTheme.textMuted
-                                font.pixelSize: 9
+                                font.pixelSize:
+                                    AppTheme.scaled(AppTheme.textMeta)
+                                elide: Label.ElideRight
+                                maximumLineCount: 1
                             }
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: modelData.rootPreview || ""
-                            color: AppTheme.text
-                            font.pixelSize: 11
-                            elide: Label.ElideRight
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: qsTr("%n reply(s)", "",
-                                       modelData.replyCount || 0)
-                                  + ((modelData.latestPreview || "").length > 0
-                                     ? " · " + (modelData.latestSenderName || "")
-                                       + ": " + modelData.latestPreview
-                                     : "")
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
-                            elide: Label.ElideRight
                         }
                     }
                 }
                 footer: Item {
                     width: threadListView.width
-                    height: !app.thread.listEndReached ? 30 : 0
-                    Label {
+                    height: !app.thread.listEndReached
+                            ? AppTheme.buttonHeightSm + AppTheme.spacing12 : 0
+                    AppButton {
                         anchors.centerIn: parent
                         visible: !app.thread.listEndReached
+                        enabled: !app.thread.listLoading
+                        kind: "ghost"
+                        size: "sm"
                         text: app.thread.listLoading
                               ? qsTr("Loading…") : qsTr("Load more threads")
-                        color: AppTheme.accent
-                        font.pixelSize: 10
-                        font.underline: !app.thread.listLoading
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: app.thread.paginateList()
-                        }
+                        onClicked: app.thread.paginateList()
                     }
                 }
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             }
         }
 
@@ -336,7 +462,7 @@ Rectangle {
             implicitHeight: Math.min(rootColumn.implicitHeight
                                      + AppTheme.spacing12 * 2, 190)
             clip: true
-            radius: 10
+            radius: AppTheme.radiusLg
             // Reply navigation to the thread ROOT pulses this card: the root
             // has no row of its own in the list below (replyList suppresses
             // it), so this card IS the target. A reply preview pointing here
@@ -345,10 +471,13 @@ Rectangle {
                 app.thread.navigationHighlightEventId !== ""
                 && app.thread.navigationHighlightEventId
                    === (panel.rootData.eventId || "")
+            // Colour, not width: the card's content is anchored inside its
+            // own edges, so animating the BORDER WIDTH nudged every line in
+            // the card by 1px each time a reply-jump landed on the root.
             border.color: navigationHighlighted ? AppTheme.accent
                                                 : AppTheme.border
-            border.width: navigationHighlighted ? 2 : 1
-            Behavior on border.width { NumberAnimation { duration: 120 } }
+            border.width: 1
+            Behavior on border.color { ColorAnimation { duration: 120 } }
             color: AppTheme.surface
             ColumnLayout {
                 id: rootColumn
@@ -370,8 +499,8 @@ Rectangle {
                         text: panel.rootData.senderDisplayName || ""
                         // Same per-user identity ink as the timeline rows.
                         color: AppTheme.userColor(panel.rootData.sender || "")
-                        font.pixelSize: AppTheme.scaled(13)
-                        font.weight: Font.ExtraBold
+                        font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                        font.weight: AppTheme.weightBold
                     }
                     Label {
                         text: panel.rootData.timestamp
@@ -379,7 +508,7 @@ Rectangle {
                                                   "d MMM hh:mm")
                               : ""
                         color: AppTheme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     }
                     Icon {
                         visible: panel.rootData.isEncrypted === true
@@ -389,18 +518,19 @@ Rectangle {
                     }
                     Item { Layout.fillWidth: true }
                     // Root context action: locate the root in the room
-                    // timeline (highlighted), without leaving the room.
-                    Label {
+                    // timeline (highlighted), without leaving the room. A
+                    // 10px underlined label over a bare MouseArea was a link
+                    // pretending to be a button — no pressed state, no focus
+                    // ring, and a hit area exactly the size of the text.
+                    AppButton {
+                        objectName: "threadOpenInRoomButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        kind: "ghost"
+                        size: "sm"
+                        minWidth: 0
                         text: qsTr("Open in room")
-                        color: AppTheme.accent
-                        font.pixelSize: 10
-                        font.underline: true
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: app.pagination.jumpToEvent(
-                                panel.rootData.eventId || "")
-                        }
+                        onClicked: app.pagination.jumpToEvent(
+                            panel.rootData.eventId || "")
                     }
                 }
                 Label {
@@ -416,8 +546,9 @@ Rectangle {
                     color: (panel.rootData.redacted === true
                             || panel.rootData.undecryptable === true)
                            ? AppTheme.textMuted : AppTheme.text
-                    font.pixelSize: AppTheme.scaled(13)
-                    lineHeight: 1.4
+                    font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                     wrapMode: Text.Wrap
                     maximumLineCount: 6
                     elide: Text.ElideRight
@@ -426,7 +557,7 @@ Rectangle {
                     visible: panel.rootData.loaded !== true
                     text: qsTr("The original message is unavailable.")
                     color: AppTheme.textMuted
-                    font.pixelSize: AppTheme.scaled(12)
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     font.italic: true
                 }
             }
@@ -454,8 +585,8 @@ Rectangle {
                 text: replies === 1 ? qsTr("1 reply")
                                     : qsTr("%1 replies").arg(replies)
                 color: AppTheme.textMuted
-                font.pixelSize: 11
-                font.weight: Font.Bold
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                font.weight: AppTheme.weightStrong
             }
             Rectangle {
                 Layout.fillWidth: true
@@ -474,15 +605,15 @@ Rectangle {
                 anchors.centerIn: parent
                 spacing: AppTheme.spacingS
                 visible: app.thread.state === ThreadController.Opening
-                BusyIndicator {
-                    width: 22; height: 22
+                AppBusyIndicator {
+                    size: 22
                     running: visible
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
                 Label {
                     text: qsTr("Loading thread…")
                     color: AppTheme.textMuted
-                    font.pixelSize: 11
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 }
             }
 
@@ -498,22 +629,24 @@ Rectangle {
                     text: app.thread.failureCategory === "unknown_root"
                           ? qsTr("This thread's first message is no longer available.")
                           : qsTr("The thread could not be loaded.")
-                    color: AppTheme.textMuted
-                    font.pixelSize: 12
+                    color: AppTheme.textSecondary
+                    font.pixelSize: AppTheme.scaled(AppTheme.textSubtitle)
+                    font.weight: AppTheme.weightStrong
                     wrapMode: Text.Wrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                 }
-                Label {
+                // Recovery from a failed thread load is a real action, so it
+                // gets a real button — not an underlined label over a bare
+                // MouseArea with no pressed state and no focus ring.
+                AppButton {
+                    objectName: "threadRetryButton"
                     anchors.horizontalCenter: parent.horizontalCenter
+                    size: "sm"
+                    minWidth: 0
                     text: qsTr("Retry")
-                    color: AppTheme.accent
-                    font.pixelSize: 12
-                    font.underline: true
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: app.thread.openThread(app.thread.roomId,
-                                                         app.thread.rootEventId)
-                    }
+                    onClicked: app.thread.openThread(app.thread.roomId,
+                                                     app.thread.rootEventId)
                 }
             }
 
@@ -524,7 +657,7 @@ Rectangle {
                          && replyList.count <= 1
                 text: qsTr("No replies yet. Start the conversation below.")
                 color: AppTheme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
             }
 
             ListView {
@@ -845,8 +978,8 @@ Rectangle {
                         anchors.centerIn: parent
                         spacing: 6
                         visible: app.thread.model.paginating
-                        BusyIndicator {
-                            width: 14; height: 14
+                        AppBusyIndicator {
+                            size: 14
                             running: visible
                             anchors.verticalCenter: parent.verticalCenter
                         }
@@ -854,12 +987,12 @@ Rectangle {
                             anchors.verticalCenter: parent.verticalCenter
                             text: qsTr("Loading older replies…")
                             color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         }
                     }
                 }
 
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             }
 
             // Honest failure notice for reply navigation — the SAME sentence
@@ -877,7 +1010,7 @@ Rectangle {
                                 parent.width - AppTheme.spacing12 * 2)
                 text: app.thread.navigationMessage
                 color: AppTheme.textMuted
-                font.pixelSize: 11
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
                 topPadding: AppTheme.spacingS
@@ -896,30 +1029,116 @@ Rectangle {
 
         // Reply-within-thread banner (checkpoint 4): shows the active reply
         // target; ✕ or Escape cancels it without closing the panel.
-        RowLayout {
+        //
+        // This was the FOURTH rendition of "the message you are replying to"
+        // and the most degraded: one interpolated string at a raw 10px —
+        // below the app's smallest type token and unscaled, so ~9px at the
+        // 90% text setting — with no rule, no thumbnail, no divider and no
+        // name/body distinction. It is now built exactly like the room
+        // composer's strip, because it is the same thing.
+        Item {
+            id: threadReplyBanner
             objectName: "threadReplyBanner"
             visible: app.thread.inReply
             Layout.fillWidth: true
             Layout.leftMargin: AppTheme.spacing12 + 4
             Layout.rightMargin: AppTheme.spacing12
-            spacing: AppTheme.spacingS
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("Replying to %1: %2")
-                      .arg(app.thread.replyToSender)
-                      .arg(app.thread.replyToPreview)
-                color: AppTheme.textMuted
-                font.pixelSize: 10
-                elide: Label.ElideRight
+            Layout.topMargin: AppTheme.spacing4
+            implicitHeight: threadReplyLayout.implicitHeight
+
+            readonly property bool jumpable:
+                (app.thread.replyToEventId || "").length > 0
+            readonly property string bodyText:
+                panel.previewLine(app.thread.replyToPreview)
+            function jumpToTarget() {
+                if (threadReplyBanner.jumpable)
+                    app.thread.navigateToEvent(app.thread.replyToEventId)
             }
-            IconButton {
-                objectName: "threadReplyCancelButton"
-                implicitWidth: 20; implicitHeight: 20
-                radius: 5
-                iconName: "close"
-                iconSize: 13
-                Accessible.name: qsTr("Cancel reply")
-                onClicked: app.thread.cancelReply()
+
+            activeFocusOnTab: visible && jumpable
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("Replying to %1").arg(
+                                 app.thread.replyToSender)
+                             + (bodyText.length > 0 ? ": " + bodyText : "")
+            Accessible.onPressAction: threadReplyBanner.jumpToTarget()
+            Keys.onReturnPressed: threadReplyBanner.jumpToTarget()
+            Keys.onEnterPressed: threadReplyBanner.jumpToTarget()
+            Keys.onSpacePressed: threadReplyBanner.jumpToTarget()
+
+            TapHandler {
+                enabled: threadReplyBanner.jumpable
+                onTapped: threadReplyBanner.jumpToTarget()
+            }
+            HoverHandler {
+                id: threadReplyHover
+                enabled: threadReplyBanner.jumpable
+                cursorShape: Qt.PointingHandCursor
+            }
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: -3
+                radius: AppTheme.radiusSm
+                color: "transparent"
+                border.color: AppTheme.focusRing
+                border.width: 2
+                visible: threadReplyBanner.activeFocus
+            }
+
+            RowLayout {
+                id: threadReplyLayout
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                spacing: AppTheme.spacing8
+
+                Rectangle {
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 2
+                    radius: 1
+                    color: threadReplyHover.hovered ? AppTheme.accentHover
+                                                    : AppTheme.accent
+                    Behavior on color { ColorAnimation { duration: 90 } }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: 0
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Replying to %1")
+                                  .arg(app.thread.replyToSender
+                                       || qsTr("someone"))
+                        textFormat: Text.PlainText
+                        color: AppTheme.textPrimary
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        font.weight: AppTheme.weightStrong
+                        elide: Label.ElideRight
+                        maximumLineCount: 1
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: threadReplyBanner.bodyText.length > 0
+                        text: threadReplyBanner.bodyText
+                        textFormat: Text.PlainText
+                        color: AppTheme.textSecondary
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        elide: Label.ElideRight
+                        maximumLineCount: 1
+                    }
+                }
+                IconButton {
+                    objectName: "threadReplyCancelButton"
+                    Layout.alignment: Qt.AlignVCenter
+                    implicitWidth: 24; implicitHeight: 24
+                    radius: AppTheme.radiusControl
+                    iconName: "close"
+                    iconSize: 16
+                    Accessible.name: qsTr("Cancel reply")
+                    ToolTip.text: Accessible.name
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: app.thread.cancelReply()
+                }
             }
         }
 
@@ -973,7 +1192,7 @@ Rectangle {
                     Layout.fillWidth: true
                     text: panel.attachmentNotice
                     color: AppTheme.warning
-                    font.pixelSize: 11
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     wrapMode: Text.WordWrap
                 }
 
@@ -1008,7 +1227,9 @@ Rectangle {
                                     Label {
                                         text: model.fileName
                                         color: AppTheme.text
-                                        font.pixelSize: 11
+                                        font.pixelSize:
+                                            AppTheme.scaled(AppTheme.textMeta)
+                                        font.weight: AppTheme.weightMedium
                                         elide: Label.ElideMiddle
                                         Layout.maximumWidth: 120
                                     }
@@ -1021,7 +1242,8 @@ Rectangle {
                                         color: model.state === "failed"
                                                ? AppTheme.danger
                                                : AppTheme.textMuted
-                                        font.pixelSize: 10
+                                        font.pixelSize:
+                                            AppTheme.scaled(AppTheme.textMeta)
                                         elide: Label.ElideRight
                                         Layout.maximumWidth: 120
                                     }
@@ -1029,7 +1251,7 @@ Rectangle {
                                 IconButton {
                                     visible: model.state === "failed"
                                     implicitWidth: 20; implicitHeight: 20
-                                    radius: 5
+                                    radius: AppTheme.radiusSm
                                     iconName: "refresh"
                                     iconSize: 14
                                     Accessible.name:
@@ -1042,7 +1264,7 @@ Rectangle {
                                 IconButton {
                                     enabled: model.state !== "dispatching"
                                     implicitWidth: 20; implicitHeight: 20
-                                    radius: 5
+                                    radius: AppTheme.radiusSm
                                     iconName: "close"
                                     iconSize: 13
                                     Accessible.name:
@@ -1060,7 +1282,7 @@ Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: composerRow.implicitHeight
                                     + AppTheme.spacing8 * 2
-                    radius: 10
+                    radius: AppTheme.radiusLg
                     color: AppTheme.surface
                     border.color: AppTheme.border
                     border.width: 1
@@ -1077,7 +1299,7 @@ Rectangle {
                         IconButton {
                             objectName: "threadAttachButton"
                             implicitWidth: 24; implicitHeight: 24
-                            radius: 6
+                            radius: AppTheme.radiusControl
                             iconName: "add_circle"
                             iconSize: 18
                             enabled: app.thread.attachmentsSupported
@@ -1100,7 +1322,7 @@ Rectangle {
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
                             flickableDirection: Flickable.VerticalFlick
-                            ScrollBar.vertical: ScrollBar {}
+                            ScrollBar.vertical: AppScrollBar { thin: true }
 
                             TextArea.flickable: TextArea {
                             id: threadComposerInput
@@ -1197,9 +1419,9 @@ Rectangle {
                             id: threadEmojiButton
                             objectName: "threadEmojiButton"
                             implicitWidth: 24; implicitHeight: 24
-                            radius: 6
+                            radius: AppTheme.radiusControl
                             iconName: "mood"
-                            iconSize: 20
+                            iconSize: 18
                             enabled: app.thread.state === ThreadController.Ready
                             Accessible.name: qsTr("Insert emoji")
                             onClicked: {
@@ -1215,8 +1437,11 @@ Rectangle {
                                 threadEmojiPicker.open()
                             }
                         }
-                        // GIF keycap (kept: thread GIF sending is a real
-                        // feature; mono text chip per the design language).
+                        // GIF: a mono text glyph treated as one of the
+                        // row's icon buttons — see the matching note in
+                        // MessageComposerBar.qml. This copy additionally had
+                        // NO focus ring at all, so it was a Tab stop with no
+                        // visible focus.
                         AbstractButton {
                             id: threadGifButton
                             objectName: "threadGifButton"
@@ -1240,28 +1465,34 @@ Rectangle {
                                     anchors.centerIn: parent
                                     text: qsTr("GIF")
                                     font.family: AppTheme.monoFont
-                                    font.pixelSize: 10
-                                    font.weight: Font.Bold
+                                    font.pixelSize:
+                                        AppTheme.scaled(AppTheme.textMicro)
+                                    font.weight: AppTheme.weightBold
                                     leftPadding: 4
                                     rightPadding: 4
-                                    topPadding: 2
-                                    bottomPadding: 2
                                     color: threadGifButton.enabled
                                            ? AppTheme.icon
                                            : AppTheme.textDisabled
                                 }
                             }
-                            background: Item {
-                                Rectangle {
-                                    anchors.centerIn: parent
-                                    width: threadGifCap.implicitWidth
-                                    height: threadGifCap.implicitHeight
-                                    radius: 5
-                                    color: threadGifButton.hovered
-                                           ? AppTheme.hover : "transparent"
-                                    border.color: AppTheme.borderStrong
-                                    border.width: 1.5
-                                }
+                            background: Rectangle {
+                                objectName: "threadGifKeycap"
+                                anchors.fill: parent
+                                radius: AppTheme.radiusControl
+                                border.width: 0
+                                color: threadGifButton.enabled
+                                       && (threadGifButton.down
+                                           || threadGifButton.hovered)
+                                       ? AppTheme.hover : "transparent"
+                            }
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: -4
+                                radius: AppTheme.radiusControl + 4
+                                color: "transparent"
+                                border.color: AppTheme.focusRing
+                                border.width: 2
+                                visible: threadGifButton.visualFocus
                             }
                             onClicked: {
                                 threadEmojiPicker.close()
@@ -1276,7 +1507,7 @@ Rectangle {
                         IconButton {
                             objectName: "threadMicButton"
                             implicitWidth: 24; implicitHeight: 24
-                            radius: 6
+                            radius: AppTheme.radiusControl
                             iconName: "mic"
                             iconSize: 18
                             visible: !panel.voiceActive
@@ -1321,7 +1552,9 @@ Rectangle {
                                 Rectangle {
                                     id: threadVoiceDot
                                     width: 7; height: 7; radius: 3.5
-                                    color: AppTheme.danger
+                                    // A solid dot is a FILL — `danger` is an
+                                    // ink-only role since 2026-08-21.
+                                    color: AppTheme.dangerFill
                                     property real t: 0
                                     opacity: (threadVoicePill.rec
                                               && threadVoicePill.rec.processing)
@@ -1345,8 +1578,9 @@ Rectangle {
                                         return m + ":" + (s < 10 ? "0" : "") + s
                                     }
                                     color: AppTheme.text
-                                    font.pixelSize: 11
-                                    font.weight: Font.DemiBold
+                                    font.pixelSize:
+                                        AppTheme.scaled(AppTheme.textMeta)
+                                    font.weight: AppTheme.weightStrong
                                 }
                                 // Pause / resume and Done — the same three
                                 // controls the room composer gained in the
@@ -1440,11 +1674,12 @@ Rectangle {
                             onDiscardRequested: panel.discardPendingVoice()
                         }
 
-                        // Accent-fill thread send: 28×28, radius 7, 16px icon.
+                        // Accent-fill thread send: 28×28 on the control
+                        // radius, 16px icon.
                         IconButton {
                             objectName: "threadSendButton"
                             implicitWidth: 28; implicitHeight: 28
-                            radius: 7
+                            radius: AppTheme.radiusControl
                             fill: true
                             iconName: "send"
                             iconSize: 16
@@ -1707,6 +1942,14 @@ Rectangle {
         }
         onClosed: {
             replyList.emojiPickerOpen = false
+            // Release the tone level FIRST: when the picker closes while the
+            // tone popup is up the owner is "tone", and
+            // releaseTransientInteraction early-returns unless the owner
+            // matches — so releasing only "picker" left the owner latched at
+            // "tone" and no thread row could show its action bar until the
+            // room changed. Identical to TimelinePane's wiring, which is the
+            // contract both copies implement.
+            replyList.releaseTransientInteraction("tone", "")
             replyList.releaseTransientInteraction("picker", "")
             targetEventId = ""
         }

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
@@ -16,8 +17,16 @@ import MatrixClient
 // the ONE shared per-emoji tone popup below is the real mechanism.
 //
 // Storm skin (SPEC-storm-language §4/2e): stormPanel chrome, storm search
-// field, bolt-underlined active category, stormSelection hover cells, bolt
-// mono footer preview. Colors/fonts only — structure and behavior unchanged.
+// field, bolt-underlined active category, stormSelection hover cells.
+//
+// 2026-08-21 design pass: the footer's emoji NAME left the bolt/mono ":zap:"
+// treatment for the UI face (there is no shortcode to render, so that slot was
+// carrying a plain label in code type), the at-rest hint became MenuKeycap
+// chips so both composer pickers speak one keyboard language, the cell
+// highlight is square at any picker width, and the panel gained the sanctioned
+// popover shadow. The press sink in `background` is the real fix for the
+// reported "emoji clicking still doesnt work right" — read it before touching
+// the popup flags.
 // v0.6.7: the root is AnchoredPopup, not a bare Popup — anchorPoint and
 // placeInsideWindow() moved there, and the popup now re-anchors on a window
 // resize instead of being placed once and left behind. Callers that open it
@@ -81,16 +90,12 @@ AnchoredPopup {
     minHeight: 320
     sizeSettingsKey: "picker"
     padding: 0
-    // MODAL, deliberately (2026-08-18 tester report #2, screenshot-proven):
-    // as the reaction picker this popup floats directly over the message
-    // row that opened it, and a non-modal popup lets a right-click on an
-    // emoji tile ALSO reach the row's own context-menu TapHandler
-    // underneath — the skin-tone popup and the message menu opened
-    // together. Qt Quick TapHandlers are non-exclusive across unrelated
-    // subtrees, so the only robust barrier is popup modality. dim: false
-    // keeps the previous look; CloseOnPressOutside still closes on an
-    // outside click — that click is now consumed instead of falling
-    // through, which is the standard picker behavior everywhere else.
+    // Modality bounds presses that land OUTSIDE the picker: a click on the
+    // timeline closes it and is consumed, instead of also acting on the row
+    // it landed on. That is all it does. It does NOT protect the picker's
+    // own surface — the 2026-08-18 round believed it did, and the barrier
+    // that actually works is the press sink in `background` below, which
+    // carries the mechanism. dim: false keeps the look.
     modal: true
     dim: false
     focus: true
@@ -150,11 +155,59 @@ AnchoredPopup {
         Qt.callLater(search.forceActiveFocus)
     }
 
-    background: Rectangle {
-        color: AppTheme.stormPanel
-        border.color: AppTheme.stormBorder
-        border.width: 2
-        radius: AppTheme.menuRadius + 6
+    background: Item {
+        Rectangle {
+            id: pickerPanel
+            anchors.fill: parent
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorder
+            border.width: 2
+            radius: AppTheme.menuRadius + 6
+
+            // THE press barrier — and the reason it has to live here rather
+            // than in the popup's own flags.
+            //
+            // A Popup does not consume a press that lands on it:
+            // QQuickPopup::mousePressEvent sets accepted = blockInput(), and
+            // blockInput() returns FALSE when the press is inside the popup's
+            // own item, so the delivery agent keeps walking the hit list down
+            // to whatever sits behind the overlay. Modality bounds presses
+            // OUTSIDE a popup only.
+            //
+            // Nothing else in this picker stops a RIGHT press. The grid cells
+            // use TapHandlers, and a pointer handler grabs the point but never
+            // ACCEPTS it; the GridView is a Flickable, which Qt constructs
+            // with setAcceptedMouseButtons(Qt::LeftButton) — so left presses
+            // were being swallowed by accident and right presses fell straight
+            // through to MessageDelegate's Qt.RightButton TapHandler, opening
+            // the message context menu on top of the open picker and covering
+            // the grid. That is the reported "emoji clicking still doesnt work
+            // right".
+            //
+            // The background fills the whole popupItem, padding included, and
+            // sits below contentItem, so every control the picker actually
+            // handles still sees the press first. This only catches what would
+            // otherwise have left the picker entirely.
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.AllButtons
+            }
+        }
+        // One of the design's sanctioned popover shadows (the AccountMenu /
+        // QuickSwitcher pattern): the effect and its source must be SIBLINGS,
+        // which is the only reason the background is an Item wrapping the
+        // panel instead of the panel itself. Without it the picker floats over
+        // the timeline on a border alone and reads as part of it.
+        MultiEffect {
+            source: pickerPanel
+            anchors.fill: pickerPanel
+            z: -1
+            shadowEnabled: true
+            shadowColor: AppTheme.shadow
+            shadowBlur: 0.6
+            shadowVerticalOffset: 2
+            shadowHorizontalOffset: 0
+        }
     }
 
     // v0.6.7: the column is wrapped in a plain Item so the resize grip can be
@@ -201,8 +254,8 @@ AnchoredPopup {
             // enough to shrink the popup, the rail icons would paint over
             // the rounded border and out of the card.
             clip: true
-            ScrollBar.vertical.policy: ScrollBar.AlwaysOff
-            ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AlwaysOff }
+            ScrollBar.horizontal: AppScrollBar { thin: true; policy: ScrollBar.AsNeeded }
             Row {
                 id: categoryRow
                 spacing: AppTheme.spacing2
@@ -236,13 +289,25 @@ AnchoredPopup {
                             name: picker._categoryIcons[categoryCell.modelData]
                                   || "mood"
                             size: 18
+                            // Three states, not two: the plate lit on hover
+                            // while the glyph stayed muted, so hovering an
+                            // inactive category read as barely anything.
                             color: categoryCell.selected ? AppTheme.bolt
-                                                         : AppTheme.stormTextMuted
+                                 : categoryCell.hovered || categoryCell.visualFocus
+                                   ? AppTheme.stormText
+                                   : AppTheme.stormTextMuted
                         }
                         background: Rectangle {
                             radius: AppTheme.radiusControl
                             color: categoryCell.selected || categoryCell.hovered
+                                   || categoryCell.visualFocus
                                    ? AppTheme.stormSelection : "transparent"
+                            // The rail is Tab-reachable (focusPolicy above),
+                            // and keyboard focus drew nothing at all: the
+                            // plate lit for hover and selection only, so a
+                            // keyboard user could not see where they were.
+                            border.width: categoryCell.visualFocus ? 2 : 0
+                            border.color: AppTheme.bolt
                             // 2e: the active category carries a 2px bolt
                             // underline bar at the cell's bottom edge.
                             Rectangle {
@@ -301,7 +366,10 @@ AnchoredPopup {
                         keyNavigationWraps: true
                         activeFocusOnTab: true
                         boundsBehavior: Flickable.StopAtBounds
-                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                        // The shared bar, not the Basic style's: a stock
+                        // ScrollBar takes its handle from palette.mid, which
+                        // on the navy panel is a grey sliver with square ends.
+                        ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                         // Same wheel/touchpad feel as the room timeline;
                         // see qml/SmoothWheelArea.qml.
                         SmoothWheelArea {}
@@ -338,9 +406,19 @@ AnchoredPopup {
                                 }
                             }
 
+                            // SQUARE, centred — deliberately not
+                            // anchors.fill. The column count is fixed at 8
+                            // while the row height is the fixed
+                            // emojiCellSize, so every cell wider than 32px
+                            // (any picker over ~256px, i.e. all of them)
+                            // stretched its highlight into a letterbox around
+                            // a centred glyph. The grid geometry itself is
+                            // contract-pinned; the highlight is not.
                             Rectangle {
-                                anchors.fill: parent
-                                anchors.margins: 2
+                                anchors.centerIn: parent
+                                width: Math.min(cell.width, cell.height)
+                                       - AppTheme.spacing4
+                                height: width
                                 radius: AppTheme.radiusControl
                                 color: cell.activeFocus || mouse.hovered
                                        ? AppTheme.stormSelection : "transparent"
@@ -353,11 +431,18 @@ AnchoredPopup {
                                 font.pixelSize: AppTheme.emojiGlyphSize
                             }
                             Label {
+                                // The corner fold that says "this emoji has
+                                // skin tones". It only ever mattered on the
+                                // cell the pointer is on, so it rests faint
+                                // and lifts to the accent there instead of
+                                // speckling the whole grid at one weight.
                                 visible: cell.hasSkinTones
                                 anchors.right: parent.right
                                 anchors.bottom: parent.bottom
+                                anchors.margins: AppTheme.spacing4
                                 text: "◢"
-                                color: AppTheme.stormTextMuted
+                                color: cell.activeFocus || mouse.hovered
+                                       ? AppTheme.bolt : AppTheme.stormTextFaint
                                 font.pixelSize: 8
                             }
                             HoverHandler {
@@ -409,10 +494,17 @@ AnchoredPopup {
 
                     Label {
                         anchors.centerIn: parent
+                        width: parent.width - AppTheme.spacing24
                         visible: app.emojiCatalog.count === 0
                         text: app.emojiCatalog.category === "Recently Used" && search.text.length === 0
                               ? qsTr("No recently used emoji") : qsTr("No emoji found")
                         color: AppTheme.stormTextMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textBody
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
                         Accessible.name: text
                     }
                 }
@@ -426,6 +518,7 @@ AnchoredPopup {
             color: AppTheme.stormBorder
         }
         Item {
+            id: footerBar
             Layout.fillWidth: true
             Layout.preferredHeight: 34
             Layout.leftMargin: AppTheme.spacing12
@@ -439,36 +532,76 @@ AnchoredPopup {
                 visible: picker.previewEmoji.length > 0
                 Label {
                     text: picker.previewEmoji
-                    font.pixelSize: 22
+                    font.pixelSize: AppTheme.textDisplay
                 }
                 Label {
                     // Data source: EmojiCatalog's TSV has no shortcode column
                     // (fields are emoji/name/keywords/category/baseEmoji/tone
                     // — see data/emoji-catalog.tsv), so this shows the
                     // display name only rather than a fabricated shortcode.
+                    //
+                    // It is a NAME, so it renders in the UI face at body
+                    // weight. It used to be bolt-inked JetBrains Mono, on the
+                    // theory that it occupied the ":zap:" shortcode slot of
+                    // the Storm language — but with no shortcode to show, that
+                    // treatment put a yellow monospace string where every
+                    // other picker in the app shows a plain label, which is a
+                    // large part of "the font looks out of place".
                     Layout.fillWidth: true
                     text: picker.previewName
-                    font.family: AppTheme.monoFont
-                    font.pixelSize: AppTheme.fontMonoSm
-                    font.weight: Font.Bold
-                    // 2e footer: the previewed emoji's mono line inks bolt
-                    // (the ":zap:" slot; this catalogue carries no shortcode
-                    // column, so the display name rides that treatment).
-                    color: AppTheme.bolt
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.textSubtitle
+                    font.weight: AppTheme.weightStrong
+                    color: AppTheme.stormText
                     elide: Label.ElideRight
                 }
             }
-            Label {
-                anchors.fill: parent
+
+            // The at-rest hint, in the SAME keycap language the GIF picker's
+            // footer already speaks (MenuKeycap) — the two pickers are peers
+            // that share a size and an anchor, so they should not disagree
+            // about how a keyboard hint looks. Hints drop from the right as
+            // the picker narrows, keyed off this bar's own width so nothing
+            // can overflow the rounded border on a small window; the full
+            // sentence stays on the row for assistive technology.
+            Row {
+                id: hintRow
+                anchors.centerIn: parent
+                spacing: AppTheme.spacing12
                 visible: picker.previewEmoji.length === 0
-                verticalAlignment: Text.AlignVCenter
-                horizontalAlignment: Text.AlignHCenter
-                text: qsTr("Enter selects · Alt+V or right-click opens skin tones · Esc closes")
-                color: AppTheme.stormTextMuted
-                font.family: AppTheme.monoFont
-                font.pixelSize: AppTheme.fontChip
-                font.weight: Font.Medium
-                elide: Label.ElideRight
+                Accessible.role: Accessible.StaticText
+                Accessible.name: qsTr("Enter selects · Alt+V or right-click "
+                                      + "opens skin tones · Esc closes")
+
+                Repeater {
+                    model: [
+                        { keys: "", icon: "keyboard_return",
+                          label: qsTr("select"), minBar: 0 },
+                        { keys: "Alt+V", icon: "",
+                          label: qsTr("skin tones"), minBar: 180 },
+                        { keys: "Esc", icon: "",
+                          label: qsTr("close"), minBar: 270 },
+                    ]
+                    delegate: Row {
+                        id: hint
+                        required property var modelData
+                        visible: footerBar.width >= hint.modelData.minBar
+                        spacing: AppTheme.spacing4
+                        MenuKeycap {
+                            keys: hint.modelData.keys
+                            iconName: hint.modelData.icon
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Label {
+                            text: hint.modelData.label
+                            color: AppTheme.stormTextMuted
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                            font.weight: AppTheme.weightMedium
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                }
             }
         }
     }
@@ -489,41 +622,96 @@ AnchoredPopup {
         objectName: "emojiTonePopup"
         property var variants: []
         parent: picker.contentItem
-        width: Math.min(Math.max(variants.length, 1), 6) * 42 + 8
-        height: Math.ceil(Math.max(variants.length, 1) / 6) * 42 + 8
         padding: 4
-        // MODAL for exactly the reason its parent picker is (2026-08-18,
-        // screenshot-proven): Qt Quick TapHandlers are non-exclusive across
-        // unrelated subtrees, so a press on a tone tile also reached the
-        // message row's own handlers underneath. Modality is the only robust
-        // barrier; dim: false keeps the look unchanged, and an outside press
-        // still closes — it is simply consumed rather than falling through.
+        // Tile size, and how many of them honestly fit. Six across was a
+        // fixed 260px, but this popup is a CHILD of the picker's content
+        // item and AnchoredPopup's width floor is Math.min(minWidth, cap) —
+        // so a small window legitimately produces a picker narrower than its
+        // own 300px minimum, and the fixed width then overhung the picker's
+        // rounded border while openTonePopupFor()'s x clamp had already
+        // bottomed out at 0. Bound the popup to the space it actually has and
+        // let the Grid wrap; the placement maths above is correct and stays
+        // untouched.
+        readonly property int toneCell: 42
+        readonly property int toneColumns: {
+            // Null-tolerant on purpose: Control.contentItem is a DEFERRED
+            // property, so this binding can be evaluated before it exists.
+            var room = picker.contentItem ? picker.contentItem.width : 0
+            return Math.max(1, Math.min(6, Math.floor(
+                (room - 2 * padding) / toneCell)))
+        }
+        width: Math.min(Math.max(variants.length, 1), toneColumns) * toneCell
+               + 2 * padding
+        height: Math.ceil(Math.max(variants.length, 1) / toneColumns) * toneCell
+                + 2 * padding
+        // Modality bounds presses outside this popup (which is how a click
+        // elsewhere in the picker dismisses it). Presses that land ON it are
+        // consumed by the sink in its background, for the reason spelled out
+        // at the picker's own background: a Popup does not accept a press
+        // inside itself, and these tiles are ToolButtons — QQuickAbstractButton
+        // accepts LeftButton only — so a right-click on a tone tile leaked to
+        // the message row underneath exactly as the grid's did.
         modal: true
         dim: false
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         onOpened: picker.toneOpened()
         onClosed: picker.toneClosed()
-        background: Rectangle {
-            color: AppTheme.stormPanel
-            border.color: AppTheme.stormBorder
-            radius: AppTheme.radiusSm
+        background: Item {
+            Rectangle {
+                id: tonePanel
+                anchors.fill: parent
+                color: AppTheme.stormPanel
+                border.color: AppTheme.stormBorderStrong
+                radius: AppTheme.radiusMd
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.AllButtons
+                }
+            }
+            // Raised above the picker it sits inside, not merely bordered —
+            // it is a popover over a popover, and the screenshot that opened
+            // this round read it as a stray floating panel.
+            MultiEffect {
+                source: tonePanel
+                anchors.fill: tonePanel
+                z: -1
+                shadowEnabled: true
+                shadowColor: AppTheme.shadow
+                shadowBlur: 0.6
+                shadowVerticalOffset: 2
+                shadowHorizontalOffset: 0
+            }
         }
         Grid {
-            columns: 6
+            columns: tonePopup.toneColumns
             Repeater {
                 model: tonePopup.variants
                 ToolButton {
                     id: toneButton
                     required property var modelData
-                    width: 42; height: 42
+                    width: tonePopup.toneCell; height: tonePopup.toneCell
                     text: modelData.emoji
-                    font.pixelSize: 22
+                    font.pixelSize: AppTheme.textDisplay
                     // Storm hover fill in place of the Basic style's
                     // palette-derived flat highlight on the navy panel.
                     background: Rectangle {
                         radius: AppTheme.radiusControl
                         color: toneButton.hovered || toneButton.visualFocus
                                ? AppTheme.stormSelection : "transparent"
+                        // These tiles are Tab-reachable (ToolButton keeps
+                        // Qt.StrongFocus), so keyboard focus needs the same
+                        // bolt ring every other focusable control in this
+                        // picker draws — a fill alone is indistinguishable
+                        // from hover.
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            radius: AppTheme.radiusControl
+                            color: "transparent"
+                            border.width: 2
+                            border.color: AppTheme.bolt
+                            visible: toneButton.visualFocus
+                        }
                     }
                     Accessible.name: modelData.name
                     ToolTip.text: modelData.name

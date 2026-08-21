@@ -13,6 +13,7 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQmlExpression>
 #include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -103,6 +104,23 @@ private:
 
     // Repeater-created delegates live only in the visual item tree (no
     // QObject parent chain), so findChild alone cannot see them.
+    // Read an int straight off the AppTheme singleton, so a control-system
+    // assertion pins the TOKEN rather than a copy of its current value —
+    // a literal here silently stops tracking the design system.
+    int themeInt(const char *token) const
+    {
+        // Evaluated in the SCENE's context, not the bare root context: the
+        // AppTheme singleton comes from the MatrixClient import, which only
+        // the loaded component's context carries.
+        QQmlExpression expr(qmlContext(m_root), m_root,
+                            QStringLiteral("AppTheme.") + QLatin1String(token));
+        const QVariant v = expr.evaluate();
+        if (expr.hasError())
+            qWarning("themeInt(%s): %s", token,
+                     qPrintable(expr.error().toString()));
+        return v.toInt();
+    }
+
     QQuickItem *item(const char *name) const
     {
         if (auto *hit = m_root->findChild<QQuickItem *>(QLatin1String(name)))
@@ -227,7 +245,12 @@ private slots:
         auto *bold = item("composerFormat_bold");
         QCOMPARE(bold->width(), 28.0);
         QCOMPARE(bold->height(), 28.0);
-        QCOMPARE(bold->property("radius").toInt(), 6);
+        // radiusControl (7), not a raw 6. The 2026-08-21 audit found 66
+        // IconButtons spanning 11 sizes and 7 corner radii, several of them
+        // one pixel off the sibling surface they sit on — this row was one.
+        // Asserted against the TOKEN so the row cannot drift from the
+        // control system again by editing a literal.
+        QCOMPARE(bold->property("radius").toInt(), themeInt("radiusControl"));
         QCOMPARE(bold->property("iconSize").toInt(), 18);
     }
 
@@ -301,13 +324,21 @@ private slots:
                  QStringLiteral("Select a room to start typing"));
     }
 
-    void gifKeycapIsBorderedMonoChip()
+    // Was gifKeycapIsBorderedMonoChip. The 2026-08-21 audit found this was
+    // the ONLY bordered chip in a row of five borderless glyph buttons, at a
+    // radius nothing else used, visibly shorter than its 28px siblings, and
+    // with no pressed state at all. It now matches the row it lives in, so
+    // the guard pins that instead — a border here is the defect.
+    void gifKeycapMatchesItsBorderlessGlyphRow()
     {
         auto *keycap = item("composerGifKeycap");
         QVERIFY(keycap);
         QCOMPARE(QQmlProperty::read(keycap, QStringLiteral("border.width"))
-                     .toReal(), 1.5);
-        QCOMPARE(keycap->property("radius").toInt(), 5);
+                     .toReal(), 0.0);
+        QCOMPARE(keycap->property("radius").toInt(), themeInt("radiusControl"));
+        // At rest it is transparent like its siblings; the fill is the
+        // hover/press feedback it previously did not have.
+        QCOMPARE(keycap->property("color").value<QColor>().alpha(), 0);
     }
 
     void micIsHonestlyUnavailable()

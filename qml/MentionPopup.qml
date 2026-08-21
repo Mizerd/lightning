@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
@@ -48,8 +49,8 @@ Popup {
     padding: AppTheme.menuPadding
 
     readonly property int count: suggestions ? suggestions.count : 0
-    readonly property int rowH: 42
-    readonly property int headerH: 24
+    readonly property int rowH: AppTheme.scaled(42)
+    readonly property int headerH: AppTheme.scaled(24)
     readonly property int visibleRows: Math.max(1, Math.min(count, 6))
 
     width: Math.max(240, Math.min(anchorWidth, 380))
@@ -135,12 +136,34 @@ Popup {
                                                 .arg(prefix).arg(rest)
     }
 
-    background: Rectangle {
-        objectName: "mentionPopupSurface"
-        color: AppTheme.stormPanel
-        border.color: AppTheme.stormBorder
-        border.width: 1
-        radius: AppTheme.menuRadius
+    background: Item {
+        // Elevation. This popup floats over the composer CARD, which carries
+        // a shadow of its own, and the two were separated by nothing but a
+        // 1px border — with the emoji picker or a context menu also up, the
+        // stacking order was unreadable. The effect is a SIBLING behind the
+        // surface (z: -1), which is what keeps the popup's measured geometry
+        // untouched: the documented reason context menus stay border-only is
+        // that a shadow ON the background inflates the implicit size their
+        // anchor maths depend on. Same construction as the composer card.
+        MultiEffect {
+            source: mentionSurface
+            anchors.fill: mentionSurface
+            z: -1
+            shadowEnabled: true
+            shadowColor: AppTheme.shadowSoft
+            shadowBlur: 0.9
+            shadowVerticalOffset: AppTheme.elevationPopoverY
+            shadowHorizontalOffset: 0
+        }
+        Rectangle {
+            id: mentionSurface
+            objectName: "mentionPopupSurface"
+            anchors.fill: parent
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorder
+            border.width: 1
+            radius: AppTheme.menuRadius
+        }
     }
 
     contentItem: Column {
@@ -215,7 +238,7 @@ Popup {
 
                     Avatar {
                         Layout.alignment: Qt.AlignVCenter
-                        size: 28
+                        size: AppTheme.scaled(28)
                         circle: true
                         name: (model.displayName && model.displayName.length > 0)
                               ? model.displayName : model.userId
@@ -238,9 +261,10 @@ Popup {
                                    ? AppTheme.stormText
                                    : AppTheme.stormTextSecondary
                             font.family: AppTheme.menuFont
-                            font.pixelSize: 13
-                            font.weight: rowDelegate.isSelected ? Font.Bold
-                                                                : Font.DemiBold
+                            font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                            font.weight: rowDelegate.isSelected
+                                         ? AppTheme.weightBold
+                                         : AppTheme.weightStrong
                             elide: Label.ElideRight
                         }
                         // Muted MXID under the name (always shown when there is a
@@ -252,7 +276,7 @@ Popup {
                                          && model.displayName.length > 0)
                             text: model.userId
                             font.family: AppTheme.monoFont
-                            font.pixelSize: AppTheme.fontMonoXS
+                            font.pixelSize: AppTheme.scaled(AppTheme.fontMonoXS)
                             // AA on the selection fill: the selected row's
                             // MXID brightens one step.
                             color: rowDelegate.isSelected
@@ -278,7 +302,7 @@ Popup {
                     }
                 }
             }
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: AppScrollBar { thin: true; policy: ScrollBar.AsNeeded }
         }
     }
 }

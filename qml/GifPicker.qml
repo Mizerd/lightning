@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
@@ -20,7 +21,15 @@ import MatrixClient
 //
 // Storm skin (SPEC-storm-language §3): stormPanel chrome, storm search field,
 // bolt-filled selected chip, stormInset category chips, bolt keyboard-selection
-// ring on tiles, faint mono footer.
+// ring on tiles.
+//
+// 2026-08-21 design pass: mono is now kept for what is genuinely monospaced —
+// the "GIF" keycap badge and the tile metadata tags burned into the artwork.
+// The list title, the category chips, the empty/error copy, the provider
+// credit and the send hint are WORDS, and render in the UI face on the shared
+// type scale; JetBrains Mono carrying all of them was a large part of "the
+// font looks out of place". The panel also picks up the sanctioned popover
+// shadow and a press sink — see `background`.
 //
 // ── v0.6.7 UX rework: ONE star, ONE saved list ──────────────────────────
 //
@@ -125,7 +134,18 @@ AnchoredPopup {
     minHeight: 320
     sizeSettingsKey: "picker"
     padding: AppTheme.spacingS
-    modal: false
+    // Modal, like its peer the emoji picker. Both float over the timeline
+    // from the same composer anchor and share one remembered size, so they
+    // should not disagree about what a press does: outside, it closes the
+    // picker and is consumed rather than also acting on the row it landed
+    // on. Presses that land ON the picker are consumed by the sink in
+    // `background` below — a Popup does not accept a press inside itself, so
+    // without it a right-click on the picker's chrome reached
+    // MessageDelegate's context-menu TapHandler underneath (the emoji
+    // picker's background carries the full mechanism). dim: false keeps the
+    // look unchanged.
+    modal: true
+    dim: false
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
@@ -305,11 +325,45 @@ AnchoredPopup {
     // v0.6.7: a heavier frame and a wider corner. The resize ornament is
     // concentric with this radius, so the corner has to be big enough to carry
     // it — at radiusLg (12) with a hairline border the arcs had nowhere to sit.
-    background: Rectangle {
-        color: AppTheme.stormPanel
-        border.color: AppTheme.stormBorder
-        border.width: 2
-        radius: AppTheme.radiusLg + 6
+    background: Item {
+        Rectangle {
+            id: pickerPanel
+            anchors.fill: parent
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorder
+            border.width: 2
+            radius: AppTheme.radiusLg + 6
+
+            // The press barrier. A Popup does NOT consume a press that lands
+            // on it (QQuickPopup::mousePressEvent sets accepted =
+            // blockInput(), which returns false inside the popup's own item),
+            // so anything the picker's own controls do not accept keeps
+            // walking down to the items behind the overlay. The tile
+            // MouseArea covers the grid, but the header, the tab strips, the
+            // category chips, the footer and the padding accept nothing — and
+            // a right press through any of them opened the message context
+            // menu on top of the picker. The background fills the whole
+            // popupItem, padding included, and sits below contentItem, so
+            // every real control still sees the press first.
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.AllButtons
+            }
+        }
+        // One of the design's sanctioned popover shadows (the AccountMenu /
+        // QuickSwitcher pattern; effect and source must be SIBLINGS, which is
+        // why the background is an Item wrapping the panel). A picker that
+        // floats over the timeline on a border alone reads as part of it.
+        MultiEffect {
+            source: pickerPanel
+            anchors.fill: pickerPanel
+            z: -1
+            shadowEnabled: true
+            shadowColor: AppTheme.shadow
+            shadowBlur: 0.6
+            shadowVerticalOffset: 2
+            shadowHorizontalOffset: 0
+        }
     }
 
     contentItem: Item {
@@ -338,9 +392,15 @@ AnchoredPopup {
                 text: picker.tab === "saved" ? qsTr("Saved GIFs")
                                              : qsTr("Recently sent")
                 color: AppTheme.stormText
-                font.family: AppTheme.monoFont
-                font.pixelSize: AppTheme.fontChip + 1
-                font.weight: Font.Bold
+                // The one place this picker names what you are looking at,
+                // so it renders like every other pane title: UI face, on the
+                // type scale. It used to be JetBrains Mono at fontChip+1,
+                // i.e. an 11px keycap face carrying a heading.
+                font.family: AppTheme.uiFont
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightStrong
+                elide: Label.ElideRight
+                verticalAlignment: Text.AlignVCenter
             }
 
             AppTextField {
@@ -402,10 +462,12 @@ AnchoredPopup {
 
             IconButton {
                 storm: true
-                implicitWidth: 28; implicitHeight: 28
-                radius: 6
+                // The shared ladder's composer-row rung (28 / radiusMd / 20)
+                // rather than a fourth bespoke 28px-at-radius-6 button — that
+                // exact mismatch is what the 2026-08-21 audit counted eleven
+                // sizes and seven radii of.
+                size: "md"
                 iconName: "close"
-                iconSize: 16
                 Accessible.name: qsTr("Close GIF picker")
                 onClicked: picker.close()
             }
@@ -512,8 +574,9 @@ AnchoredPopup {
                     readonly property bool selected:
                         picker.gif.mode === GifSearchController.Category
                         && picker.gif.query === modelData
-                    implicitWidth: chipLabel.implicitWidth + 20
-                    implicitHeight: 26
+                    implicitWidth: chipLabel.implicitWidth
+                                   + AppTheme.chipPaddingH * 2 + AppTheme.spacing4
+                    implicitHeight: AppTheme.buttonHeightSm
                     hoverEnabled: true
                     focusPolicy: Qt.TabFocus
                     // v0.6.7 review (N8): CheckBox, not RadioButton — a radio
@@ -529,22 +592,32 @@ AnchoredPopup {
                         else
                             picker.gif.openCategory(modelData)
                     }
+                    // These are words ("Reactions", "Happy"), not keycaps:
+                    // UI face on the type scale. Mono at 11px DemiBold made a
+                    // row of search shortcuts read as a row of shortcut keys.
                     contentItem: Label {
                         id: chipLabel
                         text: categoryChip.text
-                        font.family: AppTheme.monoFont
-                        font.pixelSize: 11
-                        font.weight: Font.DemiBold
-                        color: categoryChip.selected ? AppTheme.boltInk
-                                                     : AppTheme.stormTextMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                        font.weight: categoryChip.selected ? AppTheme.weightStrong
+                                                           : AppTheme.weightMedium
+                        color: categoryChip.selected ? AppTheme.chipBoltInk
+                             : categoryChip.hovered ? AppTheme.stormText
+                             : AppTheme.stormTextSecondary
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
+                    // chipBoltFill is the design system's ONE solid chip,
+                    // reserved for "this is the current selection" — which is
+                    // exactly what an active category is.
                     background: Rectangle {
-                        color: categoryChip.selected ? AppTheme.bolt
+                        color: categoryChip.selected ? AppTheme.chipBoltFill
                              : categoryChip.hovered ? AppTheme.stormSelection
                              : AppTheme.stormInset
-                        radius: AppTheme.radiusPill
+                        radius: AppTheme.chipRadius
+                        border.width: categoryChip.selected ? 0 : 1
+                        border.color: AppTheme.stormBorder
                     }
                     Rectangle {
                         anchors.fill: parent
@@ -571,6 +644,15 @@ AnchoredPopup {
             cellHeight: cellWidth
             cacheBuffer: cellWidth * 2   // bounded off-screen retention
             model: picker.activeModel
+            // An infinitely paginating grid with no position indicator at
+            // all: the reader had no idea how far into the results they
+            // were. Shared bar, same as every other converted surface.
+            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+            // Same wheel/touchpad feel as the room timeline and the emoji
+            // grid beside it; see qml/SmoothWheelArea.qml. (This picker was
+            // out of scope for the 2026-08-16 conversion round, which is the
+            // only reason it still scrolled with Qt's default step.)
+            SmoothWheelArea {}
             currentIndex: -1
             keyNavigationEnabled: true
             boundsBehavior: Flickable.StopAtBounds
@@ -951,9 +1033,13 @@ AnchoredPopup {
         height: grid.height
         visible: overlayText.text.length > 0 || busy.running
 
-        BusyIndicator {
+        // The shared spinner: the Basic BusyIndicator inks palette.dark,
+        // which Main.qml maps to the body-text grey — loading read as static
+        // punctuation on the navy panel rather than as an active state.
+        AppBusyIndicator {
             id: busy
             anchors.centerIn: parent
+            color: AppTheme.bolt
             running: picker.providerTab
                      && picker.gif.state === GifSearchController.Loading
                      && picker.gif.results.count === 0
@@ -965,7 +1051,12 @@ AnchoredPopup {
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextMuted
-            font.pixelSize: 13
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.textBody
+            // Wrapping text: set the leading explicitly, or the UI-font
+            // picker moves it by up to 13% (see AppTheme's lineHeight block).
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
             text: {
                 // The local lists work even when no provider is configured or
                 // available — they never depend on gif.available.
@@ -1009,8 +1100,10 @@ AnchoredPopup {
             id: attributionLabel
             Layout.fillWidth: true
             color: AppTheme.stormTextMuted
-            font.family: AppTheme.monoFont
-            font.pixelSize: 9
+            // A required provider credit, so it is UI text at the scale's
+            // smallest step rather than a 9px mono string below it.
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.textMicro
             elide: Text.ElideRight
             // The narrower 330px design width has no room for the previous
             // long privacy sentence alongside attribution + the send hint;
@@ -1034,8 +1127,10 @@ AnchoredPopup {
         Label {
             text: qsTr("send")
             color: AppTheme.stormTextMuted
-            font.family: AppTheme.monoFont
-            font.pixelSize: AppTheme.fontMicro
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.textMeta
+            font.weight: AppTheme.weightMedium
+            Layout.alignment: Qt.AlignVCenter
         }
     }
 

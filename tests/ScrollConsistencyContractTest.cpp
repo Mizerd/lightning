@@ -252,9 +252,12 @@ private Q_SLOTS:
         QVERIFY(!block.isEmpty());
         QVERIFY(block.contains(QStringLiteral("SmoothWheelArea {}")));
         // The horizontal category rail (a ScrollView, not this grid)
-        // deliberately keeps Qt's default behaviour — vertical wheel
-        // feel does not apply to a horizontal-only strip.
-        QVERIFY(src.contains(QStringLiteral("ScrollBar.horizontal.policy")));
+        // deliberately keeps Qt's default WHEEL behaviour — vertical wheel
+        // feel does not apply to a horizontal-only strip. Its bar itself is
+        // the shared themed one: the rail is 28px tall, so a stock 10px
+        // Basic bar ate a third of the band it sits in.
+        QVERIFY(src.contains(QStringLiteral("ScrollBar.horizontal: AppScrollBar")));
+        QVERIFY(!src.contains(QStringLiteral("ScrollBar.horizontal.policy")));
     }
 
     // RoomInfoPanel has four independently scrollable surfaces: Overview
