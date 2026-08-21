@@ -1,3 +1,4 @@
+#include <QRegularExpression>
 #include <QtTest/QtTest>
 
 #include <QFile>
@@ -825,15 +826,54 @@ private Q_SLOTS:
             "readonly property bool bubbleMode: timelineLayout === 1 && isDirectRoom")));
         QVERIFY(delegate.contains(QStringLiteral(
             "? (model.isOwn === true ? AppTheme.ownBubble")));
-        // The Modern/Compact bubble stays transparent by default; the only
-        // tint outside Bubbles is the sender-NEUTRAL mention highlight
-        // (applies to any sender, never an own-message color or alignment
-        // change). The wash base is the routed mentionHighlight token —
-        // accent under legacy themes, the mention rose under Storm.
+        // The Modern/Compact bubble is transparent, FULL STOP — there is no
+        // mention wash any more.
+        //
+        // 2026-08-21: the row wash was routed to mentionHighlight, which
+        // Storm points at a danger-adjacent rose, so every message that
+        // mentioned you was painted as a rounded red-ish box. That is the
+        // user's report "tagging a person creates a red box arround it".
+        // The mention edge bar below already existed as the deliberate
+        // signal (bolt for "you", neutral for @room) and is enough on its
+        // own; removing the fill also stops a reaction chip's translucent
+        // pill compositing onto a tinted row.
+        //
+        // This assertion is inverted rather than deleted: a reintroduced
+        // wash on this binding is the defect, and it must fail here.
+        QVERIFY2(!delegate.contains(QStringLiteral("AppTheme.mentionHighlight")),
+                 "the mention ROW WASH is back — mentionHighlight is the "
+                 "badge's token and resolves to a danger-adjacent rose under "
+                 "Storm, which is what drew a red box around mentions");
         QVERIFY(delegate.contains(QStringLiteral(
-            "? Qt.alpha(AppTheme.mentionHighlight, 0.05)")));
-        QVERIFY(delegate.contains(QStringLiteral(": \"transparent\"")));
-        QVERIFY(delegate.contains(QStringLiteral("? AppTheme.radiusSm : 0")));
+            "                       : \"transparent\"")));
+        // The edge bar IS the mention signal now, so it has to be there.
+        QVERIFY(delegate.contains(QStringLiteral("mentionBarVisible")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "? AppTheme.bolt : AppTheme.borderStrong")));
+    }
+
+    // MessageHtml's mention/link ink split is only real if QML actually
+    // pushes the link colour. It gained the parameter in the 2026-08-21
+    // round and NOTHING passed it, so for the whole round every external URL
+    // and every mention of someone else rendered in the accent — under Storm,
+    // in bolt yellow. A defaulted C++ parameter fails silently by design, so
+    // the arity is pinned here.
+    void mentionStyleIsPushedWithTheLinkInk()
+    {
+        const QString shell = read(QStringLiteral("MainScreen.qml"));
+        QVERIFY(!shell.isEmpty());
+        // Four arguments at BOTH push sites (timeline and thread model).
+        const QRegularExpression call(QStringLiteral(
+            "setMentionStyle\\(\\s*accent\\s*,\\s*soft\\s*,\\s*code\\s*,"
+            "\\s*linkInk\\s*\\)"));
+        QCOMPARE(shell.count(call), 2);
+        QVERIFY2(shell.contains(QStringLiteral("AppTheme.link")),
+                 "the link ink must come from the theme, not a literal");
+        // ...and re-pushed when only the link ink moves. Several themes give
+        // link and accent unrelated values, so an accent-only handler leaves
+        // the models on the previous theme's link colour.
+        QVERIFY2(shell.contains(QStringLiteral("function onLinkChanged()")),
+                 "a theme change that moves only the link ink must re-push");
     }
 
     void continuationRowsStayCompactAndActionsFloat()

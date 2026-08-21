@@ -47,15 +47,17 @@ void MentionHighlighter::setSoftColor(const QColor &color)
 
 void MentionHighlighter::highlightBlock(const QString &text)
 {
-    if (m_ranges.isEmpty() || !m_accent.isValid() || !m_soft.isValid())
+    // The soft colour is no longer consulted at all — it used to gate this
+    // early return as well, so a theme that pushed only an ink silently lost
+    // mention styling in the composer.
+    if (m_ranges.isEmpty() || !m_accent.isValid())
         return;
     const int blockStart = currentBlock().position();
     const int blockLength = static_cast<int>(text.length());
 
-    QTextCharFormat chip;
-    chip.setForeground(m_accent);
-    chip.setBackground(m_soft);
-    chip.setFontWeight(QFont::DemiBold);
+    QTextCharFormat mention;
+    mention.setForeground(m_accent);
+    mention.setFontWeight(QFont::DemiBold);
 
     for (const QVariant &value : m_ranges) {
         const QVariantMap range = value.toMap();
@@ -70,6 +72,6 @@ void MentionHighlighter::highlightBlock(const QString &text)
         const int clampedStart = qMax(0, localStart);
         const int clampedLen = qMin(blockLength, localEnd) - clampedStart;
         if (clampedLen > 0)
-            setFormat(clampedStart, clampedLen, chip);
+            setFormat(clampedStart, clampedLen, mention);
     }
 }

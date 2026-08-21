@@ -176,34 +176,111 @@ private Q_SLOTS:
             "<a href=\"mention:@me:example.org\"><b>@me</b></a>"));
     }
 
-    void mentionChipStyleIsApplied()
+    void mentionStyleIsInkAndWeightNotABox()
     {
-        // With theme ink supplied, the mention renders as an inline chip:
-        // accent ink on a soft surface, no underline, padded with nbsp.
+        // With theme ink supplied the mention is coloured and semibold, with
+        // the anchor underline suppressed — and NO background. Qt 6.11 paints
+        // an inline background as a square, full-line-height slab that it
+        // will neither round nor pad (probed directly), which is what made a
+        // tag read as a box drawn around the name. If a future change wants a
+        // chip back, it needs a real inline QML renderer, not this CSS.
         const QString out = MessageHtml::sanitize(
             QStringLiteral(
                 "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a>"),
             nullptr, QString(),
             MessageHtml::MentionStyle{QStringLiteral("#7c7ff2"),
-                                      QStringLiteral("#25253d")});
+                                      QStringLiteral("#9295f5")});
         QCOMPARE(out, QStringLiteral(
             "<a href=\"mention:@bob:example.org\" "
-            "style=\"color:#7c7ff2;background-color:#25253d;"
-            "text-decoration:none\">&nbsp;@bob&nbsp;</a>"));
+            "style=\"color:#9295f5;font-weight:600;"
+            "text-decoration:none\">@bob</a>"));
+        QVERIFY(!out.contains(QStringLiteral("background-color")));
     }
 
-    void mentionChipStyleCannotBreakOutOfTheAttribute()
+    void theAccentIsSpentOnlyOnAMentionOfYou()
+    {
+        // The semantic split the two inks exist for: everyone else takes the
+        // link ink, so the accent stays meaningful when it does appear.
+        const MessageHtml::MentionStyle style{QStringLiteral("#ffd447"),
+                                              QStringLiteral("#9295f5")};
+        const QString me = MessageHtml::sanitize(
+            QStringLiteral(
+                "<a href=\"https://matrix.to/#/@me:example.org\">me</a>"),
+            nullptr, QStringLiteral("@me:example.org"), style);
+        QVERIFY(me.contains(QStringLiteral("color:#ffd447")));
+        QVERIFY(me.contains(QStringLiteral("<b>@me</b>")));
+
+        const QString them = MessageHtml::sanitize(
+            QStringLiteral(
+                "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a>"),
+            nullptr, QStringLiteral("@me:example.org"), style);
+        QVERIFY(them.contains(QStringLiteral("color:#9295f5")));
+        QVERIFY(!them.contains(QStringLiteral("#ffd447")));
+    }
+
+    void mentionInkFallsBackToTheAccentWhenNoLinkInkIsPushed()
+    {
+        // A theme that pushes only one ink must still render legibly rather
+        // than dropping back to Qt's built-in link blue.
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral(
+                "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a>"),
+            nullptr, QString(),
+            MessageHtml::MentionStyle{QStringLiteral("#7c7ff2")});
+        QVERIFY(out.contains(QStringLiteral("color:#7c7ff2")));
+    }
+
+    void externalLinksCarryTheThemeInk()
+    {
+        // Message links were never given a colour, so Qt painted them in its
+        // built-in #0000ff — a hard blue that is close to unreadable on the
+        // dark timeline grounds. The underline is deliberately kept: it is
+        // what separates a URL from a mention now that both are inked.
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral("see <a href=\"https://matrix.org/\">spec</a>"),
+            nullptr, QString(),
+            MessageHtml::MentionStyle{QStringLiteral("#ffd447"),
+                                      QStringLiteral("#9295f5")});
+        QCOMPARE(out, QStringLiteral(
+            "see <a href=\"https://matrix.org/\" "
+            "style=\"color:#9295f5\">spec</a>"));
+        QVERIFY(!out.contains(QStringLiteral("text-decoration")));
+    }
+
+    void unstyledBodiesAreUnchangedByTheInkPath()
+    {
+        // No theme pushed yet (cold start): every anchor must come back
+        // exactly as it did before, with no empty style attribute.
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral("see <a href=\"https://matrix.org/\">spec</a> and "
+                           "<a href=\"https://matrix.to/#/@bob:e.org\">b</a>"),
+            nullptr, QString());
+        QCOMPARE(out, QStringLiteral(
+            "see <a href=\"https://matrix.org/\">spec</a> and "
+            "<a href=\"mention:@bob:e.org\">@bob</a>"));
+    }
+
+    void mentionStyleCannotBreakOutOfTheAttribute()
     {
         // Hostile "colors" are escaped; the model additionally validates
-        // hex literals before they get here.
-        const QString out = MessageHtml::sanitize(
+        // opaque hex literals before they get here. Checked on both inks,
+        // since the link ink now reaches a second emit site (external links).
+        const QString mention = MessageHtml::sanitize(
             QStringLiteral(
                 "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a>"),
             nullptr, QString(),
             MessageHtml::MentionStyle{
                 QStringLiteral("\"><script>bad</script>"),
-                QStringLiteral("#25253d")});
-        QVERIFY(!out.contains(QStringLiteral("<script")));
+                QStringLiteral("\"><script>bad</script>")});
+        QVERIFY(!mention.contains(QStringLiteral("<script")));
+
+        const QString link = MessageHtml::sanitize(
+            QStringLiteral("<a href=\"https://matrix.org/\">spec</a>"),
+            nullptr, QString(),
+            MessageHtml::MentionStyle{
+                QStringLiteral("#ffd447"),
+                QStringLiteral("\"><script>bad</script>")});
+        QVERIFY(!link.contains(QStringLiteral("<script")));
     }
 
     void malformedInputDoesNotCrashAndFailsClosed()

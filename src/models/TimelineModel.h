@@ -301,14 +301,21 @@ public:
     // size to the imageEntries() shape.
     Q_INVOKABLE QVariantList mediaEntries() const;
 
-    // Theme ink for timeline mention chips (AppTheme.accent/accentSoft),
-    // pushed from QML because AppTheme is the sole token source. Values are
-    // validated through QColor; anything invalid clears the style and
-    // mentions degrade to plain internal links. Re-announces every row's
-    // FormattedBodyRole so live theme switches restyle existing rows.
+    // Theme ink for timeline mentions and links, pushed from QML because
+    // AppTheme is the sole token source. accentColor marks a mention of the
+    // local user; linkColor covers every other mention and every external
+    // URL (empty falls back to accentColor). Values must be OPAQUE #rrggbb —
+    // anything else is dropped and that ink degrades to Qt's default link
+    // appearance. Re-announces every row's FormattedBodyRole so live theme
+    // switches restyle existing rows.
+    //
+    // softColor is vestigial: it was the chip surface, and the mention no
+    // longer has one (MessageHtml::MentionStyle records the measurements).
+    // It is kept so the existing QML call site keeps its arity.
     Q_INVOKABLE void setMentionStyle(const QString &accentColor,
                                      const QString &softColor,
-                                     const QString &codeBackground = QString());
+                                     const QString &codeBackground = QString(),
+                                     const QString &linkColor = QString());
 
 Q_SIGNALS:
     void roomIdChanged();
@@ -459,10 +466,10 @@ private:
     QStringList m_searchResults;   // matching event ids, oldest → newest
     int m_searchIndex = -1;        // index into m_searchResults; -1 = none
 
-    // Mention-chip ink (validated #rrggbb/#aarrggbb strings; see
+    // Mention and link ink (validated OPAQUE #rrggbb strings; see
     // setMentionStyle). Empty until QML pushes the current theme.
     QString m_mentionAccentColor;
-    QString m_mentionSoftColor;
+    QString m_mentionLinkColor;
     QString m_codeBackgroundColor;
 
     // Mirrors SettingsManager::showRoomActivity (default true, matching it).

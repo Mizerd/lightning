@@ -28,13 +28,41 @@
 // or malformed markup is dropped, not passed through.
 namespace MessageHtml {
 
-// Theme ink for mention chips. Colors arrive as validated #rrggbb/#aarrggbb
-// strings (the model validates through QColor before storing); empty means
-// "no chip styling" and mentions render as plain internal links. Qt rich
-// text cannot round corners, so the chip is a soft rectangular highlight.
+// Theme ink for mentions and links inside a message body. Colors arrive as
+// validated OPAQUE #rrggbb strings (TimelineModel::setMentionStyle validates
+// them); empty means "no styling" and the anchor falls back to Qt's default
+// link appearance.
+//
+// A mention is INK, not a box — measured, not assumed. Qt 6.11's rich-text
+// engine was probed directly (QTextDocument::setHtml + a rendered QImage):
+//   * `border-radius` and `padding` on an inline run are NOT honoured at all
+//     — QTextCharFormat has no such properties, so Element's rounded pill is
+//     unreachable in this renderer. The header used to say "cannot round
+//     corners" and then shipped the box anyway;
+//   * `background-color` paints a SQUARE slab spanning the full line height
+//     (18 px on an 18 px line) and stays full height even when the run
+//     carries a smaller `font-size` — so the fill can be neither rounded nor
+//     shrunk toward the glyphs;
+//   * every candidate fill colour was rendered against the Storm timeline
+//     ground and they all read as a selection highlight or a search hit,
+//     which is exactly the "red box around the tag" the user reported (the
+//     14% bolt wash that shipped composites to a warm brown on navy);
+//   * `color`, `font-weight` and `text-decoration` ARE honoured.
+// So the fill is gone and the mention carries ink plus weight instead, which
+// is what Slack/Discord degrade to and what reads as a name rather than an
+// error state. Do not re-add `background-color` here expecting a pill.
+//
+// The two inks are a semantic split, not decoration: the accent is spent on
+// the ONE mention that concerns the reader (their own), everybody else — and
+// every external URL — gets the theme's link ink.
 struct MentionStyle {
-    QString accentColor;   // chip ink
-    QString softColor;     // chip surface
+    // Ink for a mention of the local user. Also the fallback for linkColor,
+    // so a theme that pushes only this still renders legibly.
+    QString accentColor;
+    // Ink for a mention of anybody else and for validated external links.
+    // Without it Qt paints http links in its built-in #0000ff, which is very
+    // nearly invisible on a dark timeline ground.
+    QString linkColor;
     QString codeBackground; // subtle surface behind inline `code`/```blocks```
                             // (empty = leave code unstyled)
 };

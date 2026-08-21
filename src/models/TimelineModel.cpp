@@ -705,7 +705,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             },
             m_selfUserId,
             MessageHtml::MentionStyle{m_mentionAccentColor,
-                                      m_mentionSoftColor,
+                                      m_mentionLinkColor,
                                       m_codeBackgroundColor});
         if (!e.eventId.isEmpty())
             m_sanitizedHtmlCache.insert(e.eventId, sanitized);
@@ -737,7 +737,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             },
             m_selfUserId,
             MessageHtml::MentionStyle{m_mentionAccentColor,
-                                      m_mentionSoftColor,
+                                      m_mentionLinkColor,
                                       m_codeBackgroundColor});
         QVariantList out;
         bool hasCodeBlock = false;
@@ -1098,26 +1098,42 @@ QVariantList TimelineModel::mediaEntries() const
 
 void TimelineModel::setMentionStyle(const QString &accentColor,
                                     const QString &softColor,
-                                    const QString &codeBackground)
+                                    const QString &codeBackground,
+                                    const QString &linkColor)
 {
-    // Only hex color literals may enter the sanitizer's style attribute
-    // (defense in depth against style break-out; the values normally come
-    // straight from AppTheme, whose colors stringify as #rrggbb/#aarrggbb).
+    // Only OPAQUE hex color literals may enter the sanitizer's style
+    // attribute. Two reasons, both measured against Qt 6.11:
+    //   * defense in depth against style break-out (the values normally come
+    //     straight from AppTheme, but an unparseable string does NOT make Qt
+    //     drop the declaration — it paints a solid BLACK background, so a
+    //     sloppy value is a visible defect, not a no-op);
+    //   * the eight-digit form is Qt's #aarrggbb, the reverse of CSS Color
+    //     4's #rrggbbaa, and it was reaching here from exactly one token
+    //     (Storm's `accentSoft`, a 14% bolt). A translucent ink composites
+    //     against a backdrop the sanitizer cannot know — the message row may
+    //     itself be carrying the mention wash — so the colour that appears is
+    //     never the colour the theme chose. Reject it and fall back rather
+    //     than render an unpredictable one.
     static const QRegularExpression hexColor(
-        QStringLiteral("^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"));
-    QString nextAccent, nextSoft, nextCode;
-    if (hexColor.match(accentColor).hasMatch()
-        && hexColor.match(softColor).hasMatch()) {
+        QStringLiteral("^#[0-9a-fA-F]{6}$"));
+    // softColor is accepted and ignored. It used to be the mention chip's
+    // surface; the chip no longer has one (see MessageHtml::MentionStyle),
+    // and the parameter stays only so the QML push site keeps its arity.
+    Q_UNUSED(softColor);
+    QString nextAccent, nextLink, nextCode;
+    // Validated independently: they used to share one guard, so a single bad
+    // value silently disabled mention styling altogether.
+    if (hexColor.match(accentColor).hasMatch())
         nextAccent = accentColor.toLower();
-        nextSoft = softColor.toLower();
-    }
+    if (hexColor.match(linkColor).hasMatch())
+        nextLink = linkColor.toLower();
     if (hexColor.match(codeBackground).hasMatch())
         nextCode = codeBackground.toLower();
-    if (nextAccent == m_mentionAccentColor && nextSoft == m_mentionSoftColor
+    if (nextAccent == m_mentionAccentColor && nextLink == m_mentionLinkColor
         && nextCode == m_codeBackgroundColor)
         return;
     m_mentionAccentColor = nextAccent;
-    m_mentionSoftColor = nextSoft;
+    m_mentionLinkColor = nextLink;
     m_codeBackgroundColor = nextCode;
     clearRenderedHtml();
     const int exposed = rowCount();
@@ -1700,7 +1716,7 @@ QString TimelineModel::sanitizedHtmlForEvent(const QString &eventId) const
             return client ? client->displayNameFor(roomId, userId) : QString();
         },
         m_selfUserId,
-        MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionSoftColor,
+        MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionLinkColor,
                                   m_codeBackgroundColor});
 }
 

@@ -432,28 +432,38 @@ QString MessageHtml::sanitize(
                     disp = localpart(mentionUser);
                 const bool self =
                     !ownUserId.isEmpty() && mentionUser == ownUserId;
-                const bool chip = !mentionStyle.accentColor.isEmpty()
-                    && !mentionStyle.softColor.isEmpty();
+                // The accent is reserved for a mention of YOU; everyone else
+                // takes the link ink (see MentionStyle). Either ink standing
+                // in for a missing other, so a theme that pushes only one
+                // still styles both cases rather than half of them.
+                const QString &preferred = self ? mentionStyle.accentColor
+                                                : mentionStyle.linkColor;
+                const QString &alternate = self ? mentionStyle.linkColor
+                                                : mentionStyle.accentColor;
+                const QString ink =
+                    preferred.isEmpty() ? alternate : preferred;
                 out += QStringLiteral("<a href=\"mention:")
                     + mentionUser.toHtmlEscaped() + QStringLiteral("\"");
-                if (chip) {
-                    // Inline chip: accent ink on a soft surface, no anchor
-                    // underline. The colors are model-validated QColor names,
-                    // escaped again here so a style break-out is impossible.
+                if (!ink.isEmpty()) {
+                    // Ink and weight only — no surface. Qt paints an inline
+                    // background as an unroundable full-line-height slab, and
+                    // `text-decoration:none` is required or the anchor keeps
+                    // Qt's default underline (both verified against 6.11).
+                    // The colors are model-validated hex literals, escaped
+                    // again here so a style break-out is impossible.
                     out += QStringLiteral(" style=\"color:")
-                        + mentionStyle.accentColor.toHtmlEscaped()
-                        + QStringLiteral(";background-color:")
-                        + mentionStyle.softColor.toHtmlEscaped()
+                        + ink.toHtmlEscaped()
+                        + QStringLiteral(";font-weight:600")
                         + QStringLiteral(";text-decoration:none\"");
                 }
                 out += QStringLiteral(">");
+                // <b> stays the self-mention marker rather than a heavier
+                // font-weight in the style: it is the ONE signal that also
+                // survives an unstyled body, so the two paths agree and
+                // MentionTokenizer's recovery keeps matching one shape.
                 if (self)
                     out += QLatin1String("<b>");
-                if (chip)
-                    out += QStringLiteral("&nbsp;");
                 out += (QStringLiteral("@") + disp).toHtmlEscaped();
-                if (chip)
-                    out += QStringLiteral("&nbsp;");
                 if (self)
                     out += QLatin1String("</b>");
                 out += QLatin1String("</a>");
@@ -462,8 +472,20 @@ QString MessageHtml::sanitize(
             }
             const QUrl u(href);
             if (isSafeHttp(u)) {
+                // Nothing ever gave message links a colour, so Qt painted
+                // them in its built-in link blue (#0000ff) — a hard primary
+                // blue that is close to unreadable on the dark timeline
+                // grounds. The underline stays: it is what separates a URL
+                // from a mention now that both carry the theme's link ink.
+                const QString linkInk = mentionStyle.linkColor.isEmpty()
+                    ? mentionStyle.accentColor
+                    : mentionStyle.linkColor;
                 out += QStringLiteral("<a href=\"") + href.toHtmlEscaped()
-                    + QStringLiteral("\">");
+                    + QStringLiteral("\"");
+                if (!linkInk.isEmpty())
+                    out += QStringLiteral(" style=\"color:")
+                        + linkInk.toHtmlEscaped() + QStringLiteral("\"");
+                out += QStringLiteral(">");
                 anchorEmitted.append(true);
             } else {
                 anchorEmitted.append(false); // drop the link, keep its text

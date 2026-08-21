@@ -6,14 +6,22 @@
 #include <QVariantList>
 #include <qqmlintegration.h>
 
-// Composer mention chips. The composers keep mentions as semantic
-// {userId, range} refs over plain text ("@Alice") — this highlighter gives
-// those ranges the inline chip treatment (accent ink on an accent-soft
-// surface) directly in the editable TextArea, without changing the document
-// text, offsets, or any send-path semantics. QML cannot render custom
-// QTextObjectInterface inline objects (the scene-graph text engine never
-// calls drawObject), so character formats are the robust native mechanism;
-// the failure mode is simply an unstyled mention.
+// Composer mention styling. The composers keep mentions as semantic
+// {userId, range} refs over plain text ("@Alice") — this highlighter inks
+// those ranges directly in the editable TextArea, without changing the
+// document text, offsets, or any send-path semantics. QML cannot render
+// custom QTextObjectInterface inline objects (the scene-graph text engine
+// never calls drawObject), so character formats are the robust native
+// mechanism; the failure mode is simply an unstyled mention.
+//
+// It used to also fill the range's background. That fill is gone, and the
+// reason is the same one recorded in MessageHtml::MentionStyle: a character
+// format's background is an unroundable, full-line-height square slab, so it
+// reads as a box drawn around the name — the composer being where the user
+// meets it FIRST, the instant they type "@". Ink plus DemiBold marks the
+// token just as clearly and cannot read as an error state. Neither
+// QTextCharFormat nor Qt's rich text can round a corner, so do not try to
+// restore an Element-style pill through either of them.
 //
 // Ranges arrive as [{start, length}, ...] from the owning composer
 // (MessageComposer / ThreadController); they are re-anchored there on every
@@ -28,6 +36,10 @@ class MentionHighlighter : public QSyntaxHighlighter
                    NOTIFY rangesChanged)
     Q_PROPERTY(QColor accentColor READ accentColor WRITE setAccentColor
                    NOTIFY styleChanged)
+    // Vestigial: the former chip surface. Retained because removing a
+    // property a .qml file still assigns is a hard component-load error, and
+    // the composers are not this class's to edit. Assigning it is harmless
+    // and changes nothing.
     Q_PROPERTY(QColor softColor READ softColor WRITE setSoftColor
                    NOTIFY styleChanged)
 

@@ -109,10 +109,18 @@ Item {
         var accent = "" + AppTheme.accent
         var soft = "" + AppTheme.accentSoft
         var code = "" + AppTheme.codeBlock
+        // The FOURTH argument is load-bearing. MessageHtml paints a mention
+        // of YOU in the accent and everything else — other people's mentions
+        // and external URLs — in the link ink, and it also needs a colour for
+        // <a href> because Qt's rich text otherwise falls back to its
+        // built-in #0000ff. Omitting it collapses both onto the accent, so
+        // under Storm every link rendered in bolt yellow and a mention of
+        // someone else became colour-identical to a mention of you.
+        var linkInk = "" + AppTheme.link
         if (app.timeline && app.timeline.setMentionStyle)
-            app.timeline.setMentionStyle(accent, soft, code)
+            app.timeline.setMentionStyle(accent, soft, code, linkInk)
         if (app.thread && app.thread.model && app.thread.model.setMentionStyle)
-            app.thread.model.setMentionStyle(accent, soft, code)
+            app.thread.model.setMentionStyle(accent, soft, code, linkInk)
     }
     Component.onCompleted: _pushMentionStyle()
     Connections {
@@ -120,15 +128,34 @@ Item {
         function onAccentChanged() { _pushMentionStyle() }
         function onAccentSoftChanged() { _pushMentionStyle() }
         function onCodeBlockChanged() { _pushMentionStyle() }
+        // Without this a theme change that moves ONLY the link ink (several
+        // do — Storm's link and accent are unrelated colours) would leave the
+        // models on the previous theme's link colour.
+        function onLinkChanged() { _pushMentionStyle() }
     }
 
     SplitView {
         anchors.fill: parent
         orientation: Qt.Horizontal
 
-        handle: Rectangle {
-            implicitWidth: 1
-            color: AppTheme.border
+        // The divider between columns. It used to BE the 1px painted line,
+        // so the grab target was one pixel wide and nothing under the
+        // pointer ever suggested the columns could be resized. The handle is
+        // now a 5px transparent band (the hit area) carrying a 1px rule
+        // (the drawn line) that lights on hover and takes the accent while
+        // dragging — the line's own weight is unchanged.
+        handle: Item {
+            id: splitHandle
+            implicitWidth: 5
+            Rectangle {
+                anchors.centerIn: parent
+                width: 1
+                height: parent.height
+                color: splitHandle.SplitHandle.pressed ? AppTheme.accent
+                     : splitHandle.SplitHandle.hovered ? AppTheme.borderStrong
+                                                       : AppTheme.border
+                Behavior on color { ColorAnimation { duration: 90 } }
+            }
         }
 
         // ── Spaces rail ───────────────────────────────────────────────────
@@ -179,7 +206,7 @@ Item {
             anchors.centerIn: parent
             width: switchingColumn.implicitWidth + AppTheme.spacing24 * 2
             height: switchingColumn.implicitHeight + AppTheme.spacing24 * 2
-            radius: AppTheme.radiusLg
+            radius: AppTheme.radiusCard
             color: AppTheme.surface
             border.color: AppTheme.border
 
@@ -188,7 +215,7 @@ Item {
                 anchors.centerIn: parent
                 spacing: AppTheme.spacing12
 
-                BusyIndicator {
+                AppBusyIndicator {
                     anchors.horizontalCenter: parent.horizontalCenter
                     running: switchingOverlay.visible
                 }
@@ -196,8 +223,8 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: qsTr("Switching account…")
                     color: AppTheme.textPrimary
-                    font.pixelSize: AppTheme.fontBody
-                    font.weight: Font.DemiBold
+                    font.pixelSize: AppTheme.textBody
+                    font.weight: AppTheme.weightStrong
                 }
             }
         }
