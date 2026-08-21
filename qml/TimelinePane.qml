@@ -2113,6 +2113,11 @@ Rectangle {
                 // broken for so long with nobody able to point at a line.
                 property int diagNavigationLandings: 0
                 property int diagNavigationUnresolved: 0
+                // Jumps the reader overrode by scrolling before they landed.
+                // A healthy session shows a few; a large count next to a
+                // small diagNavigationLandings means targets routinely take
+                // longer to build than a reader is willing to wait.
+                property int diagNavigationAbandoned: 0
                 // ── The geometry half of onTargetLocated ─────────────────
                 //
                 // releasePendingRows() lifts the pacing backlog AND the row
@@ -2160,6 +2165,11 @@ Rectangle {
                 property real navigationPendingOffset: 0
                 property bool navigationPendingHighlight: false
                 property int navigationPendingAttempts: 0
+                // Attempts since the landing was armed, NEVER reset by the
+                // convergence re-arm below. The convergence budget exists so
+                // a slow machine still lands; this is the ceiling that stops
+                // it waiting forever when the view never stops changing.
+                property int navigationTotalAttempts: 0
                 // "<rows>/<laidOutRows>" at the previous landing attempt.
                 // A change means the view is still converging, which re-arms
                 // the budget; see tryLandNavigationTarget().
@@ -2193,11 +2203,42 @@ Rectangle {
                 // and the Column's relayout, short enough that an impossible
                 // target reports rather than hangs.
                 readonly property int maxNavigationLandingAttempts: 12
+                // ABSOLUTE ceiling, ~2 s of ticks. The convergence re-arm
+                // above resets the 12-tick budget whenever the row set or the
+                // laid-out row set changed since the last attempt — and while
+                // the reader scrolls, BOTH change constantly (a pagination
+                // batch alters `count`, the row window alters it again on
+                // every settle, and each Column pass alters
+                // layoutRowsAtLastPass). Without this ceiling the budget is
+                // re-armed forever, the landing never expires, and it fires
+                // whenever the target finally becomes measurable — which is
+                // typically seconds later, mid-gesture, as a teleport back to
+                // a jump the reader had already given up on.
+                readonly property int maxNavigationLandingTicks: 120
                 Timer {
                     id: navigationLandingTimer
                     interval: 16
                     repeat: false
                     onTriggered: timeline.tryLandNavigationTarget()
+                }
+                // The reader taking hold of the view abandons a jump that has
+                // not landed yet. A pending landing writes contentY and
+                // cancels wheel motion when it finally resolves, so leaving
+                // one armed across a deliberate gesture means the view can be
+                // yanked out from under the reader at an arbitrary later
+                // moment. Called ONLY from genuine pointer input (wheel,
+                // drag, flick, autoscroll) — never from a programmatic write,
+                // which would cancel the very landing it is performing.
+                function abandonNavigationLanding() {
+                    if (navigationPendingRow < 0 && navigationPendingId === "")
+                        return
+                    navigationPendingRow = -1
+                    navigationPendingId = ""
+                    navigationPendingAttempts = 0
+                    navigationTotalAttempts = 0
+                    navigationLastShape = ""
+                    navigationLandingTimer.stop()
+                    ++diagNavigationAbandoned
                 }
                 function beginNavigationLanding(row, pixelOffset, highlight) {
                     // Hold the target by STABLE ID, never by row number. This
@@ -2218,6 +2259,7 @@ Rectangle {
                     navigationPendingOffset = pixelOffset
                     navigationPendingHighlight = highlight
                     navigationPendingAttempts = 0
+                    navigationTotalAttempts = 0
                     navigationLastShape = ""
                     // Try immediately: an already-exposed target lands on
                     // this turn exactly as it always did.
@@ -2259,7 +2301,9 @@ Rectangle {
                             navigationPendingAttempts = 0
                         }
                         if (++navigationPendingAttempts
-                                < maxNavigationLandingAttempts) {
+                                    < maxNavigationLandingAttempts
+                                && ++navigationTotalAttempts
+                                    < maxNavigationLandingTicks) {
                             navigationLandingTimer.restart()
                             return false
                         }
@@ -2280,7 +2324,12 @@ Rectangle {
                                      + " winSkip=" + rowWindowSkip
                                      + " built=" + (item ? 1 : 0)
                                      + " rowH=" + (item ? item.height : -1)
-                                     + " laidOutRows=" + layoutRowsAtLastPass)
+                                     + " laidOutRows=" + layoutRowsAtLastPass
+                                     // Separates "this target can never be
+                                     // measured" (ticks well under the
+                                     // ceiling) from "the view never stopped
+                                     // changing" (ticks AT the ceiling).
+                                     + " ticks=" + navigationTotalAttempts)
                         return false
                     }
                     // The row set is laid out and this row is measured, but a
@@ -3734,6 +3783,12 @@ Rectangle {
                         // autoscroll gesture still running would write it on
                         // alternate frames.
                         root.stopAutoscroll()
+                        // ...and so is a jump that has not landed yet. The
+                        // reader turning the wheel is an explicit "I am
+                        // driving now"; without this the pending landing
+                        // survives the whole gesture and teleports the view
+                        // back the moment its target becomes measurable.
+                        timeline.abandonNavigationLanding()
                         // Positive delta on either axis is the OLDER
                         // direction on this rotated view (see wheelTargetY /
                         // pixelTargetY, which both take the negated value).
@@ -3784,8 +3839,8 @@ Rectangle {
                 // glide still in flight would fight it — the same interlock
                 // the scrollbar and middle-click autoscroll already use. Only
                 // drag/flick (never a programmatic write) reaches these.
-                onDragStarted: cancelWheelMotion()
-                onFlickStarted: cancelWheelMotion()
+                onDragStarted: { cancelWheelMotion(); abandonNavigationLanding() }
+                onFlickStarted: { cancelWheelMotion(); abandonNavigationLanding() }
 
                 Component.onDestruction: cancelWheelMotion()
 
@@ -4280,6 +4335,9 @@ Rectangle {
                         return
                     var frac = (1 - size) > 0 ? position / (1 - size) : 0
                     timeline.cancelWheelMotion()
+                    // Dragging the handle is the reader driving the view, so
+                    // it retires an unlanded jump exactly as the wheel does.
+                    timeline.abandonNavigationLanding()
                     timeline.contentY = timeline.wheelMaxY() - frac * span
                     timeline.updateStickAndPaginate()
                 }
@@ -4417,7 +4475,12 @@ Rectangle {
                 // updateStickAndPaginate() derives it from the real position,
                 // so autoscrolling back down to the newest message re-arms
                 // follow-latest exactly as the wheel does.
-                onActiveChanged: if (active) timeline.cancelWheelMotion()
+                onActiveChanged: if (active) {
+                    timeline.cancelWheelMotion()
+                    // Same reasoning as the wheel handler: starting an
+                    // autoscroll gesture is the reader taking the view.
+                    timeline.abandonNavigationLanding()
+                }
                 onScrolled: timeline.updateStickAndPaginate()
             }
 

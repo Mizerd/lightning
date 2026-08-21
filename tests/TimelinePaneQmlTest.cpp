@@ -8113,6 +8113,128 @@ private Q_SLOTS:
         // the shape three reverted scroll fixes had.
         QCOMPARE(timeline->property("diagNavigationLandings").toInt(), 1);
     }
+
+    // ── The teleport ────────────────────────────────────────────────────
+    //
+    // A jump whose target is not built yet waits on a 16 ms retry. The retry
+    // budget is re-armed whenever the view's shape changed since the last
+    // attempt, which is right for a slow machine converging on a layout and
+    // catastrophic during a scroll: a pagination batch changes `count`, the
+    // row window changes it again on every settle, and each Column pass
+    // changes layoutRowsAtLastPass. The budget was therefore re-armed
+    // forever, the landing never expired, and it fired whenever the target
+    // finally became measurable — seconds later, mid-gesture, writing
+    // contentY out from under the reader.
+    //
+    // Two independent guarantees, one case each.
+    void aWheelNotchAbandonsAJumpThatHasNotLandedYet()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.55);
+        QVERIFY(timeline != nullptr);
+
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+
+        // The precondition is that the target is NOT exposed — whether that
+        // is the row window or the paced reveal holding it back does not
+        // matter here, and asserting on one of them makes the case fail for
+        // reasons unrelated to what it tests.
+        QQmlExpression exposed(
+            qmlContext(timeline), timeline,
+            QStringLiteral("viewRowForStableId('$win50')"));
+        QCOMPARE(exposed.evaluate().toInt(), -1);
+
+        // Source row 50 is deep history, so the landing cannot resolve on
+        // this turn and stays pending.
+        QQmlExpression arm(
+            qmlContext(timeline), timeline,
+            QStringLiteral("beginNavigationLanding(50, 0, false)"));
+        arm.evaluate();
+        QVERIFY2(!arm.hasError(),
+                 arm.error().toString().toUtf8().constData());
+        QVERIFY2(!timeline->property("navigationPendingId").toString()
+                      .isEmpty(),
+                 "the landing did not stay pending, so this case would pass "
+                 "vacuously");
+        const qreal parked = timeline->property("contentY").toReal();
+
+        // The reader takes the view.
+        sendWheelNotch(window, QPointF(350, 200), 120, false);
+
+        QCOMPARE(timeline->property("navigationPendingId").toString(),
+                 QString());
+        QCOMPARE(timeline->property("navigationPendingRow").toInt(), -1);
+        QCOMPARE(timeline->property("diagNavigationAbandoned").toInt(), 1);
+
+        // And it STAYS abandoned: the whole defect is a landing that fires
+        // later, so letting the event loop run is the actual assertion.
+        QTest::qWait(400);
+        QCoreApplication::processEvents();
+        QCOMPARE(timeline->property("diagNavigationLandings").toInt(), 0);
+        QVERIFY2(!qFuzzyCompare(timeline->property("contentY").toReal() + 1.0,
+                                parked + 1.0),
+                 "the wheel notch did not move the view, so a teleport back "
+                 "to `parked` could not be distinguished from doing nothing");
+    }
+
+    void aLandingWhoseViewNeverStopsChangingGivesUpInsteadOfWaitingForever()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.55);
+        QVERIFY(timeline != nullptr);
+
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QCoreApplication::processEvents();
+
+        QQmlExpression arm(
+            qmlContext(timeline), timeline,
+            QStringLiteral("beginNavigationLanding(50, 0, false)"));
+        arm.evaluate();
+        QVERIFY2(!arm.hasError(),
+                 arm.error().toString().toUtf8().constData());
+        QVERIFY(!timeline->property("navigationPendingId").toString().isEmpty());
+
+        // Drive the retry by hand with the shape changing every single time —
+        // exactly what a live scroll does, and the condition under which the
+        // convergence re-arm zeroes the budget. layoutRowsAtLastPass is a
+        // plain property written by the Column's positioningComplete, so
+        // moving it here reproduces the churn without needing a real gesture.
+        QQmlExpression retry(qmlContext(timeline), timeline,
+                             QStringLiteral("tryLandNavigationTarget()"));
+        // A fixed, generous count rather than a read of the ceiling property:
+        // reading it would make this case fail merely because the property is
+        // absent, which proves nothing about behaviour. 400 attempts is well
+        // past any defensible bound, so a landing still pending at the end is
+        // one that intends to wait forever.
+        for (int i = 0; i < 400; ++i) {
+            timeline->setProperty("layoutRowsAtLastPass", i + 1);
+            retry.evaluate();
+            QVERIFY2(!retry.hasError(),
+                     retry.error().toString().toUtf8().constData());
+            if (timeline->property("navigationPendingId").toString().isEmpty())
+                break;
+        }
+
+        // It gave up, and it said so rather than landing on a stale target.
+        QCOMPARE(timeline->property("navigationPendingId").toString(),
+                 QString());
+        QCOMPARE(timeline->property("navigationPendingRow").toInt(), -1);
+        QCOMPARE(timeline->property("diagNavigationUnresolved").toInt(), 1);
+        QCOMPARE(timeline->property("diagNavigationLandings").toInt(), 0);
+    }
 };
 
 int main(int argc, char *argv[])
