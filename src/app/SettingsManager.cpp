@@ -764,7 +764,12 @@ void SettingsManager::setTextScale(int percent)
 
 QString SettingsManager::language() const
 {
-    return m_store->value(kLanguage, QStringLiteral("en")).toString();
+    // "system" is a POLICY, not a language: it means "resolve against the
+    // desktop every time we start". It is the default so that a first run
+    // on a Spanish desktop comes up in Spanish; an explicitly chosen code is
+    // stored verbatim and never re-resolved. LocalizationManager owns the
+    // mapping and validates whatever comes back out of here.
+    return m_store->value(kLanguage, QStringLiteral("system")).toString();
 }
 
 void SettingsManager::setLanguage(const QString &lang)

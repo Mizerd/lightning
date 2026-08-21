@@ -234,6 +234,75 @@ find_package(Qt6 6.5 COMPONENTS DBus)
 qt_standard_project_setup(REQUIRES 6.5)
 
 # ---------------------------------------------------------------------------
+# Localization (Qt Linguist).
+#
+# The catalogs are hand-maintained .ts files under i18n/ and English is the
+# SOURCE language, so there is deliberately no lightning_en.ts: selecting
+# English installs no catalog and every qsTr() renders its own source string.
+#
+# LinguistTools is OPTIONAL on purpose. lrelease lives in a separate distro
+# package from the Qt development headers (Debian: qt6-tools-dev-tools, not
+# qt6-base-dev), and a hard requirement here would break every packaging job
+# that has not added it. Without it the build succeeds and the application is
+# English-only, LocalizationManager::translationsAvailable() reports false,
+# and the Settings page says so instead of offering ten identical languages.
+# ---------------------------------------------------------------------------
+# `en` is in the list even though English is the SOURCE language: Qt renders
+# a `%n room(s)` source string's "(s)" literally when no catalog is loaded, so
+# English needs a catalog carrying its plural forms and (after
+# -removeidentical) essentially nothing else.
+set(LIGHTNING_LANGUAGE_CODES en zh_CN hi es ar fr bn pt ru id)
+set(LIGHTNING_TS_FILES "")
+foreach(_lang IN LISTS LIGHTNING_LANGUAGE_CODES)
+    list(APPEND LIGHTNING_TS_FILES "${CMAKE_CURRENT_SOURCE_DIR}/i18n/lightning_${_lang}.ts")
+endforeach()
+
+find_package(Qt6 6.5 QUIET COMPONENTS LinguistTools)
+set(LIGHTNING_QM_FILES "")
+set(LIGHTNING_TRANSLATIONS_ENABLED OFF)
+if(Qt6LinguistTools_FOUND)
+    set(LIGHTNING_QM_DIR "${CMAKE_CURRENT_BINARY_DIR}/i18n")
+    file(MAKE_DIRECTORY "${LIGHTNING_QM_DIR}")
+    foreach(_ts IN LISTS LIGHTNING_TS_FILES)
+        get_filename_component(_base "${_ts}" NAME_WE)
+        set(_qm "${LIGHTNING_QM_DIR}/${_base}.qm")
+        # -removeidentical drops entries whose translation equals the source
+        # (which would cost bytes and buy nothing); -nounfinished keeps
+        # UNFINISHED entries out of the binary catalog, so a half-translated
+        # string falls back to English instead of shipping a draft.
+        add_custom_command(
+            OUTPUT "${_qm}"
+            COMMAND Qt6::lrelease -removeidentical -nounfinished -silent "${_ts}" -qm "${_qm}"
+            DEPENDS "${_ts}"
+            COMMENT "lrelease ${_base}.qm"
+            VERBATIM)
+        list(APPEND LIGHTNING_QM_FILES "${_qm}")
+    endforeach()
+    add_custom_target(lightning-translations ALL DEPENDS ${LIGHTNING_QM_FILES})
+    set_source_files_properties(${LIGHTNING_QM_FILES} PROPERTIES GENERATED TRUE)
+    set(LIGHTNING_TRANSLATIONS_ENABLED ON)
+
+    # Manual only — never wired into ALL. lupdate REWRITES the tracked .ts
+    # files, so running it as a side effect of an ordinary build would edit
+    # the working tree under the developer. See docs/localization.md.
+    add_custom_target(update-translations
+        COMMAND Qt6::lupdate
+            -locations relative -no-obsolete
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${CMAKE_CURRENT_SOURCE_DIR}/qml"
+            -ts ${LIGHTNING_TS_FILES}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "lupdate: refreshing i18n/*.ts from src/ and qml/"
+        VERBATIM)
+    message(STATUS "Localization: enabled (${LIGHTNING_LANGUAGE_CODES})")
+else()
+    message(WARNING
+        "Qt6 LinguistTools not found — building WITHOUT translations. The UI "
+        "will be English-only regardless of the language setting. Install the "
+        "Qt Linguist tools (Debian/Ubuntu: qt6-tools-dev-tools) to enable it.")
+endif()
+
+# ---------------------------------------------------------------------------
 # Optional libsecret (Freedesktop Secret Service) backend for SecretStore.
 # When absent, LibSecretStore compiles as a no-op stub and the factory falls
 # back to InsecureFallbackSecretStore (QSettings) with a visible warning.
@@ -280,6 +349,8 @@ set(APP_SOURCES
     src/app/ConversationController.cpp
     src/app/CustomAppIcon.h
     src/app/CustomAppIcon.cpp
+    src/app/CustomThemeStore.h
+    src/app/CustomThemeStore.cpp
     src/app/StormBandPainter.h
     src/app/StormBandPainter.cpp
     src/app/RoomInfoController.h
@@ -311,6 +382,9 @@ set(APP_SOURCES
     src/calls/SdpStore.h
     src/app/SettingsManager.h
     src/app/SettingsManager.cpp
+
+    src/i18n/LocalizationManager.h
+    src/i18n/LocalizationManager.cpp
 
     src/auth/AuthManager.h
     src/auth/AuthManager.cpp
@@ -577,6 +651,8 @@ set(APP_QML_FILES
     qml/RoomInfoPanel.qml
     qml/ThreadPanel.qml
     qml/ThreadSummaryCard.qml
+    qml/ThemePreviewDemo.qml
+    qml/ThemeEditorDialog.qml
     qml/GifPicker.qml
     qml/QuickSwitcher.qml
     qml/ImageViewerOverlay.qml
@@ -715,6 +791,19 @@ function(_lightning_configure_qml_module target _scope)
     )
 
     target_include_directories(${target} ${_scope} src)
+
+    # Compiled translation catalogs, embedded so a packaged application
+    # carries them without a data directory. LocalizationManager loads
+    # ":/i18n/lightning_<code>.qm". The resource NAME is per-target because
+    # every Qt-executable target registers its own copy of the QML module.
+    if(LIGHTNING_TRANSLATIONS_ENABLED)
+        qt_add_resources(${target} "lightning_i18n_${target}"
+            PREFIX "/i18n"
+            BASE "${LIGHTNING_QM_DIR}"
+            FILES ${LIGHTNING_QM_FILES})
+        add_dependencies(${target} lightning-translations)
+        target_compile_definitions(${target} ${_scope} LIGHTNING_HAS_TRANSLATIONS=1)
+    endif()
     # qmltyperegistrar's generated qml_register_types_MatrixClient() probes
     # for each QML_ELEMENT header with #if __has_include(<HeaderName.h>) — a
     # bare filename, not the "models/HeaderName.h" path used by quoted
@@ -1052,6 +1141,61 @@ if(BUILD_TESTING)
     target_include_directories(rust-session-lifecycle-test PRIVATE src)
     target_link_libraries(rust-session-lifecycle-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME rust-session-lifecycle COMMAND rust-session-lifecycle-test)
+
+    qt_add_executable(custom-theme-test
+        tests/CustomThemeTest.cpp
+        src/app/CustomThemeStore.h
+        src/app/CustomThemeStore.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(custom-theme-test PRIVATE src)
+    target_compile_definitions(custom-theme-test PRIVATE
+        APPTHEME_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/AppTheme.qml")
+    target_link_libraries(custom-theme-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME custom-theme COMMAND custom-theme-test)
+
+    qt_add_executable(localization-test
+        tests/LocalizationTest.cpp
+        src/i18n/LocalizationManager.h
+        src/i18n/LocalizationManager.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(localization-test PRIVATE src)
+    # The catalogs are read from the SOURCE tree (the .ts files, for the
+    # placeholder contract) and from the BUILD tree (the compiled .qm, to
+    # prove one actually loads). Neither is a resource here: this target
+    # deliberately does not build the QML module.
+    target_compile_definitions(localization-test PRIVATE
+        LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    if(LIGHTNING_TRANSLATIONS_ENABLED)
+        target_compile_definitions(localization-test PRIVATE
+            LIGHTNING_HAS_TRANSLATIONS=1
+            LIGHTNING_QM_DIR="${LIGHTNING_QM_DIR}")
+        add_dependencies(localization-test lightning-translations)
+        # The catalogs are embedded here too, at the SAME :/i18n prefix the
+        # application uses, so the test exercises the real resource lookup
+        # rather than a filesystem path that only exists in a build tree.
+        qt_add_resources(localization-test "lightning_i18n_localization_test"
+            PREFIX "/i18n"
+            BASE "${LIGHTNING_QM_DIR}"
+            FILES ${LIGHTNING_QM_FILES})
+    else()
+        # Without Linguist tools there is no .qm to load; the test still runs
+        # its policy and .ts assertions and skips the loading one.
+        target_compile_definitions(localization-test PRIVATE
+            LIGHTNING_QM_DIR="${CMAKE_CURRENT_BINARY_DIR}/i18n")
+    endif()
+    target_link_libraries(localization-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME localization COMMAND localization-test)
 
     qt_add_executable(settings-session-test
         tests/SettingsSessionTest.cpp

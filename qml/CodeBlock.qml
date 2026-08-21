@@ -22,6 +22,13 @@ import MatrixClient
 Rectangle {
     id: root
 
+    // Source code reads left to right in every language, so this block opts
+    // out of the app-wide RTL mirroring Main.qml turns on for Arabic. The
+    // gutter stays on the leading edge of the CODE, not of the sentence
+    // around it, and a horizontally scrolled line still starts at column 1.
+    LayoutMirroring.enabled: false
+    LayoutMirroring.childrenInherit: true
+
     // The program text. PLAIN text, already entity-decoded by
     // MessageHtml::segments() — it is rendered with Text.PlainText, so
     // "&lt;b&gt;" arrives as those six literal characters and can never

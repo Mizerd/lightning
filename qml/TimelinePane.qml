@@ -5505,10 +5505,11 @@ Rectangle {
                                 text: {
                                     var c = spaceHome.info.childCount || 0
                                     var u = spaceHome.info.unreadTotal || 0
-                                    var line = c === 1
-                                        ? qsTr("1 room") : qsTr("%1 rooms").arg(c)
+                                    var line = qsTr("%n room(s)",
+                                                    "rooms inside a Space", c)
                                     if (u > 0)
-                                        line += qsTr(" • %1 unread").arg(u)
+                                        line = qsTr("%1 • %2 unread")
+                                            .arg(line).arg(u)
                                     return line
                                 }
                                 color: AppTheme.textMuted

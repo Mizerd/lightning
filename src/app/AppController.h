@@ -9,6 +9,8 @@
 #include "models/MessageSearchController.h"
 #include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
+#include "app/CustomThemeStore.h"
+#include "i18n/LocalizationManager.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
 #include "crypto/CryptoBootstrapModel.h"
@@ -190,6 +192,12 @@ class AppController : public QObject
     Q_PROPERTY(bool verificationQrConfirming READ verificationQrConfirming NOTIFY verificationStateChanged)
 
     Q_PROPERTY(SettingsManager* settings READ settings CONSTANT)
+    // UI language. Application-wide, not per-account: the translators are
+    // installed on QCoreApplication and the layout direction is process-wide.
+    Q_PROPERTY(LocalizationManager* localization READ localization CONSTANT)
+    // User-authored palette overrides (Settings -> Appearance -> Custom
+    // theme). Per-account appearance state, like the theme itself.
+    Q_PROPERTY(CustomThemeStore* customTheme READ customTheme CONSTANT)
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
     Q_PROPERTY(AccountManager* accounts READ accounts CONSTANT)
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
@@ -409,6 +417,8 @@ public:
     bool accountSwitching() const { return m_accountSwitching; }
 
     SettingsManager *settings() const;
+    LocalizationManager *localization() const;
+    CustomThemeStore *customTheme() const;
     AuthManager *auth() const;
     AccountManager *accounts() const;
     RoomListModel *roomList() const;
@@ -985,6 +995,8 @@ private:
     // be wired to it before any code touches accessToken() / hasSession().
     std::unique_ptr<SecretStore> m_secretStore;
     std::unique_ptr<SettingsManager> m_settings;
+    std::unique_ptr<LocalizationManager> m_localization;
+    std::unique_ptr<CustomThemeStore> m_customTheme;
     bool m_shuttingDown = false;
     // Development-only screenshot/demo mode (never true in a release build; the
     // compile option that enables beginScreenshotDemo cannot coexist with a

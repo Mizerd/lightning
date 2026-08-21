@@ -110,7 +110,12 @@ QString diagnosticName(StoreBlockReason reason)
 
 QString userMessage(StoreBlockReason reason)
 {
-    const auto tr = [](const char *text) {
+    // NOT named `tr`: lupdate reads a bare msg( call as a QObject member and
+    // warns that this namespace "lacks Q_OBJECT macro", which invites the
+    // wrong fix. The strings are extracted correctly either way — the
+    // context is spelled out in the translate() call — but the warning is
+    // noise in every localization build.
+    const auto msg = [](const char *text) {
         return QCoreApplication::translate("matrix::rust_session", text);
     };
     switch (reason) {
@@ -120,50 +125,50 @@ QString userMessage(StoreBlockReason reason)
         // The historical bug: this said the store "belongs to a different
         // session or device" and offered to reset it — a store that is not
         // there. Signing in again is the whole remedy.
-        return tr("Lightning has a saved sign-in for this account but its "
+        return msg("Lightning has a saved sign-in for this account but its "
                   "local encryption store is missing. Sign in again to "
                   "recreate it. Messages already on the server are not "
                   "affected, but encrypted history whose keys were only "
                   "stored locally may need to be recovered from key backup "
                   "or another signed-in session.");
     case StoreBlockReason::AmbiguousStoreCandidates:
-        return tr("Lightning found more than one local encryption store that "
+        return msg("Lightning found more than one local encryption store that "
                   "could belong to this account and will not guess between "
                   "them. Sign out of the accounts you no longer use, or "
                   "remove the unused one from Settings, then sign in again. "
                   "Nothing has been deleted.");
     case StoreBlockReason::AccessTokenRevoked:
-        return tr("This session was signed out on the server. Sign in again "
+        return msg("This session was signed out on the server. Sign in again "
                   "to continue. Your local data is intact.");
     case StoreBlockReason::MissingSessionMetadata:
-        return tr("Lightning found a local encryption store for this account "
+        return msg("Lightning found a local encryption store for this account "
                   "with no sign-in saved alongside it. Sign in again to "
                   "continue.");
     case StoreBlockReason::MissingDeviceId:
-        return tr("The saved sign-in for this account is incomplete — it has "
+        return msg("The saved sign-in for this account is incomplete — it has "
                   "no device. Reset the local Lightning session for this "
                   "account, then sign in again. This does not delete server "
                   "messages or Element data.");
     case StoreBlockReason::ExistingStoreNeedsRestore:
-        return tr("This account is already signed in on this device. Switch "
+        return msg("This account is already signed in on this device. Switch "
                   "to it from the account menu instead of signing in again.");
     case StoreBlockReason::SecretBackendUnavailable:
-        return tr("Lightning cannot read your saved sign-in for this account. "
+        return msg("Lightning cannot read your saved sign-in for this account. "
                   "Your system keyring is locked or unavailable — unlock it "
                   "and try again. Nothing has been deleted, and your local "
                   "encryption store is intact.");
     case StoreBlockReason::InvalidSavedIdentity:
-        return tr("Lightning could not read the saved account details for "
+        return msg("Lightning could not read the saved account details for "
                   "this session. Reset the local Lightning session for this "
                   "account, then sign in again. This does not delete server "
                   "messages or Element data.");
     case StoreBlockReason::DifferentAccount:
-        return tr("This local Lightning Rust SDK store belongs to a different "
+        return msg("This local Lightning Rust SDK store belongs to a different "
                   "Matrix session or device. Reset the local Lightning "
                   "session for this account, then sign in again. This does "
                   "not delete server messages or Element data.");
     }
-    return tr("Lightning could not open the local session for this account.");
+    return msg("Lightning could not open the local session for this account.");
 }
 
 bool suggestsLocalReset(StoreBlockReason reason)

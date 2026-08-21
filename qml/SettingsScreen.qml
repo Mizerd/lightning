@@ -1304,9 +1304,13 @@ Item {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing8
                             Repeater {
+                                // 8-11 are the featured cards above; 12 has
+                                // its own row below with the editor attached,
+                                // so a mini card for it would be a second
+                                // control for the same thing.
                                 model: AppTheme.themeList.filter(
                                     (t) => t.id !== 8 && t.id !== 9 && t.id !== 10
-                                           && t.id !== 11)
+                                           && t.id !== 11 && t.id !== 12)
                                 delegate: Rectangle {
                                     id: miniThemeCard
                                     required property var modelData
@@ -1377,6 +1381,124 @@ Item {
                                         id: miniHover
                                         cursorShape: Qt.PointingHandCursor
                                     }
+                                }
+                            }
+                        }
+
+                        // ── Custom theme ────────────────────────────────
+                        // Offered as its own row rather than as a twelfth
+                        // card: it has no fixed palette to preview until the
+                        // user has made one, so a card would show either a
+                        // blank swatch or a copy of whatever it was forked
+                        // from.
+                        SettingsGroupLabel { text: qsTr("Custom theme") }
+                        Rectangle {
+                            id: customThemeRow
+                            objectName: "customThemeRow"
+                            Layout.fillWidth: true
+                            implicitHeight: customThemeLayout.implicitHeight
+                                            + AppTheme.spacing12 * 2
+                            radius: AppTheme.radiusTile
+                            readonly property bool selectedTheme:
+                                app.settings.theme === 12
+                            color: selectedTheme ? AppTheme.stormSelection
+                                                 : AppTheme.stormInset
+                            border.width: selectedTheme ? 2 : 0
+                            border.color: AppTheme.bolt
+
+                            RowLayout {
+                                id: customThemeLayout
+                                anchors.fill: parent
+                                anchors.margins: AppTheme.spacing12
+                                spacing: AppTheme.spacing12
+
+                                // Live swatch strip: the shell regions in
+                                // window order, so the row reads as a theme
+                                // rather than as a settings toggle.
+                                Row {
+                                    spacing: 2
+                                    Repeater {
+                                        model: app.customTheme.exists
+                                               ? ["rail", "sidebar", "background",
+                                                  "surface", "accent"]
+                                               : []
+                                        delegate: Rectangle {
+                                            required property string modelData
+                                            width: 10
+                                            height: 28
+                                            radius: 2
+                                            color: {
+                                                var o = app.customTheme.colors
+                                                if (o && o[modelData] !== undefined)
+                                                    return o[modelData]
+                                                var pal = AppTheme.paletteForTheme(
+                                                    app.customTheme.baseTheme)
+                                                return pal[modelData] !== undefined
+                                                       ? pal[modelData]
+                                                       : AppTheme.stormTextMuted
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+                                    Label {
+                                        text: app.customTheme.exists
+                                              ? qsTr("Your theme")
+                                              : qsTr("Build your own theme")
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightStrong
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        text: app.customTheme.exists
+                                              ? qsTr("%n colour(s) changed. Pick a colour for any part of the window.",
+                                                     "custom theme summary",
+                                                     app.customTheme.overrideCount)
+                                              : qsTr("Pick a colour for any part of the window and watch a sample room repaint.")
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.textMeta
+                                    }
+                                }
+
+                                AppButton {
+                                    objectName: "customThemeEditButton"
+                                    kind: app.customTheme.exists ? "secondary"
+                                                                 : "primary"
+                                    storm: true
+                                    text: app.customTheme.exists ? qsTr("Edit")
+                                                                 : qsTr("Create")
+                                    // Selecting the theme is part of opening
+                                    // the editor: the preview renders the
+                                    // LIVE palette, so editing a theme that
+                                    // is not applied would show the user
+                                    // changes to a window they are not
+                                    // looking at.
+                                    onClicked: {
+                                        app.settings.theme = 12
+                                        themeEditorLoader.active = true
+                                    }
+                                }
+                            }
+                        }
+
+                        // Loaded on demand: the editor carries a full preview
+                        // shell and a colour dialog, and Appearance is opened
+                        // far more often than a theme is authored.
+                        Loader {
+                            id: themeEditorLoader
+                            objectName: "themeEditorLoader"
+                            active: false
+                            sourceComponent: ThemeEditorDialog {}
+                            onLoaded: item.open()
+                            Connections {
+                                target: themeEditorLoader.item
+                                function onClosed() {
+                                    themeEditorLoader.active = false
                                 }
                             }
                         }
@@ -1997,14 +2119,56 @@ Item {
                                     font.pixelSize: AppTheme.textBody
                                 }
                                 AppComboBox {
+                                    id: languageCombo
+                                    objectName: "languageCombo"
                                     storm: true
                                     Layout.fillWidth: true
-                                    model: ["en", "lt"]
-                                    currentIndex: Math.max(0, model.indexOf(app.settings.language))
-                                    onActivated: app.settings.language = model[currentIndex]
+                                    model: app.localization.languages
+                                    // The language's OWN name, never its
+                                    // English one: a user who cannot read the
+                                    // current UI language cannot find
+                                    // "Russian" in a list either.
+                                    textRole: "endonym"
+                                    valueRole: "code"
+                                    enabled: app.localization.translationsAvailable
+
+                                    // indexOfValue() returns -1 at creation
+                                    // time - the model and valueRole have not
+                                    // settled - so the index is synced
+                                    // explicitly here and again whenever
+                                    // either side changes.
+                                    function syncIndex() {
+                                        var i = indexOfValue(app.localization.language)
+                                        if (i >= 0 && i !== currentIndex)
+                                            currentIndex = i
+                                    }
+                                    Component.onCompleted: syncIndex()
+                                    onModelChanged: Qt.callLater(syncIndex)
+                                    Connections {
+                                        target: app.localization
+                                        function onLanguageChanged() {
+                                            Qt.callLater(languageCombo.syncIndex)
+                                        }
+                                    }
+                                    onActivated: app.localization.language = currentValue
+                                    Accessible.name: qsTr("Interface language")
                                 }
                                 Label {
-                                    text: qsTr("Language switching requires an app restart.")
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    // Three different truths, never conflated:
+                                    // a build with no catalogs at all, a
+                                    // "System default" that resolved to
+                                    // something, and an explicit choice.
+                                    text: {
+                                        if (!app.localization.translationsAvailable)
+                                            return qsTr("This build was compiled without translations, so the interface stays in English.")
+                                        if (app.localization.language === "system")
+                                            return qsTr("Following your desktop: %1.")
+                                                .arg(app.localization.endonymOf(
+                                                    app.localization.effectiveLanguage))
+                                        return qsTr("The interface changes immediately. A few strings already on screen update when you next open their panel.")
+                                    }
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                 }

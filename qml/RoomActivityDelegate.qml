@@ -105,13 +105,14 @@ Item {
                     text: {
                         if (root.entryCount === 0)
                             return qsTr("Room updated")
-                        if (root.entryCount === 1)
-                            return qsTr("1 room update")
+                        var summary = qsTr("%n room update(s)",
+                                           "collapsed state-event group",
+                                           root.entryCount)
                         if (root.dateRangeLabel.length > 0)
-                            return qsTr("%1 room updates · %2")
-                                .arg(root.entryCount)
+                            return qsTr("%1 · %2")
+                                .arg(summary)
                                 .arg(root.dateRangeLabel)
-                        return qsTr("%1 room updates").arg(root.entryCount)
+                        return summary
                     }
                     color: AppTheme.textMuted
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)

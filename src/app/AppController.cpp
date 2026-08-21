@@ -164,6 +164,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // legacy plaintext token into the SecretStore on first entry.
     m_settings->setSecretStore(m_secretStore.get());
 
+    // Built here rather than in main.cpp so QML reaches it as app.localization
+    // alongside every other controller. It installs no catalog until
+    // applyStoredLanguage() runs — main.cpp does that before the QML engine
+    // loads, so the first frame is already in the user's language.
+    m_localization = std::make_unique<LocalizationManager>(m_settings.get(), this);
+    m_customTheme = std::make_unique<CustomThemeStore>(m_settings.get(), this);
+
     m_client       = makeClient(backend, m_settings.get(), this);
     m_accounts     = std::make_unique<AccountManager>(m_settings.get(), this);
     m_auth         = std::make_unique<AuthManager>(m_client.get(), this);
@@ -1671,6 +1678,10 @@ void AppController::cancelVoiceRecording()
 }
 
 SettingsManager *AppController::settings() const { return m_settings.get(); }
+LocalizationManager *AppController::localization() const
+{ return m_localization.get(); }
+CustomThemeStore *AppController::customTheme() const
+{ return m_customTheme.get(); }
 AuthManager *AppController::auth() const { return m_auth.get(); }
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO

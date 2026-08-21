@@ -582,8 +582,8 @@ Rectangle {
             }
             Label {
                 readonly property int replies: app.thread.model.count - 1
-                text: replies === 1 ? qsTr("1 reply")
-                                    : qsTr("%1 replies").arg(replies)
+                text: qsTr("%n reply(s)", "replies in the open thread",
+                           replies)
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 font.weight: AppTheme.weightStrong

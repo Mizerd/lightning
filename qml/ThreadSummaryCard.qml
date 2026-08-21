@@ -92,14 +92,20 @@ Item {
     Accessible.role: Accessible.Button
     Accessible.focusable: true
     Accessible.name: {
+        // Each augmentation is its own TEMPLATE, never a fragment glued on
+        // with +: a translator has to be able to move the clause, and in an
+        // RTL layout the comma does not belong where a naive concatenation
+        // puts it.
         var base = qsTr("Open thread")
         if (replyCount > 0)
-            base += ", " + qsTr("%n reply(s)", "", replyCount)
+            base = qsTr("%1, %n reply(s)", "thread card, reply count",
+                        replyCount).arg(base)
         if (latestSender.length > 0)
-            base += ", " + qsTr("latest reply from %1").arg(latestSender)
+            base = qsTr("%1, latest reply from %2").arg(base).arg(latestSender)
         var p = previewLabel()
         if (p.length > 0)
-            base += ": " + p
+            base = qsTr("%1: %2", "thread card, name then message preview")
+                .arg(base).arg(p)
         return base
     }
     Accessible.onPressAction: card.activated()

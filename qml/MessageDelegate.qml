@@ -1993,14 +1993,14 @@ Item {
                                         // one. -1 is "extent unknown", and
                                         // "sending… 0%" would be a claim.
                                         if (root.uploadProgress >= 0)
-                                            return ts + " • " + qsTr(
-                                                "sending… %1%").arg(
-                                                Math.round(
+                                            return qsTr("%1 • sending… %2%")
+                                                .arg(ts)
+                                                .arg(Math.round(
                                                     root.uploadProgress * 100))
-                                        return ts + " • " + qsTr("sending…")
+                                        return qsTr("%1 • sending…").arg(ts)
                                     }
                                     if (model.isOwn && model.status === 2)
-                                        return ts + " • " + qsTr("failed")
+                                        return qsTr("%1 • failed").arg(ts)
                                     if (model.edited) return qsTr("edited")
                                     return ""
                                 }
@@ -5214,12 +5214,10 @@ Item {
                     text: {
                         var voters = model.pollTotalVoters || 0
                         if (pollCard.pollEnded)
-                            return voters === 1
-                                ? qsTr("Final result • 1 vote")
-                                : qsTr("Final result • %1 votes").arg(voters)
+                            return qsTr("Final result • %n vote(s)",
+                                        "closed poll tally", voters)
                         if (voters === 0) return qsTr("No votes yet")
-                        return voters === 1 ? qsTr("1 vote")
-                                            : qsTr("%1 votes").arg(voters)
+                        return qsTr("%n vote(s)", "open poll tally", voters)
                     }
                     color: AppTheme.textMuted
                     font.pixelSize: AppTheme.scaled(11)

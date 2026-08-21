@@ -184,7 +184,11 @@ Popup {
             iconName: "palette", keywords: "theme match system auto",
             enabled: true, run: function() { app.settings.theme = 0 }
         })
-        var themes = AppTheme.themeList
+        // The custom theme is only offered once it exists: selecting an
+        // empty one applies a palette identical to its base, which looks
+        // like the command did nothing.
+        var themes = AppTheme.themeList.filter(
+            (t) => t.id !== 12 || (app.customTheme && app.customTheme.exists))
         for (var t = 0; t < themes.length; ++t) {
             (function(theme) {
                 actions.push({

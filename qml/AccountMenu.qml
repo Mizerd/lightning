@@ -28,9 +28,8 @@ Popup {
     function activeMetaText() {
         var parts = [app.connectionStatus]
         if (app.spaces && app.spaces.spaceCount > 0) {
-            parts.push(app.spaces.spaceCount === 1
-                       ? qsTr("1 space")
-                       : qsTr("%1 spaces").arg(app.spaces.spaceCount))
+            parts.push(qsTr("%n space(s)", "how many Spaces this account is in",
+                            app.spaces.spaceCount))
         }
         return parts.join(" · ")
     }

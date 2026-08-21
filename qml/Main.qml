@@ -20,6 +20,26 @@ ApplicationWindow {
 
     color: AppTheme.background
 
+    // ── Right-to-left ────────────────────────────────────────────────────
+    // LocalizationManager sets the process-wide layout direction when the
+    // language changes; Qt turns that into text alignment on its own, but
+    // ANCHORS and Layouts only mirror where LayoutMirroring says so. Enabling
+    // it here with childrenInherit mirrors the whole shell from one place:
+    // the rail moves to the right, the room list follows it, panels swap
+    // sides, and every leftMargin behaves as a leading margin.
+    //
+    // What this does NOT do, so nobody goes looking for it: LayoutMirroring
+    // resolves anchors and layout order. It never mirrors PIXELS, so images,
+    // video and avatars are untouched by construction. The timeline's
+    // `rotation: 180` Flickable is likewise unaffected — its scroll axis is
+    // vertical and mirroring is horizontal — so the timeline mirrors like any
+    // other pane and the scroll machinery is not in the blast radius.
+    //
+    // The one deliberate opt-out is CodeBlock: source code reads
+    // left-to-right in every language.
+    LayoutMirroring.enabled: app.localization.rightToLeft
+    LayoutMirroring.childrenInherit: true
+
     // Theme correctness for every native Qt Quick Controls surface. The
     // window item palette below covers in-window chrome (buttons, fields),
     // but Fusion resolves POPUPS (ComboBox dropdowns, Menus, ToolTips,
@@ -193,6 +213,20 @@ ApplicationWindow {
         target: AppTheme
         property: "systemDark"
         value: app.systemDarkMode
+    }
+    // The user-authored palette (Settings → Appearance → Custom theme).
+    // Pushed in the same way as the theme id, so selecting Custom and editing
+    // a colour repaint through exactly one path. CustomThemeStore has already
+    // dropped unknown roles and malformed values.
+    Binding {
+        target: AppTheme
+        property: "customOverrides"
+        value: app.customTheme ? app.customTheme.colors : ({})
+    }
+    Binding {
+        target: AppTheme
+        property: "customBase"
+        value: app.customTheme ? app.customTheme.baseTheme : 11
     }
     // Content text scale (Settings → Appearance → Text size).
     Binding {

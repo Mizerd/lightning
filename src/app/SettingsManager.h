@@ -161,12 +161,16 @@ public:
         IndigoNightTheme = 9,   // design-handoff dark
         DeepTealTheme = 10,     // design-handoff dark
         StormTheme = 11,        // brand navy + bolt yellow (0.6.5 Storm)
+        // A user-authored palette: a sparse set of role overrides on top of
+        // one of the presets above. The values live in CustomThemeStore, not
+        // here — this is only the id the picker persists.
+        CustomTheme = 12,
     };
     Q_ENUM(Theme)
 
     // Highest valid Theme id; an out-of-range stored value falls back to
     // SystemTheme (see theme()).
-    static constexpr int kMaxThemeId = StormTheme;
+    static constexpr int kMaxThemeId = CustomTheme;
 
     explicit SettingsManager(QObject *parent = nullptr);
 
@@ -541,6 +545,13 @@ Q_SIGNALS:
     void accountsChanged();
 
 private:
+    // The custom theme is per-account appearance state like the theme, the
+    // layout and the text scale, so it goes through the same
+    // account-preferred / global-fallback helpers below rather than inventing
+    // a second storage rule. It is a friend instead of those helpers being
+    // made public, because nothing else should reach them.
+    friend class CustomThemeStore;
+
     void migratePlaintextTokenIfPresent();
     void migrateInsecureSecretsGroup();
     void migrateLegacySessionRecord();

@@ -1,4 +1,5 @@
 #include "app/AppController.h"
+#include "i18n/LocalizationManager.h"
 #include "app/BackendSelection.h"
 #include "app/StartupChecks.h"
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
@@ -972,7 +973,22 @@ int main(int argc, char *argv[])
                          applyUiFont(controller.settings()->uiFont());
                      });
 
+    // UI language, applied BEFORE the engine loads so the first frame is
+    // already translated. English is the source language and installs no
+    // catalog at all; a stored "system" resolves against the desktop's
+    // ordered preference list each time the app starts, so moving a machine
+    // to another locale follows without touching the setting.
+    controller.localization()->applyStoredLanguage();
+
     QQmlApplicationEngine engine;
+    // Live language switching. QQmlEngine::retranslate() re-evaluates every
+    // binding that reads qsTr(), which covers the whole declarative UI. It
+    // does NOT reach strings a C++ model already turned into data, nor a
+    // JavaScript variable assigned once — those are listed as the known
+    // limitation in docs/localization.md rather than papered over.
+    QObject::connect(controller.localization(),
+                     &LocalizationManager::retranslateRequested,
+                     &engine, [&engine] { engine.retranslate(); });
     engine.rootContext()->setContextProperty("app", &controller);
     // v0.5.9: serve decrypted media images from the in-memory bridge cache.
     // The engine takes ownership of the provider; the bridge outlives it.

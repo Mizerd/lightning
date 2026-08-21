@@ -216,7 +216,12 @@ Item {
                     id: userField
                     objectName: "userField"
                     Layout.fillWidth: true
-                    placeholderText: "@alice:matrix.org"
+                    //: An EXAMPLE Matrix ID shown as placeholder text.
+                    //: Translate the local part to a name that reads as
+                    //: an example in your language, but keep the
+                    //: @user:server shape - it is the protocol's syntax,
+                    //: not prose.
+                    placeholderText: qsTr("@alice:matrix.org")
                     Accessible.name: qsTr("User")
                     KeyNavigation.tab: passField
                 }

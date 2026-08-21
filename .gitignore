@@ -13,6 +13,12 @@ CMakeUserPresets.json
 *.pro.user*
 compile_commands.json
 
+# Compiled translation catalogs. Build output: lrelease regenerates them from
+# the tracked i18n/*.ts on every build, and CMake embeds them from the build
+# tree. Tracking one would ship a stale catalog that silently wins over the
+# source it came from.
+*.qm
+
 # Generated build-only GIF provider keys — never track these
 generated/LightningGifBuildKeys.h
 **/LightningGifBuildKeys.h
