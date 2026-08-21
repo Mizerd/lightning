@@ -899,6 +899,14 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case ItemIdRole:             return e.itemId;
     case IsLocalEchoRole:        return e.isLocalEcho;
     case SendErrorRole:          return e.sendErrorCategory;
+    case UploadProgressRole:
+        // -1 = uploading, extent unknown. Only a KNOWN total produces a
+        // fraction; clamped because the SDK's combined file+thumbnail total
+        // can be revised between reports.
+        return e.uploadTotalBytes > 0
+            ? qBound(0.0, static_cast<double>(e.uploadedBytes)
+                              / static_cast<double>(e.uploadTotalBytes), 1.0)
+            : -1.0;
     case IsVirtualRole:          return e.isVirtual();
     // Meaningful on a date divider; true everywhere else so a QML gate can
     // read it on every row without a type test of its own.
@@ -1001,6 +1009,7 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { ItemIdRole,              "itemId" },
         { IsLocalEchoRole,         "isLocalEcho" },
         { SendErrorRole,           "sendErrorCategory" },
+        { UploadProgressRole,      "uploadProgress" },
         { IsVirtualRole,           "isVirtual" },
         { MediaKeyRole,            "mediaKey" },
         { MediaSourceAvailableRole, "mediaSourceAvailable" },
@@ -1859,6 +1868,31 @@ void TimelineModel::retrySend(int row)
     if (e.status != TimelineEvent::Failed || e.transactionId.isEmpty())
         return;
     m_client->retryFailedSend(m_roomId, e.transactionId);
+}
+
+bool TimelineModel::canCancelSend(int row) const
+{
+    if (!m_client || m_roomId.isEmpty())
+        return false;
+    if (row < 0 || row >= m_events.size())
+        return false;
+    const auto &e = m_events.at(row);
+    // A transaction id is what the send queue can be asked about, so a row
+    // without one is not cancellable no matter what it looks like.
+    return m_client->supportsCancelSend() && !e.transactionId.isEmpty()
+        && (e.status == TimelineEvent::Sending
+            || e.status == TimelineEvent::Failed);
+}
+
+void TimelineModel::cancelSend(int row)
+{
+    if (!canCancelSend(row))
+        return;
+    // Nothing is removed here. The abort can lose a race with the server,
+    // and the backend answers by REMOVING the item only when it really
+    // aborted — dropping the row locally would hide a message the room has
+    // already received.
+    m_client->cancelSend(m_roomId, m_events.at(row).transactionId);
 }
 
 void TimelineModel::retryDecryption()

@@ -153,6 +153,13 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     else
         e.status = TimelineEvent::Sent;
     e.sendErrorCategory = item.value(QStringLiteral("send_error")).toString();
+    // Media-upload progress, present only while the SDK is actually
+    // uploading. Absent fields stay 0/0, which the delegate reads as
+    // "uploading, extent unknown" rather than as 0%.
+    e.uploadedBytes = static_cast<qint64>(
+        item.value(QStringLiteral("send_upload_current")).toDouble(0));
+    e.uploadTotalBytes = static_cast<qint64>(
+        item.value(QStringLiteral("send_upload_total")).toDouble(0));
 
     e.replyToEventId = item.value(QStringLiteral("reply_to_event_id")).toString();
     e.replyToSender = item.value(QStringLiteral("reply_to_sender")).toString();

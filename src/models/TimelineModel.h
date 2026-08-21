@@ -99,6 +99,12 @@ public:
         ItemIdRole,          // Stable SDK item id (survives in-place updates).
         IsLocalEchoRole,     // True until the remote echo reconciles.
         SendErrorRole,       // Coarse category when status == Failed.
+        // Media-upload progress while status == Sending: 0.0-1.0 when the
+        // SDK has reported a total, and -1 when it has NOT. -1 means
+        // "uploading, extent unknown" — a text send and a media send whose
+        // first progress report has not landed both report it, and the
+        // delegate draws an indeterminate bar rather than a 0% one.
+        UploadProgressRole,
         IsVirtualRole,       // Date divider / read marker / timeline start.
         // v0.5.9: media bridge + identity presentation.
         MediaKeyRole,             // Retrieval key for MatrixClient::fetchMedia.
@@ -285,6 +291,12 @@ public:
     // echo with a transaction id). Routed to the backend send queue; the
     // SDK re-attempts the same queued item, so no duplicate can appear.
     Q_INVOKABLE void retrySend(int row);
+    // Discard a local echo that has not reached the server. Valid while the
+    // row is Sending OR Failed: a failed send is still a queued item the
+    // user may simply not want any more. The row disappears only when the
+    // backend confirms the abort — see the .cpp.
+    Q_INVOKABLE bool canCancelSend(int row) const;
+    Q_INVOKABLE void cancelSend(int row);
 
     // v0.6.0 checkpoint 8: manual decryption retry for this timeline's
     // visible unable-to-decrypt events (backend no-op without a crypto

@@ -53,6 +53,22 @@ Item {
     readonly property var timelineModel:
         root.timelineView && root.timelineView.timelineModel
         ? root.timelineView.timelineModel : app.timeline
+    // Whether this row's send can still be aborted. Asks the model, never
+    // the status alone: a backend with no send queue has nothing to cancel,
+    // and a row with no transaction id is not addressable in one. The
+    // typeof guard is for the QML suites' plain ListModel fixtures, which
+    // carry no such method.
+    //
+    // A FUNCTION, not a root property: it needs `index`, and a root-level
+    // binding on `index` is a creation-time delegate-context lookup — the
+    // family that produced the poisoned-context defect fixed in 30ee39b.
+    // Its one caller is deep in the built tree, where the Retry row already
+    // reads `index` safely.
+    function canCancelSendAt(viewRow) {
+        return root.timelineModel !== null
+            && typeof root.timelineModel.canCancelSend === "function"
+            && root.timelineModel.canCancelSend(root.sourceModelRow(viewRow))
+    }
     function sourceModelRow(viewRow) {
         return root.timelineView && root.timelineView.sourceRowForViewRow
                 ? root.timelineView.sourceRowForViewRow(viewRow) : viewRow
@@ -546,6 +562,12 @@ Item {
         || model.isVideo === true
         || model.isAudio === true
         || model.isFile === true
+    // -1 means "uploading, extent unknown"; 0..1 is a REPORTED fraction.
+    // Normalised once here so every reader agrees, and so a fixture model
+    // without the role (the QML suites' ListModels) reads as unknown rather
+    // than assigning undefined to a real property.
+    readonly property real uploadProgress:
+        model.uploadProgress === undefined ? -1 : model.uploadProgress
     readonly property bool mediaCaptionBody: {
         if (!mediaRowBody) return false
         var body = (model.body || "").trim()
@@ -1909,6 +1931,43 @@ Item {
                                          : linkPreviewComponent
                     }
 
+                    // Upload progress for an outgoing attachment. The
+                    // figures are the SDK send queue's own MediaUpload
+                    // reports, carried on the local echo's send state, so
+                    // this is real transferred bytes and not a timer.
+                    //
+                    // uploadProgress is -1 while the total is NOT known —
+                    // the first diff of a media send routinely lands before
+                    // the first progress report — and that renders as the
+                    // INDETERMINATE sweep. Drawing a 0% bar there would
+                    // claim a measurement that does not exist, and it would
+                    // sit at 0% for the whole of a small upload.
+                    //
+                    // Loader, not a `visible:` binding: this exists on one
+                    // row in a thousand, and an always-built bar is one more
+                    // permanent item per delegate in an un-virtualized
+                    // Column.
+                    Loader {
+                        id: uploadProgressLoader
+                        objectName: "uploadProgressLoader"
+                        Layout.fillWidth: true
+                        Layout.topMargin: AppTheme.spacing2
+                        active: model.isOwn === true && model.status === 1
+                                && root.mediaRowBody
+                        visible: active
+                        sourceComponent: AppProgressBar {
+                            objectName: "uploadProgressBar"
+                            indeterminate: root.uploadProgress < 0
+                            value: root.uploadProgress < 0
+                                   ? 0 : root.uploadProgress
+                            Accessible.role: Accessible.ProgressBar
+                            Accessible.name: root.uploadProgress < 0
+                                ? qsTr("Uploading")
+                                : qsTr("Uploading, %1%").arg(
+                                      Math.round(root.uploadProgress * 100))
+                        }
+                    }
+
                     RowLayout {
                         id: metaRow
                         Layout.fillWidth: true
@@ -1929,8 +1988,17 @@ Item {
                                     var ts = Qt.formatDateTime(
                                         model.timestamp, "hh:mm")
                                     // Status: 0=Sent, 1=Sending, 2=Failed
-                                    if (model.isOwn && model.status === 1)
+                                    if (model.isOwn && model.status === 1) {
+                                        // Percentage only where there IS
+                                        // one. -1 is "extent unknown", and
+                                        // "sending… 0%" would be a claim.
+                                        if (root.uploadProgress >= 0)
+                                            return ts + " • " + qsTr(
+                                                "sending… %1%").arg(
+                                                Math.round(
+                                                    root.uploadProgress * 100))
                                         return ts + " • " + qsTr("sending…")
+                                    }
                                     if (model.isOwn && model.status === 2)
                                         return ts + " • " + qsTr("failed")
                                     if (model.edited) return qsTr("edited")
@@ -1962,6 +2030,43 @@ Item {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: root.timelineModel.retrySend(
+                                               root.sourceModelRow(index))
+                            }
+                        }
+                        // Discard a send that has not reached the server —
+                        // the answer to a message wedged in "sending…", and
+                        // to a failed one the user simply does not want any
+                        // more. Routed to the SDK send queue's own abort,
+                        // which is the only thing that can cancel an
+                        // in-flight media UPLOAD as well as a queued event.
+                        //
+                        // The row is not removed here. The abort can lose
+                        // the race with the server, and the backend removes
+                        // the item only when it really aborted — a local
+                        // removal would hide a message the room already
+                        // has. Gated on the model, not on the status alone,
+                        // so a backend with no send queue never offers a
+                        // cancel there is nothing behind.
+                        Label {
+                            objectName: "cancelSendLink"
+                            // model.status is named FIRST so the binding
+                            // takes a dependency on it: canCancelSendAt is
+                            // a plain function call and re-evaluates only
+                            // when something in this expression changes.
+                            visible: model.isOwn === true
+                                     && (model.status === 1
+                                         || model.status === 2)
+                                     && root.canCancelSendAt(index)
+                            text: qsTr("Cancel")
+                            color: AppTheme.link
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                            font.underline: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("Cancel sending this message")
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.timelineModel.cancelSend(
                                                root.sourceModelRow(index))
                             }
                         }

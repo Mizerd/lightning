@@ -67,6 +67,7 @@ private Q_SLOTS:
     void parsesFormattedBody();
     void parsesUndecryptableItem();
     void parsesLocalEchoStates();
+    void parsesMediaUploadProgress();
     void parsesVirtualItems();
     void parsesReactionsAndReply();
     // Reaction tooltips: who reacted, bounded, local user first.
@@ -405,6 +406,36 @@ void RustTimelineIngestTest::parsesLocalEchoStates()
     item.insert(QStringLiteral("send_state"), QStringLiteral("sent"));
     e = eventFromItemJson(item, kRoom);
     QCOMPARE(e.status, TimelineEvent::Sent);
+}
+
+// Media-upload progress is present only while the SDK send queue is really
+// uploading. ABSENT is a distinct state from zero: a text send never gets a
+// report at all, and a media send's first timeline diff routinely lands
+// before its first progress report. Both must stay 0/0 so the model can
+// answer -1 ("uploading, extent unknown") rather than a fabricated 0%.
+void RustTimelineIngestTest::parsesMediaUploadProgress()
+{
+    QJsonObject item = itemJson(QStringLiteral("uid-upload"), QString(),
+                                QStringLiteral("outgoing"));
+    item.insert(QStringLiteral("transaction_id"), QStringLiteral("txn-up"));
+    item.insert(QStringLiteral("is_local_echo"), true);
+    item.insert(QStringLiteral("send_state"), QStringLiteral("sending"));
+    TimelineEvent e = eventFromItemJson(item, kRoom);
+    QCOMPARE(e.uploadedBytes, 0);
+    QCOMPARE(e.uploadTotalBytes, 0);
+
+    item.insert(QStringLiteral("send_upload_current"), 512);
+    item.insert(QStringLiteral("send_upload_total"), 2048);
+    e = eventFromItemJson(item, kRoom);
+    QCOMPARE(e.uploadedBytes, 512);
+    QCOMPARE(e.uploadTotalBytes, 2048);
+
+    // A finished upload still reports, and the row is still Sending until
+    // the event itself is accepted.
+    item.insert(QStringLiteral("send_upload_current"), 2048);
+    e = eventFromItemJson(item, kRoom);
+    QCOMPARE(e.uploadedBytes, 2048);
+    QCOMPARE(e.status, TimelineEvent::Sending);
 }
 
 void RustTimelineIngestTest::parsesVirtualItems()

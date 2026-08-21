@@ -5466,6 +5466,28 @@ pub unsafe extern "C" fn mx_rust_timeline_retry_send(
     })
 }
 
+/// Cancel a local echo that has not reached the server yet.
+///
+/// Routes to `SendHandle::abort`, which also aborts an in-flight media
+/// upload. A successful abort produces no event of its own — the SDK's
+/// CancelledLocalEvent removes the row through the normal diff path.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_cancel_send(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    transaction_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let txn = unsafe { cstr_arg(transaction_id) }?;
+        bridge
+            .timelines
+            .cancel_send(&bridge.runtime, room_id, txn)
+            .map(|_| String::new())
+    })
+}
+
 // ---------------------------------------------------------------------------
 // v0.5.9: room management, user search and the media bridge. Wrappers only —
 // all logic (validation, spawning, event emission) lives in `rooms.rs`.

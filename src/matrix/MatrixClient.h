@@ -457,6 +457,20 @@ public:
         Q_UNUSED(transactionId);
     }
 
+    // Discard a queued outgoing message — including an in-flight media
+    // upload — identified by its send-queue transaction id. Backed by the
+    // SDK's SendHandle::abort, which is also the only thing that can lose
+    // the race honestly: an event already on the server is NOT aborted and
+    // the row stays. Backends without a send queue report false and the
+    // affordance is not offered, because there is nothing there to cancel.
+    virtual bool supportsCancelSend() const { return false; }
+    virtual void cancelSend(const QString &roomId,
+                            const QString &transactionId)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(transactionId);
+    }
+
     // ---- v0.5.9: conversation creation, membership, room editing, media.
     //
     // Command methods return an operation id (> 0) echoed on the matching

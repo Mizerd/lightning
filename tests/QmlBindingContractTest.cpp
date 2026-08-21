@@ -933,12 +933,27 @@ private Q_SLOTS:
         const int previewStart = delegate.indexOf(QStringLiteral("id: previewLoader"));
         const int metaStart = delegate.indexOf(QStringLiteral("id: metaRow"),
                                                previewStart);
+        // The preview block ends at its NEXT SIBLING, which is no longer
+        // metaRow: the upload progress bar was added between them, and it
+        // fills width on purpose. Widening the window to swallow it would
+        // make this guard fail on an element it was never about.
+        const int uploadStart =
+            delegate.indexOf(QStringLiteral("id: uploadProgressLoader"),
+                             previewStart);
+        const int previewEnd =
+            (uploadStart > previewStart && uploadStart < metaStart)
+                ? uploadStart : metaStart;
         QVERIFY(mediaStart >= 0 && bodyStart > mediaStart);
         QVERIFY(previewStart >= 0 && metaStart > previewStart);
         const QString mediaBlock = delegate.mid(mediaStart,
                                                 bodyStart - mediaStart);
         const QString previewBlock = delegate.mid(previewStart,
-                                                  metaStart - previewStart);
+                                                  previewEnd - previewStart);
+        // …and the bar it makes room for really is the full-width one, so
+        // the two are told apart deliberately rather than by luck.
+        QVERIFY(uploadStart > previewStart);
+        QVERIFY(delegate.mid(uploadStart, metaStart - uploadStart)
+                    .contains(QStringLiteral("Layout.fillWidth: true")));
 
         QVERIFY(mediaBlock.contains(QStringLiteral(
             "Layout.alignment: Qt.AlignLeft")));
@@ -1026,6 +1041,46 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("View details")));
         QVERIFY(delegate.contains(QStringLiteral("messageDetailsDialog")));
         QVERIFY(delegate.contains(QStringLiteral("root.menuEventId")));
+    }
+
+    // A send stuck in "sending…" is now cancellable, and a media send draws
+    // real upload progress. Three properties keep both honest.
+    void stuckSendsCanBeCancelledAndMediaUploadsShowRealProgress()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!delegate.isEmpty());
+
+        // 1. The cancel offer is the MODEL's answer, never the status alone
+        //    — a backend with no send queue has nothing to abort — and it
+        //    covers Failed as well as Sending, because a failed send is
+        //    still a queued item the user may not want any more.
+        QVERIFY(delegate.contains(QStringLiteral("objectName: \"cancelSendLink\"")));
+        QVERIFY(delegate.contains(QStringLiteral("root.canCancelSendAt(index)")));
+        QVERIFY(delegate.contains(
+            QStringLiteral("root.timelineModel.canCancelSend(")));
+        QVERIFY(delegate.contains(
+            QStringLiteral("root.timelineModel.cancelSend(")));
+
+        // 2. `index` is read inside the built tree, never in a root-level
+        //    creation-time binding (the poisoned-context family, 30ee39b).
+        //    canCancelSendAt is therefore a function, not a property.
+        QVERIFY(delegate.contains(
+            QStringLiteral("function canCancelSendAt(viewRow) {")));
+
+        // 3. -1 is "uploading, extent unknown" and MUST render as the
+        //    indeterminate sweep. A 0% bar there claims a measurement that
+        //    does not exist and would sit at zero for a whole small upload.
+        QVERIFY(delegate.contains(
+            QStringLiteral("objectName: \"uploadProgressLoader\"")));
+        QVERIFY(delegate.contains(
+            QStringLiteral("indeterminate: root.uploadProgress < 0")));
+        // The normalisation exists exactly once, so a fixture model without
+        // the role reads as unknown instead of assigning undefined.
+        QVERIFY(delegate.contains(QStringLiteral(
+            "model.uploadProgress === undefined ? -1 : model.uploadProgress")));
+        // The bar belongs to media rows: a text send has no upload, and a
+        // sweep under every outgoing line would be noise.
+        QVERIFY(delegate.contains(QStringLiteral("&& root.mediaRowBody")));
     }
 
 };

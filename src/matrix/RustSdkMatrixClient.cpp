@@ -2148,6 +2148,28 @@ void RustSdkMatrixClient::retryFailedSend(const QString &roomId,
     }
 }
 
+void RustSdkMatrixClient::cancelSend(const QString &roomId,
+                                    const QString &transactionId)
+{
+    if (isThreadTimelineId(roomId)) {
+        // Same reasoning as retryFailedSend: a thread echo is a ROOM
+        // send-queue entry, and the room timeline outlives its thread panel.
+        cancelSend(threadTimelineRoomId(roomId), transactionId);
+        return;
+    }
+    if (!timelineActiveFor(roomId) || transactionId.isEmpty())
+        return;
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray txnBytes = transactionId.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_cancel_send(
+        m_rustHandle, roomBytes.constData(), txnBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
 bool RustSdkMatrixClient::timelineActiveFor(const QString &roomId) const
 {
     if (isThreadTimelineId(roomId))

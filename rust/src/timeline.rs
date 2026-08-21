@@ -1608,6 +1608,67 @@ impl TimelineRegistry {
         Ok(())
     }
 
+    /// Cancel a local echo that has not reached the server yet, identified
+    /// by its transaction id.
+    ///
+    /// `SendHandle::abort` is the whole implementation, and it is the only
+    /// correct one: it aborts an in-flight MEDIA upload as well as a queued
+    /// event, and it answers `Ok(false)` when the event was already sent —
+    /// a race this cannot avoid, only report. Removing the item ourselves
+    /// would leave the queue still holding it.
+    ///
+    /// A successful abort needs no event of its own: the SDK emits
+    /// `CancelledLocalEvent`, the timeline drops the item, and the row
+    /// disappears through the ordinary diff path.
+    pub fn cancel_send(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        room_id: String,
+        transaction_id: String,
+    ) -> Result<(), String> {
+        let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
+            return Err("No live timeline is open for that room.".to_owned());
+        };
+        let registry = Arc::clone(self);
+        let events = Arc::clone(&self.events);
+        runtime.spawn(async move {
+            let items = timeline.items().await;
+            let handle = items.iter().rev().find_map(|item| {
+                let event = item.as_event()?;
+                if event.transaction_id().map(|t| t.to_string()) == Some(transaction_id.clone()) {
+                    event.local_echo_send_handle()
+                } else {
+                    None
+                }
+            });
+            let category = match handle {
+                None => Some("cancel_target_missing"),
+                Some(handle) => match handle.abort().await {
+                    Ok(true) => None,
+                    // Already on the server. Saying "cancelled" here would
+                    // be a lie the room can see.
+                    Ok(false) => Some("cancel_too_late"),
+                    Err(_) => Some("cancel_failed"),
+                },
+            };
+            if let Some(category) = category {
+                if registry.is_current(room_gen, lifecycle) {
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "timeline_send_failed",
+                            "room_id": room_id,
+                            "room_generation": room_gen,
+                            "lifecycle": lifecycle,
+                            "category": category,
+                        }),
+                    );
+                }
+            }
+        });
+        Ok(())
+    }
+
     /// Immediate decryption retry after a successful room-key import
     /// (v0.5.7, the main 0.5.7 acceptance path). `sessions_by_room` carries
     /// only Megolm *session identifiers* — never key material — and stays
@@ -2711,8 +2772,27 @@ fn event_item_to_json(
 
     if let Some(state) = event.send_state() {
         match state {
-            EventSendState::NotSentYet { .. } => {
+            EventSendState::NotSentYet { progress } => {
                 out["send_state"] = "sending".into();
+                // Real byte progress for a media send, straight from the
+                // SDK: the send queue reports MediaUpload progress and
+                // matrix-sdk-ui parks it on the local echo's send state, so
+                // it arrives as an ordinary timeline diff. There is nothing
+                // to subscribe to and nothing to poll.
+                //
+                // Only crosses when the total is KNOWN. `current`/`total`
+                // are byte counts, never content, and a text send carries
+                // no progress at all — which is the difference between an
+                // upload bar and a spinner, and the reason the presentation
+                // side must not synthesise one.
+                if let Some(progress) = progress {
+                    if progress.progress.total > 0 {
+                        out["send_upload_current"] =
+                            (progress.progress.current as u64).into();
+                        out["send_upload_total"] =
+                            (progress.progress.total as u64).into();
+                    }
+                }
             }
             EventSendState::Sent { .. } => {
                 out["send_state"] = "sent".into();

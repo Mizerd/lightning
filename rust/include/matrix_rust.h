@@ -482,6 +482,15 @@ char *mx_rust_timeline_redact(void *client,
 char *mx_rust_timeline_retry_send(void *client,
                                   const char *room_id,
                                   const char *transaction_id);
+/* Cancel a local echo that has not reached the server yet, via the SDK's
+ * SendHandle::abort — which also aborts an in-flight media upload. A
+ * successful abort emits nothing: the SDK's CancelledLocalEvent removes the
+ * row through the ordinary timeline diff. A refusal answers
+ * timeline_send_failed with category cancel_too_late (already on the
+ * server), cancel_target_missing or cancel_failed. */
+char *mx_rust_timeline_cancel_send(void *client,
+                                   const char *room_id,
+                                   const char *transaction_id);
 
 /*
  * v0.7 — MSC3381 polls. thread_root_id NULL/empty targets the room's live

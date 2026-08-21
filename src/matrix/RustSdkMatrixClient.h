@@ -320,6 +320,9 @@ public:
     bool paginating(const QString &roomId) const override;
     bool paginationFailed(const QString &roomId) const override;
     bool paginationFailureTransient(const QString &roomId) const override;
+    bool supportsCancelSend() const override { return true; }
+    void cancelSend(const QString &roomId,
+                    const QString &transactionId) override;
     void retryFailedSend(const QString &roomId,
                          const QString &transactionId) override;
 

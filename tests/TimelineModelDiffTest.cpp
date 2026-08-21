@@ -39,6 +39,8 @@ public:
 
     QList<TimelineEvent> mirror;
     QStringList retriedTransactions;
+    QStringList cancelledTransactions;
+    bool cancelSupported = true;
     QStringList typingUsers;
     QHash<QString, QString> displayNames;
     QHash<QString, QString> avatarMxc;
@@ -95,6 +97,13 @@ public:
     {
         retriedTransactions.append(txn);
     }
+    bool supportsCancelSend() const override { return cancelSupported; }
+    // Deliberately does NOT remove the row: a real abort can lose the race
+    // with the server, and only the backend's own answer may drop the item.
+    void cancelSend(const QString &, const QString &txn) override
+    {
+        cancelledTransactions.append(txn);
+    }
 };
 
 } // namespace
@@ -120,6 +129,9 @@ private Q_SLOTS:
     void localEchoReconciliation();
     void retrySendRoutesTransaction();
     void retrySendIgnoresNonFailedRows();
+    void cancelSendRoutesSendingAndFailedRowsOnly();
+    void cancelSendNeverRemovesTheRowItself();
+    void uploadProgressIsMinusOneUntilTheSdkReportsATotal();
     void loggedOutClearsModel();
     void stableRoleData();
     void typingTextFormatsByCount();
@@ -406,6 +418,100 @@ void TimelineModelDiffTest::retrySendIgnoresNonFailedRows()
     m_model->retrySend(99);  // out of range
     m_model->retrySend(-1);  // out of range
     QVERIFY(m_client->retriedTransactions.isEmpty());
+}
+
+// Cancel answers a message wedged in "sending…" AND a failed one the user
+// no longer wants — but only where there is a send-queue entry to abort.
+void TimelineModelDiffTest::cancelSendRoutesSendingAndFailedRowsOnly()
+{
+    TimelineEvent sending = makeEvent(QString(), QStringLiteral("uploading"),
+                                      TimelineEvent::Sending);
+    sending.transactionId = QStringLiteral("txn-sending");
+    m_client->mirror.append(sending);
+    Q_EMIT m_client->eventAppended(kRoom, sending);
+    TimelineEvent failed = makeEvent(QString(), QStringLiteral("nope"),
+                                     TimelineEvent::Failed);
+    failed.transactionId = QStringLiteral("txn-failed");
+    m_client->mirror.append(failed);
+    Q_EMIT m_client->eventAppended(kRoom, failed);
+
+    QVERIFY(m_model->canCancelSend(2));
+    QVERIFY(m_model->canCancelSend(3));
+    QVERIFY(!m_model->canCancelSend(0));   // already Sent
+    QVERIFY(!m_model->canCancelSend(99));
+    QVERIFY(!m_model->canCancelSend(-1));
+
+    m_model->cancelSend(2);
+    m_model->cancelSend(3);
+    m_model->cancelSend(0);   // Sent — nothing to abort
+    m_model->cancelSend(99);
+    m_model->cancelSend(-1);
+    QCOMPARE(m_client->cancelledTransactions,
+             (QStringList{ QStringLiteral("txn-sending"),
+                           QStringLiteral("txn-failed") }));
+
+    // A backend with no send queue offers nothing, so the affordance never
+    // appears over something that cannot be cancelled.
+    m_client->cancelSupported = false;
+    QVERIFY(!m_model->canCancelSend(2));
+    m_client->cancelledTransactions.clear();
+    m_model->cancelSend(2);
+    QVERIFY(m_client->cancelledTransactions.isEmpty());
+}
+
+// The abort races the server. Dropping the row here would hide a message
+// the room has already received, so only the backend's own removal may.
+void TimelineModelDiffTest::cancelSendNeverRemovesTheRowItself()
+{
+    TimelineEvent sending = makeEvent(QString(), QStringLiteral("uploading"),
+                                      TimelineEvent::Sending);
+    sending.transactionId = QStringLiteral("txn-sending");
+    m_client->mirror.append(sending);
+    Q_EMIT m_client->eventAppended(kRoom, sending);
+    const int before = m_model->rowCount();
+
+    m_model->cancelSend(before - 1);
+    QCOMPARE(m_model->rowCount(), before);
+    QCOMPARE(m_model->data(m_model->index(before - 1),
+                           TimelineModel::StatusRole).toInt(),
+             static_cast<int>(TimelineEvent::Sending));
+}
+
+// -1 is "uploading, extent unknown" and must never be flattened to 0: the
+// delegate draws an indeterminate sweep on -1 and a real bar on a fraction,
+// and 0.0 would claim a measured 0%.
+void TimelineModelDiffTest::uploadProgressIsMinusOneUntilTheSdkReportsATotal()
+{
+    TimelineEvent sending = makeEvent(QString(), QStringLiteral("uploading"),
+                                      TimelineEvent::Sending);
+    sending.transactionId = QStringLiteral("txn-sending");
+    m_client->mirror.append(sending);
+    Q_EMIT m_client->eventAppended(kRoom, sending);
+    const int row = m_model->rowCount() - 1;
+    const auto progress = [this, row] {
+        return m_model->data(m_model->index(row),
+                             TimelineModel::UploadProgressRole).toDouble();
+    };
+    // No report yet — and a text send never gets one at all.
+    QCOMPARE(progress(), -1.0);
+
+    sending.uploadedBytes = 0;
+    sending.uploadTotalBytes = 400;
+    m_client->mirror[row] = sending;
+    Q_EMIT m_client->eventChangedAt(kRoom, row, sending);
+    QCOMPARE(progress(), 0.0);   // a REPORTED 0%, which is not the same fact
+
+    sending.uploadedBytes = 100;
+    m_client->mirror[row] = sending;
+    Q_EMIT m_client->eventChangedAt(kRoom, row, sending);
+    QCOMPARE(progress(), 0.25);
+
+    // The SDK's combined file+thumbnail total can be revised downward
+    // between reports; a bar past its own end is not a thing.
+    sending.uploadedBytes = 900;
+    m_client->mirror[row] = sending;
+    Q_EMIT m_client->eventChangedAt(kRoom, row, sending);
+    QCOMPARE(progress(), 1.0);
 }
 
 void TimelineModelDiffTest::loggedOutClearsModel()

@@ -223,10 +223,20 @@ struct TimelineEvent {
     //   isLocalEcho       — true until the SDK reconciles the remote echo.
     //   sendErrorCategory — coarse non-secret category ("network",
     //                       "rejected") when status == Failed.
+    //   uploadedBytes /   — real media-upload progress while status ==
+    //   uploadTotalBytes    Sending, from the SDK send queue's own
+    //                       MediaUpload reports. BOTH ZERO means the total
+    //                       is not known: a text send has no upload at all,
+    //                       and the first diff of a media send can arrive
+    //                       before the first progress report. That is a
+    //                       spinner, never a 0% bar — the presentation side
+    //                       must not invent a denominator.
     QString itemId;
     QString transactionId;
     bool    isLocalEcho = false;
     QString sendErrorCategory;
+    qint64  uploadedBytes = 0;
+    qint64  uploadTotalBytes = 0;
 
     bool isVirtual() const
     {
