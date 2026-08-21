@@ -535,6 +535,33 @@ private Q_SLOTS:
                          .arg(fill).arg(ratio, 0, 'f', 2)));
         }
 
+        // The notification fallback avatar re-implements the same identity
+        // hash in C++ and keeps its OWN copy of this palette, because a
+        // freedesktop notification is painted without a QML engine. A
+        // hand-kept copy of an array is exactly the thing that drifts: the
+        // palette round changed AppTheme.qml and left FallbackAvatar.cpp
+        // behind for one commit, so the same person had a red disc in the app
+        // and a green one in their notifications — and NotificationAvatarTest
+        // asserted the stale values, so it enforced the mismatch instead of
+        // catching it. Parse both and require them equal.
+        {
+            const QString cpp = readAll(QStringLiteral(FALLBACK_AVATAR_CPP_PATH));
+            QVERIFY2(!cpp.isEmpty(), "FallbackAvatar.cpp not readable");
+            const QRegularExpression arrayRe(QStringLiteral(
+                "kAvatarPalette\\[\\]\\s*=\\s*\\{([^}]*)\\}"));
+            const auto m = arrayRe.match(cpp);
+            QVERIFY2(m.hasMatch(), "could not find kAvatarPalette");
+            QStringList cppPalette;
+            const QRegularExpression hex(QStringLiteral("#[0-9A-Fa-f]{6}"));
+            auto it = hex.globalMatch(m.captured(1));
+            while (it.hasNext())
+                cppPalette.append(it.next().captured(0).toUpper());
+            QStringList qmlPalette;
+            for (const QString &c : arrayOf("avatarPalette"))
+                qmlPalette.append(c.toUpper());
+            QCOMPARE(cppPalette, qmlPalette);
+        }
+
         // Under Storm a sender name sits near bolt-yellow chrome. An ink that
         // close to the brand accent reads as chrome rather than as a person.
         const QRegularExpression boltRe(QStringLiteral(

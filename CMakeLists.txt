@@ -1818,6 +1818,10 @@ if(BUILD_TESTING)
         APPTHEME_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/AppTheme.qml"
         SETTINGS_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/SettingsScreen.qml"
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        # The notification fallback avatar keeps its own C++ copy of
+        # avatarPalette (a notification is painted with no QML engine). Parsed
+        # here so the two cannot drift apart again.
+        FALLBACK_AVATAR_CPP_PATH="${CMAKE_CURRENT_SOURCE_DIR}/src/notifications/FallbackAvatar.cpp"
     )
     target_link_libraries(theme-tokens-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME theme-tokens COMMAND theme-tokens-test)

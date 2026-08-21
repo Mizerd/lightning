@@ -13,9 +13,16 @@ namespace {
 
 // qml/AppTheme.qml avatarPalette, in order — the index from identityIndex()
 // selects into this, so the order is part of the contract.
+//
+// This is a hand-kept COPY of a QML array, which is exactly the shape that
+// drifts: the 2026-08-21 palette round changed AppTheme.qml and left this
+// behind for one commit, so the same person had a red disc in the app and a
+// green one in their notifications. ThemeTokensTest now parses both and
+// requires them equal, which is what makes the duplication safe rather than
+// merely currently-correct.
 const char *const kAvatarPalette[] = {
-    "#2F8F5B", "#A3542F", "#6D5BD0", "#3A6EA5", "#B04A7E",
-    "#C9662A", "#4A8F6D", "#B3823A", "#A05A92",
+    "#D04339", "#AE6424", "#8F7224", "#4F822B", "#2E8460",
+    "#2F7F93", "#4163C8", "#8941C8", "#C84190",
 };
 constexpr int kPaletteSize = int(sizeof(kAvatarPalette) / sizeof(kAvatarPalette[0]));
 

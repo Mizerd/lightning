@@ -54,11 +54,11 @@ void NotificationAvatarTest::identityIndexMatchesTheQmlHash()
 void NotificationAvatarTest::identityColourMatchesTheQmlPalette()
 {
     QCOMPARE(identityColor(QStringLiteral("Mizerd")).name().toUpper(),
-             QStringLiteral("#2F8F5B"));
+             QStringLiteral("#D04339"));
     QCOMPARE(identityColor(QStringLiteral("test")).name().toUpper(),
-             QStringLiteral("#B04A7E"));
+             QStringLiteral("#2E8460"));
     QCOMPARE(identityColor(QStringLiteral("!abc:server.tld")).name().toUpper(),
-             QStringLiteral("#6D5BD0"));
+             QStringLiteral("#8F7224"));
 }
 
 void NotificationAvatarTest::initialsFollowTheAvatarRule()
