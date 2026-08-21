@@ -31,6 +31,14 @@ Item {
     activeFocusOnTab: true
 
     property bool selected: false
+    // Group rule under the LAST row of the favourites block. The room list
+    // pins its section labels (RoomsPanel: ViewSection.CurrentLabelAtStart)
+    // and they carry no fill of their own, so with a short favourites block
+    // the two groups read as one continuous list. RoomsPanel owns the
+    // decision of which row this is — the delegate cannot see the section
+    // boundary without the view's attached properties, and only the room
+    // list has sections at all (RoomListPane leaves this false).
+    property bool showGroupDivider: false
     signal clicked()
     signal acceptInvite()
     signal rejectInvite()
@@ -47,6 +55,15 @@ Item {
     signal setNotificationMode(int mode)
     signal copyRoomLink()
     signal leaveRoomRequested()
+
+    // Meta ink for this row. `textMuted` is tuned against the LIST surface,
+    // not against `selected`, and on a selected row it measured 3.12:1 on
+    // Lightning Dark after the 2026-08-21 ladder rebuild — a raised selection
+    // makes every unconditional muted ink worse. Six sites already branched on
+    // `selected` by hand; four did not, and those four were the sub-AA ones.
+    // The rule is named once here so the next one cannot be missed.
+    readonly property color metaInk: selected ? AppTheme.selectedText
+                                              : AppTheme.textMuted
 
     // Read rows are dimmed and lighter-weight; unread/selected rows carry
     // full ink (design handoff §2 room-row states).
@@ -156,6 +173,22 @@ Item {
         height: Math.max(16, parent.height - AppTheme.spacing12)
         radius: width / 2
         color: AppTheme.bolt
+    }
+
+    // Drawn INSIDE the row's own bounds rather than by growing it, so
+    // turning the rule on cannot shift the rows below it by a pixel.
+    // Inset to the row's content box so it lines up with the avatar column
+    // instead of butting into the sidebar's own right-hand border.
+    Rectangle {
+        objectName: "roomGroupDivider"
+        visible: root.showGroupDivider
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: AppTheme.spacing8
+        anchors.rightMargin: AppTheme.spacing8
+        height: 1
+        color: AppTheme.border
     }
 
     RowLayout {
@@ -303,7 +336,7 @@ Item {
                     // Element does and what makes the mute legible at a
                     // glance.
                     color: model.highlightCount > 0 ? AppTheme.dangerText
-                         : root.muted ? AppTheme.textMuted
+                         : root.muted ? root.metaInk
                                       : AppTheme.accentText
                     background: Rectangle {
                         color: model.highlightCount > 0 ? AppTheme.mentionBadge
@@ -340,7 +373,7 @@ Item {
                     Layout.preferredHeight: 8
                     Layout.alignment: Qt.AlignVCenter
                     radius: 4
-                    color: root.muted ? AppTheme.textMuted : AppTheme.unreadBadge
+                    color: root.muted ? root.metaInk : AppTheme.unreadBadge
                 }
             }
 
@@ -349,9 +382,13 @@ Item {
                 spacing: AppTheme.spacingS
                 Label {
                     Layout.fillWidth: true
-                    text: (model.isSpace ? qsTr("Space invitation") : qsTr("Room invitation"))
-                          + (model.inviter ? qsTr(" from %1").arg(model.inviter) : "")
-                    color: AppTheme.textMuted
+                    text: model.inviter
+                          ? (model.isSpace
+                             ? qsTr("Space invitation from %1").arg(model.inviter)
+                             : qsTr("Room invitation from %1").arg(model.inviter))
+                          : (model.isSpace ? qsTr("Space invitation")
+                                           : qsTr("Room invitation"))
+                    color: root.metaInk
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     elide: Label.ElideRight
                 }
@@ -411,7 +448,7 @@ Item {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("Join request pending")
-                    color: AppTheme.textMuted
+                    color: root.metaInk
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     elide: Label.ElideRight
                 }

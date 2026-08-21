@@ -597,6 +597,17 @@ Rectangle {
             delegate: RoomDelegate {
                 width: ListView.view.width
                 selected: model.roomId === app.currentRoomId
+                // Rule under the last favourited room, closing that group
+                // off from People / Rooms below it. Scoped to favourites on
+                // purpose: it marks the pinned priority block, and a rule
+                // under EVERY group turns a 300px column into a table.
+                //
+                // `nextSection` is "" on the very last row in the view, so
+                // the empty check is what stops a trailing rule hanging off
+                // the bottom of a list whose only group IS favourites.
+                showGroupDivider: ListView.section === "favourite"
+                                  && ListView.nextSection !== "favourite"
+                                  && ListView.nextSection !== ""
                 onClicked: if (model.membership === "joined") app.openRoom(model.roomId)
                 onAcceptInvite: app.roomList.acceptInvite(model.roomId)
                 onRejectInvite: app.roomList.rejectInvite(model.roomId)

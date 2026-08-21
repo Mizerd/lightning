@@ -117,6 +117,7 @@ private Q_SLOTS:
     void favouritesFormTheirOwnSectionAboveEverythingButInvites();
     void favouriteToggleIsNeverAppliedLocally();
     void everyCategoryTheModelEmitsHasASectionLabel();
+    void theFavouritesSectionIsClosedOffByADivider();
 };
 
 void RoomStateModelTest::directClassificationUsesMDirectOnly()
@@ -769,6 +770,57 @@ void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
     }
     QVERIFY(source.contains(QStringLiteral("qsTr(\"Favourites\")")));
     QVERIFY(source.contains(QStringLiteral("qsTr(\"Rooms\")")));
+}
+
+
+// The Favourites group is pinned above People and Rooms, but the section
+// labels sit on the bare sidebar with no fill, so a short favourites block
+// ran straight into the next group. The rule closing it off is scoped by
+// THREE clauses and each one is load-bearing:
+//   * it draws only on a favourite row;
+//   * only on the LAST one (nextSection differs);
+//   * and not when that row is the last in the whole view, where
+//     ListView.nextSection is "" — without that clause a list whose only
+//     group is favourites hangs a rule off its bottom edge.
+// A source scan is the honest level here: this is a pure presentation
+// binding with no C++ side, and the alternative (loading the panel
+// offscreen with a seeded model) would assert Qt's section machinery
+// rather than Lightning's use of it.
+void RoomStateModelTest::theFavouritesSectionIsClosedOffByADivider()
+{
+    QFile panel(QStringLiteral(QML_DIR "/RoomsPanel.qml"));
+    QVERIFY2(panel.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(panel.fileName()));
+    const QString panelSource = QString::fromUtf8(panel.readAll());
+
+    const int bindingAt = panelSource.indexOf(QStringLiteral("showGroupDivider:"));
+    QVERIFY2(bindingAt >= 0, "RoomsPanel never binds showGroupDivider");
+    const QString binding = panelSource.mid(bindingAt, 260);
+    QVERIFY2(binding.contains(QStringLiteral("ListView.section === \"favourite\"")),
+             "the divider is not scoped to the favourites section");
+    QVERIFY2(binding.contains(QStringLiteral("ListView.nextSection !== \"favourite\"")),
+             "the divider is not scoped to the LAST favourite row");
+    QVERIFY2(binding.contains(QStringLiteral("ListView.nextSection !== \"\"")),
+             "a favourites-only list would hang a trailing rule");
+
+    QFile row(QStringLiteral(QML_DIR "/RoomDelegate.qml"));
+    QVERIFY2(row.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(row.fileName()));
+    const QString rowSource = QString::fromUtf8(row.readAll());
+
+    QVERIFY2(rowSource.contains(QStringLiteral("property bool showGroupDivider: false")),
+             "RoomDelegate must default the divider OFF — RoomListPane has no "
+             "sections at all and would otherwise rule every row");
+
+    const int dividerAt = rowSource.indexOf(QStringLiteral("objectName: \"roomGroupDivider\""));
+    QVERIFY2(dividerAt >= 0, "RoomDelegate has no divider item");
+    const QString divider = rowSource.mid(dividerAt, 420);
+    QVERIFY2(divider.contains(QStringLiteral("anchors.bottom: parent.bottom")),
+             "the rule must anchor to the row's own bottom edge");
+    // Anchored, never laid out: a rule that added height would move every
+    // row below it the moment a room was favourited.
+    QVERIFY2(!divider.contains(QStringLiteral("Layout.")),
+             "the rule must not participate in the row's layout");
 }
 
 QTEST_GUILESS_MAIN(RoomStateModelTest)
