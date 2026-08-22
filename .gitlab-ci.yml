@@ -889,6 +889,15 @@ mirror-release-to-github:
       artifacts: true
     - job: verify-published-packages
       artifacts: true
+    # macOS, on the same optional terms publish-packages uses. This job uploads
+    # the PUBLISHED BYTES and refuses to rebuild them, so it needs every file
+    # the publication manifest names — and publish-packages puts the macOS zip
+    # in that manifest. Pipeline 110 shipped without this line: the release
+    # published fine and the mirror died on "mirror input missing", after the
+    # tag and the GitLab release already existed.
+    - job: macos-package-test
+      artifacts: true
+      optional: true
     # The signed manifest's mirror_url values are cross-checked against the URLs
     # this job actually creates, before anything is uploaded.
     - job: sign-update-manifest

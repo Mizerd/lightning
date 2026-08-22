@@ -320,10 +320,18 @@ behalf that they should not have it.
 
 What that means in practice:
 
-- **`publish-packages` consumes this job's artifact** and uploads the zip
-  alongside the Linux and Windows packages. Publication, verification, the
-  release links and the GitHub mirror all follow from the publication manifest,
-  so none of them needed a macOS special case.
+- **`publish-packages` AND `mirror-release-to-github` both consume this job's
+  artifact.** Publication, verification and the release links follow from the
+  publication manifest, but the mirror does not: it uploads the PUBLISHED BYTES
+  and refuses to rebuild them, so it needs every file the manifest names on its
+  own disk. Pipeline 110 shipped with the need on `publish-packages` alone and
+  the mirror died on `mirror input missing` — after the packages had published
+  and the tag and GitLab release already existed, which is the most expensive
+  point in a run to discover a missing `needs`. That release was mirrored and
+  its update manifest promoted by hand; the invariant is now asserted
+  generally in `tests/test-pipeline-config.py` ("the mirror consumes every
+  artifact source publish-packages does"), so the next format added inherits
+  it.
 - **The release never depends on the Mac.** The job is `allow_failure: true`
   and the `needs` entry is `optional: true`, so the Mac being offline, asleep
   or mid-macOS-update publishes a release *without* a macOS asset rather than

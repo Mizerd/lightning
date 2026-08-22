@@ -610,6 +610,22 @@ check(macos_group not in set(BUILD_GROUP.values()) and macos_group is not None,
 # and the bundle must not enter the signed update manifest.
 check("macos-package-test" in needs_names("publish-packages"),
       "publish-packages consumes the macOS bundle")
+# ...and so must the mirror, which uploads the PUBLISHED BYTES and refuses to
+# rebuild them. Anything publish-packages puts into the publication manifest,
+# mirror-release-to-github has to have on disk. Pipeline 110 proved the cost of
+# getting this wrong: the packages published, the tag and the GitLab release
+# were created, and only then did the mirror die on "mirror input missing" —
+# the most expensive point in the run to discover a missing `needs`.
+#
+# Stated generally rather than as a second macOS line, because the next format
+# added will have exactly the same requirement.
+_publish_inputs = set(needs_names("publish-packages")) - {"resolve-source"}
+_mirror_inputs = set(needs_names("mirror-release-to-github"))
+check(_publish_inputs <= _mirror_inputs,
+      "the mirror consumes every artifact source publish-packages does")
+_missing = sorted(_publish_inputs - _mirror_inputs)
+if _missing:
+    print("     missing from mirror-release-to-github: %s" % ", ".join(_missing))
 macos_need = next(n for n in doc["publish-packages"]["needs"]
                   if isinstance(n, dict) and n["job"] == "macos-package-test")
 check(macos_need.get("optional") is True,
