@@ -153,6 +153,20 @@ void SpaceManager::setActiveSpaceId(const QString &spaceId)
     Q_EMIT activeSpaceIdChanged();
 }
 
+QVariantList SpaceManager::allSpaces() const
+{
+    QVariantList out;
+    const QHash<int, QByteArray> names = roleNames();
+    for (int row = 0; row < rowCount(); ++row) {
+        QVariantMap entry;
+        const QModelIndex idx = index(row, 0);
+        for (auto it = names.constBegin(); it != names.constEnd(); ++it)
+            entry.insert(QString::fromUtf8(it.value()), data(idx, it.key()));
+        out.append(entry);
+    }
+    return out;
+}
+
 QStringList SpaceManager::roomsInSpace(const QString &spaceId) const
 {
     if (spaceId == allRoomsId())

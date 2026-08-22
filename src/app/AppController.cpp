@@ -170,6 +170,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // loads, so the first frame is already in the user's language.
     m_localization = std::make_unique<LocalizationManager>(m_settings.get(), this);
     m_customTheme = std::make_unique<CustomThemeStore>(m_settings.get(), this);
+    m_railLayout = std::make_unique<RailLayoutStore>(m_settings.get(), this);
 
     m_client       = makeClient(backend, m_settings.get(), this);
     m_accounts     = std::make_unique<AccountManager>(m_settings.get(), this);
@@ -1695,6 +1696,8 @@ LocalizationManager *AppController::localization() const
 { return m_localization.get(); }
 CustomThemeStore *AppController::customTheme() const
 { return m_customTheme.get(); }
+RailLayoutStore *AppController::railLayout() const
+{ return m_railLayout.get(); }
 AuthManager *AppController::auth() const { return m_auth.get(); }
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO

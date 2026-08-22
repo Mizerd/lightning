@@ -520,6 +520,8 @@ set(APP_SOURCES
     src/media/MediaImageProvider.cpp
     src/app/TrayIcon.h
     src/app/TrayIcon.cpp
+    src/spaces/RailLayoutStore.h
+    src/spaces/RailLayoutStore.cpp
     src/media/StagedImageStore.h
     src/media/StagedImageStore.cpp
     src/media/StagedImageProvider.h
@@ -1164,6 +1166,22 @@ if(BUILD_TESTING)
         APPTHEME_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/AppTheme.qml")
     target_link_libraries(custom-theme-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME custom-theme COMMAND custom-theme-test)
+
+    # The Spaces rail's own arrangement (drag order + folders). Pure over a
+    # model snapshot, so it needs no rail, no ListView and no homeserver.
+    qt_add_executable(rail-layout-test
+        tests/RailLayoutTest.cpp
+        src/spaces/RailLayoutStore.h
+        src/spaces/RailLayoutStore.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(rail-layout-test PRIVATE src)
+    target_link_libraries(rail-layout-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME rail-layout COMMAND rail-layout-test)
 
     qt_add_executable(localization-test
         tests/LocalizationTest.cpp

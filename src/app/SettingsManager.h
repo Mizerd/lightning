@@ -597,6 +597,10 @@ private:
     // a second storage rule. It is a friend instead of those helpers being
     // made public, because nothing else should reach them.
     friend class CustomThemeStore;
+    // The rail's arrangement is per-account appearance state for the same
+    // reason: which Spaces an account has, and how someone grouped them, are
+    // the same question. Same access, same rule.
+    friend class RailLayoutStore;
 
     void migratePlaintextTokenIfPresent();
     void migrateInsecureSecretsGroup();

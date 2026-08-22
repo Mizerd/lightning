@@ -72,6 +72,11 @@ public:
     // Hierarchy queries. Return the set of room ids that belong to
     // `spaceId`. `allRoomsId()` returns every room; `orphansId()` returns
     // rooms not referenced by any Space.
+    // Every row as a map, in model order, for a presentation layer that has
+    // to REORDER them (the rail's folders and drag ordering). A ListView
+    // cannot reorder a QAbstractListModel from QML, and this model's order is
+    // the hierarchy's, not the user's.
+    Q_INVOKABLE QVariantList allSpaces() const;
     Q_INVOKABLE QStringList roomsInSpace(const QString &spaceId) const;
     Q_INVOKABLE bool includesRoom(const QString &spaceId, const QString &roomId) const;
     // v0.7 design shell: display name for the room-list workspace header.

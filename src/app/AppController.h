@@ -10,6 +10,7 @@
 #include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
 #include "app/CustomThemeStore.h"
+#include "spaces/RailLayoutStore.h"
 #include "i18n/LocalizationManager.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
@@ -200,6 +201,9 @@ class AppController : public QObject
     // User-authored palette overrides (Settings -> Appearance -> Custom
     // theme). Per-account appearance state, like the theme itself.
     Q_PROPERTY(CustomThemeStore* customTheme READ customTheme CONSTANT)
+    // How the Spaces rail is arranged (drag order and folders).
+    // Device-local; see RailLayoutStore.
+    Q_PROPERTY(RailLayoutStore* railLayout READ railLayout CONSTANT)
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
     Q_PROPERTY(AccountManager* accounts READ accounts CONSTANT)
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
@@ -425,6 +429,7 @@ public:
     SettingsManager *settings() const;
     LocalizationManager *localization() const;
     CustomThemeStore *customTheme() const;
+    RailLayoutStore *railLayout() const;
     AuthManager *auth() const;
     AccountManager *accounts() const;
     RoomListModel *roomList() const;
@@ -1012,6 +1017,7 @@ private:
     std::unique_ptr<SettingsManager> m_settings;
     std::unique_ptr<LocalizationManager> m_localization;
     std::unique_ptr<CustomThemeStore> m_customTheme;
+    std::unique_ptr<RailLayoutStore> m_railLayout;
     bool m_shuttingDown = false;
     // Development-only screenshot/demo mode (never true in a release build; the
     // compile option that enables beginScreenshotDemo cannot coexist with a

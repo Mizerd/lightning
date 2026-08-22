@@ -101,9 +101,17 @@ private Q_SLOTS:
     {
         const QString rail = normalized(
             read(QStringLiteral(QML_DIR "/SpacesRail.qml")));
-        QVERIFY(rail.contains(QStringLiteral("model.level")));
+        // The rail's model became a PRESENTATION list in 2026-08-22 (the
+        // user's own drag order and folders, arranged by RailLayoutStore), so
+        // the role is read off `modelData` rather than off `model`. What this
+        // case is here to hold is unchanged: the nesting LEVEL is what drives
+        // the indent, and the indent is a centre offset rather than a margin.
+        QVERIFY(rail.contains(QStringLiteral("modelData.level")));
         QVERIFY(rail.contains(
             QStringLiteral("anchors.horizontalCenterOffset:")));
+        // And a Space inside a folder is indented by the same mechanism, so
+        // the two groupings cannot render as two different kinds of nesting.
+        QVERIFY(rail.contains(QStringLiteral("folderIndent")));
     }
 
     void roomAvatarsFallBackToInitialsNeverHash()
