@@ -166,6 +166,51 @@ grep -Fq '.lightning-install-type' "$REPORTS/msi-File.idt" || \
 if grep -Fq 'portable.marker' "$REPORTS/msi-File.idt"; then
     die "MSI contains portable.marker; an installed copy would detect as portable"
 fi
+# --- MSI PAYLOAD COMPLETENESS -----------------------------------------------
+#
+# Everything above proves the MSI contains four specific files. Nothing proved
+# it contains the REST, and that is the gap this closes.
+#
+# All three Windows packages are produced from one staged tree, so the MSI and
+# the portable ZIP must carry the same payload apart from two deliberate
+# markers: portable.marker is in the ZIP only, and .lightning-install-type is
+# in the MSI only (build-windows.sh documents the ordering). Any other
+# difference means wixl did not ship a file that the ZIP and the NSIS setup
+# both have.
+#
+# Why this is worth asserting rather than assuming: a missing Qt plugin does
+# not stop Lightning launching. It removes a capability — an image format, a
+# multimedia backend, a TLS backend — so the application starts, signs in and
+# syncs, and then one feature fails on a machine where the other two package
+# formats work. That is indistinguishable from an application bug, and the
+# reported "uploads fail from the MSI, but the Setup EXE and the portable ZIP
+# are fine" has exactly that shape. This check does not diagnose that report;
+# it removes an entire class of cause from the search, in CI, every build.
+msi_payload="$REPORTS/msi-payload.txt"
+zip_payload="$REPORTS/zip-payload.txt"
+# The File table's FileName column carries "SHORT|Long" for names needing an
+# 8.3 form; take the long name. Leading columns are tab-separated.
+awk -F'\t' 'NR > 3 { split($3, n, "|"); print (n[2] != "" ? n[2] : n[1]) }' \
+    "$REPORTS/msi-File.idt" | LC_ALL=C sort >"$msi_payload"
+# The ZIP lists "Lightning/<path>"; compare basenames, since the MSI File table
+# records names rather than full paths.
+unzip -Z1 "$portable" | sed 's:.*/::' | grep -v '^$' | LC_ALL=C sort >"$zip_payload"
+
+# The two deliberate differences, removed from both sides before comparing.
+msi_only="$(LC_ALL=C comm -23 "$msi_payload" "$zip_payload" \
+    | grep -Fxv '.lightning-install-type' || true)"
+zip_only="$(LC_ALL=C comm -13 "$msi_payload" "$zip_payload" \
+    | grep -Fxv 'portable.marker' || true)"
+if [[ -n "$zip_only" ]]; then
+    printf 'files in the portable ZIP but MISSING from the MSI:\n%s\n' "$zip_only" >&2
+    die "MSI payload is incomplete; an MSI install would be missing files the ZIP and setup EXE have"
+fi
+if [[ -n "$msi_only" ]]; then
+    printf 'files in the MSI but not in the portable ZIP:\n%s\n' "$msi_only" >&2
+    die "MSI carries files the staged tree did not ship to the ZIP"
+fi
+printf 'MSI payload matches the portable ZIP (%d files)\n' "$(wc -l <"$msi_payload")"
+
 grep -Fq 'StartMenuShortcut' "$REPORTS/msi-Shortcut.idt" || die "MSI shortcut is missing"
 upgrade_code="$(jq -er '.upgrade_code' "$REPORTS/msi-identity.json")"
 grep -Fq "$upgrade_code" "$REPORTS/msi-Upgrade.idt" || die "MSI UpgradeCode mismatch"
