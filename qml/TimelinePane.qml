@@ -5500,10 +5500,182 @@ Rectangle {
                 id: spaceScroll
                 anchors.fill: parent
                 contentWidth: width
-                contentHeight: spaceCol.implicitHeight + AppTheme.spacing24 * 2
+                contentHeight: spaceCol.y + spaceCol.implicitHeight
+                               + AppTheme.spacing24
                 boundsBehavior: Flickable.StopAtBounds
                 clip: true
                 ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+
+                // Space banner — a REAL image, set by whoever the Space's
+                // own power levels allow, under the event type Sable already
+                // writes (see rust/src/banner.rs). A client that does not
+                // know it renders no banner, and nothing about the Space is
+                // damaged by that.
+                //
+                // Shown only when there IS one, or when this account could
+                // add one — an empty strip on a Space nobody can change is
+                // 190px of nothing.
+                Rectangle {
+                    id: spaceBannerCard
+                    objectName: "spaceHomeBanner"
+                    // FULL-BLEED, and 190px tall, because that is the shape
+                    // people author these images for: Sable renders a space
+                    // banner edge-to-edge with object-fit: cover at a default
+                    // height of 190 (resizable 56-500), and the same picture
+                    // has to crop the same way in both clients or it simply
+                    // does not fit. It sits OUTSIDE the centred 880px column
+                    // for the same reason — the column's width would change
+                    // the aspect ratio, and with it the crop.
+                    x: 0
+                    width: spaceScroll.width
+                    height: 190
+                    clip: true
+                    visible: bannerMxc.length > 0 || canEdit
+                    color: AppTheme.cardElevated
+
+                    readonly property string bannerMxc: {
+                        if (!app.banners || spaceHome.spaceId === "")
+                            return ""
+                        var _dep = app.banners.revision
+                        return app.banners.roomBannerFor(spaceHome.spaceId)
+                    }
+                    readonly property bool canEdit: {
+                        if (!app.banners || spaceHome.spaceId === "")
+                            return false
+                        // Same revision dependency as bannerMxc: the
+                        // answer only becomes known when the room
+                        // replies, and until then this is false, so the
+                        // control is never offered on a guess.
+                        var _dep = app.banners.revision
+                        return app.banners.canSetRoomBanner(
+                            spaceHome.spaceId)
+                    }
+
+                    // Asked once per Space per session; the write path
+                    // re-asks itself, so a fresh banner appears without
+                    // one.
+                    onVisibleChanged: if (visible) spaceBannerCard.ask()
+                    Component.onCompleted: spaceBannerCard.ask()
+                    function ask() {
+                        if (app.banners && spaceHome.spaceId !== "")
+                            app.banners.requestRoom(spaceHome.spaceId)
+                    }
+                    Connections {
+                        target: spaceHome
+                        function onSpaceIdChanged() { spaceBannerCard.ask() }
+                    }
+
+                    // The empty state. Theme tones only — no avatar, no
+                    // invented artwork.
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: !spaceBannerImage.visible
+                        gradient: Gradient {
+                            GradientStop { position: 0.0
+                                color: AppTheme.cardElevated }
+                            GradientStop { position: 1.0
+                                color: AppTheme.hover }
+                        }
+                    }
+
+                    Image {
+                        id: spaceBannerImage
+                        anchors.fill: parent
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        visible: status === Image.Ready
+                        readonly property string mxc:
+                            spaceBannerCard.bannerMxc
+                        source: mxc.length > 0 && app.mediaBridge.supported
+                                ? app.mediaBridge.wideImageSource(mxc) : ""
+                        Connections {
+                            target: app.mediaBridge
+                            enabled: spaceBannerImage.mxc.length > 0
+                            function onMediaCached(key) {
+                                if (spaceBannerImage.source.toString().length > 0)
+                                    return
+                                var again = app.mediaBridge.wideImageSource(
+                                    spaceBannerImage.mxc)
+                                if (again.length > 0)
+                                    spaceBannerImage.source = again
+                            }
+                        }
+                    }
+                    // A wash under the controls, so they keep their
+                    // contrast whatever the image happens to be.
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: spaceBannerImage.visible
+                        gradient: Gradient {
+                            GradientStop { position: 0.0
+                                color: "transparent" }
+                            GradientStop { position: 1.0
+                                color: AppTheme.overlayScrim }
+                        }
+                        opacity: 0.55
+                    }
+
+                    FileDialog {
+                        id: spaceBannerDialog
+                        title: qsTr("Choose a banner image")
+                        fileMode: FileDialog.OpenFile
+                        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp)") ]
+                        // The URL crosses as-is; the manager converts
+                        // it. Stripping "file://" here produced "/C:/..."
+                        // on Windows.
+                        onAccepted: app.banners.setRoomBanner(
+                            spaceHome.spaceId, selectedFile.toString())
+                    }
+
+                    Row {
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: AppTheme.spacing8
+                        spacing: AppTheme.spacing6
+                        visible: spaceBannerCard.canEdit
+
+                        AppButton {
+                            objectName: "spaceBannerRemoveButton"
+                            size: "sm"
+                            kind: "danger"
+                            visible: spaceBannerCard.bannerMxc.length > 0
+                            enabled: !app.banners.busy
+                            text: qsTr("Remove")
+                            onClicked: app.banners.clearRoomBanner(
+                                spaceHome.spaceId)
+                        }
+                        AppButton {
+                            objectName: "spaceBannerChangeButton"
+                            size: "sm"
+                            enabled: !app.banners.busy
+                            text: spaceBannerCard.bannerMxc.length > 0
+                                  ? qsTr("Change banner")
+                                  : qsTr("Add a banner")
+                            onClicked: spaceBannerDialog.open()
+                        }
+                    }
+
+                    // A refusal is reported where it happened, and
+                    // nothing was applied optimistically to undo.
+                    Label {
+                        anchors.left: parent.left
+                        anchors.bottom: parent.bottom
+                        anchors.margins: AppTheme.spacing8
+                        width: parent.width - AppTheme.spacing16
+                        visible: text.length > 0
+                        text: {
+                            if (!app.banners
+                                    || app.banners.lastError.length === 0)
+                                return ""
+                            return qsTr("The banner could not be saved (%1).")
+                                .arg(app.banners.lastError)
+                        }
+                        color: AppTheme.danger
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        wrapMode: Text.WordWrap
+                    }
+                }
 
                 ColumnLayout {
                     id: spaceCol
@@ -5516,176 +5688,10 @@ Rectangle {
                     width: Math.min(880,
                                     spaceScroll.width - AppTheme.spacing24 * 2)
                     x: Math.round((spaceScroll.width - width) / 2)
-                    y: AppTheme.spacing24
+                    y: (spaceBannerCard.visible
+                        ? spaceBannerCard.height + AppTheme.spacing16
+                        : AppTheme.spacing24)
                     spacing: AppTheme.spacing16
-
-                    // Space banner — a REAL image, set by whoever the
-                    // Space's own power levels allow.
-                    //
-                    // It used to be the Space's avatar stretched to a 4:1
-                    // strip, which is a square image cropped to a shape
-                    // nobody composed it for and looked exactly like that.
-                    // Matrix specifies no room banner, so this is
-                    // Lightning's own state event (see rust/src/banner.rs) —
-                    // a client that does not know it renders no banner, and
-                    // nothing about the Space is damaged by that.
-                    //
-                    // With no banner set the strip is a calm gradient rather
-                    // than a badly cropped avatar: an empty banner should
-                    // look deliberate.
-                    Rectangle {
-                        id: spaceBannerCard
-                        objectName: "spaceHomeBanner"
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Math.round(
-                            Math.max(140, Math.min(240, spaceCol.width / 4)))
-                        radius: AppTheme.radiusMd
-                        clip: true
-                        color: AppTheme.cardElevated
-
-                        readonly property string bannerMxc: {
-                            if (!app.banners || spaceHome.spaceId === "")
-                                return ""
-                            var _dep = app.banners.revision
-                            return app.banners.roomBannerFor(spaceHome.spaceId)
-                        }
-                        readonly property bool canEdit: {
-                            if (!app.banners || spaceHome.spaceId === "")
-                                return false
-                            // Same revision dependency as bannerMxc: the
-                            // answer only becomes known when the room
-                            // replies, and until then this is false, so the
-                            // control is never offered on a guess.
-                            var _dep = app.banners.revision
-                            return app.banners.canSetRoomBanner(
-                                spaceHome.spaceId)
-                        }
-
-                        // Asked once per Space per session; the write path
-                        // re-asks itself, so a fresh banner appears without
-                        // one.
-                        onVisibleChanged: if (visible) spaceBannerCard.ask()
-                        Component.onCompleted: spaceBannerCard.ask()
-                        function ask() {
-                            if (app.banners && spaceHome.spaceId !== "")
-                                app.banners.requestRoom(spaceHome.spaceId)
-                        }
-                        Connections {
-                            target: spaceHome
-                            function onSpaceIdChanged() { spaceBannerCard.ask() }
-                        }
-
-                        // The empty state. Theme tones only — no avatar, no
-                        // invented artwork.
-                        Rectangle {
-                            anchors.fill: parent
-                            visible: !spaceBannerImage.visible
-                            gradient: Gradient {
-                                GradientStop { position: 0.0
-                                    color: AppTheme.cardElevated }
-                                GradientStop { position: 1.0
-                                    color: AppTheme.hover }
-                            }
-                        }
-
-                        Image {
-                            id: spaceBannerImage
-                            anchors.fill: parent
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                            visible: status === Image.Ready
-                            readonly property string mxc:
-                                spaceBannerCard.bannerMxc
-                            source: mxc.length > 0 && app.mediaBridge.supported
-                                    ? app.mediaBridge.wideImageSource(mxc) : ""
-                            Connections {
-                                target: app.mediaBridge
-                                enabled: spaceBannerImage.mxc.length > 0
-                                function onMediaCached(key) {
-                                    if (spaceBannerImage.source.toString().length > 0)
-                                        return
-                                    var again = app.mediaBridge.wideImageSource(
-                                        spaceBannerImage.mxc)
-                                    if (again.length > 0)
-                                        spaceBannerImage.source = again
-                                }
-                            }
-                        }
-                        // A wash under the controls, so they keep their
-                        // contrast whatever the image happens to be.
-                        Rectangle {
-                            anchors.fill: parent
-                            visible: spaceBannerImage.visible
-                            gradient: Gradient {
-                                GradientStop { position: 0.0
-                                    color: "transparent" }
-                                GradientStop { position: 1.0
-                                    color: AppTheme.overlayScrim }
-                            }
-                            opacity: 0.55
-                        }
-
-                        FileDialog {
-                            id: spaceBannerDialog
-                            title: qsTr("Choose a banner image")
-                            fileMode: FileDialog.OpenFile
-                            nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp)") ]
-                            // The URL crosses as-is; the manager converts
-                            // it. Stripping "file://" here produced "/C:/..."
-                            // on Windows.
-                            onAccepted: app.banners.setRoomBanner(
-                                spaceHome.spaceId, selectedFile.toString())
-                        }
-
-                        Row {
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.margins: AppTheme.spacing8
-                            spacing: AppTheme.spacing6
-                            visible: spaceBannerCard.canEdit
-
-                            AppButton {
-                                objectName: "spaceBannerRemoveButton"
-                                size: "sm"
-                                kind: "danger"
-                                visible: spaceBannerCard.bannerMxc.length > 0
-                                enabled: !app.banners.busy
-                                text: qsTr("Remove")
-                                onClicked: app.banners.clearRoomBanner(
-                                    spaceHome.spaceId)
-                            }
-                            AppButton {
-                                objectName: "spaceBannerChangeButton"
-                                size: "sm"
-                                enabled: !app.banners.busy
-                                text: spaceBannerCard.bannerMxc.length > 0
-                                      ? qsTr("Change banner")
-                                      : qsTr("Add a banner")
-                                onClicked: spaceBannerDialog.open()
-                            }
-                        }
-
-                        // A refusal is reported where it happened, and
-                        // nothing was applied optimistically to undo.
-                        Label {
-                            anchors.left: parent.left
-                            anchors.bottom: parent.bottom
-                            anchors.margins: AppTheme.spacing8
-                            width: parent.width - AppTheme.spacing16
-                            visible: text.length > 0
-                            text: {
-                                if (!app.banners
-                                        || app.banners.lastError.length === 0)
-                                    return ""
-                                return qsTr("The banner could not be saved (%1).")
-                                    .arg(app.banners.lastError)
-                            }
-                            color: AppTheme.danger
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                            wrapMode: Text.WordWrap
-                        }
-                    }
 
                     RowLayout {
                         Layout.fillWidth: true
