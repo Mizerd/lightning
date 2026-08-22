@@ -26,9 +26,9 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.7.5** (`v0.7.5` -> `848a29e`),
-notes in `docs/releases/v0.7.5.md`. The application version reads
-**0.7.5** in `CMakeLists.txt` (`APP_VERSION_LABEL`), `rust/Cargo.toml`,
+Latest published release: **Lightning 0.7.6** (`v0.7.6` -> `b13e346`),
+notes in `docs/releases/v0.7.6.md`. The application version reads
+**0.7.6** in `CMakeLists.txt` (`APP_VERSION_LABEL`), `rust/Cargo.toml`,
 and the Rust/HTTP user agent (derived from `CARGO_PKG_VERSION`). It is released, so the next bump is a new
 release checkpoint and only on Rokas's explicit request (§14).
 
@@ -41,6 +41,7 @@ them incidentally.
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
+| 0.7.6 | `b13e346` | 111, **20/20 green first attempt**, 10 assets | `docs/releases/v0.7.6.md` |
 | 0.7.5 | `848a29e` | 110, 18/20 green — mirror wired wrong, mirrored by hand (see below) | `docs/releases/v0.7.5.md` |
 | 0.7.4 | `e8139ed` | not recorded here (105 FAILED, see below) | `docs/releases/v0.7.4.md` |
 | 0.7.3 | `8da2e81` | 104, 19/19 green first attempt, 9 assets | `docs/releases/v0.7.3.md` |
@@ -56,7 +57,7 @@ them incidentally.
 | 0.6.0 | `2157194` | — | — |
 
 Every SHA above predating 2026-08-11 is a **pre-rewrite** identifier
-(§4). Run `git log --oneline v0.7.5..HEAD` rather than trusting any
+(§4). Run `git log --oneline v0.7.6..HEAD` rather than trusting any
 narrative in this file; it goes stale immediately. Never quote a CTest
 count from here either — run the suites yourself (§12).
 
@@ -119,6 +120,15 @@ the lightning-deploy pipeline only after packages publish and verify
   container plus `-fsyntax-only` reproduced it and swept all 104
   translation units, instead of finding the rest one 30-minute pipeline
   at a time.
+  **A bare configure plus `-fsyntax-only` is worth NOTHING, and will not
+  tell you so.** A configure runs no AUTOMOC, no `rcc`, no `qmlcachegen`,
+  so every TU including a `.moc`, `qrc_*.cpp`, a qmlcache source or
+  `*_qmltyperegistrations.cpp` dies on "No such file or directory". Before
+  0.7.6 that produced **466 "failures"** and zero real findings. Run a real
+  `ninja` in the container instead — the full non-Rust tree builds there in
+  minutes and answers the actual question (0.7.6: exit 0, 1560/1560, zero
+  errors). It configures WITHOUT the Rust backend, so
+  `RustSdkMatrixClient.cpp` is not covered; judge that file separately.
 - **Cancel a doomed pipeline immediately.** It keeps running its other
   jobs and **HOLDS the runners**, so the retry sits pending.
 - **The Flatpak application ID changed in 0.7.3** to
@@ -1009,8 +1019,8 @@ Published tags and GitLab Releases are immutable. Never move, recreate, or
 replace them. Do not bump a version, tag, or create a release unless Rokas
 explicitly requests release work.
 
-Version 0.7.5 is released and the synchronized CMake, Rust, and user-agent
-version report 0.7.5. Any future version bump is a release checkpoint alone and
+Version 0.7.6 is released and the synchronized CMake, Rust, and user-agent
+version report 0.7.6. Any future version bump is a release checkpoint alone and
 updates those same synchronized locations. Before release, run complete Rust
 tests plus Rust and non-Rust builds/CTest, and report unavailable live
 validation honestly.
@@ -1068,11 +1078,14 @@ For an existing release that is missing packages, use
 links to the existing release without altering its tag, notes, or source
 archives). This was used to backfill `v0.6.1`.
 
-The latest published release is `v0.7.5` (`848a29e`), cut from its release
-commit on `main` by project 7 pipeline **110, 18/20 green — mirror wired wrong, mirrored by hand (see below)** in `RELEASE_ACTION=create`
-mode. Its trigger used SIX variables — the five 102-104 used plus
-`BUILD_MACOS_PACKAGES=true`, because 0.7.5 is the first release that
-publishes a macOS build — posted as a JSON body with an explicit
+The latest published release is `v0.7.6` (`b13e346`), cut from its release
+commit on `main` by project 7 pipeline **111, 20/20 green on the first
+attempt** in `RELEASE_ACTION=create` mode — the first fully clean release
+run since the macOS lane was added, and the proof that `86ec616` fixed the
+mirror. Its trigger used the same SIX variables 110 used
+(`RELEASE_ACTION=create`, `RELEASE_VERSION`, `SOURCE_REF`,
+`PUBLISH_PACKAGES=true`, `BUILD_FORMATS=all`, `BUILD_MACOS_PACKAGES=true`)
+— posted as a JSON body with an explicit
 `-H "Content-Type: application/json"`; `glab api --input` without that
 header returns HTTP 415. All earlier releases and tags (`v0.7.4` and older)
 remain immutable and unchanged.
