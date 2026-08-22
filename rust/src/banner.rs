@@ -26,12 +26,8 @@ use std::sync::Arc;
 use matrix_sdk::{
     config::RequestConfig,
     ruma::{
-        api::client::{
-            profile::{delete_profile_field, get_profile_field, set_profile_field},
-            state::get_state_event_for_key,
-        },
+        api::client::state::get_state_event_for_key,
         events::StateEventType,
-        profile::{ProfileFieldName, ProfileFieldValue},
         OwnedUserId, UserId,
     },
 };
@@ -41,6 +37,125 @@ use matrix_sdk::deserialized_responses::RawAnySyncOrStrippedState;
 
 use crate::rooms::{classify_room_error, require_client, sniff_image_mime};
 use crate::{enqueue, RustClient};
+
+/// The extended-profile field endpoints, addressed directly.
+///
+/// Lightning used ruma's typed `get/set/delete_profile_field` until it turned
+/// out they cannot reach a homeserver that actually implements the feature.
+///
+/// MSC4133's stable path is `/_matrix/client/v3/profile/{userId}/{keyName}`,
+/// and ruma selects it only when the server advertises **spec version 1.16**
+/// (`EXTENDED_PROFILE_FIELD_HISTORY`, ruma-client-api 0.24), or the unstable
+/// feature `uk.tcpip.msc4133` for the unstable path. Synapse 1.156 signals a
+/// stabilised MSC the way Synapse always does — `uk.tcpip.msc4133.stable:
+/// true` in `unstable_features` — and its `versions` list stops at v1.12.
+/// Neither of ruma's gates is met, so the typed request cannot select the
+/// working path; every read came back M_UNRECOGNIZED and the client reported
+/// "your homeserver does not support profile banners" about a homeserver that
+/// does. ruma has the mechanism for this (`StablePathSelector::Feature`); it
+/// is simply not wired to that endpoint.
+///
+/// So these three calls address the stable path themselves, over the SDK's OWN
+/// configured transport (`Client::http_client()` — same TLS, proxy and
+/// timeouts as every other request; nothing new is constructed). The ANSWER
+/// then decides what the server supports, which is what `is_unsupported` was
+/// always for: a server without extended profiles replies M_UNRECOGNIZED and
+/// is reported exactly as before. Nothing is concluded from a version number
+/// in either direction.
+///
+/// The access token is read from the SDK, used for one request, and never
+/// logged, stored, or returned. Revisit when ruma wires the stable feature in:
+/// this becomes a straight swap back to `ruma::api::client::profile`.
+mod profile_field {
+    use matrix_sdk::Client;
+
+    /// Coarse outcome. The BODY of a successful read is the caller's problem;
+    /// what matters here is telling "the server answered" apart from "the
+    /// server does not know this endpoint".
+    pub(super) struct Answer {
+        pub status: u16,
+        pub body: String,
+    }
+
+    fn endpoint(client: &Client, user_id: &str, field: &str) -> Result<String, String> {
+        let mut url = client.homeserver();
+        // Percent-encoding is done by Url::path_segments_mut, so a field name
+        // or user id containing a slash cannot escape the path.
+        url.path_segments_mut()
+            .map_err(|_| "homeserver url cannot carry a path".to_owned())?
+            .pop_if_empty()
+            .extend(["_matrix", "client", "v3", "profile", user_id, field]);
+        Ok(url.to_string())
+    }
+
+    fn authorization(client: &Client) -> Result<String, String> {
+        client
+            .access_token()
+            .map(|token| format!("Bearer {token}"))
+            .ok_or_else(|| "no session".to_owned())
+    }
+
+    async fn run(
+        client: &Client,
+        request: reqwest::RequestBuilder,
+    ) -> Result<Answer, String> {
+        let response = request
+            .header(reqwest::header::AUTHORIZATION, authorization(client)?)
+            .send()
+            .await
+            .map_err(|err| err.to_string())?;
+        let status = response.status().as_u16();
+        // Bounded: a profile field response is a small JSON object, and this
+        // is remote input. 64 KiB is far more than any field may hold.
+        let body = response.text().await.unwrap_or_default();
+        Ok(Answer { status, body: body.chars().take(65_536).collect() })
+    }
+
+    pub(super) async fn get(
+        client: &Client,
+        user_id: &str,
+        field: &str,
+        timeout: std::time::Duration,
+    ) -> Result<Answer, String> {
+        let url = endpoint(client, user_id, field)?;
+        run(client, client.http_client().get(url).timeout(timeout)).await
+    }
+
+    pub(super) async fn set(
+        client: &Client,
+        user_id: &str,
+        field: &str,
+        value: &str,
+        timeout: std::time::Duration,
+    ) -> Result<Answer, String> {
+        let url = endpoint(client, user_id, field)?;
+        // Built with serde rather than string formatting so a field name or
+        // value can never inject JSON, and sent as an explicit body because
+        // reqwest's `json` helper needs a feature this build does not enable.
+        let body = serde_json::to_vec(&serde_json::json!({ field: value }))
+            .map_err(|_| "invalid_value".to_owned())?;
+        run(
+            client,
+            client
+                .http_client()
+                .put(url)
+                .timeout(timeout)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body),
+        )
+        .await
+    }
+
+    pub(super) async fn delete(
+        client: &Client,
+        user_id: &str,
+        field: &str,
+        timeout: std::time::Duration,
+    ) -> Result<Answer, String> {
+        let url = endpoint(client, user_id, field)?;
+        run(client, client.http_client().delete(url).timeout(timeout)).await
+    }
+}
 
 /// The stable field from MSC4427.
 const BANNER_FIELD: &str = "m.banner_url";
@@ -68,10 +183,11 @@ pub(crate) fn is_usable_banner(value: &str) -> bool {
     value.starts_with("mxc://") && value.len() > "mxc://".len() && value.len() <= 512
 }
 
-fn banner_from_response(response: get_profile_field::v3::Response) -> Option<String> {
-    let value = response.value?;
-    let raw = value.value();
-    let text = raw.as_str()?;
+fn banner_from_body(field: &str, body: &str) -> Option<String> {
+    // The body is `{ "<field>": <value> }`; the value is the only thing read,
+    // and only as a string.
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let text = value.get(field)?.as_str()?;
     is_usable_banner(text).then(|| text.to_owned())
 }
 
@@ -107,9 +223,6 @@ pub(crate) fn fetch_profile_banner(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let config = RequestConfig::new()
-            .disable_retry()
-            .timeout(BANNER_REQUEST_TIMEOUT);
         let mut banner = String::new();
         // Stable first, then the deployed unstable key. A server that answers
         // the stable field at all is one whose answer we trust, so an empty
@@ -123,28 +236,27 @@ pub(crate) fn fetch_profile_banner(
         let mut any_answered = false;
         let mut any_unrecognised = false;
         for field in [BANNER_FIELD, BANNER_FIELD_UNSTABLE] {
-            let request = get_profile_field::v3::Request::new(
-                uid.clone(),
-                ProfileFieldName::from(field),
-            );
-            match client.send(request).with_request_config(config).await {
-                Ok(response) => {
+            match profile_field::get(&client, uid.as_str(), field,
+                                    BANNER_REQUEST_TIMEOUT).await {
+                Ok(answer) if answer.status == 200 => {
                     any_answered = true;
-                    if let Some(value) = banner_from_response(response) {
+                    if let Some(value) = banner_from_body(field, &answer.body) {
                         banner = value;
                         break;
                     }
                 }
-                Err(err) => {
-                    let text = err.to_string();
-                    if is_unsupported(&text) {
+                Ok(answer) => {
+                    if is_unsupported(&answer.body) {
                         any_unrecognised = true;
                     } else {
-                        // A refusal, a timeout or a plain M_NOT_FOUND all
-                        // come from a server that KNOWS the endpoint.
+                        // A refusal, or a plain M_NOT_FOUND, both come from a
+                        // server that KNOWS the endpoint.
                         any_answered = true;
                     }
                 }
+                // A transport failure says nothing about what the server
+                // implements, so it must never latch "unsupported".
+                Err(_) => any_answered = true,
             }
         }
         let supported = any_answered || !any_unrecognised;
@@ -190,9 +302,6 @@ pub(crate) fn set_own_profile_banner(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let config = RequestConfig::new()
-            .disable_retry()
-            .timeout(BANNER_REQUEST_TIMEOUT);
         let result = async {
             let mxc = if clearing {
                 String::new()
@@ -220,25 +329,17 @@ pub(crate) fn set_own_profile_banner(
             let mut last_error: Option<String> = None;
             let mut wrote_any = false;
             for field in [BANNER_FIELD, BANNER_FIELD_UNSTABLE] {
-                let outcome = if clearing {
-                    client
-                        .send(delete_profile_field::v3::Request::new(
-                            uid.clone(),
-                            ProfileFieldName::from(field),
-                        ))
-                        .with_request_config(config)
-                        .await
-                        .map(|_| ())
-                        .map_err(|err| err.to_string())
+                let answer = if clearing {
+                    profile_field::delete(&client, uid.as_str(), field,
+                                          BANNER_REQUEST_TIMEOUT).await
                 } else {
-                    let value = ProfileFieldValue::new(field, json!(mxc.clone()))
-                        .map_err(|_| "invalid_value".to_owned())?;
-                    client
-                        .send(set_profile_field::v3::Request::new(uid.clone(), value))
-                        .with_request_config(config)
-                        .await
-                        .map(|_| ())
-                        .map_err(|err| err.to_string())
+                    profile_field::set(&client, uid.as_str(), field, &mxc,
+                                       BANNER_REQUEST_TIMEOUT).await
+                };
+                let outcome = match answer {
+                    Ok(a) if (200..300).contains(&a.status) => Ok(()),
+                    Ok(a) => Err(a.body),
+                    Err(text) => Err(text),
                 };
                 match outcome {
                     Ok(()) => wrote_any = true,
@@ -296,7 +397,21 @@ pub(crate) fn set_own_profile_banner(
 // It IS a real state event and not a local preference: a banner belongs to
 // the room, everyone in it sees the same one, and it is set by whoever the
 // room's own power levels allow to set it — never "whoever opened the panel".
-const ROOM_BANNER_EVENT: &str = "org.lightning_matrix.room_banner";
+/// The room/space banner state event, as Sable writes it.
+///
+/// Matrix specifies no room banner, so 0.7.5 shipped Lightning's own name for
+/// it. That was the wrong call the moment another client already had one:
+/// Sable (`src/types/matrix/room.ts`) uses
+/// `page.codeberg.everypizza.room.banner`, state key "", content
+/// `{ "url": "mxc://..." }`, gated on that event's own power level — the same
+/// shape, under a name that is already in the wild. A banner nobody else can
+/// see is not a banner, which is exactly the reasoning the PROFILE half of
+/// this file already follows for `chat.commet.profile_banner`.
+const ROOM_BANNER_EVENT: &str = "page.codeberg.everypizza.room.banner";
+/// Read-only, for the banners 0.7.5 wrote under Lightning's own name. Never
+/// written again: it exists so a banner set by the one release that used it
+/// does not vanish. Only consulted when the interoperable key has none.
+const ROOM_BANNER_EVENT_LEGACY: &str = "org.lightning_matrix.room_banner";
 
 /// Read one room's banner, and whether this account may change it. Emits
 /// `room_banner`.
@@ -319,30 +434,36 @@ pub(crate) fn fetch_room_banner(
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
         let mut banner = String::new();
-        if let Ok(Some(raw)) = room
-            .get_state_event(StateEventType::from(ROOM_BANNER_EVENT), "")
-            .await
-        {
-            let json = match &raw {
-                RawAnySyncOrStrippedState::Sync(ev) => ev.json().get().to_owned(),
-                RawAnySyncOrStrippedState::Stripped(ev) => ev.json().get().to_owned(),
-            };
-            if let Some(url) = banner_url_from_json(&json) {
-                banner = url;
+        // The interoperable key first, then the one 0.7.5 wrote. Store before
+        // network for each: sliding sync only delivers the state types a
+        // subscription names, so a store miss is the ORDINARY case here and is
+        // not evidence that the room has no banner.
+        for event_type in [ROOM_BANNER_EVENT, ROOM_BANNER_EVENT_LEGACY] {
+            if let Ok(Some(raw)) = room
+                .get_state_event(StateEventType::from(event_type), "")
+                .await
+            {
+                let json = match &raw {
+                    RawAnySyncOrStrippedState::Sync(ev) => ev.json().get().to_owned(),
+                    RawAnySyncOrStrippedState::Stripped(ev) => ev.json().get().to_owned(),
+                };
+                if let Some(url) = banner_url_from_json(&json) {
+                    banner = url;
+                    break;
+                }
             }
-        }
-        if banner.is_empty() {
             let config = RequestConfig::new()
                 .disable_retry()
                 .timeout(BANNER_REQUEST_TIMEOUT);
             let request = get_state_event_for_key::v3::Request::new(
                 room.room_id().to_owned(),
-                StateEventType::from(ROOM_BANNER_EVENT),
+                StateEventType::from(event_type),
                 String::new(),
             );
             if let Ok(response) = client.send(request).with_request_config(config).await {
                 if let Some(url) = banner_url_from_json(response.event_or_content.get()) {
                     banner = url;
+                    break;
                 }
             }
         }
@@ -487,6 +608,37 @@ mod tests {
         assert!(!is_usable_banner(""));
         // Bounded: a profile field is remote text.
         assert!(!is_usable_banner(&format!("mxc://{}", "a".repeat(600))));
+    }
+
+    #[test]
+    fn the_room_banner_uses_the_name_other_clients_already_write() {
+        // Sable writes page.codeberg.everypizza.room.banner with state key ""
+        // and content {"url": "mxc://..."} — same shape Lightning had, under a
+        // name that is already in the wild. Written under that name, so a
+        // banner set here is visible there and the other way round.
+        assert_eq!(ROOM_BANNER_EVENT, "page.codeberg.everypizza.room.banner");
+        // ...and 0.7.5's own name is still READ, so the banners that release
+        // wrote do not disappear. It must never be written again.
+        assert_eq!(ROOM_BANNER_EVENT_LEGACY, "org.lightning_matrix.room_banner");
+        assert_ne!(ROOM_BANNER_EVENT, ROOM_BANNER_EVENT_LEGACY);
+
+        // Both names carry the same content shape, which is what makes
+        // reading either of them one function.
+        let content = r#"{"url":"mxc://example.org/banner"}"#;
+        assert_eq!(
+            banner_url_from_json(content).as_deref(),
+            Some("mxc://example.org/banner")
+        );
+        // ...whether it arrives as a bare content object or a full event.
+        let event = r#"{"type":"page.codeberg.everypizza.room.banner",
+                        "content":{"url":"mxc://example.org/banner"}}"#;
+        assert_eq!(
+            banner_url_from_json(event).as_deref(),
+            Some("mxc://example.org/banner")
+        );
+        // An http URL in room state is refused here exactly as in a profile.
+        let unsafe_url = r#"{"url":"https://example.org/banner.png"}"#;
+        assert_eq!(banner_url_from_json(unsafe_url), None);
     }
 
     #[test]
