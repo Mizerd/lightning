@@ -336,6 +336,15 @@ public:
                                      const QString &codeBackground = QString(),
                                      const QString &linkColor = QString());
 
+    // Styles the literal "@room" in a body that already carries
+    // m.mentions.room (the mentionsRoom role). The delegate calls this for
+    // BOTH body paths — sanitized formatted HTML and linkified plain text —
+    // because a whole-room mention is plain text in either one.
+    //
+    // The caller owns the m.mentions.room test. This does not re-check it,
+    // and must never be applied to a body that merely contains the words.
+    Q_INVOKABLE QString markRoomMention(const QString &safeHtml) const;
+
 Q_SIGNALS:
     void roomIdChanged();
     void countChanged();

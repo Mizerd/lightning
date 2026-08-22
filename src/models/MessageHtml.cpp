@@ -697,3 +697,81 @@ QList<MessageHtml::Segment> MessageHtml::segments(
     flushRich();
     return out;
 }
+
+QString MessageHtml::markRoomMention(const QString &safeHtml,
+                                     const QString &color)
+{
+    static const QString kNeedle = QStringLiteral("@room");
+    if (safeHtml.isEmpty() || color.isEmpty() || !safeHtml.contains(kNeedle))
+        return safeHtml;
+
+    // A match must stand alone. Without this "@roomba" and "user@room.example"
+    // would both light up as whole-room pings.
+    const auto boundaryBefore = [](QChar c) {
+        return !(c.isLetterOrNumber() || c == QLatin1Char('@')
+                 || c == QLatin1Char('_') || c == QLatin1Char('-')
+                 || c == QLatin1Char('.') || c == QLatin1Char('/'));
+    };
+    const auto boundaryAfter = [](QChar c) {
+        return !(c.isLetterOrNumber() || c == QLatin1Char('_')
+                 || c == QLatin1Char('-') || c == QLatin1Char('.')
+                 || c == QLatin1Char(':'));
+    };
+
+    const QString open = QStringLiteral("<span style=\"color:")
+        + color.toHtmlEscaped() + QStringLiteral(";font-weight:600\"><b>");
+    const QString close = QStringLiteral("</b></span>");
+
+    QString out;
+    out.reserve(safeHtml.size() + 64);
+    int codeDepth = 0;
+    qsizetype i = 0;
+    const qsizetype n = safeHtml.size();
+    while (i < n) {
+        const QChar ch = safeHtml.at(i);
+        if (ch == QLatin1Char('<')) {
+            // Copy the whole tag through untouched, and track code spans so a
+            // literal @room inside one is left as the string it is.
+            const qsizetype gt = safeHtml.indexOf(QLatin1Char('>'), i);
+            const qsizetype end = gt < 0 ? n : gt + 1;
+            const QString tag = safeHtml.mid(i, end - i);
+            const QString lower = tag.toLower();
+            if (lower.startsWith(QLatin1String("<code"))
+                || lower.startsWith(QLatin1String("<pre")))
+                ++codeDepth;
+            else if (lower.startsWith(QLatin1String("</code"))
+                     || lower.startsWith(QLatin1String("</pre")))
+                codeDepth = qMax(0, codeDepth - 1);
+            out += tag;
+            i = end;
+            continue;
+        }
+        if (ch == QLatin1Char('&')) {
+            // Entities are atomic: splitting "&amp;" would corrupt the markup
+            // and could even manufacture a tag.
+            const qsizetype semi = safeHtml.indexOf(QLatin1Char(';'), i);
+            if (semi > i && semi - i <= 10) {
+                out += safeHtml.mid(i, semi - i + 1);
+                i = semi + 1;
+                continue;
+            }
+            out += ch;
+            ++i;
+            continue;
+        }
+        if (codeDepth == 0 && ch == QLatin1Char('@')
+            && QStringView(safeHtml).mid(i, kNeedle.size()) == kNeedle) {
+            const QChar before = i > 0 ? safeHtml.at(i - 1) : QLatin1Char(' ');
+            const qsizetype after = i + kNeedle.size();
+            const QChar next = after < n ? safeHtml.at(after) : QLatin1Char(' ');
+            if (boundaryBefore(before) && boundaryAfter(next)) {
+                out += open + kNeedle + close;
+                i = after;
+                continue;
+            }
+        }
+        out += ch;
+        ++i;
+    }
+    return out;
+}

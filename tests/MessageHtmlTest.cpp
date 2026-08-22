@@ -662,6 +662,61 @@ private Q_SLOTS:
         QCOMPARE(segments(QStringLiteral("<pre><code>  </code></pre>")).size(),
                  0);
     }
+
+    // ── @room ────────────────────────────────────────────────────────────
+    // A whole-room mention has no matrix.to link to become an anchor, so it
+    // is plain body text in both render paths and was rendering as plain body
+    // text — the reported "it isn't styled like all the other tags".
+    void roomMentionIsInkedWithoutBecomingALink()
+    {
+        const QString ink = QStringLiteral("#ff8800");
+        const QString out =
+            MessageHtml::markRoomMention(QStringLiteral("hey @room look"), ink);
+        QVERIFY(out.contains(QStringLiteral("color:#ff8800")));
+        QVERIFY(out.contains(QStringLiteral("font-weight:600")));
+        QVERIFY(out.contains(QStringLiteral("@room")));
+        // A span, never an anchor: there is no profile behind @room, and a
+        // link would invite a click that can only fail.
+        QVERIFY(!out.contains(QStringLiteral("<a ")));
+        QVERIFY(!out.contains(QStringLiteral("href")));
+        // The surrounding text survives intact.
+        QVERIFY(out.startsWith(QStringLiteral("hey ")));
+        QVERIFY(out.endsWith(QStringLiteral(" look")));
+        // No ink configured means no styling rather than a broken span.
+        QCOMPARE(MessageHtml::markRoomMention(QStringLiteral("@room"),
+                                              QString()),
+                 QStringLiteral("@room"));
+    }
+
+    void roomMentionNeedsWordBoundariesAndSkipsMarkupAndCode()
+    {
+        const QString ink = QStringLiteral("#ff8800");
+        const auto mark = [&ink](const QString &s) {
+            return MessageHtml::markRoomMention(s, ink);
+        };
+        // Not a mention: a longer word, or an address that merely ends there.
+        QCOMPARE(mark(QStringLiteral("@roomba")), QStringLiteral("@roomba"));
+        QCOMPARE(mark(QStringLiteral("bot@room.example")),
+                 QStringLiteral("bot@room.example"));
+        // Never inside a tag — rewriting there would corrupt the markup. A
+        // naive replace would hit this attribute.
+        const QString tag =
+            QStringLiteral("<a href=\"https://x/@room\">click</a> @room");
+        const QString marked = mark(tag);
+        QVERIFY(marked.contains(QStringLiteral("href=\"https://x/@room\"")));
+        QCOMPARE(marked.count(QStringLiteral("<span")), 1);
+        // Entities stay atomic.
+        QVERIFY(mark(QStringLiteral("&amp; @room")).contains(
+            QStringLiteral("&amp;")));
+        // A literal @room in code is a string, not a ping.
+        QCOMPARE(mark(QStringLiteral("<code>@room</code>")),
+                 QStringLiteral("<code>@room</code>"));
+        QCOMPARE(mark(QStringLiteral("<pre>@room</pre>")),
+                 QStringLiteral("<pre>@room</pre>"));
+        // ...but one after the block closes still counts.
+        QVERIFY(mark(QStringLiteral("<code>@room</code> @room"))
+                    .contains(QStringLiteral("<span")));
+    }
 };
 
 QTEST_APPLESS_MAIN(MessageHtmlTest)

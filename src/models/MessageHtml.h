@@ -106,6 +106,30 @@ struct Segment {
     QString language;
 };
 
+// Styles the literal "@room" inside ALREADY-SAFE rich text (either
+// sanitize()'s output or the linkified plain body).
+//
+// A whole-room mention has no matrix.to link to hang a pill on — there is no
+// such link for "everyone here", and inventing one would put a dead URL in
+// every @room message — so it arrives as ordinary body text and renders as
+// ordinary body text. This is what makes it look like a mention.
+//
+// Two rules the caller must respect:
+//   * call it ONLY for an event whose m.mentions.room is actually true.
+//     Styling any body that happens to contain "@room" would let anyone
+//     paint a convincing broadcast ping out of plain text;
+//   * pass rich text that is already safe. This never escapes anything and
+//     never parses attributes; it copies markup through untouched.
+//
+// It emits a <span>, NOT an anchor: there is no profile behind @room, and an
+// <a href="mention:@room"> would invite a click that can only fail.
+//
+// Substitution happens in text runs only. Tags are copied verbatim, entities
+// are atomic (so "&amp;" is never split), a match must stand on word
+// boundaries ("@roomba" is not a mention), and anything inside <code>/<pre>
+// is left alone — a literal @room in a code sample is a string, not a ping.
+QString markRoomMention(const QString &safeHtml, const QString &color);
+
 // Splits a formatted body into ordered segments. A body with no code block
 // returns exactly ONE RichText segment whose text IS sanitize()'s output —
 // that equality is by construction (the fast path calls sanitize on the

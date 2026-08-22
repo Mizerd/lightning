@@ -1173,6 +1173,23 @@ QVariantList TimelineModel::mediaEntries() const
     return out;
 }
 
+// The accent, not a colour of its own: this file's two inks are a semantic
+// split, and the accent is the one spent on a mention that concerns the
+// READER. @room concerns every reader by definition, so it belongs on the
+// same ink as a mention of you rather than on the link ink shared with
+// mentions of other people and with external URLs.
+//
+// Element paints a red pill instead. Lightning cannot: Qt's rich-text engine
+// honours neither border-radius nor padding on an inline run, and a
+// background-color paints an unroundable full-line-height slab that reads as
+// a selection highlight (all measured — see MessageHtml.h). Red ink with no
+// pill to carry it reads as an error, which is the failure mode that header
+// already records.
+QString TimelineModel::markRoomMention(const QString &safeHtml) const
+{
+    return MessageHtml::markRoomMention(safeHtml, m_mentionAccentColor);
+}
+
 void TimelineModel::setMentionStyle(const QString &accentColor,
                                     const QString &softColor,
                                     const QString &codeBackground,

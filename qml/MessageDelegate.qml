@@ -1653,14 +1653,22 @@ Item {
                             // full sanitize in C++ (now memoized, but one
                             // read is still half the work of two).
                             var fb = model.formattedBody
-                            if (fb && fb.length > 0)
-                                return root.highlightSearchMatches(
-                                            fb,
-                                            root.searchHighlight,
-                                            root.isCurrentSearchHit)
+                            var html = (fb && fb.length > 0)
+                                ? fb
+                                : app.linkPreviews.linkifiedBody(
+                                      model.body || "")
+                            // A whole-room mention is plain body text in BOTH
+                            // paths — there is no matrix.to link for
+                            // "everyone here" — so without this it renders as
+                            // ordinary text while every other mention is
+                            // inked. Gated on the event's own
+                            // m.mentions.room: a body that merely contains
+                            // the characters must never be painted as a
+                            // broadcast ping.
+                            if (model.mentionsRoom === true && root.timelineModel)
+                                html = root.timelineModel.markRoomMention(html)
                             return root.highlightSearchMatches(
-                                        app.linkPreviews.linkifiedBody(
-                                            model.body || ""),
+                                        html,
                                         root.searchHighlight,
                                         root.isCurrentSearchHit)
                         }
