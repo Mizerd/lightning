@@ -5080,17 +5080,57 @@ Rectangle {
     }
 
     // ── Room Information side panel ──────────────────────────────────────
-    Rectangle {
+    // The 1px rule is also the resize grab: a 5px transparent band carrying
+    // the line, exactly like the shell SplitView's own handle. It used to be
+    // a bare 1px Rectangle, so the panel a tester specifically named — "the
+    // member list panel" — was the one panel in the window that could not be
+    // resized. The width persists (SettingsManager::sidePanelWidth), and the
+    // clamp lives in the setter rather than here.
+    Item {
+        id: infoResizer
+        objectName: "roomInfoResizeHandle"
         visible: root.infoOpen
         Layout.fillHeight: true
-        implicitWidth: 1
-        color: AppTheme.border
+        implicitWidth: 5
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: 1
+            height: parent.height
+            color: infoDrag.active ? AppTheme.accent
+                 : infoHover.hovered ? AppTheme.borderStrong : AppTheme.border
+            Behavior on color { ColorAnimation { duration: 90 } }
+        }
+        HoverHandler {
+            id: infoHover
+            cursorShape: Qt.SplitHCursor
+        }
+        DragHandler {
+            id: infoDrag
+            target: null
+            yAxis.enabled: false
+            // The width AT GRAB, because DragHandler.translation is measured
+            // from the press and is cumulative — applying it as a delta on
+            // every change would multiply the movement.
+            property int startWidth: 0
+            onActiveChanged: {
+                if (active)
+                    startWidth = app.settings.sidePanelWidth
+            }
+            onTranslationChanged: {
+                if (!active)
+                    return
+                // The panel is on the RIGHT, so dragging left widens it.
+                app.settings.sidePanelWidth =
+                    Math.round(startWidth - translation.x)
+            }
+        }
     }
     RoomInfoPanel {
         id: infoPanel
         objectName: "roomInfoPanel"
         Layout.fillHeight: true
-        Layout.preferredWidth: root.infoOpen ? 320 : 0
+        Layout.preferredWidth: root.infoOpen ? app.settings.sidePanelWidth : 0
         // Collapse cleanly at narrow widths instead of crushing the chat.
         visible: root.infoOpen && root.width >= 700
         onCloseRequested: root.infoOpen = false

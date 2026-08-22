@@ -31,6 +31,12 @@ constexpr auto kPreviewsUnencrypted = "previews/autoLoadUnencrypted";
 constexpr auto kPreviewsEncrypted   = "previews/loadInEncryptedRooms";
 constexpr auto kPreviewsAnimateGifs = "previews/animateGifs";
 constexpr auto kSharePresence = "presence/shareOwn";
+constexpr auto kSpacesRailVisible = "shell/spacesRailVisible";
+constexpr auto kRoomListVisible   = "shell/roomListVisible";
+constexpr auto kRoomListWidth     = "shell/roomListWidth";
+constexpr auto kSidePanelWidth    = "shell/sidePanelWidth";
+constexpr auto kCloseToTray       = "shell/closeToTray";
+constexpr auto kStartInTray       = "shell/startInTray";
 // Account-scoped only (accounts/<slug>/security/verifyWarningDismissed);
 // there is deliberately no global fallback key.
 constexpr auto kVerifyWarningDismissed = "security/verifyWarningDismissed";
@@ -1231,6 +1237,93 @@ void SettingsManager::setSharePresence(bool v)
         return;
     m_store->setValue(kSharePresence, v);
     Q_EMIT sharePresenceChanged();
+}
+
+bool SettingsManager::spacesRailVisible() const
+{
+    return m_store->value(kSpacesRailVisible, true).toBool();
+}
+
+void SettingsManager::setSpacesRailVisible(bool v)
+{
+    if (spacesRailVisible() == v)
+        return;
+    m_store->setValue(kSpacesRailVisible, v);
+    Q_EMIT spacesRailVisibleChanged();
+}
+
+bool SettingsManager::roomListVisible() const
+{
+    return m_store->value(kRoomListVisible, true).toBool();
+}
+
+void SettingsManager::setRoomListVisible(bool v)
+{
+    if (roomListVisible() == v)
+        return;
+    m_store->setValue(kRoomListVisible, v);
+    Q_EMIT roomListVisibleChanged();
+}
+
+int SettingsManager::roomListWidth() const
+{
+    // Clamped on READ as well as on write: a value typed into the config by
+    // hand, or written by a build with different bounds, must not be able to
+    // leave the window with a 4000px room list and no timeline.
+    const int stored = m_store->value(kRoomListWidth, 300).toInt();
+    return std::clamp(stored, kRoomListMinWidth, kRoomListMaxWidth);
+}
+
+void SettingsManager::setRoomListWidth(int px)
+{
+    const int clamped = std::clamp(px, kRoomListMinWidth, kRoomListMaxWidth);
+    if (roomListWidth() == clamped)
+        return;
+    m_store->setValue(kRoomListWidth, clamped);
+    Q_EMIT roomListWidthChanged();
+}
+
+int SettingsManager::sidePanelWidth() const
+{
+    const int stored = m_store->value(kSidePanelWidth, 320).toInt();
+    return std::clamp(stored, kSidePanelMinWidth, kSidePanelMaxWidth);
+}
+
+void SettingsManager::setSidePanelWidth(int px)
+{
+    const int clamped = std::clamp(px, kSidePanelMinWidth, kSidePanelMaxWidth);
+    if (sidePanelWidth() == clamped)
+        return;
+    m_store->setValue(kSidePanelWidth, clamped);
+    Q_EMIT sidePanelWidthChanged();
+}
+
+bool SettingsManager::closeToTray() const
+{
+    return m_store->value(kCloseToTray, false).toBool();
+}
+
+void SettingsManager::setCloseToTray(bool v)
+{
+    if (closeToTray() == v)
+        return;
+    m_store->setValue(kCloseToTray, v);
+    Q_EMIT closeToTrayChanged();
+}
+
+bool SettingsManager::startInTray() const
+{
+    // Only meaningful while closeToTray is on: starting into a tray the user
+    // has not opted into would launch the application invisibly.
+    return closeToTray() && m_store->value(kStartInTray, false).toBool();
+}
+
+void SettingsManager::setStartInTray(bool v)
+{
+    if (m_store->value(kStartInTray, false).toBool() == v)
+        return;
+    m_store->setValue(kStartInTray, v);
+    Q_EMIT startInTrayChanged();
 }
 
 bool SettingsManager::verificationWarningDismissed() const

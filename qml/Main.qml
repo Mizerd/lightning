@@ -108,6 +108,40 @@ ApplicationWindow {
         syncControlPalette()
         if (app.settings && app.settings.startMinimized)
             window.visibility = Window.Minimized
+        // Start straight into the tray. Guarded on the tray actually
+        // existing, and SettingsManager::startInTray already refuses unless
+        // closeToTray is on — starting invisibly with no way back would be
+        // the worst possible failure of this feature.
+        if (app.settings && app.settings.startInTray && app.trayAvailable)
+            window.hide()
+    }
+
+    // ── Close to tray ────────────────────────────────────────────────────
+    // Requested by a tester on Windows. Off by default, and gated on the
+    // platform having a tray at all: hiding the window into a tray that does
+    // not exist would leave no way to get it back. Clicking the tray icon —
+    // any button — restores it.
+    onClosing: (close) => {
+        if (app.settings && app.settings.closeToTray && app.trayAvailable) {
+            close.accepted = false
+            window.hide()
+        }
+    }
+    Connections {
+        target: app
+        function onTrayShowRequested() {
+            window.show()
+            window.raise()
+            window.requestActivate()
+        }
+    }
+    // Ctrl+Q quits for real. It exists because the tray icon deliberately
+    // carries no context menu (QSystemTrayIcon takes a QtWidgets QMenu and
+    // this process is a QGuiApplication), so this is the way out once the
+    // window has been closed into the tray and brought back.
+    Shortcut {
+        sequences: ["Ctrl+Q"]
+        onActivated: Qt.quit()
     }
 
     // SECURITY, application-wide. Qt Quick Controls uses ONE shared ToolTip

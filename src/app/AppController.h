@@ -17,6 +17,7 @@
 #include "crypto/CryptoHealthModel.h"
 #include "crypto/CryptoManager.h"
 #include "crypto/QrImageProvider.h"
+#include "app/TrayIcon.h"
 #include "media/MediaBridge.h"
 #include "media/StagedImageStore.h"
 #include "media/MediaPlaybackController.h"
@@ -208,6 +209,10 @@ class AppController : public QObject
     Q_PROPERTY(MessageComposer* composer READ composer CONSTANT)
     // v0.7 outgoing @-mentions: the current-room member suggestion model
     // shared by the room and thread composer mention popups.
+    // Whether this session actually has a system tray to close INTO. QML
+    // gates both tray settings on it rather than offering a switch that
+    // would hide the window into nothing.
+    Q_PROPERTY(bool trayAvailable READ trayAvailable CONSTANT)
     Q_PROPERTY(MentionSuggestionModel* mentionSuggestions READ mentionSuggestions
                    CONSTANT)
     Q_PROPERTY(EmojiCatalog* emojiCatalog READ emojiCatalog CONSTANT)
@@ -815,6 +820,7 @@ public Q_SLOTS:
             ? QString{}
             : QStringLiteral("image://lightning-qr/") + m_verificationQrToken;
     }
+    bool trayAvailable() const { return TrayIcon::platformSupportsTray(); }
     bool verificationQrScanned() const { return m_verificationQrScanned; }
     bool verificationQrConfirming() const { return m_verificationQrConfirming; }
 
@@ -846,6 +852,9 @@ public Q_SLOTS:
     bool roomKeyImportRunning() const { return m_roomKeyImportRunning; }
 
 Q_SIGNALS:
+    // The tray icon was clicked; Main.qml restores and raises the window.
+    void trayShowRequested();
+
     void voiceOwnerChanged();
     // Emitted when a reconnect retry batch is ISSUED, carrying how many
     // rooms were re-sent. Exists so the retry is observable: the backend
@@ -1099,6 +1108,8 @@ private:
     // point that drops both, and every flow-ending path calls it.
     QrCodeStore m_qrCodeStore;
     StagedImageStore m_stagedImages;
+    TrayIcon m_tray;
+    void refreshTrayState();
     QString m_verificationQrToken;
     bool m_verificationQrScanned = false;
     bool m_verificationQrConfirming = false;

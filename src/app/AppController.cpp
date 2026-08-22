@@ -183,6 +183,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Clipboard images never become files, so their bytes are registered
     // here for the composer chip to preview. One store, both composers.
     m_composer->attachments()->setStagedImages(&m_stagedImages);
+
+    // System tray. Created only while the user has asked for it — an icon in
+    // somebody's tray for a feature they never turned on is noise — and only
+    // where the platform actually has one.
+    connect(&m_tray, &TrayIcon::showRequested,
+            this, &AppController::trayShowRequested);
+    connect(m_settings.get(), &SettingsManager::closeToTrayChanged,
+            this, &AppController::refreshTrayState);
+    refreshTrayState();
     // v0.7.x drafts: one shared store (room + thread composers), policy in
     // DraftStore — persisted only for unencrypted rooms.
     m_draftStore   = std::make_unique<DraftStore>(this);
@@ -2939,6 +2948,14 @@ void AppController::onLoginSucceeded()
     Q_EMIT errorReported(QString{});
     setCurrentScreen(MainScreen);
     Q_EMIT loggedInChanged();
+}
+
+void AppController::refreshTrayState()
+{
+    m_tray.setEnabled(m_settings && m_settings->closeToTray()
+                      && TrayIcon::platformSupportsTray());
+    if (m_tray.enabled())
+        m_tray.setAccountLabel(m_lastSessionUserId);
 }
 
 void AppController::onLoggedOut()

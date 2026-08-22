@@ -518,6 +518,8 @@ set(APP_SOURCES
     src/media/PlayableFileWriter.cpp
     src/media/MediaImageProvider.h
     src/media/MediaImageProvider.cpp
+    src/app/TrayIcon.h
+    src/app/TrayIcon.cpp
     src/media/StagedImageStore.h
     src/media/StagedImageStore.cpp
     src/media/StagedImageProvider.h

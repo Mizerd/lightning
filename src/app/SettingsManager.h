@@ -83,6 +83,28 @@ class SettingsManager : public QObject
     // passive (reads against the user's own homeserver) and has no toggle.
     Q_PROPERTY(bool sharePresence READ sharePresence
                    WRITE setSharePresence NOTIFY sharePresenceChanged)
+    // Shell layout. Device-level, not per-account: it describes this
+    // window on this screen, and an account switch must not resize it.
+    //
+    // Requested by a tester on Windows — "option to resize and/or hide all
+    // panels, like the member list panel but for the servers/rooms panel
+    // too, along with the left-most one. Screen real estate wise."
+    Q_PROPERTY(bool spacesRailVisible READ spacesRailVisible
+                   WRITE setSpacesRailVisible NOTIFY spacesRailVisibleChanged)
+    Q_PROPERTY(bool roomListVisible READ roomListVisible
+                   WRITE setRoomListVisible NOTIFY roomListVisibleChanged)
+    Q_PROPERTY(int roomListWidth READ roomListWidth
+                   WRITE setRoomListWidth NOTIFY roomListWidthChanged)
+    Q_PROPERTY(int sidePanelWidth READ sidePanelWidth
+                   WRITE setSidePanelWidth NOTIFY sidePanelWidthChanged)
+    // Closing the window puts Lightning in the system tray instead of
+    // quitting. OFF by default and gated on the platform actually having a
+    // tray: closing a window into a tray that does not exist is closing it
+    // into nothing.
+    Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray
+                   NOTIFY closeToTrayChanged)
+    Q_PROPERTY(bool startInTray READ startInTray WRITE setStartInTray
+                   NOTIFY startInTrayChanged)
     // v0.7.x: the user dismissed the "verify this session" warning badges.
     // STRICTLY account-scoped — dismissing on one account must not silence
     // the warning for another, so this deliberately does NOT use
@@ -298,6 +320,24 @@ public:
     bool animateGifPreviews() const;
     void setAnimateGifPreviews(bool v);
     bool sharePresence() const;
+    bool spacesRailVisible() const;
+    void setSpacesRailVisible(bool v);
+    bool roomListVisible() const;
+    void setRoomListVisible(bool v);
+    int roomListWidth() const;
+    void setRoomListWidth(int px);
+    int sidePanelWidth() const;
+    void setSidePanelWidth(int px);
+    bool closeToTray() const;
+    void setCloseToTray(bool v);
+    bool startInTray() const;
+    void setStartInTray(bool v);
+    // The bounds QML resizes within, so the clamp lives in ONE place rather
+    // than being retyped in a Layout binding that can drift from it.
+    static constexpr int kRoomListMinWidth = 200;
+    static constexpr int kRoomListMaxWidth = 560;
+    static constexpr int kSidePanelMinWidth = 240;
+    static constexpr int kSidePanelMaxWidth = 640;
     bool verificationWarningDismissed() const;
     void setVerificationWarningDismissed(bool v);
     void setSharePresence(bool v);
@@ -529,6 +569,12 @@ Q_SIGNALS:
     void loadPreviewsInEncryptedRoomsChanged();
     void animateGifPreviewsChanged();
     void sharePresenceChanged();
+    void spacesRailVisibleChanged();
+    void roomListVisibleChanged();
+    void roomListWidthChanged();
+    void sidePanelWidthChanged();
+    void closeToTrayChanged();
+    void startInTrayChanged();
     void verificationWarningDismissedChanged();
     void gifAutoplayChanged();
     void gifSafeSearchChanged();

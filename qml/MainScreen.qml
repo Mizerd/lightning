@@ -9,6 +9,19 @@ import MatrixClient
 //   Column 3 — TimelinePane (fills; hosts the member/thread side panel)
 // E2EE / SAS / recovery / backend behaviour is unchanged.
 Item {
+    // Panel visibility. Ctrl+B for the room list and Ctrl+Shift+B for the
+    // spaces rail — the editor convention, and both are mirrored as switches
+    // in Settings -> Appearance so neither can be turned off and then be
+    // impossible to find again.
+    Shortcut {
+        sequences: ["Ctrl+B"]
+        onActivated: app.settings.roomListVisible = !app.settings.roomListVisible
+    }
+    Shortcut {
+        sequences: ["Ctrl+Shift+B"]
+        onActivated:
+            app.settings.spacesRailVisible = !app.settings.spacesRailVisible
+    }
     // v0.6.1: Ctrl+K quick switcher over rooms / DMs / Spaces / invites.
     Shortcut {
         sequences: ["Ctrl+K"]
@@ -159,8 +172,13 @@ Item {
         }
 
         // ── Spaces rail ───────────────────────────────────────────────────
+        // Hideable (Ctrl+Shift+B, or Settings -> Appearance): a tester on
+        // Windows asked for every panel to be hideable "screen real estate
+        // wise". A SplitView child collapses when it is not visible, and its
+        // handle goes with it.
         SpacesRail {
             objectName: "spacesRail"
+            visible: app.settings.spacesRailVisible
             SplitView.preferredWidth: 68
             SplitView.minimumWidth:   68
             SplitView.maximumWidth:   68
@@ -168,12 +186,28 @@ Item {
         }
 
         // ── Rooms column ──────────────────────────────────────────────────
+        // Hideable (Ctrl+B) and resizable, with the width persisted. The
+        // range used to be 240-360 and was thrown away on exit, so a person
+        // who wanted a wide list re-dragged it every launch.
         RoomsPanel {
             id: roomsPanel
             objectName: "roomsPanel"
-            SplitView.preferredWidth: 300
-            SplitView.minimumWidth:   240
-            SplitView.maximumWidth:   360
+            visible: app.settings.roomListVisible
+            SplitView.preferredWidth: app.settings.roomListWidth
+            SplitView.minimumWidth:   200
+            SplitView.maximumWidth:   560
+            // Written back only when the user let go: SplitView reports every
+            // intermediate pixel while dragging, and persisting each one would
+            // be one QSettings write per mouse move.
+            onWidthChanged: if (!SplitView.view.resizing) widthSaver.restart()
+            Timer {
+                id: widthSaver
+                interval: 250
+                onTriggered: {
+                    if (roomsPanel.visible && roomsPanel.width > 0)
+                        app.settings.roomListWidth = Math.round(roomsPanel.width)
+                }
+            }
         }
 
         // ── Chat area ─────────────────────────────────────────────────────

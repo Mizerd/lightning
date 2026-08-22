@@ -1943,6 +1943,88 @@ Item {
                                        + "IDs, icons, and emoji keep their own fonts.")
                         }
 
+                        // Panel visibility. Mirrors Ctrl+B / Ctrl+Shift+B, so
+                        // a panel someone hides by shortcut can always be
+                        // found again without knowing the shortcut.
+                        SettingsGroupLabel { text: qsTr("Panels") }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showSpacesRailCheck"
+                                    text: qsTr("Show the Spaces rail (Ctrl+Shift+B)")
+                                    checked: app.settings.spacesRailVisible
+                                    onToggled: app.settings.spacesRailVisible = checked
+                                    Accessible.description: qsTr(
+                                        "Show the narrow strip of Spaces down the far edge")
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showRoomListCheck"
+                                    text: qsTr("Show the room list (Ctrl+B)")
+                                    checked: app.settings.roomListVisible
+                                    onToggled: app.settings.roomListVisible = checked
+                                    Accessible.description: qsTr(
+                                        "Show the column of rooms and people")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Drag the line between two panels to "
+                                               + "resize them. Widths are remembered.")
+                                }
+                            }
+                        }
+
+                        // System tray. The whole card is hidden where the
+                        // platform has no tray: offering "close to tray" on a
+                        // session without one would close the window into
+                        // nothing.
+                        SettingsGroupLabel {
+                            visible: app.trayAvailable
+                            text: qsTr("System tray")
+                        }
+                        SettingsCard {
+                            visible: app.trayAvailable
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "closeToTrayCheck"
+                                    text: qsTr("Keep running in the tray when the window is closed")
+                                    checked: app.settings.closeToTray
+                                    onToggled: app.settings.closeToTray = checked
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "startInTrayCheck"
+                                    text: qsTr("Start in the tray")
+                                    enabled: app.settings.closeToTray
+                                    checked: app.settings.startInTray
+                                    onToggled: app.settings.startInTray = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Click the tray icon to bring the window "
+                                               + "back. Ctrl+Q quits.")
+                                }
+                            }
+                        }
+
                         SettingsCard {
                             ColumnLayout {
                                 width: parent.width
