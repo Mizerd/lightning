@@ -5518,17 +5518,35 @@ Rectangle {
                 Rectangle {
                     id: spaceBannerCard
                     objectName: "spaceHomeBanner"
-                    // FULL-BLEED, and 190px tall, because that is the shape
-                    // people author these images for: Sable renders a space
-                    // banner edge-to-edge with object-fit: cover at a default
-                    // height of 190 (resizable 56-500), and the same picture
-                    // has to crop the same way in both clients or it simply
-                    // does not fit. It sits OUTSIDE the centred 880px column
-                    // for the same reason — the column's width would change
-                    // the aspect ratio, and with it the crop.
+                    // FULL-BLEED, and the height comes from THE IMAGE.
+                    //
+                    // Sable renders a space banner edge to edge with
+                    // object-fit: cover at 190px (resizable 56-500), and
+                    // copying that alone did NOT stop the cropping — because
+                    // `cover` crops whenever the box and the picture disagree
+                    // about shape, and a fixed height on a pane whose width
+                    // follows the window means they nearly always do.
+                    //
+                    // So the box takes the picture's own aspect ratio: at full
+                    // width, a height of width/aspect shows ALL of it, with
+                    // no crop and nothing letterboxed. Bounded top and bottom
+                    // so one very tall or very wide image can neither take
+                    // over the page nor disappear; between those bounds the
+                    // whole banner is visible, which is what "it does not
+                    // fit" was actually asking for.
+                    //
+                    // It sits OUTSIDE the centred 880px column deliberately —
+                    // that column's width would change the shape again.
+                    readonly property real bannerAspect:
+                        (spaceBannerImage.status === Image.Ready
+                         && spaceBannerImage.implicitHeight > 0)
+                        ? (spaceBannerImage.implicitWidth
+                           / spaceBannerImage.implicitHeight)
+                        : 0
                     x: 0
                     width: spaceScroll.width
-                    height: 190
+                    height: Math.round(Math.max(120, Math.min(420,
+                        bannerAspect > 0 ? width / bannerAspect : 190)))
                     clip: true
                     visible: bannerMxc.length > 0 || canEdit
                     color: AppTheme.cardElevated
@@ -5581,7 +5599,17 @@ Rectangle {
                     Image {
                         id: spaceBannerImage
                         anchors.fill: parent
-                        fillMode: Image.PreserveAspectCrop
+                        // Fit, not Crop: the box above already takes the
+                        // picture's own shape, so the two agree and Fit has
+                        // nothing to letterbox — while at the clamped
+                        // extremes it shows the whole image rather than
+                        // cutting a piece out of it.
+                        fillMode: Image.PreserveAspectFit
+                        // Bounded decode. A banner is a big picture and the
+                        // provider decodes what it is asked for; the aspect
+                        // ratio the height above reads is preserved by
+                        // scaling, so bounding this cannot change the shape.
+                        sourceSize.width: 1600
                         asynchronous: true
                         visible: status === Image.Ready
                         readonly property string mxc:

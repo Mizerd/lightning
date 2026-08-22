@@ -724,6 +724,7 @@ private slots:
         input->setProperty("text", QString());
         QTest::qWait(20);
     }
+
 };
 
 int main(int argc, char *argv[])
