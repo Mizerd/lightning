@@ -44,7 +44,7 @@ variables:
   BUILD_MACOS_PACKAGES:
     value: "false"
     options: ["false", "true"]
-    description: "Safe default false. Enables the unsigned macOS arm64 .app test bundle on the protected default branch with a pinned 40-char SOURCE_REF. Runs on the physical Mac mini runner, in parallel with the Linux fleet when BUILD_FORMATS is also set; never published."
+    description: "Safe default false. Enables the unsigned macOS arm64 .app bundle on the protected default branch with a pinned 40-char SOURCE_REF. Runs on the physical Mac mini runner, in parallel with the Linux fleet when BUILD_FORMATS is also set. Since 0.7.5 a publishing pipeline ships it as a download-only asset (Apple Silicon, macOS 26+, unsigned); the job is non-blocking, so the Mac being unavailable publishes the release without it."
   RELEASE_NOTES_B64:
     value: ""
     description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
