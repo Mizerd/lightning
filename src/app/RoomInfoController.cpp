@@ -94,6 +94,7 @@ void RoomInfoController::clearSnapshot()
     m_canEditAvatar = false;
     m_canKick = false;
     m_canBan = false;
+    m_canNotifyRoom = false;
     m_canUnban = false;
     m_ownPowerLevel = 0;
     m_canChangePowerLevels = false;
@@ -151,6 +152,8 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
     m_canEditAvatar = snapshot.value(QStringLiteral("canEditAvatar")).toBool();
     m_canKick = snapshot.value(QStringLiteral("canKick")).toBool();
     m_canBan = snapshot.value(QStringLiteral("canBan")).toBool();
+    m_canNotifyRoom =
+        snapshot.value(QStringLiteral("canNotifyRoom")).toBool();
     m_canUnban = snapshot.value(QStringLiteral("canUnban")).toBool();
     m_ownPowerLevel =
         snapshot.value(QStringLiteral("ownPowerLevel")).toLongLong();

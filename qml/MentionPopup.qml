@@ -287,8 +287,16 @@ Popup {
                             visible: (model.ambiguous === true)
                                      || (model.displayName
                                          && model.displayName.length > 0)
-                            text: model.userId
-                            font.family: AppTheme.monoFont
+                            // The whole-room row says what it DOES. "@room"
+                            // under "room" would just be the same word twice,
+                            // and this is the one entry whose consequence —
+                            // notifying everybody — is worth spelling out
+                            // before it is pressed.
+                            text: model.isRoom === true
+                                  ? qsTr("Notify everyone in this room")
+                                  : model.userId
+                            font.family: model.isRoom === true
+                                         ? AppTheme.uiFont : AppTheme.monoFont
                             font.pixelSize: AppTheme.scaled(AppTheme.fontMonoXS)
                             // AA on the selection fill: the selected row's
                             // MXID brightens one step.

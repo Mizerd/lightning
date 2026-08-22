@@ -55,11 +55,21 @@ Item {
     // selection (MarkdownFormat::state on the C++ side).
     property var formatFlags: ({})
     function focusStagedAttachmentSend() {
-        // Keep the caret untouched. The composer surface itself receives the
-        // next Return so a just-dropped/selected attachment can use the one
-        // canonical MessageComposer::send path.
+        // Focus the INPUT, not the composer surface.
+        //
+        // This used to focus `root` and rely on its own Keys.onReturnPressed,
+        // on the reasoning that the caret should be left alone. It did not
+        // work: after dropping a file, Return did nothing until the message
+        // box was clicked — which is the whole point of the affordance.
+        // forceActiveFocus does not move the caret anyway, so focusing the
+        // field costs nothing and makes Return take the path a click already
+        // proves works.
+        //
+        // Wrapped in a closure rather than passed as a bare method reference:
+        // Qt.callLater(root.forceActiveFocus) hands the engine an unbound
+        // function, which is the kind of thing that silently does nothing.
         if (app.composer.hasAttachments && app.composer.canSend)
-            Qt.callLater(root.forceActiveFocus)
+            Qt.callLater(function () { input.forceActiveFocus() })
     }
     Keys.onReturnPressed: (event) => {
         if ((event.modifiers & Qt.ShiftModifier)
@@ -175,6 +185,14 @@ Item {
         if (tok && tok.active === true) {
             root.mentionTokenStart = tok.start
             app.mentionSuggestions.roomId = app.currentRoomId
+            // @room is offered unless we positively know this account cannot
+            // trigger one. The room-info snapshot is only authoritative while
+            // it is describing THIS room — it may be showing a Space, or
+            // nothing at all — and in that case the server, not a stale
+            // snapshot, decides.
+            app.mentionSuggestions.roomMentionAllowed =
+                (app.roomInfo.roomId === app.currentRoomId)
+                ? app.roomInfo.canNotifyRoom : true
             app.mentionSuggestions.query = tok.query
             mentionPopup.query = tok.query
             // Anchor to the Flickable VIEWPORT, not the TextArea: the
@@ -746,6 +764,21 @@ Item {
                 id: cardColumn
                 anchors.left: parent.left
                 anchors.right: parent.right
+                // CENTRED, not parked at the top.
+                //
+                // The card is `anchors.fill: parent`, so its height is the
+                // wrapper's, not its own implicitHeight — and this column had
+                // no vertical anchor at all, which put it at y = 0 and every
+                // pixel of slack at the bottom. That is what "the text is not
+                // centred until you click it" actually was: the icons sat
+                // high with the column, while the text — VCenter-aligned
+                // inside its own row — looked correctly placed, so the two
+                // disagreed by exactly the slack.
+                //
+                // Centring costs nothing when the card hugs its content
+                // (slack is zero) and keeps the row aligned with the card
+                // whenever it does not.
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: 0
 
                 // Reply / Edit / Thread context strip.
@@ -1143,6 +1176,36 @@ Item {
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         flickableDirection: Flickable.VerticalFlick
+                        // Content that FITS is never scrolled.
+                        //
+                        // Qt's TextArea-in-Flickable integration parks
+                        // contentY NEGATIVE here — measured at -6 with the
+                        // application font — which paints the single line six
+                        // pixels below where the flickable actually sits. The
+                        // flickable itself is centred correctly; every icon
+                        // beside it is on the row's centre line; only the text
+                        // is low. Clicking the field runs the integration's
+                        // ensureVisible(cursorRectangle) and resets contentY
+                        // to 0, which is precisely the reported "it moves to
+                        // the right place when you click it".
+                        //
+                        // boundsBehavior does not cover this: it constrains
+                        // DRAGGING, not a programmatic contentY. So the
+                        // invariant is stated directly — with nothing to
+                        // scroll, there is no scroll.
+                        //
+                        // Not visible without the app's own font: with the
+                        // default family the content height happens to land
+                        // where the integration leaves contentY at 0, which
+                        // is why this measured perfectly centred in a test
+                        // harness for hours.
+                        function clampContentToTop() {
+                            if (contentHeight <= height && contentY !== 0)
+                                contentY = 0
+                        }
+                        onContentYChanged: clampContentToTop()
+                        onContentHeightChanged: clampContentToTop()
+                        onHeightChanged: clampContentToTop()
                         ScrollBar.vertical: AppScrollBar { thin: true }
 
                         TextArea.flickable: TextArea {
@@ -1191,6 +1254,16 @@ Item {
                         bottomInset: 0
                         leftInset: 0
                         rightInset: 0
+                        // ...and the text CENTRED in whatever height the
+                        // field ends up with, rather than left to fall
+                        // wherever padding puts it. When the field hugs its
+                        // content this changes nothing — measured: field 32,
+                        // text at y 6 height 20, centre 16 either way — but
+                        // it is the difference between a position that is
+                        // declared and one that is emergent, and every
+                        // remaining explanation for the reported offset is a
+                        // field taller than the line inside it.
+                        verticalAlignment: TextEdit.AlignVCenter
                         wrapMode: TextArea.Wrap
                         enabled: app.currentRoomId !== ""
                         text: app.composer.text

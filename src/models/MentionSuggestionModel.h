@@ -22,6 +22,9 @@ class MentionSuggestionModel : public QAbstractListModel
     Q_PROPERTY(QString roomId READ roomId WRITE setRoomId NOTIFY roomIdChanged)
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
     Q_PROPERTY(int count READ count NOTIFY countChanged)
+    Q_PROPERTY(bool roomMentionAllowed READ roomMentionAllowed
+                   WRITE setRoomMentionAllowed
+                   NOTIFY roomMentionAllowedChanged)
 
 public:
     enum Roles {
@@ -35,6 +38,7 @@ public:
         // as-is; QML maps it to a display chip (administrator/creator ->
         // ADMIN, moderator -> MOD, everything else -> no chip).
         RoleRole,
+        IsRoomRole,
     };
 
     explicit MentionSuggestionModel(QObject *parent = nullptr);
@@ -45,6 +49,10 @@ public:
     void setRoomId(const QString &roomId);
     QString query() const { return m_query; }
     void setQuery(const QString &query);
+    // Whether to offer @room at all. The room's own required level for a
+    // whole-room notification, from the SDK — never assumed.
+    void setRoomMentionAllowed(bool allowed);
+    bool roomMentionAllowed() const { return m_roomMentionAllowed; }
     int count() const { return int(m_results.size()); }
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -65,6 +73,7 @@ Q_SIGNALS:
     void roomIdChanged();
     void queryChanged();
     void countChanged();
+    void roomMentionAllowedChanged();
 
 private Q_SLOTS:
     void onRoomMembersReceived(quint64 opId, const QString &roomId,
@@ -80,6 +89,12 @@ private:
         QString avatarMxc;
         QString role; // power-level-derived role string, or empty/"default"
         bool ambiguous = false;
+        // The whole-room mention is a synthetic row, not a member. It
+        // carries the sentinel "@room" as its id, which is what the
+        // composer records and what the bridge turns into
+        // m.mentions.room — a Matrix id needs a domain, so no real user
+        // can ever collide with it.
+        bool isRoom = false;
     };
 
     void requestMembers();
@@ -91,6 +106,13 @@ private:
     MatrixClient *m_client = nullptr;
     QString m_roomId;
     QString m_query;
+    // Defaults to OFFERED. The room's real rule is enforced by the server,
+    // and the caller narrows this when it positively knows the account
+    // cannot trigger one. Defaulting to false would have hidden @room
+    // entirely whenever no room-info snapshot happened to be loaded — a
+    // feature that silently does not exist is worse than one that is offered
+    // and then ignored by the homeserver.
+    bool m_roomMentionAllowed = true;
     quint64 m_membersOp = 0;
     QList<Member> m_all;     // cached members for m_roomId (self excluded)
     QList<Member> m_results; // filtered + ranked + capped

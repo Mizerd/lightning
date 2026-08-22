@@ -33,6 +33,11 @@ class RoomInfoController : public QObject
     Q_PROPERTY(bool canEditAvatar READ canEditAvatar NOTIFY membersChanged)
     Q_PROPERTY(bool canKick READ canKick NOTIFY membersChanged)
     Q_PROPERTY(bool canBan READ canBan NOTIFY membersChanged)
+    // @room: the room's OWN required level for a whole-room
+    // notification (notifications.room, default 50), from the SDK. The
+    // mention is only OFFERED where the account may actually trigger
+    // one — sending it anyway would notify nobody and say nothing.
+    Q_PROPERTY(bool canNotifyRoom READ canNotifyRoom NOTIFY membersChanged)
     Q_PROPERTY(bool canUnban READ canUnban NOTIFY membersChanged)
     Q_PROPERTY(qlonglong ownPowerLevel READ ownPowerLevel NOTIFY membersChanged)
     // v0.7.x room administration. Every flag is the SDK's own power-level
@@ -88,6 +93,7 @@ public:
     bool canEditAvatar() const { return m_canEditAvatar; }
     bool canKick() const { return m_canKick; }
     bool canBan() const { return m_canBan; }
+    bool canNotifyRoom() const { return m_canNotifyRoom; }
     bool canUnban() const { return m_canUnban; }
     qlonglong ownPowerLevel() const { return m_ownPowerLevel; }
     bool canChangePowerLevels() const { return m_canChangePowerLevels; }
@@ -256,6 +262,7 @@ private:
     bool m_canEditAvatar = false;
     bool m_canKick = false;
     bool m_canBan = false;
+    bool m_canNotifyRoom = false;
     bool m_canUnban = false;
     qlonglong m_ownPowerLevel = 0;
     bool m_canChangePowerLevels = false;

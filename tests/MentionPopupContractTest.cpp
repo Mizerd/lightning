@@ -167,7 +167,47 @@ private Q_SLOTS:
             member(QStringLiteral("@carol:hs"), QStringLiteral("Carol"),
                   QStringLiteral("user")),
         });
+        // Three members, plus @room — offered by default and matching an
+        // empty query, exactly as it will be when the popup first opens.
+        QCOMPARE(m_model.count(), 4);
+        QCOMPARE(m_model.get(0).value(QStringLiteral("userId")).toString(),
+                 QStringLiteral("@room"));
+    }
+
+    // @room is a real suggestion, not a special case bolted onto the view: it
+    // is a row in the same model, it sorts FIRST because it is the broadest
+    // thing in the list, and it disappears when the account cannot trigger a
+    // whole-room notification.
+    void theWholeRoomMentionIsOfferedFirstAndOnlyWhenAllowed()
+    {
+        m_model.setQuery(QString());
+        QCOMPARE(m_model.count(), 4);
+        const QVariantMap room = m_model.get(0);
+        QCOMPARE(room.value(QStringLiteral("userId")).toString(),
+                 QStringLiteral("@room"));
+        QVERIFY(room.value(QStringLiteral("isRoom")).toBool());
+        // "room", never "@room": the insertion builder prefixes the @ itself,
+        // and carrying it here composes "@@room" in the message.
+        QCOMPARE(room.value(QStringLiteral("displayName")).toString(),
+                 QStringLiteral("room"));
+
+        // Prefixes of "room" keep it; anything else drops it.
+        for (const QString &q : { QStringLiteral("r"), QStringLiteral("ro"),
+                                  QStringLiteral("room"), QStringLiteral("ROOM") }) {
+            m_model.setQuery(q);
+            QVERIFY2(m_model.get(0).value(QStringLiteral("isRoom")).toBool(),
+                     qPrintable(QStringLiteral("query %1 dropped @room").arg(q)));
+        }
+        m_model.setQuery(QStringLiteral("ali"));
+        QVERIFY(!m_model.get(0).value(QStringLiteral("isRoom")).toBool());
+
+        // Not permitted: gone entirely, in every query that would match it.
+        m_model.setRoomMentionAllowed(false);
+        m_model.setQuery(QString());
         QCOMPARE(m_model.count(), 3);
+        QVERIFY(!m_model.get(0).value(QStringLiteral("isRoom")).toBool());
+        m_model.setRoomMentionAllowed(true);
+        m_model.setQuery(QString());
     }
 
     // ── Source-scan: structure, omissions, preserved invariants ──────
@@ -196,20 +236,23 @@ private Q_SLOTS:
             ": AppTheme.stormTextMuted")));
     }
 
-    void roomRowAndPresenceDotAreOmitted()
+    void theRoomRowSaysWhatItDoesAndPresenceStaysOut()
     {
         const QString popup = read(QStringLiteral(QML_DIR "/MentionPopup.qml"));
-        // No campaign-icon @room row and no presence dot here. @room still
-        // has no honest data behind it. Presence DOES have a real backend
-        // since the v0.7.x round (PresenceManager + PresenceDot), so the
-        // mention popup's omission is now a deliberate product choice —
-        // suggestion rows are transient type-ahead UI, not a roster — and
-        // this assertion pins that the popup never paints its own presence
-        // colours; if presence is ever added here, it must arrive via the
-        // shared PresenceDot, and this test changes shape like
-        // MemberProfilePopoverContractTest did.
-        QVERIFY(!popup.contains(QStringLiteral("campaign")));
-        QVERIFY(!popup.contains(QStringLiteral("Notify everyone")));
+        // @room was omitted for as long as there was nothing honest behind
+        // it. There is now: the offer is gated on the room's OWN required
+        // level for a whole-room notification, asked of the SDK. So the row
+        // exists, and it says what it does rather than repeating its own
+        // name — this is the one suggestion whose consequence is worth
+        // spelling out before it is pressed.
+        QVERIFY(popup.contains(QStringLiteral("Notify everyone in this room")));
+        QVERIFY(popup.contains(QStringLiteral("model.isRoom === true")));
+
+        // Presence stays out, and that is still a deliberate product choice:
+        // suggestion rows are transient type-ahead UI, not a roster. If it is
+        // ever added it must arrive via the shared PresenceDot, and this
+        // assertion pins that the popup never paints its own presence
+        // colours.
         QVERIFY(!popup.contains(QStringLiteral("presenceOnline")));
         QVERIFY(!popup.contains(QStringLiteral("presenceAway")));
     }
@@ -276,8 +319,12 @@ private Q_SLOTS:
         // test drives currentIndex itself below.
         QTRY_VERIFY(popup->property("opened").toBool());
 
-        // Never fabricates an @room row: exactly the model's 3 members.
-        QCOMPARE(popup->property("count").toInt(), 3);
+        // The popup NEVER fabricates a row: it shows exactly what the model
+        // holds. With the whole-room mention turned off that is the three
+        // members and nothing else — the @room row is a model row like any
+        // other, covered by its own case above.
+        m_model.setRoomMentionAllowed(false);
+        QTRY_COMPARE(popup->property("count").toInt(), 3);
 
         auto *header =
             root->findChild<QQuickItem *>(QStringLiteral("mentionPopupHeader"));
@@ -350,6 +397,11 @@ private Q_SLOTS:
         // onOpened's currentIndex = 0 reset has already settled before the
         // test drives currentIndex itself below.
         QTRY_VERIFY(popup->property("opened").toBool());
+
+        // Wrap-around is about the ENDS of the list, so pin the length:
+        // three members, no whole-room row.
+        m_model.setRoomMentionAllowed(false);
+        QTRY_COMPARE(popup->property("count").toInt(), 3);
 
         popup->setProperty("currentIndex", 2);
         QVERIFY(QMetaObject::invokeMethod(popup, "moveDown"));

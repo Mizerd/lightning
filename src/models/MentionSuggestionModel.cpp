@@ -196,6 +196,27 @@ int MentionSuggestionModel::matchScore(const QString &query,
     return best;
 }
 
+// "@room" is offered for an empty query and for any prefix of "room" — the
+// user is typing the word, and "@r" should already show it. Deliberately not
+// a fuzzy match: a whole-room notification is not something to surface by
+// accident because a query happened to score.
+static bool matchesRoomMention(const QString &query)
+{
+    const QString q = query.trimmed().toLower();
+    if (q.isEmpty())
+        return true;
+    return QStringLiteral("room").startsWith(q);
+}
+
+void MentionSuggestionModel::setRoomMentionAllowed(bool allowed)
+{
+    if (m_roomMentionAllowed == allowed)
+        return;
+    m_roomMentionAllowed = allowed;
+    Q_EMIT roomMentionAllowedChanged();
+    rebuild();
+}
+
 void MentionSuggestionModel::rebuild()
 {
     struct Scored {
@@ -219,7 +240,21 @@ void MentionSuggestionModel::rebuild()
                      });
 
     QList<Member> next;
-    next.reserve(qMin(int(scored.size()), kMaxResults));
+    next.reserve(qMin(int(scored.size()), kMaxResults) + 1);
+    // @room first, when it is offered at all. It is the broadest thing in the
+    // list, it is the one entry that is not a person, and a reader scanning
+    // for it should not have to pass twelve names to find it — Element puts
+    // it at the top for the same reason.
+    if (m_roomMentionAllowed && matchesRoomMention(m_query)) {
+        Member room;
+        room.userId = QStringLiteral("@room");
+        // "room", not "@room": the insertion builder prefixes the @ itself,
+        // so carrying it here would compose "@@room".
+        room.displayName = QStringLiteral("room");
+        room.rawDisplayName = room.displayName;
+        room.isRoom = true;
+        next.append(room);
+    }
     for (int i = 0; i < scored.size() && i < kMaxResults; ++i)
         next.append(*scored.at(i).member);
 
@@ -262,6 +297,8 @@ QVariant MentionSuggestionModel::data(const QModelIndex &index, int role) const
         return m.ambiguous;
     case RoleRole:
         return m.role;
+    case IsRoomRole:
+        return m.isRoom;
     default:
         return {};
     }
@@ -275,6 +312,7 @@ QHash<int, QByteArray> MentionSuggestionModel::roleNames() const
         { AvatarMxcRole, "avatarMxc" },
         { AmbiguousRole, "ambiguous" },
         { RoleRole, "role" },
+        { IsRoomRole, "isRoom" },
     };
 }
 
@@ -289,5 +327,6 @@ QVariantMap MentionSuggestionModel::get(int row) const
     out.insert(QStringLiteral("avatarMxc"), m.avatarMxc);
     out.insert(QStringLiteral("ambiguous"), m.ambiguous);
     out.insert(QStringLiteral("role"), m.role);
+    out.insert(QStringLiteral("isRoom"), m.isRoom);
     return out;
 }

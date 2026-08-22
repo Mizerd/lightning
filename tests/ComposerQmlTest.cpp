@@ -8,7 +8,9 @@
 
 #include <QtTest/QtTest>
 
+#include <QFontDatabase>
 #include <QGuiApplication>
+#include <QQuickStyle>
 #include <QInputMethodEvent>
 #include <QImage>
 #include <QQmlComponent>
@@ -725,11 +727,84 @@ private slots:
         QTest::qWait(20);
     }
 
+
+
+    // The composer's text sits on the same line as the icons beside it.
+    //
+    // It did not: Qt's TextArea-in-Flickable integration parked contentY at
+    // -6, painting the single line six pixels below the flickable that
+    // contains it. Reported as "the text is not centred when the room is
+    // opened, and moves to the right place when you click it" — clicking runs
+    // the integration's ensureVisible and resets contentY.
+    //
+    // This suite could not see it for hours because it did not load the
+    // application's own font. The offset depends on the content height, so
+    // with the default family contentY happened to land at 0. main() now sets
+    // up the bundled families and Manrope exactly as main.cpp does, which is
+    // what makes this assertion meaningful at all.
+    void theComposerTextSharesTheIconsCentreLine()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(80);
+        auto *input = item("composerInput");
+        auto *attach = item("composerAttachButton");
+        auto *flick = item("composerInputFlick");
+        QVERIFY(input && attach && flick);
+        input->setProperty("text", QString());
+        QTest::qWait(80);
+
+        auto centreOf = [](QQuickItem *it) {
+            return it->mapToItem(nullptr, QPointF(0, it->height() / 2)).y();
+        };
+        // Where the PLACEHOLDER is actually painted, not merely where its
+        // item sits: the offset lived in the flickable's scroll position, so
+        // measuring the item alone reported everything as correct.
+        auto textCentre = [&]() -> double {
+            for (QQuickItem *k : input->childItems()) {
+                const QVariant t = k->property("text");
+                if (t.isValid()
+                    && t.toString() == input->property("placeholderText").toString())
+                    return input->mapToItem(nullptr,
+                                            QPointF(0, k->y() + k->height() / 2)).y();
+            }
+            return -1;
+        };
+
+        for (int scale : { 100, 120, 140 }) {
+            m_controller->settings()->setTextScale(scale);
+            QTest::qWait(120);
+            QCOMPARE(flick->property("contentY").toDouble(), 0.0);
+            const double delta = textCentre() - centreOf(attach);
+            QVERIFY2(qAbs(delta) <= 1.0,
+                     qPrintable(QStringLiteral(
+                         "text sits %1px from the icon centre at %2%% scale")
+                         .arg(delta).arg(scale)));
+        }
+        m_controller->settings()->setTextScale(100);
+    }
 };
 
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
+    // Match main.cpp: the bundled families, Manrope as the application font,
+    // and the Basic style. Without these the harness measures a DIFFERENT
+    // typeface from the one the application renders, which is how a composer
+    // that measured perfectly centred here could sit visibly low there.
+    for (const char *font : { "Manrope[wght].ttf", "JetBrainsMono[wght].ttf",
+                              "Inter[wght].ttf", "IBMPlexSans[wght].ttf",
+                              "SourceSans3[wght].ttf",
+                              "PlusJakartaSans[wght].ttf",
+                              "SpaceGrotesk[wght].ttf",
+                              "MaterialSymbolsRounded-subset.ttf" }) {
+        QFontDatabase::addApplicationFont(
+            QStringLiteral(":/qt/qml/MatrixClient/data/fonts/")
+            + QLatin1String(font));
+    }
+    QFont uiFont(QStringLiteral("Manrope"));
+    uiFont.setPixelSize(14);
+    QGuiApplication::setFont(uiFont);
+    QQuickStyle::setStyle(QStringLiteral("Basic"));
     ComposerQmlTest test;
     return QTest::qExec(&test, argc, argv);
 }

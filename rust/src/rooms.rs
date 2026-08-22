@@ -29,7 +29,7 @@ use matrix_sdk::{
         events::{
             room::MediaSource,
             room::encryption::RoomEncryptionEventContent,
-            room::power_levels::PowerLevelAction,
+            room::power_levels::{NotificationPowerLevelType, PowerLevelAction},
             space::child::SpaceChildEventContent,
             InitialStateEvent, StateEventType, SyncStateEvent,
         },
@@ -1474,6 +1474,14 @@ async fn members_snapshot_json(
         let can_edit_avatar = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomAvatar));
+        // @room: the room's OWN required level for a whole-room notification
+        // (notifications.room, default 50), asked of the SDK rather than
+        // assumed to be "moderator". A room may set it to anything.
+        let can_notify_room = own_member.as_ref().is_some_and(|m| {
+            m.can_do(PowerLevelAction::TriggerNotification(
+                NotificationPowerLevelType::Room,
+            ))
+        });
         let can_kick = own_member.as_ref().is_some_and(|m| m.can_kick());
         let can_ban = own_member.as_ref().is_some_and(|m| m.can_ban());
         // Unban's required level is max(ban, kick) (ruma
@@ -1537,6 +1545,7 @@ async fn members_snapshot_json(
             "own_can_edit_topic": can_edit_topic,
             "own_can_edit_avatar": can_edit_avatar,
             "own_can_kick": can_kick,
+            "own_can_notify_room": can_notify_room,
             "own_can_ban": can_ban,
             "own_can_unban": can_unban,
             "own_can_change_power_levels": can_change_power_levels,

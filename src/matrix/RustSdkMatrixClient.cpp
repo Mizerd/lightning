@@ -6270,6 +6270,9 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                         event.value(QStringLiteral("own_can_kick")).toBool());
         snapshot.insert(QStringLiteral("canBan"),
                         event.value(QStringLiteral("own_can_ban")).toBool());
+        snapshot.insert(
+            QStringLiteral("canNotifyRoom"),
+            event.value(QStringLiteral("own_can_notify_room")).toBool());
         snapshot.insert(QStringLiteral("canUnban"),
                         event.value(QStringLiteral("own_can_unban")).toBool());
         snapshot.insert(

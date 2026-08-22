@@ -93,6 +93,10 @@ private slots:
     {
         MemberMock mock;
         MentionSuggestionModel model;
+        // Member filtering only. The whole-room row is offered by default and
+        // is not a member, so it is turned off here; it has its own coverage
+        // in MentionPopupContractTest.
+        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
 
         model.setRoomId(QStringLiteral("!r:hs"));
@@ -118,6 +122,10 @@ private slots:
     {
         MemberMock mock;
         MentionSuggestionModel model;
+        // Member filtering only. The whole-room row is offered by default and
+        // is not a member, so it is turned off here; it has its own coverage
+        // in MentionPopupContractTest.
+        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
         model.setRoomId(QStringLiteral("!r:hs"));
         mock.deliver(mock.m_op, QStringLiteral("!r:hs"),
@@ -138,6 +146,10 @@ private slots:
     {
         MemberMock mock;
         MentionSuggestionModel model;
+        // Member filtering only. The whole-room row is offered by default and
+        // is not a member, so it is turned off here; it has its own coverage
+        // in MentionPopupContractTest.
+        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
         model.setRoomId(QStringLiteral("!r:hs"));
         mock.deliver(mock.m_op, QStringLiteral("!r:hs"),
@@ -168,6 +180,10 @@ private slots:
     {
         MemberMock mock;
         MentionSuggestionModel model;
+        // Member filtering only. The whole-room row is offered by default and
+        // is not a member, so it is turned off here; it has its own coverage
+        // in MentionPopupContractTest.
+        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
         model.setRoomId(QStringLiteral("!r:hs"));
         mock.deliver(mock.m_op, QStringLiteral("!r:hs"),
@@ -181,6 +197,10 @@ private slots:
     {
         MemberMock mock;
         MentionSuggestionModel model;
+        // Member filtering only. The whole-room row is offered by default and
+        // is not a member, so it is turned off here; it has its own coverage
+        // in MentionPopupContractTest.
+        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
 
         model.setRoomId(QStringLiteral("!r1:hs"));
@@ -203,6 +223,10 @@ private slots:
     {
         MemberMock mock;
         MentionSuggestionModel model;
+        // Member filtering only. The whole-room row is offered by default and
+        // is not a member, so it is turned off here; it has its own coverage
+        // in MentionPopupContractTest.
+        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
 
         model.setRoomId(QStringLiteral("!r:hs"));
@@ -226,6 +250,10 @@ private slots:
     {
         MemberMock mock;
         MentionSuggestionModel model;
+        // Member filtering only. The whole-room row is offered by default and
+        // is not a member, so it is turned off here; it has its own coverage
+        // in MentionPopupContractTest.
+        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
 
         model.setRoomId(QStringLiteral("!r:hs"));

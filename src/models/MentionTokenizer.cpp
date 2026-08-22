@@ -217,6 +217,13 @@ Expansion expand(const QString &text, const QList<MentionRef> &refs)
     QString body = text;
     for (int i = valid.size() - 1; i >= 0; --i) {
         const MentionRef &ref = valid.at(i);
+        // The whole-room mention is NOT a link. There is no matrix.to URL for
+        // "everyone here", and inventing one would put a dead link in the
+        // body of every @room message. It stays the literal "@room", exactly
+        // as Element sends it, and the notification comes from
+        // m.mentions.room — which the id in userIds carries to the bridge.
+        if (ref.userId == QLatin1String("@room"))
+            continue;
         const QString link = QLatin1Char('[') + escapeLinkLabel(ref.displayText)
             + QLatin1String("](") + matrixToUrl(ref.userId) + QLatin1Char(')');
         body.replace(ref.start, ref.length, link);

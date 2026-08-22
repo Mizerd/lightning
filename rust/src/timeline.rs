@@ -72,16 +72,37 @@ use crate::enqueue;
 /// BEFORE any relation-adding method (reply / replacement) for the mentions to
 /// be set correctly.
 fn mentions_from_ids(ids: Vec<String>) -> Option<Mentions> {
-    let users: Vec<OwnedUserId> = ids
-        .into_iter()
-        .filter_map(|id| UserId::parse(&id).ok())
-        .collect();
-    if users.is_empty() {
-        None
-    } else {
-        Some(Mentions::with_user_ids(users))
+    // "@room" is the whole-room mention, and it travels in the SAME list as
+    // the user ids on purpose. It is not a user id and never can be — a
+    // Matrix id needs a domain, so UserId::parse rejects it and no real user
+    // can ever collide with the sentinel. That keeps one FFI signature for
+    // "who does this message mention", instead of a parallel boolean through
+    // every send, thread-send and edit entry point.
+    let mut room = false;
+    let mut users: Vec<OwnedUserId> = Vec::new();
+    for id in ids {
+        if id == ROOM_MENTION_SENTINEL {
+            room = true;
+            continue;
+        }
+        if let Ok(user) = UserId::parse(&id) {
+            users.push(user);
+        }
     }
+    if users.is_empty() && !room {
+        return None;
+    }
+    let mut mentions = Mentions::with_user_ids(users);
+    // Whether the server ACTS on it is the room's own power levels
+    // (notifications.room, default 50); the client offers it only where the
+    // account may trigger one, and the event is honest either way.
+    mentions.room = room;
+    Some(mentions)
 }
+
+/// The whole-room mention, as it crosses the FFI. Matches the text the
+/// composer inserts and the id the suggestion model reports.
+pub(crate) const ROOM_MENTION_SENTINEL: &str = "@room";
 
 /// Default number of events requested per backward-pagination batch.
 /// Matches the size Element X uses for scroll-triggered backfill: large
