@@ -7,33 +7,36 @@
 **A fast, native Matrix desktop client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.7.4-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
-[![Platform: Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-4c8fdc.svg)](#installation)
+[![Latest release](https://img.shields.io/badge/release-v0.7.5-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Platform: Linux | Windows | macOS](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-4c8fdc.svg)](#installation)
 [![Qt 6](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
 [![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
 ![Status: active development](https://img.shields.io/badge/status-active%20development-orange.svg)
 
 </div>
 
-Lightning is a desktop [Matrix](https://matrix.org/) client for **Linux and
-Windows**. The interface is Qt 6 / QML with C++ for the application layer, and
+Lightning is a desktop [Matrix](https://matrix.org/) client for **Linux,
+Windows and macOS**. The interface is Qt 6 / QML with C++ for the application layer, and
 the official [`matrix-rust-sdk`](https://github.com/matrix-org/matrix-rust-sdk)
 owns synchronisation, timelines, end-to-end encryption, threads, and media —
 Lightning implements no Matrix cryptography of its own.
 
 |  |  |
 |---|---|
-| **Native, not a web view** | Qt 6 / QML shell with a four-pane layout and eleven WCAG-AA themes |
+| **Native, not a web view** | Qt 6 / QML shell with a four-pane layout, eleven WCAG-AA themes, and an editor for your own |
 | **Real E2EE** | SDK-owned Olm/Megolm, cross-signing, SAS **and** QR verification, key backup |
 | **Threads that work** | SDK thread timelines, a dedicated panel, summary cards, threaded receipts |
 | **Multi-account** | Several homeservers at once, isolated stores, in-place switching |
 | **Rich composer** | Markdown, mentions, polls, GIFs, emoji, attachments — in rooms and threads |
-| **Open source** | GPL-3.0-or-later, packaged for both platforms |
+| **Ten languages** | Qt-native translation, including right-to-left Arabic |
+| **Open source** | GPL-3.0-or-later, packaged for Linux, Windows and macOS |
 
 > **Status:** under active development (0.7.x). Usable day to day, but not
 > formally audited or certified — expect rough edges and occasional
 > regressions. Linux is the primary development and support target; Windows
-> (x86-64) packages ship alongside every release from v0.6.3 onward.
+> (x86-64) packages ship alongside every release from v0.6.3 onward, and
+> **macOS (Apple Silicon, macOS 26+) from v0.7.5** — unsigned, so it takes one
+> trip through System Settings to open. See [macOS](#macos).
 
 ## Contents
 
@@ -59,9 +62,9 @@ Download a package from the
 install it:
 
 ```sh
-sudo apt install ./lightning_0.7.4_amd64.deb          # Debian / Ubuntu
-sudo dnf install ./lightning-0.7.4-1.x86_64.rpm       # Fedora / RHEL
-chmod +x Lightning-0.7.4-x86_64.AppImage && ./Lightning-0.7.4-x86_64.AppImage
+sudo apt install ./lightning_0.7.5_amd64.deb          # Debian / Ubuntu
+sudo dnf install ./lightning-0.7.5-1.x86_64.rpm       # Fedora / RHEL
+chmod +x Lightning-0.7.5-x86_64.AppImage && ./Lightning-0.7.5-x86_64.AppImage
 ```
 
 On **Windows**, run the `.msi` or `-setup.exe` installer, or extract the
@@ -101,7 +104,15 @@ still developing, some workflows remain experimental.
   command.
 - **Eleven complete themes, every one WCAG-AA checked**, led by the Storm brand
   theme — with five bundled UI fonts, a message-layout selector and text-size
-  scaling, all per-account.
+  scaling, all per-account. And **a real theme editor**: click any part of a
+  live sample window, or a role in the list, and recolour it. Keep as many
+  themes as you like, name them, and **share one as a block of text** anybody
+  can paste back in.
+- **Ten languages**, translated in full and switchable without a restart:
+  English, Arabic, Bengali, Chinese (Simplified), French, Hindi, Indonesian,
+  Portuguese, Russian and Spanish — plurals included, which is why "1 room" and
+  Arabic's six-form plural both read correctly instead of shipping "%n
+  room(s)".
 - **Native, not a web view.** Qt 6 / QML with a four-pane layout, and the
   official Rust Matrix SDK owning sync, timelines, E2EE, threads and media.
   Lightning implements no Matrix cryptography of its own.
@@ -127,7 +138,18 @@ still developing, some workflows remain experimental.
   in-place editing of the Space's name, topic and avatar where your power level
   allows
 - **Rail**: click a Space to open its overview; the chevron expands its most
-  active rooms inline
+  active rooms inline. **Drag it into the order you want**, and group Spaces
+  into **folders** — a folder that is collapsed still carries the unread count
+  of everything inside it, so filing something away never hides it
+- **Profile banners** (MSC4427 over MSC4133) — a wide image behind a profile
+  card, read and written under **both** the standard field name and the one
+  Commet already ships, so a banner set in Lightning shows up there and the
+  other way round. Requires a homeserver with extended profile fields; where
+  there isn't one, Lightning says so instead of failing an upload
+- **Space banners** — a real image on a Space's front page, set by whoever the
+  Space's own power levels allow. Matrix specifies no room banner, so this is
+  Lightning's own state event in its own namespace; clients that don't know it
+  simply show none
 - **Discover and join** — browse or search the public directory, or paste a
   room address, `matrix:` URI or matrix.to link and join from the preview.
   **Knock** on rooms that require it, and withdraw a pending knock from the
@@ -178,6 +200,12 @@ still developing, some workflows remain experimental.
 - **MSC3381 polls**, per-user deterministic name colours, replies to images
   showing a thumbnail (in the quote *and* while you type), and **Copy image**
   straight to the clipboard
+- **Right-click an image** for copy, save, forward, reply and open — in the
+  timeline and full screen — and **double-click anyone** to open their profile
+- A run of deleted messages **collapses into one line** instead of leaving a
+  column of tombstones
+- Images and videos **show a preview before you send them**, including one
+  pasted from the clipboard
 - Unread and mention states, marked-unread, first-unread and jump-to-latest
   navigation, backward pagination, and "Mark as read" from the room list for
   any room
@@ -234,6 +262,14 @@ still developing, some workflows remain experimental.
   privacy modes, sounds and the sender's avatar. **Per-room modes** are written
   to your account's server push rules, so a muted room stays muted on your
   other clients
+- **Every panel resizes and hides.** Drag the room list and the right-hand
+  panel to the width you want; hide the Spaces rail and the room list entirely
+  when you want the conversation and nothing else. Widths persist per account
+- **Close to the system tray** rather than quitting, with an unread count in
+  the tooltip, and optionally start there
+- Fallback room and user discs are **coloured from the theme you are using**,
+  so a cool window stops showing warm initials — nine slots wide enough apart
+  that two rooms never look alike, each with initials at 4.5:1
 - One tuned scrolling feel in every pane, resizable pickers pinned to the
   composer with a remembered size, responsive narrow-to-wide layouts, a local
   Unicode emoji picker, and accessible keyboard navigation throughout
@@ -261,22 +297,32 @@ still developing, some workflows remain experimental.
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/lightning-main-chat.png" alt="A room timeline with replies, reactions, an image and the GIF picker open over the composer"><br>
-      <sub><b>Rooms and GIFs</b> — the timeline, and the GIF picker pinned to the composer.</sub>
+      <img src="docs/screenshots/lightning-main-chat.png" alt="A room timeline with replies, reactions, an image and an invite in the room list"><br>
+      <sub><b>Rooms</b> — replies, reactions, edits, an inline image and a pending invite.</sub>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/lightning-thread-view.png" alt="A thread panel open beside the main timeline"><br>
-      <sub><b>Threads</b> — a dedicated panel beside the room, with summary cards inline.</sub>
+      <img src="docs/screenshots/lightning-theme-editor.png" alt="The theme editor with a live sample window, the role list and a colour picker"><br>
+      <sub><b>Theme editor</b> — click any part of the sample window to recolour it.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
       <img src="docs/screenshots/lightning-emoji-picker.png" alt="An encrypted direct message with the emoji picker open over the composer"><br>
-      <sub><b>Emoji</b> — categories, search and a live preview, in an encrypted DM.</sub>
+      <sub><b>Emoji</b> — categories, search and skin tones, in an encrypted DM.</sub>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/lightning-poll.png" alt="A poll with four options and live vote counts in a room timeline"><br>
-      <sub><b>Polls</b> — create and vote inline, with live counts.</sub>
+      <img src="docs/screenshots/lightning-poll.png" alt="A poll with four options and live vote counts, and a voice message being recorded"><br>
+      <sub><b>Polls and voice</b> — vote inline; record with a live waveform.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/lightning-space-home.png" alt="A Space front page with its banner, rooms and settings"><br>
+      <sub><b>Spaces</b> — one list of rooms and subspaces, with in-place settings.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/lightning-thread-view.png" alt="A thread panel open beside the main timeline"><br>
+      <sub><b>Threads</b> — a dedicated panel beside the room, with summary cards inline.</sub>
     </td>
   </tr>
 </table>
@@ -299,12 +345,12 @@ no package is code-signed yet:
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-Replace `0.7.4` in the commands below with the version you downloaded.
+Replace `0.7.5` in the commands below with the version you downloaded.
 
 ### Debian, Ubuntu, Linux Mint, Pop!_OS (`.deb`)
 
 ```sh
-sudo apt install ./lightning_0.7.4_amd64.deb
+sudo apt install ./lightning_0.7.5_amd64.deb
 ```
 
 `apt` resolves the dependencies itself; the leading `./` is required, otherwise
@@ -317,8 +363,8 @@ sudo apt remove lightning
 ### Fedora, RHEL, openSUSE (`.rpm`)
 
 ```sh
-sudo dnf install ./lightning-0.7.4-1.x86_64.rpm     # Fedora / RHEL
-sudo zypper install ./lightning-0.7.4-1.x86_64.rpm  # openSUSE
+sudo dnf install ./lightning-0.7.5-1.x86_64.rpm     # Fedora / RHEL
+sudo zypper install ./lightning-0.7.5-1.x86_64.rpm  # openSUSE
 ```
 
 To remove it: `sudo dnf remove lightning`.
@@ -326,8 +372,8 @@ To remove it: `sudo dnf remove lightning`.
 ### AppImage (any distribution, no installation)
 
 ```sh
-chmod +x Lightning-0.7.4-x86_64.AppImage
-./Lightning-0.7.4-x86_64.AppImage
+chmod +x Lightning-0.7.5-x86_64.AppImage
+./Lightning-0.7.5-x86_64.AppImage
 ```
 
 Nothing is installed and nothing is written outside your user profile; delete
@@ -342,7 +388,7 @@ the file to remove it. If it will not start, your system may need FUSE
 flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install --user flathub org.kde.Platform//6.9
 
-flatpak install --user ./lightning_0.7.4_amd64.flatpak
+flatpak install --user ./lightning_0.7.5_amd64.flatpak
 flatpak run net.smetonis.Lightning
 ```
 
@@ -355,7 +401,7 @@ needs `--dangerous` — that flag means "this file is not signed by the store",
 not that the snap is unsafe. It is built with `strict` confinement:
 
 ```sh
-sudo snap install --dangerous ./lightning_0.7.4_amd64.snap
+sudo snap install --dangerous ./lightning_0.7.5_amd64.snap
 ```
 
 To remove it: `sudo snap remove lightning`.
@@ -368,8 +414,8 @@ tasks, firewall rules, or autostart.
 
 | Format | Install | Uninstall |
 |---|---|---|
-| **MSI** | Double-click, or `msiexec /i Lightning-0.7.4-<sha>-windows-x86_64.msi` | Settings → Apps → Installed apps, or `msiexec /x` |
-| **Setup EXE** | Run `Lightning-0.7.4-<sha>-windows-x86_64-setup.exe` | Settings → Apps → Installed apps, or the **Uninstall Lightning** shortcut |
+| **MSI** | Double-click, or `msiexec /i Lightning-0.7.5-<sha>-windows-x86_64.msi` | Settings → Apps → Installed apps, or `msiexec /x` |
+| **Setup EXE** | Run `Lightning-0.7.5-<sha>-windows-x86_64-setup.exe` | Settings → Apps → Installed apps, or the **Uninstall Lightning** shortcut |
 | **Portable ZIP** | Extract anywhere, run `Lightning.exe` | Delete the folder |
 
 MSI and Setup EXE install to `%LOCALAPPDATA%\Programs\Lightning` with a
@@ -387,13 +433,62 @@ See the [**Code signing policy**](docs/code-signing-policy.md) and
 To verify a download on Windows:
 
 ```powershell
-Get-FileHash .\Lightning-0.7.4-<sha>-windows-x86_64.msi -Algorithm SHA256
+Get-FileHash .\Lightning-0.7.5-<sha>-windows-x86_64.msi -Algorithm SHA256
 ```
 
-### macOS
+### macOS (Apple Silicon, macOS 26 or newer)
 
-Not currently supported. A macOS build exists in the packaging pipeline but is
-not published, pending code signing.
+Published from v0.7.5 as `Lightning-0.7.5-<sha>-macos-arm64.zip`.
+
+**Two hard limits, both worth checking before you download:**
+
+- **Apple Silicon only** (M1 and later). There is no Intel build — the Qt
+  distribution the bundle is built against is arm64-only.
+- **macOS 26 or newer.** The minimum is derived from the Qt frameworks the app
+  links, not chosen; on macOS 15 or earlier it will not launch.
+
+Unzip it and drag **Lightning.app** into `/Applications`.
+
+#### Opening it the first time (Gatekeeper)
+
+The app is **not signed with an Apple Developer ID and not notarized**, so the
+first time you open it macOS will refuse and say Apple cannot verify it. That is
+expected, and it is not a claim that anything is wrong with the file — it means
+nobody has paid Apple to vouch for it. Get the file from the
+[Releases](https://github.com/Mizerd/lightning/releases) page and nowhere else,
+then:
+
+1. **Double-click Lightning.app and let macOS refuse.** This step is not
+   filler — the button in step 3 only appears after macOS has blocked the app
+   at least once.
+2. Open **System Settings → Privacy & Security** and scroll to **Security**.
+3. Next to *"Lightning" was blocked to protect your Mac*, click **Open Anyway**.
+4. Confirm with **Open Anyway**, and authenticate with Touch ID or your
+   password.
+
+macOS remembers the decision; you only do this once per installed copy.
+
+> On macOS 14 and earlier the old Control-click → **Open** shortcut also works.
+> Apple removed it in macOS 15, and this build needs macOS 26 anyway, so
+> **Open Anyway** is the route.
+
+If you would rather clear the quarantine flag directly, this does the same
+thing without the System Settings trip:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Lightning.app
+```
+
+#### What the macOS build does not do
+
+- **It does not update itself.** Lightning will tell you a new version exists,
+  but installing it means downloading the next zip — the in-app installer has
+  no macOS path, so it does not pretend to.
+- **It has had no GUI testing on macOS.** The pipeline proves the bundle's
+  frameworks load and the binary runs; nobody has clicked through it on a Mac.
+  Please report what you find.
+- Signing and notarization are the next step; until then the Gatekeeper trip
+  above is the cost.
 
 ### Notes
 
@@ -405,7 +500,7 @@ the account inside the app.
 Once installed, Lightning can update itself: see
 [Application updates](docs/updates.md). The authoritative per-release list of
 artifacts is the release notes — for example
-[`docs/releases/v0.7.4.md`](docs/releases/v0.7.4.md) — and the Releases page
+[`docs/releases/v0.7.5.md`](docs/releases/v0.7.5.md) — and the Releases page
 itself. Packaging, cross-platform builds, publishing, and verification are
 maintained in a separate automation project,
 [**lightning-deploy**](https://gitlab.smetonis.net/Mizerd/lightning-deploy); this
@@ -559,8 +654,10 @@ for Windows and Linux, under GPL-3.0-or-later. That is a directory listing, not
 an endorsement, certification, or approval by the Matrix.org Foundation.
 
 Lightning is under active development. Linux is the primary development and
-support target; official Windows (x86-64) packages are published as of v0.6.3.
-APIs, UI, and behaviour may change, some features are experimental, and Matrix
+support target; official Windows (x86-64) packages are published as of v0.6.3,
+and macOS (Apple Silicon, macOS 26+) as of v0.7.5 — unsigned, un-notarized, and
+never GUI-tested on a Mac, which the [macOS section](#macos-apple-silicon-macos-26-or-newer)
+says plainly. APIs, UI, and behaviour may change, some features are experimental, and Matrix
 interoperability should be verified rather than assumed. Known limits worth
 stating plainly: server-side message search covers **unencrypted rooms only**,
 because a homeserver cannot search ciphertext — encrypted rooms fall back to
@@ -621,7 +718,9 @@ from a developer's machine. See
 
 ### Code signing policy
 
-Windows artifacts are **not signed yet**. The
+Windows **and macOS** artifacts are **not signed yet**. On Windows that means a
+SmartScreen warning; on macOS it means Gatekeeper blocks the app until you allow
+it once (see [macOS](#macos-apple-silicon-macos-26-or-newer)). The
 [**Code signing policy**](docs/code-signing-policy.md) documents the signing
 roles (authors/committers, reviewers, approvers), the manual per-release approval
 step, and precisely which binaries would be signed
