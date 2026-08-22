@@ -170,6 +170,10 @@ private:
     void clearSession();
     int desiredOwnState() const;
     bool publishEnabled() const;
+    // "online" / "unavailable" / "offline" for the local user, or "" when
+    // this client is not publishing and therefore does not know.
+    QString ownPublishedState() const;
+    bool isOwnUser(const QString &userId) const;
 
     MatrixClient *m_client = nullptr;
     SettingsManager *m_settings = nullptr;

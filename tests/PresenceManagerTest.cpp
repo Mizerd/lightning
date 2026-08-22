@@ -31,6 +31,7 @@ public:
     using MockMatrixClient::MockMatrixClient;
 
     bool supportsPresence() const override { return supports; }
+    QString currentUserId() const override { return self; }
     void requestPresence(const QStringList &userIds, quint64 opId) override
     {
         requests.append({ userIds, opId });
@@ -38,6 +39,7 @@ public:
     void publishPresence(int state) override { published.append(state); }
 
     bool supports = true;
+    QString self = QStringLiteral("@me:example.org");
     QList<RecordedRequest> requests;
     QList<int> published;
 };
@@ -143,6 +145,10 @@ private Q_SLOTS:
     void answerArrivingAfterSignOutIsDropped();
     void switchingAccountDropsTheWatchedSetAndBumpsTheEpoch();
     void presenceIsCompiledInWithNoPlatformConditional();
+
+    // 2026-08-22: the local user reads its own presence from what this
+    // client publishes, never from the server's echo.
+    void ownPresenceComesFromWhatThisClientPublishes();
 
 private:
     // Drives the manager to a live session and returns the fake's baseline
@@ -1086,6 +1092,49 @@ void PresenceManagerTest::presenceIsCompiledInWithNoPlatformConditional()
         QVERIFY2(!line.contains(QStringLiteral("presence"), Qt::CaseInsensitive),
                  qPrintable(line));
     }
+}
+
+void PresenceManagerTest::ownPresenceComesFromWhatThisClientPublishes()
+{
+    FakePresenceClient client;
+    SettingsManager settings;
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+
+    const QString me = client.self;
+    // Before the session is live nothing has been published, so there is
+    // nothing to claim — unknown, which renders as no indicator at all.
+    QCOMPARE(presence.stateFor(me), QString());
+
+    goSyncing(client);
+    QCOMPARE(client.published.size(), 1);
+    QCOMPARE(presence.stateFor(me), QStringLiteral("online"));
+    const QVariantMap info = presence.infoFor(me);
+    QCOMPARE(info.value(QStringLiteral("state")).toString(),
+             QStringLiteral("online"));
+    QCOMPARE(info.value(QStringLiteral("lastActiveAgoMs")).toLongLong(), 0LL);
+
+    // The reported case: a homeserver with presence switched off answers 200
+    // with "offline" for everybody, including the account that is sitting in
+    // a live session looking at its own card. That answer must not overwrite
+    // what this client knows about itself.
+    presence.watch(me);
+    QTRY_VERIFY(!client.requests.isEmpty());
+    Q_EMIT client.presenceReceived(
+        client.requests.last().opId,
+        { okEntry(me, QStringLiteral("offline")) });
+    QCOMPARE(presence.stateFor(me), QStringLiteral("online"));
+
+    // With sharing turned OFF this client is deliberately not publishing, so
+    // the server's answer IS the truth about what everyone else sees and the
+    // override steps aside rather than papering over it.
+    settings.setSharePresence(false);
+    QCOMPARE(presence.stateFor(me), QStringLiteral("offline"));
+
+    // Somebody else is never answered from the local publication.
+    QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
+             QString());
 }
 
 QTEST_MAIN(PresenceManagerTest)

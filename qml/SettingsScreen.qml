@@ -1472,16 +1472,17 @@ Item {
                                     storm: true
                                     text: app.customTheme.exists ? qsTr("Edit")
                                                                  : qsTr("Create")
-                                    // Selecting the theme is part of opening
-                                    // the editor: the preview renders the
-                                    // LIVE palette, so editing a theme that
-                                    // is not applied would show the user
-                                    // changes to a window they are not
-                                    // looking at.
-                                    onClicked: {
-                                        app.settings.theme = 12
-                                        themeEditorLoader.active = true
-                                    }
+                                    // Opening the editor no longer SELECTS
+                                    // the theme. The preview inside it paints
+                                    // the custom palette resolved by id, not
+                                    // the live one, so a theme can be built
+                                    // and looked at before it takes over the
+                                    // window — and the editor carries its own
+                                    // "Use this theme" button for when it
+                                    // should. Forcing the switch here meant
+                                    // opening the editor to LOOK at a theme
+                                    // repainted the whole application.
+                                    onClicked: themeEditorLoader.active = true
                                 }
                             }
                         }

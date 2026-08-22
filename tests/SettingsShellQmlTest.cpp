@@ -791,6 +791,72 @@ private slots:
         QVERIFY(!clearButton->property("enabled").toBool());
     }
 
+    // The by-id palette resolver and the live semantic aliases must agree,
+    // for every theme and every key. They drifted once already — the
+    // resolver fell back to a translucent accent where the aliases fall back
+    // to `selected` / `borderStrong`, so a Settings preview card painted
+    // chrome the running theme never renders — and now the custom-theme
+    // editor's whole preview is painted from the resolver, which makes a
+    // second divergence a whole fake window rather than one card.
+    void previewPaletteMatchesLiveTokens()
+    {
+        // Left: key in paletteForTheme(). Right: the live AppTheme alias it
+        // must equal. They are spelled the same on purpose; the pair list
+        // exists so a key can never be added to one side alone.
+        const QStringList keys = {
+            QStringLiteral("background"),      QStringLiteral("rail"),
+            QStringLiteral("sidebar"),         QStringLiteral("surface"),
+            QStringLiteral("cardElevated"),    QStringLiteral("hover"),
+            QStringLiteral("selected"),        QStringLiteral("selectedHover"),
+            QStringLiteral("selectedText"),    QStringLiteral("border"),
+            QStringLiteral("borderStrong"),    QStringLiteral("inputBackground"),
+            QStringLiteral("codeBlock"),       QStringLiteral("accent"),
+            QStringLiteral("accentHover"),     QStringLiteral("accentPressed"),
+            QStringLiteral("accentText"),      QStringLiteral("accentSoft"),
+            QStringLiteral("accentBorder"),    QStringLiteral("link"),
+            QStringLiteral("textPrimary"),     QStringLiteral("textSecondary"),
+            QStringLiteral("textMuted"),       QStringLiteral("textDisabled"),
+            QStringLiteral("icon"),            QStringLiteral("sectionLabelColor"),
+            QStringLiteral("ownBubble"),       QStringLiteral("ownBubbleText"),
+            QStringLiteral("otherBubble"),     QStringLiteral("otherBubbleText"),
+            QStringLiteral("embedSurface"),    QStringLiteral("embedBorder"),
+            QStringLiteral("reactionBackground"),
+            QStringLiteral("reactionBorder"),  QStringLiteral("reactionInk"),
+            QStringLiteral("unreadBadge"),     QStringLiteral("mentionHighlight"),
+            QStringLiteral("mentionBadge"),    QStringLiteral("success"),
+            QStringLiteral("danger"),
+        };
+        const int original = int(m_controller->settings()->theme());
+        for (int id = 1; id <= 11; ++id) {
+            m_controller->settings()->setTheme(SettingsManager::Theme(id));
+            QCoreApplication::processEvents();
+            for (const QString &key : keys) {
+                QQmlExpression expr(
+                    qmlContext(m_window), m_window,
+                    QStringLiteral("AppTheme.paletteForTheme(%1).%2")
+                        .arg(id).arg(key));
+                const QVariant raw = expr.evaluate();
+                const QString where =
+                    QStringLiteral("theme %1, role %2").arg(id).arg(key);
+                QVERIFY2(!expr.hasError(), qPrintable(where));
+                QVERIFY2(raw.isValid() && !raw.isNull(),
+                         qPrintable(QStringLiteral("%1 missing from "
+                                                   "paletteForTheme").arg(where)));
+                const QColor resolved = raw.value<QColor>();
+                const QColor live = themeColor(key.toUtf8().constData());
+                QVERIFY2(resolved.isValid(), qPrintable(where));
+                QVERIFY2(live.isValid(), qPrintable(where));
+                QVERIFY2(resolved == live,
+                         qPrintable(QStringLiteral(
+                             "%1: resolver %2 != live token %3")
+                                        .arg(where, resolved.name(),
+                                             live.name())));
+            }
+        }
+        m_controller->settings()->setTheme(SettingsManager::Theme(original));
+        QCoreApplication::processEvents();
+    }
+
     void noQmlWarnings()
     {
         QCOMPARE(m_warnings, QStringList{});

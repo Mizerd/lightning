@@ -27,6 +27,19 @@ class RoomListModel : public QAbstractListModel
     // with the account every other client reads.
     Q_PROPERTY(bool roomFavouritesSupported READ roomFavouritesSupported
                    NOTIFY roomFavouritesSupportedChanged)
+    // The id of the LAST favourited room, and only while something follows
+    // it — the room the group rule is drawn under. Empty when there are no
+    // favourites, or when favourites are the whole list and a trailing rule
+    // would hang off the bottom of it.
+    //
+    // It lives in the model rather than in the view because the view's
+    // answer is not reliable: RoomDelegate derived it from
+    // ListView.section / ListView.nextSection, which go stale under
+    // `reuseItems` and row MOVES, so opening an older room (which re-sorts
+    // the list) made the rule disappear until something else redrew it.
+    // The model re-sorts; the model knows.
+    Q_PROPERTY(QString favouritesBoundaryRoomId READ favouritesBoundaryRoomId
+                   NOTIFY favouritesBoundaryRoomIdChanged)
 public:
     enum Roles {
         RoomIdRole = Qt::UserRole + 1,
@@ -119,6 +132,7 @@ public:
     void clearProfileCaches();
 
     bool roomFavouritesSupported() const;
+    QString favouritesBoundaryRoomId() const { return m_favouritesBoundaryRoomId; }
     // The one classification: section string and sort group read the same
     // function so a category can never be split across two runs.
     static int groupIndexOf(const RoomInfo &room);
@@ -156,7 +170,11 @@ private:
     // unverifiable chain leaves the row alone.
     QSet<QString> computeSupersededRoomIds() const;
     void resolveMissingDirectAvatars();
+    // Recomputed from m_rooms on every structural or data change; see
+    // the favouritesBoundaryRoomId property comment.
+    void updateFavouritesBoundary();
 
+    QString m_favouritesBoundaryRoomId;
     MatrixClient *m_client = nullptr;
     SpaceManager *m_spaces = nullptr;
     QList<RoomInfo> m_rooms; // Filtered subset actually shown.
@@ -182,4 +200,5 @@ Q_SIGNALS:
     void filterGenerationChanged();
     void filterModeChanged();
     void roomFavouritesSupportedChanged();
+    void favouritesBoundaryRoomIdChanged();
 };

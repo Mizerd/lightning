@@ -466,6 +466,22 @@ Item {
                                  y === undefined ? 0 : y)
         root.ensureContextMenu().popup(Overlay.overlay, p.x, p.y)
     }
+    // Open THIS row's sender profile. One function, three callers: the
+    // avatar, the sender name, and the context menu's "View profile" — a
+    // tester asked for clicking a user to open their profile and only the
+    // menu did it, which is the least discoverable of the three.
+    function openSenderProfileForRow() {
+        if (!root.timelineView || !root.timelineView.openSenderProfile)
+            return
+        var userId = model.sender || ""
+        if (userId.length === 0)
+            return
+        root.timelineView.openSenderProfile({
+            userId: userId,
+            displayName: model.senderDisplayName || "",
+            avatarUrl: model.senderAvatarMxc || ""
+        })
+    }
     // Mentions carry an internal "mention:<user-id>" link (rewritten by the
     // sanitizer); open the member profile. Everything else is a validated
     // http(s) or Matrix URL. Lives on root because every body renderer in
@@ -998,6 +1014,16 @@ Item {
                     colorKey: model.sender || ""
                     Accessible.name: qsTr("Avatar for %1").arg(
                                          model.senderDisplayName || model.sender)
+
+                    // Clicking a person opens that person, as in Element and
+                    // Discord. LeftButton only, so the row's right-click
+                    // context menu still comes through from the bubble
+                    // handler above.
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        onTapped: root.openSenderProfileForRow()
+                    }
+                    HoverHandler { cursorShape: Qt.PointingHandCursor }
                 }
 
                 // Continuations keep Discord's stable gutter without paying
@@ -1167,6 +1193,20 @@ Item {
                                 && qp.y >= 0 && qp.y <= replyBox.height)
                                 return
                         }
+                        // Sixth occurrence. The sender name carries its own
+                        // TapHandler (click a person, get that person), and
+                        // it lives INSIDE this bubble — so without the band
+                        // the one click both opened the profile and pinned
+                        // the action bar behind it.
+                        if (identityLoader.visible) {
+                            var ip = bubble.mapToItem(
+                                        identityLoader,
+                                        eventPoint.position.x,
+                                        eventPoint.position.y)
+                            if (ip.x >= 0 && ip.x <= identityLoader.width
+                                && ip.y >= 0 && ip.y <= identityLoader.height)
+                                return
+                        }
                         root.toggleActionsPin()
                     }
                 }
@@ -1187,6 +1227,7 @@ Item {
                     // continuation row, where it is invisible anyway, also
                     // drops several items per row.
                     Loader {
+                        id: identityLoader
                         // Own DM bubbles need no self-identity line.
                         active: root.showsIdentity
                                 && !(root.bubbleMode && model.isOwn === true)
@@ -1223,7 +1264,14 @@ Item {
                             ToolTip.text: model.sender
                             ToolTip.visible: nameHover.hovered
                             ToolTip.delay: 400
-                            HoverHandler { id: nameHover }
+                            HoverHandler {
+                                id: nameHover
+                                cursorShape: Qt.PointingHandCursor
+                            }
+                            TapHandler {
+                                acceptedButtons: Qt.LeftButton
+                                onTapped: root.openSenderProfileForRow()
+                            }
                         }
                         // v0.5.9: compact disambiguator when the SDK reports
                         // two active members share this display name. A
@@ -3220,6 +3268,31 @@ Item {
                 onTriggered: root.copyToClipboard(
                     root.timelineModel.messagePermalink(root.menuEventId))
             }
+            // Right-clicking a picture should offer what a person expects
+            // to find there (the 2026-08-22 report asked for it in those
+            // words). Open comes first because it is what the left click
+            // does, and a context menu that omits the obvious action reads
+            // as the wrong menu.
+            //
+            // There is deliberately no "Copy image address": under
+            // authenticated media an mxc URL is not a link anyone else can
+            // follow, and handing one out is exactly what CLAUDE.md §6
+            // forbids.
+            AppMenuItem {
+                objectName: "openMediaMenuItem"
+                iconName: "open_in_full"
+                text: qsTr("Open image")
+                // Images and stickers only. The image viewer is what
+                // `openImage` opens; a video row has its own player card and
+                // its own fullscreen overlay, and sending it here would open
+                // the wrong surface.
+                visible: (model.isImage === true || model.isSticker === true)
+                         && model.mediaSourceAvailable === true
+                enabled: visible && root.timelineView
+                         && !!root.timelineView.openImage
+                onTriggered: root.timelineView.openImage(
+                    model.mediaKey || "", model.mediaUrl)
+            }
             // v0.7: unified media action — every media row
             // offers Save from the same menu (cards keep
             // their inline affordances too).
@@ -3275,17 +3348,7 @@ Item {
                 enabled: root.menuEventId !== ""
                          && root.timelineView
                          && !!root.timelineView.openSenderProfile
-                onTriggered: {
-                    var details = root.timelineModel.messageDetails(
-                                      root.menuEventId)
-                    if (!details.senderId)
-                        return
-                    root.timelineView.openSenderProfile({
-                        userId: details.senderId,
-                        displayName: details.senderName || "",
-                        avatarUrl: model.senderAvatarMxc || ""
-                    })
-                }
+                onTriggered: root.openSenderProfileForRow()
             }
             AppMenuItem {
                 iconName: "info"

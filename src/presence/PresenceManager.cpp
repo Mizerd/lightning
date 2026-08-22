@@ -185,14 +185,61 @@ void PresenceManager::unwatch(const QString &userId)
     }
 }
 
+QString PresenceManager::ownPublishedState() const
+{
+    // The local user's presence is the one answer this client does not have
+    // to ask for: it is publishing it. Asking the server and rendering the
+    // echo is a round trip that can only be wrong, and on a homeserver with
+    // presence switched off (Synapse's `presence.enabled: false` answers 200
+    // with "offline" for everybody rather than refusing) it IS wrong — the
+    // user sat in a live session looking at their own profile card reading
+    // "Offline". Reported 2026-08-22 with a screenshot.
+    //
+    // Reported only when publication is actually on and has actually
+    // happened: with sharing disabled the server's "offline" is the truth
+    // about what everyone else sees, and this must not paper over it.
+    if (!m_client || !m_client->supportsPresence() || !publishEnabled()
+        || m_lastPublished < 0)
+        return {};
+    switch (m_lastPublished) {
+    case 0:  return QStringLiteral("online");
+    case 1:  return QStringLiteral("unavailable");
+    default: return QStringLiteral("offline");
+    }
+}
+
+bool PresenceManager::isOwnUser(const QString &userId) const
+{
+    return m_client && !userId.isEmpty()
+        && m_client->currentUserId() == userId;
+}
+
 QString PresenceManager::stateFor(const QString &userId) const
 {
+    if (isOwnUser(userId)) {
+        const QString own = ownPublishedState();
+        if (!own.isEmpty())
+            return own;
+    }
     const auto it = m_cache.constFind(userId);
     return it == m_cache.constEnd() ? QString() : it->state;
 }
 
 QVariantMap PresenceManager::infoFor(const QString &userId) const
 {
+    if (isOwnUser(userId)) {
+        const QString own = ownPublishedState();
+        if (!own.isEmpty()) {
+            return QVariantMap{
+                { QStringLiteral("state"), own },
+                { QStringLiteral("currentlyActive"), m_appActive },
+                // Zero, not -1: "active now" is exactly what this client is
+                // telling the server, and a fabricated age would be the one
+                // part of this answer we did not know.
+                { QStringLiteral("lastActiveAgoMs"), qint64(0) },
+            };
+        }
+    }
     const auto it = m_cache.constFind(userId);
     if (it == m_cache.constEnd())
         return {};
@@ -490,8 +537,15 @@ void PresenceManager::publishTick(bool force)
     const int desired = desiredOwnState();
     if (!force && desired == m_lastPublished)
         return;
+    const int previous = m_lastPublished;
     m_client->publishPresence(desired);
     m_lastPublished = desired;
+    // stateFor()/infoFor() answer the local user from m_lastPublished, so
+    // the dot and the profile line only move when the revision does.
+    if (previous != m_lastPublished) {
+        ++m_revision;
+        Q_EMIT revisionChanged();
+    }
 }
 
 void PresenceManager::handleConnectionState(MatrixClient::ConnectionState state)

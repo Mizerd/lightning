@@ -28,6 +28,22 @@ RoomListModel::RoomListModel(QObject *parent)
     m_reconcileCoalesce.setInterval(0);
     connect(&m_reconcileCoalesce, &QTimer::timeout,
             this, &RoomListModel::reconcileRooms);
+
+    // The favourites group boundary is derived from the CURRENT rows, and
+    // this model mutates through eight different entry points (reset,
+    // append, prepend, insert, replace, move, remove, truncate). Hooking the
+    // model's own change signals covers all of them at once, and cannot be
+    // forgotten by the ninth. Every path ends in one of these.
+    const auto boundary = [this] { updateFavouritesBoundary(); };
+    connect(this, &QAbstractItemModel::modelReset, this, boundary);
+    connect(this, &QAbstractItemModel::rowsInserted, this, boundary);
+    connect(this, &QAbstractItemModel::rowsRemoved, this, boundary);
+    connect(this, &QAbstractItemModel::rowsMoved, this, boundary);
+    connect(this, &QAbstractItemModel::layoutChanged, this, boundary);
+    // A favourite can be added or dropped without the row moving at all
+    // (the tag write lands before the re-sort), so the data signal counts
+    // too. The scan is a switch over a few hundred structs at most.
+    connect(this, &QAbstractItemModel::dataChanged, this, boundary);
 }
 
 void RoomListModel::setClient(MatrixClient *client)
@@ -722,6 +738,24 @@ QString RoomListModel::categoryOf(const RoomInfo &room)
     case 2:  return QStringLiteral("dm");
     default: return QStringLiteral("room");
     }
+}
+
+void RoomListModel::updateFavouritesBoundary()
+{
+    // groupIndexOf == 1 is the favourites group (0 invites, 2 DMs, 3 rooms),
+    // and the list is already sorted by it, so the boundary is the last
+    // favourite that still has a row after it. No trailing row means no
+    // rule: a divider hanging off the bottom of the list divides nothing.
+    QString boundary;
+    for (int i = 0; i < m_rooms.size(); ++i) {
+        if (groupIndexOf(m_rooms.at(i)) != 1)
+            continue;
+        boundary = (i + 1 < m_rooms.size()) ? m_rooms.at(i).id : QString();
+    }
+    if (boundary == m_favouritesBoundaryRoomId)
+        return;
+    m_favouritesBoundaryRoomId = boundary;
+    Q_EMIT favouritesBoundaryRoomIdChanged();
 }
 
 bool RoomListModel::roomFavouritesSupported() const

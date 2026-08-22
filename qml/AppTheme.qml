@@ -69,6 +69,15 @@ QtObject {
     readonly property int effectiveTheme: mode === 0
                                           ? (systemDark ? 11 : 8)
                                           : mode
+    // A palette value as a COLOR. The preset palettes hold `color`
+    // properties, but the custom palette merges the user's own values in as
+    // "#RRGGBB" STRINGS, and a string has no .r/.g/.b — so anything that does
+    // arithmetic on a palette entry has to come through here first.
+    // relativeLuminance(_p.background) returned NaN for every custom theme
+    // whose background was overridden, which made `dark` silently false and
+    // put light-theme scrims on a dark shell.
+    function _asColor(v) { return typeof v === "string" ? Qt.color(v) : v }
+
     // WCAG relative luminance of a QML color. Used only to classify a
     // CUSTOM palette as light or dark — the presets are known by id.
     function relativeLuminance(c) {
@@ -85,7 +94,7 @@ QtObject {
     // inheriting the base's answer would leave shadows and scrims fighting
     // the surface they sit on.
     readonly property bool dark: effectiveTheme === 12
-                                 ? relativeLuminance(_p.background) < 0.18
+                                 ? relativeLuminance(_asColor(_p.background)) < 0.18
                                  : (effectiveTheme !== 1 && effectiveTheme !== 7
                                     && effectiveTheme !== 8)
     // True while the Storm brand theme (11) is the effective palette. Views
@@ -874,34 +883,86 @@ QtObject {
         return out
     }
 
-    // Palette lookup for rendering theme preview cards. Routes through
-    // rawPaletteForTheme above; keys missing from pre-handoff palettes (rail,
-    // accentSoft, accentBorder, accentText) are filled with the same
-    // fallbacks the semantic aliases use.
+    // Palette lookup for a theme BY ID, resolved to semantic roles.
+    //
+    // Two consumers: the Settings theme-preview cards, and ThemePreviewDemo
+    // inside the custom-theme editor. The editor's preview must render a
+    // theme the application is NOT currently running, so it cannot read the
+    // live aliases below — it asks for a palette by id and paints from that.
+    //
+    // Every fallback here MUST match the semantic alias of the same name.
+    // They drifted once already (accentSoft/accentBorder fell back to a
+    // translucent accent while the aliases fell back to `selected` /
+    // `borderStrong`, so a preview card painted chrome the running theme
+    // never renders). `previewPaletteMatchesLiveTokens` in
+    // tests/SettingsShellQmlTest.cpp now walks every id and every key here
+    // against the live singleton, so the two cannot separate again.
     function paletteForTheme(id) {
         var p = rawPaletteForTheme(id)
+        // The two palette-shaped answers the aliases take from OUTSIDE the
+        // palette object. `dark` is id-based for the presets and
+        // luminance-based for the custom theme, exactly like the `dark`
+        // property; `isStorm` gates the two embed roles.
+        var isDark = id === 12
+                     ? relativeLuminance(_asColor(p.background)) < 0.18
+                     : (id !== 1 && id !== 7 && id !== 8)
+        var isStorm = id === 11
+        var cardElevated = p.cardElevated
+        var textPrimary = p.textPrimary
+        var textMuted = p.textMuted
+        var accent = p.accent
+        var mentionBadge = p.mention !== undefined ? p.mention : _accentDanger
         return {
-            background: p.background,
-            rail: p.rail !== undefined ? p.rail : p.sidebar,
-            sidebar: p.sidebar,
-            surface: p.surface,
-            hover: p.hover,
-            border: p.border,
-            accent: p.accent,
-            // These MUST match the semantic aliases below, and for a long
-            // time they did not: the aliases fall back to `selected` and
-            // `borderStrong`, these fell back to translucent accent. So a
-            // Settings preview card painted accent chrome the running theme
-            // never renders, for every palette without explicit keys — themes
-            // 1 through 7. criticalPairsMeetContrast pins _dkSelectedText
-            // against _dkSelected precisely BECAUSE accentSoft resolves to
-            // selected, so the alias path is the one the contract believes.
-            accentSoft: p.accentSoft !== undefined ? p.accentSoft
-                                                   : p.selected,
-            accentBorder: p.accentBorder !== undefined ? p.accentBorder
-                                                       : p.borderStrong,
-            textPrimary: p.textPrimary,
-            textMuted: p.textMuted
+            background:      p.background,
+            rail:            p.rail !== undefined ? p.rail : p.sidebar,
+            sidebar:         p.sidebar,
+            surface:         p.surface,
+            cardElevated:    cardElevated,
+            hover:           p.hover,
+            selected:        p.selected,
+            selectedHover:   p.selectedHover,
+            selectedText:    p.selectedText,
+            border:          p.border,
+            borderStrong:    p.borderStrong,
+            inputBackground: p.inputBg,
+            codeBlock:       p.codeBlock,
+            accent:          accent,
+            accentHover:     p.accentHover,
+            accentPressed:   p.accentPressed,
+            accentText:      p.accentText !== undefined ? p.accentText
+                                                        : _onAccent,
+            accentSoft:      p.accentSoft !== undefined ? p.accentSoft
+                                                        : p.selected,
+            accentBorder:    p.accentBorder !== undefined ? p.accentBorder
+                                                          : p.borderStrong,
+            link:            p.link !== undefined ? p.link : accent,
+            textPrimary:     textPrimary,
+            textSecondary:   p.textSecondary,
+            textMuted:       textMuted,
+            textDisabled:    p.textDisabled,
+            icon:            textMuted,
+            sectionLabelColor: textMuted,
+            ownBubble:       p.ownBubble,
+            ownBubbleText:   ownBubbleText,
+            otherBubble:     p.otherBubble,
+            otherBubbleText: textPrimary,
+            embedSurface:    isStorm ? _stoPanel : cardElevated,
+            embedBorder:     isStorm ? _stoBorder : p.border,
+            reactionBackground: p.reaction !== undefined ? p.reaction
+                                                         : cardElevated,
+            reactionBorder:  p.border,
+            reactionInk:     p.textSecondary,
+            unreadBadge:     p.unreadBadge !== undefined ? p.unreadBadge
+                                                         : accent,
+            mentionHighlight: p.mentionHighlight !== undefined
+                              ? p.mentionHighlight : accent,
+            mentionBadge:    mentionBadge,
+            success:         p.success !== undefined ? p.success
+                                                     : (isDark ? _okInkDark
+                                                               : _okInkLight),
+            danger:          p.danger !== undefined ? p.danger
+                                                    : (isDark ? _dangerInkDark
+                                                              : _dangerInkLight)
         }
     }
 
@@ -1289,6 +1350,37 @@ QtObject {
     // #5C6BA3 computed 3.57:1 and failed normal-text AA).
     readonly property color trustCaptionDim:  "#6F7EB6"
     readonly property color trustVerifyInk:   "#C9D2F2"
+
+    // The SECOND deliberate theme-invariant surface: the custom-theme editor
+    // (Settings -> Appearance -> Edit).
+    //
+    // Every other surface in the app follows the selected theme, and that is
+    // right — except in the one window whose job is to CHANGE the selected
+    // theme. A user editing their own palette can paint the panel white and
+    // the body ink white in two clicks, and if the editor followed that, the
+    // role list, the picker and the button that undoes it would all vanish at
+    // the same moment. The editor would have locked its user out of the only
+    // control that fixes it. Screenshot evidence, 2026-08-22.
+    //
+    // So the editor's own chrome is pinned to the brand navy the way the
+    // trust card is, and the theme being authored appears ONLY inside the
+    // preview, where it belongs. This is also why the editor draws its own
+    // buttons, fields and scrollbar instead of reaching for AppButton /
+    // AppTextField / AppComboBox: those follow the storm* namespace, which
+    // follows the theme.
+    readonly property color editorCanvas:        _stoCanvas
+    readonly property color editorPanel:         _stoPanel
+    readonly property color editorInset:         _stoInset
+    readonly property color editorDeep:          _stoDeep
+    readonly property color editorBorder:        _stoBorder
+    readonly property color editorBorderStrong:  _stoBorderStrong
+    readonly property color editorSelection:     _stoSelection
+    readonly property color editorAccent:        _stoBolt
+    readonly property color editorAccentInk:     _stoBoltInk
+    readonly property color editorText:          _stoText
+    readonly property color editorTextSecondary: _stoTextSecondary
+    readonly property color editorTextMuted:     _stoTextMuted
+    readonly property color editorDanger:        _stoDanger
 
     // Deterministic initials-avatar palette, shared by every theme so a user
     // or room keeps one colour everywhere. Nine hues at 4/28/44/95/155/192/

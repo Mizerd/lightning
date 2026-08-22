@@ -144,6 +144,12 @@ Item {
         anchors.fill: parent
         anchors.leftMargin: AppTheme.spacing4
         anchors.rightMargin: AppTheme.spacing4
+        // The group rule below occupies the row's last pixel line. Yielding
+        // it keeps the rule off the selection chip entirely: drawn ON it, a
+        // hairline in `border` against a `selected` fill is very nearly
+        // invisible, which is what "the divider disappears when the room is
+        // selected" looked like.
+        anchors.bottomMargin: root.showGroupDivider ? 1 : 0
         // v0.5.9: softer selected state from the semantic tokens — the
         // selected row keeps readable primary/secondary ink in both themes.
         // Design shell: row highlight is an 8px rounded chip, not a full-
@@ -181,6 +187,9 @@ Item {
     // instead of butting into the sidebar's own right-hand border.
     Rectangle {
         objectName: "roomGroupDivider"
+        // Above every other layer in the row, so nothing added later can
+        // paint over it.
+        z: 1
         visible: root.showGroupDivider
         anchors.left: parent.left
         anchors.right: parent.right
@@ -188,7 +197,7 @@ Item {
         anchors.leftMargin: AppTheme.spacing8
         anchors.rightMargin: AppTheme.spacing8
         height: 1
-        color: AppTheme.border
+        color: AppTheme.borderStrong
     }
 
     RowLayout {

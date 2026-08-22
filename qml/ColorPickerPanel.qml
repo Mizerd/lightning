@@ -11,11 +11,16 @@ import MatrixClient
 // editor, so a picker that hides it is not a smaller problem than a picker
 // that is hard to use — it defeats the feature.
 //
-// Deliberately plain: a saturation/value field, a hue strip, a hex field and a
-// before/after pair. No alpha channel, because a translucent shell surface
-// composites over whatever is behind it and that makes the resulting contrast
-// unknowable, while every contrast rule in this app is written against opaque
-// values (CustomThemeStore refuses 8-digit hex for the same reason).
+// A saturation/value field, a hue slider, a hex field, a before/after pair,
+// and the base theme's own colours as one-click swatches. No alpha channel,
+// because a translucent shell surface composites over whatever is behind it
+// and that makes the resulting contrast unknowable, while every contrast rule
+// in this app is written against opaque values (CustomThemeStore refuses
+// 8-digit hex for the same reason).
+//
+// Its chrome uses AppTheme's INVARIANT editor tokens and its own text field,
+// for the reason given in ThemeEditorDialog's header: a picker painted in the
+// theme it is editing can be made invisible by the thing it is editing.
 //
 // The hex literals below are deliberate and are NOT theme colours: the hue
 // strip is the sRGB spectrum and the crosshair is a white ring over a dark
@@ -32,13 +37,18 @@ Item {
     // before/after swatch.
     property color originalColor: "#000000"
     property string title: ""
+    property string subtitle: ""
     property bool canReset: false
+    // "#RRGGBB" strings offered as one-click choices — the base theme's own
+    // palette. Building a theme almost always means reusing a tone that is
+    // already in it; a hand-typed near-miss is how a palette loses coherence.
+    property var suggestions: []
 
     signal picked(color value)
     signal resetRequested()
     signal closed()
 
-    implicitWidth: 260
+    implicitWidth: 288
     implicitHeight: layout.implicitHeight
 
     // HSV state is the SOURCE of truth while the panel is open, not the
@@ -52,12 +62,13 @@ Item {
 
     function load(c) {
         loading = true
-        hue = c.hsvHue >= 0 ? c.hsvHue : 0
-        sat = c.hsvSaturation
-        val = c.hsvValue
-        selectedColor = c
-        originalColor = c
-        hexField.text = root.toHex(c)
+        var col = typeof c === "string" ? Qt.color(c) : c
+        hue = col.hsvHue >= 0 ? col.hsvHue : 0
+        sat = col.hsvSaturation
+        val = col.hsvValue
+        selectedColor = col
+        originalColor = col
+        hexField.text = root.toHex(col)
         loading = false
     }
 
@@ -78,6 +89,17 @@ Item {
         root.picked(c)
     }
 
+    function applyColor(c) {
+        loading = true
+        hue = c.hsvHue >= 0 ? c.hsvHue : hue
+        sat = c.hsvSaturation
+        val = c.hsvValue
+        selectedColor = c
+        hexField.text = root.toHex(c)
+        loading = false
+        root.picked(c)
+    }
+
     ColumnLayout {
         id: layout
         anchors.fill: parent
@@ -89,25 +111,52 @@ Item {
             Label {
                 Layout.fillWidth: true
                 text: root.title
-                color: AppTheme.stormText
+                color: AppTheme.editorText
+                font.family: AppTheme.uiFont
                 font.pixelSize: AppTheme.textBody
                 font.weight: AppTheme.weightStrong
                 elide: Label.ElideRight
             }
-            IconButton {
-                iconName: "close"
-                size: "sm"
-                storm: true
-                Accessible.name: qsTr("Close the colour picker")
-                onClicked: root.closed()
+            Rectangle {
+                objectName: "colorPickerCloseButton"
+                implicitWidth: 26
+                implicitHeight: 26
+                radius: AppTheme.radiusSm
+                color: closeHover.containsMouse ? AppTheme.editorSelection
+                                                : "transparent"
+                Icon {
+                    anchors.centerIn: parent
+                    name: "close"
+                    size: 14
+                    color: AppTheme.editorTextSecondary
+                }
+                MouseArea {
+                    id: closeHover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Close the colour picker")
+                    onClicked: root.closed()
+                }
             }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: root.subtitle.length > 0
+            text: root.subtitle
+            wrapMode: Text.WordWrap
+            color: AppTheme.editorTextMuted
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.textMeta
         }
 
         // Saturation (x) against value (y), over the current hue.
         Item {
             id: field
             Layout.fillWidth: true
-            Layout.preferredHeight: 150
+            Layout.preferredHeight: 176
 
             Rectangle {
                 anchors.fill: parent
@@ -116,7 +165,7 @@ Item {
                 color: Qt.hsva(root.hue, 1, 1, 1)
 
                 // White on the left, then black toward the bottom. Two
-                // gradients rather than a shader: this is a 260x150 static
+                // gradients rather than a shader: this is a small static
                 // surface, not something worth a GPU program.
                 Rectangle {
                     anchors.fill: parent
@@ -139,9 +188,9 @@ Item {
             Rectangle {
                 x: root.sat * field.width - width / 2
                 y: (1 - root.val) * field.height - height / 2
-                width: 14
-                height: 14
-                radius: 7
+                width: 16
+                height: 16
+                radius: 8
                 color: "transparent"
                 border.width: 2
                 border.color: "#FFFFFF"
@@ -171,11 +220,14 @@ Item {
         Item {
             id: hueStrip
             Layout.fillWidth: true
-            Layout.preferredHeight: 18
+            Layout.preferredHeight: 22
 
             Rectangle {
-                anchors.fill: parent
-                radius: AppTheme.radiusSm
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                height: 14
+                radius: 7
                 clip: true
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
@@ -188,15 +240,24 @@ Item {
                     GradientStop { position: 1.000; color: "#FF0000" }
                 }
             }
+            // A round handle rather than a bar: it reads as something you can
+            // grab, and it shows the hue it is sitting on.
             Rectangle {
                 x: root.hue * hueStrip.width - width / 2
-                width: 6
-                height: parent.height + 4
-                y: -2
-                radius: 3
-                color: "transparent"
-                border.width: 2
+                anchors.verticalCenter: parent.verticalCenter
+                width: 20
+                height: 20
+                radius: 10
+                color: Qt.hsva(root.hue, 1, 1, 1)
+                border.width: 3
                 border.color: "#FFFFFF"
+                Rectangle {
+                    anchors.fill: parent
+                    radius: width / 2
+                    color: "transparent"
+                    border.width: 1
+                    border.color: "#66000000"
+                }
             }
             MouseArea {
                 anchors.fill: parent
@@ -209,7 +270,7 @@ Item {
             }
         }
 
-        // Hex, before/after, reset.
+        // Hex + before/after.
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -217,12 +278,12 @@ Item {
             // Before | after, sharing one outline so the pair reads as one
             // control rather than two swatches.
             Rectangle {
-                implicitWidth: 52
-                implicitHeight: 28
+                implicitWidth: 62
+                implicitHeight: 34
                 radius: AppTheme.radiusSm
                 color: "transparent"
                 border.width: 1
-                border.color: AppTheme.stormBorder
+                border.color: AppTheme.editorBorderStrong
                 Row {
                     anchors.fill: parent
                     anchors.margins: 1
@@ -239,37 +300,112 @@ Item {
                 }
             }
 
-            AppTextField {
-                id: hexField
-                objectName: "colorHexField"
-                storm: true
+            Rectangle {
                 Layout.fillWidth: true
-                Accessible.name: qsTr("Colour, as a hex value")
-                // Typed hex is applied only when it is COMPLETE and valid, so
-                // the preview does not flicker through the partial values a
-                // user types on the way to a full one.
-                onTextEdited: {
-                    var t = text.trim()
-                    if (!/^#[0-9A-Fa-f]{6}$/.test(t))
-                        return
-                    var c = Qt.color(t)
-                    root.hue = c.hsvHue >= 0 ? c.hsvHue : root.hue
-                    root.sat = c.hsvSaturation
-                    root.val = c.hsvValue
-                    root.selectedColor = c
-                    root.picked(c)
+                implicitHeight: 34
+                radius: AppTheme.radiusMd
+                color: AppTheme.editorInset
+                border.width: hexField.activeFocus ? 2 : 1
+                border.color: hexField.activeFocus ? AppTheme.editorAccent
+                                                   : AppTheme.editorBorderStrong
+
+                TextInput {
+                    id: hexField
+                    objectName: "colorHexField"
+                    anchors.fill: parent
+                    anchors.leftMargin: AppTheme.spacing8
+                    anchors.rightMargin: AppTheme.spacing8
+                    verticalAlignment: TextInput.AlignVCenter
+                    color: AppTheme.editorText
+                    selectionColor: AppTheme.editorAccent
+                    selectedTextColor: AppTheme.editorAccentInk
+                    font.family: AppTheme.monoFont
+                    font.pixelSize: AppTheme.textMeta
+                    maximumLength: 7
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: qsTr("Colour, as a hex value")
+                    // Typed hex is applied only when it is COMPLETE and valid,
+                    // so the preview does not flicker through the partial
+                    // values a user types on the way to a full one.
+                    onTextEdited: {
+                        var t = text.trim()
+                        if (!/^#[0-9A-Fa-f]{6}$/.test(t))
+                            return
+                        root.applyColor(Qt.color(t))
+                    }
                 }
             }
         }
 
-        AppButton {
+        // The base theme's own colours.
+        Label {
+            Layout.fillWidth: true
+            Layout.topMargin: AppTheme.spacing4
+            visible: root.suggestions.length > 0
+            text: qsTr("Colours already in this theme")
+            color: AppTheme.editorTextMuted
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.textMeta
+        }
+        Flow {
+            Layout.fillWidth: true
+            visible: root.suggestions.length > 0
+            spacing: 4
+            Repeater {
+                model: root.suggestions
+                delegate: Rectangle {
+                    id: swatch
+                    required property string modelData
+                    objectName: "themeSuggestionSwatch"
+                    width: 26
+                    height: 26
+                    radius: AppTheme.radiusSm
+                    color: modelData
+                    border.width: swatchHover.containsMouse ? 2 : 1
+                    border.color: swatchHover.containsMouse
+                                  ? AppTheme.editorAccent
+                                  : AppTheme.editorBorderStrong
+                    MouseArea {
+                        id: swatchHover
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("Use %1").arg(swatch.modelData)
+                        onClicked: root.applyColor(Qt.color(swatch.modelData))
+                    }
+                }
+            }
+        }
+
+        Rectangle {
             objectName: "colorResetButton"
             Layout.fillWidth: true
+            Layout.topMargin: AppTheme.spacing4
             visible: root.canReset
-            size: "sm"
-            storm: true
-            text: qsTr("Reset to the base theme")
-            onClicked: root.resetRequested()
+            implicitHeight: 32
+            radius: AppTheme.radiusMd
+            color: resetHover.containsMouse ? AppTheme.editorSelection
+                                            : "transparent"
+            border.width: 1
+            border.color: AppTheme.editorBorderStrong
+            Label {
+                anchors.centerIn: parent
+                text: qsTr("Reset to the base theme")
+                color: AppTheme.editorText
+                font.family: AppTheme.uiFont
+                font.pixelSize: AppTheme.textMeta
+                font.weight: AppTheme.weightStrong
+            }
+            MouseArea {
+                id: resetHover
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Reset to the base theme")
+                onClicked: root.resetRequested()
+            }
         }
     }
 }

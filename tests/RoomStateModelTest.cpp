@@ -118,6 +118,7 @@ private Q_SLOTS:
     void favouriteToggleIsNeverAppliedLocally();
     void everyCategoryTheModelEmitsHasASectionLabel();
     void theFavouritesSectionIsClosedOffByADivider();
+    void theFavouritesBoundaryIsOwnedByTheModel();
 };
 
 void RoomStateModelTest::directClassificationUsesMDirectOnly()
@@ -796,12 +797,13 @@ void RoomStateModelTest::theFavouritesSectionIsClosedOffByADivider()
     const int bindingAt = panelSource.indexOf(QStringLiteral("showGroupDivider:"));
     QVERIFY2(bindingAt >= 0, "RoomsPanel never binds showGroupDivider");
     const QString binding = panelSource.mid(bindingAt, 260);
-    QVERIFY2(binding.contains(QStringLiteral("ListView.section === \"favourite\"")),
-             "the divider is not scoped to the favourites section");
-    QVERIFY2(binding.contains(QStringLiteral("ListView.nextSection !== \"favourite\"")),
-             "the divider is not scoped to the LAST favourite row");
-    QVERIFY2(binding.contains(QStringLiteral("ListView.nextSection !== \"\"")),
-             "a favourites-only list would hang a trailing rule");
+    // The view must ASK THE MODEL. ListView.section / ListView.nextSection
+    // go stale under reuseItems and row moves — selecting a room re-sorts
+    // the list, and the rule then vanished until something else redrew it.
+    QVERIFY2(binding.contains(QStringLiteral("favouritesBoundaryRoomId")),
+             "the divider is not driven by the model's boundary property");
+    QVERIFY2(!binding.contains(QStringLiteral("ListView.nextSection")),
+             "the divider is back on the stale attached-property path");
 
     QFile row(QStringLiteral(QML_DIR "/RoomDelegate.qml"));
     QVERIFY2(row.open(QIODevice::ReadOnly | QIODevice::Text),
@@ -821,6 +823,60 @@ void RoomStateModelTest::theFavouritesSectionIsClosedOffByADivider()
     // row below it the moment a room was favourited.
     QVERIFY2(!divider.contains(QStringLiteral("Layout.")),
              "the rule must not participate in the row's layout");
+    // Drawn OFF the selection chip, not over it: `border` on a `selected`
+    // fill is very nearly invisible, and that is what "the divider gets
+    // hidden when the room is selected" looked like.
+    QVERIFY2(rowSource.contains(
+                 QStringLiteral("anchors.bottomMargin: root.showGroupDivider ? 1 : 0")),
+             "the selection chip must yield the row's last pixel line to the rule");
+}
+
+void RoomStateModelTest::theFavouritesBoundaryIsOwnedByTheModel()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto favA = room(QStringLiteral("!favA:example.org"));
+    favA.isFavourite = true;
+    auto favB = room(QStringLiteral("!favB:example.org"));
+    favB.isFavourite = true;
+    const auto plain = room(QStringLiteral("!plain:example.org"));
+    client.mirror = { favA, favB, plain };
+    model.setClient(&client);
+
+    // Sorted invites -> favourites -> DMs -> rooms, so the boundary is the
+    // second favourite, whichever order the two of them settle in.
+    QCOMPARE(model.rowCount(), 3);
+    QCOMPARE(model.data(model.index(2), RoomListModel::CategoryRole).toString(),
+             QStringLiteral("room"));
+    const QString expected =
+        model.data(model.index(1), RoomListModel::RoomIdRole).toString();
+    QCOMPARE(model.favouritesBoundaryRoomId(), expected);
+
+    // Un-favouriting the boundary room moves the rule up a row.
+    QSignalSpy moved(&model, &RoomListModel::favouritesBoundaryRoomIdChanged);
+    for (auto &r : client.mirror) {
+        if (r.id == expected)
+            r.isFavourite = false;
+    }
+    Q_EMIT client.roomUpdated(expected);
+    QCoreApplication::processEvents();
+    QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
+             QStringLiteral("favourite"));
+    QCOMPARE(model.favouritesBoundaryRoomId(),
+             model.data(model.index(0), RoomListModel::RoomIdRole).toString());
+    QVERIFY(moved.count() >= 1);
+
+    // A list that is ENTIRELY favourites has nothing below the group, and a
+    // trailing rule would divide it from the bottom of the window.
+    for (auto &r : client.mirror)
+        r.isFavourite = true;
+    for (const auto &r : client.mirror)
+        Q_EMIT client.roomUpdated(r.id);
+    QCoreApplication::processEvents();
+    QCOMPARE(model.data(model.index(2), RoomListModel::CategoryRole).toString(),
+             QStringLiteral("favourite"));
+    QVERIFY2(model.favouritesBoundaryRoomId().isEmpty(),
+             "a favourites-only list must not hang a trailing rule");
 }
 
 QTEST_GUILESS_MAIN(RoomStateModelTest)

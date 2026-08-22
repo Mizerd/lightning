@@ -602,12 +602,16 @@ Rectangle {
                 // purpose: it marks the pinned priority block, and a rule
                 // under EVERY group turns a 300px column into a table.
                 //
-                // `nextSection` is "" on the very last row in the view, so
-                // the empty check is what stops a trailing rule hanging off
-                // the bottom of a list whose only group IS favourites.
-                showGroupDivider: ListView.section === "favourite"
-                                  && ListView.nextSection !== "favourite"
-                                  && ListView.nextSection !== ""
+                // Asked of the MODEL, not of ListView.section /
+                // ListView.nextSection. Those attached properties go stale
+                // under `reuseItems` and row moves, and opening an older room
+                // re-sorts the list — so the rule vanished whenever a room
+                // near the boundary was selected. The model owns the sort and
+                // answers with the room id the rule belongs under (empty when
+                // there is nothing below it to divide from).
+                showGroupDivider:
+                    app.roomList.favouritesBoundaryRoomId.length > 0
+                    && model.roomId === app.roomList.favouritesBoundaryRoomId
                 onClicked: if (model.membership === "joined") app.openRoom(model.roomId)
                 onAcceptInvite: app.roomList.acceptInvite(model.roomId)
                 onRejectInvite: app.roomList.rejectInvite(model.roomId)
