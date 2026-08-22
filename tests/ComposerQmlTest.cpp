@@ -9,6 +9,7 @@
 #include <QtTest/QtTest>
 
 #include <QGuiApplication>
+#include <QInputMethodEvent>
 #include <QImage>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -626,6 +627,102 @@ private slots:
 
         m_controller->composer()->cancelReplyOrEdit();
         input->setProperty("text", QString());
+    }
+
+    // A dead key — the tester's "¨", which they had to press twice — does not
+    // arrive as a key press at all. The platform holds the composing
+    // character in a QInputMethodEvent PREEDIT until the next keystroke
+    // decides what it composes into, and anything that rewrites the field's
+    // text, moves its cursor, or re-lays-out its document while that is
+    // pending CANCELS the composition: the character is dropped and the user
+    // presses the key again.
+    //
+    // This composer has three candidates for doing exactly that, all of them
+    // running on every text and cursor change — the write-back to
+    // AppComposer, the mention re-anchoring, and the MentionHighlighter
+    // attached to the field's own QTextDocument. So the preedit path is
+    // pinned here rather than reasoned about, including with a live mention
+    // in the field, which is the state in which the highlighter actually
+    // calls setFormat on the document the composition lives in.
+    void aDeadKeyPreeditSurvivesAndComposesInOneKeystroke()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *input = item("composerInput");
+        QVERIFY(input);
+        input->setProperty("text", QString());
+        input->forceActiveFocus();
+        QTest::qWait(30);
+        QVERIFY(input->hasActiveFocus());
+
+        const auto sendIm = [](const QString &preedit, const QString &commit) {
+            QList<QInputMethodEvent::Attribute> attributes;
+            if (!preedit.isEmpty())
+                attributes.append(QInputMethodEvent::Attribute(
+                    QInputMethodEvent::Cursor, preedit.length(), 1,
+                    QVariant()));
+            QInputMethodEvent event(preedit, attributes);
+            if (!commit.isEmpty())
+                event.setCommitString(commit);
+            QObject *focus = QGuiApplication::focusObject();
+            QVERIFY(focus);
+            QGuiApplication::sendEvent(focus, &event);
+        };
+
+        // The dead key: composing, and deliberately nothing committed yet.
+        sendIm(QStringLiteral("¨"), QString());
+        QTest::qWait(30);
+        QCOMPARE(input->property("preeditText").toString(),
+                 QStringLiteral("¨"));
+        QCOMPARE(input->property("text").toString(), QString());
+
+        // The NEXT keystroke composes it. One more press, not two.
+        sendIm(QString(), QStringLiteral("ä"));
+        QTest::qWait(30);
+        QCOMPARE(input->property("text").toString(), QStringLiteral("ä"));
+        QVERIFY(input->property("preeditText").toString().isEmpty());
+        QCOMPARE(m_controller->composer()->text(), QStringLiteral("ä"));
+
+        // Again with a real mention in the field: the highlighter now has a
+        // range and formats the same document the composition sits in.
+        input->setProperty("text", QString());
+        QTest::qWait(20);
+        openMention(input, QString());
+        QVERIFY(popupVisible());
+        QTest::keyClick(m_window, Qt::Key_Down);
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTest::qWait(30);
+        const QString withMention = input->property("text").toString();
+        QVERIFY(!withMention.isEmpty());
+        QVERIFY(!m_controller->composer()->mentionRanges().isEmpty());
+
+        sendIm(QStringLiteral("¨"), QString());
+        QTest::qWait(30);
+        QCOMPARE(input->property("preeditText").toString(),
+                 QStringLiteral("¨"));
+        QCOMPARE(input->property("text").toString(), withMention);
+        sendIm(QString(), QStringLiteral("ä"));
+        QTest::qWait(30);
+        QCOMPARE(input->property("text").toString(),
+                 withMention + QStringLiteral("ä"));
+
+        // Negative control, so none of the above can pass vacuously: a
+        // write-back to the field's text IS what cancels a composition, and
+        // when one happens the preedit is observably gone. That is the exact
+        // failure the tester described, and it is what these assertions would
+        // catch if any of this composer's three per-keystroke write-backs
+        // ever stopped guarding itself.
+        sendIm(QStringLiteral("\u00a8"), QString());
+        QTest::qWait(30);
+        QCOMPARE(input->property("preeditText").toString(),
+                 QStringLiteral("\u00a8"));
+        input->setProperty("text", QStringLiteral("rewritten"));
+        QTest::qWait(30);
+        QVERIFY2(input->property("preeditText").toString().isEmpty(),
+                 "a text write-back must cancel the composition, or this "
+                 "case proves nothing");
+
+        input->setProperty("text", QString());
+        QTest::qWait(20);
     }
 };
 
