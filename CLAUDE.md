@@ -26,10 +26,10 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.7.4** (`v0.7.4` -> `e8139ed`),
-notes in `docs/releases/v0.7.4.md`. The application version reads
-**0.7.4** in `CMakeLists.txt` (`APP_VERSION_LABEL`), `rust/Cargo.toml`,
-and the Rust/HTTP user agent. It is released, so the next bump is a new
+Latest published release: **Lightning 0.7.5** (`v0.7.5` -> `848a29e`),
+notes in `docs/releases/v0.7.5.md`. The application version reads
+**0.7.5** in `CMakeLists.txt` (`APP_VERSION_LABEL`), `rust/Cargo.toml`,
+and the Rust/HTTP user agent (derived from `CARGO_PKG_VERSION`). It is released, so the next bump is a new
 release checkpoint and only on Rokas's explicit request (§14).
 
 `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to
@@ -41,6 +41,7 @@ them incidentally.
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
+| 0.7.5 | `848a29e` | 110, 18/20 green — mirror wired wrong, mirrored by hand (see below) | `docs/releases/v0.7.5.md` |
 | 0.7.4 | `e8139ed` | not recorded here (105 FAILED, see below) | `docs/releases/v0.7.4.md` |
 | 0.7.3 | `8da2e81` | 104, 19/19 green first attempt, 9 assets | `docs/releases/v0.7.3.md` |
 | 0.7.2 | `7c736c3` | 103, 19/19 green first attempt, 9 assets | `docs/releases/v0.7.2.md` |
@@ -55,7 +56,7 @@ them incidentally.
 | 0.6.0 | `2157194` | — | — |
 
 Every SHA above predating 2026-08-11 is a **pre-rewrite** identifier
-(§4). Run `git log --oneline v0.7.4..HEAD` rather than trusting any
+(§4). Run `git log --oneline v0.7.5..HEAD` rather than trusting any
 narrative in this file; it goes stale immediately. Never quote a CTest
 count from here either — run the suites yourself (§12).
 
@@ -81,6 +82,18 @@ the lightning-deploy pipeline only after packages publish and verify
   reports success while publishing nothing. Pipeline **82** was lost to
   exactly that. Always confirm with
   `glab api projects/7/pipelines/<id>/variables` before trusting a run.
+- **A job that consumes a published byte must `needs` its producer.**
+  Pipeline **110** published 0.7.5 correctly, created the tag and the
+  GitLab release, and then died in `mirror-release-to-github` on
+  `mirror input missing` — the macOS zip was in the publication manifest
+  but not in the mirror's workspace, because the new `needs` went on
+  `publish-packages` alone. The mirror uploads the PUBLISHED BYTES and
+  refuses to rebuild them, which is the whole point of it. It failed at
+  the most expensive moment in a run: after publication and after the tag
+  existed. 0.7.5 was completed BY HAND (mirror + update-manifest
+  promotion, both verified anonymously); deploy `86ec616` fixes the wiring
+  and asserts the invariant generally — "the mirror consumes every
+  artifact source publish-packages does" — so the next format inherits it.
 - **Verify anonymously, never from job status.** The bar used for 0.7.1
   through 0.7.3: every GitLab package link returns 200; the `latest`
   manifest fetches, reports the right version, names the right tag, and
@@ -996,8 +1009,8 @@ Published tags and GitLab Releases are immutable. Never move, recreate, or
 replace them. Do not bump a version, tag, or create a release unless Rokas
 explicitly requests release work.
 
-Version 0.7.3 is released and the synchronized CMake, Rust, and user-agent
-version report 0.7.3. Any future version bump is a release checkpoint alone and
+Version 0.7.5 is released and the synchronized CMake, Rust, and user-agent
+version report 0.7.5. Any future version bump is a release checkpoint alone and
 updates those same synchronized locations. Before release, run complete Rust
 tests plus Rust and non-Rust builds/CTest, and report unavailable live
 validation honestly.
@@ -1055,14 +1068,26 @@ For an existing release that is missing packages, use
 links to the existing release without altering its tag, notes, or source
 archives). This was used to backfill `v0.6.1`.
 
-The latest published release is `v0.7.3` (`8da2e81`), cut from its release
-commit on `main` by project 7 pipeline **104** in `RELEASE_ACTION=create` mode
-(all 19 jobs green on the first attempt; 9 assets published and
-hash-verified). Its trigger used exactly the five variables pipelines 102
-and 103 used, with `SOURCE_REF` set to the full release SHA, posted as a
-JSON body with an explicit `-H "Content-Type: application/json"` — `glab
-api --input` without that header returns HTTP 415. All earlier releases and
-tags (`v0.7.2` and older) remain immutable and unchanged.
+The latest published release is `v0.7.5` (`848a29e`), cut from its release
+commit on `main` by project 7 pipeline **110, 18/20 green — mirror wired wrong, mirrored by hand (see below)** in `RELEASE_ACTION=create`
+mode. Its trigger used SIX variables — the five 102-104 used plus
+`BUILD_MACOS_PACKAGES=true`, because 0.7.5 is the first release that
+publishes a macOS build — posted as a JSON body with an explicit
+`-H "Content-Type: application/json"`; `glab api --input` without that
+header returns HTTP 415. All earlier releases and tags (`v0.7.4` and older)
+remain immutable and unchanged.
+
+**macOS is published from 0.7.5**, as a download-only asset, on Rokas's
+explicit decision. Apple Silicon only and macOS 26 or newer — both derived
+from the Qt build the bundle links, not chosen — ad-hoc signed and
+un-notarized, so the download page carries the Open Anyway walkthrough.
+Two invariants keep it safe and both are asserted in project 7's
+`tests/test-pipeline-config.py`: the release never DEPENDS on the Mac (the
+job is `allow_failure` and the `needs` entry `optional`, so one host being
+asleep publishes without the asset), and the bundle never enters the signed
+update manifest (the client has no macOS install strategy, so an entry
+would advertise an install the updater refuses). See
+lightning-deploy `docs/macos-packaging.md`.
 
 One trigger note worth keeping: the pipeline's variables must be posted as a
 **JSON body** (`glab api --method POST projects/7/pipeline --input file.json`
