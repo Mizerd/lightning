@@ -5543,10 +5543,18 @@ Rectangle {
                         ? (spaceBannerImage.implicitWidth
                            / spaceBannerImage.implicitHeight)
                         : 0
+                    // CROPPED by default — a fixed strip, as Sable renders
+                    // it, so every Space is the same shape and the rooms
+                    // below stay where the eye expects them. Expanded takes
+                    // the picture's own aspect ratio instead, which is what
+                    // shows all of it. App-wide and remembered.
+                    readonly property bool expanded:
+                        app.settings.spaceBannerExpanded
                     x: 0
                     width: spaceScroll.width
-                    height: Math.round(Math.max(120, Math.min(420,
-                        bannerAspect > 0 ? width / bannerAspect : 190)))
+                    height: Math.round(expanded && bannerAspect > 0
+                        ? Math.max(120, Math.min(420, width / bannerAspect))
+                        : 190)
                     clip: true
                     // Hidden entirely when the user has turned banners off,
                     // and never shown as an empty strip on a Space nobody can
@@ -5603,12 +5611,14 @@ Rectangle {
                     Image {
                         id: spaceBannerImage
                         anchors.fill: parent
-                        // Fit, not Crop: the box above already takes the
-                        // picture's own shape, so the two agree and Fit has
-                        // nothing to letterbox — while at the clamped
-                        // extremes it shows the whole image rather than
-                        // cutting a piece out of it.
-                        fillMode: Image.PreserveAspectFit
+                        // Expanded, the box above is already the picture's
+                        // own shape, so Fit has nothing to letterbox and all
+                        // of it is visible. Cropped, the strip is a fixed
+                        // height and Crop fills it, as every other client
+                        // renders a banner.
+                        fillMode: spaceBannerCard.expanded
+                                  ? Image.PreserveAspectFit
+                                  : Image.PreserveAspectCrop
                         // Bounded decode. A banner is a big picture and the
                         // provider decodes what it is asked for; the aspect
                         // ratio the height above reads is preserved by

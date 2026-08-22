@@ -64,6 +64,50 @@ private Q_SLOTS:
             QStringLiteral("if (seen[uo.roomId] === true) continue")));
     }
 
+    // The banner's view controls must drive something that EXISTS.
+    //
+    // They shipped once toggling a setting nothing read: the crop/expand
+    // property was lost from an edit that aborted before writing, so the
+    // banner stayed full-size and the button did nothing — which is exactly
+    // how it was reported. Nothing in a build or a test suite noticed,
+    // because a QML binding to a missing property is a runtime warning in a
+    // view no headless suite opens.
+    void theBannerViewControlsDriveSomethingThatExists()
+    {
+        const QString pane = normalized(
+            read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
+        QVERIFY(!pane.isEmpty());
+
+        // The buttons exist...
+        QVERIFY(pane.contains(
+            QStringLiteral("objectName: \"spaceBannerExpandButton\"")));
+        QVERIFY(pane.contains(
+            QStringLiteral("objectName: \"spaceBannerHideButton\"")));
+        // ...hiding has a way back, or it is a trap...
+        QVERIFY(pane.contains(
+            QStringLiteral("objectName: \"spaceBannerShowButton\"")));
+
+        // ...and each one's setting is actually READ by the banner, not
+        // merely written by the button.
+        QVERIFY2(pane.contains(
+                     QStringLiteral("readonly property bool expanded: "
+                                    "app.settings.spaceBannerExpanded")),
+                 "the banner does not read spaceBannerExpanded");
+        QVERIFY2(pane.contains(QStringLiteral(
+                     "visible: app.settings.spaceBannersVisible")),
+                 "the banner does not read spaceBannersVisible");
+
+        // Cropped is the DEFAULT presentation: the fixed strip is the
+        // else-branch, and expanding is what takes the picture's own shape.
+        QVERIFY2(pane.contains(QStringLiteral(
+                     "height: Math.round(expanded && bannerAspect > 0")),
+                 "the banner height does not branch on expanded");
+        QVERIFY2(pane.contains(QStringLiteral(
+                     "fillMode: spaceBannerCard.expanded "
+                     "? Image.PreserveAspectFit : Image.PreserveAspectCrop")),
+                 "the banner fill mode does not branch on expanded");
+    }
+
     void unifiedRowGuardsItsCheckboxBand()
     {
         // TapHandlers are non-exclusive across subtrees: a select tap
