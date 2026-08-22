@@ -22,6 +22,25 @@ Popup {
     modal: true
     width: 296
     padding: 0
+
+    // On a large display this card is a 296px postage stamp in the middle of
+    // a very big window ("in small windowed size its fine, but in 4k its
+    // tiny"). Every size in it is chosen against every other one, so the card
+    // is SCALED as a whole rather than re-laid-out at a second set of
+    // measurements — the proportions survive, and a non-integer item scale
+    // puts Text on the distance-field renderer, so it stays crisp instead of
+    // being a stretched bitmap. Bounded, and exactly 1.0 on an ordinary
+    // window. The scale is around the item's centre, so the caller's
+    // anchors.centerIn still lands it in the middle.
+    readonly property real cardScale: {
+        var w = parent ? parent.width : 0
+        var h = parent ? parent.height : 0
+        if (w <= 0 || h <= 0)
+            return 1.0
+        return Math.max(1.0, Math.min(1.5, Math.min(w / 1100, h / 720)))
+    }
+    scale: cardScale
+    transformOrigin: Item.Center
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     property string userId: ""

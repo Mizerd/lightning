@@ -279,7 +279,11 @@ Popup {
                 // fixed gap and skips invisible ones, which is exactly what
                 // a button cluster wants.
                 Row {
-                    Layout.alignment: Qt.AlignVCenter
+                    // Pinned to the top-RIGHT corner explicitly. Relying on
+                    // the title column's fillWidth to push the cluster over
+                    // works only for as long as nothing else in this header
+                    // ever grows.
+                    Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
                     spacing: AppTheme.spacing8
 
                     // Reset-to-default, with its confirmation inline. A second
@@ -463,10 +467,24 @@ Popup {
                             Accessible.role: Accessible.EditableText
                             Accessible.name: qsTr("Theme name")
                             text: root.store.name
-                            // Written on edit, not on every keystroke of a
-                            // binding: `text` is bound to the store, so
-                            // writing back inside onTextChanged would fight
-                            // the binding on every character.
+                            // Committed AS IT IS TYPED. editingFinished alone
+                            // meant Enter or a focus change, and neither is
+                            // reliably reached here: clicking a colour region
+                            // in the sample window is a MouseArea that takes
+                            // no active focus, and pressing Done destroys the
+                            // field. A name typed and then clicked away from
+                            // was simply lost.
+                            //
+                            // onTextEdited, not onTextChanged: it fires for
+                            // USER edits only, so the store write can never be
+                            // triggered by the `text` binding itself. Writing
+                            // the store re-evaluates that binding with the
+                            // same string, which setText early-returns on, so
+                            // the caret does not move. setName only truncates
+                            // at 48 (the field's own maximumLength) and never
+                            // trims, so nothing snaps back under the cursor
+                            // mid-word.
+                            onTextEdited: root.store.name = text
                             onEditingFinished: root.store.name = text
                             Label {
                                 anchors.fill: parent
