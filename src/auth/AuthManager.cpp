@@ -33,7 +33,18 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         m_discoveredHomeserver = homeserver;
         m_serverPassword = password;
         m_serverOauth = oauth && m_client->supportsOAuthLogin();
-        m_serverSso = sso;
+        // Gated on backend capability exactly as OAuth is: a server offering
+        // SSO is only worth showing if this build can actually perform it.
+        m_serverSso = sso && m_client->supportsSsoLogin();
+        // A previous server's provider list must not survive into this one.
+        m_ssoProviders.clear();
+        if (m_serverSso) {
+            // Ask which identity providers it advertises. The answer arrives
+            // separately and emits discoveryChanged again; until then the UI
+            // shows the generic single action, which is also the correct
+            // final state for a server that advertises none.
+            m_client->requestSsoProviders(homeserver);
+        }
         // "failed" only when the server told us nothing at all. A server that
         // genuinely offers neither is a valid, if unusual, answer — but it is
         // indistinguishable here from an unreachable one, so report the
@@ -41,6 +52,24 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         m_discoveryState = (password || oauth || sso) ? QStringLiteral("done")
                                                       : QStringLiteral("failed");
         Q_EMIT discoveryChanged();
+    });
+
+    connect(m_client, &MatrixClient::ssoProvidersReceived, this,
+            [this](const QString &homeserver, bool sso,
+                   const QVariantList &providers) {
+        // Only for the server the user is actually looking at: a late answer
+        // for a homeserver they have since typed away from must not repopulate
+        // the chooser.
+        if (!m_discoveredHomeserver.isEmpty() && homeserver != m_discoveredHomeserver)
+            return;
+        if (!sso)
+            return;
+        m_ssoProviders = providers;
+        Q_EMIT discoveryChanged();
+    });
+
+    connect(m_client, &MatrixClient::ssoBrowserUrlReady, this, [this](const QString &) {
+        setLoginStage(QStringLiteral("waiting_for_browser"));
     });
 
     connect(m_client, &MatrixClient::oauthBrowserUrlReady, this, [this](const QString &) {
@@ -110,6 +139,11 @@ void AuthManager::clearLastError()
     setLastError({});
 }
 
+bool AuthManager::supportsSsoLogin() const
+{
+    return m_client && m_client->supportsSsoLogin();
+}
+
 bool AuthManager::supportsOidcLogin() const
 {
     return m_client && m_client->supportsOAuthLogin();
@@ -157,21 +191,32 @@ void AuthManager::cancelBrowserLogin()
     // The backend answers with loginFailed("Sign-in was cancelled."), which
     // clears the in-progress flag and the stage through the normal path — so
     // the UI can never be left stuck in a waiting state.
+    //
+    // Both flows are cancelled: only one can be in flight, each backend call
+    // is a no-op when its own flow is not running, and cancelling "the wrong
+    // one" is therefore harmless — whereas guessing wrong and cancelling
+    // NEITHER would strand the UI in "Signing in" forever.
     m_client->cancelOAuthLogin();
+    m_client->cancelSsoLogin();
 }
 
-void AuthManager::beginSsoLogin(const QString &homeserver)
+void AuthManager::beginSsoLogin(const QString &homeserver, const QString &idpId)
 {
-    Q_UNUSED(homeserver);
-    // Legacy Matrix SSO is not implemented, and this is a deliberate scope
-    // decision rather than unfinished work: the SDK's login_sso helper needs
-    // the sso-login/local-server features, whose axum dependency is not
-    // vendored in this offline --locked build. Discovery still reports
-    // whether a server offers SSO so the UI can say this honestly.
-    setLastError(tr("This server's single sign-on is not supported by "
-                    "Lightning. If the server also offers browser sign-in or a "
-                    "password, use one of those instead."));
-    Q_EMIT loginFailed(m_lastError);
+    if (!m_client || m_loggingIn)
+        return;
+    if (!m_client->supportsSsoLogin()) {
+        setLastError(tr("This build cannot perform single sign-on."));
+        Q_EMIT loginFailed(m_lastError);
+        return;
+    }
+    // Shares browserLoginInProgress with OAuth on purpose: from the UI's point
+    // of view both are "a browser sign-in is running, offer Cancel", and
+    // cancelBrowserLogin() below resolves whichever one is live.
+    setLoggingIn(true);
+    setBrowserLoginInProgress(true);
+    setLastError({});
+    setLoginStage(QStringLiteral("connecting"));
+    m_client->beginSsoLogin(homeserver.trimmed(), idpId);
 }
 
 void AuthManager::beginOidcLogin(const QString &homeserver)

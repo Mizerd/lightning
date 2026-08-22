@@ -12,6 +12,7 @@
 #include <QStringList>
 #include <QTimer>
 #include <QVariantList>
+#include <functional>
 
 class SettingsManager;
 
@@ -187,6 +188,12 @@ public:
     void discoverAuthMethods(const QString &homeserver) override;
     void beginOAuthLogin(const QString &homeserver) override;
     void cancelOAuthLogin() override;
+    // Legacy Matrix SSO. A separate flow from OAuth (see rust/src/sso.rs) that
+    // shares the loopback listener and the two-phase store lifecycle.
+    bool supportsSsoLogin() const override { return true; }
+    void requestSsoProviders(const QString &homeserver) override;
+    void beginSsoLogin(const QString &homeserver, const QString &idpId) override;
+    void cancelSsoLogin() override;
     bool isLoggedIn() const override { return m_loggedIn; }
     QString currentUserId() const override { return m_userId; }
     QString homeserverUrl() const override { return m_homeserver; }
@@ -659,6 +666,37 @@ private:
     // Tear down the callback listener and any in-flight authorization.
     void endOAuthAttempt();
 
+    // Legacy SSO. completeSsoLogin() and completeOAuthLogin() both delegate
+    // the account-store decision to adoptBrowserSession() below.
+    void completeSsoLogin(const QString &userId,
+                          const QString &deviceId,
+                          const QString &accessToken,
+                          const QString &refreshToken);
+    void endSsoAttempt();
+
+    // PHASE B, shared by both browser flows.
+    //
+    // This is where the store-ownership gate lives — "a device the server just
+    // issued must never adopt a store belonging to a different device" — and
+    // it is shared precisely BECAUSE it is the security-critical step. Two
+    // copies would let a future fix land on one flow and not the other.
+    //
+    // `authType` is the persisted routing discriminator ("oauth" or "sso"),
+    // and `clientId` is the dynamic-registration id for OAuth and empty for
+    // SSO. `restore` performs the SDK-specific session restore once the store
+    // is open: oauth().restore_session() for OAuth, the ordinary matrix_auth()
+    // path for SSO, which is what an SSO session actually is.
+    void adoptBrowserSession(
+        const QString &homeserver,
+        const QString &userId,
+        const QString &deviceId,
+        const QString &clientId,
+        const QString &accessToken,
+        const QString &refreshToken,
+        const QString &authType,
+        const std::function<QString(const matrix::app_data::AccountIdentity &,
+                                    const QString &deviceId)> &restore);
+
     // Phase A handle. Never carries a session and never syncs.
     void *m_authHandle = nullptr;
     class OAuthCallbackServer *m_oauthCallback = nullptr;
@@ -669,6 +707,11 @@ private:
     // second attempt racing the first and against a late callback completing
     // a cancelled sign-in.
     bool m_oauthInFlight = false;
+    class OAuthCallbackServer *m_ssoCallback = nullptr;
+    QString m_ssoHomeserver;
+    // Same guard as m_oauthInFlight, for the SSO flow. Separate rather than
+    // shared so a stale callback from one flow can never complete the other.
+    bool m_ssoInFlight = false;
     QString rustStorePathForUser(const QString &userIdForStore) const;
     void pollRustEvents();
     void handleRustEvent(const QJsonObject &event, quint64 eventGeneration);

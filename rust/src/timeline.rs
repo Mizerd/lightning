@@ -2482,12 +2482,20 @@ fn diff_to_json(
     own_user: &str,
     registry: &TimelineRegistry,
 ) -> serde_json::Value {
-    let base = json!({
+    let mut base = json!({
         "type": "timeline_diff",
         "room_id": room_id,
         "room_generation": room_gen,
         "lifecycle": lifecycle,
     });
+    // Sync-latency tracing (LIGHTNING_SYNC_TRACE): stamp the moment this diff
+    // left the SDK side, so the C++ tracer can measure the sdk->bridge leg
+    // instead of assuming it. Wall-clock millis, because a Rust Instant and a
+    // Qt elapsed timer share no origin across the FFI. Off by default and
+    // costs one atomic load per diff then.
+    if let Some(stamp) = crate::sync_trace_stamp_ms() {
+        base["trace_sdk_ms"] = stamp.into();
+    }
     fill_diff_json(base, diff, own_user, registry)
 }
 

@@ -373,6 +373,8 @@ set(APP_SOURCES
     src/app/SessionDiagnostics.cpp
     src/app/GuiStallTracer.h
     src/app/GuiStallTracer.cpp
+    src/app/SyncLatencyTracer.h
+    src/app/SyncLatencyTracer.cpp
 
     src/calls/CallController.h
     src/calls/CallController.cpp
@@ -3330,6 +3332,32 @@ if(BUILD_TESTING)
     target_include_directories(mention-tokenizer-test PRIVATE src)
     target_link_libraries(mention-tokenizer-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME mention-tokenizer COMMAND mention-tokenizer-test)
+
+    # Legacy Matrix SSO (m.login.sso): the loopback callback listener driven
+    # over REAL sockets in both flows, plus AuthManager's discovery/login
+    # policy. Covers token extraction, missing/empty token, duplicate and
+    # stale callbacks, malformed and oversized requests, timeout,
+    # cancellation, provider scoping, and that OAuth callback parsing is
+    # unaffected. Needs a QGuiApplication for the Qt network event loop.
+    qt_add_executable(sso-callback-test
+        tests/SsoCallbackTest.cpp
+    )
+    target_include_directories(sso-callback-test PRIVATE src)
+    target_link_libraries(sso-callback-test
+        PRIVATE lightning-app-testlib Qt6::Test)
+    add_test(NAME sso-callback COMMAND sso-callback-test)
+
+    # The opt-in sync-latency tracer: inert when disabled, no room ids, an
+    # unobserved stage is not reported as instant, bounded journey table, and
+    # a sync gap past the threshold is reported.
+    qt_add_executable(sync-latency-tracer-test
+        tests/SyncLatencyTracerTest.cpp
+        src/app/SyncLatencyTracer.h
+        src/app/SyncLatencyTracer.cpp
+    )
+    target_include_directories(sync-latency-tracer-test PRIVATE src)
+    target_link_libraries(sync-latency-tracer-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME sync-latency-tracer COMMAND sync-latency-tracer-test)
 
     # v0.7 outgoing @-mentions: the current-room member suggestion model —
     # request on activation, filter/rank/dedup, own-user exclusion, stale

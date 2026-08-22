@@ -365,25 +365,63 @@ Item {
                     }
                 }
 
-                // Honest disclosure, never a button: the server offers legacy
-                // Matrix SSO but Lightning cannot perform it. Offering it and
-                // failing would be worse than saying so plainly. Suppressed
-                // when a method that DOES work is available.
-                Label {
-                    objectName: "ssoUnsupportedNotice"
-                    visible: app.auth.serverOffersUnsupportedSso
-                             && !app.auth.serverOffersBrowserLogin
-                             && !app.auth.serverOffersPassword
+                // ── Single sign-on (legacy m.login.sso) ─────────────────
+                // A REAL action since 0.7.6+: this was a "not supported"
+                // notice, because the SDK's login_sso convenience helper needs
+                // a feature this build cannot vendor. The primitives under it
+                // are not gated, so the flow works — see the module docs in
+                // rust/src/sso.rs.
+                //
+                // Two shapes, decided by what the SERVER advertises and never
+                // hard-coded per vendor:
+                //
+                //   no providers  one generic "Sign in with SSO" button. This
+                //                 is the common case, and it is also the
+                //                 correct state while the provider list is
+                //                 still being fetched;
+                //   providers     one button each, named by the server, rather
+                //                 than silently picking an arbitrary one.
+                //
+                // The user-facing wording avoids Matrix protocol terms: "Sign
+                // in with SSO", never "m.login.sso".
+                AppButton {
+                    objectName: "ssoLoginButton"
+                    kind: "secondary"
+                    visible: app.auth.serverOffersSso
+                             && app.auth.ssoProviders.length === 0
+                             && !app.auth.browserLoginInProgress
+                    text: qsTr("Sign in with SSO")
+                    enabled: !app.auth.isLoggingIn
                     Layout.fillWidth: true
                     Layout.topMargin: AppTheme.spacingXS
-                    wrapMode: Text.WordWrap
-                    lineHeight: AppTheme.lineHeightBody
-                    lineHeightMode: Text.ProportionalHeight
-                    text: qsTr("This homeserver uses a single sign-on method "
-                               + "Lightning does not support.")
-                    color: AppTheme.textMuted
-                    font.family: AppTheme.uiFont
-                    font.pixelSize: AppTheme.textMeta
+                    Accessible.name: qsTr("Sign in with single sign-on")
+                    onClicked: app.auth.beginSsoLogin(homeserverField.text, "")
+                }
+
+                Repeater {
+                    objectName: "ssoProviderList"
+                    model: app.auth.serverOffersSso
+                           && !app.auth.browserLoginInProgress
+                           ? app.auth.ssoProviders : []
+                    delegate: AppButton {
+                        required property var modelData
+                        required property int index
+                        objectName: "ssoProviderButton" + index
+                        kind: "secondary"
+                        // The server chose this name. It is remote text, so it
+                        // is rendered as a plain string and never as markup;
+                        // an unnamed provider falls back to the generic label
+                        // rather than showing an empty button.
+                        text: (modelData.name && modelData.name.length > 0)
+                              ? qsTr("Sign in with %1").arg(modelData.name)
+                              : qsTr("Sign in with SSO")
+                        enabled: !app.auth.isLoggingIn
+                        Layout.fillWidth: true
+                        Layout.topMargin: AppTheme.spacingXS
+                        Accessible.name: text
+                        onClicked: app.auth.beginSsoLogin(homeserverField.text,
+                                                          modelData.id || "")
+                    }
                 }
 
                 // ── Local-session repair card ───────────────────────────

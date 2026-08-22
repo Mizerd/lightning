@@ -70,6 +70,27 @@ public:
     // flight. Must leave the UI in a resolved state, never in "Signing in".
     virtual void cancelOAuthLogin() {}
 
+    // --- Legacy Matrix SSO (m.login.sso) --------------------------------
+    // A DIFFERENT flow from OAuth, kept distinct on purpose: the homeserver
+    // redirects back with a single-use `loginToken` which is exchanged through
+    // /login. It shares only the loopback listener.
+    virtual bool supportsSsoLogin() const { return false; }
+    // Ask which identity providers the server advertises for SSO. Answers on
+    // ssoProvidersReceived(). An SSO server with NO providers is normal and
+    // means one unnamed flow.
+    virtual void requestSsoProviders(const QString &homeserver) { Q_UNUSED(homeserver); }
+    // Start an SSO sign-in. `idpId` empty selects the server's default flow.
+    // Emits ssoBrowserUrlReady(), then the normal session path. As with OAuth
+    // the user id is unknown until this completes, so no store is opened
+    // before it does.
+    virtual void beginSsoLogin(const QString &homeserver, const QString &idpId)
+    {
+        Q_UNUSED(homeserver);
+        Q_UNUSED(idpId);
+    }
+    // Safe when nothing is in flight. Must leave the UI resolved.
+    virtual void cancelSsoLogin() {}
+
     virtual bool isLoggedIn() const = 0;
     virtual QString currentUserId() const = 0;
     virtual QString homeserverUrl() const = 0;
@@ -942,6 +963,16 @@ Q_SIGNALS:
     // credentials — it is the authorization endpoint plus this attempt's
     // public parameters — but it is single-use, so it is not logged.
     void oauthBrowserUrlReady(const QString &url);
+    // The homeserver's SSO redirect URL, to open in the system browser.
+    // Carries no credential — the login token comes back on the callback —
+    // but it is single-use, so it is not logged.
+    void ssoBrowserUrlReady(const QString &url);
+    // What the server advertises for m.login.sso. `providers` is a list of
+    // {id, name, icon} maps; EMPTY with sso true means one unnamed flow, which
+    // is the common case. `icon` is an mxc: URI or empty — never an http URL,
+    // so the login screen cannot be made to fetch from a server-chosen host.
+    void ssoProvidersReceived(const QString &homeserver, bool sso,
+                              const QVariantList &providers);
 
     void connectionStateChanged(ConnectionState state);
     void initialSyncDoneChanged();

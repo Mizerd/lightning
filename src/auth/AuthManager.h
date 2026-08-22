@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 
 class MatrixClient;
 
@@ -50,12 +51,18 @@ class AuthManager : public QObject
     Q_PROPERTY(QString discoveredHomeserver READ discoveredHomeserver NOTIFY discoveryChanged)
     Q_PROPERTY(bool serverOffersPassword READ serverOffersPassword NOTIFY discoveryChanged)
     Q_PROPERTY(bool serverOffersBrowserLogin READ serverOffersBrowserLogin NOTIFY discoveryChanged)
-    // The server offers legacy Matrix SSO but Lightning CANNOT perform it (the
-    // SDK helper needs the sso-login/local-server features, whose axum
-    // dependency is not vendored in this offline build). Exposed only so the
-    // UI can say so honestly — never render it as a usable button.
-    Q_PROPERTY(bool serverOffersUnsupportedSso READ serverOffersUnsupportedSso
-                   NOTIFY discoveryChanged)
+    // The server offers legacy Matrix SSO (m.login.sso). Since 0.7.6+ this is
+    // a USABLE flow — see rust/src/sso.rs — so the UI renders a real action
+    // rather than the dead end this property used to describe. The old name is
+    // gone deliberately: leaving "Unsupported" in it would have kept every
+    // reader believing the feature was still absent.
+    Q_PROPERTY(bool serverOffersSso READ serverOffersSso NOTIFY discoveryChanged)
+    // Identity providers the server advertises for SSO: a list of
+    // {id, name, icon} maps. EMPTY while the server offers SSO is normal and
+    // common — it means one unnamed flow, and the UI offers a single generic
+    // action rather than a chooser. Populated by discovery, so nothing
+    // speculative is shown.
+    Q_PROPERTY(QVariantList ssoProviders READ ssoProviders NOTIFY discoveryChanged)
     // True from the moment a browser sign-in starts until it resolves.
     Q_PROPERTY(bool browserLoginInProgress READ browserLoginInProgress
                    NOTIFY browserLoginInProgressChanged)
@@ -72,11 +79,12 @@ public:
     // Password login is available on all compiled backends. Rust may still
     // surface SDK-side login errors through MatrixClient::login().
     bool supportsPasswordLogin() const { return true; }
-    // Legacy Matrix SSO is NOT implemented and is not merely unfinished: the
-    // SDK's login_sso helper is gated behind the sso-login/local-server
-    // features, whose axum dependency is not vendored in this offline
-    // --locked build. Reporting false keeps the UI honest.
-    bool supportsSsoLogin()  const { return false; }
+    // Legacy Matrix SSO, answered by the backend rather than hardcoded. The
+    // SDK's login_sso CONVENIENCE helper is still unavailable (it needs the
+    // sso-login feature's axum dependency), but the two primitives underneath
+    // it — get_sso_login_url and login_token — are not feature-gated, so the
+    // flow is implemented on those plus Lightning's existing loopback listener.
+    bool supportsSsoLogin() const;
     // OAuth 2.0 / OIDC, answered by the backend rather than hardcoded.
     bool supportsOidcLogin() const;
 
@@ -84,7 +92,8 @@ public:
     QString discoveredHomeserver() const { return m_discoveredHomeserver; }
     bool serverOffersPassword() const { return m_serverPassword; }
     bool serverOffersBrowserLogin() const { return m_serverOauth; }
-    bool serverOffersUnsupportedSso() const { return m_serverSso; }
+    bool serverOffersSso() const { return m_serverSso; }
+    QVariantList ssoProviders() const { return m_ssoProviders; }
     bool browserLoginInProgress() const { return m_browserLoginInProgress; }
 
     // Ask the homeserver what it offers. Answers through discoveryChanged.
@@ -101,9 +110,11 @@ public:
     Q_INVOKABLE void restoreSession();
     void clearLastError();
 
-    // Placeholders for the SSO / OIDC flows. Both surface a controlled
-    // "not implemented" error via lastError so the UI can react.
-    Q_INVOKABLE void beginSsoLogin(const QString &homeserver);
+    // Start a legacy Matrix SSO sign-in. `idpId` selects one advertised
+    // identity provider; empty means the server's default single flow.
+    Q_INVOKABLE void beginSsoLogin(const QString &homeserver,
+                                   const QString &idpId = QString());
+    // Retained name for the existing QML surface; OAuth/OIDC is one flow.
     Q_INVOKABLE void beginOidcLogin(const QString &homeserver);
 
 Q_SIGNALS:
@@ -133,5 +144,6 @@ private:
     bool m_serverPassword = false;
     bool m_serverOauth = false;
     bool m_serverSso = false;
+    QVariantList m_ssoProviders;
     bool m_browserLoginInProgress = false;
 };

@@ -35,13 +35,34 @@ class QTcpSocket;
 //
 // The received URL carries the authorization code. It is never logged, never
 // placed in an error string, and never given to QML.
+//
+// # Serving legacy Matrix SSO as well
+//
+// Legacy `m.login.sso` needs the same thing: one loopback redirect, received
+// once, bounded and timed out. It differs only in WHICH query parameter
+// carries the credential (`loginToken` rather than `code`) and in what the
+// backend wants handed over. Every hardening property above is identical, so
+// this listener serves both flows rather than a second local HTTP server
+// existing beside it. The flows stay distinct in the layers that matter — the
+// SDK call, the error taxonomy, the UI — but the socket handling is shared.
 class OAuthCallbackServer : public QObject
 {
     Q_OBJECT
 
 public:
+    // Which sign-in this listener is receiving. It selects the required query
+    // parameter and what `callbackReceived` carries; nothing else differs.
+    enum class Flow {
+        OAuth,   // requires `code`; emits the full redirect URL for the SDK
+        Sso,     // requires `loginToken`; emits that token alone
+    };
+
     explicit OAuthCallbackServer(QObject *parent = nullptr);
     ~OAuthCallbackServer() override;
+
+    // Must be set before listen() for anything but OAuth.
+    void setFlow(Flow flow) { m_flow = flow; }
+    Flow flow() const { return m_flow; }
 
     // Binds loopback on an ephemeral port. Returns false if the port could not
     // be taken, in which case redirectUri() stays empty.
@@ -61,9 +82,15 @@ public:
     void setTimeout(std::chrono::milliseconds timeout) { m_timeout = timeout; }
 
 Q_SIGNALS:
-    // The full redirect URL, for mx_rust_oauth_finish(). CONTAINS THE
-    // AUTHORIZATION CODE — do not log it, do not show it, do not store it.
-    void callbackReceived(const QString &redirectUrl);
+    // A CREDENTIAL, in both flows. Do not log it, do not show it, do not store
+    // it, and never hand it to QML.
+    //
+    //   Flow::OAuth  the full redirect URL, for mx_rust_oauth_finish(), which
+    //                is where the SDK validates `state` and exchanges `code`;
+    //   Flow::Sso    the bare `loginToken`, for mx_rust_sso_finish(), because
+    //                MatrixAuth::login_token() takes the token itself. Nothing
+    //                else from the callback is passed on.
+    void callbackReceived(const QString &credential);
     // The authorization server reported a failure instead of a code (the user
     // denied consent, the request expired). `error` is the OAuth error code,
     // which is a fixed protocol token and safe to show.
@@ -90,6 +117,7 @@ private:
     QString m_redirectUri;
     QTimer m_timer;
     std::chrono::milliseconds m_timeout{std::chrono::minutes(5)};
+    Flow m_flow = Flow::OAuth;
     // Set the moment a callback is accepted, so a replay that races the
     // teardown is still refused.
     bool m_consumed = false;

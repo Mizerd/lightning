@@ -171,7 +171,14 @@ void OAuthCallbackServer::finishWithSocket(QTcpSocket *socket, const QString &re
         return;
     }
 
-    if (!query.hasQueryItem(QStringLiteral("code"))) {
+    // The credential parameter differs per flow and nothing else does. An
+    // empty value counts as absent: a server that redirects with "loginToken="
+    // has not delivered a token, and passing "" on would fail deeper in with a
+    // worse message.
+    const QString required = m_flow == Flow::Sso ? QStringLiteral("loginToken")
+                                                 : QStringLiteral("code");
+    const QString credential = query.queryItemValue(required);
+    if (credential.isEmpty()) {
         respond(socket,
                 tr("Sign-in failed"),
                 tr("The response was incomplete. You can close this window and try again."));
@@ -184,15 +191,23 @@ void OAuthCallbackServer::finishWithSocket(QTcpSocket *socket, const QString &re
             tr("Signed in"),
             tr("You can close this window and return to Lightning."));
 
-    // The absolute redirect URL, reassembled from the endpoint we advertised
-    // and the target the browser asked for. Carries the authorization code:
-    // never logged, never shown.
-    const QString absolute =
-        QStringLiteral("http://127.0.0.1:%1%2").arg(socket->localPort()).arg(requestTarget);
+    // What the backend needs, per flow. Both are credentials: never logged,
+    // never shown, never stored here.
+    //
+    //   OAuth  the absolute redirect URL, reassembled from the endpoint we
+    //          advertised and the target the browser asked for, because
+    //          finish_login() parses the whole thing and validates `state`;
+    //   SSO    the login token alone, because login_token() takes the token.
+    //          Nothing else from the callback is forwarded.
+    const QString payload =
+        m_flow == Flow::Sso
+            ? credential
+            : QStringLiteral("http://127.0.0.1:%1%2")
+                  .arg(socket->localPort()).arg(requestTarget);
 
     // Emit BEFORE stop(): stop() deletes the socket and clears state, and the
     // consumer only needs the string.
-    Q_EMIT callbackReceived(absolute);
+    Q_EMIT callbackReceived(payload);
     stop();
 }
 

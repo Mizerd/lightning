@@ -101,6 +101,8 @@ private Q_SLOTS:
     void recentRecordingDisabled();
     void clearActions();
     void corruptedStoreRecovers();
+    void malformedStoreShapesAreAllSurvivable();
+    void duplicateStoredEntriesLoadOnce();
     void rejectsUnsafeStoredUrl();
     void noSensitiveFieldsPersisted();
 
@@ -226,6 +228,69 @@ void GifCollectionsTest::corruptedStoreRecovers()
     GifFavoritesModel fav(store);         // must not crash
     QCOMPARE(fav.count(), 0);
     QVERIFY(fav.toggle(toMap(make("giphy", "ok")))); // still usable
+}
+
+// The reopen crash reported around GIF favourites has never been reproduced
+// (seven headless scenario families and an ASan build found nothing), so this
+// does NOT claim a root cause. What it does is widen the malformed-input net
+// past "not valid JSON" to the shapes a partially-written or hand-edited store
+// actually produces, so none of them can be the cause.
+void GifCollectionsTest::malformedStoreShapesAreAllSurvivable()
+{
+    const QString key = QStringLiteral("gif/favorites");
+    for (const QString &payload : {
+             // Valid JSON, wrong top-level type.
+             QStringLiteral("{\"provider\":\"giphy\"}"),
+             QStringLiteral("\"a string\""),
+             QStringLiteral("42"),
+             QStringLiteral("null"),
+             // An array of things that are not entries.
+             QStringLiteral("[1,2,3]"),
+             QStringLiteral("[null,null]"),
+             QStringLiteral("[[],[]]"),
+             QStringLiteral("[\"x\"]"),
+             // Entries missing the identity fields.
+             QStringLiteral("[{}]"),
+             QStringLiteral("[{\"provider\":\"giphy\"}]"),
+             QStringLiteral("[{\"id\":\"only\"}]"),
+             // Fields of the wrong TYPE, which .toString()/.toInt() coerce
+             // rather than reject — the entry must still fail validation.
+             QStringLiteral("[{\"provider\":5,\"id\":true,\"gifUrl\":[]}]"),
+             // Truncated mid-write, the realistic corruption.
+             QStringLiteral("[{\"provider\":\"giphy\",\"id\":\"a\","),
+             QStringLiteral("["),
+             QStringLiteral(""),
+         }) {
+        store->setValue(key, payload);
+        store->sync();
+        GifFavoritesModel fav(store);   // must not crash
+        QCOMPARE(fav.count(), 0);
+        // ...and the model must still be USABLE afterwards, not just alive.
+        QVERIFY2(fav.toggle(toMap(make("giphy", "ok"))), qPrintable(payload));
+        QCOMPARE(fav.count(), 1);
+        store->remove(key);
+    }
+}
+
+// A store holding the same GIF twice must load it once. Duplicates are the
+// state most likely to be produced by a half-completed write, and a model that
+// loaded both would answer isFavorite() correctly while showing two tiles.
+void GifCollectionsTest::duplicateStoredEntriesLoadOnce()
+{
+    store->setValue(
+        QStringLiteral("gif/favorites"),
+        QStringLiteral("[{\"provider\":\"giphy\",\"id\":\"dup\","
+                       "\"gifUrl\":\"https://media.giphy.com/a.gif\","
+                       "\"previewUrl\":\"https://media.giphy.com/a.gif\","
+                       "\"stillUrl\":\"https://media.giphy.com/a.gif\"},"
+                       "{\"provider\":\"giphy\",\"id\":\"dup\","
+                       "\"gifUrl\":\"https://media.giphy.com/a.gif\","
+                       "\"previewUrl\":\"https://media.giphy.com/a.gif\","
+                       "\"stillUrl\":\"https://media.giphy.com/a.gif\"}]"));
+    store->sync();
+    GifFavoritesModel fav(store);
+    QCOMPARE(fav.count(), 1);
+    QVERIFY(fav.isFavorite(QStringLiteral("giphy"), QStringLiteral("dup")));
 }
 
 void GifCollectionsTest::rejectsUnsafeStoredUrl()

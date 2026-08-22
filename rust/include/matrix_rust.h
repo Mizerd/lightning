@@ -99,6 +99,35 @@ char *mx_rust_oauth_restore(void *client,
  * C++, which is the only layer that knows which store belongs to whom. */
 char *mx_rust_oauth_logout(void *client);
 
+/* --- Legacy Matrix SSO (m.login.sso) -------------------------------------
+ * A DIFFERENT flow from OAuth above, deliberately kept apart: the homeserver
+ * redirects the browser back with a single-use `loginToken`, exchanged through
+ * /login with type m.login.token. Uses the SDK's ungated
+ * MatrixAuth::get_sso_login_url() / login_token(), so no `sso-login` feature
+ * and no new dependency. It reuses the OAuth BOOTSTRAP handle and the same
+ * two-phase store lifecycle, for the same reason: the user id is only known
+ * after the exchange, so Phase B (C++) opens the account store and restores
+ * through mx_rust_restore(). */
+
+/* Lists the identity providers the server advertises. Enqueues sso_providers
+ * with {id, name, icon}; an SSO server with NO providers is normal and means
+ * one unnamed flow. `icon` is only ever an mxc: URI. */
+char *mx_rust_sso_providers(void *client, const char *homeserver);
+/* Asks the server for its SSO redirect URL. idp_id may be "" for the default
+ * flow. redirect_uri must be loopback (enforced Rust-side too). Enqueues
+ * sso_url or sso_failed. */
+char *mx_rust_sso_begin(void *client,
+                        const char *homeserver,
+                        const char *redirect_uri,
+                        const char *idp_id);
+/* Exchanges the loginToken for a session. THE TOKEN IS A CREDENTIAL: it is
+ * never logged, never echoed into an error, and never returned. Enqueues
+ * sso_ok (user_id, device_id, access_token, refresh_token) or sso_failed. */
+char *mx_rust_sso_finish(void *client, const char *login_token);
+/* Cancellation/timeout: releases the bootstrap client so a late callback
+ * cannot complete an abandoned sign-in. */
+char *mx_rust_sso_abort(void *client);
+
 void  mx_rust_start_sync(void *client);
 /* Cancels and joins the owned sync task. 1 = stopped, 0 = already stopped. */
 int   mx_rust_stop_sync(void *client);

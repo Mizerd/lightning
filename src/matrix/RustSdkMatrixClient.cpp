@@ -1,6 +1,7 @@
 #include "matrix/RustSdkMatrixClient.h"
 
 #include "app/GuiStallTracer.h"
+#include "app/SyncLatencyTracer.h"
 
 #include "app/SettingsManager.h"
 #include "auth/OAuthCallbackServer.h"
@@ -795,6 +796,130 @@ void RustSdkMatrixClient::cancelOAuthLogin()
     Q_EMIT loginFailed(tr("Sign-in was cancelled."));
 }
 
+void RustSdkMatrixClient::requestSsoProviders(const QString &homeserver)
+{
+    const QString hs = homeserver.trimmed();
+    if (hs.isEmpty() || !ensureOAuthBootstrapHandle())
+        return;
+    const QByteArray hsBytes = hs.toUtf8();
+    takeRustString(mx_rust_sso_providers(m_authHandle, hsBytes.constData()));
+}
+
+void RustSdkMatrixClient::beginSsoLogin(const QString &homeserver,
+                                        const QString &idpId)
+{
+    const QString hs = homeserver.trimmed();
+    if (hs.isEmpty()) {
+        Q_EMIT loginFailed(tr("A homeserver is required."));
+        return;
+    }
+    // One browser sign-in at a time, and never two flows at once: an SSO
+    // attempt racing an OAuth attempt would have them fighting over the same
+    // bootstrap handle and the same client slot in the bridge.
+    if (m_ssoInFlight || m_oauthInFlight)
+        return;
+
+    if (!ensureOAuthBootstrapHandle()) {
+        Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
+        return;
+    }
+
+    m_ssoCallback = new OAuthCallbackServer(this);
+    m_ssoCallback->setFlow(OAuthCallbackServer::Flow::Sso);
+    if (!m_ssoCallback->listen()) {
+        endSsoAttempt();
+        releaseAuthHandle();
+        Q_EMIT loginFailed(tr("Lightning could not open a local port to receive "
+                              "the sign-in response. Check whether a firewall is "
+                              "blocking loopback connections."));
+        return;
+    }
+
+    connect(m_ssoCallback, &OAuthCallbackServer::callbackReceived,
+            this, [this](const QString &loginToken) {
+        // SENSITIVE: a single-use login token. It goes straight to the SDK and
+        // is never logged, never shown, and never given to QML.
+        //
+        // The in-flight guard is what makes a STALE callback inert: an earlier
+        // attempt that was cancelled or timed out has already cleared it, so a
+        // token arriving late cannot complete the newer sign-in.
+        if (!m_ssoInFlight || !m_authHandle)
+            return;
+        const QByteArray tokenBytes = loginToken.toUtf8();
+        const QString result =
+            takeRustString(mx_rust_sso_finish(m_authHandle, tokenBytes.constData()));
+        if (!result.isEmpty()) {
+            endSsoAttempt();
+            releaseAuthHandle();
+            Q_EMIT loginFailed(tr("The sign-in could not be completed."));
+        }
+    });
+
+    connect(m_ssoCallback, &OAuthCallbackServer::callbackFailed,
+            this, [this](const QString &error) {
+        if (!m_ssoInFlight)
+            return;
+        if (m_authHandle)
+            takeRustString(mx_rust_sso_abort(m_authHandle));
+        endSsoAttempt();
+        releaseAuthHandle();
+        Q_EMIT loginFailed(error == QLatin1String("access_denied")
+                               ? tr("Sign-in was cancelled.")
+                               : tr("The sign-in response was incomplete. "
+                                    "Please try again."));
+    });
+
+    connect(m_ssoCallback, &OAuthCallbackServer::timedOut, this, [this] {
+        if (!m_ssoInFlight)
+            return;
+        if (m_authHandle)
+            takeRustString(mx_rust_sso_abort(m_authHandle));
+        endSsoAttempt();
+        releaseAuthHandle();
+        Q_EMIT loginFailed(tr("The sign-in timed out. Please try again."));
+    });
+
+    m_ssoInFlight = true;
+    m_ssoHomeserver = hs;
+
+    const QByteArray hsBytes = hs.toUtf8();
+    const QByteArray redirectBytes = m_ssoCallback->redirectUri().toUtf8();
+    const QByteArray idpBytes = idpId.trimmed().toUtf8();
+    const QString result = takeRustString(mx_rust_sso_begin(m_authHandle,
+                                                            hsBytes.constData(),
+                                                            redirectBytes.constData(),
+                                                            idpBytes.constData()));
+    if (!result.isEmpty()) {
+        endSsoAttempt();
+        releaseAuthHandle();
+        Q_EMIT loginFailed(result.startsWith(QLatin1String("error: ")) ? result.mid(7)
+                                                                       : result);
+    }
+}
+
+void RustSdkMatrixClient::cancelSsoLogin()
+{
+    if (!m_ssoInFlight)
+        return;
+    if (m_authHandle)
+        takeRustString(mx_rust_sso_abort(m_authHandle));
+    endSsoAttempt();
+    releaseAuthHandle();
+    // A resolved state, never silence: the UI must leave "Signing in".
+    Q_EMIT loginFailed(tr("Sign-in was cancelled."));
+}
+
+void RustSdkMatrixClient::endSsoAttempt()
+{
+    m_ssoInFlight = false;
+    m_ssoHomeserver.clear();
+    if (m_ssoCallback) {
+        m_ssoCallback->stop();
+        m_ssoCallback->deleteLater();
+        m_ssoCallback = nullptr;
+    }
+}
+
 void RustSdkMatrixClient::drainAuthEvents()
 {
     if (!m_authHandle)
@@ -855,6 +980,60 @@ void RustSdkMatrixClient::drainAuthEvents()
                                    : message);
             continue;
         }
+
+        if (type == QLatin1String("sso_providers")) {
+            const QJsonArray rows = event.value(QStringLiteral("providers")).toArray();
+            QVariantList providers;
+            providers.reserve(rows.size());
+            for (const QJsonValue &value : rows) {
+                const QJsonObject row = value.toObject();
+                QVariantMap entry;
+                entry.insert(QStringLiteral("id"),
+                             row.value(QStringLiteral("id")).toString());
+                entry.insert(QStringLiteral("name"),
+                             row.value(QStringLiteral("name")).toString());
+                entry.insert(QStringLiteral("icon"),
+                             row.value(QStringLiteral("icon")).toString());
+                providers.append(entry);
+            }
+            Q_EMIT ssoProvidersReceived(
+                event.value(QStringLiteral("homeserver")).toString(),
+                event.value(QStringLiteral("sso")).toBool(), providers);
+            // The bootstrap handle was taken purely to ask this question; if
+            // no sign-in is actually running, give it back.
+            if (!m_ssoInFlight && !m_oauthInFlight)
+                releaseAuthHandle();
+            continue;
+        }
+
+        if (type == QLatin1String("sso_url")) {
+            const QString url = event.value(QStringLiteral("url")).toString();
+            if (url.isEmpty())
+                continue;
+            QDesktopServices::openUrl(QUrl(url));
+            Q_EMIT ssoBrowserUrlReady(url);
+            continue;
+        }
+
+        if (type == QLatin1String("sso_ok")) {
+            // SENSITIVE: carries access and refresh tokens. Never log `event`.
+            completeSsoLogin(
+                event.value(QStringLiteral("user_id")).toString(),
+                event.value(QStringLiteral("device_id")).toString(),
+                event.value(QStringLiteral("access_token")).toString(),
+                event.value(QStringLiteral("refresh_token")).toString());
+            continue;
+        }
+
+        if (type == QLatin1String("sso_failed")) {
+            const QString message = event.value(QStringLiteral("message")).toString();
+            endSsoAttempt();
+            releaseAuthHandle();
+            Q_EMIT loginFailed(message.isEmpty()
+                                   ? tr("The sign-in could not be completed.")
+                                   : message);
+            continue;
+        }
     }
 }
 
@@ -864,15 +1043,81 @@ void RustSdkMatrixClient::completeOAuthLogin(const QString &userId,
                                              const QString &accessToken,
                                              const QString &refreshToken)
 {
-    // PHASE B. The homeserver has answered, so the account is finally known
-    // and a store can be chosen. Everything before this point ran without one.
     const QString homeserver = m_oauthHomeserver;
-
     // Phase A is finished either way: release the store-less handle before
     // anything else, so the bootstrap client (and the tokens it holds in
     // memory) go away even if the checks below refuse.
     endOAuthAttempt();
     releaseAuthHandle();
+
+    adoptBrowserSession(
+        homeserver, userId, deviceId, clientId, accessToken, refreshToken,
+        QStringLiteral("oauth"),
+        [this, clientId, accessToken, refreshToken](
+            const matrix::app_data::AccountIdentity &identity,
+            const QString &deviceId) {
+            const QByteArray hsBytes = identity.homeserver.toUtf8();
+            const QByteArray userBytes = identity.userId.toUtf8();
+            const QByteArray deviceBytes = deviceId.toUtf8();
+            const QByteArray clientBytes = clientId.toUtf8();
+            const QByteArray tokenBytes = accessToken.toUtf8();
+            const QByteArray refreshBytes = refreshToken.toUtf8();
+            return takeRustString(mx_rust_oauth_restore(m_rustHandle,
+                                                        hsBytes.constData(),
+                                                        userBytes.constData(),
+                                                        deviceBytes.constData(),
+                                                        clientBytes.constData(),
+                                                        tokenBytes.constData(),
+                                                        refreshBytes.constData()));
+        });
+}
+
+// Legacy SSO's Phase B. Identical account/store handling — see
+// adoptBrowserSession — differing only in the persisted auth type and in the
+// restore call, because an SSO session IS an ordinary Matrix session and
+// restores through matrix_auth(), not through oauth().
+void RustSdkMatrixClient::completeSsoLogin(const QString &userId,
+                                           const QString &deviceId,
+                                           const QString &accessToken,
+                                           const QString &refreshToken)
+{
+    const QString homeserver = m_ssoHomeserver;
+    endSsoAttempt();
+    releaseAuthHandle();
+
+    adoptBrowserSession(
+        homeserver, userId, deviceId, QString(), accessToken, refreshToken,
+        QStringLiteral("sso"),
+        [this, accessToken, refreshToken](
+            const matrix::app_data::AccountIdentity &identity,
+            const QString &deviceId) {
+            const QByteArray hsBytes = identity.homeserver.toUtf8();
+            const QByteArray userBytes = identity.userId.toUtf8();
+            const QByteArray deviceBytes = deviceId.toUtf8();
+            const QByteArray tokenBytes = accessToken.toUtf8();
+            const QByteArray refreshBytes = refreshToken.toUtf8();
+            return takeRustString(mx_rust_restore(m_rustHandle,
+                                                         hsBytes.constData(),
+                                                         userBytes.constData(),
+                                                         deviceBytes.constData(),
+                                                         tokenBytes.constData(),
+                                                         refreshBytes.constData()));
+        });
+}
+
+void RustSdkMatrixClient::adoptBrowserSession(
+    const QString &homeserver,
+    const QString &userId,
+    const QString &deviceId,
+    const QString &clientId,
+    const QString &accessToken,
+    const QString &refreshToken,
+    const QString &authType,
+    const std::function<QString(const matrix::app_data::AccountIdentity &,
+                                const QString &)> &restore)
+{
+    // PHASE B. The homeserver has answered, so the account is finally known
+    // and a store can be chosen. Everything before this point ran without one.
 
     if (userId.isEmpty() || deviceId.isEmpty() || accessToken.isEmpty()) {
         Q_EMIT loginFailed(tr("The server completed sign-in without returning a "
@@ -911,7 +1156,8 @@ void RustSdkMatrixClient::completeOAuthLogin(const QString &userId,
     const auto reason = matrix::rust_session::oauthLoginBlockReason(
         identity, storeExists, hasSavedSession, savedDeviceId, deviceId);
     if (reason != matrix::rust_session::StoreBlockReason::None) {
-        qCWarning(lcRust) << "OAuth sign-in refused"
+        qCWarning(lcRust) << "Browser sign-in refused"
+                          << "authType=" << authType
                           << "slug=" << identity.effectiveStoreSlug()
                           << "reason=" << matrix::rust_session::diagnosticName(reason);
         Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));
@@ -947,9 +1193,15 @@ void RustSdkMatrixClient::completeOAuthLogin(const QString &userId,
     // Record the session BEFORE restoring, so a crash mid-restore leaves a
     // store with a matching record rather than an apparent orphan.
     if (m_settings) {
+        // authType is the RESTORE ROUTING discriminator: "oauth" goes to
+        // oauth().restore_session(), and anything else — including "sso" —
+        // takes the ordinary matrix_auth() path, which is correct because an
+        // SSO session is an ordinary Matrix session. It is stored under its
+        // own name rather than as "password" so the account's origin stays
+        // truthful in the record.
         m_settings->saveSession(identity.homeserver, identity.userId, deviceId,
                                 accessToken, refreshToken,
-                                QStringLiteral("oauth"), clientId);
+                                authType, clientId);
         m_settings->setSyncToken({});
         // RECORD the store location. CLAUDE.md section 6: the store an account
         // uses is recorded, never re-derived twice. The password path does
@@ -960,19 +1212,7 @@ void RustSdkMatrixClient::completeOAuthLogin(const QString &userId,
         recordStoreLocation(identity);
     }
 
-    const QByteArray hsBytes = identity.homeserver.toUtf8();
-    const QByteArray userBytes = identity.userId.toUtf8();
-    const QByteArray deviceBytes = deviceId.toUtf8();
-    const QByteArray clientBytes = clientId.toUtf8();
-    const QByteArray tokenBytes = accessToken.toUtf8();
-    const QByteArray refreshBytes = refreshToken.toUtf8();
-    const QString result = takeRustString(mx_rust_oauth_restore(m_rustHandle,
-                                                                hsBytes.constData(),
-                                                                userBytes.constData(),
-                                                                deviceBytes.constData(),
-                                                                clientBytes.constData(),
-                                                                tokenBytes.constData(),
-                                                                refreshBytes.constData()));
+    const QString result = restore(identity, deviceId);
     if (!result.isEmpty()) {
         setState(Error);
         Q_EMIT loginFailed(result.startsWith(QLatin1String("error: ")) ? result.mid(7)
@@ -2790,6 +3030,10 @@ void RustSdkMatrixClient::pollRustEvents()
         }
     }
 
+    // Read once per tick rather than per event: enabled() is an atomic load,
+    // and the drain runs up to 256 times.
+    const bool traceSync = synctrace::enabled();
+
     m_coalesceTimelineInserts = true;
     // Soft fairness cap per 100 ms tick, with a bounded extension for
     // timeline diffs: one structural SDK transaction arrives as ADJACENT
@@ -2836,6 +3080,16 @@ void RustSdkMatrixClient::pollRustEvents()
                            << "active_generation="
                            << m_lifecycle.activeGeneration();
         }
+        // Sync-loop liveness. Recorded on a DRAINED event, never on the timer
+        // tick: pollRustEvents() runs every 100 ms whether or not the backend
+        // produced anything, so stamping it there would measure the timer and
+        // report a healthy 100 ms gap through a total outage. The GAP between
+        // real events is the measurement that confirms or refutes the leading
+        // hypothesis for the minute-long lag — sliding sync's 60 s request
+        // timeout (30 s poll + 30 s network) failing to notice a silently
+        // dead connection.
+        if (traceSync)
+            synctrace::noteSyncResponse();
         if (i >= kSoftDrainCap - 1 && type != QLatin1String("timeline_diff"))
             break;
     }
@@ -3137,6 +3391,15 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             return;
         m_lastSyncState = state;
         qCInfo(lcRust) << "sync state=" << state;
+        // Literal state names only — never server text.
+        if (state == QLatin1String("running"))
+            synctrace::noteSyncState("running");
+        else if (state == QLatin1String("offline"))
+            synctrace::noteSyncState("offline");
+        else if (state == QLatin1String("retrying"))
+            synctrace::noteSyncState("retrying");
+        else if (state == QLatin1String("starting"))
+            synctrace::noteSyncState("starting");
         if (state == QLatin1String("offline")) setState(Offline);
         else if (state == QLatin1String("starting") || state == QLatin1String("retrying"))
             setState(Syncing);
@@ -3313,6 +3576,31 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
     if (type == QLatin1String("timeline_diff")) {
+        // Sync-latency tracing: this is the sdk->bridge boundary. The stamp
+        // comes from the Rust side (crate::sync_trace_stamp_ms), so the leg is
+        // measured rather than assumed. No-op unless LIGHTNING_SYNC_TRACE is
+        // set; the id is threaded to the model stage through the diff.
+        if (synctrace::enabled()) {
+            const quint64 traceId = synctrace::beginEvent(
+                event.value(QStringLiteral("room_id")).toString(),
+                static_cast<qint64>(
+                    event.value(QStringLiteral("trace_sdk_ms")).toDouble()));
+            synctrace::noteBridge(traceId);
+            handleTimelineDiff(event);
+            // The model has the row now.
+            synctrace::noteModel(traceId);
+            // ...and the UI stage is measured as "the GUI thread finished this
+            // event-loop iteration and came back", via a queued call. Stated
+            // plainly because it matters: this is a PROXY for presentation,
+            // not a frame-presented callback. It captures the delay between a
+            // model change and the GUI thread being free again — which is the
+            // quantity that makes a message feel late — and it needs no QML
+            // plumbing. Per-frame timing belongs to QSG_RENDER_TIMING.
+            QMetaObject::invokeMethod(this, [traceId] {
+                synctrace::noteUi(traceId);
+            }, Qt::QueuedConnection);
+            return;
+        }
         handleTimelineDiff(event);
         return;
     }
@@ -4127,7 +4415,24 @@ void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
     // Attributed for stall tracing (2026-08-19): ingesting a batch
     // rebuilds model rows and emits the signals that drive delegate
     // work. No-op unless LIGHTNING_GUI_STALL_TRACE is set.
-    stalltrace::Scope stallScope("timeline-diff");
+    //
+    // Split by OPERATION since 0.7.6+, because "timeline-diff" could not
+    // answer the question the unreproduced reaction freeze actually poses. A
+    // reaction, an edit, a receipt move and a late decryption all arrive as
+    // `Set` on an existing row; a new message or a pagination page arrives as
+    // an insert. Those are different costs — an in-place update re-runs one
+    // delegate's bindings, an insert restructures the view — and one shared
+    // label made a burst of the first indistinguishable from a burst of the
+    // second in a capture.
+    //
+    // Deliberately keyed on the op alone, NOT on what changed inside the item:
+    // the tracer records a single global category and CLAUDE.md's rule for it
+    // is that a confidently wrong category is worse than a coarse one. "A Set
+    // was being applied" is something this function knows for certain.
+    const QString diffOp = event.value(QStringLiteral("op")).toString();
+    stalltrace::Scope stallScope(diffOp == QLatin1String("set")
+                                     ? "timeline-diff-set"
+                                     : "timeline-diff");
     const QString roomId = event.value(QStringLiteral("room_id")).toString();
     const auto generation = static_cast<quint64>(
         event.value(QStringLiteral("room_generation")).toDouble(0));
@@ -4139,7 +4444,7 @@ void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
         return;
     }
 
-    const QString op = event.value(QStringLiteral("op")).toString();
+    const QString &op = diffOp;
     const int insertionIndex = op == QLatin1String("push_front")
         ? 0 : (op == QLatin1String("insert")
                    ? event.value(QStringLiteral("index")).toInt(-1) : -1);

@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QImageReader>
 #include <QMimeDatabase>
+#include <QLoggingCategory>
 #include <QSize>
 
 AttachmentQueueModel::AttachmentQueueModel(QObject *parent)
@@ -59,20 +60,78 @@ QString AttachmentQueueModel::humanSize(qint64 bytes)
     return QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 2);
 }
 
+// Upload-path diagnostics. Quiet by default (warnings only fire on a
+// refusal); enable everything with QT_LOGGING_RULES='lightning.attach=true'.
+Q_LOGGING_CATEGORY(lcAttach, "lightning.attach")
+
+namespace {
+
+// Why an attachment was refused, in a form that can be pasted into a bug
+// report. Deliberately NOT the path: a Windows path contains the user's
+// account name, and this is the one upload log a user is likely to share.
+//
+// What it carries instead is the path's SHAPE, which is what the outstanding
+// "uploads fail from the MSI, but the Setup EXE and the portable ZIP work"
+// report needs to distinguish: spaces, non-ASCII and UNC prefixes are the
+// classic Windows path hazards, and knowing which of the five rejections
+// fired says whether the file was even reachable.
+QString pathShape(const QString &path)
+{
+    bool nonAscii = false;
+    bool space = false;
+    for (const QChar c : path) {
+        if (c.unicode() > 127)
+            nonAscii = true;
+        else if (c == QLatin1Char(' '))
+            space = true;
+    }
+    return QStringLiteral("len=%1 space=%2 nonAscii=%3 unc=%4")
+        .arg(path.size())
+        .arg(space ? QStringLiteral("yes") : QStringLiteral("no"),
+             nonAscii ? QStringLiteral("yes") : QStringLiteral("no"),
+             path.startsWith(QLatin1String("//"))
+                     || path.startsWith(QLatin1String("\\\\"))
+                 ? QStringLiteral("yes")
+                 : QStringLiteral("no"));
+}
+
+} // namespace
+
 QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
 {
-    if (!fileUrl.isLocalFile())
+    if (!fileUrl.isLocalFile()) {
+        qCWarning(lcAttach) << "attachment refused reason=not_a_local_file";
         return tr("Only local files can be attached.");
+    }
     const QString path = fileUrl.toLocalFile();
     const QFileInfo info(path);
-    if (info.isDir())
+    if (info.isDir()) {
+        qCWarning(lcAttach) << "attachment refused reason=is_directory"
+                            << qPrintable(pathShape(path));
         return tr("Folders cannot be attached.");
-    if (!info.isFile() || !info.isReadable())
+    }
+    if (!info.isFile() || !info.isReadable()) {
+        // The one most likely to be an environment problem rather than a user
+        // mistake: exists() and isReadable() disagreeing is a permissions or
+        // path-translation failure, not a wrong click.
+        qCWarning(lcAttach) << "attachment refused reason=unreadable"
+                            << "exists=" << info.exists()
+                            << "isFile=" << info.isFile()
+                            << "readable=" << info.isReadable()
+                            << qPrintable(pathShape(path));
         return tr("That file cannot be read.");
-    if (info.size() <= 0)
+    }
+    if (info.size() <= 0) {
+        qCWarning(lcAttach) << "attachment refused reason=empty"
+                            << qPrintable(pathShape(path));
         return tr("Empty files cannot be sent.");
-    if (exceedsUploadLimit(info.size()))
+    }
+    if (exceedsUploadLimit(info.size())) {
+        qCWarning(lcAttach) << "attachment refused reason=over_upload_limit"
+                            << "bytes=" << info.size()
+                            << "limit=" << uploadLimit();
         return uploadLimitMessage();
+    }
     for (const Entry &existing : m_entries) {
         if (!existing.localPath.isEmpty() && existing.localPath == path)
             return tr("That file is already attached.");

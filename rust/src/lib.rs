@@ -73,6 +73,7 @@ mod ignore;
 mod oauth;
 mod pinned;
 mod search;
+mod sso;
 mod uia;
 mod presence;
 mod profile;
@@ -8094,6 +8095,37 @@ pub(crate) fn enqueue_terminal(
         }
     }
     guard.push_back(value.to_string());
+}
+
+/// Wall-clock millis for sync-latency tracing, or None when it is off.
+///
+/// Opt-in through LIGHTNING_SYNC_TRACE, the same switch the C++ tracer reads
+/// (src/app/SyncLatencyTracer.*), so one variable turns on the whole
+/// sdk -> bridge -> model -> ui picture rather than two halves that can
+/// disagree about whether they are recording.
+///
+/// Wall clock rather than Instant on purpose: this value is compared against
+/// QDateTime::currentMSecsSinceEpoch() on the other side of the FFI, and a
+/// monotonic clock has no shared origin there. Read once; disabled it is a
+/// relaxed atomic load and nothing else.
+pub(crate) fn sync_trace_stamp_ms() -> Option<u64> {
+    use std::sync::OnceLock;
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    let on = *ENABLED.get_or_init(|| {
+        std::env::var("LIGHTNING_SYNC_TRACE")
+            .map(|v| {
+                let v = v.trim().to_ascii_lowercase();
+                !(v.is_empty() || v == "0" || v == "false" || v == "off" || v == "no")
+            })
+            .unwrap_or(false)
+    });
+    if !on {
+        return None;
+    }
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_millis() as u64)
 }
 
 pub(crate) fn enqueue(events: &Arc<Mutex<VecDeque<String>>>, value: serde_json::Value) {
