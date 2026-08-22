@@ -304,12 +304,26 @@ private Q_SLOTS:
                 auto fit = formRe.globalMatch(translated);
                 while (fit.hasNext())
                     forms << fit.next().captured(1);
+                const bool numerus = !forms.isEmpty();
                 if (forms.isEmpty())
                     forms << translated;
 
                 for (const QString &form : std::as_const(forms)) {
-                    const QSet<QString> got = placeholders(form);
-                    QVERIFY2(got == want,
+                    QSet<QString> got = placeholders(form);
+                    QSet<QString> expected = want;
+                    // A PLURAL form may drop %n, and only %n, and only a
+                    // plural form may do it: a zero form idiomatically spells
+                    // the count out rather than printing 0 — Arabic's is "لا
+                    // أعضاء" (no members), which reads far better than "0
+                    // members" and is exactly what the six-form plural rule
+                    // exists to allow. Every OTHER placeholder still has to
+                    // survive in every form, and a non-plural message may drop
+                    // nothing at all: that is where a missing %1 silently
+                    // loses the room name and an extra one prints "%2" at a
+                    // user.
+                    if (numerus && !got.contains(QStringLiteral("%n")))
+                        expected.remove(QStringLiteral("%n"));
+                    QVERIFY2(got == expected,
                              qPrintable(QStringLiteral(
                                  "%1: placeholders differ\n  source: %2\n"
                                  "  translation: %3")
