@@ -5549,11 +5549,17 @@ Rectangle {
                             var _dep = app.banners.revision
                             return app.banners.roomBannerFor(spaceHome.spaceId)
                         }
-                        readonly property bool canEdit:
-                            app.banners !== null
-                            && spaceHome.spaceId !== ""
-                            && (app.banners.revision, app.banners.canSetRoomBanner(
-                                    spaceHome.spaceId))
+                        readonly property bool canEdit: {
+                            if (!app.banners || spaceHome.spaceId === "")
+                                return false
+                            // Same revision dependency as bannerMxc: the
+                            // answer only becomes known when the room
+                            // replies, and until then this is false, so the
+                            // control is never offered on a guess.
+                            var _dep = app.banners.revision
+                            return app.banners.canSetRoomBanner(
+                                spaceHome.spaceId)
+                        }
 
                         // Asked once per Space per session; the write path
                         // re-asks itself, so a fresh banner appears without
