@@ -276,6 +276,9 @@ public:
     // PresenceManager; these are thin command wrappers.
     bool supportsPresence() const override { return true; }
     void requestPresence(const QStringList &userIds, quint64 opId) override;
+    bool supportsProfileBanners() const override { return true; }
+    void fetchProfileBanner(const QString &userId, quint64 opId) override;
+    void setProfileBanner(const QString &localPath, quint64 opId) override;
     void publishPresence(int state) override;
     void requestRoomNotificationMode(const QString &roomId) override;
     void acceptInvite(const QString &roomId) override;

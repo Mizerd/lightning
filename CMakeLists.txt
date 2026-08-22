@@ -522,6 +522,8 @@ set(APP_SOURCES
     src/app/TrayIcon.cpp
     src/spaces/RailLayoutStore.h
     src/spaces/RailLayoutStore.cpp
+    src/profile/ProfileBannerManager.h
+    src/profile/ProfileBannerManager.cpp
     src/media/StagedImageStore.h
     src/media/StagedImageStore.cpp
     src/media/StagedImageProvider.h
@@ -2951,6 +2953,29 @@ if(BUILD_TESTING)
     target_link_libraries(presence-manager-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME presence-manager COMMAND presence-manager-test)
+
+    # Profile banners (MSC4427 over MSC4133): the policy half. "No banner",
+    # "not asked yet" and "this server has no extended profiles" are three
+    # different facts that all render as nothing.
+    qt_add_executable(profile-banner-test
+        tests/ProfileBannerTest.cpp
+        src/profile/ProfileBannerManager.h
+        src/profile/ProfileBannerManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(profile-banner-test PRIVATE src)
+    target_link_libraries(profile-banner-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME profile-banner COMMAND profile-banner-test)
 
     # v0.6.1: E2EE diagnostics redaction — never reveals full ids, stable for
     # correlation.

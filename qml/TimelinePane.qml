@@ -5511,6 +5511,63 @@ Rectangle {
                     y: AppTheme.spacing24
                     spacing: AppTheme.spacing16
 
+                    // Space banner.
+                    //
+                    // Deliberately the SPACE'S OWN AVATAR, scaled wide, and
+                    // not a new state event. There is no Matrix convention for
+                    // a space banner — MSC4427 covers user profiles only —
+                    // so storing one would mean inventing a key nothing else
+                    // reads, on somebody's account, for a decoration. This
+                    // uses data every client already has, so a Space that
+                    // looks good here looks the same everywhere.
+                    Rectangle {
+                        objectName: "spaceHomeBanner"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.round(
+                            Math.max(96, spaceCol.width / 4))
+                        visible: (spaceHome.info.avatarUrl || "").length > 0
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.cardElevated
+                        clip: true
+
+                        Image {
+                            id: spaceBannerImage
+                            anchors.fill: parent
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            visible: status === Image.Ready
+                            readonly property string mxc:
+                                spaceHome.info.avatarUrl || ""
+                            source: mxc.length > 0 && app.mediaBridge.supported
+                                    ? app.mediaBridge.wideImageSource(mxc) : ""
+                            Connections {
+                                target: app.mediaBridge
+                                enabled: spaceBannerImage.mxc.length > 0
+                                function onMediaCached(key) {
+                                    if (spaceBannerImage.source.toString().length > 0)
+                                        return
+                                    var again = app.mediaBridge.wideImageSource(
+                                        spaceBannerImage.mxc)
+                                    if (again.length > 0)
+                                        spaceBannerImage.source = again
+                                }
+                            }
+                        }
+                        // A wash, so the name and the controls below keep
+                        // their contrast whatever the image happens to be.
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: spaceBannerImage.visible
+                            gradient: Gradient {
+                                GradientStop { position: 0.0
+                                    color: "transparent" }
+                                GradientStop { position: 1.0
+                                    color: AppTheme.overlayScrim }
+                            }
+                            opacity: 0.7
+                        }
+                    }
+
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12

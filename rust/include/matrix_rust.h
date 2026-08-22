@@ -572,6 +572,33 @@ char *mx_rust_get_presence(void *client,
  */
 char *mx_rust_set_presence(void *client, unsigned int state);
 /*
+ * Profile banners (MSC4427 over MSC4133 extended profile fields).
+ *
+ * READ prefers the stable "m.banner_url" and falls back to
+ * "chat.commet.profile_banner" — the key Commet already ships and Sable and
+ * Haven read — so a banner set in any of them is visible here. Answers as
+ *   {"type":"profile_banner","op_id",…,"user_id","mxc","supported":bool}
+ * `supported:false` means the homeserver does not implement extended profile
+ * fields AT ALL, which is a different fact from "this user has no banner" and
+ * must render as nothing rather than as an absence.
+ *
+ * The value is always an mxc:// URI; anything else is dropped in Rust. A
+ * profile field is remote text, and an http URL in one would make every
+ * viewer who opens the card fetch it from a host its owner controls.
+ */
+char *mx_rust_fetch_profile_banner(void *client,
+                                   const char *user_id,
+                                   unsigned long long op_id);
+/*
+ * Upload a local image and set it as this account's banner, under BOTH field
+ * names. An EMPTY path clears both. Content decides the type (magic bytes),
+ * never the file name. Answers as
+ *   {"type":"profile_banner_set","op_id",…,"ok","mxc","category"}.
+ */
+char *mx_rust_set_profile_banner(void *client,
+                                 const char *local_path,
+                                 unsigned long long op_id);
+/*
  * v0.5.12: secure client-side HTTPS preview. Rust validates DNS and every
  * redirect, blocks local/private destinations, bounds responses and parses
  * metadata without executing page content. The URL is never logged:

@@ -19,6 +19,7 @@
 #include "crypto/CryptoManager.h"
 #include "crypto/QrImageProvider.h"
 #include "app/TrayIcon.h"
+#include "profile/ProfileBannerManager.h"
 #include "media/MediaBridge.h"
 #include "media/StagedImageStore.h"
 #include "media/MediaPlaybackController.h"
@@ -204,6 +205,9 @@ class AppController : public QObject
     // How the Spaces rail is arranged (drag order and folders).
     // Device-local; see RailLayoutStore.
     Q_PROPERTY(RailLayoutStore* railLayout READ railLayout CONSTANT)
+    // Profile banners (MSC4427 / MSC4133), read and written under both
+    // the stable and the Commet field names.
+    Q_PROPERTY(ProfileBannerManager* banners READ banners CONSTANT)
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
     Q_PROPERTY(AccountManager* accounts READ accounts CONSTANT)
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
@@ -430,6 +434,7 @@ public:
     LocalizationManager *localization() const;
     CustomThemeStore *customTheme() const;
     RailLayoutStore *railLayout() const;
+    ProfileBannerManager *banners() const;
     AuthManager *auth() const;
     AccountManager *accounts() const;
     RoomListModel *roomList() const;
@@ -1018,6 +1023,7 @@ private:
     std::unique_ptr<LocalizationManager> m_localization;
     std::unique_ptr<CustomThemeStore> m_customTheme;
     std::unique_ptr<RailLayoutStore> m_railLayout;
+    std::unique_ptr<ProfileBannerManager> m_banners;
     bool m_shuttingDown = false;
     // Development-only screenshot/demo mode (never true in a release build; the
     // compile option that enables beginScreenshotDemo cannot coexist with a

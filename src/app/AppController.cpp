@@ -171,6 +171,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_localization = std::make_unique<LocalizationManager>(m_settings.get(), this);
     m_customTheme = std::make_unique<CustomThemeStore>(m_settings.get(), this);
     m_railLayout = std::make_unique<RailLayoutStore>(m_settings.get(), this);
+    m_banners = std::make_unique<ProfileBannerManager>(this);
 
     m_client       = makeClient(backend, m_settings.get(), this);
     m_accounts     = std::make_unique<AccountManager>(m_settings.get(), this);
@@ -688,6 +689,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_timeline->setClient(m_client.get());
     m_composer->setClient(m_client.get());
     m_mentionSuggestions->setClient(m_client.get());
+    m_banners->setClient(m_client.get());
     m_media->setClient(m_client.get());
     m_conversations->setClient(m_client.get());
     m_discovery->setClient(m_client.get());
@@ -1698,6 +1700,8 @@ CustomThemeStore *AppController::customTheme() const
 { return m_customTheme.get(); }
 RailLayoutStore *AppController::railLayout() const
 { return m_railLayout.get(); }
+ProfileBannerManager *AppController::banners() const
+{ return m_banners.get(); }
 AuthManager *AppController::auth() const { return m_auth.get(); }
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO

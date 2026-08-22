@@ -3147,6 +3147,132 @@ Item {
                                 }
                             }
                         }
+                        // Profile banner (MSC4427 over MSC4133 extended
+                        // profile fields). Hidden outright when the backend
+                        // cannot read them or the homeserver does not
+                        // implement them: a control that cannot work is worse
+                        // than no control.
+                        SettingsCard {
+                            visible: app.banners && app.banners.available
+                                     && app.banners.supported
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    text: qsTr("Profile banner")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                Rectangle {
+                                    objectName: "ownProfileBannerPreview"
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: Math.round(
+                                        Math.max(60, width / 3))
+                                    radius: AppTheme.radiusMd
+                                    color: AppTheme.stormInset
+                                    border.width: 1
+                                    border.color: AppTheme.stormBorder
+                                    clip: true
+                                    Image {
+                                        id: ownBannerImage
+                                        anchors.fill: parent
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                        visible: status === Image.Ready
+                                        readonly property string mxc: {
+                                            if (!app.banners)
+                                                return ""
+                                            var _dep = app.banners.revision
+                                            return app.banners.ownBanner
+                                        }
+                                        source: mxc.length > 0
+                                                && app.mediaBridge.supported
+                                                ? app.mediaBridge.wideImageSource(mxc)
+                                                : ""
+                                        Connections {
+                                            target: app.mediaBridge
+                                            enabled: ownBannerImage.mxc.length > 0
+                                            function onMediaCached(key) {
+                                                if (ownBannerImage.source.toString().length > 0)
+                                                    return
+                                                var again = app.mediaBridge.wideImageSource(
+                                                    ownBannerImage.mxc)
+                                                if (again.length > 0)
+                                                    ownBannerImage.source = again
+                                            }
+                                        }
+                                    }
+                                    Label {
+                                        anchors.centerIn: parent
+                                        visible: !ownBannerImage.visible
+                                        text: qsTr("No banner")
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.textMeta
+                                    }
+                                }
+                                RowLayout {
+                                    spacing: AppTheme.spacing8
+                                    AppButton {
+                                        objectName: "chooseProfileBannerButton"
+                                        storm: true
+                                        text: qsTr("Choose image…")
+                                        enabled: !app.banners.busy
+                                        onClicked: bannerFileDialog.open()
+                                    }
+                                    AppButton {
+                                        objectName: "removeProfileBannerButton"
+                                        storm: true
+                                        kind: "danger"
+                                        text: qsTr("Remove")
+                                        visible: app.banners.ownBanner.length > 0
+                                        enabled: !app.banners.busy
+                                        onClicked: app.banners.clearOwnBanner()
+                                    }
+                                }
+                                Label {
+                                    objectName: "profileBannerError"
+                                    Layout.fillWidth: true
+                                    visible: app.banners.lastError.length > 0
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormDanger
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("The banner could not be saved (%1).")
+                                              .arg(app.banners.lastError)
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    // Said plainly, because a banner is
+                                    // PUBLIC profile data — anyone who can see
+                                    // the account can see it — and because it
+                                    // is written under two names on purpose.
+                                    text: qsTr("A wide image shown behind your profile card, "
+                                               + "about 3:1. It is part of your public profile, "
+                                               + "so anyone who can see your account can see it. "
+                                               + "Saved under both the standard and the Commet "
+                                               + "field names, so clients that already show "
+                                               + "banners will show yours.")
+                                }
+                                FileDialog {
+                                    id: bannerFileDialog
+                                    title: qsTr("Choose a banner image")
+                                    nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif)")]
+                                    onAccepted: {
+                                        var path = selectedFile.toString()
+                                        if (path.indexOf("file://") === 0)
+                                            path = decodeURIComponent(
+                                                path.substring(7))
+                                        app.banners.setOwnBanner(path)
+                                    }
+                                }
+                            }
+                        }
+
                         SettingsCard {
                             ColumnLayout {
                                 width: parent.width

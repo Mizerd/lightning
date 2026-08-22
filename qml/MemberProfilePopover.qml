@@ -232,6 +232,14 @@ Popup {
         }
     }
 
+    // Asking is a side effect, so it happens on the open EDGE rather than
+    // inside a binding. ProfileBannerManager deduplicates per user per
+    // session, so reopening the same card costs nothing.
+    onOpenedChanged: {
+        if (opened && userId.length > 0 && app.banners)
+            app.banners.request(userId)
+    }
+
     contentItem: ColumnLayout {
         spacing: 0
         Accessible.role: Accessible.Dialog
@@ -291,6 +299,53 @@ Popup {
                     grad.addColorStop(0.7, c2)
                     ctx.fillStyle = grad
                     ctx.fill()
+                }
+            }
+
+            // The user's OWN banner (MSC4427), over the gradient. Asked for
+            // only while the popover is open, and rendered only when it
+            // actually resolves — an unanswered lookup, a server without
+            // extended profile fields and a user with no banner all render
+            // as the gradient, because they are the same thing to look at.
+            //
+            // Fetched through the media bridge like every other mxc: the
+            // value is an mxc:// URI by construction (Rust drops anything
+            // else), so no profile field can point this at an arbitrary host.
+            Item {
+                anchors.fill: banner
+                clip: true      // the banner's rounded top corners
+                Image {
+                    id: bannerImage
+                    objectName: "profileBannerImage"
+                    anchors.fill: parent
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    cache: true
+                    visible: status === Image.Ready
+                    readonly property string mxc: {
+                        if (!root.opened || !app.banners)
+                            return ""
+                        var _dep = app.banners.revision
+                        return app.banners.bannerFor(root.userId)
+                    }
+                    source: mxc.length > 0 && app.mediaBridge.supported
+                            ? app.mediaBridge.wideImageSource(mxc) : ""
+                    // wideImageSource() returns "" on a cache MISS and
+                    // dispatches; nothing this binding depends on changes
+                    // when the bytes land, so it has to re-ask. Same
+                    // discipline as the timeline's reply quote.
+                    Connections {
+                        target: app.mediaBridge
+                        enabled: bannerImage.mxc.length > 0
+                        function onMediaCached(key) {
+                            if (bannerImage.source.toString().length > 0)
+                                return
+                            var again = app.mediaBridge.wideImageSource(
+                                bannerImage.mxc)
+                            if (again.length > 0)
+                                bannerImage.source = again
+                        }
+                    }
                 }
             }
 

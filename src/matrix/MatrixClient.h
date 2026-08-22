@@ -404,6 +404,19 @@ public:
     // Publish the local user's own presence (0 online, 1 unavailable,
     // 2 offline). Fire-and-forget: the UI claims nothing about publication.
     virtual void publishPresence(int state) { Q_UNUSED(state); }
+    // Profile banners (MSC4427 over MSC4133). False on a backend that cannot
+    // read extended profile fields; the banner is then simply absent, exactly
+    // like presence or the thread facepile on such a backend.
+    virtual bool supportsProfileBanners() const { return false; }
+    virtual void fetchProfileBanner(const QString &userId, quint64 opId)
+    {
+        Q_UNUSED(userId); Q_UNUSED(opId);
+    }
+    // An EMPTY path clears the banner. Reports on profileBannerSet.
+    virtual void setProfileBanner(const QString &localPath, quint64 opId)
+    {
+        Q_UNUSED(localPath); Q_UNUSED(opId);
+    }
     // v0.7 "follow account default": drop this room's user-defined push
     // rules so the account's rules decide again. Success reports on the
     // dedicated roomNotificationModeCleared signal — NOT on
@@ -1084,6 +1097,14 @@ Q_SIGNALS:
     // -1 when the server sent none), category (coarse, on ok=false only).
     // An entry with ok=false means UNKNOWN for that user, never offline.
     void presenceReceived(quint64 opId, const QVariantList &entries);
+    // A user's profile banner. `supported` false means the HOMESERVER does
+    // not do extended profile fields — a different fact from "this user has
+    // no banner", and one that must render as nothing rather than as an
+    // absence the client is sure about.
+    void profileBannerReceived(quint64 opId, const QString &userId,
+                               const QString &mxc, bool supported);
+    void profileBannerSet(quint64 opId, bool ok, const QString &mxc,
+                          const QString &category);
     // Publishing the local user's own presence failed (coarse category).
     // Informational: PresenceManager uses it only for bounded diagnostics.
     void presencePublishFailed(const QString &category);

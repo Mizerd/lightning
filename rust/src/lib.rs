@@ -65,6 +65,7 @@ use matrix_sdk_ui::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+mod banner;
 mod calls;
 mod discover;
 mod gifs;
@@ -5540,6 +5541,43 @@ pub unsafe extern "C" fn mx_rust_set_display_name(
         let bridge = unsafe { bridge(ptr)? };
         let name = unsafe { cstr_arg(name) }?;
         profile::set_own_display_name(bridge, name, op_id).map(|_| String::new())
+    })
+}
+
+/// Profile banners (MSC4427 over MSC4133 extended profile fields).
+///
+/// Reads `m.banner_url`, falling back to `chat.commet.profile_banner` — the
+/// key Commet already ships and Sable and Haven read — so a banner set in any
+/// of them shows up here. Result event: `profile_banner { op_id, lifecycle,
+/// user_id, mxc, supported }`, where `supported: false` means the homeserver
+/// does not implement extended profile fields at all. That renders as
+/// NOTHING, never as "this user has no banner".
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_fetch_profile_banner(
+    ptr: *mut c_void,
+    user_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let user_id = unsafe { cstr_arg(user_id) }?;
+        banner::fetch_profile_banner(bridge, op_id, user_id).map(|_| String::new())
+    })
+}
+
+/// Upload a local image and set it as this account's banner, under BOTH the
+/// stable and the Commet field names. An EMPTY path clears both. Result
+/// event: `profile_banner_set { op_id, lifecycle, ok, mxc, category }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_profile_banner(
+    ptr: *mut c_void,
+    local_path: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let path = unsafe { cstr_arg(local_path) }?;
+        banner::set_own_profile_banner(bridge, op_id, path).map(|_| String::new())
     })
 }
 

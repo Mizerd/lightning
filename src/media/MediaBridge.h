@@ -51,6 +51,13 @@ public:
     // cache entry, and a single failure mark per identity. QML scales the
     // decoded bitmap down at render time.
     Q_INVOKABLE QString avatarSource(const QString &mxcUri, int size);
+    // A WIDE image referenced by a bare mxc URI — today, profile banners.
+    // Deliberately not avatarSource(): that one asks for a small square
+    // thumbnail, which is exactly the wrong shape for a 3:1 banner. Same
+    // dedup, failure marks and mediaCached re-poll as every other fetch;
+    // returns "" on a miss and dispatches, so the caller re-asks on
+    // mediaCached like the timeline and the composer already do.
+    Q_INVOKABLE QString wideImageSource(const QString &mxcUri);
     // NotificationManager's in-process read of an already-cached canonical
     // avatar. It never dispatches and never exposes bytes to QML/disk.
     QImage cachedAvatarImage(const QString &mxcUri) const;

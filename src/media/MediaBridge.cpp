@@ -888,6 +888,37 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
     return {};
 }
 
+QString MediaBridge::wideImageSource(const QString &mxcUri)
+{
+    if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
+        return {};
+    // kind 0 = the full payload, not a thumbnail: a banner is 3:1 and a
+    // square thumbnail of one is not a banner. Its own cache key (edge 0) so
+    // it can never collide with the avatar entry for the same mxc.
+    const QString cacheKey = mxcCacheKey(mxcUri, 0);
+    const QString cached = cachedSource(cacheKey);
+    if (!cached.isEmpty()) {
+        ++m_statCacheHit;
+        return cached;
+    }
+    if (failureBlocks(cacheKey))
+        return {};
+    if (!alreadyPending(cacheKey)) {
+        ++m_statCacheMiss;
+        Pending request;
+        request.cacheKey = cacheKey;
+        request.isMxc = true;
+        request.mediaKey = mxcUri;
+        request.kind = 0;
+        request.size = 0;
+        request.priority = 1; // interactive chrome, like an avatar
+        dispatch(request);
+    } else {
+        promoteQueuedRequest(cacheKey, 1, 0);
+    }
+    return {};
+}
+
 QImage MediaBridge::cachedAvatarImage(const QString &mxcUri) const
 {
     if (!mxcUri.startsWith(QLatin1String("mxc://")))

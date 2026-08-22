@@ -2001,6 +2001,33 @@ void RustSdkMatrixClient::requestPresence(const QStringList &userIds,
         qCWarning(lcRust) << "presence request rejected";
 }
 
+void RustSdkMatrixClient::fetchProfileBanner(const QString &userId,
+                                             quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || userId.isEmpty())
+        return;
+    const QByteArray target = userId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_fetch_profile_banner(m_rustHandle, target.constData(), opId));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "profile banner request rejected";
+}
+
+void RustSdkMatrixClient::setProfileBanner(const QString &localPath,
+                                           quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle)
+        return;
+    // The path is never logged: it is a filesystem path the user picked.
+    const QByteArray path = localPath.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_set_profile_banner(m_rustHandle, path.constData(), opId));
+    if (!result.isEmpty()) {
+        Q_EMIT profileBannerSet(opId, false, QString(),
+                                QStringLiteral("rejected"));
+    }
+}
+
 void RustSdkMatrixClient::publishPresence(int state)
 {
     if (!m_loggedIn || !m_rustHandle || state < 0 || state > 2)
@@ -6107,6 +6134,24 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             participants,
             event.value(QStringLiteral("distinct")).toInt(),
             event.value(QStringLiteral("truncated")).toBool());
+        return true;
+    }
+    if (type == QLatin1String("profile_banner")) {
+        Q_EMIT profileBannerReceived(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("user_id")).toString(),
+            event.value(QStringLiteral("mxc")).toString(),
+            event.value(QStringLiteral("supported")).toBool(false));
+        return true;
+    }
+    if (type == QLatin1String("profile_banner_set")) {
+        Q_EMIT profileBannerSet(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("mxc")).toString(),
+            event.value(QStringLiteral("category")).toString());
         return true;
     }
     if (type == QLatin1String("presence_batch")) {
