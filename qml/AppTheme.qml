@@ -1356,36 +1356,65 @@ QtObject {
     readonly property color trustCaptionDim:  "#6F7EB6"
     readonly property color trustVerifyInk:   "#C9D2F2"
 
-    // The SECOND deliberate theme-invariant surface: the custom-theme editor
-    // (Settings -> Appearance -> Edit).
+    // The custom-theme editor's own chrome (Settings -> Appearance -> Edit).
     //
-    // Every other surface in the app follows the selected theme, and that is
-    // right — except in the one window whose job is to CHANGE the selected
-    // theme. A user editing their own palette can paint the panel white and
-    // the body ink white in two clicks, and if the editor followed that, the
-    // role list, the picker and the button that undoes it would all vanish at
-    // the same moment. The editor would have locked its user out of the only
-    // control that fixes it. Screenshot evidence, 2026-08-22.
+    // It follows the SELECTED theme like everything else — opening a Moss
+    // Light window into a navy workspace was jarring and wrong — with one
+    // exception that is the whole reason these tokens exist at all.
     //
-    // So the editor's own chrome is pinned to the brand navy the way the
-    // trust card is, and the theme being authored appears ONLY inside the
-    // preview, where it belongs. This is also why the editor draws its own
-    // buttons, fields and scrollbar instead of reaching for AppButton /
-    // AppTextField / AppComboBox: those follow the storm* namespace, which
-    // follows the theme.
-    readonly property color editorCanvas:        _stoCanvas
-    readonly property color editorPanel:         _stoPanel
-    readonly property color editorInset:         _stoInset
-    readonly property color editorDeep:          _stoDeep
-    readonly property color editorBorder:        _stoBorder
-    readonly property color editorBorderStrong:  _stoBorderStrong
-    readonly property color editorSelection:     _stoSelection
-    readonly property color editorAccent:        _stoBolt
-    readonly property color editorAccentInk:     _stoBoltInk
-    readonly property color editorText:          _stoText
-    readonly property color editorTextSecondary: _stoTextSecondary
-    readonly property color editorTextMuted:     _stoTextMuted
-    readonly property color editorDanger:        _stoDanger
+    // The editor must never paint itself from the palette it is EDITING. A
+    // user can set the panel white and the body ink white in two clicks, and
+    // if the editor followed that, the role list, the picker and the button
+    // that undoes it would all vanish at the same moment: the editor would
+    // have locked its user out of the only control that fixes it. Screenshot
+    // evidence, 2026-08-22.
+    //
+    // So the chrome resolves against a PRESET, always — the selected one
+    // while a preset is selected, and the custom theme's own BASE preset once
+    // the user applies their custom theme (a base is clamped to 1..11 by
+    // construction, so it can never be the thing being edited). Preset
+    // literals are not user-editable, which is the property that matters; the
+    // theme being authored appears only inside the preview, where it belongs.
+    //
+    // This is also why the editor draws its own buttons, fields and scrollbar
+    // instead of reaching for AppButton / AppTextField / AppComboBox: those
+    // follow the storm* namespace, which follows the effective theme and
+    // would therefore follow the custom palette.
+    readonly property int editorChromeTheme: {
+        if (effectiveTheme === 12)
+            return (customBase >= 1 && customBase <= 11) ? customBase : 11
+        return (effectiveTheme >= 1 && effectiveTheme <= 11) ? effectiveTheme : 11
+    }
+    readonly property var _editorPalette: paletteForTheme(editorChromeTheme)
+    // Storm keeps its own deeper chrome tones; every other theme uses its own
+    // semantic surfaces, the same routing the storm* namespace does.
+    readonly property bool _editorStorm: editorChromeTheme === 11
+    readonly property color editorCanvas:        _editorStorm ? _stoCanvas
+                                     : _asColor(_editorPalette.background)
+    readonly property color editorPanel:         _editorStorm ? _stoPanel
+                                     : _asColor(_editorPalette.surface)
+    readonly property color editorInset:         _editorStorm ? _stoInset
+                                     : _asColor(_editorPalette.inputBackground)
+    readonly property color editorDeep:          _editorStorm ? _stoDeep
+                                     : _asColor(_editorPalette.background)
+    readonly property color editorBorder:        _editorStorm ? _stoBorder
+                                     : _asColor(_editorPalette.border)
+    readonly property color editorBorderStrong:  _editorStorm ? _stoBorderStrong
+                                     : _asColor(_editorPalette.borderStrong)
+    readonly property color editorSelection:     _editorStorm ? _stoSelection
+                                     : _asColor(_editorPalette.selected)
+    readonly property color editorAccent:        _editorStorm ? _stoBolt
+                                     : _asColor(_editorPalette.accent)
+    readonly property color editorAccentInk:     _editorStorm ? _stoBoltInk
+                                     : _asColor(_editorPalette.accentText)
+    readonly property color editorText:          _editorStorm ? _stoText
+                                     : _asColor(_editorPalette.textPrimary)
+    readonly property color editorTextSecondary: _editorStorm ? _stoTextSecondary
+                                     : _asColor(_editorPalette.textSecondary)
+    readonly property color editorTextMuted:     _editorStorm ? _stoTextMuted
+                                     : _asColor(_editorPalette.textMuted)
+    readonly property color editorDanger:        _editorStorm ? _stoDanger
+                                     : _asColor(_editorPalette.danger)
 
     // Deterministic initials-avatar discs, DERIVED FROM THE ACTIVE THEME.
     //
