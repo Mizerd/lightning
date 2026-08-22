@@ -327,7 +327,12 @@ QtObject {
     readonly property color _indBorderStrong:  "#5A5768"
     readonly property color _indInputBg:       "#24212C"
     readonly property color _indCodeBlock:     "#100C18"
-    readonly property color _indLink:              "#ACAAFD"
+    // Blue, on request (2026-08-22): the previous #ACAAFD was a violet
+    // sitting between the accent and the selected-row ink, and a link
+    // that shares a hue with the selection does not read as a link.
+    // 4.79:1 at worst across every Indigo surface (the own bubble),
+    // so it clears AA everywhere it can land.
+    readonly property color _indLink:              "#93C5FD"
     readonly property color _indAccent:        "#4A4EED"
     readonly property color _indAccentHover:   "#5C61F0"
     readonly property color _indAccentPressed: "#4043CC"

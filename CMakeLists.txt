@@ -518,6 +518,10 @@ set(APP_SOURCES
     src/media/PlayableFileWriter.cpp
     src/media/MediaImageProvider.h
     src/media/MediaImageProvider.cpp
+    src/media/StagedImageStore.h
+    src/media/StagedImageStore.cpp
+    src/media/StagedImageProvider.h
+    src/media/StagedImageProvider.cpp
     src/media/MediaPlaybackController.h
     src/media/MediaPlaybackController.cpp
     src/media/VideoPosterExtractor.h
@@ -1998,6 +2002,8 @@ if(BUILD_TESTING)
         src/models/MarkdownFormat.cpp
         src/models/AttachmentQueueModel.h
         src/models/AttachmentQueueModel.cpp
+        src/media/StagedImageStore.h
+        src/media/StagedImageStore.cpp
         # v0.7: the queue owns send-side video poster extraction. The suite
         # installs the poster hook, so no QMediaPlayer is ever constructed.
         src/media/VideoPosterExtractor.h
@@ -2338,6 +2344,8 @@ if(BUILD_TESTING)
         src/models/MarkdownFormat.cpp
         src/models/AttachmentQueueModel.h
         src/models/AttachmentQueueModel.cpp
+        src/media/StagedImageStore.h
+        src/media/StagedImageStore.cpp
         src/media/VideoPosterExtractor.h
         src/media/VideoPosterExtractor.cpp
         src/threads/ThreadController.h
@@ -2540,6 +2548,8 @@ if(BUILD_TESTING)
         src/models/UserLookup.cpp
         src/models/AttachmentQueueModel.h
         src/models/AttachmentQueueModel.cpp
+        src/media/StagedImageStore.h
+        src/media/StagedImageStore.cpp
         # v0.7: see attachment-queue-test — the poster hook keeps this
         # suite free of any real media backend.
         src/media/VideoPosterExtractor.h

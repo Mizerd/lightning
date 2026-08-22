@@ -7752,6 +7752,32 @@ async fn enqueue_spaces(
     enqueue(events, json!({ "type": "space_list_reset", "spaces": spaces }));
 }
 
+/// The room-list ordering stamp, in milliseconds.
+///
+/// Deliberately the SDK's LatestEvent — the message-like event the room-list
+/// preview is built from — and only then `Room::latest_event_timestamp()` as a
+/// fallback.
+///
+/// `latest_event_timestamp()` is the newest event of ANY kind. Opening a room
+/// loads its timeline, which brings state events (a member joining or leaving)
+/// into that answer, so the room jumps up the list; unloading the timeline
+/// takes them back out and it drops again. That is the reported "clicking an
+/// older room moves it upwards, then it drops back down to where it was", and
+/// the tester's own guess — "hidden room updates, like users leaving or
+/// joining" — was right. A room's position must follow what was SAID in it.
+fn room_ordering_timestamp_ms(
+    latest: &matrix_sdk_base::latest_event::LatestEventValue,
+    room: &Room,
+) -> u64 {
+    use matrix_sdk_base::latest_event::LatestEventValue;
+    if let LatestEventValue::Remote(event) = latest {
+        if let Ok(deserialized) = event.raw().deserialize() {
+            return u64::from(deserialized.origin_server_ts().get());
+        }
+    }
+    room.latest_event_timestamp().map(|ts| u64::from(ts.get())).unwrap_or(0)
+}
+
 async fn room_payload(room: &Room) -> serde_json::Value {
     let membership = match room.state() {
         matrix_sdk::RoomState::Joined => "joined",
@@ -7771,6 +7797,10 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         }
     } else { (String::new(), String::new()) };
 
+    // Read once: the preview text and the ordering stamp must describe the
+    // SAME event, and `latest_event()` is not free.
+    let latest_event = room.latest_event();
+
     json!({
         "id": room.room_id().to_string(),
         "membership": membership,
@@ -7778,8 +7808,8 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "canonical_alias": room.canonical_alias().map(|alias| alias.to_string()).unwrap_or_default(),
         "topic": room.topic().unwrap_or_default(),
         "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
-        "last_message_preview": latest_event_preview_text(&room.latest_event()),
-        "last_activity_ms": room.latest_event_timestamp().map(|ts| u64::from(ts.get())).unwrap_or(0),
+        "last_message_preview": latest_event_preview_text(&latest_event),
+        "last_activity_ms": room_ordering_timestamp_ms(&latest_event, room),
         "unread_count": room.num_unread_notifications().max(notifications.notification_count),
         "highlight_count": room.num_unread_mentions().max(notifications.highlight_count),
         "marked_unread": room.is_marked_unread(),

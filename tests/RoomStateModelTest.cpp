@@ -119,6 +119,7 @@ private Q_SLOTS:
     void everyCategoryTheModelEmitsHasASectionLabel();
     void theFavouritesSectionIsClosedOffByADivider();
     void theFavouritesBoundaryIsOwnedByTheModel();
+    void roomActivityOnlyEverMovesForward();
 };
 
 void RoomStateModelTest::directClassificationUsesMDirectOnly()
@@ -877,6 +878,36 @@ void RoomStateModelTest::theFavouritesBoundaryIsOwnedByTheModel()
              QStringLiteral("favourite"));
     QVERIFY2(model.favouritesBoundaryRoomId().isEmpty(),
              "a favourites-only list must not hang a trailing rule");
+}
+
+void RoomStateModelTest::roomActivityOnlyEverMovesForward()
+{
+    // The room list sorts on RoomInfo::lastActivity, and four separate places
+    // used to assign it. When any two disagreed a room jumped and fell back —
+    // reported three times as "clicking an older room moves it upwards in the
+    // room order, then it drops back down to where it was".
+    RoomInfo room;
+    const QDateTime older = QDateTime::fromMSecsSinceEpoch(1'700'000'000'000);
+    const QDateTime newer = older.addSecs(600);
+
+    // Nothing known yet: any valid stamp takes.
+    QVERIFY(!room.lastActivity.isValid());
+    QVERIFY(!room.raiseActivity(QDateTime()));   // invalid is never news
+    QVERIFY(!room.lastActivity.isValid());
+    QVERIFY(room.raiseActivity(newer));
+    QCOMPARE(room.lastActivity, newer);
+
+    // A stale answer — a summary that has not caught up, or a timeline that
+    // was loaded and then unloaded — must not pull the room back down.
+    QVERIFY(!room.raiseActivity(older));
+    QCOMPARE(room.lastActivity, newer);
+    // Nor may an identical one report a change and churn the list.
+    QVERIFY(!room.raiseActivity(newer));
+    QCOMPARE(room.lastActivity, newer);
+    // Genuinely newer still moves.
+    const QDateTime newest = newer.addSecs(1);
+    QVERIFY(room.raiseActivity(newest));
+    QCOMPARE(room.lastActivity, newest);
 }
 
 QTEST_GUILESS_MAIN(RoomStateModelTest)

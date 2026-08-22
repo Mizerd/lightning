@@ -10,6 +10,7 @@
 #include "gif/GifProviderSelfTest.h"
 #include "app/StormBandPainter.h"
 #include "media/MediaImageProvider.h"
+#include "media/StagedImageProvider.h"
 #include "app/GuiStallTracer.h"
 #include "media/VaapiLogGate.h"
 #include "storage/AppDataPaths.h"
@@ -1005,6 +1006,11 @@ int main(int argc, char *argv[])
     // id, so a plain parameterless provider suffices.
     engine.addImageProvider(QStringLiteral("storm-band"),
                             new StormBandImageProvider());
+    // Composer chips for images that are queued but not sent. A clipboard
+    // paste never becomes a file, so there is no file:// URL to point an
+    // Image at; the bytes live on the controller and are served from here.
+    engine.addImageProvider(QStringLiteral("lightning-staged"),
+                            new StagedImageProvider(controller.stagedImages()));
 
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed,

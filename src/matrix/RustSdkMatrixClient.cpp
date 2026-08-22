@@ -3651,9 +3651,10 @@ RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
         if (!incomingPreview.isEmpty())
             room.lastMessagePreview = incomingPreview;
     }
-    const auto activity = timestampFromMs(static_cast<qint64>(
-        obj.value(QStringLiteral("last_activity_ms")).toDouble(0)));
-    if (activity.isValid()) room.lastActivity = activity;
+    // RoomInfo::raiseActivity is monotonic; see its comment. Every writer of
+    // the room list's sort key goes through it.
+    room.raiseActivity(timestampFromMs(static_cast<qint64>(
+        obj.value(QStringLiteral("last_activity_ms")).toDouble(0))));
     room.unreadCount = obj.value(QStringLiteral("unread_count")).toInt(room.unreadCount);
     room.highlightCount = obj.value(QStringLiteral("highlight_count")).toInt(room.highlightCount);
     room.markedUnread = obj.value(QStringLiteral("marked_unread")).toBool(room.markedUnread);
@@ -3820,10 +3821,8 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
                 obj.value(QStringLiteral("body")).toString());
             if (!body.isEmpty())
                 roomIt->lastMessagePreview = body;
-            const QDateTime ts = timestampFromMs(static_cast<qint64>(
-                obj.value(QStringLiteral("timestamp_ms")).toDouble(0)));
-            if (ts.isValid())
-                roomIt->lastActivity = ts;
+            roomIt->raiseActivity(timestampFromMs(static_cast<qint64>(
+                obj.value(QStringLiteral("timestamp_ms")).toDouble(0))));
             Q_EMIT roomUpdated(roomId);
         }
         return;
@@ -3933,11 +3932,7 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
             && timelineEvent.type != TimelineEvent::StateChange;
         if (countsAsActivity) {
             roomIt->lastMessagePreview = previewFor(timelineEvent);
-            if (timelineEvent.timestamp.isValid()
-                && (!roomIt->lastActivity.isValid()
-                    || timelineEvent.timestamp > roomIt->lastActivity)) {
-                roomIt->lastActivity = timelineEvent.timestamp;
-            }
+            roomIt->raiseActivity(timelineEvent.timestamp);
             Q_EMIT roomUpdated(roomId);
         }
     }
@@ -3953,13 +3948,7 @@ void RustSdkMatrixClient::updateRoomPreviewFrom(
         if (event.isVirtual())
             continue;
         roomIt->lastMessagePreview = previewFor(event);
-        // Same monotonicity rule as the append path: this is fed newest-first
-        // CANDIDATES, including ones re-read from history.
-        if (event.timestamp.isValid()
-            && (!roomIt->lastActivity.isValid()
-                || event.timestamp > roomIt->lastActivity)) {
-            roomIt->lastActivity = event.timestamp;
-        }
+        roomIt->raiseActivity(event.timestamp);
         Q_EMIT roomUpdated(roomId);
         return;
     }

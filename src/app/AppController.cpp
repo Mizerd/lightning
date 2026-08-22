@@ -180,6 +180,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_timelineView = std::make_unique<ReverseListProxyModel>(this);
     m_timelineView->setSourceModel(m_timeline.get());
     m_composer     = std::make_unique<MessageComposer>(this);
+    // Clipboard images never become files, so their bytes are registered
+    // here for the composer chip to preview. One store, both composers.
+    m_composer->attachments()->setStagedImages(&m_stagedImages);
     // v0.7.x drafts: one shared store (room + thread composers), policy in
     // DraftStore — persisted only for unencrypted rooms.
     m_draftStore   = std::make_unique<DraftStore>(this);
@@ -227,6 +230,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_pinned       = std::make_unique<PinnedMessagesController>(this);
     m_roomUpgrade  = std::make_unique<RoomUpgradeController>(this);
     m_thread       = std::make_unique<ThreadController>(this);
+    m_thread->attachments()->setStagedImages(&m_stagedImages);
     m_conversations= std::make_unique<ConversationController>(this);
     m_discovery = std::make_unique<RoomDiscoveryController>(this);
     m_messageSearch = std::make_unique<MessageSearchController>(this);
@@ -2944,6 +2948,12 @@ void AppController::onLoggedOut()
     // account — or a re-login — must hydrate rooms afresh.
     m_memberHydratedRooms.clear();
     m_playback->stopAll(); // no playback (or decrypted-media handle) survives
+    // Unsent clipboard images belong to the session that staged them. Both
+    // composers clear their queues on the way out, which releases each token
+    // individually; this is the belt-and-braces sweep, so a queue that failed
+    // to clear cannot leave image bytes in memory across a sign-out or an
+    // account switch.
+    m_stagedImages.clear();
     Q_EMIT currentRoomIdChanged();
     if (m_accountSwitching) {
         // The old session was detached locally as part of a switch; stay on

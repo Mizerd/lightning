@@ -1,5 +1,7 @@
 #include "models/AttachmentQueueModel.h"
 
+#include "media/StagedImageStore.h"
+
 #include "matrix/MatrixClient.h"
 #include "media/VideoPosterExtractor.h"
 
@@ -199,12 +201,22 @@ QString AttachmentQueueModel::addImageData(const QByteArray &bytes,
     entry.width = width;
     entry.height = height;
     entry.isImage = true;
+    // No file exists for a paste, so the bytes are registered for preview.
+    // A full store just means no thumbnail — never a refused paste.
+    if (m_stagedImages)
+        entry.stagedToken = m_stagedImages->add(bytes);
 
     beginInsertRows({}, m_entries.size(), m_entries.size());
     m_entries.append(entry);
     endInsertRows();
     Q_EMIT countChanged();
     return {};
+}
+
+void AttachmentQueueModel::releaseStaged(const Entry &entry)
+{
+    if (m_stagedImages && !entry.stagedToken.isEmpty())
+        m_stagedImages->remove(entry.stagedToken);
 }
 
 void AttachmentQueueModel::removeAt(int row)
@@ -214,6 +226,7 @@ void AttachmentQueueModel::removeAt(int row)
     // Entries mid-dispatch cannot be removed; they leave on completion.
     if (m_entries.at(row).state == QLatin1String("dispatching"))
         return;
+    releaseStaged(m_entries.at(row));
     beginRemoveRows({}, row, row);
     m_entries.removeAt(row);
     endRemoveRows();
@@ -224,6 +237,8 @@ void AttachmentQueueModel::clearAll()
 {
     if (m_entries.isEmpty())
         return;
+    for (const Entry &entry : m_entries)
+        releaseStaged(entry);
     beginResetModel();
     m_entries.clear();
     endResetModel();
@@ -272,6 +287,15 @@ QVariant AttachmentQueueModel::data(const QModelIndex &index, int role) const
     case SizeBytesRole: return e.sizeBytes;
     case SizeLabelRole: return humanSize(e.sizeBytes);
     case IsImageRole:   return e.isImage;
+    case PreviewSourceRole: {
+        if (!e.isImage && !e.isVideo)
+            return QString();
+        if (!e.localPath.isEmpty())
+            return QUrl::fromLocalFile(e.localPath).toString();
+        if (!e.stagedToken.isEmpty())
+            return QStringLiteral("image://lightning-staged/") + e.stagedToken;
+        return QString();
+    }
     case StateRole:     return e.state;
     case ErrorRole:     return e.error;
     default:            return {};
@@ -287,6 +311,7 @@ QHash<int, QByteArray> AttachmentQueueModel::roleNames() const
         { SizeBytesRole, "sizeBytes" },
         { SizeLabelRole, "sizeLabel" },
         { IsImageRole,   "isImage" },
+        { PreviewSourceRole, "previewSource" },
         { StateRole,     "state" },
         { ErrorRole,     "error" },
     };

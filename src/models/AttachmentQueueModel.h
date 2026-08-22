@@ -10,6 +10,7 @@
 #include <functional>
 
 class MatrixClient;
+class StagedImageStore;
 class VideoPosterExtractor;
 
 // v0.5.9: attachments prepared in the composer before sending.
@@ -40,6 +41,13 @@ public:
         IsImageRole,
         StateRole,        // "queued" | "dispatching" | "failed"
         ErrorRole,
+        // What QML should point an Image at to preview this entry BEFORE it
+        // is sent: the file URL for a picked file, an
+        // image://lightning-staged/<token> URL for clipboard bytes (which
+        // have no file), and empty for anything that is not a still image.
+        // LocalUrlRole is empty for pasted data, which is why the composer
+        // chip showed a generic icon for every pasted screenshot.
+        PreviewSourceRole,
     };
 
     struct Entry {
@@ -52,6 +60,9 @@ public:
         int height = 0;
         bool isImage = false;
         bool animated = false;
+        // Token into StagedImageStore for in-memory (clipboard) images.
+        // Released when the entry leaves the queue, whichever way it leaves.
+        QString stagedToken;
         QString state = QStringLiteral("queued");
         QString error;
         quint64 opId = 0;    // set while dispatching
@@ -75,6 +86,9 @@ public:
     explicit AttachmentQueueModel(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+    // Where clipboard bytes are registered so QML can preview them. Optional:
+    // without a store a pasted image simply has no preview, exactly as before.
+    void setStagedImages(StagedImageStore *store) { m_stagedImages = store; }
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -133,7 +147,13 @@ private:
     void startPosterJob(int row);
     int rowForPosterTag(const QString &tag) const;
 
+    // Drops an entry's staged-image registration, whichever way it is
+    // leaving the queue. Every removal path must call it: a token left
+    // behind holds the bytes for the life of the session.
+    void releaseStaged(const Entry &entry);
+
     MatrixClient *m_client = nullptr;
+    StagedImageStore *m_stagedImages = nullptr;
     QList<Entry> m_entries;
     // Created lazily on the first video, so a session that never attaches
     // one never constructs a QMediaPlayer.

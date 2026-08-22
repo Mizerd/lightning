@@ -18,6 +18,7 @@
 #include "crypto/CryptoManager.h"
 #include "crypto/QrImageProvider.h"
 #include "media/MediaBridge.h"
+#include "media/StagedImageStore.h"
 #include "media/MediaPlaybackController.h"
 #include "media/MediaManager.h"
 #include "media/VoiceRecorder.h"
@@ -819,6 +820,11 @@ public Q_SLOTS:
 
     // Owned here so it outlives the QML engine that holds the provider.
     QrCodeStore *qrCodeStore() { return &m_qrCodeStore; }
+    // Ditto: StagedImageProvider reads it from the QML loader thread, so it
+    // must outlive the engine. Holds the encoded bytes of clipboard images
+    // that are queued to send but not sent — the only way a chip can preview
+    // a paste, which never becomes a file.
+    StagedImageStore *stagedImages() { return &m_stagedImages; }
 
     // v0.5.6 Security & Recovery accessors.
     QString sessionTrustState() const { return m_sessionTrustState; }
@@ -1092,6 +1098,7 @@ private:
     // SDK-reported progress flags. `clearVerificationQr` is the single
     // point that drops both, and every flow-ending path calls it.
     QrCodeStore m_qrCodeStore;
+    StagedImageStore m_stagedImages;
     QString m_verificationQrToken;
     bool m_verificationQrScanned = false;
     bool m_verificationQrConfirming = false;

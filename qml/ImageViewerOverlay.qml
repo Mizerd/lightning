@@ -190,6 +190,41 @@ Popup {
         }
     }
 
+    // Popped into the overlay, not into the viewer, so it is never clipped
+    // by the image's own Flickable.
+    AppMenu {
+        id: viewerMenu
+        objectName: "imageViewerContextMenu"
+        AppMenuItem {
+            objectName: "viewerCopyImage"
+            iconName: "content_copy"
+            text: qsTr("Copy image")
+            enabled: viewer.current !== null
+                     && (viewer.current.mediaKey || "").length > 0
+                     && app.mediaBridge.supported
+            onTriggered: app.copyImageToClipboard(viewer.current.mediaKey)
+        }
+        AppMenuItem {
+            objectName: "viewerSaveImage"
+            iconName: "download"
+            text: qsTr("Save image as…")
+            enabled: viewer.current !== null
+                     && (viewer.current.mediaKey || "").length > 0
+                     && app.mediaBridge.supported
+            onTriggered: {
+                saveDialog.currentFile =
+                    "file:///" + (viewer.current.filename || "image")
+                saveDialog.open()
+            }
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            iconName: "close"
+            text: qsTr("Close")
+            onTriggered: viewer.close()
+        }
+    }
+
     FileDialog {
         id: saveDialog
         title: qsTr("Save image as…")
@@ -295,6 +330,21 @@ Popup {
                         id: imageTap
                         gesturePolicy: TapHandler.WithinBounds
                         onTapped: viewer.close()
+                    }
+                    // Right-click the picture itself for the actions a person
+                    // expects there — asked for in those words, "same as in
+                    // Discord". LeftButton is imageTap's default, so the two
+                    // handlers cannot both fire on one press.
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        gesturePolicy: TapHandler.WithinBounds
+                        onTapped: (eventPoint) => {
+                            chrome.wake()
+                            var p = imageHolder.mapToItem(
+                                Overlay.overlay,
+                                eventPoint.position.x, eventPoint.position.y)
+                            viewerMenu.popup(Overlay.overlay, p.x, p.y)
+                        }
                     }
                     // Grab cursors while pannable.
                     HoverHandler {

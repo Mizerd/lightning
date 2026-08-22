@@ -225,58 +225,74 @@ Popup {
                     }
                 }
 
-                // Reset-to-default, with its confirmation inline. A second
-                // dialog on top of this one would be painted by the shared
-                // dialog shell, which is exactly what this surface cannot
-                // depend on.
-                Label {
-                    visible: root.confirmingReset
-                    text: qsTr("Reset every colour?")
-                    color: AppTheme.editorText
-                    font.family: AppTheme.uiFont
-                    font.pixelSize: AppTheme.textMeta
-                }
-                EditorButton {
-                    objectName: "themeResetConfirmButton"
-                    visible: root.confirmingReset
-                    danger: true
-                    text: qsTr("Reset to default")
-                    onClicked: {
-                        root.store.resetAll()
-                        root.confirmingReset = false
-                        if (root.editingRole.length > 0)
-                            picker.load(root.effectiveColor(root.editingRole))
-                    }
-                }
-                EditorButton {
-                    visible: root.confirmingReset
-                    text: qsTr("Keep")
-                    onClicked: root.confirmingReset = false
-                }
-                EditorButton {
-                    objectName: "themeResetAllButton"
-                    visible: !root.confirmingReset
-                    enabled: root.store.overrideCount > 0
-                    text: qsTr("Reset to default")
-                    onClicked: root.confirmingReset = true
-                }
+                // The actions, in their own Row.
+                //
+                // A Row and NOT more RowLayout children: a linear layout
+                // hands its slack to items it thinks can grow, and the
+                // buttons ended up separated by a couple of hundred pixels
+                // each ("buttons on the top are spaced apart very widely").
+                // A Row positions children at their implicit widths with a
+                // fixed gap and skips invisible ones, which is exactly what
+                // a button cluster wants.
+                Row {
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: AppTheme.spacing8
 
-                // Applying is a separate decision from authoring: the preview
-                // below renders the custom palette whether or not the running
-                // application uses it, so a theme can be built and looked at
-                // before it takes over the window.
-                EditorButton {
-                    objectName: "themeApplyButton"
-                    visible: app.settings.theme !== 12
-                    primary: true
-                    text: qsTr("Use this theme")
-                    onClicked: app.settings.theme = 12
-                }
-                EditorButton {
-                    objectName: "themeEditorDoneButton"
-                    primary: app.settings.theme === 12
-                    text: qsTr("Done")
-                    onClicked: root.close()
+                    // Reset-to-default, with its confirmation inline. A second
+                    // dialog on top of this one would be painted by the shared
+                    // dialog shell, which is exactly what this surface cannot
+                    // depend on.
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: root.confirmingReset
+                        text: qsTr("Reset every colour?")
+                        color: AppTheme.editorText
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                        rightPadding: AppTheme.spacing4
+                    }
+                    EditorButton {
+                        objectName: "themeResetConfirmButton"
+                        visible: root.confirmingReset
+                        danger: true
+                        text: qsTr("Reset to default")
+                        onClicked: {
+                            root.store.resetAll()
+                            root.confirmingReset = false
+                            if (root.editingRole.length > 0)
+                                picker.load(root.effectiveColor(root.editingRole))
+                        }
+                    }
+                    EditorButton {
+                        visible: root.confirmingReset
+                        text: qsTr("Keep")
+                        onClicked: root.confirmingReset = false
+                    }
+                    EditorButton {
+                        objectName: "themeResetAllButton"
+                        visible: !root.confirmingReset
+                        enabled: root.store.overrideCount > 0
+                        text: qsTr("Reset to default")
+                        onClicked: root.confirmingReset = true
+                    }
+
+                    // Applying is a separate decision from authoring: the
+                    // preview below renders the custom palette whether or not
+                    // the running application uses it, so a theme can be built
+                    // and looked at before it takes over the window.
+                    EditorButton {
+                        objectName: "themeApplyButton"
+                        visible: app.settings.theme !== 12
+                        primary: true
+                        text: qsTr("Use this theme")
+                        onClicked: app.settings.theme = 12
+                    }
+                    EditorButton {
+                        objectName: "themeEditorDoneButton"
+                        primary: app.settings.theme === 12
+                        text: qsTr("Done")
+                        onClicked: root.close()
+                    }
                 }
             }
 

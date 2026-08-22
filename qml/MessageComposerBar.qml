@@ -536,6 +536,15 @@ Item {
                         anchors.centerIn: parent
                         spacing: AppTheme.spacingXS
 
+                        // What to point an Image at. A picked file resolves
+                        // to its file:// URL; a PASTED image has no file at
+                        // all and resolves to image://lightning-staged/<token>
+                        // — which is why every pasted screenshot used to show
+                        // a generic icon instead of itself.
+                        readonly property string previewSource:
+                            model.previewSource || ""
+                        readonly property bool hasPreview:
+                            chipLayout.previewSource.length > 0
                         readonly property bool hasLocalFile:
                             model.localUrl.toString().length > 0
                         // review L2: guarded — model roles can resolve
@@ -551,7 +560,7 @@ Item {
                         // player — bounded by the tray size and destroyed
                         // with the chip on remove/send.
                         Rectangle {
-                            visible: chipLayout.hasLocalFile
+                            visible: chipLayout.hasPreview
                                      && (model.isImage || chipLayout.isVideoChip)
                             width: 64; height: 48
                             radius: AppTheme.radiusSm
@@ -560,8 +569,16 @@ Item {
 
                             Image {
                                 anchors.fill: parent
-                                visible: model.isImage && !chipLayout.isGifChip
-                                source: visible ? model.localUrl : ""
+                                // Everything that is not an animating GIF
+                                // FILE, including a pasted image served by
+                                // the staged provider — AnimatedImage needs
+                                // a real URL to decode frames from and
+                                // cannot animate an image:// source, so a
+                                // pasted GIF shows its first frame here.
+                                visible: model.isImage
+                                         && !(chipLayout.isGifChip
+                                              && chipLayout.hasLocalFile)
+                                source: visible ? chipLayout.previewSource : ""
                                 sourceSize.width: 128
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
@@ -569,6 +586,7 @@ Item {
                             AnimatedImage {
                                 anchors.fill: parent
                                 visible: chipLayout.isGifChip
+                                         && chipLayout.hasLocalFile
                                 source: visible ? model.localUrl : ""
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
@@ -639,7 +657,7 @@ Item {
                             }
                         }
                         Icon {
-                            visible: !chipLayout.hasLocalFile
+                            visible: !chipLayout.hasPreview
                                      || (!model.isImage && !chipLayout.isVideoChip)
                             name: model.isImage ? "image" : "attach_file"
                             size: 16
@@ -845,9 +863,16 @@ Item {
                         // per-item MultiEffect mask (Avatar.qml records the
                         // per-frame cost of the mask approach).
                         Image {
-                            visible: app.composer.isReplying
-                                     && (app.composer.replyingToMediaKey || "")
-                                            .length > 0
+                            id: composerReplyThumb
+                            objectName: "composerReplyThumb"
+                            readonly property string replyKey:
+                                app.composer.isReplying
+                                ? (app.composer.replyingToMediaKey || "") : ""
+                            readonly property string bridgeSource:
+                                replyKey.length > 0 && app.mediaBridge.supported
+                                ? app.mediaBridge.mediaSource(replyKey, "thumb")
+                                : ""
+                            visible: replyKey.length > 0
                                      && status !== Image.Error
                                      && app.mediaBridge.supported
                             Layout.preferredWidth: 26
@@ -856,11 +881,31 @@ Item {
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             sourceSize.width: 52
-                            source: visible
-                                    ? app.mediaBridge.mediaSource(
-                                          app.composer.replyingToMediaKey,
-                                          "thumb") + "|shape:rsq:230"
-                                    : ""
+                            source: bridgeSource.length > 0
+                                    ? bridgeSource + "|shape:rsq:230" : ""
+                            // mediaSource() returns "" on a cache MISS and
+                            // dispatches a fetch; nothing this binding depends
+                            // on changes when the bytes land, so without this
+                            // the thumbnail simply never appeared unless the
+                            // image happened to be cached already. The
+                            // timeline's reply quote has had the same re-ask
+                            // since 2026-08-18 — the composer never got it,
+                            // which is the "replying to an image still doesn't
+                            // show the image above the text box" report.
+                            Connections {
+                                target: app.mediaBridge
+                                enabled: composerReplyThumb.replyKey.length > 0
+                                function onMediaCached(key) {
+                                    if (composerReplyThumb.source.toString()
+                                            .length > 0)
+                                        return
+                                    var again = app.mediaBridge.mediaSource(
+                                        composerReplyThumb.replyKey, "thumb")
+                                    if (again.length > 0)
+                                        composerReplyThumb.source =
+                                            again + "|shape:rsq:230"
+                                }
+                            }
                         }
 
                         ColumnLayout {

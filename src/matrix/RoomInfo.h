@@ -24,7 +24,30 @@ struct RoomInfo {
     QString topic;
     QString avatarUrl;
     QString lastMessagePreview;
+    // The room list's sort key. Write it ONLY through raiseActivity().
     QDateTime lastActivity;
+
+    // Moves lastActivity forward, never backwards. Returns true when it
+    // actually moved.
+    //
+    // Four different places used to assign this field, and a room jumped
+    // whenever any two of them disagreed — the repeatedly reported "clicking
+    // an older room moves it upwards in the room order, then it drops back
+    // down to where it was". Events only ever get newer, so a DECREASE is
+    // always an artefact: a summary that has not caught up, or a room whose
+    // timeline was loaded (bringing state events into the SDK's "latest
+    // event of any kind") and then unloaded again. The one genuine decrease
+    // — redacting the newest message in a room — costs nothing but the room
+    // keeping its place.
+    bool raiseActivity(const QDateTime &when)
+    {
+        if (!when.isValid())
+            return false;
+        if (lastActivity.isValid() && when <= lastActivity)
+            return false;
+        lastActivity = when;
+        return true;
+    }
     int unreadCount = 0;
     int highlightCount = 0;
     bool markedUnread = false;
