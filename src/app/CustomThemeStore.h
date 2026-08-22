@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QJsonObject>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QVariantList>
@@ -28,6 +30,12 @@ class CustomThemeStore : public QObject
     // Labels and group names are translated, so this is re-read on a language
     // change rather than being CONSTANT.
     Q_PROPERTY(QVariantList roles READ roles NOTIFY rolesChanged)
+    // Every saved theme: [{ id, name, baseTheme, overrideCount }], in the
+    // order they were created. Theme id 12 always renders whichever of these
+    // is ACTIVE, so switching between them is what selecting one means.
+    Q_PROPERTY(QVariantList themes READ themes NOTIFY customThemeChanged)
+    Q_PROPERTY(QString activeThemeId READ activeThemeId WRITE setActiveThemeId
+                   NOTIFY customThemeChanged)
     // role -> "#RRGGBB", sparse. Only what the user actually changed.
     Q_PROPERTY(QVariantMap colors READ colors NOTIFY customThemeChanged)
     // The theme this one was forked from; every role the user has not
@@ -48,6 +56,9 @@ public:
     static constexpr int kCustomThemeId = 12;
 
     QVariantList roles() const;
+    QVariantList themes() const;
+    QString activeThemeId() const;
+    void setActiveThemeId(const QString &id);
     QVariantMap colors() const;
     int baseTheme() const;
     QString name() const;
@@ -66,8 +77,35 @@ public:
     // Drops every override. The base theme choice and name are kept, because
     // "start over from this base" is the common intent.
     Q_INVOKABLE void resetAll();
-    // Forgets the custom theme entirely.
+    // Forgets every custom theme.
     Q_INVOKABLE void discard();
+
+    // ---- the collection --------------------------------------------------
+
+    // Creates an empty theme on the current base and selects it. Returns its
+    // id, or an empty string when the collection is full.
+    Q_INVOKABLE QString createTheme(const QString &name);
+    // Copies the active theme's base AND colours into a new theme, and
+    // selects it. This is how "edit a theme into a new one" works without a
+    // separate mode.
+    Q_INVOKABLE QString duplicateActiveTheme(const QString &name);
+    Q_INVOKABLE void deleteTheme(const QString &id);
+
+    // A one-line, pasteable representation of one theme. Compact JSON rather
+    // than an opaque blob on purpose: a shared theme is a small readable
+    // thing, and anyone receiving one can see exactly what it will change
+    // before importing it.
+    Q_INVOKABLE QString exportTheme(const QString &id) const;
+    // Reads one back. Returns an empty string on success, or a short
+    // user-facing reason. Everything is re-validated: unknown roles and
+    // malformed colours are dropped by sanitize(), the base is clamped to a
+    // real preset, and the name is bounded. A shared theme is untrusted
+    // input that gets to paint the whole window.
+    Q_INVOKABLE QString importTheme(const QString &payload);
+
+    // Bounded so a corrupt config cannot grow without limit.
+    static constexpr int kMaxThemes = 24;
+    static constexpr int kMaxNameLength = 48;
 
     Q_INVOKABLE bool isValidColor(const QString &hex) const;
     Q_INVOKABLE bool isEditableRole(const QString &role) const;
@@ -86,7 +124,26 @@ Q_SIGNALS:
     void rolesChanged();
 
 private:
+    struct Theme {
+        QString id;
+        QString name;
+        int baseTheme = 0;
+        QVariantMap colors;
+    };
+
     void store(const QVariantMap &colors);
+    // Parsed once and cached: QML reads colors()/baseTheme()/overrideCount()
+    // once per role per repaint, and re-parsing the whole collection from
+    // JSON on each of those was measurable in the editor.
+    const QList<Theme> &load() const;
+    void save(const QList<Theme> &themes, const QString &activeId);
+    int activeIndex() const;
+    static QString makeId(const QList<Theme> &existing);
+    static Theme fromJson(const QJsonObject &object);
+    static QJsonObject toJson(const Theme &theme);
 
     SettingsManager *m_settings = nullptr;
+    mutable QList<Theme> m_cache;
+    mutable QString m_activeId;
+    mutable bool m_loaded = false;
 };

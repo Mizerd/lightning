@@ -2,9 +2,11 @@
 
 #include "app/SettingsManager.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QUuid>
 
 #include <iterator>
 
@@ -92,9 +94,20 @@ constexpr Role kRoles[] = {
       QT_TR_NOOP("Field outlines and the scrollbar handle") },
 };
 
+// The collection, and which of its entries theme id 12 renders.
+constexpr auto kListKey   = "appearance/customThemeList";
+constexpr auto kActiveKey = "appearance/customThemeActive";
+// Pre-collection keys, kept only so an existing custom theme survives the
+// upgrade. Migrated into the list on first load, after which the colours key
+// is cleared so the migration cannot run twice and duplicate the theme.
 constexpr auto kColorsKey = "appearance/customThemeColors";
 constexpr auto kBaseKey   = "appearance/customThemeBase";
 constexpr auto kNameKey   = "appearance/customThemeName";
+
+// The marker on a shared theme. Bumped only if the shape changes in a way an
+// older build could not read safely.
+constexpr int kShareFormat = 1;
+constexpr auto kShareKey = "lightning_theme";
 
 // #RRGGBB only. Not 8-digit ARGB: a translucent SHELL surface composites over
 // whatever is behind it, which makes the resulting contrast unknowable, and
@@ -166,75 +179,363 @@ QVariantList CustomThemeStore::roles() const
     return out;
 }
 
-QVariantMap CustomThemeStore::colors() const
+const QList<CustomThemeStore::Theme> &CustomThemeStore::load() const
+{
+    if (m_loaded)
+        return m_cache;
+    m_loaded = true;
+    m_cache.clear();
+    m_activeId.clear();
+    if (!m_settings)
+        return m_cache;
+
+    const QString json =
+        m_settings->appearanceValue(kListKey, QString()).toString();
+    if (!json.isEmpty()) {
+        const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+        if (doc.isArray()) {
+            const QJsonArray array = doc.array();
+            for (const QJsonValue &value : array) {
+                if (!value.isObject())
+                    continue;
+                Theme theme = fromJson(value.toObject());
+                if (theme.id.isEmpty())
+                    continue;
+                m_cache.append(theme);
+                if (m_cache.size() >= kMaxThemes)
+                    break;
+            }
+        }
+    }
+
+    // One-time migration from the single-theme keys. Runs only when the list
+    // is genuinely empty, so it cannot resurrect a theme the user deleted.
+    if (m_cache.isEmpty()) {
+        const QString legacyJson =
+            m_settings->appearanceValue(kColorsKey, QString()).toString();
+        const QJsonDocument legacy = QJsonDocument::fromJson(legacyJson.toUtf8());
+        const QVariantMap legacyColors =
+            legacy.isObject() ? sanitize(legacy.object().toVariantMap())
+                              : QVariantMap();
+        if (!legacyColors.isEmpty()) {
+            Theme theme;
+            theme.id = QStringLiteral("1");
+            theme.name = m_settings->appearanceValue(kNameKey, QString())
+                             .toString()
+                             .left(kMaxNameLength);
+            theme.baseTheme =
+                m_settings->appearanceValue(kBaseKey, SettingsManager::StormTheme)
+                    .toInt();
+            theme.colors = legacyColors;
+            m_cache.append(theme);
+            // Written through save() so the list exists before the legacy key
+            // is cleared — a crash between the two must not lose the theme.
+            const_cast<CustomThemeStore *>(this)->save(m_cache, theme.id);
+            m_settings->setAppearanceValue(kColorsKey, QString());
+        }
+    }
+
+    m_activeId = m_settings->appearanceValue(kActiveKey, QString()).toString();
+    bool known = false;
+    for (const Theme &theme : m_cache) {
+        if (theme.id == m_activeId) {
+            known = true;
+            break;
+        }
+    }
+    // A missing or deleted active id resolves to the first theme rather than
+    // to nothing: theme id 12 must always render SOMETHING when a theme
+    // exists, or selecting Custom would paint an undefined palette.
+    if (!known)
+        m_activeId = m_cache.isEmpty() ? QString() : m_cache.first().id;
+    return m_cache;
+}
+
+CustomThemeStore::Theme CustomThemeStore::fromJson(const QJsonObject &object)
+{
+    Theme theme;
+    theme.id = object.value(QStringLiteral("id")).toString();
+    theme.name = object.value(QStringLiteral("name")).toString()
+                     .left(kMaxNameLength);
+    theme.baseTheme = object.value(QStringLiteral("base"))
+                          .toInt(SettingsManager::StormTheme);
+    if (theme.baseTheme < SettingsManager::LightTheme
+        || theme.baseTheme > SettingsManager::StormTheme)
+        theme.baseTheme = SettingsManager::StormTheme;
+    theme.colors =
+        sanitize(object.value(QStringLiteral("colors")).toObject().toVariantMap());
+    return theme;
+}
+
+QJsonObject CustomThemeStore::toJson(const Theme &theme)
+{
+    QJsonObject object;
+    object.insert(QStringLiteral("id"), theme.id);
+    object.insert(QStringLiteral("name"), theme.name);
+    object.insert(QStringLiteral("base"), theme.baseTheme);
+    object.insert(QStringLiteral("colors"),
+                  QJsonObject::fromVariantMap(theme.colors));
+    return object;
+}
+
+void CustomThemeStore::save(const QList<Theme> &themes, const QString &activeId)
 {
     if (!m_settings)
+        return;
+    QJsonArray array;
+    for (const Theme &theme : themes)
+        array.append(toJson(theme));
+    m_settings->setAppearanceValue(
+        kListKey, QString::fromUtf8(
+                      QJsonDocument(array).toJson(QJsonDocument::Compact)));
+    m_settings->setAppearanceValue(kActiveKey, activeId);
+    m_cache = themes;
+    m_activeId = activeId;
+    m_loaded = true;
+    Q_EMIT customThemeChanged();
+}
+
+QString CustomThemeStore::makeId(const QList<Theme> &existing)
+{
+    // Small monotonic ids keep the stored JSON readable; uniqueness is what
+    // matters, so a collision just tries the next number.
+    for (int candidate = 1; candidate <= kMaxThemes * 4; ++candidate) {
+        const QString id = QString::number(candidate);
+        bool taken = false;
+        for (const Theme &theme : existing) {
+            if (theme.id == id) {
+                taken = true;
+                break;
+            }
+        }
+        if (!taken)
+            return id;
+    }
+    return QUuid::createUuid().toString(QUuid::Id128);
+}
+
+int CustomThemeStore::activeIndex() const
+{
+    const QList<Theme> &themes = load();
+    for (int i = 0; i < themes.size(); ++i) {
+        if (themes.at(i).id == m_activeId)
+            return i;
+    }
+    return -1;
+}
+
+QVariantList CustomThemeStore::themes() const
+{
+    QVariantList out;
+    for (const Theme &theme : load()) {
+        QVariantMap entry;
+        entry.insert(QStringLiteral("id"), theme.id);
+        entry.insert(QStringLiteral("name"), theme.name);
+        entry.insert(QStringLiteral("baseTheme"), theme.baseTheme);
+        entry.insert(QStringLiteral("overrideCount"), int(theme.colors.size()));
+        out.append(entry);
+    }
+    return out;
+}
+
+QString CustomThemeStore::activeThemeId() const
+{
+    load();
+    return m_activeId;
+}
+
+void CustomThemeStore::setActiveThemeId(const QString &id)
+{
+    const QList<Theme> themes = load();
+    if (id == m_activeId)
+        return;
+    for (const Theme &theme : themes) {
+        if (theme.id == id) {
+            save(themes, id);
+            return;
+        }
+    }
+}
+
+QString CustomThemeStore::createTheme(const QString &name)
+{
+    QList<Theme> themes = load();
+    if (themes.size() >= kMaxThemes)
         return {};
-    const QString json =
-        m_settings->appearanceValue(kColorsKey, QString()).toString();
-    if (json.isEmpty())
+    Theme theme;
+    theme.id = makeId(themes);
+    theme.name = name.trimmed().left(kMaxNameLength);
+    if (theme.name.isEmpty())
+        theme.name = tr("My theme");
+    theme.baseTheme = themes.isEmpty() ? int(SettingsManager::StormTheme)
+                                       : themes.at(qMax(0, activeIndex())).baseTheme;
+    themes.append(theme);
+    save(themes, theme.id);
+    return theme.id;
+}
+
+QString CustomThemeStore::duplicateActiveTheme(const QString &name)
+{
+    QList<Theme> themes = load();
+    const int index = activeIndex();
+    if (index < 0 || themes.size() >= kMaxThemes)
         return {};
-    const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+    Theme theme = themes.at(index);
+    theme.id = makeId(themes);
+    theme.name = name.trimmed().left(kMaxNameLength);
+    if (theme.name.isEmpty())
+        theme.name = tr("%1 copy").arg(themes.at(index).name);
+    themes.append(theme);
+    save(themes, theme.id);
+    return theme.id;
+}
+
+void CustomThemeStore::deleteTheme(const QString &id)
+{
+    QList<Theme> themes = load();
+    for (int i = 0; i < themes.size(); ++i) {
+        if (themes.at(i).id != id)
+            continue;
+        themes.removeAt(i);
+        QString nextActive = m_activeId;
+        if (nextActive == id)
+            nextActive = themes.isEmpty() ? QString()
+                                          : themes.at(qMin(i, themes.size() - 1)).id;
+        save(themes, nextActive);
+        return;
+    }
+}
+
+QString CustomThemeStore::exportTheme(const QString &id) const
+{
+    for (const Theme &theme : load()) {
+        if (theme.id != id)
+            continue;
+        QJsonObject object;
+        object.insert(QLatin1String(kShareKey), kShareFormat);
+        object.insert(QStringLiteral("name"), theme.name);
+        object.insert(QStringLiteral("base"), theme.baseTheme);
+        object.insert(QStringLiteral("colors"),
+                      QJsonObject::fromVariantMap(theme.colors));
+        return QString::fromUtf8(
+            QJsonDocument(object).toJson(QJsonDocument::Compact));
+    }
+    return {};
+}
+
+QString CustomThemeStore::importTheme(const QString &payload)
+{
+    QList<Theme> themes = load();
+    if (themes.size() >= kMaxThemes)
+        return tr("You already have the maximum number of themes.");
+    const QJsonDocument doc =
+        QJsonDocument::fromJson(payload.trimmed().toUtf8());
     if (!doc.isObject())
-        return {};
-    return sanitize(doc.object().toVariantMap());
+        return tr("That does not look like a shared theme.");
+    const QJsonObject object = doc.object();
+    if (object.value(QLatin1String(kShareKey)).toInt(0) != kShareFormat)
+        return tr("That does not look like a shared theme.");
+
+    Theme theme;
+    theme.id = makeId(themes);
+    theme.name = object.value(QStringLiteral("name")).toString()
+                     .trimmed().left(kMaxNameLength);
+    if (theme.name.isEmpty())
+        theme.name = tr("Shared theme");
+    theme.baseTheme = object.value(QStringLiteral("base"))
+                          .toInt(SettingsManager::StormTheme);
+    if (theme.baseTheme < SettingsManager::LightTheme
+        || theme.baseTheme > SettingsManager::StormTheme)
+        theme.baseTheme = SettingsManager::StormTheme;
+    // Untrusted input that gets to paint the whole window: everything not a
+    // known role carrying an opaque #RRGGBB is dropped here, not later.
+    theme.colors =
+        sanitize(object.value(QStringLiteral("colors")).toObject().toVariantMap());
+    if (theme.colors.isEmpty())
+        return tr("That theme has no colours in it.");
+    themes.append(theme);
+    save(themes, theme.id);
+    return {};
+}
+
+QVariantMap CustomThemeStore::colors() const
+{
+    const int index = activeIndex();
+    return index < 0 ? QVariantMap() : m_cache.at(index).colors;
 }
 
 void CustomThemeStore::store(const QVariantMap &colors)
 {
-    if (!m_settings)
-        return;
-    const QVariantMap clean = sanitize(colors);
-    const QString json = QString::fromUtf8(
-        QJsonDocument(QJsonObject::fromVariantMap(clean)).toJson(
-            QJsonDocument::Compact));
-    m_settings->setAppearanceValue(kColorsKey, json);
-    Q_EMIT customThemeChanged();
+    QList<Theme> themes = load();
+    int index = activeIndex();
+    if (index < 0) {
+        // Editing before anything exists creates the first theme, so a user
+        // who opens the editor and picks a colour has a theme rather than a
+        // discarded edit.
+        Theme theme;
+        theme.id = makeId(themes);
+        theme.name = tr("My theme");
+        theme.baseTheme = SettingsManager::StormTheme;
+        themes.append(theme);
+        index = themes.size() - 1;
+    }
+    themes[index].colors = sanitize(colors);
+    save(themes, themes.at(index).id);
 }
 
 int CustomThemeStore::baseTheme() const
 {
-    if (!m_settings)
+    const int index = activeIndex();
+    if (index < 0)
         return SettingsManager::StormTheme;
-    const int stored =
-        m_settings->appearanceValue(kBaseKey, SettingsManager::StormTheme).toInt();
-    // A base must be a REAL palette. Basing a custom theme on the custom
-    // theme, or on System (which is a resolution mode rather than a palette),
-    // would be a cycle or a moving target.
-    if (stored < SettingsManager::LightTheme || stored > SettingsManager::StormTheme)
-        return SettingsManager::StormTheme;
-    return stored;
+    return m_cache.at(index).baseTheme;
 }
 
 void CustomThemeStore::setBaseTheme(int themeId)
 {
-    if (!m_settings || themeId == baseTheme())
-        return;
+    // A base must be a REAL palette. Basing a custom theme on the custom
+    // theme, or on System (which is a resolution mode rather than a palette),
+    // would be a cycle or a moving target.
     if (themeId < SettingsManager::LightTheme || themeId > SettingsManager::StormTheme)
         return;
-    m_settings->setAppearanceValue(kBaseKey, themeId);
-    Q_EMIT customThemeChanged();
+    QList<Theme> themes = load();
+    int index = activeIndex();
+    if (index < 0) {
+        Theme theme;
+        theme.id = makeId(themes);
+        theme.name = tr("My theme");
+        themes.append(theme);
+        index = themes.size() - 1;
+    } else if (themes.at(index).baseTheme == themeId) {
+        return;
+    }
+    themes[index].baseTheme = themeId;
+    save(themes, themes.at(index).id);
 }
 
 QString CustomThemeStore::name() const
 {
-    if (!m_settings)
-        return {};
-    return m_settings->appearanceValue(kNameKey, QString()).toString();
+    const int index = activeIndex();
+    return index < 0 ? QString() : m_cache.at(index).name;
 }
 
 void CustomThemeStore::setName(const QString &name)
 {
-    if (!m_settings || name == this->name())
+    QList<Theme> themes = load();
+    const int index = activeIndex();
+    if (index < 0)
         return;
     // Bounded: this lands in a theme picker row, not in a document.
-    m_settings->setAppearanceValue(kNameKey, name.left(48));
-    Q_EMIT customThemeChanged();
+    const QString clean = name.left(kMaxNameLength);
+    if (themes.at(index).name == clean)
+        return;
+    themes[index].name = clean;
+    save(themes, themes.at(index).id);
 }
 
 bool CustomThemeStore::exists() const
 {
-    return !colors().isEmpty();
+    return !load().isEmpty();
 }
 
 int CustomThemeStore::overrideCount() const
@@ -270,9 +571,9 @@ void CustomThemeStore::discard()
 {
     if (!m_settings)
         return;
+    save({}, QString());
     m_settings->setAppearanceValue(kColorsKey, QString());
     m_settings->setAppearanceValue(kNameKey, QString());
-    Q_EMIT customThemeChanged();
 }
 
 bool CustomThemeStore::isValidColor(const QString &hex) const

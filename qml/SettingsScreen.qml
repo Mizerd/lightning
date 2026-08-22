@@ -1445,9 +1445,15 @@ Item {
                                     Layout.fillWidth: true
                                     spacing: 2
                                     Label {
-                                        text: app.customTheme.exists
-                                              ? qsTr("Your theme")
-                                              : qsTr("Build your own theme")
+                                        // The ACTIVE theme's own name once it
+                                        // has one: a person with four themes
+                                        // needs the card to say which one is
+                                        // in the window.
+                                        text: !app.customTheme.exists
+                                              ? qsTr("Build your own theme")
+                                              : app.customTheme.name.length > 0
+                                                ? app.customTheme.name
+                                                : qsTr("Your theme")
                                         color: AppTheme.stormText
                                         font.pixelSize: AppTheme.textBody
                                         font.weight: AppTheme.weightStrong
@@ -1455,11 +1461,16 @@ Item {
                                     Label {
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
-                                        text: app.customTheme.exists
-                                              ? qsTr("%n colour(s) changed. Pick a colour for any part of the window.",
-                                                     "custom theme summary",
-                                                     app.customTheme.overrideCount)
-                                              : qsTr("Pick a colour for any part of the window and watch a sample room repaint.")
+                                        text: !app.customTheme.exists
+                                              ? qsTr("Pick a colour for any part of the window and watch a sample room repaint.")
+                                              : app.customTheme.themes.length > 1
+                                                ? qsTr("%n colour(s) changed. %1 themes saved.",
+                                                       "custom theme summary",
+                                                       app.customTheme.overrideCount)
+                                                      .arg(app.customTheme.themes.length)
+                                                : qsTr("%n colour(s) changed. Pick a colour for any part of the window.",
+                                                       "custom theme summary",
+                                                       app.customTheme.overrideCount)
                                         color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.textMeta
                                     }

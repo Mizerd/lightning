@@ -42,6 +42,12 @@ Popup {
     modal: true
     closePolicy: Popup.CloseOnEscape
 
+    // Opening the editor with nothing to edit would show an empty name field
+    // and no chips. A theme with no overrides is a real, harmless state — it
+    // simply follows its base — so the first one is created here rather than
+    // waiting for the first colour pick.
+    onOpened: if (!root.store.exists) root.store.createTheme("")
+
     readonly property var store: app.customTheme
 
     // The role currently open in the picker. Held on the dialog, not on the
@@ -51,6 +57,44 @@ Popup {
     property string editingRole: ""
     property string editingLabel: ""
     property bool confirmingReset: false
+    // Import/share state. `notice` is a transient confirmation line; it is
+    // cleared by the timer below so it cannot sit there claiming something
+    // that happened a minute ago.
+    property bool importing: false
+    property string importError: ""
+    property string notice: ""
+
+    onNoticeChanged: if (notice.length > 0) noticeTimer.restart()
+    Timer {
+        id: noticeTimer
+        interval: 4000
+        onTriggered: root.notice = ""
+    }
+
+    function applyImport() {
+        var payload = importField.text
+        if (payload.trim().length === 0)
+            return
+        var reason = root.store.importTheme(payload)
+        if (reason.length > 0) {
+            root.importError = reason
+            return
+        }
+        importField.text = ""
+        root.importError = ""
+        root.importing = false
+        root.editingRole = ""
+        root.notice = qsTr("Theme imported.")
+    }
+
+    // The clipboard shuttle for Share. A hidden TextEdit is how every other
+    // copy in this application reaches the clipboard.
+    TextEdit {
+        id: themeClipboard
+        visible: false
+        width: 0
+        height: 0
+    }
 
     // The palette the preview paints. Resolved BY ID, so the preview shows the
     // custom theme whether or not the application is currently running it.
@@ -311,9 +355,9 @@ Popup {
 
             // ── Roles ────────────────────────────────────────────────────
             Rectangle {
-                Layout.preferredWidth: 300
-                Layout.minimumWidth: 300
-                Layout.maximumWidth: 300
+                Layout.preferredWidth: 330
+                Layout.minimumWidth: 330
+                Layout.maximumWidth: 330
                 Layout.fillHeight: true
                 color: AppTheme.editorPanel
 
@@ -321,6 +365,243 @@ Popup {
                     anchors.fill: parent
                     anchors.margins: AppTheme.spacing16
                     spacing: AppTheme.spacing8
+
+                    // ── Your themes ──────────────────────────────────
+                    Label {
+                        text: qsTr("Your themes")
+                        color: AppTheme.editorTextSecondary
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                        font.weight: AppTheme.weightStrong
+                    }
+
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing6
+
+                        Repeater {
+                            model: root.store.themes
+                            delegate: Rectangle {
+                                id: themeChip
+                                required property var modelData
+                                readonly property bool current:
+                                    root.store.activeThemeId === modelData.id
+                                objectName: "customThemeChip_" + modelData.id
+                                implicitWidth: Math.min(
+                                    296, themeChipLabel.implicitWidth
+                                         + AppTheme.spacing12 * 2)
+                                implicitHeight: 30
+                                radius: AppTheme.radiusPill
+                                color: current ? AppTheme.editorAccent
+                                     : themeChipHover.containsMouse
+                                       ? AppTheme.editorSelection
+                                       : AppTheme.editorInset
+                                border.width: 1
+                                border.color: current ? AppTheme.editorAccent
+                                                      : AppTheme.editorBorder
+
+                                Label {
+                                    id: themeChipLabel
+                                    anchors.centerIn: parent
+                                    width: Math.min(implicitWidth,
+                                                    themeChip.width
+                                                    - AppTheme.spacing12 * 2)
+                                    text: themeChip.modelData.name.length > 0
+                                          ? themeChip.modelData.name
+                                          : qsTr("Untitled")
+                                    color: themeChip.current
+                                           ? AppTheme.editorAccentInk
+                                           : AppTheme.editorText
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.textMeta
+                                    font.weight: AppTheme.weightStrong
+                                    elide: Label.ElideRight
+                                }
+                                MouseArea {
+                                    id: themeChipHover
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: themeChip.modelData.name
+                                    onClicked: {
+                                        root.store.activeThemeId =
+                                            themeChip.modelData.id
+                                        root.editingRole = ""
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // The active theme's name, edited in place. A theme people
+                    // are meant to SHARE needs a name that says what it is.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.topMargin: AppTheme.spacing4
+                        implicitHeight: 32
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.editorInset
+                        border.width: nameField.activeFocus ? 2 : 1
+                        border.color: nameField.activeFocus
+                                      ? AppTheme.editorAccent
+                                      : AppTheme.editorBorderStrong
+
+                        TextInput {
+                            id: nameField
+                            objectName: "customThemeNameField"
+                            anchors.fill: parent
+                            anchors.leftMargin: AppTheme.spacing8
+                            anchors.rightMargin: AppTheme.spacing8
+                            verticalAlignment: TextInput.AlignVCenter
+                            color: AppTheme.editorText
+                            selectionColor: AppTheme.editorAccent
+                            selectedTextColor: AppTheme.editorAccentInk
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                            maximumLength: 48
+                            Accessible.role: Accessible.EditableText
+                            Accessible.name: qsTr("Theme name")
+                            text: root.store.name
+                            // Written on edit, not on every keystroke of a
+                            // binding: `text` is bound to the store, so
+                            // writing back inside onTextChanged would fight
+                            // the binding on every character.
+                            onEditingFinished: root.store.name = text
+                            Label {
+                                anchors.fill: parent
+                                verticalAlignment: Text.AlignVCenter
+                                visible: nameField.text.length === 0
+                                text: qsTr("Name this theme")
+                                color: AppTheme.editorTextMuted
+                                font: nameField.font
+                            }
+                        }
+                    }
+
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing6
+
+                        EditorButton {
+                            objectName: "customThemeNewButton"
+                            text: qsTr("New")
+                            onClicked: {
+                                root.store.createTheme("")
+                                root.editingRole = ""
+                            }
+                        }
+                        EditorButton {
+                            objectName: "customThemeDuplicateButton"
+                            text: qsTr("Duplicate")
+                            enabled: root.store.exists
+                            onClicked: root.store.duplicateActiveTheme("")
+                        }
+                        EditorButton {
+                            objectName: "customThemeShareButton"
+                            text: qsTr("Share")
+                            enabled: root.store.exists
+                            onClicked: {
+                                var payload = root.store.exportTheme(
+                                    root.store.activeThemeId)
+                                if (payload.length === 0)
+                                    return
+                                themeClipboard.text = payload
+                                themeClipboard.selectAll()
+                                themeClipboard.copy()
+                                themeClipboard.text = ""
+                                root.notice =
+                                    qsTr("Theme copied — paste it to share it.")
+                            }
+                        }
+                        EditorButton {
+                            objectName: "customThemeImportButton"
+                            text: qsTr("Import")
+                            onClicked: {
+                                root.importing = !root.importing
+                                root.importError = ""
+                            }
+                        }
+                        EditorButton {
+                            objectName: "customThemeDeleteButton"
+                            text: qsTr("Delete")
+                            danger: true
+                            enabled: root.store.exists
+                            onClicked: {
+                                root.store.deleteTheme(root.store.activeThemeId)
+                                root.editingRole = ""
+                            }
+                        }
+                    }
+
+                    // Paste-a-theme row, shown only while importing.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        visible: root.importing
+                        implicitHeight: 32
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.editorInset
+                        border.width: importField.activeFocus ? 2 : 1
+                        border.color: importField.activeFocus
+                                      ? AppTheme.editorAccent
+                                      : AppTheme.editorBorderStrong
+
+                        TextInput {
+                            id: importField
+                            objectName: "customThemeImportField"
+                            anchors.fill: parent
+                            anchors.leftMargin: AppTheme.spacing8
+                            anchors.rightMargin: AppTheme.spacing8
+                            verticalAlignment: TextInput.AlignVCenter
+                            clip: true
+                            color: AppTheme.editorText
+                            selectionColor: AppTheme.editorAccent
+                            selectedTextColor: AppTheme.editorAccentInk
+                            font.family: AppTheme.monoFont
+                            font.pixelSize: AppTheme.textMeta
+                            // A shared theme is a single compact line; the cap
+                            // is far above any real one and stops a paste of
+                            // something else entirely from being held here.
+                            maximumLength: 8192
+                            Accessible.role: Accessible.EditableText
+                            Accessible.name: qsTr("Paste a shared theme")
+                            onAccepted: root.applyImport()
+                            Label {
+                                anchors.fill: parent
+                                verticalAlignment: Text.AlignVCenter
+                                visible: importField.text.length === 0
+                                text: qsTr("Paste a shared theme, then Enter")
+                                color: AppTheme.editorTextMuted
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.textMeta
+                            }
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: root.importing && root.importError.length > 0
+                        text: root.importError
+                        wrapMode: Text.WordWrap
+                        color: AppTheme.editorDanger
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: root.notice.length > 0
+                        text: root.notice
+                        wrapMode: Text.WordWrap
+                        color: AppTheme.editorTextSecondary
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.topMargin: AppTheme.spacing4
+                        implicitHeight: 1
+                        color: AppTheme.editorBorder
+                    }
 
                     Label {
                         text: qsTr("Start from")

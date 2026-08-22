@@ -63,6 +63,17 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("custom-theme-test"));
     }
 
+    // Every case starts from an empty config. Before the collection landed
+    // each case happened to overwrite the same three keys, so leakage was
+    // invisible; a stored LIST survives into the next case and made
+    // aStoredBaseOutsideTheRangeFallsBack read the previous case's theme.
+    void init()
+    {
+        QSettings settings;
+        settings.clear();
+        settings.sync();
+    }
+
     // ---- what it refuses ------------------------------------------------
 
     void onlyOpaqueSixDigitHexIsAccepted()
@@ -196,18 +207,134 @@ private Q_SLOTS:
         QVERIFY(reopened.colors().contains(QStringLiteral("background")));
 
         // resetAll keeps the base and the name: "start over from this base" is
-        // the common intent, and re-picking both would be busywork.
+        // the common intent, and re-picking both would be busywork. The theme
+        // itself still EXISTS — since the collection landed, "a theme with
+        // nothing overridden" is a real state, distinct from "no themes".
         reopened.resetAll();
         QCOMPARE(reopened.overrideCount(), 0);
-        QVERIFY(!reopened.exists());
+        QVERIFY(reopened.exists());
         QCOMPARE(reopened.baseTheme(), int(SettingsManager::GraphiteTheme));
         QCOMPARE(reopened.name(), QStringLiteral("Mine"));
 
-        // discard forgets the theme itself.
+        // discard forgets every theme.
         reopened.setColor(QStringLiteral("accent"), QStringLiteral("#AA0000"));
         reopened.discard();
         QVERIFY(!reopened.exists());
+        QVERIFY(reopened.themes().isEmpty());
         QVERIFY(reopened.name().isEmpty());
+    }
+
+    // ---- the collection --------------------------------------------------
+
+    void themesAreACollectionWithOneActiveMember()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        QVERIFY(!store.exists());
+        QVERIFY(store.themes().isEmpty());
+
+        const QString first = store.createTheme(QStringLiteral("Ocean"));
+        QVERIFY(!first.isEmpty());
+        QCOMPARE(store.themes().size(), 1);
+        QCOMPARE(store.activeThemeId(), first);
+        QCOMPARE(store.name(), QStringLiteral("Ocean"));
+        store.setColor(QStringLiteral("accent"), QStringLiteral("#112233"));
+
+        // A duplicate carries the colours AND the base, and becomes active —
+        // "edit this one into a new one" without a separate mode.
+        store.setBaseTheme(SettingsManager::GraphiteTheme);
+        const QString copy = store.duplicateActiveTheme(QStringLiteral("Ocean 2"));
+        QVERIFY(!copy.isEmpty());
+        QVERIFY(copy != first);
+        QCOMPARE(store.activeThemeId(), copy);
+        QCOMPARE(store.name(), QStringLiteral("Ocean 2"));
+        QCOMPARE(store.baseTheme(), int(SettingsManager::GraphiteTheme));
+        QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#112233"));
+
+        // Editing the copy leaves the original alone.
+        store.setColor(QStringLiteral("accent"), QStringLiteral("#445566"));
+        store.setActiveThemeId(first);
+        QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#112233"));
+
+        // Deleting the active one selects a neighbour rather than leaving
+        // theme id 12 resolving to nothing.
+        store.deleteTheme(first);
+        QCOMPARE(store.themes().size(), 1);
+        QCOMPARE(store.activeThemeId(), copy);
+        QVERIFY(store.exists());
+    }
+
+    void aSharedThemeSurvivesTheRoundTripAndIsRevalidated()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("Ocean"));
+        store.setBaseTheme(SettingsManager::MidnightBlueTheme);
+        store.setColor(QStringLiteral("accent"), QStringLiteral("#112233"));
+        store.setColor(QStringLiteral("sidebar"), QStringLiteral("#445566"));
+
+        const QString shared = store.exportTheme(store.activeThemeId());
+        QVERIFY(!shared.isEmpty());
+        QVERIFY(shared.contains(QStringLiteral("lightning_theme")));
+        // One line, so it survives being pasted into a chat message.
+        QVERIFY(!shared.contains(QLatin1Char('\n')));
+
+        QCOMPARE(store.importTheme(shared), QString());
+        QCOMPARE(store.themes().size(), 2);
+        QCOMPARE(store.baseTheme(), int(SettingsManager::MidnightBlueTheme));
+        QCOMPARE(store.colors().value(QStringLiteral("sidebar")).toString(),
+                 QStringLiteral("#445566"));
+
+        // A shared theme is untrusted input that gets to paint the whole
+        // window, so it is re-validated rather than trusted: unknown roles and
+        // malformed colours are dropped, and the base is clamped to a real
+        // preset (12 would be a cycle).
+        const QString hostile = QStringLiteral(
+            "{\"lightning_theme\":1,\"name\":\"X\",\"base\":12,"
+            "\"colors\":{\"accent\":\"#010203\",\"notARole\":\"#FFFFFF\","
+            "\"sidebar\":\"#80FFFFFF\",\"border\":\"red\"}}");
+        QCOMPARE(store.importTheme(hostile), QString());
+        QCOMPARE(store.baseTheme(), int(SettingsManager::StormTheme));
+        QCOMPARE(store.colors().size(), 1);
+        QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#010203"));
+
+        // Refusals are reported, never silently swallowed.
+        QVERIFY(!store.importTheme(QStringLiteral("hello")).isEmpty());
+        QVERIFY(!store.importTheme(QStringLiteral("{}")).isEmpty());
+        QVERIFY(!store.importTheme(
+                     QStringLiteral("{\"lightning_theme\":1,\"colors\":{}}"))
+                     .isEmpty());
+    }
+
+    void anExistingSingleThemeSurvivesTheUpgradeExactlyOnce()
+    {
+        // The pre-collection keys. A user upgrading must not lose the theme
+        // they built, and must not end up with two copies of it either.
+        {
+            QSettings raw;
+            raw.setValue(QStringLiteral("appearance/customThemeColors"),
+                         QStringLiteral("{\"accent\":\"#AA0000\"}"));
+            raw.setValue(QStringLiteral("appearance/customThemeName"),
+                         QStringLiteral("Legacy"));
+            raw.setValue(QStringLiteral("appearance/customThemeBase"),
+                         int(SettingsManager::NordTheme));
+            raw.sync();
+        }
+        SettingsManager settings;
+        {
+            CustomThemeStore store(&settings);
+            QCOMPARE(store.themes().size(), 1);
+            QCOMPARE(store.name(), QStringLiteral("Legacy"));
+            QCOMPARE(store.baseTheme(), int(SettingsManager::NordTheme));
+            QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                     QStringLiteral("#AA0000"));
+        }
+        // Reopening must not migrate a second time.
+        CustomThemeStore reopened(&settings);
+        QCOMPARE(reopened.themes().size(), 1);
     }
 
     void everyMutationNotifies()
