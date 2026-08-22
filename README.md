@@ -36,7 +36,7 @@ Lightning implements no Matrix cryptography of its own.
 > regressions. Linux is the primary development and support target; Windows
 > (x86-64) packages ship alongside every release from v0.6.3 onward, and
 > **macOS (Apple Silicon, macOS 26+) from v0.7.5** — unsigned, so it takes one
-> trip through System Settings to open. See [macOS](#macos).
+> trip through System Settings to open. See [macOS](#macos-apple-silicon-macos-26-or-newer).
 
 ## Contents
 
