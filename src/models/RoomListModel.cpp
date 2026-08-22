@@ -339,20 +339,26 @@ bool RoomListModel::passesScopeFilter(const RoomInfo &r) const
     if (!m_spaces) return true;
     const QString active = m_spaces->activeSpaceId();
     if (active.isEmpty()) return true; // "All rooms"
-    // The People filter is NOT scoped by the Space, and that is the whole
-    // fix: a direct message is not a room in a Space. Matrix has no notion of
-    // a DM belonging to one unless somebody adds it as an m.space.child,
-    // which essentially nobody does — so scoping People by the Space
-    // guaranteed an empty list, every time, in every Space. That is exactly
-    // what was reported ("the people tab in spaces/rooms isnt populated").
+    // A DIRECT MESSAGE IS NEVER SCOPED BY A SPACE — in any filter.
     //
-    // Scoping it by the Space's MEMBERSHIP instead (Element's reading: DMs
+    // A DM is not a room in a Space. Matrix has no notion of one belonging to
+    // a Space unless somebody adds it as an m.space.child, which essentially
+    // nobody does, so scoping DMs by the selected Space hid every one of them
+    // in every Space. That was reported first as "the people tab in
+    // spaces/rooms isnt populated".
+    //
+    // Exempting only the People chip fixed that list and broke a bigger one:
+    // All then showed FEWER rooms than People did, which makes "All" a lie.
+    // So the exemption belongs to the DM, not to the chip. Rooms still has no
+    // DMs in it — passesFilter excludes them there by their own isDirect —
+    // and All, People and Unreads all show them.
+    //
+    // Scoping DMs by the Space's MEMBERSHIP instead (Element's reading: DMs
     // with people who are in this Space) would need that Space's roster, and
-    // this predicate runs on every row of every model update — a roster
-    // fetched lazily would make the list's contents depend on load state and
-    // flicker as it arrived. So People means your people, whichever Space is
-    // selected, and the empty state says which list you are looking at.
-    if (m_filterMode == 1 && r.isDirect)
+    // this predicate runs on every row of every model update — a lazily
+    // fetched roster would make the list's contents depend on load state and
+    // flicker as it arrived.
+    if (r.isDirect)
         return true;
     return m_spaces->includesRoom(active, r.id);
 }

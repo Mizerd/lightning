@@ -5669,71 +5669,126 @@ Rectangle {
                             spaceHome.spaceId, selectedFile.toString())
                     }
 
-                    // View controls, for EVERYONE — they change how this
-                    // client shows the banner, not the banner itself, so they
-                    // are not behind the power-level gate the edit buttons
-                    // are. Bottom-right, away from the edit cluster.
-                    Row {
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        anchors.margins: AppTheme.spacing8
-                        spacing: AppTheme.spacing6
-                        visible: spaceBannerCard.bannerMxc.length > 0
-
-                        IconButton {
-                            objectName: "spaceBannerExpandButton"
-                            implicitWidth: 28; implicitHeight: 28
-                            radius: AppTheme.radiusControl
-                            iconName: spaceBannerCard.expanded
-                                      ? "close_fullscreen" : "open_in_full"
-                            iconSize: 18
-                            Accessible.name: spaceBannerCard.expanded
-                                ? qsTr("Crop the banner") : qsTr("Show the whole banner")
-                            ToolTip.text: Accessible.name
-                            ToolTip.visible: hovered
-                            ToolTip.delay: 500
-                            onClicked: app.settings.spaceBannerExpanded =
-                                !app.settings.spaceBannerExpanded
-                        }
-                        IconButton {
-                            objectName: "spaceBannerHideButton"
-                            implicitWidth: 28; implicitHeight: 28
-                            radius: AppTheme.radiusControl
-                            iconName: "visibility_off"
-                            iconSize: 18
-                            Accessible.name: qsTr("Hide space banners")
-                            ToolTip.text: Accessible.name
-                            ToolTip.visible: hovered
-                            ToolTip.delay: 500
-                            onClicked: app.settings.spaceBannersVisible = false
-                        }
-                    }
-
-                    Row {
+                    // Every banner control in ONE cluster, on a scrim.
+                    //
+                    // They were text buttons with a transparent field sitting
+                    // directly on the photograph: "Change banner" in outline
+                    // blue over a bright blue planet, "Remove" in danger red
+                    // over black space. A control drawn on an arbitrary
+                    // picture has no background to have contrast WITH, so it
+                    // gets one — a dark pill it can be legible on whatever is
+                    // underneath, which is the same reason the wash below the
+                    // image exists.
+                    //
+                    // Icons rather than words for the same reason: the corner
+                    // of a photograph is not where a sentence belongs, and a
+                    // tooltip says the rest. The scrim and its ink come from
+                    // the media-chrome tokens the GIF and size pills already
+                    // use — the same problem, already solved once.
+                    Rectangle {
+                        objectName: "spaceBannerControls"
                         anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.margins: AppTheme.spacing8
-                        spacing: AppTheme.spacing6
-                        visible: spaceBannerCard.canEdit
+                        radius: height / 2
+                        // The media-chrome tokens, not a literal: this is
+                        // the same problem the GIF and size pills already
+                        // solved — a control that has to read on top of an
+                        // arbitrary picture.
+                        color: AppTheme.scrimSurface
+                        border.width: 1
+                        border.color: AppTheme.overlayScrim
+                        implicitWidth: bannerControlRow.implicitWidth
+                                       + AppTheme.spacing8
+                        implicitHeight: bannerControlRow.implicitHeight
+                                        + AppTheme.spacing4
+                        visible: bannerControlRow.visibleCount > 0
 
-                        AppButton {
-                            objectName: "spaceBannerRemoveButton"
-                            size: "sm"
-                            kind: "danger"
-                            visible: spaceBannerCard.bannerMxc.length > 0
-                            enabled: !app.banners.busy
-                            text: qsTr("Remove")
-                            onClicked: app.banners.clearRoomBanner(
-                                spaceHome.spaceId)
-                        }
-                        AppButton {
-                            objectName: "spaceBannerChangeButton"
-                            size: "sm"
-                            enabled: !app.banners.busy
-                            text: spaceBannerCard.bannerMxc.length > 0
-                                  ? qsTr("Change banner")
-                                  : qsTr("Add a banner")
-                            onClicked: spaceBannerDialog.open()
+                        Row {
+                            id: bannerControlRow
+                            anchors.centerIn: parent
+                            spacing: 2
+                            readonly property int visibleCount:
+                                (bannerExpandBtn.visible ? 1 : 0)
+                                + (bannerHideBtn.visible ? 1 : 0)
+                                + (bannerChangeBtn.visible ? 1 : 0)
+                                + (bannerRemoveBtn.visible ? 1 : 0)
+
+                            IconButton {
+                                id: bannerExpandBtn
+                                objectName: "spaceBannerExpandButton"
+                                visible: spaceBannerCard.bannerMxc.length > 0
+                                implicitWidth: 28; implicitHeight: 28
+                                radius: 14
+                                iconColorOverride: AppTheme.scrimInk
+                                iconName: spaceBannerCard.expanded
+                                          ? "close_fullscreen" : "open_in_full"
+                                iconSize: 17
+                                Accessible.name: spaceBannerCard.expanded
+                                    ? qsTr("Crop the banner")
+                                    : qsTr("Show the whole banner")
+                                ToolTip.text: Accessible.name
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 500
+                                onClicked: app.settings.spaceBannerExpanded =
+                                    !app.settings.spaceBannerExpanded
+                            }
+                            IconButton {
+                                id: bannerHideBtn
+                                objectName: "spaceBannerHideButton"
+                                visible: spaceBannerCard.bannerMxc.length > 0
+                                implicitWidth: 28; implicitHeight: 28
+                                radius: 14
+                                iconColorOverride: AppTheme.scrimInk
+                                iconName: "visibility_off"
+                                iconSize: 17
+                                Accessible.name: qsTr("Hide space banners")
+                                ToolTip.text: Accessible.name
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 500
+                                onClicked: app.settings.spaceBannersVisible = false
+                            }
+                            IconButton {
+                                id: bannerChangeBtn
+                                objectName: "spaceBannerChangeButton"
+                                visible: spaceBannerCard.canEdit
+                                enabled: !app.banners.busy
+                                implicitWidth: 28; implicitHeight: 28
+                                radius: 14
+                                iconColorOverride: AppTheme.scrimInk
+                                iconName: "image"
+                                iconSize: 17
+                                Accessible.name:
+                                    spaceBannerCard.bannerMxc.length > 0
+                                    ? qsTr("Change banner") : qsTr("Add a banner")
+                                ToolTip.text: Accessible.name
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 500
+                                onClicked: spaceBannerDialog.open()
+                            }
+                            IconButton {
+                                id: bannerRemoveBtn
+                                objectName: "spaceBannerRemoveButton"
+                                visible: spaceBannerCard.canEdit
+                                         && spaceBannerCard.bannerMxc.length > 0
+                                enabled: !app.banners.busy
+                                implicitWidth: 28; implicitHeight: 28
+                                radius: 14
+                                // Destructive, and legible on the scrim. NOT
+                                // AppTheme.danger: that ink is tuned to be
+                                // read on a theme surface, and this sits on a
+                                // photograph. The washed danger tone the
+                                // media chrome already uses reads on both.
+                                iconColorOverride: AppTheme.dangerInk
+                                iconName: "delete"
+                                iconSize: 17
+                                Accessible.name: qsTr("Remove banner")
+                                ToolTip.text: Accessible.name
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 500
+                                onClicked: app.banners.clearRoomBanner(
+                                    spaceHome.spaceId)
+                            }
                         }
                     }
 

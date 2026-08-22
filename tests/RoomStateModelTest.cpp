@@ -120,7 +120,7 @@ private Q_SLOTS:
     void theFavouritesSectionIsClosedOffByADivider();
     void theFavouritesBoundaryIsOwnedByTheModel();
     void roomActivityOnlyEverMovesForward();
-    void thePeopleFilterIsNotScopedByTheSelectedSpace();
+    void aDirectMessageIsNeverScopedByTheSelectedSpace();
 };
 
 void RoomStateModelTest::directClassificationUsesMDirectOnly()
@@ -548,11 +548,14 @@ void RoomStateModelTest::searchFiltersNameAndAliasAndFindsInvites()
 
 // A direct message is not a room in a Space: Matrix has no notion of one
 // belonging to a Space unless somebody adds it as an m.space.child, which
-// essentially nobody does. Scoping the People chip by the selected Space
-// therefore produced an empty list in EVERY Space — reported as "the people
-// tab in spaces/rooms isnt populated". People means your people, whichever
-// Space is selected; Rooms and All stay scoped.
-void RoomStateModelTest::thePeopleFilterIsNotScopedByTheSelectedSpace()
+// essentially nobody does. Scoping DMs by the selected Space therefore hid
+// every one of them in every Space — reported as "the people tab in
+// spaces/rooms isnt populated".
+//
+// Exempting only the People CHIP fixed that list and broke a bigger one: All
+// then showed fewer rooms than People did, reported as "in all tab people are
+// not shown". The exemption belongs to the DM, not to the chip.
+void RoomStateModelTest::aDirectMessageIsNeverScopedByTheSelectedSpace()
 {
     FakeClient client;
     SpaceManager spaces;
@@ -570,9 +573,10 @@ void RoomStateModelTest::thePeopleFilterIsNotScopedByTheSelectedSpace()
     model.setClient(&client);
     spaces.setActiveSpaceId(space.id);
 
-    // All: the Space's own rooms, and the DM is not one of them.
+    // All: the Space's rooms AND the DM. "All" showing fewer rows than
+    // "People" is the bug this half exists to prevent.
     model.setFilterMode(0);
-    QCOMPARE(model.rowCount(), 1);
+    QCOMPARE(model.rowCount(), 2);
 
     // People: the DM, even though it is not a child of this Space. Without
     // this the list is empty and there is no way to reach a DM from inside
@@ -587,6 +591,10 @@ void RoomStateModelTest::thePeopleFilterIsNotScopedByTheSelectedSpace()
     QCOMPARE(model.rowCount(), 1);
     QCOMPARE(model.data(model.index(0), RoomListModel::RoomIdRole).toString(),
              inSpace.id);
+
+    // ...and All is exactly People plus Rooms, which is what the word means.
+    model.setFilterMode(0);
+    QCOMPARE(model.rowCount(), 2);
 }
 
 // 2026-08-14: Element-style filter chips. People/Rooms split on m.direct;
