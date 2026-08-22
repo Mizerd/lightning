@@ -5548,7 +5548,11 @@ Rectangle {
                     height: Math.round(Math.max(120, Math.min(420,
                         bannerAspect > 0 ? width / bannerAspect : 190)))
                     clip: true
-                    visible: bannerMxc.length > 0 || canEdit
+                    // Hidden entirely when the user has turned banners off,
+                    // and never shown as an empty strip on a Space nobody can
+                    // change.
+                    visible: app.settings.spaceBannersVisible
+                             && (bannerMxc.length > 0 || canEdit)
                     color: AppTheme.cardElevated
 
                     readonly property string bannerMxc: {
@@ -5653,6 +5657,46 @@ Rectangle {
                         // on Windows.
                         onAccepted: app.banners.setRoomBanner(
                             spaceHome.spaceId, selectedFile.toString())
+                    }
+
+                    // View controls, for EVERYONE — they change how this
+                    // client shows the banner, not the banner itself, so they
+                    // are not behind the power-level gate the edit buttons
+                    // are. Bottom-right, away from the edit cluster.
+                    Row {
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.margins: AppTheme.spacing8
+                        spacing: AppTheme.spacing6
+                        visible: spaceBannerCard.bannerMxc.length > 0
+
+                        IconButton {
+                            objectName: "spaceBannerExpandButton"
+                            implicitWidth: 28; implicitHeight: 28
+                            radius: AppTheme.radiusControl
+                            iconName: spaceBannerCard.expanded
+                                      ? "close_fullscreen" : "open_in_full"
+                            iconSize: 18
+                            Accessible.name: spaceBannerCard.expanded
+                                ? qsTr("Crop the banner") : qsTr("Show the whole banner")
+                            ToolTip.text: Accessible.name
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: app.settings.spaceBannerExpanded =
+                                !app.settings.spaceBannerExpanded
+                        }
+                        IconButton {
+                            objectName: "spaceBannerHideButton"
+                            implicitWidth: 28; implicitHeight: 28
+                            radius: AppTheme.radiusControl
+                            iconName: "visibility_off"
+                            iconSize: 18
+                            Accessible.name: qsTr("Hide space banners")
+                            ToolTip.text: Accessible.name
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: app.settings.spaceBannersVisible = false
+                        }
                     }
 
                     Row {
@@ -5827,6 +5871,18 @@ Rectangle {
                                   ? qsTr("Hide settings") : qsTr("Space settings")
                             onClicked:
                                 spaceHome.settingsOpen = !spaceHome.settingsOpen
+                        }
+                        // The way back. Hiding the banner from its own corner
+                        // would otherwise be one-way, and a control that can
+                        // only be turned off is a trap. Offered only where
+                        // there is actually a banner to bring back.
+                        AppButton {
+                            objectName: "spaceBannerShowButton"
+                            visible: !app.settings.spaceBannersVisible
+                                     && spaceBannerCard.bannerMxc.length > 0
+                            iconName: "visibility"
+                            text: qsTr("Show banner")
+                            onClicked: app.settings.spaceBannersVisible = true
                         }
                         Item { Layout.fillWidth: true }
                     }

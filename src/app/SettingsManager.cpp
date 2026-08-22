@@ -32,6 +32,8 @@ constexpr auto kPreviewsEncrypted   = "previews/loadInEncryptedRooms";
 constexpr auto kPreviewsAnimateGifs = "previews/animateGifs";
 constexpr auto kSharePresence = "presence/shareOwn";
 constexpr auto kSpacesRailVisible = "shell/spacesRailVisible";
+constexpr auto kSpaceBannersVisible = "shell/spaceBannersVisible";
+constexpr auto kSpaceBannerExpanded = "shell/spaceBannerExpanded";
 constexpr auto kRoomListVisible   = "shell/roomListVisible";
 constexpr auto kRoomListWidth     = "shell/roomListWidth";
 constexpr auto kSidePanelWidth    = "shell/sidePanelWidth";
@@ -1242,6 +1244,38 @@ void SettingsManager::setSharePresence(bool v)
 bool SettingsManager::spacesRailVisible() const
 {
     return m_store->value(kSpacesRailVisible, true).toBool();
+}
+
+bool SettingsManager::spaceBannersVisible() const
+{
+    // Shown by default: a Space that has gone to the trouble of setting one
+    // should show it the first time you open it.
+    return m_store->value(kSpaceBannersVisible, true).toBool();
+}
+
+void SettingsManager::setSpaceBannersVisible(bool v)
+{
+    if (spaceBannersVisible() == v)
+        return;
+    m_store->setValue(kSpaceBannersVisible, v);
+    Q_EMIT spaceBannersVisibleChanged();
+}
+
+bool SettingsManager::spaceBannerExpanded() const
+{
+    // CROPPED by default, as Sable does it: a fixed strip keeps every Space
+    // the same shape, and the rooms below stay where the eye expects them.
+    // Expanding shows the whole picture instead, at whatever height that
+    // takes — the choice is the user's and it is remembered.
+    return m_store->value(kSpaceBannerExpanded, false).toBool();
+}
+
+void SettingsManager::setSpaceBannerExpanded(bool v)
+{
+    if (spaceBannerExpanded() == v)
+        return;
+    m_store->setValue(kSpaceBannerExpanded, v);
+    Q_EMIT spaceBannerExpandedChanged();
 }
 
 void SettingsManager::setSpacesRailVisible(bool v)

@@ -690,9 +690,18 @@ Rectangle {
                     case 0:  return qsTr("Sign in to see rooms")
                     case 1:  return qsTr("Loading rooms…")
                     case 2:  return qsTr("No matches")
-                    default: return roomListEmptyState.inSpace
-                                    ? qsTr("This Space is empty")
-                                    : qsTr("No conversations yet")
+                    // Keyed on the FILTER, not only on the Space. "This
+                    // Space is empty" under the People chip was answering a
+                    // question nobody asked — the Space's rooms are not what
+                    // that list is showing.
+                    default:
+                        if (app.roomList.filterMode === 1)
+                            return qsTr("No direct messages")
+                        if (app.roomList.filterMode === 3)
+                            return qsTr("Nothing unread")
+                        return roomListEmptyState.inSpace
+                               ? qsTr("This Space is empty")
+                               : qsTr("No conversations yet")
                     }
                 }
                 color: AppTheme.textPrimary
@@ -715,11 +724,18 @@ Rectangle {
                     case 2:  return qsTr("Nothing in this list matches "
                                          + "\"%1\".")
                                     .arg(app.roomList.searchQuery)
-                    default: return roomListEmptyState.inSpace
-                                    ? qsTr("Rooms added to this Space will "
-                                           + "show up here.")
-                                    : qsTr("Start a direct message, or find "
-                                           + "a room to join.")
+                    default:
+                        if (app.roomList.filterMode === 1)
+                            return qsTr("Direct messages appear here, "
+                                        + "whichever Space is selected.")
+                        if (app.roomList.filterMode === 3)
+                            return qsTr("Rooms with unread messages "
+                                        + "appear here.")
+                        return roomListEmptyState.inSpace
+                               ? qsTr("Rooms added to this Space will "
+                                      + "show up here.")
+                               : qsTr("Start a direct message, or find "
+                                      + "a room to join.")
                     }
                 }
                 color: AppTheme.textMuted

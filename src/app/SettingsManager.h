@@ -91,6 +91,14 @@ class SettingsManager : public QObject
     // too, along with the left-most one. Screen real estate wise."
     Q_PROPERTY(bool spacesRailVisible READ spacesRailVisible
                    WRITE setSpacesRailVisible NOTIFY spacesRailVisibleChanged)
+    // A Space's banner: shown at all, and shown whole or cropped to a strip.
+    // Both are app-wide rather than per-Space, which is how Sable scopes the
+    // same two choices — someone who does not want a 400px picture above
+    // every Space does not want to say so once per Space.
+    Q_PROPERTY(bool spaceBannersVisible READ spaceBannersVisible
+                   WRITE setSpaceBannersVisible NOTIFY spaceBannersVisibleChanged)
+    Q_PROPERTY(bool spaceBannerExpanded READ spaceBannerExpanded
+                   WRITE setSpaceBannerExpanded NOTIFY spaceBannerExpandedChanged)
     Q_PROPERTY(bool roomListVisible READ roomListVisible
                    WRITE setRoomListVisible NOTIFY roomListVisibleChanged)
     Q_PROPERTY(int roomListWidth READ roomListWidth
@@ -321,7 +329,11 @@ public:
     void setAnimateGifPreviews(bool v);
     bool sharePresence() const;
     bool spacesRailVisible() const;
+    bool spaceBannersVisible() const;
+    bool spaceBannerExpanded() const;
     void setSpacesRailVisible(bool v);
+    void setSpaceBannersVisible(bool v);
+    void setSpaceBannerExpanded(bool v);
     bool roomListVisible() const;
     void setRoomListVisible(bool v);
     int roomListWidth() const;
@@ -570,6 +582,8 @@ Q_SIGNALS:
     void animateGifPreviewsChanged();
     void sharePresenceChanged();
     void spacesRailVisibleChanged();
+    void spaceBannersVisibleChanged();
+    void spaceBannerExpandedChanged();
     void roomListVisibleChanged();
     void roomListWidthChanged();
     void sidePanelWidthChanged();

@@ -120,6 +120,7 @@ private Q_SLOTS:
     void theFavouritesSectionIsClosedOffByADivider();
     void theFavouritesBoundaryIsOwnedByTheModel();
     void roomActivityOnlyEverMovesForward();
+    void thePeopleFilterIsNotScopedByTheSelectedSpace();
 };
 
 void RoomStateModelTest::directClassificationUsesMDirectOnly()
@@ -543,6 +544,49 @@ void RoomStateModelTest::searchFiltersNameAndAliasAndFindsInvites()
     model.setSearchQuery(QString{});
     QTRY_COMPARE(model.searchQuery(), QString{});
     QCOMPARE(model.rowCount(), 3);
+}
+
+// A direct message is not a room in a Space: Matrix has no notion of one
+// belonging to a Space unless somebody adds it as an m.space.child, which
+// essentially nobody does. Scoping the People chip by the selected Space
+// therefore produced an empty list in EVERY Space — reported as "the people
+// tab in spaces/rooms isnt populated". People means your people, whichever
+// Space is selected; Rooms and All stay scoped.
+void RoomStateModelTest::thePeopleFilterIsNotScopedByTheSelectedSpace()
+{
+    FakeClient client;
+    SpaceManager spaces;
+    auto space = room(QStringLiteral("!space:example.org"));
+    space.isSpace = true;
+    auto inSpace = room(QStringLiteral("!room:example.org"));
+    auto dm = room(QStringLiteral("!dm:example.org"), /*direct=*/true);
+    space.childRoomIds = { inSpace.id };
+    inSpace.parentSpaceIds = { space.id };
+    client.mirror = { space, inSpace, dm };
+
+    RoomListModel model;
+    spaces.setClient(&client);
+    model.setSpaceManager(&spaces);
+    model.setClient(&client);
+    spaces.setActiveSpaceId(space.id);
+
+    // All: the Space's own rooms, and the DM is not one of them.
+    model.setFilterMode(0);
+    QCOMPARE(model.rowCount(), 1);
+
+    // People: the DM, even though it is not a child of this Space. Without
+    // this the list is empty and there is no way to reach a DM from inside
+    // a Space at all.
+    model.setFilterMode(1);
+    QCOMPARE(model.rowCount(), 1);
+    QCOMPARE(model.data(model.index(0), RoomListModel::RoomIdRole).toString(), dm.id);
+
+    // Rooms stays scoped — a DM must not leak into it, and a room outside
+    // the Space must not either.
+    model.setFilterMode(2);
+    QCOMPARE(model.rowCount(), 1);
+    QCOMPARE(model.data(model.index(0), RoomListModel::RoomIdRole).toString(),
+             inSpace.id);
 }
 
 // 2026-08-14: Element-style filter chips. People/Rooms split on m.direct;
