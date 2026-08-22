@@ -5630,13 +5630,11 @@ Rectangle {
                             title: qsTr("Choose a banner image")
                             fileMode: FileDialog.OpenFile
                             nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp)") ]
-                            onAccepted: {
-                                var path = selectedFile.toString()
-                                if (path.indexOf("file://") === 0)
-                                    path = decodeURIComponent(path.substring(7))
-                                app.banners.setRoomBanner(spaceHome.spaceId,
-                                                          path)
-                            }
+                            // The URL crosses as-is; the manager converts
+                            // it. Stripping "file://" here produced "/C:/..."
+                            // on Windows.
+                            onAccepted: app.banners.setRoomBanner(
+                                spaceHome.spaceId, selectedFile.toString())
                         }
 
                         Row {

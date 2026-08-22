@@ -65,8 +65,9 @@ public:
     // Asks once per user per session. Idempotent and deduplicated: a profile
     // popover opening twice must not cost two requests.
     Q_INVOKABLE void request(const QString &userId);
-    // A local file. Uploaded and written to BOTH field names.
-    Q_INVOKABLE void setOwnBanner(const QString &localPath);
+    // A local file, as a path OR a file:// URL — the conversion happens here
+    // so no caller can strip "file://" by hand and break Windows.
+    Q_INVOKABLE void setOwnBanner(const QString &pathOrUrl);
     Q_INVOKABLE void clearOwnBanner();
 
     // --- Room / Space banners -------------------------------------------
@@ -83,7 +84,7 @@ public:
     // a banner just written by this client.
     Q_INVOKABLE void refreshRoom(const QString &roomId);
     Q_INVOKABLE void setRoomBanner(const QString &roomId,
-                                   const QString &localPath);
+                                   const QString &pathOrUrl);
     Q_INVOKABLE void clearRoomBanner(const QString &roomId);
 
 Q_SIGNALS:

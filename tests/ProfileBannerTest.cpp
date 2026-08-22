@@ -9,7 +9,9 @@
 #include "matrix/MockMatrixClient.h"
 #include "profile/ProfileBannerManager.h"
 
+#include <QDir>
 #include <QSignalSpy>
+#include <QUrl>
 #include <QtTest>
 
 namespace {
@@ -170,6 +172,56 @@ private Q_SLOTS:
         Q_EMIT client.profileBannerSet(client.lastWriteOp, true, QString(),
                                        QString());
         QCOMPARE(banners.ownBanner(), QString());
+    }
+
+    void aFileUrlIsConvertedForTheCurrentPlatform()
+    {
+        // A file the user picks reaches QML as a URL. Stripping "file://" by
+        // hand is wrong on Windows — file:///C:/x.png becomes /C:/x.png, a
+        // leading slash before the drive letter — so the conversion happens
+        // here, once, where no caller can get it wrong.
+        FakeBannerClient client;
+        ProfileBannerManager banners;
+        banners.setClient(&client);
+
+        const QString path = QDir::toNativeSeparators(
+            QStringLiteral("/tmp/banner.png"));
+        banners.setOwnBanner(QUrl::fromLocalFile(path).toString());
+        QCOMPARE(client.writes.size(), 1);
+        QCOMPARE(client.writes.last(), path);
+        Q_EMIT client.profileBannerSet(client.lastWriteOp, true,
+                                       QStringLiteral("mxc://example.org/a"),
+                                       QString());
+
+        // A plain path still passes through untouched.
+        banners.setOwnBanner(path);
+        QCOMPARE(client.writes.last(), path);
+        Q_EMIT client.profileBannerSet(client.lastWriteOp, true,
+                                       QStringLiteral("mxc://example.org/b"),
+                                       QString());
+
+        // A UNC path IS a local file to QUrl, and to Windows, so it is
+        // converted rather than refused — file://server/share/x.png becomes
+        // //server/share/x.png. Asserting a refusal here was my mistake, not
+        // the code's.
+        banners.setOwnBanner(QStringLiteral("file://server/share/x.png"));
+        QCOMPARE(client.writes.size(), 3);
+        QCOMPARE(client.writes.last(), QStringLiteral("//server/share/x.png"));
+        Q_EMIT client.profileBannerSet(client.lastWriteOp, true,
+                                       QStringLiteral("mxc://example.org/c"),
+                                       QString());
+
+        // A URL that is not a file at all IS refused, rather than handed to
+        // the uploader as though it were a path — it would report a missing
+        // file, and the reason would look like the user's fault.
+        banners.setOwnBanner(QStringLiteral("https://example.org/x.png"));
+        QCOMPARE(client.writes.size(), 3);
+
+        // ...but a Windows drive path is NOT a scheme, however much it looks
+        // like one: QUrl("C:/x.png").scheme() is "c". It must pass through.
+        banners.setOwnBanner(QStringLiteral("C:/Users/x/banner.png"));
+        QCOMPARE(client.writes.size(), 4);
+        QCOMPARE(client.writes.last(), QStringLiteral("C:/Users/x/banner.png"));
     }
 
     void abackendWithoutBannersOffersNothing()

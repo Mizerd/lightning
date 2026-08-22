@@ -1,5 +1,8 @@
 #include "profile/ProfileBannerManager.h"
 
+#include <QRegularExpression>
+#include <QUrl>
+
 ProfileBannerManager::ProfileBannerManager(QObject *parent)
     : QObject(parent)
 {
@@ -70,8 +73,35 @@ void ProfileBannerManager::request(const QString &userId)
     m_client->fetchProfileBanner(userId, opId);
 }
 
-void ProfileBannerManager::setOwnBanner(const QString &localPath)
+// A file the user picked reaches QML as a URL, and stripping "file://" by
+// hand is wrong on Windows: file:///C:/x.png becomes /C:/x.png, a path with a
+// leading slash before the drive letter. QUrl knows the platform rule;
+// AttachmentQueueModel::addFile has always used it, and this is the same
+// conversion in the same place — at the C++ edge, so no caller can get it
+// wrong. A value that is already a plain path passes through untouched.
+static QString localPathFrom(const QString &pathOrUrl)
 {
+    if (pathOrUrl.startsWith(QLatin1String("file:"), Qt::CaseInsensitive)) {
+        const QUrl url(pathOrUrl);
+        return url.isLocalFile() ? url.toLocalFile() : QString();
+    }
+    // Any OTHER scheme is refused rather than passed on as though it were a
+    // path — an uploader handed "https://…" would report a missing file, and
+    // the reason would look like the user's fault.
+    //
+    // Matched on "scheme://" and NOT with QUrl::scheme(), because a Windows
+    // drive path is a URL with a scheme: QUrl("C:/x.png").scheme() is "c".
+    // The authority slashes are what separate the two.
+    static const QRegularExpression scheme(
+        QStringLiteral("^[A-Za-z][A-Za-z0-9+.-]*://"));
+    if (scheme.match(pathOrUrl).hasMatch())
+        return {};
+    return pathOrUrl;
+}
+
+void ProfileBannerManager::setOwnBanner(const QString &pathOrUrl)
+{
+    const QString localPath = localPathFrom(pathOrUrl);
     if (!available() || localPath.isEmpty() || m_pendingWrite != 0)
         return;
     setLastError({});
@@ -180,8 +210,9 @@ void ProfileBannerManager::refreshRoom(const QString &roomId)
 }
 
 void ProfileBannerManager::setRoomBanner(const QString &roomId,
-                                         const QString &localPath)
+                                         const QString &pathOrUrl)
 {
+    const QString localPath = localPathFrom(pathOrUrl);
     if (!roomBannersAvailable() || roomId.isEmpty() || localPath.isEmpty()
         || m_pendingWrite != 0)
         return;

@@ -3319,13 +3319,12 @@ Item {
                                     id: bannerFileDialog
                                     title: qsTr("Choose a banner image")
                                     nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)")]
-                                    onAccepted: {
-                                        var path = selectedFile.toString()
-                                        if (path.indexOf("file://") === 0)
-                                            path = decodeURIComponent(
-                                                path.substring(7))
-                                        app.banners.setOwnBanner(path)
-                                    }
+                                    // The URL goes across as-is;
+                                    // ProfileBannerManager converts it.
+                                    // Stripping "file://" here produced
+                                    // "/C:/..." on Windows.
+                                    onAccepted: app.banners.setOwnBanner(
+                                        selectedFile.toString())
                                 }
                             }
                         }
