@@ -598,21 +598,44 @@ macos_group = macos.get("resource_group")
 check(macos_group not in set(BUILD_GROUP.values()) and macos_group is not None,
       "macOS job has its own resource group, so it never queues behind Linux lanes")
 
-# macOS must never reach the publication chain. Unsigned, un-notarized bundles
-# are rejected by Gatekeeper on every machine but the builder, so publishing
-# them would hand users something they cannot open. With the gate now allowing
-# publishing pipelines, THIS is the invariant that keeps them out of a release.
-check("macos-package-test" not in needs_names("publish-packages"),
-      "publish-packages does not consume the macOS bundle")
+# macOS reaches the publication chain as of 0.7.5, on a maintainer decision,
+# and the guards changed shape rather than disappearing.
+#
+# What was asserted before — that nothing consumes or releases the bundle —
+# existed because publishing something Gatekeeper blocks would hand users a
+# file they cannot open. That is still true of the artifact; what changed is
+# that the download page now tells them how to open it, and states the two
+# limits plainly (Apple Silicon only, macOS 26 or newer). So the invariants
+# that matter now are different ones: the release must not DEPEND on the Mac,
+# and the bundle must not enter the signed update manifest.
+check("macos-package-test" in needs_names("publish-packages"),
+      "publish-packages consumes the macOS bundle")
+macos_need = next(n for n in doc["publish-packages"]["needs"]
+                  if isinstance(n, dict) and n["job"] == "macos-package-test")
+check(macos_need.get("optional") is True,
+      "the macOS need is optional, so a pipeline without it still publishes")
+check(macos.get("allow_failure") is True,
+      "the macOS job is allow_failure, so a Mac outage cannot block a release")
 check(not any(job.startswith("build-macos") for job in doc),
-      "no publishing macOS build job exists")
+      "no second macOS build job exists")
+
+# The bundle is a DOWNLOAD, never an update. The client has no macOS install
+# strategy — InstallType::MacosDmg is not self-installable and the updater
+# helper returns UnsupportedPlatform — so an entry in the signed update
+# manifest would advertise an install the updater refuses to perform.
+with open(os.path.join(HERE, "..", "scripts", "generate-update-manifest.sh"),
+          encoding="utf-8") as handle:
+    update_manifest_src = handle.read()
+_formats_decl = re.search(r"update_formats=\(([^)]*)\)", update_manifest_src)
+check(_formats_decl is not None, "the update manifest declares its formats")
+check(_formats_decl is None or "macos" not in _formats_decl.group(1).lower(),
+      "the update manifest carries no macOS artifact")
+
 for job_name, job_def in doc.items():
     if not isinstance(job_def, dict) or "macos" not in str(job_def.get("tags", [])):
         continue
     check("release" not in job_def,
           f"{job_name} (macOS runner) has no release action")
-    check(job_name not in needs_names("publish-packages"),
-          f"{job_name} (macOS runner) is not consumed by publish-packages")
 
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)

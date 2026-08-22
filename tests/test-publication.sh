@@ -111,6 +111,28 @@ M="$TR/dist/manifest.json"
 # Full metadata present on each entry (extension-ready schema).
 [[ "$($JQ -r '[.entries[]|select(.sha256 and .size and .architecture and .source_sha and .registry_url and .asset_name)]|length' "$M")" == 9 ]] && note "entries carry full metadata" || bad "entry metadata"
 
+# macOS is the one OPTIONAL input. Absent, the manifest is the nine above —
+# which is what every assertion so far just proved, and it is the case that
+# matters most: one Mac being offline must not fail a release. Present, it is
+# published like anything else.
+printf '== optional macOS bundle ==\n'
+setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
+mkdir -p "$TR/dist/macos"
+MACZIP="$TR/dist/macos/Lightning-${VER}-${SHA:0:7}-macos-arm64.zip"
+printf 'macos-%s\n' "$RANDOM" >"$MACZIP"
+run "$ROOT/scripts/write-manifest.sh" || bad "manifest build failed with a macOS bundle"
+# setup() makes a fresh temp root, so $M from the section above now points at
+# the previous run's file.
+M="$TR/dist/manifest.json"
+[[ "$($JQ '.entries|length' "$M")" == 10 ]] && note "macOS bundle adds a tenth entry" || bad "macOS entry count"
+[[ "$($JQ -r '[.entries[]|select(.format=="macos-arm64")]|first|.filename' "$M")" == "$(basename "$MACZIP")" ]] \
+    && note "macOS filename" || bad "macOS filename"
+[[ "$($JQ -r '[.entries[]|select(.format=="macos-arm64")]|first|.architecture' "$M")" == "arm64" ]] \
+    && note "macOS architecture is arm64" || bad "macOS architecture"
+# It must also reach the aggregate checksum file users verify against.
+grep -q "$(basename "$MACZIP")" "$TR/dist/SHA256SUMS" && note "macOS bundle is in SHA256SUMS" || bad "macOS missing from SHA256SUMS"
+rm -f "$MACZIP"
+
 printf '== publish ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
 run "$ROOT/scripts/write-manifest.sh" && run "$ROOT/scripts/publish-packages.sh" || bad "publish failed"

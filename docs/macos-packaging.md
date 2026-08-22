@@ -308,16 +308,49 @@ pipeline is honest about it rather than implying otherwise:
   microphone capture, Keychain behaviour, and Retina rendering are **NOT
   TESTED**.
 
-The bundle always reports `build_kind: unsigned-test`, whatever the pipeline, and
-`tests/test-pipeline-config.py` asserts that no publishing macOS job exists, that
-`publish-packages` does not consume the bundle, and that no macOS-tagged job has
-a release action. Publishing an artifact Gatekeeper blocks would be worse than
-shipping nothing.
+The bundle always reports `build_kind: unsigned-test`, whatever the pipeline.
+
+## Publication (0.7.5 onwards)
+
+This artifact **is published**, as a download-only release asset, on an
+explicit maintainer decision taken for 0.7.5. Everything in the section above
+is still true of it — what changed is that the download page now tells people
+how to open it and states the limits, instead of the project deciding on their
+behalf that they should not have it.
+
+What that means in practice:
+
+- **`publish-packages` consumes this job's artifact** and uploads the zip
+  alongside the Linux and Windows packages. Publication, verification, the
+  release links and the GitHub mirror all follow from the publication manifest,
+  so none of them needed a macOS special case.
+- **The release never depends on the Mac.** The job is `allow_failure: true`
+  and the `needs` entry is `optional: true`, so the Mac being offline, asleep
+  or mid-macOS-update publishes a release *without* a macOS asset rather than
+  failing eight good packages. `write-manifest.sh` prints which of the two
+  happened.
+- **It is NOT in the signed update manifest.** The client has no macOS install
+  strategy — `InstallType::MacosDmg` is not self-installable and the updater
+  helper returns `UnsupportedPlatform` — so an entry there would advertise an
+  install the updater refuses to perform. macOS users update by downloading the
+  next release.
+- **Two limits are stated wherever it is offered**: Apple Silicon only, and
+  macOS 26 or newer. Both are consequences of Homebrew's Qt, not choices.
+- **Gatekeeper still blocks it**, and the walkthrough is the *Open Anyway*
+  route. That works because the ad-hoc signature is structurally valid —
+  `validate-macos-artifacts.sh` asserts `codesign --verify --deep --strict`
+  and `ditto` preserves it — so macOS says "Apple could not verify…" and offers
+  the button, rather than "damaged", which offers nothing.
+
+`tests/test-pipeline-config.py` pins that shape: the need exists, it is
+optional, the job is `allow_failure`, no macOS-tagged job carries a release
+action, and the update manifest declares no macOS format. Each of those was
+proven to fail against an injected defect before it was committed.
 
 > Earlier revisions made `build-macos.sh` abort on `PUBLISH_PACKAGES=true`. That
 > was dropped once macOS was allowed into full-fleet runs — it would have failed
-> exactly the pipelines that build every other platform. The guarantee is
-> structural (nothing consumes or releases the artifact), not a refusal to build.
+> exactly the pipelines that build every other platform. The build script still
+> uploads nothing; publication happens on Linux, from the artifact.
 
 ## Running with the fleet
 
@@ -356,7 +389,11 @@ runner tokens, SSH private keys, and builder paths.
 Note that a key compiled into a binary is ultimately extractable. These
 artifacts are developer-scoped and expire in seven days.
 
-## Path to a releasable macOS build
+## Path to a SIGNED macOS build
+
+Publication happened first, unsigned and disclosed (above). What follows is
+what it would take for macOS users to stop having to click past Gatekeeper —
+and for an Intel or older-macOS user to be able to run it at all.
 
 In order:
 
@@ -374,10 +411,17 @@ In order:
    expectation accordingly.
 6. Package as a `.dmg` rather than a zip, if a drag-to-Applications installer is
    wanted.
-7. Only then consider a publishing job, `SecretStore` on the macOS Keychain, and
-   a universal binary.
+7. `SecretStore` on the macOS Keychain, and a universal binary.
 
-Until step 5 passes, this stays a test-only path.
+Separately from signing, the **deployment floor** is the other half of the
+reach problem. `LSMinimumSystemVersion` is derived from the highest `minos`
+across the linked Qt frameworks, and Homebrew's `qtdeclarative`/`qtmultimedia`
+bottles put that at 26.0 — so the published bundle runs on macOS 26 and newer
+only. Lowering it means a Qt built against an older SDK (from source, or a
+different distribution channel), not a change in this repository. Do not simply
+lower the number: an earlier revision hardcoded 14.0 and produced a bundle that
+advertised macOS 14 while linking frameworks that require 26, which would not
+have loaded there at all.
 
 ## Version resolution
 

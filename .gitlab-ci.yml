@@ -454,16 +454,27 @@ build-windows:
 # toolchain. The script records the exact toolchain versions it used into
 # build-info.json because they are not pinned by an image.
 #
-# Deliberately absent: any publishing counterpart. macOS artifacts are ad-hoc
-# signed and un-notarized, so Gatekeeper rejects them everywhere except the
-# machine that built them. Shipping that to users would be worse than shipping
-# nothing, so build-macos.sh refuses to run with PUBLISH_PACKAGES=true.
+# As of 0.7.5 this artifact IS published, on a maintainer decision, as a
+# download-only release asset. It is still ad-hoc signed and un-notarized, so
+# Gatekeeper blocks it until the user explicitly allows it — the download page
+# carries the Open Anyway walkthrough and states the two hard limits (Apple
+# Silicon only; macOS 26 or newer, which is where Homebrew's Qt QML frameworks
+# put the floor). It is deliberately NOT in the signed update manifest: the
+# client has no macOS install strategy, so offering it as an update would
+# advertise something the updater refuses to perform.
 macos-package-test:
   extends: .macos-test-rules
   stage: build
   tags: [macos, arm64]
   resource_group: lightning-macos-package
   interruptible: true
+  # NON-BLOCKING, deliberately. As of 0.7.5 publish-packages consumes this
+  # artifact, and one physical Mac being offline, asleep or mid-macOS-update
+  # must not hold back a release of the eight Linux and Windows packages.
+  # allow_failure is what makes `needs` non-blocking on failure; the optional
+  # `needs` entry covers the job not existing at all (BUILD_MACOS_PACKAGES
+  # unset). write-manifest.sh then publishes without a macOS entry and says so.
+  allow_failure: true
   # 3h is headroom, not an estimate. The same commit built in 10 minutes
   # (pipeline 88) and 2h34m (pipeline 90) because the Mac was idle-sleeping
   # mid-build; cargo reported ~6 minutes of real work in both. See the
@@ -729,6 +740,13 @@ publish-packages:
       artifacts: true
     - job: build-windows
       artifacts: true
+    # macOS, OPTIONAL in both senses: `optional` covers the job not existing
+    # (BUILD_MACOS_PACKAGES unset), and the job's own allow_failure covers it
+    # existing and failing. Either way the release still publishes, minus the
+    # macOS asset. See docs/macos-packaging.md.
+    - job: macos-package-test
+      artifacts: true
+      optional: true
   before_script: [apk add --no-cache bash coreutils curl jq]
   script:
     - ./scripts/write-manifest.sh

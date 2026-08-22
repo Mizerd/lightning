@@ -14,10 +14,11 @@ source "$SCRIPT_DIR/lib.sh"
 #   * the working directory persists between jobs, so every output path is
 #     removed explicitly below rather than assumed clean.
 #
-# This is deliberately NOT wired into the publishing pipeline. macOS artifacts
-# are unsigned and un-notarized, which means Gatekeeper refuses them on any
-# machine but this one; publishing them would ship users something they cannot
-# open. See docs/macos-packaging.md.
+# As of 0.7.5 this artifact IS published as a download-only release asset. It
+# remains unsigned and un-notarized, so Gatekeeper blocks it until the user
+# explicitly allows it; the download page carries that walkthrough and states
+# the limits. Nothing about the BUILD changed — build_kind stays unsigned-test,
+# and this script still uploads nothing. See docs/macos-packaging.md.
 
 ROOT="$(project_dir)"
 SOURCE_DIR="$ROOT/work/lightning"
@@ -48,17 +49,16 @@ QT_LINKED_MODULES="QtCore QtGui QtQml QtQuick QtQuickControls2 QtNetwork QtSql Q
 require_var EXPECTED_SOURCE_SHA
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || die "macOS packaging requires a full source commit SHA"
 
-# macOS builds run in full-fleet and publishing pipelines too, so this script no
-# longer refuses PUBLISH_PACKAGES=true — it would otherwise fail exactly the
-# pipelines that build every other platform. What it does instead is guarantee
-# the artifact can never be mistaken for a release: the build kind stays
-# unsigned-test regardless of the pipeline, and nothing here uploads. The
-# structural guarantee lives in the pipeline — publish-packages does not consume
-# this job's artifact and the job has no release action, both asserted by
+# The build kind stays unsigned-test whatever the pipeline, and this script
+# still uploads nothing — publication is done by publish-packages on Linux,
+# from this job's artifact. What the pipeline guarantees instead is that the
+# release never DEPENDS on this host (allow_failure plus an optional need) and
+# that the bundle never enters the signed update manifest, both asserted by
 # tests/test-pipeline-config.py.
 if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
-    printf 'Publishing pipeline: building the macOS bundle as an unsigned TEST artifact.\n'
-    printf 'It is ad-hoc signed and un-notarized, and is NOT published.\n'
+    printf 'Publishing pipeline: building the macOS bundle.\n'
+    printf 'It is ad-hoc signed and un-notarized; it ships as a download that\n'
+    printf 'the user must allow past Gatekeeper, and never as an update.\n'
 fi
 
 [[ "$(uname -s)" == Darwin ]] || die "build-macos.sh must run on macOS"

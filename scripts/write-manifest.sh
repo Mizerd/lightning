@@ -58,6 +58,35 @@ file_of[windows-setup]="$ROOT/dist/windows/Lightning-${PACKAGE_VERSION}-${short_
 arch_of[windows-setup]="x86_64"
 name_of[windows-setup]="Lightning ${PACKAGE_VERSION} — Windows x86_64 setup EXE${WINDOWS_SUFFIX}"
 
+# macOS is OPTIONAL, and deliberately so.
+#
+# It is built on one physical Mac mini that shares no capacity with the Linux
+# or Windows pools. A release must not be blocked by that host being offline,
+# asleep, or mid-macOS-update, so its absence publishes a release WITHOUT a
+# macOS artifact and says so loudly, rather than failing eight good packages
+# because a ninth is missing. (The job is also allow_failure for the same
+# reason; see .gitlab-ci.yml.)
+#
+# It is also the only entry here that is not a signed, installable package:
+# arm64 only, macOS 26 or newer, ad-hoc signed and un-notarized, so Gatekeeper
+# blocks it until the user explicitly allows it. That is disclosed on the
+# download page and in the release notes rather than implied by its presence.
+# It is deliberately NOT added to the signed update manifest — the client has
+# no macOS install strategy (InstallType::MacosDmg is not self-installable and
+# the updater helper returns UnsupportedPlatform), so offering it as an update
+# would advertise something the updater refuses to perform.
+macos_zip="$ROOT/dist/macos/Lightning-${PACKAGE_VERSION}-${short_sha}-macos-arm64.zip"
+if [[ -f "$macos_zip" ]]; then
+    formats+=(macos-arm64)
+    file_of[macos-arm64]="$macos_zip"
+    arch_of[macos-arm64]="arm64"
+    name_of[macos-arm64]="Lightning ${PACKAGE_VERSION} — macOS arm64 (unsigned, macOS 26+)"
+    printf 'macOS bundle present; it will be published as a download-only asset\n' >&2
+else
+    printf 'NO macOS bundle at %s — publishing this release WITHOUT a macOS artifact\n' \
+        "${macos_zip#"$ROOT"/}" >&2
+fi
+
 entries="[]"
 sums_file="$ROOT/dist/SHA256SUMS"
 : >"$sums_file"
