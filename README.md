@@ -7,7 +7,7 @@
 **A fast, native Matrix desktop client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.7.5-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.7.6-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Platform: Linux | Windows | macOS](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-4c8fdc.svg)](#installation)
 [![Qt 6](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
 [![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
@@ -62,9 +62,9 @@ Download a package from the
 install it:
 
 ```sh
-sudo apt install ./lightning_0.7.5_amd64.deb          # Debian / Ubuntu
-sudo dnf install ./lightning-0.7.5-1.x86_64.rpm       # Fedora / RHEL
-chmod +x Lightning-0.7.5-x86_64.AppImage && ./Lightning-0.7.5-x86_64.AppImage
+sudo apt install ./lightning_0.7.6_amd64.deb          # Debian / Ubuntu
+sudo dnf install ./lightning-0.7.6-1.x86_64.rpm       # Fedora / RHEL
+chmod +x Lightning-0.7.6-x86_64.AppImage && ./Lightning-0.7.6-x86_64.AppImage
 ```
 
 On **Windows**, run the `.msi` or `-setup.exe` installer, or extract the
@@ -147,9 +147,11 @@ still developing, some workflows remain experimental.
   other way round. Requires a homeserver with extended profile fields; where
   there isn't one, Lightning says so instead of failing an upload
 - **Space banners** — a real image on a Space's front page, set by whoever the
-  Space's own power levels allow. Matrix specifies no room banner, so this is
-  Lightning's own state event in its own namespace; clients that don't know it
-  simply show none
+  Space's own power levels allow. Matrix specifies no room banner, so Lightning
+  writes the one **Sable** already uses, and a banner set in either shows up in
+  the other. Shown cropped to a fixed strip by default, with corner controls to
+  **expand** it to the whole picture or **hide** banners entirely — a view
+  choice, so it needs no permission and applies everywhere at once
 - **Discover and join** — browse or search the public directory, or paste a
   room address, `matrix:` URI or matrix.to link and join from the preview.
   **Knock** on rooms that require it, and withdraw a pending knock from the
@@ -178,6 +180,11 @@ still developing, some workflows remain experimental.
 
 - Live timelines with replies, edits, reactions, redactions, mentions and
   typing indicators
+- **`@room`** — mention everyone at once. Offered only where the room's own
+  power level for a whole-room notification actually permits it, and sent as a
+  real `m.mentions.room` so other clients notify for it properly
+- **Drop a file in and press Enter** — the composer takes focus on the drop, so
+  a drag-and-drop send never needs a click first
 - **Read receipts** as Element-style avatar chips on a right-edge rail, with an
   overflow pill — **click them** for the reader list with names, avatars and the
   time each person read
@@ -345,12 +352,12 @@ no package is code-signed yet:
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-Replace `0.7.5` in the commands below with the version you downloaded.
+Replace `0.7.6` in the commands below with the version you downloaded.
 
 ### Debian, Ubuntu, Linux Mint, Pop!_OS (`.deb`)
 
 ```sh
-sudo apt install ./lightning_0.7.5_amd64.deb
+sudo apt install ./lightning_0.7.6_amd64.deb
 ```
 
 `apt` resolves the dependencies itself; the leading `./` is required, otherwise
@@ -363,8 +370,8 @@ sudo apt remove lightning
 ### Fedora, RHEL, openSUSE (`.rpm`)
 
 ```sh
-sudo dnf install ./lightning-0.7.5-1.x86_64.rpm     # Fedora / RHEL
-sudo zypper install ./lightning-0.7.5-1.x86_64.rpm  # openSUSE
+sudo dnf install ./lightning-0.7.6-1.x86_64.rpm     # Fedora / RHEL
+sudo zypper install ./lightning-0.7.6-1.x86_64.rpm  # openSUSE
 ```
 
 To remove it: `sudo dnf remove lightning`.
@@ -372,8 +379,8 @@ To remove it: `sudo dnf remove lightning`.
 ### AppImage (any distribution, no installation)
 
 ```sh
-chmod +x Lightning-0.7.5-x86_64.AppImage
-./Lightning-0.7.5-x86_64.AppImage
+chmod +x Lightning-0.7.6-x86_64.AppImage
+./Lightning-0.7.6-x86_64.AppImage
 ```
 
 Nothing is installed and nothing is written outside your user profile; delete
@@ -388,7 +395,7 @@ the file to remove it. If it will not start, your system may need FUSE
 flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install --user flathub org.kde.Platform//6.9
 
-flatpak install --user ./lightning_0.7.5_amd64.flatpak
+flatpak install --user ./lightning_0.7.6_amd64.flatpak
 flatpak run net.smetonis.Lightning
 ```
 
@@ -401,7 +408,7 @@ needs `--dangerous` — that flag means "this file is not signed by the store",
 not that the snap is unsafe. It is built with `strict` confinement:
 
 ```sh
-sudo snap install --dangerous ./lightning_0.7.5_amd64.snap
+sudo snap install --dangerous ./lightning_0.7.6_amd64.snap
 ```
 
 To remove it: `sudo snap remove lightning`.
@@ -414,8 +421,8 @@ tasks, firewall rules, or autostart.
 
 | Format | Install | Uninstall |
 |---|---|---|
-| **MSI** | Double-click, or `msiexec /i Lightning-0.7.5-<sha>-windows-x86_64.msi` | Settings → Apps → Installed apps, or `msiexec /x` |
-| **Setup EXE** | Run `Lightning-0.7.5-<sha>-windows-x86_64-setup.exe` | Settings → Apps → Installed apps, or the **Uninstall Lightning** shortcut |
+| **MSI** | Double-click, or `msiexec /i Lightning-0.7.6-<sha>-windows-x86_64.msi` | Settings → Apps → Installed apps, or `msiexec /x` |
+| **Setup EXE** | Run `Lightning-0.7.6-<sha>-windows-x86_64-setup.exe` | Settings → Apps → Installed apps, or the **Uninstall Lightning** shortcut |
 | **Portable ZIP** | Extract anywhere, run `Lightning.exe` | Delete the folder |
 
 MSI and Setup EXE install to `%LOCALAPPDATA%\Programs\Lightning` with a
@@ -433,12 +440,13 @@ See the [**Code signing policy**](docs/code-signing-policy.md) and
 To verify a download on Windows:
 
 ```powershell
-Get-FileHash .\Lightning-0.7.5-<sha>-windows-x86_64.msi -Algorithm SHA256
+Get-FileHash .\Lightning-0.7.6-<sha>-windows-x86_64.msi -Algorithm SHA256
 ```
 
 ### macOS (Apple Silicon, macOS 26 or newer)
 
-Published from v0.7.5 as `Lightning-0.7.5-<sha>-macos-arm64.zip`.
+Published from v0.7.5 onward; the current build is
+`Lightning-0.7.6-<sha>-macos-arm64.zip`.
 
 **Two hard limits, both worth checking before you download:**
 
@@ -500,7 +508,7 @@ the account inside the app.
 Once installed, Lightning can update itself: see
 [Application updates](docs/updates.md). The authoritative per-release list of
 artifacts is the release notes — for example
-[`docs/releases/v0.7.5.md`](docs/releases/v0.7.5.md) — and the Releases page
+[`docs/releases/v0.7.6.md`](docs/releases/v0.7.6.md) — and the Releases page
 itself. Packaging, cross-platform builds, publishing, and verification are
 maintained in a separate automation project,
 [**lightning-deploy**](https://gitlab.smetonis.net/Mizerd/lightning-deploy); this
