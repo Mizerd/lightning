@@ -352,7 +352,8 @@ void NotificationManager::processEvent(const TimelineEvent &event,
     // other surface draws its initials disc, and a notification carrying no
     // image at all gets the daemon's generic document glyph instead.
     const QImage fallback = lightning::notifications::fallbackAvatar(
-        context.roomName, context.avatarColorKey, kFallbackAvatarEdge);
+        context.roomName, context.avatarColorKey, kFallbackAvatarEdge,
+        context.themeId);
     deliver(decision.title, decision.body, payload, decision.playSound,
             context.avatarMxc, fallback);
 }

@@ -9,6 +9,8 @@
 #include <QSet>
 #include <QtTest/QtTest>
 
+#include "theme/IdentityColors.h"
+
 #include <array>
 #include <cmath>
 #include <functional>
@@ -685,7 +687,7 @@ private Q_SLOTS:
         // hues, so a future restyle has room to move.
         const double kMinSeparation = 12.0;
         for (const char *name :
-             { "_nameInksDark", "_nameInksLight", "avatarPalette" }) {
+             { "_nameInksDark", "_nameInksLight" }) {
             const QStringList inks = arrayOf(name);
             QVERIFY2(inks.size() == 9,
                      qPrintable(QStringLiteral("%1 is not 9 entries")
@@ -705,41 +707,110 @@ private Q_SLOTS:
             }
         }
 
-        // The avatar disc carries WHITE initials, so its fill is the one
-        // place in this palette where legibility is about the fill itself.
-        for (const QString &fill : arrayOf("avatarPalette")) {
-            const double ratio = contrast(fill, QStringLiteral("#FFFFFF"));
-            QVERIFY2(ratio >= 4.5,
-                     qPrintable(QStringLiteral(
-                         "avatar fill %1 fails white initials (%2 < 4.5)")
-                         .arg(fill).arg(ratio, 0, 'f', 2)));
+        // The avatar discs are no longer one fixed ladder: since 2026-08-22
+        // they are nine hues in an arc around the ACTIVE THEME'S accent, so
+        // a cool theme stops showing amber and rust discs. That moves the
+        // two properties this used to pin onto the derivation itself, and
+        // they are pinned for every theme rather than for one array.
+        //
+        // Separation first. Pulling nine hues into one family is exactly how
+        // a palette ends up with two slots a reader cannot tell apart — the
+        // 2026-08-21 audit found sender inks at dE 5.6 — so the alternating
+        // lightness ladder that buys the separation back is load-bearing and
+        // this is what stops anyone flattening it.
+        for (int theme = 1; theme <= 11; ++theme) {
+            const QColor anchor = lightning::theme::anchorForTheme(theme);
+            QStringList discs;
+            for (int slot = 0; slot < lightning::theme::kIdentitySlots; ++slot)
+                discs << lightning::theme::discColor(slot, anchor).name();
+            for (int i = 0; i < discs.size(); ++i) {
+                for (int j = i + 1; j < discs.size(); ++j) {
+                    const double d = deltaE(discs.at(i), discs.at(j));
+                    QVERIFY2(d >= kMinSeparation,
+                             qPrintable(QStringLiteral(
+                                 "theme %1 discs %2=%3 and %4=%5 are the same "
+                                 "colour (dE %6 < %7)")
+                                 .arg(theme).arg(i).arg(discs.at(i)).arg(j)
+                                 .arg(discs.at(j)).arg(d, 0, 'f', 1)
+                                 .arg(kMinSeparation, 0, 'f', 1)));
+                }
+            }
+            // ...and legibility. The initials ink is chosen per disc now, so
+            // what has to hold is that SOME ink clears 4.5:1 — asserting
+            // white would re-impose the luminance cap that made the discs
+            // indistinguishable in the first place.
+            for (int slot = 0; slot < lightning::theme::kIdentitySlots; ++slot) {
+                const QColor disc = lightning::theme::discColor(slot, anchor);
+                const QColor ink = lightning::theme::discInk(slot, anchor);
+                const double ratio = contrast(disc.name(), ink.name());
+                QVERIFY2(ratio >= 4.5,
+                         qPrintable(QStringLiteral(
+                             "theme %1 slot %2: initials %3 on %4 is %5:1")
+                             .arg(theme).arg(slot).arg(ink.name(), disc.name())
+                             .arg(ratio, 0, 'f', 2)));
+            }
         }
 
-        // The notification fallback avatar re-implements the same identity
-        // hash in C++ and keeps its OWN copy of this palette, because a
-        // freedesktop notification is painted without a QML engine. A
-        // hand-kept copy of an array is exactly the thing that drifts: the
-        // palette round changed AppTheme.qml and left FallbackAvatar.cpp
-        // behind for one commit, so the same person had a red disc in the app
-        // and a green one in their notifications — and NotificationAvatarTest
-        // asserted the stale values, so it enforced the mismatch instead of
-        // catching it. Parse both and require them equal.
+        // The identity ANCHOR is the one thing C++ still copies from this
+        // file, because a desktop notification is painted with no QML engine
+        // anywhere near it and the discs are derived from that anchor.
+        // Eleven values instead of the ninety-nine a per-theme ladder would
+        // need — but a hand-kept copy is still a hand-kept copy, and the
+        // 2026-08-21 round proved this exact shape drifts. So the RULE is
+        // applied here to this file's own literals and the answers compared.
+        //
+        // The rule: the accent anchors the discs, unless it is nowhere near
+        // the surface they sit on, in which case the surface wins. Storm is
+        // the only theme where that second branch fires — a navy shell with a
+        // yellow brand bolt — and anchoring it on the bolt put a magenta-to-
+        // lime family on a navy window.
         {
-            const QString cpp = readAll(QStringLiteral(FALLBACK_AVATAR_CPP_PATH));
-            QVERIFY2(!cpp.isEmpty(), "FallbackAvatar.cpp not readable");
-            const QRegularExpression arrayRe(QStringLiteral(
-                "kAvatarPalette\\[\\]\\s*=\\s*\\{([^}]*)\\}"));
-            const auto m = arrayRe.match(cpp);
-            QVERIFY2(m.hasMatch(), "could not find kAvatarPalette");
-            QStringList cppPalette;
-            const QRegularExpression hex(QStringLiteral("#[0-9A-Fa-f]{6}"));
-            auto it = hex.globalMatch(m.captured(1));
-            while (it.hasNext())
-                cppPalette.append(it.next().captured(0).toUpper());
-            QStringList qmlPalette;
-            for (const QString &c : arrayOf("avatarPalette"))
-                qmlPalette.append(c.toUpper());
-            QCOMPARE(cppPalette, qmlPalette);
+            struct AnchorCheck { int theme; const char *bg; const char *accent; };
+            static const AnchorCheck kAnchors[] = {
+                { 1,  "_bgLight", "_accentBlue" },
+                { 2,  "_dkBg",    "_accentBlue" },
+                { 3,  "_graBg",   "_graAccent" },
+                { 4,  "_bgDark",  "_accentBlue" },
+                { 5,  "_norBg",   "_norAccent" },
+                { 6,  "_purBg",   "_purAccent" },
+                { 7,  "_warBg",   "_warAccent" },
+                { 8,  "_mosBg",   "_mosAccent" },
+                { 9,  "_indBg",   "_indAccent" },
+                { 10, "_teaBg",   "_teaAccent" },
+                { 11, "_stoDeep", "_stoBolt" },
+            };
+            const auto literal = [this](const char *name) {
+                const QRegularExpression re(
+                    QStringLiteral("%1:\\s*\"(#[0-9A-Fa-f]{6})\"")
+                        .arg(QLatin1String(name)));
+                const auto m = re.match(m_theme);
+                return m.hasMatch() ? m.captured(1) : QString();
+            };
+            for (const AnchorCheck &check : kAnchors) {
+                const QString bgHex = literal(check.bg);
+                const QString accentHex = literal(check.accent);
+                QVERIFY2(!bgHex.isEmpty() && !accentHex.isEmpty(),
+                         qPrintable(QStringLiteral("theme %1: literal missing")
+                                        .arg(check.theme)));
+                const QColor bg(bgHex);
+                const QColor accent(accentHex);
+                double hueGap = qAbs(bg.hslHueF() - accent.hslHueF());
+                if (hueGap > 0.5)
+                    hueGap = 1.0 - hueGap;
+                const bool surfaceWins = bg.hslSaturationF() >= 0.20f
+                                         && hueGap > (60.0 / 360.0);
+                const QColor expected = surfaceWins ? bg : accent;
+                QCOMPARE(lightning::theme::anchorForTheme(check.theme)
+                             .name().toUpper(),
+                         expected.name().toUpper());
+            }
+            // ...and that the branch is not dead. Storm is the theme that
+            // needs it; if it ever stops firing there, the discs have gone
+            // back to being coloured by a brand highlight.
+            QCOMPARE(lightning::theme::anchorForTheme(11).name().toUpper(),
+                     literal("_stoDeep").toUpper());
+            QVERIFY(lightning::theme::anchorForTheme(11).name().toUpper()
+                    != literal("_stoBolt").toUpper());
         }
 
             // A chip paints its ink on a 14% tint OF THAT SAME INK, and its

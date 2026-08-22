@@ -1387,13 +1387,31 @@ QtObject {
     readonly property color editorTextMuted:     _stoTextMuted
     readonly property color editorDanger:        _stoDanger
 
-    // Deterministic initials-avatar palette, shared by every theme so a user
-    // or room keeps one colour everywhere. Nine hues at 4/28/44/95/155/192/
-    // 225/272/325 degrees, matched index-for-index to the name inks below as
-    // mid-tone disc fills: every entry clears 4.5:1 against the WHITE initials
-    // it carries (lowest 4.52), and the closest pair is dE 22, so two users
-    // never get the same disc.
-    readonly property var avatarPalette: [
+    // Deterministic initials-avatar discs, DERIVED FROM THE ACTIVE THEME.
+    //
+    // This used to be one fixed nine-colour ladder shared by every theme, on
+    // the reasoning that a user should keep one colour everywhere. The
+    // 2026-08-21 round then moved its centre of gravity warm, and on a cool
+    // theme that reads as a mistake rather than as identity: a deep indigo
+    // window with amber and rust discs down its room list. The slots are now
+    // nine evenly spaced hues in a 190-degree arc CENTRED ON THIS THEME'S
+    // ACCENT, so the family belongs to the theme it is sitting in.
+    //
+    // The arithmetic lives in C++ (src/theme/IdentityPalette.*) and NOT here,
+    // because the desktop-notification fallback avatar is painted with no QML
+    // engine anywhere near it. A second implementation of this in C++ is
+    // exactly the thing that drifts — a hand-kept copy of the old array
+    // already did, and the same person had one colour in the window and
+    // another in their notifications. One implementation, two callers.
+    //
+    // `accent` is read here on purpose: it makes every binding that calls
+    // avatarColor() depend on the theme, custom overrides included, so the
+    // discs follow a theme switch with no extra signal.
+    //
+    // The ORIGINAL fixed ladder, kept as the reference the derivation was
+    // measured against (nine hues at 4/28/44/95/155/192/225/272/325 degrees,
+    // closest pair dE 22). Nothing reads it any more.
+    readonly property var avatarPaletteLegacy: [
         "#D04339", "#AE6424", "#8F7224", "#4F822B", "#2E8460",
         "#2F7F93", "#4163C8", "#8941C8", "#C84190"
     ]
@@ -1405,9 +1423,37 @@ QtObject {
         var h = 0
         for (var i = 0; i < key.length; ++i)
             h = ((h << 5) - h + key.charCodeAt(i)) | 0
-        return Math.abs(h) % avatarPalette.length
+        return Math.abs(h) % 9
     }
-    function avatarColor(key) { return avatarPalette[identityIndex(key)] }
+    // The colour the discs are derived from.
+    //
+    // Usually the accent: in ten of eleven themes the accent IS the shell's
+    // own hue (never more than 29 degrees from the background). Storm is the
+    // exception — a navy shell at 233 degrees with the brand bolt at 46 — and
+    // anchoring there built a magenta-red-orange-lime family and dropped it
+    // onto a navy window. So the accent anchors the discs unless it is
+    // nowhere near the surface they sit on, in which case the surface wins.
+    //
+    // A custom theme gets the same rule applied to its own two colours, live.
+    readonly property color identityAnchor: {
+        var bg = _asColor(background)
+        var ink = _asColor(accent)
+        if (bg.hslSaturation < 0.20)
+            return ink
+        var gap = Math.abs(bg.hslHue - ink.hslHue)
+        if (gap > 0.5)
+            gap = 1.0 - gap
+        return gap > (60.0 / 360.0) ? bg : ink
+    }
+    function avatarColor(key) {
+        return IdentityPalette.disc(identityIndex(key), identityAnchor)
+    }
+    // The initials ink for that disc. NEVER assume white: half of these
+    // discs are pale, which is what separates them from each other once
+    // their hues share one family.
+    function avatarInk(key) {
+        return IdentityPalette.ink(identityIndex(key), identityAnchor)
+    }
     // Sender-name text inks, hue-matched index-for-index to avatarPalette
     // but tuned as TEXT ink: the avatar fills are mid-tone disc colours
     // sized for white initials and fail normal-text contrast as ink in

@@ -84,6 +84,10 @@ public:
         // avatar to fetch — the same key the room list uses, so the two
         // agree on colour. Empty falls back to the room name.
         QString avatarColorKey;
+        // The active SettingsManager::Theme. The identity discs are derived
+        // from the theme's accent now, so a notification painted without it
+        // would show a different colour from the window it came from.
+        int themeId = 0;
     };
     struct Decision {
         bool notify = false;

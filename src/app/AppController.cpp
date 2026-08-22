@@ -390,6 +390,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         // notification and the room list never disagree about an identity.
         context.avatarColorKey =
             notifyRoomRow.value(QStringLiteral("identityColorKey")).toString();
+        // ...and the theme the disc is coloured from, for the same reason.
+        context.themeId = int(m_settings->theme());
         context.roomMode = static_cast<NotificationManager::RoomMode>(
             m_settings->roomNotificationMode(roomId));
         context.previewMode = static_cast<NotificationManager::PreviewMode>(

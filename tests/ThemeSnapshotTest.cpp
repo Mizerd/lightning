@@ -157,8 +157,14 @@ ApplicationWindow {
         objectName: "avatarSwatch"
         x: 240; y: 0; width: 60; height: 60
         radius: width / 2
-        color: AppTheme.avatarPalette[3]
-        Text { anchors.centerIn: parent; text: "AB"; color: "#FFFFFF"; font.bold: true }
+        // The discs are derived from the active theme's accent now, so the
+        // probe asks for one the way the application does — by identity key,
+        // with the ink the disc can carry rather than a fixed white.
+        color: AppTheme.avatarColor("!probe:example.org")
+        Text {
+            anchors.centerIn: parent; text: "AB"; font.bold: true
+            color: AppTheme.avatarInk("!probe:example.org")
+        }
     }
 
     Button {
@@ -282,7 +288,9 @@ private Q_SLOTS:
                 QStringLiteral("%1: dark theme surface too light (luma %2)")
                     .arg(name).arg(surfaceLuma)));
 
-        // Avatar renders on a saturated palette colour, not a flat neutral.
+        // Avatar renders on a saturated identity colour, not a flat
+        // neutral — the discs follow the theme, but a theme must never
+        // flatten them into the surface they sit on.
         QVERIFY2(avatarTok.isValid() && avatarTok.saturation() > 40,
             qUtf8Printable(QStringLiteral("%1: avatar palette colour %2 not vivid")
                 .arg(name, avatarTok.name())));

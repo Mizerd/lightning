@@ -1,52 +1,24 @@
 #include "notifications/FallbackAvatar.h"
 
+#include "theme/IdentityColors.h"
+
 #include <QBrush>
 #include <QFont>
 #include <QPainter>
 #include <QRegularExpression>
 #include <QStringList>
 
-#include <cstdlib>
-
 namespace lightning::notifications {
-namespace {
-
-// qml/AppTheme.qml avatarPalette, in order — the index from identityIndex()
-// selects into this, so the order is part of the contract.
-//
-// This is a hand-kept COPY of a QML array, which is exactly the shape that
-// drifts: the 2026-08-21 palette round changed AppTheme.qml and left this
-// behind for one commit, so the same person had a red disc in the app and a
-// green one in their notifications. ThemeTokensTest now parses both and
-// requires them equal, which is what makes the duplication safe rather than
-// merely currently-correct.
-const char *const kAvatarPalette[] = {
-    "#D04339", "#AE6424", "#8F7224", "#4F822B", "#2E8460",
-    "#2F7F93", "#4163C8", "#8941C8", "#C84190",
-};
-constexpr int kPaletteSize = int(sizeof(kAvatarPalette) / sizeof(kAvatarPalette[0]));
-
-} // namespace
 
 int identityIndex(const QString &key)
 {
-    // JavaScript's `h = ((h << 5) - h + c) | 0` is 32-bit wrapping signed
-    // arithmetic. Done in UNSIGNED here and reinterpreted, because signed
-    // overflow is undefined in C++ and would be free to compute anything.
-    quint32 hash = 0;
-    for (const QChar character : key)
-        hash = (hash << 5) - hash + character.unicode();
-    const qint32 signedHash = static_cast<qint32>(hash);
-    // Widened before abs(): |INT32_MIN| does not fit in an int32, and
-    // std::abs on it is undefined. JavaScript's Math.abs has no such edge
-    // because it produces a double.
-    const qint64 magnitude = std::llabs(static_cast<qint64>(signedHash));
-    return int(magnitude % kPaletteSize);
+    return lightning::theme::identityIndex(key);
 }
 
-QColor identityColor(const QString &key)
+QColor identityColor(const QString &key, int themeId)
 {
-    return QColor(QLatin1String(kAvatarPalette[identityIndex(key)]));
+    return lightning::theme::discColor(lightning::theme::identityIndex(key),
+                                       lightning::theme::anchorForTheme(themeId));
 }
 
 QString initialsFor(const QString &name)
@@ -72,7 +44,8 @@ QString initialsFor(const QString &name)
     return cleaned.left(1).toUpper();
 }
 
-QImage fallbackAvatar(const QString &name, const QString &colorKey, int edge)
+QImage fallbackAvatar(const QString &name, const QString &colorKey, int edge,
+                      int themeId)
 {
     // Avatar.qml's _paletteKey: the explicit identity key when there is one,
     // otherwise the display name, so the disc matches whatever the interface
@@ -88,16 +61,19 @@ QImage fallbackAvatar(const QString &name, const QString &colorKey, int edge)
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
     painter.setPen(Qt::NoPen);
-    painter.setBrush(identityColor(paletteKey));
+    painter.setBrush(identityColor(paletteKey, themeId));
     painter.drawEllipse(0, 0, edge, edge);
 
     QFont font = painter.font();
     font.setBold(true);
     font.setPixelSize(qMax(1, int(edge * 0.42)));
     painter.setFont(font);
-    // White, as Avatar.qml uses over a palette disc — the palette entries
-    // are mid-tone fills chosen for exactly that.
-    painter.setPen(QColor(0xFF, 0xFF, 0xFF));
+    // The ink THIS disc can carry, exactly as Avatar.qml picks it. Half the
+    // slots are pale — that alternation is what keeps two rooms apart once
+    // the hues share one family — and white on a pale disc is unreadable.
+    painter.setPen(lightning::theme::discInk(
+        lightning::theme::identityIndex(paletteKey),
+        lightning::theme::anchorForTheme(themeId)));
     painter.drawText(image.rect(), Qt::AlignCenter, initialsFor(name));
     painter.end();
 

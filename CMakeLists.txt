@@ -510,6 +510,9 @@ set(APP_SOURCES
     src/notifications/NotificationManager.cpp
     src/notifications/FallbackAvatar.h
     src/notifications/FallbackAvatar.cpp
+    src/theme/IdentityColors.h
+    src/theme/IdentityColors.cpp
+    src/theme/IdentityPalette.h
     src/media/MediaManager.h
     src/media/MediaManager.cpp
     src/media/MediaBridge.h
@@ -820,7 +823,7 @@ function(_lightning_configure_qml_module target _scope)
     # bare filename, not the "models/HeaderName.h" path used by quoted
     # includes elsewhere. Add each subdirectory holding a QML-registered type
     # so that angle-bracket lookup resolves.
-    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update src/calls)
+    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update src/calls src/theme)
     # Build-only GIF key header (may be keyless); include path only, no values.
     target_include_directories(${target} ${_scope} "${LIGHTNING_GENERATED_DIR}")
 
@@ -1992,17 +1995,17 @@ if(BUILD_TESTING)
     # no stray hex colours in core view QML.
     qt_add_executable(theme-tokens-test
         tests/ThemeTokensTest.cpp
+        src/theme/IdentityColors.h
+        src/theme/IdentityColors.cpp
     )
+    target_include_directories(theme-tokens-test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_definitions(theme-tokens-test PRIVATE
         APPTHEME_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/AppTheme.qml"
         SETTINGS_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/SettingsScreen.qml"
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
-        # The notification fallback avatar keeps its own C++ copy of
-        # avatarPalette (a notification is painted with no QML engine). Parsed
-        # here so the two cannot drift apart again.
-        FALLBACK_AVATAR_CPP_PATH="${CMAKE_CURRENT_SOURCE_DIR}/src/notifications/FallbackAvatar.cpp"
     )
-    target_link_libraries(theme-tokens-test PRIVATE Qt6::Core Qt6::Test)
+    target_link_libraries(theme-tokens-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME theme-tokens COMMAND theme-tokens-test)
 
     # v0.5.9: attachment pipeline — validation, MIME-from-content, queue
@@ -2081,6 +2084,8 @@ if(BUILD_TESTING)
         tests/NotificationAvatarTest.cpp
         src/notifications/FallbackAvatar.h
         src/notifications/FallbackAvatar.cpp
+        src/theme/IdentityColors.h
+        src/theme/IdentityColors.cpp
     )
     target_include_directories(notification-avatar-test PRIVATE src)
     target_link_libraries(notification-avatar-test PRIVATE
@@ -2329,6 +2334,8 @@ if(BUILD_TESTING)
         src/notifications/NotificationManager.cpp
         src/notifications/FallbackAvatar.h
         src/notifications/FallbackAvatar.cpp
+        src/theme/IdentityColors.h
+        src/theme/IdentityColors.cpp
         src/matrix/EventPreview.h
         src/matrix/EventPreview.cpp
         src/models/UserLookup.h
@@ -2718,6 +2725,8 @@ if(BUILD_TESTING)
         src/storage/PortableMode.cpp
         src/notifications/FallbackAvatar.h
         src/notifications/FallbackAvatar.cpp
+        src/theme/IdentityColors.h
+        src/theme/IdentityColors.cpp
         src/matrix/EventPreview.h
         src/matrix/EventPreview.cpp
         src/models/UserLookup.h

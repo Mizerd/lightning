@@ -235,9 +235,14 @@ Rectangle {
         visible: root.presentationState === "missing"
                  || root.presentationState === "failed"
         text: root._initials(root.name)
-        // White 800-weight glyph on the palette colour per the handoff;
-        // neutral ink only on the colourless fallback surface.
-        color: root._paletteKey.length > 0 ? "#FFFFFF" : AppTheme.textSecondary
+        // The ink the DISC can carry, not a fixed white. Since the discs
+        // follow the theme's accent (AppTheme.avatarColor), half of them
+        // are pale — that alternation is what keeps two rooms apart once
+        // every hue belongs to one family — and white on a pale disc is
+        // unreadable. Neutral ink only on the colourless fallback surface.
+        color: root._paletteKey.length > 0
+               ? AppTheme.avatarInk(root._paletteKey)
+               : AppTheme.textSecondary
         font.pixelSize: root.labelSize > 0
                         ? root.labelSize
                         : Math.max(10, Math.round(root.size
