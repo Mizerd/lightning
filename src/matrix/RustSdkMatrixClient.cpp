@@ -2028,6 +2028,33 @@ void RustSdkMatrixClient::setProfileBanner(const QString &localPath,
     }
 }
 
+void RustSdkMatrixClient::fetchRoomBanner(const QString &roomId, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    const QByteArray target = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_fetch_room_banner(m_rustHandle, target.constData(), opId));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "room banner request rejected";
+}
+
+void RustSdkMatrixClient::setRoomBanner(const QString &roomId,
+                                        const QString &localPath, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    // The path is never logged: it is a filesystem path the user picked.
+    const QByteArray target = roomId.toUtf8();
+    const QByteArray path = localPath.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_banner(
+        m_rustHandle, target.constData(), path.constData(), opId));
+    if (!result.isEmpty()) {
+        Q_EMIT roomBannerSet(opId, roomId, false, QString(),
+                             QStringLiteral("rejected"));
+    }
+}
+
 void RustSdkMatrixClient::publishPresence(int state)
 {
     if (!m_loggedIn || !m_rustHandle || state < 0 || state > 2)
@@ -6149,6 +6176,25 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         Q_EMIT profileBannerSet(
             static_cast<quint64>(
                 event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("mxc")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+    if (type == QLatin1String("room_banner")) {
+        Q_EMIT roomBannerReceived(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("mxc")).toString(),
+            event.value(QStringLiteral("can_set")).toBool(false));
+        return true;
+    }
+    if (type == QLatin1String("room_banner_set")) {
+        Q_EMIT roomBannerSet(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("ok")).toBool(false),
             event.value(QStringLiteral("mxc")).toString(),
             event.value(QStringLiteral("category")).toString());

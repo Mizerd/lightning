@@ -417,6 +417,20 @@ public:
     {
         Q_UNUSED(localPath); Q_UNUSED(opId);
     }
+    // Room / Space banners. Lightning's own state event — Matrix specifies
+    // no room banner at all — so a backend that cannot send an arbitrary
+    // state event simply has none, and the surface is not offered.
+    virtual bool supportsRoomBanners() const { return false; }
+    virtual void fetchRoomBanner(const QString &roomId, quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(opId);
+    }
+    // An EMPTY path clears it. Reports on roomBannerSet.
+    virtual void setRoomBanner(const QString &roomId, const QString &localPath,
+                               quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(opId);
+    }
     // v0.7 "follow account default": drop this room's user-defined push
     // rules so the account's rules decide again. Success reports on the
     // dedicated roomNotificationModeCleared signal — NOT on
@@ -1105,6 +1119,12 @@ Q_SIGNALS:
                                const QString &mxc, bool supported);
     void profileBannerSet(quint64 opId, bool ok, const QString &mxc,
                           const QString &category);
+    // A room's banner, and whether THIS account may change it — the room's
+    // own required power level for the event, asked of the SDK.
+    void roomBannerReceived(quint64 opId, const QString &roomId,
+                            const QString &mxc, bool canSet);
+    void roomBannerSet(quint64 opId, const QString &roomId, bool ok,
+                       const QString &mxc, const QString &category);
     // Publishing the local user's own presence failed (coarse category).
     // Informational: PresenceManager uses it only for bounded diagnostics.
     void presencePublishFailed(const QString &category);

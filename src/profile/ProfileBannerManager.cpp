@@ -21,6 +21,10 @@ void ProfileBannerManager::setClient(MatrixClient *client)
             &ProfileBannerManager::handleReceived);
     connect(m_client, &MatrixClient::profileBannerSet, this,
             &ProfileBannerManager::handleSet);
+    connect(m_client, &MatrixClient::roomBannerReceived, this,
+            &ProfileBannerManager::handleRoomReceived);
+    connect(m_client, &MatrixClient::roomBannerSet, this,
+            &ProfileBannerManager::handleRoomSet);
     // A banner belongs to the account that fetched it. The next account's
     // profile cards must not inherit the previous one's answers.
     connect(m_client, &MatrixClient::loggedOut, this,
@@ -31,6 +35,11 @@ void ProfileBannerManager::setClient(MatrixClient *client)
 bool ProfileBannerManager::available() const
 {
     return m_client && m_client->supportsProfileBanners();
+}
+
+bool ProfileBannerManager::roomBannersAvailable() const
+{
+    return m_client && m_client->supportsRoomBanners();
 }
 
 QString ProfileBannerManager::bannerFor(const QString &userId) const
@@ -132,11 +141,110 @@ void ProfileBannerManager::handleSet(quint64 opId, bool ok, const QString &mxc,
     Q_EMIT revisionChanged();
 }
 
+QString ProfileBannerManager::roomBannerFor(const QString &roomId) const
+{
+    return m_roomCache.value(roomId);
+}
+
+bool ProfileBannerManager::canSetRoomBanner(const QString &roomId) const
+{
+    return m_roomWritable.contains(roomId);
+}
+
+void ProfileBannerManager::requestRoom(const QString &roomId)
+{
+    if (roomId.isEmpty() || m_roomAsked.contains(roomId))
+        return;
+    refreshRoom(roomId);
+}
+
+void ProfileBannerManager::refreshRoom(const QString &roomId)
+{
+    if (!roomBannersAvailable() || roomId.isEmpty())
+        return;
+    if (m_roomCache.size() >= kMaxCached)
+        return;
+    m_roomAsked.insert(roomId);
+    const quint64 opId = m_nextOpId++;
+    m_roomInFlight.insert(opId, roomId);
+    m_client->fetchRoomBanner(roomId, opId);
+}
+
+void ProfileBannerManager::setRoomBanner(const QString &roomId,
+                                         const QString &localPath)
+{
+    if (!roomBannersAvailable() || roomId.isEmpty() || localPath.isEmpty()
+        || m_pendingWrite != 0)
+        return;
+    setLastError({});
+    m_pendingWrite = m_nextOpId++;
+    Q_EMIT busyChanged();
+    m_client->setRoomBanner(roomId, localPath, m_pendingWrite);
+}
+
+void ProfileBannerManager::clearRoomBanner(const QString &roomId)
+{
+    if (!roomBannersAvailable() || roomId.isEmpty() || m_pendingWrite != 0)
+        return;
+    setLastError({});
+    m_pendingWrite = m_nextOpId++;
+    Q_EMIT busyChanged();
+    // An empty path IS the clear; Rust sends an empty content object.
+    m_client->setRoomBanner(roomId, QString(), m_pendingWrite);
+}
+
+void ProfileBannerManager::handleRoomReceived(quint64 opId,
+                                              const QString &roomId,
+                                              const QString &mxc, bool canSet)
+{
+    const auto it = m_roomInFlight.constFind(opId);
+    if (it == m_roomInFlight.constEnd())
+        return;   // a stale answer from a previous session
+    m_roomInFlight.erase(it);
+
+    const QString previous = m_roomCache.value(roomId);
+    const bool couldSet = m_roomWritable.contains(roomId);
+    m_roomCache.insert(roomId, mxc);
+    if (canSet)
+        m_roomWritable.insert(roomId);
+    else
+        m_roomWritable.remove(roomId);
+    if (previous == mxc && couldSet == canSet)
+        return;
+    ++m_revision;
+    Q_EMIT revisionChanged();
+}
+
+void ProfileBannerManager::handleRoomSet(quint64 opId, const QString &roomId,
+                                         bool ok, const QString &mxc,
+                                         const QString &category)
+{
+    if (opId != m_pendingWrite)
+        return;
+    m_pendingWrite = 0;
+    Q_EMIT busyChanged();
+    if (!ok) {
+        setLastError(category.isEmpty() ? QStringLiteral("failed") : category);
+        return;
+    }
+    setLastError({});
+    // The server ACKNOWLEDGED the state event, so this answer is
+    // authoritative for the room and needs no round trip to re-read.
+    m_roomCache.insert(roomId, mxc);
+    m_roomAsked.insert(roomId);
+    ++m_revision;
+    Q_EMIT revisionChanged();
+}
+
 void ProfileBannerManager::clearSession()
 {
     m_cache.clear();
     m_asked.clear();
     m_inFlight.clear();
+    m_roomCache.clear();
+    m_roomAsked.clear();
+    m_roomWritable.clear();
+    m_roomInFlight.clear();
     m_pendingWrite = 0;
     setLastError({});
     // A different account may be on a server that DOES implement extended

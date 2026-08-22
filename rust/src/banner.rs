@@ -26,12 +26,18 @@ use std::sync::Arc;
 use matrix_sdk::{
     config::RequestConfig,
     ruma::{
-        api::client::profile::{delete_profile_field, get_profile_field, set_profile_field},
+        api::client::{
+            profile::{delete_profile_field, get_profile_field, set_profile_field},
+            state::get_state_event_for_key,
+        },
+        events::StateEventType,
         profile::{ProfileFieldName, ProfileFieldValue},
         OwnedUserId, UserId,
     },
 };
 use serde_json::json;
+
+use matrix_sdk::deserialized_responses::RawAnySyncOrStrippedState;
 
 use crate::rooms::{classify_room_error, require_client, sniff_image_mime};
 use crate::{enqueue, RustClient};
@@ -262,6 +268,194 @@ pub(crate) fn set_own_profile_banner(
         }
     });
     Ok(())
+}
+
+// ─── Room / Space banners ────────────────────────────────────────────────
+//
+// Matrix specifies no room banner. MSC4427 covers user PROFILES only, and
+// there is no equivalent for a room or a Space, so unlike the profile half
+// above there is no deployed key to interoperate with — this is Lightning's
+// own state event, in Lightning's own namespace, and it is named as such
+// rather than squatting on the reserved `m.` prefix or on another client's
+// unstable one. Any client that does not know it simply does not render a
+// banner, which is the correct outcome for a decoration.
+//
+// It IS a real state event and not a local preference: a banner belongs to
+// the room, everyone in it sees the same one, and it is set by whoever the
+// room's own power levels allow to set it — never "whoever opened the panel".
+const ROOM_BANNER_EVENT: &str = "org.lightning_matrix.room_banner";
+
+/// Read one room's banner, and whether this account may change it. Emits
+/// `room_banner`.
+///
+/// The state store is consulted first and the homeserver second. Sliding sync
+/// only delivers the state event types Lightning asks for in `required_state`,
+/// and a custom type is not among them, so a store miss is the ORDINARY case
+/// here and is not evidence that the room has no banner. A 404 from the direct
+/// read is that evidence.
+pub(crate) fn fetch_room_banner(
+    bridge: &RustClient,
+    op_id: u64,
+    room_id: String,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = crate::rooms::joined_room(&client, &room_id)?;
+    let own_id = client.user_id().map(ToOwned::to_owned);
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let mut banner = String::new();
+        if let Ok(Some(raw)) = room
+            .get_state_event(StateEventType::from(ROOM_BANNER_EVENT), "")
+            .await
+        {
+            let json = match &raw {
+                RawAnySyncOrStrippedState::Sync(ev) => ev.json().get().to_owned(),
+                RawAnySyncOrStrippedState::Stripped(ev) => ev.json().get().to_owned(),
+            };
+            if let Some(url) = banner_url_from_json(&json) {
+                banner = url;
+            }
+        }
+        if banner.is_empty() {
+            let config = RequestConfig::new()
+                .disable_retry()
+                .timeout(BANNER_REQUEST_TIMEOUT);
+            let request = get_state_event_for_key::v3::Request::new(
+                room.room_id().to_owned(),
+                StateEventType::from(ROOM_BANNER_EVENT),
+                String::new(),
+            );
+            if let Ok(response) = client.send(request).with_request_config(config).await {
+                if let Some(url) = banner_url_from_json(response.event_or_content.get()) {
+                    banner = url;
+                }
+            }
+        }
+
+        // Offer policy is the room's OWN required level for this event type,
+        // asked of the SDK — never a role label and never "is an admin".
+        let can_set = match own_id {
+            Some(own) => room
+                .get_member_no_sync(&own)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|m| {
+                    m.can_send_state(StateEventType::from(ROOM_BANNER_EVENT))
+                }),
+            None => false,
+        };
+
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, json!({
+            "type": "room_banner",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "mxc": banner,
+            "can_set": can_set,
+        }));
+    });
+    Ok(())
+}
+
+/// Upload `local_path` and set it as the room's banner. An EMPTY path clears
+/// it (an empty content object, which is how Matrix retires a state event).
+/// Emits `room_banner_set`.
+pub(crate) fn set_room_banner(
+    bridge: &RustClient,
+    op_id: u64,
+    room_id: String,
+    local_path: String,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = crate::rooms::joined_room(&client, &room_id)?;
+    let clearing = local_path.is_empty();
+    if !clearing {
+        let metadata = std::fs::metadata(&local_path)
+            .map_err(|_| "banner file is not readable".to_owned())?;
+        if !metadata.is_file() {
+            return Err("banner path is not a regular file".to_owned());
+        }
+        if metadata.len() == 0 || metadata.len() > MAX_BANNER_BYTES {
+            return Err("banner file size is out of range".to_owned());
+        }
+    }
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = async {
+            let mxc = if clearing {
+                String::new()
+            } else {
+                let data = tokio::fs::read(&local_path)
+                    .await
+                    .map_err(|_| "read_failed".to_owned())?;
+                // The CONTENT decides the type, never the file name.
+                let mime_str =
+                    sniff_image_mime(&data).ok_or_else(|| "unsupported_image".to_owned())?;
+                let mime: mime::Mime =
+                    mime_str.parse().map_err(|_| "unsupported_image".to_owned())?;
+                let upload = client
+                    .media()
+                    .upload(&mime, data, None)
+                    .await
+                    .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+                upload.content_uri.to_string()
+            };
+            let content = if mxc.is_empty() {
+                json!({})
+            } else {
+                json!({ "url": mxc.clone() })
+            };
+            room.send_state_event_raw(ROOM_BANNER_EVENT, "", content)
+                .await
+                .map(|_| mxc)
+                .map_err(|err| classify_room_error(&err.to_string()).to_owned())
+        }
+        .await;
+
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        match result {
+            Ok(mxc) => enqueue(&events, json!({
+                "type": "room_banner_set",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "room_id": room_id,
+                "ok": true,
+                "mxc": mxc,
+                "category": "",
+            })),
+            Err(category) => enqueue(&events, json!({
+                "type": "room_banner_set",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "room_id": room_id,
+                "ok": false,
+                "mxc": "",
+                "category": category,
+            })),
+        }
+    });
+    Ok(())
+}
+
+/// Pull a usable banner mxc out of either a full state event or a bare
+/// content object — the store hands over the event, the direct `/state` read
+/// hands over the content, and both funnel through here so the same
+/// mxc-only rule applies to both.
+fn banner_url_from_json(raw: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let content = value.get("content").unwrap_or(&value);
+    let url = content.get("url")?.as_str()?;
+    is_usable_banner(url).then(|| url.to_owned())
 }
 
 #[cfg(test)]

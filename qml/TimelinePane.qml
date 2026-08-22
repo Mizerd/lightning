@@ -5497,6 +5497,7 @@ Rectangle {
             }
 
             Flickable {
+                id: spaceScroll
                 anchors.fill: parent
                 contentWidth: width
                 contentHeight: spaceCol.implicitHeight + AppTheme.spacing24 * 2
@@ -5506,29 +5507,80 @@ Rectangle {
 
                 ColumnLayout {
                     id: spaceCol
-                    width: Math.min(640, parent.width - AppTheme.spacing24 * 2)
-                    x: (parent.width - width) / 2
+                    // Measured against the FLICKABLE, not against `parent`.
+                    // A Flickable reparents its children to contentItem, and
+                    // centring against that item put the whole column far to
+                    // the right of a wide window with a large empty area
+                    // beside it. The viewport is what the column should be
+                    // centred in, so it is named outright.
+                    width: Math.min(880,
+                                    spaceScroll.width - AppTheme.spacing24 * 2)
+                    x: Math.round((spaceScroll.width - width) / 2)
                     y: AppTheme.spacing24
                     spacing: AppTheme.spacing16
 
-                    // Space banner.
+                    // Space banner — a REAL image, set by whoever the
+                    // Space's own power levels allow.
                     //
-                    // Deliberately the SPACE'S OWN AVATAR, scaled wide, and
-                    // not a new state event. There is no Matrix convention for
-                    // a space banner — MSC4427 covers user profiles only —
-                    // so storing one would mean inventing a key nothing else
-                    // reads, on somebody's account, for a decoration. This
-                    // uses data every client already has, so a Space that
-                    // looks good here looks the same everywhere.
+                    // It used to be the Space's avatar stretched to a 4:1
+                    // strip, which is a square image cropped to a shape
+                    // nobody composed it for and looked exactly like that.
+                    // Matrix specifies no room banner, so this is
+                    // Lightning's own state event (see rust/src/banner.rs) —
+                    // a client that does not know it renders no banner, and
+                    // nothing about the Space is damaged by that.
+                    //
+                    // With no banner set the strip is a calm gradient rather
+                    // than a badly cropped avatar: an empty banner should
+                    // look deliberate.
                     Rectangle {
+                        id: spaceBannerCard
                         objectName: "spaceHomeBanner"
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.round(
-                            Math.max(96, spaceCol.width / 4))
-                        visible: (spaceHome.info.avatarUrl || "").length > 0
+                            Math.max(140, Math.min(240, spaceCol.width / 4)))
                         radius: AppTheme.radiusMd
-                        color: AppTheme.cardElevated
                         clip: true
+                        color: AppTheme.cardElevated
+
+                        readonly property string bannerMxc: {
+                            if (!app.banners || spaceHome.spaceId === "")
+                                return ""
+                            var _dep = app.banners.revision
+                            return app.banners.roomBannerFor(spaceHome.spaceId)
+                        }
+                        readonly property bool canEdit:
+                            app.banners !== null
+                            && spaceHome.spaceId !== ""
+                            && (app.banners.revision, app.banners.canSetRoomBanner(
+                                    spaceHome.spaceId))
+
+                        // Asked once per Space per session; the write path
+                        // re-asks itself, so a fresh banner appears without
+                        // one.
+                        onVisibleChanged: if (visible) spaceBannerCard.ask()
+                        Component.onCompleted: spaceBannerCard.ask()
+                        function ask() {
+                            if (app.banners && spaceHome.spaceId !== "")
+                                app.banners.requestRoom(spaceHome.spaceId)
+                        }
+                        Connections {
+                            target: spaceHome
+                            function onSpaceIdChanged() { spaceBannerCard.ask() }
+                        }
+
+                        // The empty state. Theme tones only — no avatar, no
+                        // invented artwork.
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: !spaceBannerImage.visible
+                            gradient: Gradient {
+                                GradientStop { position: 0.0
+                                    color: AppTheme.cardElevated }
+                                GradientStop { position: 1.0
+                                    color: AppTheme.hover }
+                            }
+                        }
 
                         Image {
                             id: spaceBannerImage
@@ -5537,7 +5589,7 @@ Rectangle {
                             asynchronous: true
                             visible: status === Image.Ready
                             readonly property string mxc:
-                                spaceHome.info.avatarUrl || ""
+                                spaceBannerCard.bannerMxc
                             source: mxc.length > 0 && app.mediaBridge.supported
                                     ? app.mediaBridge.wideImageSource(mxc) : ""
                             Connections {
@@ -5553,8 +5605,8 @@ Rectangle {
                                 }
                             }
                         }
-                        // A wash, so the name and the controls below keep
-                        // their contrast whatever the image happens to be.
+                        // A wash under the controls, so they keep their
+                        // contrast whatever the image happens to be.
                         Rectangle {
                             anchors.fill: parent
                             visible: spaceBannerImage.visible
@@ -5564,7 +5616,70 @@ Rectangle {
                                 GradientStop { position: 1.0
                                     color: AppTheme.overlayScrim }
                             }
-                            opacity: 0.7
+                            opacity: 0.55
+                        }
+
+                        FileDialog {
+                            id: spaceBannerDialog
+                            title: qsTr("Choose a banner image")
+                            fileMode: FileDialog.OpenFile
+                            nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp)") ]
+                            onAccepted: {
+                                var path = selectedFile.toString()
+                                if (path.indexOf("file://") === 0)
+                                    path = decodeURIComponent(path.substring(7))
+                                app.banners.setRoomBanner(spaceHome.spaceId,
+                                                          path)
+                            }
+                        }
+
+                        Row {
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: AppTheme.spacing8
+                            spacing: AppTheme.spacing6
+                            visible: spaceBannerCard.canEdit
+
+                            AppButton {
+                                objectName: "spaceBannerRemoveButton"
+                                size: "sm"
+                                kind: "danger"
+                                visible: spaceBannerCard.bannerMxc.length > 0
+                                enabled: !app.banners.busy
+                                text: qsTr("Remove")
+                                onClicked: app.banners.clearRoomBanner(
+                                    spaceHome.spaceId)
+                            }
+                            AppButton {
+                                objectName: "spaceBannerChangeButton"
+                                size: "sm"
+                                enabled: !app.banners.busy
+                                text: spaceBannerCard.bannerMxc.length > 0
+                                      ? qsTr("Change banner")
+                                      : qsTr("Add a banner")
+                                onClicked: spaceBannerDialog.open()
+                            }
+                        }
+
+                        // A refusal is reported where it happened, and
+                        // nothing was applied optimistically to undo.
+                        Label {
+                            anchors.left: parent.left
+                            anchors.bottom: parent.bottom
+                            anchors.margins: AppTheme.spacing8
+                            width: parent.width - AppTheme.spacing16
+                            visible: text.length > 0
+                            text: {
+                                if (!app.banners
+                                        || app.banners.lastError.length === 0)
+                                    return ""
+                                return qsTr("The banner could not be saved (%1).")
+                                    .arg(app.banners.lastError)
+                            }
+                            color: AppTheme.danger
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                            wrapMode: Text.WordWrap
                         }
                     }
 

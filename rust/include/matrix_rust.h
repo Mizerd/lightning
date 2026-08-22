@@ -599,6 +599,29 @@ char *mx_rust_set_profile_banner(void *client,
                                  const char *local_path,
                                  unsigned long long op_id);
 /*
+ * Read a room's (or Space's) banner and whether this account may change it.
+ * Answers as
+ *   {"type":"room_banner","op_id",…,"room_id","mxc","can_set":bool}
+ *
+ * Matrix specifies NO room banner — MSC4427 covers user profiles only — so
+ * this is Lightning's own state event, org.lightning_matrix.room_banner, and
+ * a client that does not know it simply renders no banner. `can_set` is the
+ * room's own required power level for that event type, asked of the SDK, not
+ * a role label. As with a profile banner, only an mxc:// URI is accepted.
+ */
+char *mx_rust_fetch_room_banner(void *client,
+                                const char *room_id,
+                                unsigned long long op_id);
+/*
+ * Upload a local image and set it as the room's banner. An EMPTY path clears
+ * it. Content decides the type (magic bytes), never the file name. Answers as
+ *   {"type":"room_banner_set","op_id",…,"room_id","ok","mxc","category"}.
+ */
+char *mx_rust_set_room_banner(void *client,
+                              const char *room_id,
+                              const char *local_path,
+                              unsigned long long op_id);
+/*
  * v0.5.12: secure client-side HTTPS preview. Rust validates DNS and every
  * redirect, blocks local/private destinations, bounds responses and parses
  * metadata without executing page content. The URL is never logged:

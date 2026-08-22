@@ -5581,6 +5581,39 @@ pub unsafe extern "C" fn mx_rust_set_profile_banner(
     })
 }
 
+/// Read a room's (or Space's) banner and whether this account may change it.
+/// Result event: `room_banner { op_id, lifecycle, room_id, mxc, can_set }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_fetch_room_banner(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        banner::fetch_room_banner(bridge, op_id, room_id).map(|_| String::new())
+    })
+}
+
+/// Upload a local image and set it as the room's banner. An EMPTY path clears
+/// it. Result event:
+/// `room_banner_set { op_id, lifecycle, room_id, ok, mxc, category }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_banner(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    local_path: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let path = unsafe { cstr_arg(local_path) }?;
+        banner::set_room_banner(bridge, op_id, room_id, path).map(|_| String::new())
+    })
+}
+
 /// v0.7.x Matrix presence: one bounded polling round over a JSON array of
 /// user ids (capped in presence.rs). Answers as a single `presence_batch`
 /// poll event carrying per-user ok/state/currently_active/last_active_ago.
