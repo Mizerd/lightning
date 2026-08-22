@@ -1168,6 +1168,29 @@ Item {
                         // the field still grows to the 6-line cap above.
                         topPadding: AppTheme.spacing6
                         bottomPadding: AppTheme.spacing6
+                        // ...and the INSETS pinned too, which the padding
+                        // above did not cover.
+                        //
+                        // Reported as "text is not centred when the room is
+                        // opened, and gets centred when you click it". Padding
+                        // alone cannot explain a change on FOCUS — it does not
+                        // vary — but a style's background insets can, and this
+                        // app picks up the platform Breeze style for TextArea.
+                        // An inset shifts where the content sits inside the
+                        // control, so a focus-dependent one moves the text and
+                        // leaves every icon beside it where it was, which is
+                        // exactly the offset in the screenshot.
+                        //
+                        // Zeroing them takes that decision away from the style
+                        // in both states. NOT reproduced locally: an offscreen
+                        // test does not load Breeze, and measuring the items
+                        // showed the input, its flickable and the attach
+                        // button sharing one centre line before and after
+                        // focus — the item geometry was never the problem.
+                        topInset: 0
+                        bottomInset: 0
+                        leftInset: 0
+                        rightInset: 0
                         wrapMode: TextArea.Wrap
                         enabled: app.currentRoomId !== ""
                         text: app.composer.text

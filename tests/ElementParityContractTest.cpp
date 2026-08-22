@@ -97,6 +97,19 @@ private Q_SLOTS:
                      "visible: app.settings.spaceBannersVisible")),
                  "the banner does not read spaceBannersVisible");
 
+        // The control cluster's visibility must come from the CONDITIONS,
+        // never from summing its children's `visible`. QQuickItem::visible is
+        // EFFECTIVE visibility, so a parent hidden at startup makes every
+        // child report false however its own binding evaluates, the sum stays
+        // zero, and nothing ever notifies it back on. That shipped once and
+        // took every banner control with it.
+        QVERIFY2(!pane.contains(QStringLiteral("visibleCount")),
+                 "the banner controls sum their children's visible again");
+        QVERIFY2(pane.contains(QStringLiteral(
+                     "visible: spaceBannerCard.bannerMxc.length > 0 "
+                     "|| spaceBannerCard.canEdit")),
+                 "the banner control cluster does not gate on its conditions");
+
         // Cropped is the DEFAULT presentation: the fixed strip is the
         // else-branch, and expanding is what takes the picture's own shape.
         QVERIFY2(pane.contains(QStringLiteral(

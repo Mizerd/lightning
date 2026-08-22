@@ -5698,21 +5698,30 @@ Rectangle {
                         color: AppTheme.scrimSurface
                         border.width: 1
                         border.color: AppTheme.overlayScrim
-                        implicitWidth: bannerControlRow.implicitWidth
-                                       + AppTheme.spacing8
-                        implicitHeight: bannerControlRow.implicitHeight
-                                        + AppTheme.spacing4
-                        visible: bannerControlRow.visibleCount > 0
+                        readonly property int pad: AppTheme.spacing4
+                        implicitWidth: bannerControlRow.implicitWidth + pad * 2
+                        implicitHeight: bannerControlRow.implicitHeight + pad * 2
+                        // Visibility comes from the CONDITIONS, never from the
+                        // children's `visible`.
+                        //
+                        // Summing the children latched this pill off for good.
+                        // QQuickItem::visible is EFFECTIVE visibility: while
+                        // the pill is hidden every child reports false however
+                        // its own binding evaluates, so the sum stays zero,
+                        // and a child turning itself on changes no effective
+                        // value and therefore notifies nothing. At startup the
+                        // banner has not been fetched yet, so the count starts
+                        // at zero — and never left it. Reproduced in isolation
+                        // before this was changed; the same shape as the
+                        // busy-indicator latch already recorded in CLAUDE.md.
+                        visible: spaceBannerCard.bannerMxc.length > 0
+                                 || spaceBannerCard.canEdit
 
                         Row {
                             id: bannerControlRow
-                            anchors.centerIn: parent
+                            x: parent.pad
+                            y: parent.pad
                             spacing: 2
-                            readonly property int visibleCount:
-                                (bannerExpandBtn.visible ? 1 : 0)
-                                + (bannerHideBtn.visible ? 1 : 0)
-                                + (bannerChangeBtn.visible ? 1 : 0)
-                                + (bannerRemoveBtn.visible ? 1 : 0)
 
                             IconButton {
                                 id: bannerExpandBtn
