@@ -123,6 +123,15 @@ void ProfileBannerManager::handleSet(quint64 opId, bool ok, const QString &mxc,
     Q_EMIT busyChanged();
     if (!ok) {
         setLastError(category.isEmpty() ? QStringLiteral("failed") : category);
+        // A write that came back unrecognised settles the same question the
+        // read settles, and settles it more definitively — the endpoint is
+        // not there. Without this the account could be invited to fail at
+        // the same upload indefinitely, because nothing else on this surface
+        // ever asks. It clears with the session, like the read's latch.
+        if (category == QLatin1String("unsupported") && m_supported) {
+            m_supported = false;
+            Q_EMIT supportedChanged();
+        }
         return;
     }
     setLastError({});

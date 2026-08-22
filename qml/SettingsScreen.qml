@@ -3148,13 +3148,33 @@ Item {
                             }
                         }
                         // Profile banner (MSC4427 over MSC4133 extended
-                        // profile fields). Hidden outright when the backend
-                        // cannot read them or the homeserver does not
-                        // implement them: a control that cannot work is worse
-                        // than no control.
+                        // profile fields). Hidden outright when the BACKEND
+                        // cannot read them: a control that cannot work is
+                        // worse than no control.
+                        //
+                        // A homeserver that does not implement extended
+                        // profiles is a different case and is DISCLOSED
+                        // rather than hidden. Hiding it there answered the
+                        // wrong question — the user has already seen the
+                        // feature, tried it and been refused, and a surface
+                        // that silently disappears at that moment tells them
+                        // nothing about why. The account is asked once on
+                        // open so the answer is known BEFORE a file is
+                        // picked, instead of after an upload fails.
                         SettingsCard {
+                            id: profileBannerCard
                             visible: app.banners && app.banners.available
-                                     && app.banners.supported
+                            readonly property bool serverSupports:
+                                app.banners && app.banners.supported
+                            readonly property string ownUserId:
+                                app.accounts ? app.accounts.activeUserId : ""
+                            Component.onCompleted: profileBannerCard.ask()
+                            onOwnUserIdChanged: profileBannerCard.ask()
+                            function ask() {
+                                if (app.banners && app.banners.available
+                                        && profileBannerCard.ownUserId !== "")
+                                    app.banners.request(profileBannerCard.ownUserId)
+                            }
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
@@ -3218,6 +3238,7 @@ Item {
                                         storm: true
                                         text: qsTr("Choose image…")
                                         enabled: !app.banners.busy
+                                                 && profileBannerCard.serverSupports
                                         onClicked: bannerFileDialog.open()
                                     }
                                     AppButton {
@@ -3227,18 +3248,54 @@ Item {
                                         text: qsTr("Remove")
                                         visible: app.banners.ownBanner.length > 0
                                         enabled: !app.banners.busy
+                                                 && profileBannerCard.serverSupports
                                         onClicked: app.banners.clearOwnBanner()
                                     }
                                 }
                                 Label {
                                     objectName: "profileBannerError"
                                     Layout.fillWidth: true
-                                    visible: app.banners.lastError.length > 0
+                                    visible: text.length > 0
                                     wrapMode: Text.WordWrap
                                     color: AppTheme.stormDanger
                                     font.pixelSize: AppTheme.textMeta
-                                    text: qsTr("The banner could not be saved (%1).")
-                                              .arg(app.banners.lastError)
+                                    // Named causes get a sentence a person
+                                    // can act on. A raw category told the
+                                    // user "(unsupported)" for a homeserver
+                                    // limitation they would reasonably read
+                                    // as a rejected image — and they read it
+                                    // exactly that way.
+                                    text: {
+                                        if (!profileBannerCard.serverSupports)
+                                            return ""
+                                        var e = app.banners.lastError
+                                        if (e.length === 0)
+                                            return ""
+                                        if (e === "unsupported_image")
+                                            return qsTr("That file is not an image Lightning can "
+                                                        + "upload. PNG, JPEG, GIF, WebP and BMP "
+                                                        + "work; the file's contents decide, not "
+                                                        + "its name.")
+                                        if (e === "forbidden")
+                                            return qsTr("Your homeserver refused the banner.")
+                                        return qsTr("The banner could not be saved (%1).").arg(e)
+                                    }
+                                }
+                                // The homeserver's own answer, stated once,
+                                // where the control used to be.
+                                Label {
+                                    objectName: "profileBannerUnsupported"
+                                    Layout.fillWidth: true
+                                    visible: !profileBannerCard.serverSupports
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Your homeserver does not support profile banners "
+                                               + "yet. They need extended profile fields "
+                                               + "(MSC4133), which most servers have not enabled. "
+                                               + "Nothing is wrong with your image.")
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -3261,7 +3318,7 @@ Item {
                                 FileDialog {
                                     id: bannerFileDialog
                                     title: qsTr("Choose a banner image")
-                                    nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif)")]
+                                    nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)")]
                                     onAccepted: {
                                         var path = selectedFile.toString()
                                         if (path.indexOf("file://") === 0)

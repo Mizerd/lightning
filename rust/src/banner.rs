@@ -78,12 +78,19 @@ fn banner_from_response(response: get_profile_field::v3::Response) -> Option<Str
 /// True when the failure means "this server does not do extended profiles",
 /// rather than "this user has no banner". The distinction is the difference
 /// between rendering nothing and claiming something.
+///
+/// It keys on the ERRCODE, never on the status. Both answers are 404:
+/// `M_NOT_FOUND` is the ORDINARY reply for a profile field that is simply not
+/// set, and `M_UNRECOGNIZED` is a server that does not implement the endpoint
+/// at all. An earlier version also matched "404" and "not found", so a
+/// homeserver that fully supports extended profiles reported itself
+/// unsupported the moment a user had no banner — which hid the entire
+/// feature for everyone on it.
 fn is_unsupported(error: &str) -> bool {
     let lowered = error.to_ascii_lowercase();
     lowered.contains("m_unrecognized")
         || lowered.contains("unrecognized")
-        || lowered.contains("404")
-        || lowered.contains("not found")
+        || lowered.contains("unrecognised")
 }
 
 /// Read one user's banner. Emits `profile_banner`.
@@ -103,12 +110,18 @@ pub(crate) fn fetch_profile_banner(
         let config = RequestConfig::new()
             .disable_retry()
             .timeout(BANNER_REQUEST_TIMEOUT);
-        let mut supported = true;
         let mut banner = String::new();
         // Stable first, then the deployed unstable key. A server that answers
         // the stable field at all is one whose answer we trust, so an empty
         // stable answer still falls through — the two names coexist for now
         // and a banner set by Commet lives under the second one.
+        //
+        // `supported` is decided by ACCOUNTING, not by whichever field
+        // happened to be asked last: the server is unsupported only when
+        // every attempt came back unrecognised. An M_NOT_FOUND — no such
+        // field — is a supported server answering "there is no banner".
+        let mut any_answered = false;
+        let mut any_unrecognised = false;
         for field in [BANNER_FIELD, BANNER_FIELD_UNSTABLE] {
             let request = get_profile_field::v3::Request::new(
                 uid.clone(),
@@ -116,25 +129,25 @@ pub(crate) fn fetch_profile_banner(
             );
             match client.send(request).with_request_config(config).await {
                 Ok(response) => {
+                    any_answered = true;
                     if let Some(value) = banner_from_response(response) {
                         banner = value;
-                        supported = true;
                         break;
                     }
                 }
                 Err(err) => {
                     let text = err.to_string();
                     if is_unsupported(&text) {
-                        // Not knowing is not the same as knowing there is
-                        // none. Keep looking; only report unsupported if
-                        // every field said so.
-                        supported = false;
+                        any_unrecognised = true;
                     } else {
-                        supported = true;
+                        // A refusal, a timeout or a plain M_NOT_FOUND all
+                        // come from a server that KNOWS the endpoint.
+                        any_answered = true;
                     }
                 }
             }
         }
+        let supported = any_answered || !any_unrecognised;
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
@@ -479,7 +492,11 @@ mod tests {
     #[test]
     fn an_unrecognised_endpoint_is_unsupported_not_absent() {
         assert!(is_unsupported("M_UNRECOGNIZED: Unrecognized request"));
-        assert!(is_unsupported("the server returned 404 Not Found"));
+        // Both of these are 404. M_NOT_FOUND is the ordinary answer for a
+        // field nobody has set, and treating it as "this server cannot do
+        // banners" hid the whole feature from every user without one.
+        assert!(!is_unsupported("[404 / M_NOT_FOUND] Profile field not found"));
+        assert!(!is_unsupported("the server returned 404 Not Found"));
         // A real refusal is NOT "the server cannot do banners".
         assert!(!is_unsupported("M_FORBIDDEN: not allowed"));
         assert!(!is_unsupported("connection reset"));
