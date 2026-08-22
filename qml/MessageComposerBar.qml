@@ -185,14 +185,15 @@ Item {
         if (tok && tok.active === true) {
             root.mentionTokenStart = tok.start
             app.mentionSuggestions.roomId = app.currentRoomId
-            // @room is offered unless we positively know this account cannot
-            // trigger one. The room-info snapshot is only authoritative while
-            // it is describing THIS room — it may be showing a Space, or
-            // nothing at all — and in that case the server, not a stale
-            // snapshot, decides.
-            app.mentionSuggestions.roomMentionAllowed =
-                (app.roomInfo.roomId === app.currentRoomId)
-                ? app.roomInfo.canNotifyRoom : true
+            // @room's permission is NOT set here. It used to read
+            // app.roomInfo.canNotifyRoom whenever that controller happened to
+            // point at this room, which suppressed @room entirely: that value
+            // is false while the roster loads, false after every
+            // clearSnapshot(), and false on any backend that does not send the
+            // key at all. The room-info panel is part of the default layout,
+            // so the condition was usually TRUE and the answer usually FALSE.
+            // The model now takes it from its own roster snapshot, for its own
+            // room. See MentionSuggestionModel::onRoomMembersReceived.
             app.mentionSuggestions.query = tok.query
             mentionPopup.query = tok.query
             // Anchor to the Flickable VIEWPORT, not the TextArea: the

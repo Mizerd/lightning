@@ -37,6 +37,22 @@ class RoomInfoController : public QObject
     // notification (notifications.room, default 50), from the SDK. The
     // mention is only OFFERED where the account may actually trigger
     // one — sending it anyway would notify nobody and say nothing.
+    // Whether this account may trigger a whole-room notification (@room).
+    //
+    // READ THE HAZARD BEFORE USING THIS. It is false in three different
+    // situations that this one boolean cannot tell apart: the account really
+    // is below the room's notifications.room level; the roster has not
+    // arrived yet (clearSnapshot() sets it false on every re-point); and the
+    // backend never sent the key at all, because QVariantMap::value() on a
+    // missing key returns a default QVariant whose toBool() is false.
+    //
+    // Gating a control on it therefore hides that control most of the time.
+    // The composer's @room suggestion did exactly that and was suppressed
+    // everywhere, because the room-info panel is part of the default layout
+    // so the "is this controller describing my room" test was usually true
+    // and this answer was usually false. It now reads the permission from the
+    // roster snapshot MentionSuggestionModel already receives for its own
+    // room, where absent is UNKNOWN rather than "no".
     Q_PROPERTY(bool canNotifyRoom READ canNotifyRoom NOTIFY membersChanged)
     Q_PROPERTY(bool canUnban READ canUnban NOTIFY membersChanged)
     Q_PROPERTY(qlonglong ownPowerLevel READ ownPowerLevel NOTIFY membersChanged)

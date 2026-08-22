@@ -31,6 +31,18 @@ public:
         snapshot.insert(QStringLiteral("members"), members);
         Q_EMIT roomMembersReceived(op, roomId, snapshot);
     }
+    // A snapshot that positively states the @room permission, as the Rust
+    // backend's roster does. `deliver` above omits the key entirely, which is
+    // the honest shape for a backend that does not report it.
+    void deliverWithPermission(quint64 op, const QString &roomId,
+                               bool canNotifyRoom)
+    {
+        QVariantMap snapshot;
+        snapshot.insert(QStringLiteral("ok"), true);
+        snapshot.insert(QStringLiteral("members"), QVariantList{});
+        snapshot.insert(QStringLiteral("canNotifyRoom"), canNotifyRoom);
+        Q_EMIT roomMembersReceived(op, roomId, snapshot);
+    }
     void emitMembersChanged(const QString &roomId)
     {
         // The model re-requests on the sync poke since review H1;
@@ -96,10 +108,10 @@ private slots:
         // Member filtering only. The whole-room row is offered by default and
         // is not a member, so it is turned off here; it has its own coverage
         // in MentionPopupContractTest.
-        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
 
         model.setRoomId(QStringLiteral("!r:hs"));
+        model.setRoomMentionAllowed(false);
         QCOMPARE(mock.m_requestCount, 1);
         QCOMPARE(mock.m_lastRoomId, QStringLiteral("!r:hs"));
 
@@ -125,9 +137,9 @@ private slots:
         // Member filtering only. The whole-room row is offered by default and
         // is not a member, so it is turned off here; it has its own coverage
         // in MentionPopupContractTest.
-        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
         model.setRoomId(QStringLiteral("!r:hs"));
+        model.setRoomMentionAllowed(false);
         mock.deliver(mock.m_op, QStringLiteral("!r:hs"),
                      { member(QStringLiteral("@me:hs"), QStringLiteral("Me"),
                               /*isOwn=*/true),
@@ -149,9 +161,9 @@ private slots:
         // Member filtering only. The whole-room row is offered by default and
         // is not a member, so it is turned off here; it has its own coverage
         // in MentionPopupContractTest.
-        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
         model.setRoomId(QStringLiteral("!r:hs"));
+        model.setRoomMentionAllowed(false);
         mock.deliver(mock.m_op, QStringLiteral("!r:hs"),
                      { member(QStringLiteral("@bob:hs"),
                               QStringLiteral("Bob")),
@@ -183,9 +195,9 @@ private slots:
         // Member filtering only. The whole-room row is offered by default and
         // is not a member, so it is turned off here; it has its own coverage
         // in MentionPopupContractTest.
-        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
         model.setRoomId(QStringLiteral("!r:hs"));
+        model.setRoomMentionAllowed(false);
         mock.deliver(mock.m_op, QStringLiteral("!r:hs"),
                      { member(QStringLiteral("@bob:hs"), QStringLiteral("Bob")),
                        member(QStringLiteral("@bob:hs"),
@@ -200,12 +212,16 @@ private slots:
         // Member filtering only. The whole-room row is offered by default and
         // is not a member, so it is turned off here; it has its own coverage
         // in MentionPopupContractTest.
-        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
 
         model.setRoomId(QStringLiteral("!r1:hs"));
+        model.setRoomMentionAllowed(false);
         const quint64 op1 = mock.m_op;
         model.setRoomId(QStringLiteral("!r2:hs")); // supersedes r1
+        // Re-asserted after every switch: a room change puts the @room
+        // permission back to UNKNOWN (offered) on purpose, so that one room's
+        // "no" cannot follow the user into the next.
+        model.setRoomMentionAllowed(false);
         const quint64 op2 = mock.m_op;
 
         // The old room's answer is stale (op + room mismatch): ignored.
@@ -226,15 +242,17 @@ private slots:
         // Member filtering only. The whole-room row is offered by default and
         // is not a member, so it is turned off here; it has its own coverage
         // in MentionPopupContractTest.
-        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
 
         model.setRoomId(QStringLiteral("!r:hs"));
+        model.setRoomMentionAllowed(false);
         mock.deliver(mock.m_op, QStringLiteral("!r:hs"),
                      { member(QStringLiteral("@a:hs"), QStringLiteral("A")) });
         QCOMPARE(model.count(), 1);
 
         model.setRoomId(QStringLiteral("!other:hs")); // switch clears cache
+        // See rejectsStaleOpId: the switch also resets the @room permission.
+        model.setRoomMentionAllowed(false);
         QCOMPARE(model.count(), 0);
 
         mock.deliver(mock.m_op, QStringLiteral("!other:hs"),
@@ -253,10 +271,10 @@ private slots:
         // Member filtering only. The whole-room row is offered by default and
         // is not a member, so it is turned off here; it has its own coverage
         // in MentionPopupContractTest.
-        model.setRoomMentionAllowed(false);
         model.setClient(&mock);
 
         model.setRoomId(QStringLiteral("!r:hs"));
+        model.setRoomMentionAllowed(false);
         mock.deliver(mock.m_op, QStringLiteral("!r:hs"),
                      { member(QStringLiteral("@a:hs"), QStringLiteral("A")) });
         const int before = mock.m_requestCount;
@@ -267,6 +285,44 @@ private slots:
         // A change for a different room does not re-request.
         mock.emitMembersChanged(QStringLiteral("!elsewhere:hs"));
         QCOMPARE(mock.m_requestCount, before + 1);
+    }
+
+    // The permission still NARROWS — the fix must not be "always offer".
+    // A roster snapshot that positively says this account cannot notify the
+    // room removes @room; one that says it can keeps it; and one that says
+    // NOTHING leaves it offered, because a backend's silence is not a denial.
+    void theRosterSnapshotDecidesWhetherRoomIsOffered()
+    {
+        MemberMock client;
+        MentionSuggestionModel model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:example.org"));
+        model.setQuery(QStringLiteral("room"));
+
+        // Silence: offered. This is the mock/non-Rust case and the load
+        // window, and it must not read as a refusal.
+        client.deliver(client.m_op, QStringLiteral("!r:example.org"), {});
+        QVERIFY(model.roomMentionAllowed());
+        QCOMPARE(model.rowCount(QModelIndex()), 1);
+
+        // A positive "no" removes it.
+        model.setRoomId(QStringLiteral("!s:example.org"));
+        model.setQuery(QStringLiteral("room"));
+        client.deliverWithPermission(client.m_op,
+                                     QStringLiteral("!s:example.org"), false);
+        QVERIFY(!model.roomMentionAllowed());
+        QCOMPARE(model.rowCount(QModelIndex()), 0);
+
+        // A new room starts UNKNOWN again rather than inheriting that "no".
+        model.setRoomId(QStringLiteral("!t:example.org"));
+        model.setQuery(QStringLiteral("room"));
+        QVERIFY(model.roomMentionAllowed());
+
+        // ...and a positive "yes" keeps it.
+        client.deliverWithPermission(client.m_op,
+                                     QStringLiteral("!t:example.org"), true);
+        QVERIFY(model.roomMentionAllowed());
+        QCOMPARE(model.rowCount(QModelIndex()), 1);
     }
 };
 

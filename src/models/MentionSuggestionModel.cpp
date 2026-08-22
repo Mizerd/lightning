@@ -54,6 +54,11 @@ void MentionSuggestionModel::setRoomId(const QString &roomId)
     // A new room invalidates any in-flight request and the cached snapshot.
     m_membersOp = 0;
     m_all.clear();
+    // ...and the @room permission, which belongs to the room we just left.
+    // Back to UNKNOWN, which means offered: a room the user may @room in
+    // must not inherit "no" from the previous one, and the server refuses
+    // what the level does not allow anyway.
+    setRoomMentionAllowed(true);
     clearResults();
     Q_EMIT roomIdChanged();
     if (!m_roomId.isEmpty())
@@ -91,6 +96,21 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
         m_membersOp = 0;
     if (!snapshot.value(QStringLiteral("ok")).toBool())
         return;
+
+    // Whether this account may notify the whole room rides the SAME roster
+    // snapshot this model already asked for, so @room is gated on the room
+    // the SUGGESTIONS are for — never on whatever room the info panel
+    // happens to be showing.
+    //
+    // Applied only when the key is actually PRESENT. `contains` is the whole
+    // point: QVariantMap::value() on a missing key returns a default-
+    // constructed QVariant whose toBool() is false, so reading it blind makes
+    // "this backend never told us" indistinguishable from "you are not
+    // allowed" — and that is exactly the defect this replaces. A backend that
+    // says nothing leaves the permission UNKNOWN, which means offered.
+    if (snapshot.contains(QStringLiteral("canNotifyRoom")))
+        setRoomMentionAllowed(
+            snapshot.value(QStringLiteral("canNotifyRoom")).toBool());
 
     const QString ownId = m_client ? m_client->currentUserId() : QString();
     QList<Member> members;

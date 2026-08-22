@@ -410,6 +410,67 @@ private slots:
     // These run after the structural tests so they may select a room. The
     // mock seeds "!general:mock.local" with Alice/Bob/Carol members.
 
+    // The @room suggestion, in the condition it was REPORTED broken in: the
+    // room-info panel open on the room you are typing in. The composer used to
+    // gate @room on RoomInfoController::canNotifyRoom whenever that controller
+    // pointed at the current room — and that value is false while the roster
+    // loads, false after every clearSnapshot(), and false on any backend that
+    // does not send the key (the mock sends no permission keys at all, which
+    // is what this fixture reproduces). The panel is part of the default
+    // layout, so the condition was usually true and the answer usually false:
+    // @room was suppressed everywhere, and for the query "room" the popup was
+    // left with nothing in it at all.
+    void roomMentionSurvivesTheRoomInfoPanelPointingHere()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *input = item("composerInput");
+        QObject *model =
+            m_controller->property("mentionSuggestions").value<QObject *>();
+        QObject *info = m_controller->property("roomInfo").value<QObject *>();
+        QVERIFY(input && model && info);
+
+        // The reported condition.
+        info->setProperty("roomId", QStringLiteral("!general:mock.local"));
+        QTest::qWait(80);
+        QCOMPARE(info->property("roomId").toString(),
+                 QStringLiteral("!general:mock.local"));
+        // The value the old gate consulted really is false here — otherwise
+        // this fixture would pass against the unfixed code for the wrong
+        // reason.
+        QVERIFY(!info->property("canNotifyRoom").toBool());
+
+        openMention(input, QStringLiteral("room"));
+        QVERIFY2(model->property("roomMentionAllowed").toBool(),
+                 "@room must stay offered when nothing has said otherwise");
+        QCOMPARE(model->property("count").toInt(), 1);
+        QVariantMap row;
+        QMetaObject::invokeMethod(model, "get", Q_RETURN_ARG(QVariantMap, row),
+                                  Q_ARG(int, 0));
+        QVERIFY(row.value(QStringLiteral("isRoom")).toBool());
+        QCOMPARE(row.value(QStringLiteral("userId")).toString(),
+                 QStringLiteral("@room"));
+
+        // ...and it sends as a whole-room mention: the body keeps the literal
+        // "@room" with no matrix.to link (there is none for "everyone here"),
+        // and the id list carries the sentinel the Rust bridge turns into
+        // m.mentions.room.
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTest::qWait(20);
+        QCOMPARE(input->property("text").toString(), QStringLiteral("@room "));
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        m_controller->composer()->send();
+        QTest::qWait(20);
+        QCOMPARE(mock->lastMentionIdsForTest(),
+                 QStringList{ QStringLiteral("@room") });
+        QCOMPARE(mock->lastSentBodyForTest(), QStringLiteral("@room"));
+        QVERIFY(!mock->lastSentBodyForTest().contains(
+            QStringLiteral("matrix.to")));
+        input->setProperty("text", QString());
+        info->setProperty("roomId", QString());
+        QTest::qWait(20);
+    }
+
     void mentionPopupOpensOnAtToken()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
