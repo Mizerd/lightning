@@ -3206,20 +3206,27 @@ Item {
                                             var _dep = app.banners.revision
                                             return app.banners.ownBanner
                                         }
-                                        source: mxc.length > 0
+                                        // A counter, never an assignment to
+                                        // `source`: assigning a bound
+                                        // property imperatively destroys the
+                                        // binding, and this card would then
+                                        // keep showing a banner the account
+                                        // has since replaced or removed.
+                                        property int resolveTick: 0
+                                        source: {
+                                            var _tick = resolveTick
+                                            return mxc.length > 0
                                                 && app.mediaBridge.supported
                                                 ? app.mediaBridge.wideImageSource(mxc)
                                                 : ""
+                                        }
                                         Connections {
                                             target: app.mediaBridge
                                             enabled: ownBannerImage.mxc.length > 0
                                             function onMediaCached(key) {
-                                                if (ownBannerImage.source.toString().length > 0)
-                                                    return
-                                                var again = app.mediaBridge.wideImageSource(
-                                                    ownBannerImage.mxc)
-                                                if (again.length > 0)
-                                                    ownBannerImage.source = again
+                                                if (key.endsWith(":" + ownBannerImage.mxc)
+                                                    && ownBannerImage.source.toString().length === 0)
+                                                    ownBannerImage.resolveTick++
                                             }
                                         }
                                     }

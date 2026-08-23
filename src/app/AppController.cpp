@@ -54,6 +54,7 @@
 #include <QGuiApplication>
 #include <QIcon>
 #include <QSaveFile>
+#include <QScreen>
 #include <QSysInfo>
 #include <QTimer>
 #include <QPalette>
@@ -194,6 +195,29 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_settings.get(), &SettingsManager::closeToTrayChanged,
             this, &AppController::refreshTrayState);
     refreshTrayState();
+
+    // Window geometry: settle the "can this still be restored?" question once,
+    // here, while the display layout is the one the window is about to open
+    // onto. SettingsManager already refused a size below the window's own
+    // minimum, so what is left is the position.
+    //
+    // The test is a BAND along the top of the frame — the part the user has to
+    // be able to grab. Requiring the whole rect to sit on one screen would
+    // refuse a window legitimately spanned across two monitors. No screens at
+    // all (a guiless run) is not an invitation to guess: the geometry is
+    // dropped and the window uses its own default placement.
+    if (const QRect stored = m_settings->initialWindowGeometry();
+            !stored.isEmpty()) {
+        const QRect grabBand(stored.x(), stored.y(), stored.width(), 32);
+        for (const QScreen *screen : QGuiApplication::screens()) {
+            if (screen && screen->availableGeometry().intersects(grabBand)) {
+                m_restorableWindowGeometry = stored;
+                break;
+            }
+        }
+        if (m_restorableWindowGeometry.isEmpty())
+            qCInfo(lcApp, "stored window geometry ignored: off-screen");
+    }
     // v0.7.x drafts: one shared store (room + thread composers), policy in
     // DraftStore — persisted only for unencrypted rooms.
     m_draftStore   = std::make_unique<DraftStore>(this);

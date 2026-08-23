@@ -48,6 +48,7 @@
 #include "threads/ThreadManager.h"
 
 #include <QObject>
+#include <QRect>
 #include <QString>
 #include <QSet>
 #include <QStringList>
@@ -221,6 +222,17 @@ class AppController : public QObject
     // gates both tray settings on it rather than offering a switch that
     // would hide the window into nothing.
     Q_PROPERTY(bool trayAvailable READ trayAvailable CONSTANT)
+    // Where the window was last time, or an invalid rect for "do not restore".
+    //
+    // SettingsManager holds the stored value and validates its SIZE; this adds
+    // the display-layout half, which is the half that can lose a window: a
+    // geometry saved on a monitor that has since been unplugged would reopen
+    // Lightning at x=2560 with nothing there to show it. CONSTANT and computed
+    // once, because it answers a question about the past — re-answering it
+    // mid-session (a monitor plugged in, say) would move a window the user has
+    // since placed themselves.
+    Q_PROPERTY(QRect restorableWindowGeometry READ restorableWindowGeometry
+                   CONSTANT)
     Q_PROPERTY(MentionSuggestionModel* mentionSuggestions READ mentionSuggestions
                    CONSTANT)
     Q_PROPERTY(EmojiCatalog* emojiCatalog READ emojiCatalog CONSTANT)
@@ -831,6 +843,7 @@ public Q_SLOTS:
             : QStringLiteral("image://lightning-qr/") + m_verificationQrToken;
     }
     bool trayAvailable() const { return TrayIcon::platformSupportsTray(); }
+    QRect restorableWindowGeometry() const { return m_restorableWindowGeometry; }
     bool verificationQrScanned() const { return m_verificationQrScanned; }
     bool verificationQrConfirming() const { return m_verificationQrConfirming; }
 
@@ -1122,6 +1135,8 @@ private:
     StagedImageStore m_stagedImages;
     TrayIcon m_tray;
     void refreshTrayState();
+    // Computed once in the constructor; see restorableWindowGeometry().
+    QRect m_restorableWindowGeometry;
     QString m_verificationQrToken;
     bool m_verificationQrScanned = false;
     bool m_verificationQrConfirming = false;

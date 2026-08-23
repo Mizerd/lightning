@@ -199,7 +199,23 @@ Item {
             // Written back only when the user let go: SplitView reports every
             // intermediate pixel while dragging, and persisting each one would
             // be one QSettings write per mouse move.
+            //
+            // Which is why the RELEASE needs its own trigger, and why the
+            // width was in fact never saved at all. `resizing` goes true on
+            // the first drag move and false on release — and release does not
+            // move anything, so it produces no widthChanged. Every
+            // intermediate pixel was correctly skipped, the final width was
+            // never offered, and the setting kept whatever the window's first
+            // layout happened to put there. The falling edge of `resizing` is
+            // the one moment that matters.
             onWidthChanged: if (!SplitView.view.resizing) widthSaver.restart()
+            Connections {
+                target: roomsPanel.SplitView.view
+                function onResizingChanged() {
+                    if (!roomsPanel.SplitView.view.resizing)
+                        widthSaver.restart()
+                }
+            }
             Timer {
                 id: widthSaver
                 interval: 250

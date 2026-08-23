@@ -101,6 +101,8 @@ private Q_SLOTS:
     // v0.6.7.
     void pickerSizeIsWhitelistedBoundedAndForgettable();
     void freshProfileDefaultsToMatrixOrg();
+    // 2026-08-23 tester report: window geometry was not saved at all.
+    void windowGeometryRoundTripsAndRefusesAnUnrestorableSize();
 
 private:
     QTemporaryDir m_configHome;
@@ -693,6 +695,63 @@ void SettingsSessionTest::pickerSizeIsWhitelistedBoundedAndForgettable()
         SettingsManager reloaded;
         QCOMPARE(reloaded.pickerWidthShare(QStringLiteral("picker")), 50);
         QCOMPARE(reloaded.pickerHeightShare(QStringLiteral("picker")), 1000);
+    }
+}
+
+// 2026-08-23 tester report: "Window geometry and position is not saved."
+//
+// Two invariants beyond the round trip, both of which cost a user their window
+// if they slip. An UNSET geometry must read back INVALID, not (0,0,0,0)
+// treated as a real position — that is how the window knows to use its own
+// default. And a size below the window's own minimum must be REFUSED on
+// write, because Qt reports transient 0x0 and 1x1 geometry while a window is
+// being shown, hidden into the tray or restored from minimized: storing one of
+// those would overwrite the last good value with one that can never be
+// restored, and the close-to-tray path fires at exactly that moment.
+void SettingsSessionTest::windowGeometryRoundTripsAndRefusesAnUnrestorableSize()
+{
+    {
+        SettingsManager fresh;
+        QVERIFY2(!fresh.initialWindowGeometry().isValid(),
+                 "an unsaved geometry must not read back as a real rect");
+        QVERIFY(!fresh.initialWindowMaximized());
+    }
+
+    {
+        SettingsManager settings;
+        settings.saveWindowGeometry(140, 90, 1280, 800);
+        settings.saveWindowMaximized(true);
+    }
+    {
+        // A fresh manager, because the value is captured at construction.
+        SettingsManager reopened;
+        QCOMPARE(reopened.initialWindowGeometry(), QRect(140, 90, 1280, 800));
+        QVERIFY(reopened.initialWindowMaximized());
+    }
+
+    // Transient sizes are refused and leave the good value in place.
+    {
+        SettingsManager settings;
+        settings.saveWindowGeometry(0, 0, 0, 0);
+        settings.saveWindowGeometry(7, 7, 320, 240);   // below the minimum
+    }
+    {
+        SettingsManager reopened;
+        QCOMPARE(reopened.initialWindowGeometry(), QRect(140, 90, 1280, 800));
+    }
+
+    // A negative position is legitimate — a monitor left of the primary one —
+    // and must survive. Whether it is still reachable is judged later, against
+    // the live display layout (AppController::restorableWindowGeometry).
+    {
+        SettingsManager settings;
+        settings.saveWindowGeometry(-1920, -120, 900, 700);
+        settings.saveWindowMaximized(false);
+    }
+    {
+        SettingsManager reopened;
+        QCOMPARE(reopened.initialWindowGeometry(), QRect(-1920, -120, 900, 700));
+        QVERIFY(!reopened.initialWindowMaximized());
     }
 }
 

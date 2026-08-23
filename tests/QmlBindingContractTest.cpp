@@ -1,6 +1,7 @@
 #include <QRegularExpression>
 #include <QtTest/QtTest>
 
+#include <QDir>
 #include <QFile>
 
 class QmlBindingContractTest : public QObject
@@ -26,7 +27,163 @@ class QmlBindingContractTest : public QObject
         return delegate.mid(start, end - start);
     }
 
+    // The balanced-brace body of the FIRST `{` at or after `from`.
+    static QString bracedBody(const QString &text, int from)
+    {
+        const int open = text.indexOf(QLatin1Char('{'), from);
+        if (open < 0)
+            return {};
+        int depth = 0;
+        for (int i = open; i < text.size(); ++i) {
+            if (text.at(i) == QLatin1Char('{'))
+                ++depth;
+            else if (text.at(i) == QLatin1Char('}') && --depth == 0)
+                return text.mid(open, i - open + 1);
+        }
+        return {};
+    }
+
+    static QStringList qmlFiles()
+    {
+        QDir dir(QStringLiteral(QML_DIR));
+        return dir.entryList({ QStringLiteral("*.qml") }, QDir::Files,
+                             QDir::Name);
+    }
+
 private Q_SLOTS:
+    // 2026-08-23 tester report: "when i click on my own profile it loads up
+    // the banner, but then when i click on anyone elses it replaces whatever
+    // they might have had with mine" — and the same for Space banners.
+    //
+    // The cause was one line, repeated in five places: a media-cache
+    // completion handler that ASSIGNED `source` on the Image whose `source`
+    // was a binding. In QML an imperative write to a bound property destroys
+    // the binding, so the first banner that ever finished loading detached
+    // that Image from its mxc for the rest of the session — every later
+    // profile card, Space, reply quote or preview kept the first image.
+    //
+    // A cache completion must therefore re-EVALUATE the binding (bump a
+    // counter it reads), never replace it. This scans every QML file rather
+    // than the five that were wrong, because the pattern is the kind that
+    // gets copied into the sixth.
+    void mediaCacheHandlersNeverAssignABoundSource()
+    {
+        static const QRegularExpression assignsSource(
+            QStringLiteral("(^|[^=!<>])\\bsource\\s*=[^=]"));
+        QStringList offenders;
+        int handlersSeen = 0;
+        for (const QString &name : qmlFiles()) {
+            const QString text = read(name);
+            QVERIFY2(!text.isEmpty(), qPrintable(name));
+            int at = 0;
+            while ((at = text.indexOf(QStringLiteral("onMediaCached"), at)) >= 0) {
+                ++handlersSeen;
+                const QString body = bracedBody(text, at);
+                if (assignsSource.match(body).hasMatch())
+                    offenders << name;
+                at += body.isEmpty() ? 1 : body.size();
+            }
+        }
+        // The scan is only meaningful if it found the handlers at all.
+        QVERIFY2(handlersSeen >= 10,
+                 qPrintable(QStringLiteral("only %1 onMediaCached handlers found")
+                                .arg(handlersSeen)));
+        QVERIFY2(offenders.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "onMediaCached assigns a bound `source` (this strands the "
+                     "Image on the first image it ever loaded) in: %1")
+                                .arg(offenders.join(QStringLiteral(", ")))));
+    }
+
+    // 2026-08-23 tester report: "Ctrl+Q does not work when keep running is
+    // selected." Qt asks every top-level window to close as part of quitting
+    // and a window that REFUSES aborts the quit, so the close-to-tray branch
+    // answered the quit request too and Ctrl+Q merely hid the window — in
+    // exactly the mode where the tray icon has no menu and Ctrl+Q is the only
+    // documented way out.
+    void ctrlQQuitsEvenWithCloseToTrayOn()
+    {
+        const QString main = read(QStringLiteral("Main.qml"));
+        QVERIFY(!main.isEmpty());
+        // The shortcut announces the intent before asking Qt to quit...
+        const QString shortcut = bracedBody(
+            main, main.indexOf(QStringLiteral("sequences: [\"Ctrl+Q\"]")));
+        QVERIFY2(!shortcut.isEmpty(), "the Ctrl+Q Shortcut must still exist");
+        QVERIFY(shortcut.contains(QStringLiteral("quitRequested = true")));
+        QVERIFY(shortcut.contains(QStringLiteral("Qt.quit()")));
+        // ...and the close handler stands aside when it sees it. Without the
+        // guard in this condition the quit is swallowed.
+        const QString closing = bracedBody(
+            main, main.indexOf(QStringLiteral("onClosing:")));
+        QVERIFY(!closing.isEmpty());
+        QVERIFY(closing.contains(QStringLiteral("!window.quitRequested")));
+        QVERIFY(closing.contains(QStringLiteral("closeToTray")));
+    }
+
+    // 2026-08-23 tester report: "Window geometry and position is not saved."
+    //
+    // Two halves have to hold. The restore must be DECLARATIVE: Qt shows the
+    // window during its own componentComplete(), which runs before any
+    // Component.onCompleted, so geometry applied from a completion handler
+    // lands after the window is on screen and the user watches it jump. And
+    // the save must survive a prompt close — the debounce may still be
+    // pending, and both close paths end the window's visible life.
+    void windowGeometryIsRestoredInBindingsAndFlushedOnClose()
+    {
+        const QString main = read(QStringLiteral("Main.qml"));
+        QVERIFY(!main.isEmpty());
+        // Declarative restore, from the pre-filtered CONSTANT value.
+        QVERIFY(main.contains(QStringLiteral(
+            "readonly property rect startupGeometry: app.restorableWindowGeometry")));
+        for (const QString &prop : { QStringLiteral("width:"),
+                                    QStringLiteral("height:"),
+                                    QStringLiteral("x:"),
+                                    QStringLiteral("y:") }) {
+            QVERIFY2(main.contains(prop + QStringLiteral(" hasStartupGeometry")),
+                     qPrintable(prop));
+        }
+        // Nothing may apply geometry from the completion handler.
+        const QString completed = bracedBody(
+            main, main.indexOf(QStringLiteral("Component.onCompleted:")));
+        QVERIFY(!completed.isEmpty());
+        QVERIFY(!completed.contains(QStringLiteral("window.width")));
+        QVERIFY(!completed.contains(QStringLiteral("window.x")));
+        // Saved only from the windowed state, and flushed when closing.
+        QVERIFY(main.contains(QStringLiteral("saveWindowGeometry")));
+        QVERIFY(main.contains(QStringLiteral(
+            "window.visibility !== Window.Windowed")));
+        const QString closing = bracedBody(
+            main, main.indexOf(QStringLiteral("onClosing:")));
+        QVERIFY(closing.contains(QStringLiteral("window.flushGeometry()")));
+    }
+
+    // 2026-08-23 tester report: "Panel size is not saved." The room list's
+    // width was written back from onWidthChanged while `resizing` was false —
+    // which is never true during a drag, and the RELEASE moves nothing, so it
+    // produces no widthChanged either. Every intermediate pixel was correctly
+    // skipped and the final width was never offered. The falling edge of
+    // `resizing` is the one moment that matters.
+    void roomListWidthIsSavedWhenTheDragEnds()
+    {
+        const QString shell = read(QStringLiteral("MainScreen.qml"));
+        QVERIFY(!shell.isEmpty());
+        const int target = shell.indexOf(
+            QStringLiteral("target: roomsPanel.SplitView.view"));
+        QVERIFY2(target > 0, "the drag-release trigger must exist");
+        // From the enclosing Connections, so the handler and the target it
+        // watches are proven to be the same block.
+        const int conn = shell.lastIndexOf(QStringLiteral("Connections {"),
+                                           target);
+        QVERIFY(conn > 0);
+        const QString body = bracedBody(shell, conn);
+        QVERIFY(body.contains(QStringLiteral("onResizingChanged")));
+        QVERIFY(body.contains(QStringLiteral("widthSaver.restart()")));
+        // Still debounced: one QSettings write per mouse move is not a thing
+        // to do, so the intermediate-pixel guard has to stay.
+        QVERIFY(shell.contains(QStringLiteral(
+            "onWidthChanged: if (!SplitView.view.resizing) widthSaver.restart()")));
+    }
+
     // Live feedback (2026-08-11, twice): a full-screen image closes on a
     // click ANYWHERE — the image included — and INSTANTLY. The first fix
     // used an exclusive single/double-tap split to keep double-click zoom,

@@ -21,6 +21,38 @@ Item {
     // user on this screen, with the secret still under their control.
     onVisibleChanged: if (!visible) passField.text = ""
 
+    // The homeserver's bare host, for the browser button's label.
+    //
+    // "Continue with matrix.org" names the authority you are about to hand
+    // the sign-in to; a bare "Continue in browser" did not, which is why it
+    // was indistinguishable from the single-sign-on button right below it.
+    // Both are browser trips — what differs is WHO authenticates you, so
+    // that is what the labels now say (Element classic words its
+    // per-provider buttons the same way: "Continue with <provider>").
+    //
+    // Derived from what the USER typed, never from anything the server sent
+    // back: no homeserver gets to choose the words on Lightning's own
+    // button. Scheme, port and path are stripped; an IPv6 literal keeps its
+    // colons.
+    readonly property string browserAuthorityName: {
+        var raw = (app.auth.discoveredHomeserver || "").trim()
+        if (raw.length === 0)
+            return ""
+        var host = raw.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, "").split("/")[0]
+        if (host.indexOf("]") < 0) {
+            var colon = host.indexOf(":")
+            if (colon > 0)
+                host = host.substring(0, colon)
+        }
+        return host
+    }
+    // True when either browser path is on offer, so the divider that
+    // separates "type a password" from "sign in somewhere else" appears
+    // exactly when there is actually a choice to make.
+    readonly property bool offersBrowserPath:
+        (app.auth.serverOffersBrowserLogin || app.auth.serverOffersSso)
+        && !app.auth.browserLoginInProgress
+
     // The identity that actually failed (from AppController, resolved
     // server-canonically by the C++ layer) — never the raw typed text.
     // Prefilling from it means the repair card always targets and displays
@@ -312,6 +344,38 @@ Item {
                     onClicked: root.submit()
                 }
 
+                // ── "Or" ────────────────────────────────────────────────
+                // The password form above and the browser buttons below are
+                // alternatives, not a sequence. Without a divider they read
+                // as a stack of four things to try, which is how "I wouldn't
+                // know which one I want" happens. Element classic separates
+                // the same two groups with the same word.
+                RowLayout {
+                    visible: root.offersBrowserPath
+                    Layout.fillWidth: true
+                    Layout.topMargin: AppTheme.spacingS
+                    spacing: AppTheme.spacingS
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: AppTheme.border
+                    }
+                    Label {
+                        objectName: "loginAlternativesDivider"
+                        //: Separates the password form from the
+                        //: sign-in-with-your-browser buttons below it.
+                        text: qsTr("Or")
+                        color: AppTheme.textMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: AppTheme.border
+                    }
+                }
+
                 // ── Browser sign-in (OAuth 2.0 / OIDC) ──────────────────
                 // Shown ONLY when the homeserver's own discovery says it
                 // offers OAuth and this build can perform it. Nothing here
@@ -319,18 +383,43 @@ Item {
                 AppButton {
                     id: browserLoginBtn
                     objectName: "browserLoginButton"
-                    kind: "secondary"
+                    // Primary when the server accepts no password: this is
+                    // then the only way in, and Element classic makes the
+                    // same call. Secondary alongside a usable password form,
+                    // so that form keeps its own primary.
+                    kind: app.auth.serverOffersPassword ? "secondary"
+                                                        : "primary"
                     visible: app.auth.serverOffersBrowserLogin
                              && !app.auth.browserLoginInProgress
-                    text: qsTr("Continue in browser")
+                    // Named after the homeserver, because that is what
+                    // distinguishes it from the single-sign-on buttons below
+                    // — both open a browser; only the authority differs. The
+                    // fallback is Element's own bare "Continue", used when
+                    // the field is empty and there is no host to name.
+                    text: root.browserAuthorityName.length > 0
+                          ? qsTr("Continue with %1").arg(root.browserAuthorityName)
+                          : qsTr("Continue")
                     // Browser sign-in needs no typed user or password — the
                     // homeserver identifies the account, which is why the
                     // store cannot be chosen until it answers.
                     enabled: !app.auth.isLoggingIn
                     Layout.fillWidth: true
                     Layout.topMargin: AppTheme.spacingXS
-                    Accessible.name: qsTr("Continue in browser")
+                    Accessible.name: text
                     onClicked: app.auth.beginBrowserLogin(homeserverField.text)
+                }
+                Label {
+                    objectName: "browserLoginHint"
+                    visible: browserLoginBtn.visible
+                    Layout.fillWidth: true
+                    text: qsTr("Signs you in on your homeserver's own page, "
+                               + "in your browser. No password needed here.")
+                    color: AppTheme.textMuted
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.textMeta
+                    wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                 }
 
                 // The waiting state ALWAYS offers a way out. A browser that
@@ -375,30 +464,63 @@ Item {
                 // Two shapes, decided by what the SERVER advertises and never
                 // hard-coded per vendor:
                 //
-                //   no providers  one generic "Sign in with SSO" button. This
-                //                 is the common case, and it is also the
-                //                 correct state while the provider list is
-                //                 still being fetched;
-                //   providers     one button each, named by the server, rather
-                //                 than silently picking an arbitrary one.
+                //   no providers  one generic "Sign in with single sign-on"
+                //                 button. This is the common case, and it is
+                //                 also the correct state while the provider
+                //                 list is still being fetched;
+                //   providers     one "Continue with <name>" button each,
+                //                 named by the server, rather than silently
+                //                 picking an arbitrary one.
                 //
-                // The user-facing wording avoids Matrix protocol terms: "Sign
-                // in with SSO", never "m.login.sso".
+                // Both strings are Element classic's, verbatim. The wording
+                // avoids Matrix protocol terms — never "m.login.sso" — and
+                // avoids the "SSO" abbreviation, which assumed the reader
+                // already knew which of two browser buttons they wanted.
                 AppButton {
+                    id: ssoLoginBtn
                     objectName: "ssoLoginButton"
-                    kind: "secondary"
+                    // Primary only when nothing else can sign you in: with a
+                    // password form or a browser button present, this is the
+                    // fallback of the three. Element classic makes the same
+                    // distinction.
+                    kind: (app.auth.serverOffersPassword
+                           || app.auth.serverOffersBrowserLogin)
+                          ? "secondary" : "primary"
                     visible: app.auth.serverOffersSso
                              && app.auth.ssoProviders.length === 0
                              && !app.auth.browserLoginInProgress
-                    text: qsTr("Sign in with SSO")
+                    // Element classic's exact wording for an unnamed
+                    // provider. "Sign in with SSO" was an abbreviation the
+                    // user had to already know; spelled out, it at least says
+                    // it is a sign-on run by someone else.
+                    text: qsTr("Sign in with single sign-on")
                     enabled: !app.auth.isLoggingIn
                     Layout.fillWidth: true
                     Layout.topMargin: AppTheme.spacingXS
-                    Accessible.name: qsTr("Sign in with single sign-on")
+                    Accessible.name: text
                     onClicked: app.auth.beginSsoLogin(homeserverField.text, "")
+                }
+                Label {
+                    objectName: "ssoLoginHint"
+                    visible: ssoLoginBtn.visible
+                             || ssoProviderRepeater.count > 0
+                    Layout.fillWidth: true
+                    // Says what the difference IS, rather than naming the
+                    // protocol: the browser button above goes to the
+                    // homeserver, this one goes to whoever the homeserver
+                    // trusts to identify you.
+                    text: qsTr("Signs you in through an identity provider "
+                               + "your homeserver trusts, in your browser.")
+                    color: AppTheme.textMuted
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.textMeta
+                    wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
                 }
 
                 Repeater {
+                    id: ssoProviderRepeater
                     objectName: "ssoProviderList"
                     model: app.auth.serverOffersSso
                            && !app.auth.browserLoginInProgress
@@ -412,9 +534,15 @@ Item {
                         // is rendered as a plain string and never as markup;
                         // an unnamed provider falls back to the generic label
                         // rather than showing an empty button.
+                        //
+                        // "Continue with <provider>" is Element classic's own
+                        // string for this button, and it is the same shape as
+                        // the browser button above on purpose: both name the
+                        // authority, which is the only thing that differs
+                        // between them.
                         text: (modelData.name && modelData.name.length > 0)
-                              ? qsTr("Sign in with %1").arg(modelData.name)
-                              : qsTr("Sign in with SSO")
+                              ? qsTr("Continue with %1").arg(modelData.name)
+                              : qsTr("Sign in with single sign-on")
                         enabled: !app.auth.isLoggingIn
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacingXS

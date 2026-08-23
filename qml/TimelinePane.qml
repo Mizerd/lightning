@@ -5628,18 +5628,27 @@ Rectangle {
                         visible: status === Image.Ready
                         readonly property string mxc:
                             spaceBannerCard.bannerMxc
-                        source: mxc.length > 0 && app.mediaBridge.supported
-                                ? app.mediaBridge.wideImageSource(mxc) : ""
+                        // A counter, never an assignment to `source`:
+                        // assigning a bound property imperatively DESTROYS
+                        // the binding, which is what made Space banners
+                        // sticky — the first one that finished loading
+                        // unbound this Image from `mxc`, so every other
+                        // Space kept showing it. See MemberProfilePopover
+                        // for the same fix on the profile half.
+                        property int resolveTick: 0
+                        source: {
+                            var _tick = resolveTick
+                            return mxc.length > 0 && app.mediaBridge.supported
+                                   ? app.mediaBridge.wideImageSource(mxc) : ""
+                        }
                         Connections {
                             target: app.mediaBridge
                             enabled: spaceBannerImage.mxc.length > 0
                             function onMediaCached(key) {
-                                if (spaceBannerImage.source.toString().length > 0)
-                                    return
-                                var again = app.mediaBridge.wideImageSource(
-                                    spaceBannerImage.mxc)
-                                if (again.length > 0)
-                                    spaceBannerImage.source = again
+                                if (key.endsWith(":" + spaceBannerImage.mxc)
+                                    && spaceBannerImage.source.toString()
+                                           .length === 0)
+                                    spaceBannerImage.resolveTick++
                             }
                         }
                     }

@@ -1461,11 +1461,19 @@ Item {
                             // extra render passes per item per frame.
                             Image {
                                 id: replyThumb
-                                readonly property string bridgeSource:
-                                    (model.replyToMediaKey || "").length > 0
-                                    ? app.mediaBridge.mediaSource(
-                                          model.replyToMediaKey, "thumb")
-                                    : ""
+                                // Bumped by the cache-fill handler below, so
+                                // this re-resolves without anyone assigning
+                                // `source` imperatively — that would destroy
+                                // the binding and strand the row on whichever
+                                // image happened to land first.
+                                property int resolveTick: 0
+                                readonly property string bridgeSource: {
+                                    var _tick = resolveTick
+                                    return (model.replyToMediaKey || "").length > 0
+                                        ? app.mediaBridge.mediaSource(
+                                              model.replyToMediaKey, "thumb")
+                                        : ""
+                                }
                                 visible: (model.replyToMediaKey || "").length > 0
                                          && status !== Image.Error
                                          && app.mediaBridge.supported
@@ -1486,13 +1494,10 @@ Item {
                                         // The first mediaSource() call may
                                         // return "" while bytes fetch;
                                         // re-ask once the cache fills.
-                                        if (replyThumb.source.toString()
-                                                .length === 0)
-                                            replyThumb.source =
-                                                app.mediaBridge.mediaSource(
-                                                    model.replyToMediaKey,
-                                                    "thumb")
-                                                + "|shape:round:160"
+                                        if (key === "thumb:" + (model.replyToMediaKey || "")
+                                            && replyThumb.source.toString()
+                                                   .length === 0)
+                                            replyThumb.resolveTick++
                                     }
                                 }
                             }
@@ -3832,19 +3837,26 @@ Item {
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true
-                            source: card.previewStatic.length > 0
+                            // Re-resolve through a counter, never by assigning
+                            // `source`: an imperative write destroys the
+                            // binding, so a card whose preview later changes
+                            // would keep painting the first image it loaded.
+                            property int resolveTick: 0
+                            source: {
+                                var _tick = resolveTick
+                                return card.previewStatic.length > 0
                                     ? card.previewStatic
                                     : (card.p.imageMxc || "").length > 0
                                     && app.mediaBridge.supported
                                     ? app.mediaBridge.mxcImageSource(card.p.imageMxc, 480)
                                     : ""
+                            }
                             Connections {
                                 target: app.mediaBridge
                                 enabled: (card.p.imageMxc || "").length > 0
                                 function onMediaCached(cacheKey) {
                                     if (cacheKey.endsWith(":" + card.p.imageMxc))
-                                        thumb.source = app.mediaBridge.mxcImageSource(
-                                            card.p.imageMxc, 480)
+                                        thumb.resolveTick++
                                 }
                             }
                         }

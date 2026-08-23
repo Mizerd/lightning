@@ -3,6 +3,7 @@
 #include "storage/AppDataPaths.h"
 
 #include <QObject>
+#include <QRect>
 #include <QSettings>
 #include <QSize>
 #include <QString>
@@ -113,6 +114,27 @@ class SettingsManager : public QObject
                    NOTIFY closeToTrayChanged)
     Q_PROPERTY(bool startInTray READ startInTray WRITE setStartInTray
                    NOTIFY startInTrayChanged)
+    // The window's own size, position and maximized state, restored on the
+    // next launch.
+    //
+    // Read-only and CONSTANT on purpose. The window reads these in the
+    // bindings that declare its geometry, and Qt writes x/y/width/height back
+    // as the user drags — so a notifying property would feed the saved value
+    // back into the binding that produced it. Saving goes through the
+    // invokables below instead, and nothing re-reads mid-session: this is
+    // "where the window was last time", answered once.
+    //
+    // An INVALID rect means "never saved", which is what lets the first launch
+    // use the declared default size rather than a fabricated corner. The
+    // stored SIZE is validated here; whether the stored POSITION still lands
+    // on a connected screen is a display-layout question and is answered by
+    // AppController::restorableWindowGeometry, which is the only reader.
+    //
+    // Only the NORMAL geometry is stored; maximized is its own flag, because a
+    // maximized window's frame is the screen, and restoring that as a normal
+    // size would lose the size the user actually chose.
+    Q_PROPERTY(QRect initialWindowGeometry READ initialWindowGeometry CONSTANT)
+    Q_PROPERTY(bool initialWindowMaximized READ initialWindowMaximized CONSTANT)
     // v0.7.x: the user dismissed the "verify this session" warning badges.
     // STRICTLY account-scoped — dismissing on one account must not silence
     // the warning for another, so this deliberately does NOT use
@@ -344,6 +366,15 @@ public:
     void setCloseToTray(bool v);
     bool startInTray() const;
     void setStartInTray(bool v);
+    QRect initialWindowGeometry() const { return m_initialWindowGeometry; }
+    bool initialWindowMaximized() const { return m_initialWindowMaximized; }
+    // Both refuse a value that could not be restored, rather than storing one
+    // that would be discarded on the next read. Qt reports transient 0x0
+    // geometry while a window is being shown, hidden into the tray or
+    // restored from minimized, and the tray path fires exactly when the last
+    // good value has to survive.
+    Q_INVOKABLE void saveWindowGeometry(int x, int y, int width, int height);
+    Q_INVOKABLE void saveWindowMaximized(bool maximized);
     // The bounds QML resizes within, so the clamp lives in ONE place rather
     // than being retyped in a Layout binding that can drift from it.
     static constexpr int kRoomListMinWidth = 200;
@@ -643,12 +674,24 @@ private:
     // the user id is sufficient invalidation; setActiveAccountUserId also
     // clears the cache explicitly, belt and braces.
     QString activeAccountSlugCached() const;
+    // Reads and validates the stored window geometry once, from the
+    // constructor. See the CONSTANT properties above.
+    void loadWindowGeometry();
+    // Main.qml's own minimums. Duplicated here rather than plumbed through,
+    // because the validation has to answer "could this be restored?" before
+    // any window exists to ask.
+    static constexpr int kWindowMinWidth = 640;
+    static constexpr int kWindowMinHeight = 420;
     bool upsertAccountRecord(const QString &userId,
                              const QString &homeserver,
                              const QString &deviceId);
 
     std::unique_ptr<QSettings> m_store;
     SecretStore *m_secretStore = nullptr; // not owned; lifetime = process
+    // Captured and validated once, in the constructor: see the CONSTANT
+    // properties above for why these are not re-read.
+    QRect m_initialWindowGeometry;
+    bool m_initialWindowMaximized = false;
     mutable QString m_activeSlugCacheUserId;
     mutable QString m_activeSlugCache;
 };

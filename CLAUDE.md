@@ -1403,6 +1403,84 @@ their index explicitly.
 
 Lessons only; features are described in §7, SHAs point into `git log`.
 
+**2026-08-23 tester round (banners, quit, window state, login labels).**
+
+*An imperative write to a bound property destroys the binding — five
+places had it.* Every media-cache completion handler that did
+`img.source = bridge.someSource(key)` unbound that `Image` from its own
+key for the rest of the session, so the FIRST image that ever finished
+loading through that path was the last one it ever showed. Reported as
+"I click my own profile, it loads the banner; then I click anyone else's
+and it replaces whatever they had with mine", plus the same for Space
+banners; the composer reply thumbnail, the Settings own-banner card and
+the link-preview thumbnail had it too. Fix is a `resolveTick` counter the
+binding READS and the handler bumps — the binding survives, so a new key
+still replaces the image and an absent one still clears it. Empirically
+confirmed in Qt 6.11 that an unused local (`var _t = resolveTick`) does
+create the dependency. Where the source came through an intermediate
+`readonly property bridgeSource`, the tick has to live in THAT binding,
+not in `source` — a tick in the wrong binding is a silent no-op.
+`mediaCacheHandlersNeverAssignABoundSource` scans every QML file.
+Also: the handler must key on the cache key
+(`mxc:<edge>:<uri>` / `thumb:<mediaKey>`), or one completion re-resolves
+every such Image in the app.
+
+*`Qt.quit()` is a REQUEST, and close-to-tray was refusing it.*
+`QGuiApplication::event(QEvent::Quit)` closes every top-level window
+first and `e->ignore()`s the quit if one refuses. `onClosing` set
+`close.accepted = false` to hide into the tray, so Ctrl+Q hid the window
+— in the one mode where the tray icon deliberately has no menu and
+Ctrl+Q is the ONLY documented way out. Fixed with a `quitRequested` flag
+the shortcut sets before calling `Qt.quit()`; still `Qt.quit()` and not
+`Qt.exit()`, because AppController's teardown and UpdateManager's
+apply-on-quit hang off `aboutToQuit`.
+
+*Window geometry must be restored in BINDINGS, not `Component.onCompleted`.*
+Qt shows the window during its own `componentComplete()`, which runs
+BEFORE any `Component.onCompleted`, so geometry applied from a completion
+handler lands after the window is on screen and the user watches it jump.
+The stored value is therefore read through a CONSTANT property
+(`AppController::restorableWindowGeometry`) — a notifying one would feed
+the save back into the binding that produced it — and Qt breaking those
+bindings when the user drags the frame is the desired behaviour, not a
+bug. Two invariants: a size below the window's own minimum is REFUSED on
+write, because Qt reports transient 0x0/1x1 geometry while a window is
+shown, hidden into the tray or restored from minimized, and the tray path
+fires exactly when the last good value must survive; and only the
+WINDOWED state is stored, with maximized as its own flag. `QScreen` stays
+out of `SettingsManager` (~20 test targets link it against `Qt6::Core`
+alone), so the "is this still on a connected screen?" half lives in
+AppController — tested as a BAND along the top of the frame, so a window
+spanned across two monitors is not refused. `QWindow::show()` forces the
+NORMAL state, so restoring from the tray must set `visible = true`
+instead or a maximized window comes back un-maximized (and now that the
+flag persists, that would be written back as the user's choice).
+
+*A `SplitView` width was never saved at all.* `onWidthChanged: if
+(!SplitView.view.resizing) save()` skips every intermediate pixel
+correctly and then never fires again — the RELEASE moves nothing, so it
+produces no `widthChanged`. The falling edge of `SplitView.resizing` is
+the one moment that matters. GENERALISE: when a guard suppresses a signal
+for the whole duration of a gesture, something has to fire at the END of
+it.
+
+*Login button naming, from Element classic's actual strings.* Both
+"Continue in browser" (OAuth/OIDC) and "Sign in with SSO" (legacy
+`m.login.sso`) open a browser, so naming the MECHANISM told the user
+nothing; what differs is which authority authenticates them. Element's
+order is `["oauthNativeFlow", "m.login.password", "m.login.sso"]`, its
+labels are `Continue with %(provider)s`, `Sign in with single sign-on`
+and a bare `Continue` for a delegated-auth flow, and SSO is primary only
+when there is no password flow. Lightning now uses the same words, names
+the homeserver host on the browser button (derived from what the USER
+typed — a server must not choose the words on Lightning's own button),
+and separates the password form from the browser buttons with "Or".
+**The i18n catalogs are NOT updated**: they were already ~27 source
+strings behind before this round, and `lupdate` rewrote all 10 files
+(53k lines) while warning "Removed plural forms as the target language
+has less forms" — a real plural-damage risk. Those labels render in
+English on non-English UIs until a dedicated localization refresh.
+
 **2026-08-21 UI rework round (`c3f2393..17e269e`, 13 commits).** Emoji
 input, the scroll teleport, mentions, and a design-system rebuild.
 

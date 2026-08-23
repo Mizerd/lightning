@@ -38,6 +38,8 @@ constexpr auto kRoomListVisible   = "shell/roomListVisible";
 constexpr auto kRoomListWidth     = "shell/roomListWidth";
 constexpr auto kSidePanelWidth    = "shell/sidePanelWidth";
 constexpr auto kCloseToTray       = "shell/closeToTray";
+constexpr auto kWindowGeometry    = "shell/windowGeometry";
+constexpr auto kWindowMaximized   = "shell/windowMaximized";
 constexpr auto kStartInTray       = "shell/startInTray";
 // Account-scoped only (accounts/<slug>/security/verifyWarningDismissed);
 // there is deliberately no global fallback key.
@@ -106,6 +108,7 @@ SettingsManager::SettingsManager(QObject *parent)
         m_store->setValue(kHomeserver, QStringLiteral("https://matrix.org"));
     }
     migrateLegacySessionRecord();
+    loadWindowGeometry();
 }
 
 QString SettingsManager::accountKey(const QString &slug, const char *subKey) const
@@ -1358,6 +1361,60 @@ void SettingsManager::setStartInTray(bool v)
         return;
     m_store->setValue(kStartInTray, v);
     Q_EMIT startInTrayChanged();
+}
+
+// Window geometry.
+//
+// Stored as four ints under one group rather than a serialized QRect, so the
+// config file stays readable and a hand-edited or half-written value degrades
+// to "never saved" instead of to a garbage rect.
+//
+// Read once, at construction, and size-validated: anything below the window's
+// own minimum is not a size worth restoring, and an invalid rect is how "never
+// saved" reaches the window so it can fall back to its declared default.
+//
+// The POSITION is deliberately NOT judged here. Whether a stored x/y still
+// lands on a connected screen is a question about the display layout, which
+// belongs to the window's own layer — AppController::restorableWindowGeometry
+// answers it, and it is the only reader of this. Keeping QScreen out of here
+// also keeps this class buildable against Qt6::Core alone, which ~20 test
+// targets rely on.
+void SettingsManager::loadWindowGeometry()
+{
+    m_initialWindowMaximized = m_store->value(kWindowMaximized, false).toBool();
+
+    const QString group = QLatin1String(kWindowGeometry);
+    const int w = m_store->value(group + QLatin1String("/width"), 0).toInt();
+    const int h = m_store->value(group + QLatin1String("/height"), 0).toInt();
+    // These match Main.qml's minimumWidth/minimumHeight.
+    if (w < kWindowMinWidth || h < kWindowMinHeight)
+        return;
+    m_initialWindowGeometry =
+        QRect(m_store->value(group + QLatin1String("/x"), 0).toInt(),
+              m_store->value(group + QLatin1String("/y"), 0).toInt(), w, h);
+}
+
+void SettingsManager::saveWindowGeometry(int x, int y, int width, int height)
+{
+    // Refused rather than stored: it would only be discarded on read, and
+    // storing it would overwrite a good value with an unusable one. Qt reports
+    // transient 0x0 geometry while a window is being shown, hidden into the
+    // tray or restored from minimized, and the tray path fires exactly when
+    // the last good value has to survive.
+    if (width < kWindowMinWidth || height < kWindowMinHeight)
+        return;
+    const QString group = QLatin1String(kWindowGeometry);
+    m_store->setValue(group + QLatin1String("/x"), x);
+    m_store->setValue(group + QLatin1String("/y"), y);
+    m_store->setValue(group + QLatin1String("/width"), width);
+    m_store->setValue(group + QLatin1String("/height"), height);
+}
+
+void SettingsManager::saveWindowMaximized(bool maximized)
+{
+    if (m_store->value(kWindowMaximized, false).toBool() == maximized)
+        return;
+    m_store->setValue(kWindowMaximized, maximized);
 }
 
 bool SettingsManager::verificationWarningDismissed() const

@@ -6,8 +6,41 @@ import MatrixClient
 
 ApplicationWindow {
     id: window
-    width: 1100
-    height: 720
+
+    // ── Window geometry ──────────────────────────────────────────────────
+    // Restored from the last run, and saved as the user moves and resizes.
+    // Both halves used to be missing: the window opened at 1100x720 wherever
+    // the platform felt like putting it, every launch.
+    //
+    // The restore is DECLARATIVE, in these four bindings, and that is not a
+    // style choice. Qt shows the window during the component's own
+    // componentComplete(), which runs BEFORE any Component.onCompleted — so
+    // geometry applied from a completion handler lands after the window is
+    // already on screen and the user watches it jump.
+    //
+    // AppController::restorableWindowGeometry is CONSTANT, so these bindings
+    // evaluate once. Qt overwrites x/y/width/height directly when the user
+    // drags the frame, which breaks each binding, which is exactly right: the
+    // stored value is a starting point, not a leash. Nothing here reads a
+    // notifying property, so saving cannot feed back into restoring.
+    //
+    // It comes from AppController rather than straight from the settings
+    // because it is already filtered for a display layout that may have
+    // changed since — an invalid rect here means "do not restore", never
+    // "nothing was stored".
+    readonly property rect startupGeometry: app.restorableWindowGeometry
+    readonly property bool hasStartupGeometry: startupGeometry.width > 0
+                                               && startupGeometry.height > 0
+    width: hasStartupGeometry ? startupGeometry.width : 1100
+    height: hasStartupGeometry ? startupGeometry.height : 720
+    // Centred on the primary screen for a first launch: predictable, and
+    // better than the (0,0)-ish corner some platforms choose.
+    // desktopAvailable*, not the raw screen size: centring against the full
+    // height puts the window under a panel or taskbar.
+    x: hasStartupGeometry ? startupGeometry.x
+                          : Math.round((Screen.desktopAvailableWidth - width) / 2)
+    y: hasStartupGeometry ? startupGeometry.y
+                          : Math.round((Screen.desktopAvailableHeight - height) / 2)
     minimumWidth: 640
     minimumHeight: 420
     visible: true
@@ -106,6 +139,13 @@ ApplicationWindow {
 
     Component.onCompleted: {
         syncControlPalette()
+        // Maximized is applied here rather than in a `visibility` binding: a
+        // binding would be broken the first time the user un-maximizes, and
+        // then re-established by the save below, fighting them. It also has
+        // to lose to startMinimized and startInTray, which is why it is
+        // first.
+        if (app.settings && app.settings.initialWindowMaximized)
+            window.visibility = Window.Maximized
         if (app.settings && app.settings.startMinimized)
             window.visibility = Window.Minimized
         // Start straight into the tray. Guarded on the tray actually
@@ -114,6 +154,55 @@ ApplicationWindow {
         // the worst possible failure of this feature.
         if (app.settings && app.settings.startInTray && app.trayAvailable)
             window.hide()
+        geometrySaver.armed = true
+    }
+
+    // ── Saving the geometry back ──────────────────────────────────────────
+    // Debounced: a drag reports every pixel, and one QSettings write per
+    // mouse move is not a thing to do.
+    //
+    // Only the WINDOWED state is recorded. A maximized window's frame is the
+    // screen and a minimized one has no useful frame at all, so storing
+    // either as "the size the user chose" would throw that size away. The
+    // maximized FLAG is stored separately, which is how both survive.
+    //
+    // `armed` keeps startup out of it: applying the restore above changes x,
+    // y, width and height, and saving those back would be writing our own
+    // input, plus one write per launch for nothing.
+    Timer {
+        id: geometrySaver
+        property bool armed: false
+        interval: 400
+        onTriggered: window.flushGeometry()
+    }
+    function flushGeometry() {
+        geometrySaver.stop()
+        if (!app.settings || !window.visible)
+            return
+        if (window.visibility !== Window.Windowed)
+            return
+        app.settings.saveWindowGeometry(window.x, window.y,
+                                        window.width, window.height)
+    }
+    function noteGeometryChanged() {
+        if (geometrySaver.armed)
+            geometrySaver.restart()
+    }
+    onXChanged: noteGeometryChanged()
+    onYChanged: noteGeometryChanged()
+    onWidthChanged: noteGeometryChanged()
+    onHeightChanged: noteGeometryChanged()
+    onVisibilityChanged: {
+        if (!geometrySaver.armed || !app.settings)
+            return
+        // Minimized and Hidden say nothing about which of maximized or
+        // windowed the user will come back to, so they are not recorded —
+        // otherwise closing to tray from a maximized window would remember
+        // "not maximized".
+        if (window.visibility === Window.Maximized)
+            app.settings.saveWindowMaximized(true)
+        else if (window.visibility === Window.Windowed)
+            app.settings.saveWindowMaximized(false)
     }
 
     // ── Close to tray ────────────────────────────────────────────────────
@@ -121,8 +210,22 @@ ApplicationWindow {
     // platform having a tray at all: hiding the window into a tray that does
     // not exist would leave no way to get it back. Clicking the tray icon —
     // any button — restores it.
+    //
+    // `quitRequested` is what makes Ctrl+Q work at all while this is on, and
+    // it is not a convenience flag — see the Shortcut below. Qt asks every
+    // top-level window to close as part of quitting, and a window that
+    // REFUSES stops the quit; without this the close-to-tray branch answered
+    // that request too, so Ctrl+Q silently hid the window instead of exiting.
+    property bool quitRequested: false
     onClosing: (close) => {
-        if (app.settings && app.settings.closeToTray && app.trayAvailable) {
+        // Flush first, and unconditionally: the 400 ms debounce may still be
+        // running, and both branches below end this window's useful life —
+        // quitting outright, or hiding it, after which `visible` is false and
+        // the timer would decline to save. Losing the last resize because the
+        // user closed promptly after it is exactly the reported symptom.
+        window.flushGeometry()
+        if (!window.quitRequested && app.settings
+                && app.settings.closeToTray && app.trayAvailable) {
             close.accepted = false
             window.hide()
         }
@@ -130,7 +233,12 @@ ApplicationWindow {
     Connections {
         target: app
         function onTrayShowRequested() {
-            window.show()
+            // `visible = true`, NOT show(): QWindow::show() forces the NORMAL
+            // state, so a window that was maximized when it went to the tray
+            // came back un-maximized — and now that the maximized flag is
+            // persisted, that would also be written back as the user's choice.
+            // Setting visible restores the state the window actually had.
+            window.visible = true
             window.raise()
             window.requestActivate()
         }
@@ -139,9 +247,31 @@ ApplicationWindow {
     // carries no context menu (QSystemTrayIcon takes a QtWidgets QMenu and
     // this process is a QGuiApplication), so this is the way out once the
     // window has been closed into the tray and brought back.
+    //
+    // "For real" needs the flag. Qt.quit() posts QEvent::Quit, and
+    // QGuiApplication answers it by asking every top-level window to close
+    // FIRST — one that refuses aborts the whole quit (`e->ignore()`). With
+    // close-to-tray on, onClosing above was that refusal, so Ctrl+Q merely
+    // hid the window: the one documented way out of the tray did not work in
+    // exactly the mode that puts you there. Announcing the intent before
+    // asking lets the close handler stand aside.
+    //
+    // Deliberately still Qt.quit() and not Qt.exit(): the real shutdown work
+    // hangs off QCoreApplication::aboutToQuit (AppController's teardown, and
+    // UpdateManager's apply-on-quit), and tearing the event loop down under
+    // it would skip both.
+    //
+    // ApplicationShortcut, not the default WindowShortcut, so it still fires
+    // while a native dialog of ours holds focus. Nothing can reach it while
+    // the window is hidden in the tray — a hidden window has no focus — which
+    // is why restoring from the tray comes first.
     Shortcut {
         sequences: ["Ctrl+Q"]
-        onActivated: Qt.quit()
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            window.quitRequested = true
+            Qt.quit()
+        }
     }
 
     // SECURITY, application-wide. Qt Quick Controls uses ONE shared ToolTip

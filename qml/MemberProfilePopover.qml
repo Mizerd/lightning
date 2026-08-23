@@ -347,22 +347,37 @@ Popup {
                         var _dep = app.banners.revision
                         return app.banners.bannerFor(root.userId)
                     }
-                    source: mxc.length > 0 && app.mediaBridge.supported
-                            ? app.mediaBridge.wideImageSource(mxc) : ""
-                    // wideImageSource() returns "" on a cache MISS and
-                    // dispatches; nothing this binding depends on changes
-                    // when the bytes land, so it has to re-ask. Same
-                    // discipline as the timeline's reply quote.
+                    // Re-resolve counter. wideImageSource() returns "" on a
+                    // cache MISS and dispatches; nothing else this binding
+                    // depends on changes when the bytes land, so the arrival
+                    // has to poke it.
+                    //
+                    // It is a COUNTER and not an assignment to `source`
+                    // because assigning a bound property imperatively
+                    // DESTROYS the binding. That is what made banners sticky:
+                    // the first banner that ever finished loading unbound
+                    // this Image from `mxc` for the rest of the session, so
+                    // opening anyone else's card kept showing that first
+                    // person's banner — including over a banner they really
+                    // had. Bumping a counter keeps the binding alive, so a
+                    // new user still replaces it, and a user with none still
+                    // clears it back to the gradient.
+                    property int resolveTick: 0
+                    source: {
+                        var _tick = resolveTick
+                        return mxc.length > 0 && app.mediaBridge.supported
+                               ? app.mediaBridge.wideImageSource(mxc) : ""
+                    }
                     Connections {
                         target: app.mediaBridge
                         enabled: bannerImage.mxc.length > 0
                         function onMediaCached(key) {
-                            if (bannerImage.source.toString().length > 0)
-                                return
-                            var again = app.mediaBridge.wideImageSource(
-                                bannerImage.mxc)
-                            if (again.length > 0)
-                                bannerImage.source = again
+                            // Cache keys end with the mxc ("mxc:<edge>:<uri>"),
+                            // so only this banner's own completion is worth a
+                            // re-resolve — not every byte fetched anywhere.
+                            if (key.endsWith(":" + bannerImage.mxc)
+                                && bannerImage.source.toString().length === 0)
+                                bannerImage.resolveTick++
                         }
                     }
                 }

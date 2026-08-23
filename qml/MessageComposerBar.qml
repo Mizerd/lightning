@@ -902,10 +902,14 @@ Item {
                             readonly property string replyKey:
                                 app.composer.isReplying
                                 ? (app.composer.replyingToMediaKey || "") : ""
-                            readonly property string bridgeSource:
-                                replyKey.length > 0 && app.mediaBridge.supported
-                                ? app.mediaBridge.mediaSource(replyKey, "thumb")
-                                : ""
+                            readonly property string bridgeSource: {
+                                var _tick = resolveTick
+                                return replyKey.length > 0
+                                    && app.mediaBridge.supported
+                                    ? app.mediaBridge.mediaSource(replyKey,
+                                                                  "thumb")
+                                    : ""
+                            }
                             visible: replyKey.length > 0
                                      && status !== Image.Error
                                      && app.mediaBridge.supported
@@ -915,29 +919,32 @@ Item {
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             sourceSize.width: 52
-                            source: bridgeSource.length > 0
-                                    ? bridgeSource + "|shape:rsq:230" : ""
                             // mediaSource() returns "" on a cache MISS and
                             // dispatches a fetch; nothing this binding depends
-                            // on changes when the bytes land, so without this
-                            // the thumbnail simply never appeared unless the
-                            // image happened to be cached already. The
-                            // timeline's reply quote has had the same re-ask
-                            // since 2026-08-18 — the composer never got it,
-                            // which is the "replying to an image still doesn't
-                            // show the image above the text box" report.
+                            // on changes when the bytes land, so without the
+                            // re-resolve below the thumbnail simply never
+                            // appeared unless the image happened to be cached
+                            // already. The timeline's reply quote has had the
+                            // same re-ask since 2026-08-18 — the composer
+                            // never got it, which is the "replying to an image
+                            // still doesn't show the image above the text box"
+                            // report.
+                            //
+                            // The re-ask is a COUNTER, never an assignment to
+                            // `source`: assigning a bound property destroys
+                            // its binding, and this thumbnail would then stay
+                            // on the first image ever replied to.
+                            property int resolveTick: 0
+                            source: bridgeSource.length > 0
+                                    ? bridgeSource + "|shape:rsq:230" : ""
                             Connections {
                                 target: app.mediaBridge
                                 enabled: composerReplyThumb.replyKey.length > 0
                                 function onMediaCached(key) {
-                                    if (composerReplyThumb.source.toString()
-                                            .length > 0)
-                                        return
-                                    var again = app.mediaBridge.mediaSource(
-                                        composerReplyThumb.replyKey, "thumb")
-                                    if (again.length > 0)
-                                        composerReplyThumb.source =
-                                            again + "|shape:rsq:230"
+                                    if (key === "thumb:" + composerReplyThumb.replyKey
+                                        && composerReplyThumb.source.toString()
+                                               .length === 0)
+                                        composerReplyThumb.resolveTick++
                                 }
                             }
                         }
