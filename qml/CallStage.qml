@@ -154,7 +154,11 @@ Rectangle {
                             // Routes video. The identity, not userId+deviceId:
                             // the sticky format's identity is a hash.
                             identity: parent.modelData.identity
-                            displayName: app.displayNameFor ? app.displayNameFor(parent.modelData.userId) : parent.modelData.userId
+                            // The MODEL resolved this from the MatrixRTC membership. Asking
+                            // displayNameFor(userId) again was a second source of
+                            // truth that returned nothing for a hashed identity.
+                            displayName: parent.modelData.displayName || ""
+                            avatarMxc: parent.modelData.avatarMxc || ""
                             micKnown: parent.modelData.micKnown
                             micMuted: parent.modelData.micMuted
                             cameraKnown: parent.modelData.cameraKnown
@@ -237,7 +241,8 @@ Rectangle {
                             width: 140
                             userId: modelData.userId
                             identity: modelData.identity
-                            displayName: app.displayNameFor ? app.displayNameFor(modelData.userId) : modelData.userId
+                            displayName: modelData.displayName || ""
+                            avatarMxc: modelData.avatarMxc || ""
                             micKnown: modelData.micKnown
                             micMuted: modelData.micMuted
                             cameraKnown: modelData.cameraKnown
@@ -253,29 +258,16 @@ Rectangle {
             }
         }
 
-        // Control bar, centred — and ONLY the controls the header bar does
-        // not already own.
+        // NO control bar here.
         //
-        // The call controls moved to the top of the conversation
-        // (CallHeaderBar) on the reporter's own request. This bar stayed, so a
-        // live call drew mic/output/camera/hangup TWICE on one screen — plus
-        // the Voice Connected strip and the "Join" banner, four surfaces for
-        // one call. What is genuinely stage-local is the layout toggle and
-        // the raise-hand/participants affordances, which have nowhere else to
-        // live; mute, camera, screen share and hang up belong to the header.
-        CallControlBar {
-            objectName: "callStageControls"
-            Layout.fillWidth: true
-            Layout.preferredHeight: implicitHeight
-            participantCount: root.peopleCount
-            // Header-owned controls suppressed here rather than the component
-            // being duplicated: one CallControlBar, two hosts, and the host
-            // says which half it is responsible for.
-            showMediaControls: false
-            onLayoutCycleRequested: {
-                root.layoutMode = root.effectiveLayout === "grid" ? "spotlight" : "grid";
-            }
-            onHangUpRequested: app.groupCall.leave()
-        }
+        // Every call control lives in CallHeaderBar at the top of the
+        // conversation, which is what was asked for. This stage used to
+        // carry its own bar; once the media controls moved up, what was left
+        // were two orphan buttons (raise hand, participants) floating under
+        // the call UI, reported as exactly that. They are in the header now.
+        //
+        // The layout toggle went with them: a control that changes how the
+        // stage looks is still a call control, and splitting them across two
+        // surfaces is what caused this.
     }
 }

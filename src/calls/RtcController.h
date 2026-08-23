@@ -220,6 +220,18 @@ public:
     QString rtcIdentityFor(const QString &roomId, const QString &userId,
                            const QString &deviceId) const;
 
+    /// The Matrix person behind one SFU participant identity:
+    /// {userId, displayName, avatarMxc, ownUser, ownDevice}, or an empty map.
+    ///
+    /// The REVERSE of rtcIdentityFor, and the only correct way to label a
+    /// call tile. The identity was previously split on its last colon to
+    /// recover a user id, which works for the legacy `@user:server:DEVICE`
+    /// form and produces GARBAGE for the sticky format — whose identity is
+    /// an unpadded base64 sha256. That is why a remote participant rendered
+    /// as "a chunk of random symbols" with no name and no avatar.
+    QVariantMap participantForIdentity(const QString &roomId,
+                                      const QString &identity) const;
+
     /// Whether this room's media must be encrypted. UNKNOWN fails CLOSED to
     /// true: a room we cannot prove is unencrypted is treated as encrypted,
     /// so the honest failure is a refused call, never a cleartext one.

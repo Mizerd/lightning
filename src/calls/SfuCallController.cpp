@@ -257,6 +257,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_ownIdentity.clear();
     m_mediaEncrypted = false;
     m_keyIndex = 0;
+    m_candidatesSent = 0;
 
     // Captured once for the call, so a room-state change mid-call cannot
     // quietly relax what we already promised the user. Unknown is true.
@@ -365,6 +366,12 @@ void SfuCallController::onSfuJoined(const QString &identity,
                                      const QVariantList &participants,
                                      const QVariantList &iceServers)
 {
+    qCInfo(lcSfuCall) << "sfu joined others=" << participants.size()
+                      << "iceServers=" << iceServers.size()
+                      << "identity=" << (identity.isEmpty()
+                                         ? QStringLiteral("<empty>")
+                                         : QStringLiteral("<set>"))
+                      << "active=" << active();
     if (!active())
         return;
 #ifdef HAVE_LIGHTNING_WEBRTC
@@ -388,8 +395,12 @@ void SfuCallController::onSfuJoined(const QString &identity,
 void SfuCallController::publishTracks()
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
-    if (m_engine.isNull() || !m_client)
+    if (m_engine.isNull() || !m_client) {
+        qCWarning(lcSfuCall) << "publishTracks skipped: engine or client gone";
         return;
+    }
+    qCInfo(lcSfuCall) << "publishTracks camera=" << m_cameraOn
+                      << "encrypted=" << m_roomEncrypted;
     // The key BEFORE the first frame. A probe with no key drops in an
     // encrypted room, so publishing first would mean our own audio is
     // silently discarded until the key lands.
@@ -481,10 +492,18 @@ void SfuCallController::onSfuRemoteCandidate(const QString &target,
 #endif
 }
 
+// The SDP itself is never logged: it carries host IPs. Only the fact and the
+// direction, which is what "did we ever offer?" needs — a session that reaches
+// LiveKit's 60s join timeout with JOIN_FAILURE never completed a peer
+// connection, and the first question is whether an offer was even produced.
 void SfuCallController::onEngineLocalDescription(int target,
                                                   const QString &kind,
                                                   const QString &sdp)
 {
+    qCInfo(lcSfuCall) << "local description kind=" << kind
+                      << "target=" << target
+                      << "bytes=" << sdp.size()
+                      << "active=" << active();
     if (!active() || !m_client)
         return;
     m_client->sfuLocalDescription(
@@ -497,6 +516,15 @@ void SfuCallController::onEngineLocalDescription(int target,
 void SfuCallController::onEngineLocalCandidate(int target,
                                                 const QString &candidateInit)
 {
+    // Counted, not printed: a candidate carries host IPs. Zero candidates on
+    // the publisher is the signature of a peer connection that never got off
+    // the ground.
+    ++m_candidatesSent;
+    if (m_candidatesSent <= 3 || m_candidatesSent % 10 == 0) {
+        qCInfo(lcSfuCall) << "local candidate #" << m_candidatesSent
+                          << "target=" << target
+                          << "active=" << active();
+    }
     if (!active() || !m_client)
         return;
     m_client->sfuLocalCandidate(
@@ -881,16 +909,35 @@ QVariantList SfuCallController::participants() const
             entry.value(QStringLiteral("identity")).toString();
         if (identity.isEmpty())
             continue;
-        // MatrixRTC identities are "{userId}:{deviceId}" for the session
-        // format. Split on the LAST colon: a Matrix user id contains one.
-        const int split = identity.lastIndexOf(QLatin1Char(':'));
+        // Resolved through the MatrixRTC MEMBERSHIP, never by string
+        // surgery on the identity.
+        //
+        // This used to split the identity on its last colon to recover a
+        // user id, which works for the legacy `@user:server:DEVICE` form and
+        // produces garbage for the sticky format — whose identity is an
+        // unpadded base64 sha256. A remote participant therefore rendered as
+        // a chunk of random symbols with no display name and no avatar.
+        const QVariantMap person = m_rtc
+            ? m_rtc->participantForIdentity(m_roomId, identity)
+            : QVariantMap{};
         QVariantMap row;
         row.insert(QStringLiteral("identity"), identity);
         row.insert(QStringLiteral("userId"),
-                   split > 0 ? identity.left(split) : identity);
-        row.insert(QStringLiteral("deviceId"),
-                   split > 0 ? identity.mid(split + 1) : QString());
-        row.insert(QStringLiteral("local"), identity == m_ownIdentity);
+                   person.value(QStringLiteral("userId")).toString());
+        // Room-resolved profile, so a tile draws a real name and avatar.
+        // Empty means "not known here" and the tile falls back to initials
+        // rather than inventing anything.
+        row.insert(QStringLiteral("displayName"),
+                   person.value(QStringLiteral("displayName")).toString());
+        row.insert(QStringLiteral("avatarMxc"),
+                   person.value(QStringLiteral("avatarMxc")).toString());
+        // "local" is this DEVICE. The membership knows; identity equality is
+        // kept as the fallback for a session whose membership has not landed
+        // yet, so the local tile is never mislabelled as someone else.
+        const bool ownDevice =
+            person.value(QStringLiteral("ownDevice")).toBool();
+        row.insert(QStringLiteral("local"),
+                   ownDevice || identity == m_ownIdentity);
         row.insert(QStringLiteral("speaking"),
                    m_speaking.value(
                        entry.value(QStringLiteral("sid")).toString(), false));

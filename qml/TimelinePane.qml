@@ -891,6 +891,11 @@ Rectangle {
         CallHeaderBar {
             objectName: "timelineCallHeaderBar"
             Layout.fillWidth: true
+            // The participants button opens the room's existing side panel
+            // rather than a second list of its own: who is in the call is
+            // already on the stage as tiles, and what the button is really
+            // for is reaching the people in the room.
+            onParticipantsRequested: root.infoOpen = !root.infoOpen
         }
 
         // The call surface REPLACES the timeline while a call is live and

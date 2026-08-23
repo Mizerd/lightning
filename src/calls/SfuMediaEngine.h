@@ -268,6 +268,19 @@ private:
     /// this field against the RTP header), so local uniqueness is the
     /// entire requirement.
     std::atomic<quint32> m_nextIvStream{1};
+    /// How many publisher tracks are actually LINKED to the publisher
+    /// webrtcbin.
+    ///
+    /// webrtcbin emits `on-negotiation-needed` the moment it reaches PLAYING,
+    /// which ensurePeer() does before any track exists — so an offer created
+    /// from that signal has NO media section at all. We sent exactly that: a
+    /// 98-byte SDP with no `m=` line, right after telling the SFU about a
+    /// track via AddTrack. LiveKit answered `Leave(reason=6 STATE_MISMATCH)`
+    /// every time, in every room.
+    ///
+    /// Atomic because on-negotiation-needed arrives on a GStreamer thread
+    /// while this is written from the Qt thread.
+    std::atomic<int> m_publishedMedia{0};
 
     /// Not owned. QPointer so a router destroyed before the engine cannot
     /// be dereferenced from a late streaming-thread callback.

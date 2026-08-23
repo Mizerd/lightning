@@ -384,6 +384,7 @@ void SfuMediaEngine::start()
     m_active = true;
     m_microphoneMuted = false;
     m_outputMuted.store(false);
+    m_publishedMedia.store(0);
     Q_EMIT connectionStateChanged(QStringLiteral("connecting"));
 }
 
@@ -400,6 +401,7 @@ void SfuMediaEngine::stop()
     // controller and is re-applied on the next start.
     m_microphoneMuted = false;
     m_outputMuted.store(false);
+    m_publishedMedia.store(0);
     // Media keys must not outlive the call that used them.
     clearKeys();
     Q_EMIT connectionStateChanged(QStringLiteral("closed"));
@@ -594,16 +596,32 @@ void SfuMediaEngine::publishAudio(const QString &cid)
         }
         gst_object_unref(encoder);
     }
+    // The link RESULT decides whether there is anything to offer, so it is
+    // checked rather than discarded. It used to be thrown away, and a failed
+    // link produced an offer with no media section instead of an error.
     GstPad *srcPad = gst_element_get_static_pad(bin, "src");
     GstPad *sinkPad = gst_element_request_pad_simple(m_publisher.webrtc,
                                                      "sink_%u");
+    GstPadLinkReturn linked = GST_PAD_LINK_REFUSED;
     if (srcPad && sinkPad)
-        gst_pad_link(srcPad, sinkPad);
+        linked = gst_pad_link(srcPad, sinkPad);
     if (srcPad)
         gst_object_unref(srcPad);
     if (sinkPad)
         gst_object_unref(sinkPad);
+    if (linked != GST_PAD_LINK_OK) {
+        qCWarning(lcSfuMedia) << "publisher link failed code=" << linked;
+        m_publishedBins.remove(cid);
+        gst_element_set_state(bin, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
+        Q_EMIT failed(QStringLiteral("publish_link_failed"));
+        return;
+    }
     gst_element_sync_state_with_parent(bin);
+    // Now there IS something to offer, so ask for the offer explicitly. The
+    // on-negotiation-needed that fired at PLAYING was deliberately ignored.
+    ++m_publishedMedia;
+    renegotiatePublisher();
 }
 
 void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
@@ -710,16 +728,32 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         }
         gst_object_unref(encoder);
     }
+    // The link RESULT decides whether there is anything to offer, so it is
+    // checked rather than discarded. It used to be thrown away, and a failed
+    // link produced an offer with no media section instead of an error.
     GstPad *srcPad = gst_element_get_static_pad(bin, "src");
     GstPad *sinkPad = gst_element_request_pad_simple(m_publisher.webrtc,
                                                      "sink_%u");
+    GstPadLinkReturn linked = GST_PAD_LINK_REFUSED;
     if (srcPad && sinkPad)
-        gst_pad_link(srcPad, sinkPad);
+        linked = gst_pad_link(srcPad, sinkPad);
     if (srcPad)
         gst_object_unref(srcPad);
     if (sinkPad)
         gst_object_unref(sinkPad);
+    if (linked != GST_PAD_LINK_OK) {
+        qCWarning(lcSfuMedia) << "publisher link failed code=" << linked;
+        m_publishedBins.remove(cid);
+        gst_element_set_state(bin, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
+        Q_EMIT failed(QStringLiteral("publish_link_failed"));
+        return;
+    }
     gst_element_sync_state_with_parent(bin);
+    // Now there IS something to offer, so ask for the offer explicitly. The
+    // on-negotiation-needed that fired at PLAYING was deliberately ignored.
+    ++m_publishedMedia;
+    renegotiatePublisher();
 }
 
 void SfuMediaEngine::unpublish(const QString &cid)
@@ -729,6 +763,8 @@ void SfuMediaEngine::unpublish(const QString &cid)
         return;
     gst_element_set_state(bin, GST_STATE_NULL);
     gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
+    if (m_publishedMedia.load() > 0)
+        --m_publishedMedia;
     renegotiatePublisher();
 }
 
@@ -1111,8 +1147,19 @@ void SfuMediaEngine::handleLocalDescription(quintptr token, bool offer,
                                             const QString &sdp)
 {
     Target target = Target::Publisher;
-    if (!tokenIsLive(token, &target))
-        return; // a queued callback from a closed session
+    if (!tokenIsLive(token, &target)) {
+        // A queued callback from a closed session — correct to drop, but it
+        // used to be SILENT, and a dropped offer is indistinguishable from
+        // an offer that was never created. LiveKit answers a session with no
+        // peer connection with JOIN_FAILURE after 60 s, so knowing which of
+        // the two happened is the whole diagnosis.
+        qCWarning(lcSfuMedia) << "local description dropped: stale session"
+                              << "offer=" << offer;
+        return;
+    }
+    qCInfo(lcSfuMedia) << "local description ready offer=" << offer
+                       << "target=" << static_cast<int>(target)
+                       << "bytes=" << sdp.size();
     Q_EMIT localDescription(static_cast<int>(target),
                             offer ? QStringLiteral("offer")
                                   : QStringLiteral("answer"),
@@ -1140,7 +1187,20 @@ void SfuMediaEngine::handleFailure(quintptr token, const QString &category)
 
 void SfuMediaEngine::onNegotiationNeeded(GstElement *webrtc, void *userData)
 {
+    // The trigger for the entire offer chain. If this never fires, nothing
+    // was published and the SFU will time the participant out.
     auto *engine = static_cast<SfuMediaEngine *>(userData);
+    // Nothing to offer yet. webrtcbin raises this as soon as it hits PLAYING,
+    // before any track is attached, and an offer built then carries no media
+    // section — which the SFU reads as a state mismatch against the track we
+    // already declared. The offer that matters is the one
+    // renegotiatePublisher() makes once a track is really linked.
+    const int media = engine->m_publishedMedia.load();
+    if (media == 0) {
+        qCInfo(lcSfuMedia) << "negotiation needed: deferred, no media yet";
+        return;
+    }
+    qCInfo(lcSfuMedia) << "negotiation needed: offering" << media << "track(s)";
     GstPromise *promise = gst_promise_new_with_change_func(
         onOfferCreated, promiseCtxNew(engine, webrtc, true), promiseCtxFree);
     g_signal_emit_by_name(webrtc, "create-offer", nullptr, promise);

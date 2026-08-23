@@ -24,6 +24,8 @@ Rectangle {
     id: root
 
     objectName: "callHeaderBar"
+    /// The participant list was asked for. The host decides where it opens.
+    signal participantsRequested()
 
     /// Render as if a call were live, without one.
     ///
@@ -167,6 +169,52 @@ Rectangle {
                     else
                         app.groupCall.requestScreenShare()
                 }
+            }
+        }
+
+        // ── Raise hand (SFU lane only) ──
+        //
+        // Here rather than on the call stage. The stage used to carry its own
+        // control bar for raise-hand and the participant list, and once the
+        // media controls moved up here that left two orphan buttons floating
+        // under the call UI — reported exactly that way. One control surface,
+        // at the top, which is what was asked for.
+        Loader {
+            active: root.richMedia
+            visible: active
+            sourceComponent: CallControlButton {
+                objectName: "callBarHandButton"
+                // front_hand, not back_hand: the icon map carries the
+                // former and IconChromeTest refuses a name it cannot draw —
+                // an unmapped glyph renders as tofu.
+                iconName: "front_hand"
+                role: app.groupCall.handRaised ? "active" : "neutral"
+                diameter: 40
+                glyphSize: 19
+                tooltip: app.groupCall.handRaised ? qsTr("Lower your hand")
+                                                  : qsTr("Raise your hand")
+                onClicked: app.groupCall.toggleHandRaised()
+            }
+        }
+
+        // ── Participants (SFU lane only) ──
+        Loader {
+            active: root.richMedia
+            visible: active
+            sourceComponent: CallControlButton {
+                objectName: "callBarParticipantsButton"
+                iconName: "group"
+                role: "neutral"
+                diameter: 40
+                glyphSize: 19
+                // The count goes in the TOOLTIP: CallControlButton has no
+                // badge, and inventing one here would be a second styling
+                // path for the same control.
+                tooltip: app.groupCall.participantCount > 0
+                         ? qsTr("Show who's in the call (%1)")
+                           .arg(app.groupCall.participantCount)
+                         : qsTr("Show who's in the call")
+                onClicked: root.participantsRequested()
             }
         }
 

@@ -368,29 +368,32 @@ private Q_SLOTS:
     // Each of these pins one of them shut.
     void exactlyOneSurfaceOwnsTheMediaControls()
     {
-        // Mute / deafen / camera / hang up belong to the header bar. The
-        // stage's control bar keeps only what has nowhere else to live: the
-        // layout toggle, raise hand, participants.
+        // EVERY call control lives in the header bar. The stage carries none.
+        //
+        // This started as "the stage may keep the controls that have nowhere
+        // else to live" — layout toggle, raise hand, participants — and that
+        // was wrong: once the media controls moved up, what was left on the
+        // stage were two orphan buttons floating under the call UI, which is
+        // exactly how it was reported. So the assertion is now the stronger
+        // one: no control bar on the stage at all.
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY(!stage.isEmpty());
-        QVERIFY2(normalized(stage).contains(
-                     QStringLiteral("showMediaControls: false")),
-                 "the call stage draws the header bar's controls again");
+        QVERIFY2(!stage.contains(QStringLiteral("CallControlBar {")),
+                 "the call stage instantiates a control bar again");
 
-        const QString bar = read(QStringLiteral(QML_DIR "/CallControlBar.qml"));
-        QVERIFY(!bar.isEmpty());
-        // The four header-owned buttons must all be gated, or the stage
-        // still shows some of them.
-        for (const QString &button : { QStringLiteral("callMicButton"),
-                                      QStringLiteral("callDeafenButton"),
-                                      QStringLiteral("callCameraButton"),
-                                      QStringLiteral("callHangUpButton") }) {
-            const int at = bar.indexOf(button);
-            QVERIFY2(at >= 0, qPrintable(button + " is gone"));
-            QVERIFY2(normalized(bar.mid(at, 120))
-                         .contains(QStringLiteral(
-                             "visible: root.showMediaControls")),
-                     qPrintable(button + " is not gated on showMediaControls"));
+        // ...and the header owns the full set.
+        const QString header =
+            read(QStringLiteral(QML_DIR "/CallHeaderBar.qml"));
+        QVERIFY(!header.isEmpty());
+        for (const QString &button : { QStringLiteral("callBarMicButton"),
+                                       QStringLiteral("callBarDeafenButton"),
+                                       QStringLiteral("callBarCameraButton"),
+                                       QStringLiteral("callBarScreenShareButton"),
+                                       QStringLiteral("callBarHandButton"),
+                                       QStringLiteral("callBarParticipantsButton"),
+                                       QStringLiteral("callBarHangUpButton") }) {
+            QVERIFY2(header.contains(button),
+                     qPrintable(button + " is missing from the header bar"));
         }
     }
 

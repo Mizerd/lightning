@@ -78,6 +78,54 @@ private slots:
         engine.stop();
     }
 
+    void anOfferIsOnlyMadeOnceThereIsMediaAndThenCarriesIt()
+    {
+        // THE defect behind "calls insta fail". webrtcbin raises
+        // on-negotiation-needed the moment it reaches PLAYING, which
+        // ensurePeer does before any track exists — so the offer built from
+        // that signal had NO media section. We sent a 98-byte SDP with no
+        // `m=` line right after declaring a track to the SFU, and LiveKit
+        // answered Leave(reason=6 STATE_MISMATCH) every time.
+        //
+        // Two things are asserted: no offer at all before a track is linked,
+        // and once one is, an offer that actually contains media.
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy offers(&engine, &SfuMediaEngine::localDescription);
+        QSignalSpy failed(&engine, &SfuMediaEngine::failed);
+
+        engine.start();
+        // A moment for the PLAYING transition to raise negotiation-needed.
+        QTest::qWait(400);
+        QCOMPARE(failed.count(), 0);
+        QCOMPARE(offers.count(), 0);   // deferred, nothing to offer yet
+
+        engine.publishAudio(QStringLiteral("cid-audio"));
+        QTRY_VERIFY_WITH_TIMEOUT(offers.count() > 0, 5000);
+        QCOMPARE(failed.count(), 0);
+
+        // The publisher's offer must describe the audio track. An SDP with no
+        // media section is ~98 bytes; a real Opus offer is far larger and
+        // says so explicitly.
+        bool sawPublisherOffer = false;
+        for (const QList<QVariant> &args : offers) {
+            if (args.at(0).toInt() != 0)
+                continue;   // 0 == publisher
+            if (args.at(1).toString() != QLatin1String("offer"))
+                continue;
+            const QString sdp = args.at(2).toString();
+            sawPublisherOffer = true;
+            QVERIFY2(sdp.contains(QLatin1String("m=audio")),
+                     qPrintable(QStringLiteral("publisher offer has no audio "
+                                               "media section (%1 bytes)")
+                                    .arg(sdp.size())));
+            QVERIFY2(sdp.contains(QLatin1String("opus"), Qt::CaseInsensitive),
+                     "publisher offer does not mention Opus");
+        }
+        QVERIFY2(sawPublisherOffer, "no publisher offer was produced at all");
+        engine.stop();
+    }
+
     void publishingTwiceUnderOneIdIsIgnored()
     {
         SfuMediaEngine engine;

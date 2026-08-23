@@ -63,10 +63,19 @@ Item {
         return Math.max(compact ? 28 : 40, Math.min(size, 96))
     }
 
+    // "You" for the local device, but the AVATAR and colour key still come
+    // from the real account — reported as: "I came in as You, should show my
+    // avatar and display name". The label says who the tile is; it is not a
+    // reason to draw a blank circle.
     readonly property string _label: root.local
                                      ? qsTr("You")
                                      : (root.displayName.length > 0
                                         ? root.displayName : root.userId)
+    /// What the avatar draws initials from when there is no image: the real
+    /// name, never the word "You" (which would render "Y" for everyone).
+    readonly property string _avatarName: root.displayName.length > 0
+                                          ? root.displayName
+                                          : root.userId
 
     Accessible.role: Accessible.Button
     Accessible.name: root._label.length > 0 ? root._label : qsTr("Participant")
@@ -119,8 +128,16 @@ Item {
         Loader {
             id: videoLoader
             anchors.fill: parent
-            active: root.cameraKnown && root.cameraOn
-                    && root.identity.length > 0 && !root.local
+            // A screen share is video as much as a camera is. Gating on
+            // `cameraOn` alone meant a shared screen never rendered at all —
+            // reported as "I did not see their screenshare".
+            //
+            // `local` is excluded because the engine publishes our own media
+            // rather than receiving it: there is no remote stream for this
+            // device, so a self-view would be a permanently black rectangle.
+            active: root.identity.length > 0 && !root.local
+                    && ((root.cameraKnown && root.cameraOn)
+                        || root.screenSharing)
             visible: active && item && item.hasFrame
             sourceComponent: Item {
                 /// Nothing has arrived yet: the tile keeps showing the
@@ -182,7 +199,9 @@ Item {
             Avatar {
                 anchors.fill: parent
                 mxc: root.avatarMxc
-                name: root._label
+                // The real name, not the "You" label: initials of "You"
+                // would be a Y on the local tile and nothing recognisable.
+                name: root._avatarName
                 colorKey: root.userId
                 size: root._avatarSize
             }

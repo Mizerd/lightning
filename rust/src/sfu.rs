@@ -447,8 +447,53 @@ async fn run_session(
         "category": "",
     }));
 
+    // LiveKit's APPLICATION-LEVEL keepalive.
+    //
+    // This is not the WebSocket ping/pong frame handled below — the server
+    // requires a `ping`/`ping_req` SIGNAL and disconnects a client that stops
+    // sending them, which is exactly what happened here: the session reached
+    // `signalling` and then the SFU sent Leave, every time, in every room.
+    //
+    // The interval comes from JoinResponse (`ping_interval` seconds); until
+    // the join lands, the ticker is parked far in the future so nothing is
+    // sent before the server has told us what it wants. livekit-client sends
+    // BOTH the deprecated `ping` and the newer `ping_req` on every tick, and
+    // this does the same: the pair costs nothing and covers servers on either
+    // side of that change.
+    let mut ping_ticker =
+        tokio::time::interval(std::time::Duration::from_secs(3600));
+    ping_ticker.set_missed_tick_behavior(
+        tokio::time::MissedTickBehavior::Delay);
+    // The first tick of a tokio interval fires immediately; consume it so the
+    // parked interval does not ping before the join.
+    ping_ticker.tick().await;
+    let mut ping_armed = false;
+
     loop {
         tokio::select! {
+            _ = ping_ticker.tick(), if ping_armed => {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                // send_request returns false on a write failure — the
+                // socket is gone, so stop rather than tick into a dead sink.
+                if !send_request(
+                    &mut sink,
+                    lkp::signal_request::Message::Ping(now_ms)).await
+                {
+                    break;
+                }
+                if !send_request(
+                    &mut sink,
+                    lkp::signal_request::Message::PingReq(lkp::Ping {
+                        timestamp: now_ms,
+                        rtt: 0,
+                    })).await
+                {
+                    break;
+                }
+            }
             command = commands.recv() => {
                 let Some(command) = command else { break };
                 let message = match command {
@@ -527,6 +572,17 @@ async fn run_session(
 
                 match message {
                     lkp::signal_response::Message::Join(join) => {
+                        // Arm the keepalive at the interval the SERVER asked
+                        // for, clamped: a hostile or misconfigured 0 would
+                        // spin, and an absurd value would be no keepalive at
+                        // all. livekit's own default is 15s/30s.
+                        let interval = join.ping_interval.clamp(1, 120) as u64;
+                        ping_ticker = tokio::time::interval(
+                            std::time::Duration::from_secs(interval));
+                        ping_ticker.set_missed_tick_behavior(
+                            tokio::time::MissedTickBehavior::Delay);
+                        ping_ticker.tick().await;   // consume the immediate one
+                        ping_armed = true;
                         let others: Vec<serde_json::Value> = join
                             .other_participants.iter()
                             .take(MAX_PARTICIPANTS)
@@ -652,10 +708,16 @@ async fn run_session(
                             "updates": updates,
                         }));
                     }
-                    lkp::signal_response::Message::Leave(_) => {
+                    lkp::signal_response::Message::Leave(leave) => {
+                        // The REASON, not just the fact. Discarding it cost a
+                        // whole debugging round: "the server told us to
+                        // leave" with no reason is unactionable, and the
+                        // reason is a closed enum, not content.
                         emit(json!({
                             "type": "sfu_state", "generation": generation,
                             "state": "ended", "category": "server_leave",
+                            "reason": leave.reason,
+                            "action": leave.action,
                         }));
                         break;
                     }

@@ -6460,6 +6460,15 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("sfu_state")) {
+        // A server-initiated leave carries LiveKit's DisconnectReason as a
+        // closed enum. Logged rather than dropped: "the server told us to
+        // leave" with no reason cost a whole debugging round.
+        if (event.contains(QStringLiteral("reason"))) {
+            qCInfo(lcRust) << "sfu leave reason="
+                           << event.value(QStringLiteral("reason")).toInt()
+                           << "action="
+                           << event.value(QStringLiteral("action")).toInt();
+        }
         Q_EMIT sfuStateChanged(
             event.value(QStringLiteral("state")).toString(),
             event.value(QStringLiteral("category")).toString());

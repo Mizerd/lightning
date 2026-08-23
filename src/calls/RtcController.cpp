@@ -423,6 +423,30 @@ QString RtcController::rtcIdentityFor(const QString &roomId,
     return {};
 }
 
+QVariantMap RtcController::participantForIdentity(
+    const QString &roomId, const QString &identity) const
+{
+    QVariantMap out;
+    if (identity.isEmpty())
+        return out;
+    const auto it = m_sessions.constFind(roomId);
+    if (it == m_sessions.cend() || it->slotClosed)
+        return out;
+    for (const RtcParticipant &participant : it->participants) {
+        if (participant.rtcIdentity != identity)
+            continue;
+        out.insert(QStringLiteral("userId"), participant.userId);
+        // Room-resolved profile. Empty means "not known here", which the UI
+        // degrades to initials rather than inventing a name.
+        out.insert(QStringLiteral("displayName"), participant.displayName);
+        out.insert(QStringLiteral("avatarMxc"), participant.avatarMxc);
+        out.insert(QStringLiteral("ownUser"), participant.ownUser);
+        out.insert(QStringLiteral("ownDevice"), participant.ownDevice);
+        return out;
+    }
+    return out;
+}
+
 QString RtcController::mediaKeyTargetsJson(const QString &roomId) const
 {
     const auto it = m_sessions.constFind(roomId);

@@ -262,4 +262,8 @@ private:
     /// Track ids we published, so leave can unpublish them.
     QStringList m_publishedTrackIds;
     int m_keyIndex = 0;
+    /// Local ICE candidates produced this session. Diagnostic only — zero on
+    /// the publisher means the peer connection never started, which is what
+    /// LiveKit's 60 s JOIN_FAILURE timeout is reporting.
+    int m_candidatesSent = 0;
 };
