@@ -1403,6 +1403,54 @@ their index explicitly.
 
 Lessons only; features are described in §7, SHAs point into `git log`.
 
+**2026-08-23 disk + test audit.**
+
+*`QAbstractSocket::waitForReadyRead()` cannot work against a server on
+the SAME thread* — blocking the caller is precisely what stops the
+listener accepting the connection. `SsoCallbackTest::deliver()` ended in
+`waitForReadyRead(3000)`, so every one of its eleven deliveries burned
+the full bound and the request was only handled once the CALLER started
+spinning the loop: **34.5 s of a 34.5 s suite**. Removing the wait
+outright takes it to **1.4 s**. Pumping the loop in the helper instead is
+WORSE: the server then answers before the caller arms its `QSignalSpy`,
+and `QSignalSpy::wait()` waits for a NEW signal, so seven cases fail.
+The bytes are already in the kernel buffer after
+`waitForBytesWritten()`, and `close()` is a graceful FIN, so the server
+still reads the whole request — the caller's own wait is what drives it.
+
+*Contract-suite duplication is the redundancy this repo actually
+accumulates.* `QmlBindingContractTest::gifPickerWiredIntoBothComposers`
+had grown to 190 lines, 170 of them GifPicker INTERNALS under a name
+that promises only the composer wiring; **26 of its 41 needles were
+asserted a second time** in `GifPickerRedesignContractTest`, which its
+own comments already pointed at. Detection is mechanical: extract every
+`contains(QStringLiteral("…"))` needle per suite and rank the suite
+PAIRS by intersection. Nothing else in the tree came close (next
+highest overlaps are shared FIXTURE strings, not assertions). Two other
+findings from the same sweep, both left alone deliberately: 23 suites
+each declare their own `MatrixClient` subclass with ~13 identical
+`override {}` stubs (~300 lines; a shared test double would be a
+23-file cross-cutting change), and `media-bridge` failed ONCE under
+`-j18` while passing alone every time — load-sensitive like
+`timeline-pane-qml`, not a regression, and not yet pinned.
+
+*Where the disk goes.* A debug `libmatrix_client_rust.a` is **2.1 GB**,
+and every one of the ~146 test binaries links it: `matrix-client` alone
+is 906 MB in `build-rust` against 124 MB in `build`, and the test
+binaries total **35 GB** there versus 5.1 GB in the non-Rust tree.
+Add `rust/target/debug/incremental` (25 GB) and
+`build-rust/rust/debug/incremental` (13 GB) and the repo was 157 GB.
+The incremental caches are pure caches — deleting them costs only the
+next build's incremental state, not the compiled `deps/`. Separately,
+`nix store gc` freed **63 GB**; pin the dev shell FIRST
+(`nix develop --profile <path> -c true`, which registers a root under
+`/nix/var/nix/gcroots/auto/`) or the GC takes the whole Qt/Rust
+toolchain with it. A durable fix for the binary size —
+`split-debuginfo = "unpacked"` in `[profile.dev]`, so debug info stops
+being copied into every binary — is NOT applied: it is a build-config
+decision for Rokas, and `[profile.release]` (which packaging uses) is
+unaffected either way.
+
 **2026-08-23 tester round (banners, quit, window state, login labels).**
 
 *An imperative write to a bound property destroys the binding — five

@@ -436,6 +436,67 @@ private Q_SLOTS:
         QVERIFY(body.contains(QStringLiteral("if (picker.providerTab)")));
         QVERIFY(body.contains(QStringLiteral("grid.forceActiveFocus()")));
     }
+
+    // Moved here from QmlBindingContractTest::gifPickerWiredIntoBothComposers,
+    // which had grown 170 lines of GifPicker INTERNALS under a name that
+    // promises only the composer wiring. Twenty-six of its forty-one needles
+    // were already asserted in this file — its own comments pointed here and
+    // at GifPickerSelectionQmlTest for the real-engine version — so the
+    // duplicates are gone and these, the ones with no other home, live here
+    // with the rest of the picker's contract.
+    //
+    // Every provider-facing action goes through the CONTROLLER. The picker
+    // holds no endpoint, no key and no pagination cursor of its own (§10),
+    // so a text scan of who it calls is exactly the right shape of proof.
+    void providerTabsSearchAndPaginationRunThroughTheController()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        QVERIFY(!picker.isEmpty());
+        // Provider tabs and attribution follow the ACTIVE provider — nothing
+        // is hard-coded per vendor.
+        QVERIFY(picker.contains(QStringLiteral("picker.gif.providerIds")));
+        QVERIFY(picker.contains(QStringLiteral("picker.gif.attribution")));
+        // Debounced search, categories and pagination, all via the controller.
+        QVERIFY(picker.contains(QStringLiteral("gif.setQueryText(text)")));
+        QVERIFY(picker.contains(QStringLiteral("gif.openCategory(modelData)")));
+        QVERIFY(picker.contains(QStringLiteral("picker.gif.loadMore()")));
+        // The grid renders the ACTIVE tab's model, never one tab's model with
+        // another tab's chrome.
+        QVERIFY(picker.contains(QStringLiteral("model: picker.activeModel")));
+        QVERIFY(picker.contains(QStringLiteral("gif.saved")));
+        QVERIFY(picker.contains(QStringLiteral("gif.recent")));
+        // v0.6.6 live bug: calling a plain C++ method (not Q_INVOKABLE, not a
+        // property) from a QML binding THROWS, Qt swallows it in
+        // QQmlBinding::update, and the tab silently keeps rendering whatever
+        // the binding held before — GIPHY trending, with every other element
+        // correctly switched. Every model reached from a binding is a real
+        // Q_PROPERTY read as a property. `gif.saved()` and
+        // `gif.starredStore.model()` are pinned in savedTabBindsTheMerged-
+        // ModelProperty above; these two complete the set.
+        QVERIFY(!picker.contains(QStringLiteral("gif.recent()")));
+        QVERIFY(!picker.contains(QStringLiteral("favoritesAndStarred")));
+        // v0.7 live bug: sending must resolve the clicked row against the
+        // model the user is looking at. Reading gif.results in choose() sent
+        // the first Trending item when a favorite was clicked. The mouse path
+        // hands over the delegate's own captured snapshot, so it cannot drift,
+        // and the snapshot carries provider-qualified identity — an
+        // unidentifiable row is dropped by choose()'s guard, never
+        // substituted.
+        {
+            const int snapStart =
+                picker.indexOf(QStringLiteral("function snapshot()"));
+            const int snapEnd =
+                picker.indexOf(QStringLiteral("Rectangle {"), snapStart);
+            QVERIFY(snapStart >= 0 && snapEnd > snapStart);
+            const QString snapshotBlock =
+                picker.mid(snapStart, snapEnd - snapStart);
+            QVERIFY(snapshotBlock.contains(
+                QStringLiteral("provider: tile.provider")));
+            QVERIFY(snapshotBlock.contains(QStringLiteral("gifId: tile.gifId")));
+        }
+        QVERIFY(!picker.contains(
+            QStringLiteral("picker.gifChosen(gif.results.get(row))")));
+    }
 };
 QTEST_MAIN(GifPickerRedesignContractTest)
 #include "GifPickerRedesignContractTest.moc"

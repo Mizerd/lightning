@@ -70,7 +70,8 @@ QVariantMap provider(const QString &id, const QString &name,
     return m;
 }
 
-// Send one raw HTTP request to the listener and wait for it to be handled.
+// Send one raw HTTP request to the listener. Returns once the bytes are on
+// their way; the CALLER waits for the outcome it cares about (see below).
 bool deliver(quint16 port, const QString &target)
 {
     QTcpSocket socket;
@@ -82,7 +83,23 @@ bool deliver(quint16 port, const QString &target)
     socket.write(request);
     if (!socket.waitForBytesWritten(3000))
         return false;
-    socket.waitForReadyRead(3000);
+    // Deliberately NOT waiting for the reply here.
+    //
+    // This used to end in socket.waitForReadyRead(3000), which could never
+    // make progress: the listener lives on this same thread, so blocking the
+    // caller is exactly what stops the server accepting the connection. Every
+    // delivery therefore burned the whole 3 s bound and the request was only
+    // handled once the CALLER started spinning the event loop — about 33 s of
+    // this suite's 34 s spent waiting for something that could not happen
+    // until the wait gave up.
+    //
+    // Pumping the loop here instead is worse than useless: it lets the server
+    // answer BEFORE the caller arms its QSignalSpy, and QSignalSpy::wait()
+    // waits for a NEW signal, so seven cases started failing. The bytes are
+    // already in the kernel buffer (waitForBytesWritten above) and the close
+    // is a graceful FIN, so the server still reads the full request when it
+    // accepts — the caller's own wait is what drives that, which is where the
+    // waiting belongs.
     socket.close();
     return true;
 }
