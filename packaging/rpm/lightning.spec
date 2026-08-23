@@ -12,6 +12,23 @@ URL:            https://gitlab.smetonis.net/Mizerd/lightning
 
 Requires:       desktop-file-utils
 
+# Voice/video calling. GStreamer PLUGINS are dlopen'd from a plugin path at
+# runtime, so RPM's automatic dependency generator cannot see them — it reads
+# ELF NEEDED entries, and the binary links only gstreamer core/webrtc/sdp.
+# Without these the package installs cleanly and then refuses every call,
+# because the engine's runtime element probe fails.
+#
+#   plugins-base     : opus, audioconvert/resample, videoconvert/scale/rate
+#   plugins-good     : rtpopus/rtpvp8 pay+depay, autoaudiosrc/sink, vp8
+#   plugins-bad-free : webrtcbin, dtlssrtpenc/dec, srtp (the WebRTC core)
+#   libnice          : the ICE transport webrtcbin requires
+#   pipewire         : pipewiresrc, the Wayland/portal screen-capture source
+Requires:       gstreamer1-plugins-base
+Requires:       gstreamer1-plugins-good
+Requires:       gstreamer1-plugins-bad-free
+Requires:       libnice-gstreamer1
+Requires:       pipewire-gstreamer
+
 %description
 A native C++ and Qt Matrix desktop client with the Matrix Rust SDK backend.
 

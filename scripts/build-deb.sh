@@ -66,10 +66,25 @@ SHLIBS="$(sed -n 's/^shlibs:Depends=//p' "$SHLIBS_OUT")"
 # production QML import scan; the clean install/startup test enforces it.
 QML_DEPENDS="qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-dialogs, qml6-module-qtquick-effects, qml6-module-qtquick-layouts, qml6-module-qtquick-window, qml6-module-qtmultimedia"
 
+# Voice/video calling. GStreamer PLUGINS are dlopen'd from a plugin path at
+# runtime, so — exactly like the QML modules above — dpkg-shlibdeps cannot
+# see them: it only reads ELF NEEDED entries, and the binary links only
+# gstreamer core/webrtc/sdp. Without these the package installs cleanly and
+# then refuses every call at runtime, because the engine's element probe
+# fails.
+#
+#   plugins-base : opusenc/opusdec, audioconvert, audioresample, videoconvert,
+#                  videoscale, videorate, playback
+#   plugins-good : rtpopuspay/depay, rtpvp8pay/depay, autoaudiosrc/sink, vp8
+#   plugins-bad  : webrtcbin, dtlssrtpenc/dec, srtp  (the WebRTC core)
+#   nice         : the libnice ICE transport webrtcbin requires
+#   pipewire     : pipewiresrc, the Wayland/portal screen-capture source
+CALL_DEPENDS="gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-nice, gstreamer1.0-pipewire"
+
 {
     cat "$ROOT/packaging/deb/control"
     printf 'Version: %s\n' "$DEB_VERSION"
-    printf 'Depends: %s, %s\n' "$SHLIBS" "$QML_DEPENDS"
+    printf 'Depends: %s, %s, %s\n' "$SHLIBS" "$QML_DEPENDS" "$CALL_DEPENDS"
 } >"$CONTROL/control"
 install -m0755 "$ROOT/packaging/deb/postinst" "$CONTROL/postinst"
 install -m0755 "$ROOT/packaging/deb/postrm" "$CONTROL/postrm"

@@ -25,6 +25,19 @@ finish-args:
   # libsecret token storage (Secret Service) and desktop notifications.
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.freedesktop.Notifications
+  # Voice/video calling.
+  #
+  # The PipeWire socket is what a portal-negotiated stream is actually READ
+  # from: xdg-desktop-portal is reachable from a sandbox by default and the
+  # user picks the window or monitor in ITS dialog, but the resulting
+  # PipeWire node cannot be opened without this. Deliberately the narrow
+  # xdg-run path and NOT --filesystem=host: the portal, not the manifest,
+  # decides what may be captured, and the app never sees anything the user
+  # did not choose.
+  - --filesystem=xdg-run/pipewire-0
+  # Camera capture goes through the same portal + PipeWire route, so it
+  # needs no --device=all: granting every device would hand the sandbox raw
+  # /dev/video* (and much else) to avoid one dialog.
 
 build-options:
   # The 24.08 rust-stable SDK extension ships rustc 1.89, too old for

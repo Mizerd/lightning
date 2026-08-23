@@ -61,6 +61,10 @@ export VERSION="$LOGICAL_VERSION"
 export LDAI_OUTPUT="$OUT"
 export APPIMAGE_EXTRACT_AND_RUN=1
 
+# Extra --library arguments accumulated below. Declared here so the
+# expansion is well-defined under `set -u` when no plugins are staged.
+LINUXDEPLOY_PLUGIN_ARGS=()
+
 # linuxdeploy-plugin-qt finds Qt through qmake6.
 command -v qmake6 >/dev/null || die "qmake6 missing in build image"
 export QMAKE=$(command -v qmake6)
@@ -76,12 +80,63 @@ export QMAKE=$(command -v qmake6)
 # Qt6, which is precisely the host an AppImage exists for. The helper is the
 # process that installs the update, so a helper that cannot start turns the
 # whole feature into a silent failure at the last step.
+# Voice/video calling: GStreamer PLUGINS are dlopen'd from a plugin path, so
+# linuxdeploy cannot discover them the way it discovers linked libraries —
+# it walks ELF NEEDED entries, and the binary links only gstreamer
+# core/webrtc/sdp. Staging them into the AppDir BEFORE linuxdeploy runs
+# means it also resolves and bundles each plugin's own dependencies.
+#
+# An AppImage that ships the binary without these installs and launches
+# perfectly and then refuses every call, because the engine's runtime
+# element probe fails — the worst kind of packaging bug, because nothing
+# about it looks like packaging.
+GST_PLUGIN_SRC="/usr/lib/x86_64-linux-gnu/gstreamer-1.0"
+GST_PLUGIN_DEST="$APPDIR/usr/lib/gstreamer-1.0"
+if [[ -d "$GST_PLUGIN_SRC" ]]; then
+    mkdir -p "$GST_PLUGIN_DEST"
+    # Only what the call engine actually probes for. Bundling the whole
+    # plugin directory would add tens of megabytes of codecs nothing loads.
+    for plugin in libgstwebrtc libgstnice libgstdtls libgstsrtp \
+                  libgstopus libgstrtp libgstrtpmanager libgstvpx \
+                  libgstaudioconvert libgstaudioresample libgstaudioparsers \
+                  libgstvideoconvertscale libgstvideorate \
+                  libgstautodetect libgstpulseaudio libgstpipewire \
+                  libgstcoreelements libgstplayback libgsttypefindfunctions; do
+        cp -n "$GST_PLUGIN_SRC/$plugin.so" "$GST_PLUGIN_DEST/" 2>/dev/null || true
+    done
+    # Declared to linuxdeploy so their own NEEDED libraries are bundled and
+    # their RPATHs rewritten; without this they load on the build image and
+    # nowhere else.
+    for staged_plugin in "$GST_PLUGIN_DEST"/*.so; do
+        [[ -e "$staged_plugin" ]] || continue
+        LINUXDEPLOY_PLUGIN_ARGS+=(--library "$staged_plugin")
+    done
+
+    # linuxdeploy's generated AppRun sources every apprun-hooks/*.sh. Without
+    # this hook the plugins are bundled and never found: GStreamer scans its
+    # COMPILED-IN system path, which points at the build image.
+    mkdir -p "$APPDIR/apprun-hooks"
+    cat >"$APPDIR/apprun-hooks/gstreamer.sh" <<'HOOK'
+# Point GStreamer at the plugins bundled beside the binary.
+export GST_PLUGIN_SYSTEM_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
+export GST_PLUGIN_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
+# The plugin registry is a CACHE and GStreamer rewrites it whenever the
+# plugin set changes. An AppImage mount is read-only and its path changes
+# every run, so leaving the registry at its default makes every launch
+# re-scan and print warnings it cannot act on. Keep it in the user's cache,
+# namespaced so it cannot collide with a system GStreamer's registry.
+export GST_REGISTRY_1_0="${XDG_CACHE_HOME:-$HOME/.cache}/lightning/gst-registry.bin"
+mkdir -p "$(dirname "$GST_REGISTRY_1_0")" 2>/dev/null || true
+HOOK
+fi
+
 "$TOOLS/linuxdeploy" --appdir "$APPDIR" \
     --desktop-file "$APPDIR/usr/share/applications/lightning.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/192x192/apps/lightning.png" \
     --executable "$APPDIR/usr/bin/matrix-client" \
     --executable "$APPDIR/usr/bin/lightning-updater" \
     --library /lib/x86_64-linux-gnu/libgpg-error.so.0 \
+    "${LINUXDEPLOY_PLUGIN_ARGS[@]}" \
     --plugin qt \
     --output appimage
 

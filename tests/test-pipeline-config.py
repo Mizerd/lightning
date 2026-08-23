@@ -653,6 +653,78 @@ for job_name, job_def in doc.items():
     check("release" not in job_def,
           f"{job_name} (macOS runner) has no release action")
 
+# ---------------------------------------------------------------------------
+# Voice/video calling runtime dependencies (2026-08-23).
+#
+# GStreamer PLUGINS are dlopen'd from a plugin path, so NOTHING that inspects
+# ELF NEEDED entries can find them: dpkg-shlibdeps, rpm's automatic generator
+# and linuxdeploy all miss them, because the binary links only gstreamer
+# core/webrtc/sdp. Every packaging format therefore has to name them
+# explicitly, and each one fails the same way if it stops: the package
+# installs and launches perfectly, then refuses every call, because the
+# engine's runtime element probe finds nothing. That is the worst kind of
+# packaging regression — nothing about the symptom points at packaging.
+_PLUGIN_SUBSTRINGS = ("plugins-base", "plugins-good", "plugins-bad")
+
+with open(os.path.join(HERE, "..", "scripts", "build-deb.sh"),
+          encoding="utf-8") as handle:
+    deb_src = handle.read()
+_deb_call = re.search(r'CALL_DEPENDS="([^"]*)"', deb_src)
+check(_deb_call is not None, "build-deb declares CALL_DEPENDS")
+if _deb_call:
+    _deb_deps = _deb_call.group(1)
+    for needle in _PLUGIN_SUBSTRINGS + ("nice", "pipewire"):
+        check(needle in _deb_deps, f"deb depends on gstreamer {needle}")
+check("$CALL_DEPENDS" in deb_src or "CALL_DEPENDS\"" in deb_src,
+      "build-deb actually writes CALL_DEPENDS into the control file")
+
+with open(os.path.join(HERE, "..", "packaging", "rpm", "lightning.spec"),
+          encoding="utf-8") as handle:
+    spec_src = handle.read()
+_rpm_requires = "\n".join(
+    line for line in spec_src.splitlines() if line.startswith("Requires:"))
+for needle in _PLUGIN_SUBSTRINGS + ("libnice", "pipewire"):
+    check(needle in _rpm_requires, f"rpm requires gstreamer {needle}")
+
+with open(os.path.join(HERE, "..", "scripts", "build-appimage.sh"),
+          encoding="utf-8") as handle:
+    appimage_src = handle.read()
+# The AppImage bundles rather than depends, so it needs BOTH halves: the
+# plugins staged into the AppDir, and an AppRun hook pointing GStreamer at
+# them. Staging without the hook bundles files nothing ever loads.
+check("gstreamer-1.0" in appimage_src,
+      "the AppImage stages GStreamer plugins into the AppDir")
+check("apprun-hooks" in appimage_src,
+      "the AppImage installs an AppRun hook for the bundled plugins")
+check("GST_PLUGIN_SYSTEM_PATH_1_0" in appimage_src,
+      "the AppRun hook points GStreamer at the bundled plugin path")
+
+with open(os.path.join(HERE, "..", "packaging", "flatpak",
+                       "org.lightning_matrix.Lightning.yaml.in"),
+          encoding="utf-8") as handle:
+    flatpak_src = handle.read()
+# Screen capture is negotiated through xdg-desktop-portal (reachable from a
+# sandbox by default), but the resulting stream is READ over the PipeWire
+# socket, which is not.
+check("xdg-run/pipewire-0" in flatpak_src,
+      "the Flatpak can reach the PipeWire socket for portal streams")
+# The portal decides what may be captured. Granting the host filesystem to
+# avoid that dialog would defeat the sandbox for no benefit.
+#
+# Matched against ACTUAL finish-args entries, not the raw file: a substring
+# search also hits the comment that explains why we do not use it, which is
+# the "ban regex matching a token named in a comment" trap this repo has
+# already been bitten by.
+_flatpak_args = [
+    line.strip()[2:].strip()          # drop the YAML "- " list marker only
+    for line in flatpak_src.splitlines()
+    if line.strip().startswith("- --")
+]
+check(not any(arg.startswith("--filesystem=host") for arg in _flatpak_args),
+      "the Flatpak does not fall back to --filesystem=host")
+check("--filesystem=xdg-run/pipewire-0" in _flatpak_args,
+      "the PipeWire socket is an actual finish-arg, not just a comment")
+
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)
     sys.exit(1)
