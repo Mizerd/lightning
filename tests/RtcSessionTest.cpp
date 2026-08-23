@@ -142,6 +142,7 @@ private Q_SLOTS:
     void anUnansweredReadReleasesItsRoom();
     void aReplacedClientsLateReplyCannotBeDelivered();
     void oneRoomsFocusDoesNotDecideAnothers();
+    void anEncryptedRoomRefusesWithoutMediaEncryption();
 };
 
 void RtcSessionTest::reportsParticipantsFromAReplyWeAskedFor()
@@ -363,6 +364,9 @@ void RtcSessionTest::joinBlockKeepsItsCausesApart()
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
+    // This case is about TRANSPORT causes; say the room is unencrypted so
+    // the (correct) encryption gate does not mask them.
+    controller.setRoomEncrypted(kRoom, false);
 
     // Nothing looked yet: "checking", not "unavailable".
     QCOMPARE(controller.joinBlockReason(kRoom),
@@ -504,6 +508,10 @@ void RtcSessionTest::oneRoomsFocusDoesNotDecideAnothers()
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
+    // About focus SCOPING; both rooms unencrypted so the encryption gate
+    // does not mask the transport answer.
+    controller.setRoomEncrypted(kRoom, false);
+    controller.setRoomEncrypted(kOther, false);
 
     controller.discover(kRoom);
     Q_EMIT client.rtcTransportsReceived(
@@ -516,6 +524,52 @@ void RtcSessionTest::oneRoomsFocusDoesNotDecideAnothers()
     // ...room B does not, and must say so.
     QCOMPARE(controller.joinBlockReason(kOther),
              QStringLiteral("no_transport"));
+}
+
+void RtcSessionTest::anEncryptedRoomRefusesWithoutMediaEncryption()
+{
+    // §6: a call in an end-to-end encrypted room must FAIL SAFELY rather
+    // than publish media the SFU can read. The user was told that room is
+    // encrypted; quietly carrying their audio in the clear because the
+    // frame cryptor is not wired yet would make that a lie.
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.discover(kRoom);
+    Q_EMIT client.rtcTransportsReceived(
+        client.lastTransportsOp, true, QString(),
+        QStringList{QStringLiteral("https://sfu.example.org/")}, QString());
+
+    // Explicitly unencrypted room: the blocker is the missing transport.
+    controller.setRoomEncrypted(kRoom, false);
+    QCOMPARE(controller.joinBlockReason(kRoom),
+             QStringLiteral("no_media_transport"));
+
+    // Encrypted room, media E2EE not active: a DIFFERENT and more important
+    // refusal, and it must be the one reported.
+    controller.setRoomEncrypted(kRoom, true);
+    QCOMPARE(controller.joinBlockReason(kRoom),
+             QStringLiteral("media_encryption_unavailable"));
+
+    // With media E2EE active the encryption objection lifts, leaving only
+    // the ordinary transport blocker.
+    controller.setMediaEncryptionAvailable(true);
+    QCOMPARE(controller.joinBlockReason(kRoom),
+             QStringLiteral("no_media_transport"));
+
+    // A room we were never told about defaults to ENCRYPTED. A boolean
+    // cannot say "unknown", and the safe answer to "might this be
+    // encrypted?" is yes — assuming unencrypted would be exactly the
+    // silent downgrade the gate exists to prevent.
+    RtcController fresh;
+    FakeClient freshClient;
+    fresh.setClient(&freshClient);
+    fresh.discover(kOther);
+    Q_EMIT freshClient.rtcTransportsReceived(
+        freshClient.lastTransportsOp, true, QString(),
+        QStringList{QStringLiteral("https://sfu.example.org/")}, QString());
+    QCOMPARE(fresh.joinBlockReason(kOther),
+             QStringLiteral("media_encryption_unavailable"));
 }
 
 QTEST_MAIN(RtcSessionTest)

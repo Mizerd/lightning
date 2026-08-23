@@ -60,6 +60,8 @@ void RtcController::clearForNewSession()
     m_participantFocus.clear();
     m_availabilityCategory.clear();
     m_discoveryOp = 0;
+    // Room encryption belongs to the account that is going away.
+    m_encryptedRooms.clear();
     Q_EMIT availabilityChanged();
 }
 
@@ -107,6 +109,25 @@ bool RtcController::transportReachableFor(const QString &roomId) const
     // focus applies ONLY to the room whose participants advertised it.
     return !m_serviceUrls.isEmpty()
         || !m_participantFocus.value(roomId).isEmpty();
+}
+
+void RtcController::setMediaEncryptionAvailable(bool available)
+{
+    if (m_mediaEncryption == available)
+        return;
+    m_mediaEncryption = available;
+    Q_EMIT availabilityChanged();
+}
+
+void RtcController::setRoomEncrypted(const QString &roomId, bool encrypted)
+{
+    if (roomId.isEmpty())
+        return;
+    const auto it = m_encryptedRooms.constFind(roomId);
+    if (it != m_encryptedRooms.cend() && it.value() == encrypted)
+        return;
+    m_encryptedRooms.insert(roomId, encrypted);
+    Q_EMIT sessionChanged(roomId);
 }
 
 void RtcController::setPokeCoalesceMsForTest(int ms)
@@ -370,6 +391,16 @@ QVariantList RtcController::participantFaces(const QString &roomId,
     return out;
 }
 
+QString RtcController::focusUrlFor(const QString &roomId) const
+{
+    // The homeserver's own answer applies everywhere and is preferred; a
+    // participant-advertised focus is the fallback that makes a server
+    // without the MSC4143 endpoint usable at all.
+    if (!m_serviceUrls.isEmpty())
+        return m_serviceUrls.first();
+    return m_participantFocus.value(roomId);
+}
+
 RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const
 {
     if (!supported())
@@ -386,6 +417,20 @@ RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const
         return m_serverAnswered ? JoinBlock::NoTransport
                                 : JoinBlock::DiscoveryFailed;
     }
+    // An ENCRYPTED room whose call media cannot be encrypted is refused
+    // outright. Joining would publish audio and video the SFU could read,
+    // in a room the user was told is end-to-end encrypted — §6's "fail
+    // safely and tell the user" rather than silently weaken it.
+    //
+    // Checked BEFORE the media-transport blocker so the reason the user
+    // sees is the one that would actually matter to them.
+    // Default TRUE: a room we have not been told about is treated as
+    // encrypted. A boolean cannot say "unknown", and the safe answer to
+    // "might this be encrypted?" is yes — assuming unencrypted would be
+    // the silent downgrade §6 forbids. The owner supplies the real answer
+    // (AppController, from the room's own encrypted/encryptionKnown pair).
+    if (m_encryptedRooms.value(roomId, true) && !m_mediaEncryption)
+        return JoinBlock::MediaEncryptionUnavailable;
     // Everything on the Matrix side checks out. What is missing is the SFU
     // media transport, which this build does not have — so joining would
     // publish a membership no peer could connect to.
@@ -402,6 +447,8 @@ QString RtcController::joinBlockReason(const QString &roomId) const
     case JoinBlock::DiscoveryFailed:  return QStringLiteral("discovery_failed");
     case JoinBlock::SessionClosed:    return QStringLiteral("session_closed");
     case JoinBlock::NoMediaTransport: return QStringLiteral("no_media_transport");
+    case JoinBlock::MediaEncryptionUnavailable:
+        return QStringLiteral("media_encryption_unavailable");
     }
     return QStringLiteral("unsupported");
 }

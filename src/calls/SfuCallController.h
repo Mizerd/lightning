@@ -1,0 +1,217 @@
+// The MatrixRTC group-call lifecycle (phase 2).
+//
+// One object binds the three halves that must agree for a call to work:
+//
+//   Matrix   — publish our membership so other clients see us, refresh it,
+//              and retract it on leave.
+//   SFU      — authorize, connect, and negotiate two peer connections.
+//   Media    — SfuMediaEngine, which owns the actual RTP.
+//
+// The ORDER matters and is the main thing this class exists to get right:
+//
+//   1. Discover a focus (phase 1's RtcController).
+//   2. Publish membership FIRST, carrying that focus. Other clients pick
+//      their SFU from the oldest membership, so ours has to be on the wire
+//      before we start expecting anyone to meet us there.
+//   3. Connect to the SFU and negotiate.
+//   4. Only then publish tracks.
+//
+// Leaving runs in reverse, and every step is idempotent, because the leave
+// path is also the failure path: anything that goes wrong mid-join has to be
+// able to unwind from wherever it got to.
+//
+// SAFETY, and the reason this class refuses more than it accepts:
+//
+//   * An ENCRYPTED room whose call media cannot be encrypted is refused.
+//     Joining would carry audio the SFU can read, in a room the user was
+//     told is end-to-end encrypted. §6 requires failing safely and saying
+//     so, never silently downgrading.
+//   * One call at a time, globally. A second join tears the first down
+//     explicitly rather than leaving two engines holding the microphone.
+//   * Every asynchronous reply is checked against a join generation, so a
+//     late answer from a call the user already left cannot resurrect it.
+#pragma once
+
+#include <QHash>
+#include <QObject>
+#include <QPointer>
+#include <QString>
+#include <QStringList>
+#include <QTimer>
+#include <QVariantList>
+#include <QtQml/qqmlregistration.h>
+
+class MatrixClient;
+class RtcController;
+class SfuMediaEngine;
+
+class SfuCallController : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_UNCREATABLE("SfuCallController is exposed via app.groupCall")
+
+    Q_PROPERTY(int state READ stateInt NOTIFY stateChanged)
+    Q_PROPERTY(QString roomId READ roomId NOTIFY stateChanged)
+    Q_PROPERTY(bool active READ active NOTIFY stateChanged)
+    Q_PROPERTY(QString lastError READ lastError NOTIFY stateChanged)
+    Q_PROPERTY(bool microphoneMuted READ microphoneMuted
+                   NOTIFY mediaStateChanged)
+    Q_PROPERTY(bool deafened READ deafened NOTIFY mediaStateChanged)
+    Q_PROPERTY(bool cameraOn READ cameraOn NOTIFY mediaStateChanged)
+    Q_PROPERTY(bool screenSharing READ screenSharing NOTIFY mediaStateChanged)
+    Q_PROPERTY(bool handRaised READ handRaised NOTIFY mediaStateChanged)
+    Q_PROPERTY(bool mediaEncrypted READ mediaEncrypted NOTIFY mediaStateChanged)
+    Q_PROPERTY(int participantCount READ participantCount
+                   NOTIFY participantsChanged)
+
+public:
+    /// The call lifecycle, as the UI needs to distinguish it.
+    enum class State {
+        Idle,
+        /// Publishing membership; nothing is connected yet.
+        Preparing,
+        /// Membership is out; obtaining SFU authorization.
+        Authorizing,
+        /// Signalling is up; peer connections negotiating.
+        Connecting,
+        /// Media is flowing.
+        Connected,
+        /// Lost the SFU and retrying.
+        Reconnecting,
+        /// Left cleanly.
+        Ended,
+        /// Terminal failure; `lastError` says why.
+        Failed,
+    };
+    Q_ENUM(State)
+
+    explicit SfuCallController(QObject *parent = nullptr);
+    ~SfuCallController() override;
+
+    void setClient(MatrixClient *client);
+    void setRtcController(RtcController *rtc);
+    /// Not owned. Absent means calling refuses honestly rather than
+    /// pretending — the same discipline as the 1:1 lane's media seam.
+    void setMediaEngine(SfuMediaEngine *engine);
+
+    State state() const { return m_state; }
+    int stateInt() const { return static_cast<int>(m_state); }
+    QString roomId() const { return m_roomId; }
+    bool active() const;
+    QString lastError() const { return m_lastError; }
+    bool microphoneMuted() const { return m_micMuted; }
+    bool deafened() const { return m_deafened; }
+    bool cameraOn() const { return m_cameraOn; }
+    bool screenSharing() const { return m_screenSharing; }
+    bool handRaised() const { return m_handRaised; }
+    /// True only when every frame we publish is encrypted. Never optimistic.
+    bool mediaEncrypted() const { return m_mediaEncrypted; }
+    int participantCount() const { return m_participants.size(); }
+
+    /// Join the room's call. Refuses (and says why through `lastError`) when
+    /// the room is encrypted and media E2EE is unavailable, when no focus is
+    /// known, or when there is no media engine.
+    Q_INVOKABLE bool join(const QString &roomId, bool withVideo = false);
+    /// Leave. Safe to call in any state, including mid-join.
+    Q_INVOKABLE void leave();
+
+    Q_INVOKABLE void setMicrophoneMuted(bool muted);
+    Q_INVOKABLE void toggleMicrophoneMuted();
+    Q_INVOKABLE void setDeafened(bool deafened);
+    Q_INVOKABLE void toggleDeafened();
+    Q_INVOKABLE void setCameraOn(bool on);
+    Q_INVOKABLE void toggleCamera();
+    /// `pipewireNodeId` comes from an xdg-desktop-portal ScreenCast session;
+    /// -1 stops sharing. A negative id when starting is REFUSED rather than
+    /// defaulted — "whatever PipeWire feels like" is how you publish the
+    /// wrong monitor.
+    Q_INVOKABLE bool startScreenShare(int pipewireNodeId);
+    Q_INVOKABLE void stopScreenShare();
+    Q_INVOKABLE void setHandRaised(bool raised);
+    Q_INVOKABLE void toggleHandRaised();
+    /// Local-only playback volume for one participant, 0..100.
+    Q_INVOKABLE void setParticipantVolume(const QString &identity,
+                                          int percent);
+
+    /// Participants for the call stage: {identity, userId, deviceId,
+    /// speaking, muted, cameraOn, screenSharing, local}.
+    Q_INVOKABLE QVariantList participants() const;
+
+Q_SIGNALS:
+    void stateChanged();
+    void mediaStateChanged();
+    void participantsChanged();
+    /// A user-facing failure, already reduced to plain wording.
+    void callFailed(const QString &message);
+
+private Q_SLOTS:
+    void onMembershipPublished(quint64 opId, bool ok, const QString &category,
+                               const QString &eventId,
+                               const QString &delayId);
+    void onSfuState(const QString &state, const QString &category);
+    void onSfuJoined(const QString &identity,
+                     const QVariantList &participants,
+                     const QVariantList &iceServers);
+    void onSfuParticipants(const QVariantList &participants);
+    void onSfuSpeakers(const QVariantList &speakers);
+    void onSfuRemoteDescription(const QString &kind, const QString &target,
+                                const QString &sdp);
+    void onSfuRemoteCandidate(const QString &target,
+                              const QString &candidateInit);
+    void onEngineLocalDescription(int target, const QString &kind,
+                                  const QString &sdp);
+    void onEngineLocalCandidate(int target, const QString &candidateInit);
+    void onEngineFailed(const QString &category);
+    void onMediaKeyReceived(const QString &roomId, const QString &sender,
+                            const QString &claimedDeviceId, int keyIndex,
+                            const QString &keyBase64);
+    void refreshMembership();
+
+private:
+    void setState(State state, const QString &error = QString());
+    void teardown(State finalState, const QString &error = QString());
+    void publishTracks();
+    void applyAudioState();
+    /// Rotate and redistribute the media key. Called on join and whenever
+    /// the participant set changes, because a leaver must not keep being
+    /// able to decrypt.
+    void rotateAndDistributeKey();
+    QString userFacingError(const QString &category) const;
+
+    QPointer<MatrixClient> m_client;
+    QPointer<RtcController> m_rtc;
+    QPointer<SfuMediaEngine> m_engine;
+
+    State m_state = State::Idle;
+    QString m_roomId;
+    QString m_lastError;
+    QString m_focusUrl;
+    QString m_membershipEventId;
+    QString m_delayId;
+    QString m_ownIdentity;
+    bool m_withVideo = false;
+
+    bool m_micMuted = false;
+    bool m_deafened = false;
+    bool m_micMutedBeforeDeafen = false;
+    bool m_cameraOn = false;
+    bool m_screenSharing = false;
+    bool m_handRaised = false;
+    bool m_mediaEncrypted = false;
+
+    /// Bumped on every join/leave. Every async reply carries the generation
+    /// it was dispatched under; a mismatch is dropped.
+    quint64 m_generation = 0;
+    quint64 m_publishOp = 0;
+
+    QVariantList m_participants;
+    QHash<QString, bool> m_speaking;
+
+    /// Membership must be refreshed before it expires, and the delayed
+    /// retraction restarted, or the server cleans us out mid-call.
+    QTimer m_refreshTimer;
+    /// Track ids we published, so leave can unpublish them.
+    QStringList m_publishedTrackIds;
+    int m_keyIndex = 0;
+};

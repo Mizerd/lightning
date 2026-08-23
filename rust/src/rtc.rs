@@ -75,6 +75,7 @@ use matrix_sdk::ruma::events::macros::EventContent;
 use matrix_sdk::ruma::events::relation::Reference;
 use matrix_sdk::ruma::events::{Mentions, StateEventType};
 use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId};
+use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk::{Client, Room};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -1083,6 +1084,572 @@ pub(crate) fn send_notification(
 }
 
 // ---------------------------------------------------------------------------
+// Publishing our own membership
+// ---------------------------------------------------------------------------
+
+/// How long a published membership claims to be valid.
+///
+/// Deliberately SHORT relative to the 4 h parse fallback: this is the window
+/// in which a crashed client still shows as present, and the refresh below
+/// runs at a third of it so two missed refreshes are survivable.
+const MEMBERSHIP_EXPIRY_MS: u64 = 4 * 60 * 60 * 1000;
+/// Delayed-event (MSC4140) timeout — the server retracts our membership for
+/// us if we stop restarting it. This is the ONLY cleanup that survives a
+/// crash, a kill, or a lost network.
+const DELAYED_LEAVE_TIMEOUT_MS: u64 = 8_000;
+
+/// Build the state key Element writes.
+///
+/// `{user}_{device}_{application}{slotId}`, with a LEADING UNDERSCORE except
+/// on room versions that allow a user-scoped state key to be owned by its
+/// user (`org.matrix.msc3757`/`msc3779`). Getting this wrong means the
+/// server refuses the write, or worse, that our membership does not replace
+/// our own previous one and we appear twice.
+pub(crate) fn membership_state_key(
+    user_id: &str,
+    device_id: &str,
+    room_version: &str,
+) -> String {
+    // The room call's slot id is "" in a state key (the "ROOM" spelling is
+    // the newer vocabulary and is NOT what goes on the wire here).
+    let key = format!("{user_id}_{device_id}_{APPLICATION_CALL}");
+    if room_version.starts_with("org.matrix.msc3757")
+        || room_version.starts_with("org.matrix.msc3779")
+    {
+        key
+    } else {
+        format!("_{key}")
+    }
+}
+
+/// The membership content Lightning publishes.
+///
+/// Deliberately the LEGACY session format: it is what every deployed server
+/// and every current Element understands. The sticky format is parsed but
+/// not written, because matrix-sdk 0.18 cannot send a sticky event at all.
+fn own_membership_content(
+    device_id: &str,
+    user_id: &str,
+    focus: Option<&LivekitTransport>,
+    intent: &str,
+    created_ts: Option<u64>,
+) -> serde_json::Value {
+    let mut content = json!({
+        "application": APPLICATION_CALL,
+        // "" — the room-wide call. See slot_id_for_call_id.
+        "call_id": "",
+        "scope": "m.room",
+        "device_id": device_id,
+        // The SFU participant identity for this format. The SFU assigns
+        // exactly this, so it must match or our media cannot be attributed
+        // to our membership.
+        "membershipID": format!("{user_id}:{device_id}"),
+        "expires": MEMBERSHIP_EXPIRY_MS,
+        "m.call.intent": intent,
+        "focus_active": {
+            "type": "livekit",
+            "focus_selection": "oldest_membership",
+        },
+        "foci_preferred": focus
+            .map(|f| vec![f.to_json()])
+            .unwrap_or_default(),
+    });
+    // On an UPDATE (a refresh), created_ts must keep pointing at the original
+    // join or every refresh looks like a fresh join and reorders the
+    // oldest-membership focus selection under everyone's feet.
+    if let Some(created) = created_ts {
+        content["created_ts"] = json!(created);
+    }
+    content
+}
+
+/// Publish (or refresh) our own membership in a room's call.
+///
+/// Two writes, in this order, and the order matters:
+///  1. The membership state event itself.
+///  2. A DELAYED retraction (MSC4140) scheduled a few seconds out, which the
+///     client then restarts periodically. If Lightning dies, the server
+///     fires it and our membership disappears — without this, a crash leaves
+///     a phantom participant in the call until the 4 h expiry.
+///
+/// A server without MSC4140 simply refuses step 2; that is reported as
+/// `delayed_unsupported`, not as a failure, because the membership itself is
+/// published and the call works — it just relies on `expires` for cleanup.
+pub(crate) fn publish_membership(
+    bridge: &RustClient,
+    room_id: String,
+    focus_url: String,
+    intent: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let user_id = client
+        .user_id()
+        .ok_or_else(|| "no session".to_owned())?
+        .to_string();
+    let device_id = client
+        .device_id()
+        .ok_or_else(|| "no session".to_owned())?
+        .to_string();
+    let intent = match intent.as_str() {
+        "video" => "video",
+        _ => "audio",
+    };
+    let focus = if focus_url.trim().is_empty() {
+        None
+    } else {
+        sane_https_url(&focus_url).map(|service_url| LivekitTransport {
+            service_url,
+            alias: None,
+        })
+    };
+
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+
+    bridge.spawn_room_action(async move {
+        let room_version = room
+            .clone_info()
+            .room_version()
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        let state_key =
+            membership_state_key(&user_id, &device_id, &room_version);
+
+        // Preserve created_ts across a refresh: read our own membership back
+        // and reuse its join time.
+        let created_ts = read_own_created_ts(&room, &state_key).await;
+
+        let content = own_membership_content(
+            &device_id, &user_id, focus.as_ref(), intent, created_ts);
+
+        let result = tokio::time::timeout(
+            DISCOVERY_TIMEOUT,
+            room.send_state_event_raw(EV_MEMBER_LEGACY, &state_key,
+                                      content.clone()),
+        )
+        .await;
+
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+
+        let (ok, category, event_id) = match result {
+            Ok(Ok(response)) => (true, String::new(), response.event_id.to_string()),
+            Ok(Err(err)) => (
+                false,
+                classify_room_error(&err.to_string()).to_owned(),
+                String::new(),
+            ),
+            Err(_) => (false, "network".to_owned(), String::new()),
+        };
+
+        // The delayed retraction. Only attempted once the membership is
+        // actually published — scheduling a retraction for something that
+        // does not exist is pointless.
+        let mut delay_id = String::new();
+        let mut delayed_category = String::new();
+        if ok {
+            match schedule_delayed_leave(&client, room.room_id().as_str(),
+                                         &state_key).await
+            {
+                Ok(id) => delay_id = id,
+                Err(category) => delayed_category = category,
+            }
+        }
+
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, json!({
+            "type": "rtc_membership_published",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "ok": ok,
+            "category": category,
+            "event_id": event_id,
+            // Empty means no server-side cleanup is armed; the caller must
+            // then rely on `expires` and say so honestly in diagnostics.
+            "delay_id": delay_id,
+            "delayed_category": delayed_category,
+        }));
+    });
+    Ok(())
+}
+
+/// Read the `created_ts` of our own existing membership, if any.
+async fn read_own_created_ts(room: &Room, state_key: &str) -> Option<u64> {
+    let raw = room
+        .get_state_event(StateEventType::from(EV_MEMBER_LEGACY), state_key)
+        .await
+        .ok()
+        .flatten()?;
+    let value = raw_state_json(&raw)?;
+    let content = value.get("content")?;
+    // An empty content is a retracted membership: this is a fresh join.
+    if content.as_object().is_some_and(|o| o.is_empty()) {
+        return None;
+    }
+    content
+        .get("created_ts")
+        .and_then(|v| v.as_u64())
+        .or_else(|| value.get("origin_server_ts").and_then(|v| v.as_u64()))
+}
+
+/// Schedule the server-side retraction of our membership.
+async fn schedule_delayed_leave(
+    client: &Client,
+    room_id: &str,
+    state_key: &str,
+) -> Result<String, String> {
+    use matrix_sdk::ruma::api::client::delayed_events::{
+        delayed_state_event, DelayParameters,
+    };
+    let room_id = matrix_sdk::ruma::RoomId::parse(room_id)
+        .map_err(|_| "invalid".to_owned())?;
+    // An EMPTY content is how a membership is retracted.
+    let request = delayed_state_event::unstable::Request::new_raw(
+        room_id,
+        state_key.to_owned(),
+        StateEventType::from(EV_MEMBER_LEGACY),
+        DelayParameters::Timeout {
+            timeout: Duration::from_millis(DELAYED_LEAVE_TIMEOUT_MS),
+        },
+        matrix_sdk::ruma::serde::Raw::new(&json!({}))
+            .map_err(|_| "invalid".to_owned())?
+            .cast_unchecked(),
+    );
+    match tokio::time::timeout(DISCOVERY_TIMEOUT, client.send(request)).await {
+        Ok(Ok(response)) => Ok(response.delay_id),
+        // A server without MSC4140 answers 404/400. That is not a failure of
+        // the call — it only means cleanup falls back to `expires`.
+        Ok(Err(err)) => Err(classify_room_error(&err.to_string()).to_owned()),
+        Err(_) => Err("network".to_owned()),
+    }
+}
+
+/// Restart the delayed retraction, so it keeps not-firing while we are alive.
+pub(crate) fn restart_delayed_leave(
+    bridge: &RustClient,
+    delay_id: String,
+    op_id: u64,
+) -> Result<(), String> {
+    update_delayed(bridge, delay_id, "restart", op_id)
+}
+
+/// Retract our membership immediately: send the empty content ourselves AND
+/// cancel the pending delayed event, so nothing fires later against a
+/// membership we already removed.
+pub(crate) fn retract_membership(
+    bridge: &RustClient,
+    room_id: String,
+    delay_id: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let user_id = client
+        .user_id()
+        .ok_or_else(|| "no session".to_owned())?
+        .to_string();
+    let device_id = client
+        .device_id()
+        .ok_or_else(|| "no session".to_owned())?
+        .to_string();
+
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+
+    bridge.spawn_room_action(async move {
+        let room_version = room
+            .clone_info()
+            .room_version()
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        let state_key =
+            membership_state_key(&user_id, &device_id, &room_version);
+
+        // Retract FIRST. If the delayed cancel fails afterwards the worst
+        // case is a redundant no-op retraction; doing it the other way round
+        // would leave a window with neither.
+        let result = tokio::time::timeout(
+            DISCOVERY_TIMEOUT,
+            room.send_state_event_raw(EV_MEMBER_LEGACY, &state_key, json!({})),
+        )
+        .await;
+
+        if !delay_id.is_empty() {
+            use matrix_sdk::ruma::api::client::delayed_events::update_delayed_event;
+            let request = update_delayed_event::unstable::Request::new(
+                delay_id.clone(),
+                update_delayed_event::unstable::UpdateAction::Cancel);
+            let _ = tokio::time::timeout(
+                DISCOVERY_TIMEOUT, client.send(request)).await;
+        }
+
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, category) = match result {
+            Ok(Ok(_)) => (true, String::new()),
+            Ok(Err(err)) => {
+                (false, classify_room_error(&err.to_string()).to_owned())
+            }
+            Err(_) => (false, "network".to_owned()),
+        };
+        enqueue(&events, json!({
+            "type": "rtc_membership_retracted",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "ok": ok,
+            "category": category,
+        }));
+    });
+    Ok(())
+}
+
+fn update_delayed(
+    bridge: &RustClient,
+    delay_id: String,
+    action: &str,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::api::client::delayed_events::update_delayed_event;
+    use update_delayed_event::unstable::UpdateAction;
+    let client = require_client(bridge)?;
+    if sane(&delay_id, MAX_WIRE_LEN).is_none() {
+        return Err("invalid delay id".to_owned());
+    }
+    let action = match action {
+        "restart" => UpdateAction::Restart,
+        "cancel" => UpdateAction::Cancel,
+        _ => return Err("unknown delayed action".to_owned()),
+    };
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let request =
+            update_delayed_event::unstable::Request::new(delay_id, action);
+        let result =
+            tokio::time::timeout(DISCOVERY_TIMEOUT, client.send(request)).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, category) = match result {
+            Ok(Ok(_)) => (true, String::new()),
+            Ok(Err(err)) => {
+                (false, classify_room_error(&err.to_string()).to_owned())
+            }
+            Err(_) => (false, "network".to_owned()),
+        };
+        enqueue(&events, json!({
+            "type": "rtc_delayed_updated",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "ok": ok,
+            "category": category,
+        }));
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Media encryption keys (io.element.call.encryption_keys)
+// ---------------------------------------------------------------------------
+
+/// The to-device event type Element uses for call media keys. Unstable and
+/// element-prefixed on the wire; that is what interoperates.
+pub(crate) const EV_CALL_KEYS: &str = "io.element.call.encryption_keys";
+/// Media keys are 32 raw bytes; LiveKit's HKDF turns them into AES-128-GCM.
+const MEDIA_KEY_BYTES: usize = 32;
+/// The key ring has 16 slots (LiveKit's `keyringSize`), so an index must fit.
+const MAX_KEY_INDEX: u8 = 15;
+
+/// Send our current media key to the devices in the call.
+///
+/// Encrypted per device through Olm (`encrypt_and_send_raw_to_device`), so
+/// the homeserver never sees the key. `targets` are `(user_id, device_id)`
+/// pairs taken from the observed membership — we send only to devices that
+/// have actually declared themselves present in this call.
+pub(crate) fn send_media_key(
+    bridge: &RustClient,
+    room_id: String,
+    key_base64: String,
+    key_index: u8,
+    targets_json: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    if key_index > MAX_KEY_INDEX {
+        return Err("key index out of range".to_owned());
+    }
+    // Parsed here so a malformed list fails synchronously rather than
+    // half-sending.
+    let targets: Vec<(String, String)> =
+        serde_json::from_str::<Vec<serde_json::Value>>(&targets_json)
+            .map_err(|_| "invalid targets".to_owned())?
+            .into_iter()
+            .filter_map(|value| {
+                let user = value.get("user_id")?.as_str()?;
+                let device = value.get("device_id")?.as_str()?;
+                Some((
+                    sane(user, MAX_WIRE_LEN)?.to_owned(),
+                    sane(device, MAX_WIRE_LEN)?.to_owned(),
+                ))
+            })
+            .take(MAX_MEMBERS)
+            .collect();
+    if targets.is_empty() {
+        return Err("no targets".to_owned());
+    }
+
+    let own_user = client
+        .user_id()
+        .ok_or_else(|| "no session".to_owned())?
+        .to_string();
+    let own_device = client
+        .device_id()
+        .ok_or_else(|| "no session".to_owned())?
+        .to_string();
+
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+
+    bridge.spawn_room_action(async move {
+        let content = json!({
+            "keys": { "index": key_index, "key": key_base64 },
+            "member": {
+                "id": format!("{own_user}:{own_device}"),
+                "claimed_device_id": own_device,
+            },
+            "room_id": room.room_id().to_string(),
+            "session": {
+                "application": APPLICATION_CALL,
+                "call_id": "",
+                "scope": "m.room",
+            },
+            "sent_ts": u64::from(MilliSecondsSinceUnixEpoch::now().get()),
+        });
+
+        // Resolve the target devices. A device we cannot resolve is SKIPPED,
+        // never substituted: sending one participant's key to the wrong
+        // device would be worse than that participant not hearing us.
+        let mut resolved = Vec::new();
+        for (user, device) in &targets {
+            // Never send our own device its own key.
+            if user == &own_user && device == &own_device {
+                continue;
+            }
+            let Ok(user_id) = matrix_sdk::ruma::UserId::parse(user) else {
+                continue;
+            };
+            let device_id: matrix_sdk::ruma::OwnedDeviceId =
+                device.as_str().into();
+            if let Ok(Some(found)) =
+                client.encryption().get_device(&user_id, &device_id).await
+            {
+                resolved.push(found);
+            }
+        }
+
+        let (ok, category, delivered) = if resolved.is_empty() {
+            (false, "no_devices".to_owned(), 0usize)
+        } else {
+            let total = resolved.len();
+            let raw = matrix_sdk::ruma::serde::Raw::new(&content)
+                .map(|raw| raw.cast_unchecked())
+                .ok();
+            match raw {
+                Some(raw) => {
+                    let result = client
+                        .encryption()
+                        .encrypt_and_send_raw_to_device(
+                            resolved.iter().collect(),
+                            EV_CALL_KEYS,
+                            raw,
+                            CollectStrategy::AllDevices,
+                        )
+                        .await;
+                    match result {
+                        // The SDK answers with the devices it could NOT
+                        // reach, so a partial delivery is visible rather
+                        // than silently successful.
+                        Ok(failures) => (
+                            failures.len() < total,
+                            if failures.is_empty() {
+                                String::new()
+                            } else {
+                                "partial".to_owned()
+                            },
+                            total - failures.len(),
+                        ),
+                        Err(err) => (
+                            false,
+                            classify_room_error(&err.to_string()).to_owned(),
+                            0,
+                        ),
+                    }
+                }
+                None => (false, "invalid".to_owned(), 0),
+            }
+        };
+
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        // The KEY ITSELF is never enqueued, never logged. Only counts.
+        enqueue(&events, json!({
+            "type": "rtc_key_sent",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "ok": ok,
+            "category": category,
+            "delivered": delivered,
+            "key_index": key_index,
+        }));
+    });
+    Ok(())
+}
+
+/// Inbound media key, decrypted by Olm.
+///
+/// `sender` and the Olm-verified device are what we trust; the `member`
+/// block in the content is CLAIMED and is used only to fill in an id, never
+/// to decide who sent it.
+#[allow(unexpected_cfgs)]
+#[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+#[ruma_event(type = "io.element.call.encryption_keys", kind = ToDevice)]
+pub(crate) struct CallEncryptionKeysEventContent {
+    pub keys: MediaKeyEntry,
+    pub member: MediaKeyMember,
+    pub room_id: String,
+    #[serde(default)]
+    pub sent_ts: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct MediaKeyEntry {
+    pub index: u8,
+    pub key: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct MediaKeyMember {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub claimed_device_id: String,
+}
+
+// ---------------------------------------------------------------------------
 // Observation
 // ---------------------------------------------------------------------------
 
@@ -1162,6 +1729,52 @@ pub(crate) fn register_rtc_handlers(
                         // Marks this as the MatrixRTC lane rather than a
                         // legacy m.call.invite, so one call cannot ring twice.
                         "rtc": true,
+                    }));
+                }
+            },
+        );
+        guards.push(client.event_handler_drop_guard(handle));
+    }
+
+    {
+        let events = Arc::clone(events);
+        let timelines = Arc::clone(timelines);
+        let handle = client.add_event_handler(
+            move |ev: CallEncryptionKeysEvent| {
+                let events = Arc::clone(&events);
+                let timelines = Arc::clone(&timelines);
+                async move {
+                    // Bound and validate every field: this arrives from
+                    // another device and is used to key a cipher.
+                    if ev.content.keys.index > MAX_KEY_INDEX {
+                        return;
+                    }
+                    let Some(key) = sane(&ev.content.keys.key, 512) else {
+                        return;
+                    };
+                    let Some(room_id) = sane(&ev.content.room_id, MAX_WIRE_LEN)
+                    else {
+                        return;
+                    };
+                    let Some(device_id) =
+                        sane(&ev.content.member.claimed_device_id,
+                             MAX_WIRE_LEN)
+                    else {
+                        return;
+                    };
+                    enqueue(&events, json!({
+                        "type": "rtc_key_received",
+                        "lifecycle": timelines.lifecycle(),
+                        "room_id": room_id,
+                        // The SENDER is what the SDK vouches for after Olm
+                        // decryption. `member.id` is a claim and is not used
+                        // to decide identity.
+                        "sender": ev.sender.to_string(),
+                        "claimed_device_id": device_id,
+                        "key_index": ev.content.keys.index,
+                        // The key itself: C++ memory only, never QML, never
+                        // logged. It is base64 exactly as it arrived.
+                        "key": key,
                     }));
                 }
             },
@@ -1509,6 +2122,73 @@ mod tests {
         assert_ne!(identity, rtc_identity("@a:x", "DEVICE", "member-2"));
         assert_ne!(identity, rtc_identity("@a:x", "OTHER", "member-1"));
         assert_ne!(identity, rtc_identity("@b:x", "DEVICE", "member-1"));
+    }
+
+    #[test]
+    fn membership_state_key_matches_what_element_writes() {
+        // Element writes `_{user}_{device}_{application}` and drops the
+        // leading underscore only on room versions that let a user own a
+        // user-scoped state key. Getting this wrong means either the server
+        // refuses the write, or our refresh does not replace our own
+        // previous membership and we appear TWICE in the call.
+        assert_eq!(
+            membership_state_key("@a:x", "DEVICE", "10"),
+            "_@a:x_DEVICE_m.call"
+        );
+        assert_eq!(
+            membership_state_key("@a:x", "DEVICE", "org.matrix.msc3757.10"),
+            "@a:x_DEVICE_m.call"
+        );
+        assert_eq!(
+            membership_state_key("@a:x", "DEVICE", "org.matrix.msc3779"),
+            "@a:x_DEVICE_m.call"
+        );
+    }
+
+    #[test]
+    fn published_membership_round_trips_through_our_own_parser() {
+        // The strongest interop check available offline: what we WRITE must
+        // parse back as a valid membership under the same rules we apply to
+        // Element's.
+        let focus = LivekitTransport {
+            service_url: "https://sfu.example.org/".to_owned(),
+            alias: None,
+        };
+        let content = own_membership_content(
+            "DEVICE", "@a:x", Some(&focus), "video", None);
+        let member = parse_session_membership(&content, "@a:x", 5_000)
+            .expect("our own membership must parse");
+        assert_eq!(member.device_id, "DEVICE");
+        assert_eq!(member.rtc_identity, "@a:x:DEVICE");
+        assert_eq!(member.slot_id, "m.call#ROOM");
+        assert_eq!(member.intent, "video");
+        assert_eq!(member.foci.len(), 1);
+        // A fresh join carries no created_ts, so the event ts is the join.
+        assert_eq!(member.created_ts, 5_000);
+        assert_eq!(member.expires_at_ms, 5_000 + MEMBERSHIP_EXPIRY_MS);
+    }
+
+    #[test]
+    fn a_refresh_preserves_the_original_join_time() {
+        // created_ts is what orders oldest-membership focus selection. If a
+        // refresh reset it, everyone's chosen SFU would reshuffle every few
+        // minutes and participants would drift onto different servers.
+        let content =
+            own_membership_content("DEVICE", "@a:x", None, "audio", Some(111));
+        let member = parse_session_membership(&content, "@a:x", 999_000)
+            .expect("valid");
+        assert_eq!(member.created_ts, 111);
+        assert_eq!(member.expires_at_ms, 111 + MEMBERSHIP_EXPIRY_MS);
+    }
+
+    #[test]
+    fn a_membership_without_a_focus_is_still_valid() {
+        // Joining a call whose focus came from the server endpoint (rather
+        // than from a peer) publishes no foci_preferred of its own.
+        let content =
+            own_membership_content("DEVICE", "@a:x", None, "audio", None);
+        assert_eq!(content["foci_preferred"], json!([]));
+        assert!(parse_session_membership(&content, "@a:x", 1).is_some());
     }
 
     #[test]

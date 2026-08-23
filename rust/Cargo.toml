@@ -22,11 +22,17 @@ crate-type = ["staticlib"]
 # SAS completion and is otherwise unrepeatable). Every `testing`-gated code
 # site in matrix-sdk/-base 0.18.0 was audited: all are additive helpers or
 # mirror fields; none alter runtime behavior.
+# experimental-send-custom-to-device: the ONLY public API for sending a
+# custom event type Olm-encrypted per device
+# (Encryption::encrypt_and_send_raw_to_device). MatrixRTC media keys
+# (io.element.call.encryption_keys) must reach each participant device
+# without the homeserver being able to read them, and there is no stable
+# equivalent in 0.18. The feature gates exactly that one method.
 # qrcode: enables SDK QR verification (QrVerification, generate_qr_code,
 # the QrCodeShowV1/ReciprocateV1 methods). Deliberate dependency addition
 # vendored with network access on 2026-08-05 (matrix-sdk-qrcode 0.18.0 +
 # the qrcode encoder crate); the build remains --offline --locked.
-matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite", "markdown", "testing", "qrcode"] }
+matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite", "markdown", "testing", "qrcode", "experimental-send-custom-to-device"] }
 # Same release train as the pinned matrix-sdk. Provides the persistent
 # Timeline (initial items + VectorDiff subscription, retry decryption,
 # pagination, local echoes) used by the live timeline registry.
@@ -57,6 +63,16 @@ once_cell = "1"
 # matrix-sdk (crypto), so declaring it directly adds no new transitive
 # code — the `mime`/`emojis` precedent.
 sha2 = "=0.10.9"
+# LiveKit SFU signalling (MatrixRTC phase 2). ONLY the protocol types and a
+# WebSocket: livekit-protocol is pure prost/serde message definitions with no
+# media stack, so this adds NO libwebrtc and no build-time download. The
+# media itself stays on Lightning's existing GStreamer engine.
+# (The full `livekit` client crate pulls webrtc-sys, which downloads a
+# prebuilt libwebrtc at build time and would break the --offline --locked
+# contract; measured at 318 crates and ~1.7 GB of build artifacts.)
+livekit-protocol = "0.7"
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-webpki-roots", "connect"] }
+prost = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }

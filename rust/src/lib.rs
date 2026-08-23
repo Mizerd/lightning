@@ -79,6 +79,7 @@ mod presence;
 mod profile;
 mod rooms;
 mod rtc;
+mod sfu;
 mod timeline;
 
 /// The single HTTP user agent Lightning presents, to the homeserver and to any
@@ -149,6 +150,12 @@ struct RustClient {
     // remote SDP in their poll payloads. Default OFF — production carries
     // no SDP across the FFI at all.
     call_media_capable: Arc<std::sync::atomic::AtomicBool>,
+    // MatrixRTC phase 2: the one live SFU signalling session, and the
+    // generation its task checks before every enqueue. The generation is a
+    // separate Arc so teardown can invalidate a running task without waiting
+    // on the session mutex it may be nowhere near.
+    sfu: sfu::SfuState,
+    sfu_generation: Arc<std::sync::atomic::AtomicU64>,
     // v0.7.x: the sliding-sync RoomListService, published by the running
     // modern sync loop and withdrawn on every exit path (RAII guard in
     // `run_modern_sync`). Room opens use it to carry exactly ONE room
@@ -315,6 +322,8 @@ impl RustClient {
             command_events: Arc::new(Mutex::new(VecDeque::new())),
             bootstrap_task: Mutex::new(None),
             recovery_nudges: Arc::new(Mutex::new(None)),
+            sfu: sfu::SfuState::default(),
+            sfu_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         })
     }
 
@@ -6270,6 +6279,132 @@ pub unsafe extern "C" fn mx_rust_calls_rtc_decline(
     })
 }
 
+/// Connect to the SFU named by `service_url` for `room_id`.
+///
+/// Obtains authorization with a Matrix OpenID token (the access token never
+/// reaches the SFU) and runs LiveKit signalling. Progress arrives as
+/// `sfu_state` / `sfu_joined` / `sfu_participants` / `sfu_track_published` /
+/// `sfu_speakers` / `sfu_quality` poll events; session descriptions and ICE
+/// arrive as `sfu_remote_description` / `sfu_remote_candidate` and ONLY in
+/// media-capable mode.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_connect(
+    ptr: *mut c_void,
+    service_url: *const c_char,
+    room_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let service_url = unsafe { cstr_arg(service_url) }?;
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        sfu::connect(bridge, service_url, room_id, op_id).map(|_| String::new())
+    })
+}
+
+/// Hand the SFU a local session description for one peer connection.
+/// `target` is "publisher" (our tracks) or "subscriber" (everyone else's).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_local_description(
+    ptr: *mut c_void,
+    kind: *const c_char,
+    target: *const c_char,
+    sdp: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let kind = unsafe { cstr_arg(kind) }?;
+        let target = unsafe { cstr_arg(target) }?;
+        let sdp = unsafe { cstr_arg(sdp) }?;
+        if sdp.trim().is_empty() {
+            return Err("empty sdp".to_owned());
+        }
+        let target = sfu::target_from_str(&target);
+        sfu::send_command(
+            bridge,
+            match kind.as_str() {
+                "offer" => sfu::SfuCommand::Offer { sdp, target },
+                "answer" => sfu::SfuCommand::Answer { sdp, target },
+                _ => return Err("description kind must be offer or answer".to_owned()),
+            },
+        );
+        Ok(String::new())
+    })
+}
+
+/// Trickle one local ICE candidate. `candidate_init` is the JSON form
+/// LiveKit expects ({candidate, sdpMid, sdpMLineIndex}).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_local_candidate(
+    ptr: *mut c_void,
+    target: *const c_char,
+    candidate_init: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let target = unsafe { cstr_arg(target) }?;
+        let candidate_init = unsafe { cstr_arg(candidate_init) }?;
+        sfu::send_command(bridge, sfu::SfuCommand::Candidate {
+            candidate_init,
+            target: sfu::target_from_str(&target),
+        });
+        Ok(String::new())
+    })
+}
+
+/// Declare a track before publishing it. `kind` is 0 audio / 1 video.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_add_track(
+    ptr: *mut c_void,
+    cid: *const c_char,
+    name: *const c_char,
+    kind: i32,
+    screen_share: u8,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let cid = unsafe { cstr_arg(cid) }?;
+        let name = unsafe { cstr_arg(name) }?;
+        sfu::send_command(bridge, sfu::SfuCommand::AddTrack {
+            cid,
+            name,
+            kind: if kind == 1 { 1 } else { 0 },
+            screen_share: screen_share != 0,
+        });
+        Ok(String::new())
+    })
+}
+
+/// Tell the SFU a published track is muted, so other participants see it.
+/// The bytes are already stopped locally by the engine's valve; this is the
+/// SIGNAL, not the mute itself.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_mute_track(
+    ptr: *mut c_void,
+    sid: *const c_char,
+    muted: u8,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let sid = unsafe { cstr_arg(sid) }?;
+        sfu::send_command(bridge, sfu::SfuCommand::MuteTrack {
+            sid,
+            muted: muted != 0,
+        });
+        Ok(String::new())
+    })
+}
+
+/// Leave the SFU session and tear the signalling down.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_disconnect(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        sfu::disconnect(bridge);
+        Ok(String::new())
+    })
+}
+
 /// Report the current MatrixRTC session in one room.
 ///
 /// Result arrives as an `rtc_session` poll event carrying the participant
@@ -6303,6 +6438,88 @@ pub unsafe extern "C" fn mx_rust_rtc_transports(
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         rtc::request_transports(bridge, room_id, op_id).map(|_| String::new())
+    })
+}
+
+/// Publish (or refresh) our own MatrixRTC membership in a room's call.
+///
+/// Answers `rtc_membership_published {ok, category, event_id, delay_id,
+/// delayed_category}`. An empty `delay_id` means the server has no MSC4140
+/// delayed events, so cleanup falls back to the membership's own `expires`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_rtc_publish_membership(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    focus_url: *const c_char,
+    intent: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let focus_url = unsafe { cstr_arg(focus_url) }?;
+        let intent = unsafe { cstr_arg(intent) }?;
+        rtc::publish_membership(bridge, room_id, focus_url, intent, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// Restart the server-side delayed retraction, so it keeps not firing.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_rtc_restart_delayed_leave(
+    ptr: *mut c_void,
+    delay_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let delay_id = unsafe { cstr_arg(delay_id) }?;
+        rtc::restart_delayed_leave(bridge, delay_id, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// Retract our membership and cancel any pending delayed retraction.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_rtc_retract_membership(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    delay_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let delay_id = unsafe { cstr_arg(delay_id) }?;
+        rtc::retract_membership(bridge, room_id, delay_id, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// Distribute our media key to the call's participant devices.
+///
+/// Olm-encrypted per device, so the homeserver never sees the key.
+/// `targets_json` is `[{user_id, device_id}]` taken from the observed
+/// membership — a device that has not declared itself present is not sent
+/// the key. Answers `rtc_key_sent {ok, category, delivered, key_index}`;
+/// the key itself is never echoed back.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_rtc_send_media_key(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    key_base64: *const c_char,
+    key_index: u8,
+    targets_json: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let key_base64 = unsafe { cstr_arg(key_base64) }?;
+        let targets_json = unsafe { cstr_arg(targets_json) }?;
+        rtc::send_media_key(bridge, room_id, key_base64, key_index,
+                            targets_json, op_id)
+            .map(|_| String::new())
     })
 }
 

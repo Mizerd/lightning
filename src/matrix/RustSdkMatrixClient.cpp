@@ -5541,6 +5541,132 @@ quint64 RustSdkMatrixClient::rtcTransports(const QString &roomId)
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::rtcPublishMembership(const QString &roomId,
+                                                 const QString &focusUrl,
+                                                 const QString &intent)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray focus = focusUrl.toUtf8();
+    const QByteArray callIntent = intent.toUtf8();
+    const QString result = takeRustString(mx_rust_rtc_publish_membership(
+        m_rustHandle, room.constData(), focus.constData(),
+        callIntent.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::rtcRestartDelayedLeave(const QString &delayId)
+{
+    if (!m_rustHandle || delayId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray id = delayId.toUtf8();
+    const QString result = takeRustString(mx_rust_rtc_restart_delayed_leave(
+        m_rustHandle, id.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::rtcRetractMembership(const QString &roomId,
+                                                  const QString &delayId)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray id = delayId.toUtf8();
+    const QString result = takeRustString(mx_rust_rtc_retract_membership(
+        m_rustHandle, room.constData(), id.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::rtcSendMediaKey(const QString &roomId,
+                                             const QString &keyBase64,
+                                             int keyIndex,
+                                             const QString &targetsJson)
+{
+    if (!m_rustHandle || roomId.isEmpty() || keyBase64.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    // SENSITIVE: keyBase64 is raw media key material. It goes straight into
+    // the FFI call and is never logged, never stored, never echoed back.
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray key = keyBase64.toUtf8();
+    const QByteArray targets = targetsJson.toUtf8();
+    const QString result = takeRustString(mx_rust_rtc_send_media_key(
+        m_rustHandle, room.constData(), key.constData(),
+        static_cast<unsigned char>(qBound(0, keyIndex, 15)),
+        targets.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::sfuConnect(const QString &serviceUrl,
+                                        const QString &roomId)
+{
+    if (!m_rustHandle || serviceUrl.isEmpty() || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray url = serviceUrl.toUtf8();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_sfu_connect(
+        m_rustHandle, url.constData(), room.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+void RustSdkMatrixClient::sfuLocalDescription(const QString &kind,
+                                              const QString &target,
+                                              const QString &sdp)
+{
+    // SDP carries host IPs: opaque here, never logged.
+    if (!m_rustHandle || sdp.isEmpty())
+        return;
+    const QByteArray k = kind.toUtf8();
+    const QByteArray t = target.toUtf8();
+    const QByteArray s = sdp.toUtf8();
+    takeRustString(mx_rust_sfu_local_description(
+        m_rustHandle, k.constData(), t.constData(), s.constData()));
+}
+
+void RustSdkMatrixClient::sfuLocalCandidate(const QString &target,
+                                            const QString &candidateInit)
+{
+    if (!m_rustHandle || candidateInit.isEmpty())
+        return;
+    const QByteArray t = target.toUtf8();
+    const QByteArray c = candidateInit.toUtf8();
+    takeRustString(mx_rust_sfu_local_candidate(m_rustHandle, t.constData(),
+                                               c.constData()));
+}
+
+void RustSdkMatrixClient::sfuAddTrack(const QString &cid, const QString &name,
+                                      int kind, bool screenShare)
+{
+    if (!m_rustHandle || cid.isEmpty())
+        return;
+    const QByteArray c = cid.toUtf8();
+    const QByteArray n = name.toUtf8();
+    takeRustString(mx_rust_sfu_add_track(
+        m_rustHandle, c.constData(), n.constData(), kind,
+        screenShare ? 1 : 0));
+}
+
+void RustSdkMatrixClient::sfuMuteTrack(const QString &sid, bool muted)
+{
+    if (!m_rustHandle || sid.isEmpty())
+        return;
+    const QByteArray s = sid.toUtf8();
+    takeRustString(
+        mx_rust_sfu_mute_track(m_rustHandle, s.constData(), muted ? 1 : 0));
+}
+
+void RustSdkMatrixClient::sfuDisconnect()
+{
+    if (!m_rustHandle)
+        return;
+    takeRustString(mx_rust_sfu_disconnect(m_rustHandle));
+}
+
 quint64 RustSdkMatrixClient::rtcNotify(const QString &roomId,
                                        const QString &notificationType,
                                        const QString &intent,
@@ -6297,6 +6423,96 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 .value(QStringLiteral("livekit_service_url"))
                 .toString());
         return true;
+    }
+    if (type == QLatin1String("rtc_membership_published")) {
+        Q_EMIT rtcMembershipPublished(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString(),
+            event.value(QStringLiteral("event_id")).toString(),
+            event.value(QStringLiteral("delay_id")).toString());
+        return true;
+    }
+    if (type == QLatin1String("rtc_membership_retracted")
+        || type == QLatin1String("rtc_delayed_updated")) {
+        Q_EMIT rtcMembershipRetracted(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+    if (type == QLatin1String("rtc_key_sent")) {
+        Q_EMIT rtcMediaKeySent(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString(),
+            event.value(QStringLiteral("delivered")).toInt(),
+            event.value(QStringLiteral("key_index")).toInt());
+        return true;
+    }
+    if (type == QLatin1String("rtc_key_received")) {
+        // SENSITIVE: `key` is raw media key material (base64). It goes to
+        // the frame cryptor and nowhere else — never logged, never QML.
+        Q_EMIT rtcMediaKeyReceived(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("sender")).toString(),
+            event.value(QStringLiteral("claimed_device_id")).toString(),
+            event.value(QStringLiteral("key_index")).toInt(),
+            event.value(QStringLiteral("key")).toString());
+        return true;
+    }
+    if (type == QLatin1String("sfu_state")) {
+        Q_EMIT sfuStateChanged(
+            event.value(QStringLiteral("state")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+    if (type == QLatin1String("sfu_joined")) {
+        Q_EMIT sfuJoined(
+            event.value(QStringLiteral("identity")).toString(),
+            event.value(QStringLiteral("participants")).toArray().toVariantList(),
+            event.value(QStringLiteral("ice_servers")).toArray().toVariantList());
+        return true;
+    }
+    if (type == QLatin1String("sfu_participants")) {
+        Q_EMIT sfuParticipantsChanged(
+            event.value(QStringLiteral("participants")).toArray().toVariantList());
+        return true;
+    }
+    if (type == QLatin1String("sfu_track_published")) {
+        Q_EMIT sfuTrackPublished(
+            event.value(QStringLiteral("cid")).toString(),
+            event.value(QStringLiteral("sid")).toString());
+        return true;
+    }
+    if (type == QLatin1String("sfu_speakers")) {
+        Q_EMIT sfuSpeakersChanged(
+            event.value(QStringLiteral("speakers")).toArray().toVariantList());
+        return true;
+    }
+    if (type == QLatin1String("sfu_quality")) {
+        Q_EMIT sfuConnectionQuality(
+            event.value(QStringLiteral("updates")).toArray().toVariantList());
+        return true;
+    }
+    if (type == QLatin1String("sfu_remote_description")) {
+        // Media transport only. Gated in Rust on media-capable mode and
+        // gated again here, so an SDP cannot cross without an engine.
+        if (!m_callMediaCapable)
+            return true;
+        Q_EMIT sfuRemoteDescription(
+            event.value(QStringLiteral("kind")).toString(),
+            event.value(QStringLiteral("target")).toString(),
+            event.value(QStringLiteral("sdp")).toString());
+        return true;
+    }
+    if (type == QLatin1String("sfu_remote_candidate")) {
+        if (!m_callMediaCapable)
+            return true;
+        Q_EMIT sfuRemoteCandidate(
+            event.value(QStringLiteral("target")).toString(),
+            event.value(QStringLiteral("candidate_init")).toString());
+        return true;
+    }
+    if (type == QLatin1String("sfu_server_mute")) {
+        return true; // observed; the engine's own valve is authoritative
     }
     if (type == QLatin1String("rtc_send_result")) {
         Q_EMIT rtcSendFinished(

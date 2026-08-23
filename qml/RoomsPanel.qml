@@ -781,6 +781,20 @@ Rectangle {
         }
         } // room-list wrapper Item
 
+        // Voice Connected: a persistent footer while a call is live, so the
+        // user can browse other rooms without leaving the call and can get
+        // back to it in one click. Collapses to zero height otherwise, so
+        // the column is unchanged when there is no call.
+        VoiceConnectedBar {
+            objectName: "roomsPanelVoiceBar"
+            Layout.fillWidth: true
+            Layout.margins: visible ? AppTheme.spacing8 : 0
+            onReturnToCallRequested: {
+                if (app.groupCall.roomId.length > 0)
+                    app.currentRoomId = app.groupCall.roomId
+            }
+        }
+
         // The account entry point lives on the SpacesRail (design shell);
         // this column intentionally has no footer.
     }

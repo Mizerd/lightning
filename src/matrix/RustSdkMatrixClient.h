@@ -424,6 +424,26 @@ public:
     bool supportsMatrixRtc() const override { return true; }
     quint64 rtcSession(const QString &roomId) override;
     quint64 rtcTransports(const QString &roomId) override;
+    quint64 rtcPublishMembership(const QString &roomId,
+                                 const QString &focusUrl,
+                                 const QString &intent) override;
+    quint64 rtcRestartDelayedLeave(const QString &delayId) override;
+    quint64 rtcRetractMembership(const QString &roomId,
+                                 const QString &delayId) override;
+    quint64 rtcSendMediaKey(const QString &roomId, const QString &keyBase64,
+                            int keyIndex,
+                            const QString &targetsJson) override;
+    bool supportsSfu() const override { return true; }
+    quint64 sfuConnect(const QString &serviceUrl,
+                       const QString &roomId) override;
+    void sfuLocalDescription(const QString &kind, const QString &target,
+                             const QString &sdp) override;
+    void sfuLocalCandidate(const QString &target,
+                           const QString &candidateInit) override;
+    void sfuAddTrack(const QString &cid, const QString &name, int kind,
+                     bool screenShare) override;
+    void sfuMuteTrack(const QString &sid, bool muted) override;
+    void sfuDisconnect() override;
     quint64 rtcNotify(const QString &roomId, const QString &notificationType,
                       const QString &intent, quint64 lifetimeMs,
                       const QString &membershipEventId) override;

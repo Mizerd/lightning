@@ -381,6 +381,8 @@ set(APP_SOURCES
     src/matrix/RtcSession.h
     src/calls/RtcController.h
     src/calls/RtcController.cpp
+    src/calls/SfuCallController.h
+    src/calls/SfuCallController.cpp
     # Header only: AUTOMOC supplies the CallMediaBackend metaobject; no
     # implementation exists in the tree (the media seam — tests use a fake).
     src/calls/CallMediaBackend.h
@@ -609,7 +611,14 @@ endif()
 if(HAVE_LIGHTNING_WEBRTC)
     list(APPEND APP_SOURCES
         src/calls/GstCallMediaBackend.h
-        src/calls/GstCallMediaBackend.cpp)
+        src/calls/GstCallMediaBackend.cpp
+        src/calls/SfuMediaEngine.h
+        src/calls/SfuMediaEngine.cpp
+        # Only reachable through the SFU engine, and the one file that needs
+        # OpenSSL directly — keeping it here rather than in the shared app
+        # sources avoids linking libcrypto into every test target.
+        src/calls/CallFrameCryptor.h
+        src/calls/CallFrameCryptor.cpp)
 endif()
 
 set(APP_LIB_SOURCES ${APP_SOURCES})
@@ -694,6 +703,11 @@ set(APP_QML_FILES
     qml/UpdateAvailablePrompt.qml
     qml/IncomingCallPrompt.qml
     qml/CallControlButton.qml
+    qml/CallControlBar.qml
+    qml/CallTileBadge.qml
+    qml/CallParticipantTile.qml
+    qml/CallStage.qml
+    qml/VoiceConnectedBar.qml
     qml/RoomCallBanner.qml
     qml/VerifySessionPrompt.qml
     qml/QuickReactionStrip.qml
@@ -2501,6 +2515,8 @@ if(BUILD_TESTING)
         src/matrix/RtcSession.h
         src/calls/RtcController.h
         src/calls/RtcController.cpp
+        src/calls/SfuCallController.h
+        src/calls/SfuCallController.cpp
         src/calls/CallMediaBackend.h
         src/calls/SdpStore.h
         src/matrix/CallSignal.h
@@ -2535,6 +2551,20 @@ if(BUILD_TESTING)
     add_test(NAME call-ring-policy COMMAND call-ring-policy-test)
     set_tests_properties(call-ring-policy PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # 2026-08-23 MatrixRTC phase 2: LiveKit-compatible frame encryption.
+    # Asserts the WIRE FORMAT against livekit-client's own implementation —
+    # header sizes, trailer layout, and the exact IV construction — plus the
+    # safety properties (no key means no output, a tampered frame fails, a
+    # wrong key index is dropped rather than guessed).
+    qt_add_executable(call-frame-cryptor-test
+        tests/CallFrameCryptorTest.cpp
+        src/calls/CallFrameCryptor.cpp
+    )
+    target_include_directories(call-frame-cryptor-test PRIVATE src)
+    target_link_libraries(call-frame-cryptor-test
+        PRIVATE Qt6::Core Qt6::Test OpenSSL::Crypto)
+    add_test(NAME call-frame-cryptor COMMAND call-frame-cryptor-test)
 
     # 2026-08-23 MatrixRTC observation: the session store's op-id/room
     # matching and generation isolation, poke coalescing (including a poke

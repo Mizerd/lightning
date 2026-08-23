@@ -790,25 +790,25 @@ Rectangle {
                                  && (app.calls.state === CallController.Idle
                                      || app.calls.state
                                         === CallController.Ended)
-                        // 2026-08-19 (maintainer request): shown but GREYED
-                        // until voice calls have been validated against a
-                        // real network and another client. The engine is
-                        // real (the call-media-loopback suite completes an
-                        // in-process WebRTC call), but no answered call has
-                        // ever been live-tested, so offering it as though it
-                        // works would be a promise the round cannot keep.
-                        // Re-enabling is this one line — the DM/engine gates
-                        // above and the placeCall path below are unchanged.
-                        enabled: false
+                        // 2026-08-23 (maintainer request): ENABLED. The
+                        // engine is real — the call-media-loopback suite
+                        // completes an in-process WebRTC call with genuine
+                        // ICE, DTLS-SRTP and Opus — and mute now actually
+                        // stops publishing. What remains unproven is the
+                        // NETWORK: no answered call between two machines has
+                        // been live-tested, so a call may still fail for
+                        // reasons this build cannot show in advance.
+                        //
+                        // `mediaBackendAvailable` in the visibility gate is
+                        // what keeps this honest on a packaged build without
+                        // the GStreamer plugins: the button is absent there
+                        // rather than present and dead.
+                        enabled: true
                         iconName: "call"
-                        Accessible.name: qsTr("Voice call — coming soon")
-                        ToolTip.text: qsTr("Voice calls are coming soon")
+                        Accessible.name: qsTr("Start a voice call")
+                        ToolTip.text: qsTr("Start a voice call")
                         ToolTip.visible: hovered
-                        // Shorter than the other header buttons' 500 ms: this
-                        // is the one control here that cannot be pressed, so
-                        // the reason has to arrive as fast as the
-                        // disappointment does.
-                        ToolTip.delay: 200
+                        ToolTip.delay: 500
                         onClicked: app.calls.placeCall(app.currentRoomId)
                     }
                     // Pinned-messages shortcut: shown only when the room
@@ -879,6 +879,21 @@ Rectangle {
         }
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
+
+        // The call surface REPLACES the timeline while a call is live and
+        // the user has not navigated away from it. It is not an overlay: a
+        // call is the thing the user is doing, and half-covering the room
+        // gives neither surface enough space. Leaving it visible while they
+        // browse elsewhere is the Voice Connected bar's job, not this one's.
+        Loader {
+            objectName: "timelineCallStageHost"
+            Layout.fillWidth: true
+            Layout.fillHeight: active
+            active: app.groupCall.active
+                    && app.groupCall.roomId === app.currentRoomId
+            visible: active
+            sourceComponent: CallStage {}
+        }
 
         // 2026-08-23 MatrixRTC — "N people in call".
         //

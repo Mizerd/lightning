@@ -122,11 +122,22 @@ private Q_SLOTS:
             QStringLiteral("app.calls.mediaBackendAvailable")));
         QVERIFY(scope.contains(QStringLiteral(
             "onClicked: app.calls.placeCall(app.currentRoomId)")));
-        // 2026-08-19: greyed out and labelled "coming soon" until an
-        // answered call has been validated live. Pinned so it cannot be
-        // re-enabled by accident — flipping it is a deliberate decision.
-        QVERIFY(scope.contains(QStringLiteral("enabled: false")));
-        QVERIFY(norm.contains(QStringLiteral("Voice calls are coming soon")));
+        // 2026-08-23: ENABLED at the maintainer's request, after mute was
+        // made real and the engine's handshake was proven in-process. The
+        // "coming soon" wording must be gone with it — a live button whose
+        // tooltip still says the feature is unavailable is worse than
+        // either state on its own.
+        QVERIFY(scope.contains(QStringLiteral("enabled: true")));
+        QVERIFY2(!norm.contains(QStringLiteral("Voice calls are coming soon")),
+                 "the coming-soon wording must not outlive the disabled state");
+        // The ENGINE gate stays load-bearing: on a packaged build without the
+        // GStreamer plugins the button must be ABSENT, not present and dead.
+        // That is the one thing enabling it must not quietly give up.
+        const int visible = scope.indexOf(QStringLiteral("visible:"));
+        const int enabled = scope.indexOf(QStringLiteral("enabled: true"));
+        QVERIFY(visible >= 0 && enabled > visible);
+        QVERIFY(scope.mid(visible, enabled - visible)
+                    .contains(QStringLiteral("app.calls.mediaBackendAvailable")));
     }
 
     void mainHostsTheCallPromptAboveThePassiveOnes()

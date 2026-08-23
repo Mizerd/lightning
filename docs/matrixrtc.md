@@ -1,8 +1,12 @@
-# MatrixRTC (modern Matrix calling) — phase 1
+# MatrixRTC (modern Matrix calling)
 
-Status: **observation and discovery are live; joining is not.** This document
-records the exact wire Lightning speaks, what a homeserver has to provide,
-what is deliberately absent, and what has and has not been validated.
+Status: **phase 1 (observation and discovery) and phase 2 (SFU signalling,
+membership publishing, media transport and call E2EE) are implemented; no
+call has been completed against another client.** This document records the
+exact wire Lightning speaks, what a homeserver has to provide, what is
+deliberately absent, and what has and has not been validated.
+
+Read the validation section before believing any of it works end to end.
 
 For the *legacy* 1:1 `m.call.*` lane (MSC2746, GStreamer `webrtcbin`, real
 audio), see `docs/voice-calls.md`. The two lanes coexist by design; §"Two
@@ -353,3 +357,305 @@ Compilation and passing offscreen suites are not interoperability. Nothing in
 this document should be read as "calling works" — phase 1 makes Element's
 calls *visible* and makes Lightning's existing 1:1 audio calls properly
 controllable, and says honestly why it cannot yet join.
+
+---
+
+# Phase 2 — SFU signalling, membership, media and E2EE
+
+Phase 1 made Element's calls *visible*. Phase 2 adds everything needed to
+*join* one: SFU authorization, membership publishing, the LiveKit signalling
+protocol, a media transport, and end-to-end encrypted media.
+
+## Authorization: the access token never leaves Lightning
+
+The SFU is authorized with a **Matrix OpenID token**, not the Matrix access
+token:
+
+```
+POST {livekit_service_url}/sfu/get
+  { room, openid_token: {access_token, token_type, matrix_server_name,
+                         expires_in}, device_id }
+  -> { url, jwt }
+```
+
+The OpenID token is minted by the homeserver for exactly this purpose and
+lets the JWT service verify who the user is *by asking their homeserver*. So
+the SFU never sees a Matrix credential, and the SFU's JWT never reaches
+Matrix. Neither is logged, neither crosses the FFI toward QML, and neither is
+persisted — the JWT lives in the signalling task for one connection.
+
+The returned SFU URL is re-validated as `wss:` with a host before use.
+
+## Signalling: `livekit-protocol`, not the `livekit` client
+
+`rust/src/sfu.rs` speaks LiveKit's WebSocket/protobuf protocol directly.
+**Deliberately not the official `livekit` crate**: it depends on
+`webrtc-sys`, which downloads a prebuilt libwebrtc during the build. That
+breaks this crate's `--offline --locked` contract outright, and measured at
++318 crates and ~1.7 GB of build artifacts on a tree that already links a
+2.1 GB debug staticlib into ~150 test binaries. `livekit-protocol` is pure
+message definitions — no media, no download — so Lightning speaks the same
+wire with the GStreamer engine it already ships. Net cost: **+21 crates, no
+libwebrtc**, and `--offline --locked` still builds.
+
+**Two peer connections, and confusing them wires audio the wrong way.** The
+client offers on PUBLISHER (its own tracks); the server offers on SUBSCRIBER
+(everyone else's). The target rides every description and every candidate,
+and an unrecognised target degrades to *subscriber* — never to publisher,
+which would attach a remote description to our own outgoing connection.
+
+## Membership: the format Element reads
+
+Published as the **legacy session state event**
+(`org.matrix.msc3401.call.member`), because that is what every deployed
+server and every current Element understands; matrix-sdk 0.18 cannot send a
+sticky event at all.
+
+* State key `_{user}_{device}_m.call`, dropping the leading underscore only
+  on `org.matrix.msc3757`/`msc3779` room versions. Wrong here means either
+  the server refuses the write, or a refresh fails to replace our own
+  previous membership and we appear **twice** in the call.
+* `created_ts` is preserved across refreshes. It orders oldest-membership
+  focus selection, so resetting it would reshuffle everyone's chosen SFU
+  every few minutes.
+* Cleanup is an **MSC4140 delayed retraction**, armed at publish and
+  restarted while we live. If Lightning dies, the server retracts our
+  membership for us. A server without MSC4140 refuses that call and cleanup
+  falls back to `expires` — reported as `delayed_category`, never as a
+  failure of the call itself.
+* Leaving retracts explicitly *and* cancels the pending delayed event, in
+  that order: a redundant no-op retraction is harmless, a window with
+  neither is not.
+
+## Media: `SfuMediaEngine`
+
+A separate class from the 1:1 `GstCallMediaBackend`, because LiveKit differs
+architecturally in three ways that would have turned that class into a mess
+of conditionals: two peer connections, N remote streams appearing and
+leaving at any time, and tracks that are *declared* (AddTrack) before they
+are negotiated.
+
+* Audio: Opus, published behind a named `valve` — real mute stops buffers
+  before the encoder, so no RTP is produced at all.
+* Video: VP8. Screen share and camera use different encoder settings, since
+  screen content is text-heavy and wants readability over motion smoothness.
+* Screen capture: **`pipewiresrc` with a node id from an
+  xdg-desktop-portal ScreenCast session** — never direct framebuffer
+  access, so the user's own portal dialog decides what is shared. A
+  negative node id is refused rather than defaulted, because "whatever
+  PipeWire feels like" is exactly how you publish the wrong monitor.
+* Per-participant local volume, deafen, and the same
+  arrives-after-you-deafened protection as the 1:1 engine.
+
+## Call E2EE: real, and cross-checked against an independent implementation
+
+`src/calls/CallFrameCryptor.*` implements LiveKit's frame encryption, so the
+SFU forwards media it cannot read. **The format is not invented here** —
+every constant and byte position was read out of `livekit-client` 2.22.0
+(`src/e2ee/`), which is the same format libwebrtc's native FrameCryptor
+implements and therefore the same one Element Call speaks.
+
+```
+key      : HKDF-SHA256(ikm = raw 32-byte key,
+                       salt = "LKFrameEncryptionKey",
+                       info = 128 zero bytes) -> 16 bytes (AES-128-GCM)
+frame    : [ cleartext header ][ ciphertext + 16-byte tag ]
+           [ IV: 12 bytes ][ trailer: 2 bytes = {12, keyIndex} ]
+header   : audio (Opus TOC) = 1, VP8 keyframe = 10, VP8 delta = 3
+IV       : [0..3] ssrc, [4..7] rtp timestamp,
+           [8..11] timestamp - (sendCount % 0xffff)     (all big endian)
+```
+
+Three properties worth stating explicitly:
+
+* **The cleartext header is authenticated as AAD.** The SFU can still route
+  on it and detect keyframes, but cannot alter it undetected.
+* **IV reuse is the whole ballgame.** AES-GCM leaks its authentication key
+  on a repeated (key, IV) pair — a total break, not a lost frame. The
+  counter is per-SSRC, monotonic, and seeded at a random offset exactly as
+  the reference does. A test encrypts 512 frames on one SSRC at an
+  unchanging timestamp (the worst case) and requires 512 distinct IVs.
+* **No key means no output.** Not a passthrough. A cleartext fallback would
+  silently un-encrypt an encrypted room's call, so `encryptFrame` returns
+  nothing and the caller must drop the frame. Likewise an unknown key index
+  is dropped rather than decrypted with "some key we have", which would
+  defeat rotation.
+
+Key derivation is pinned by a **known-answer test cross-checked against a
+from-scratch RFC 5869 HKDF** (`262178a9e5dabf73df9342ed5bae9fe1` for
+`ikm = 32 * 'k'`), not against this implementation. That is what proves we
+derive the *same* key Element does: a self-consistent round-trip test would
+pass just as happily with the wrong salt, the wrong info length, or PBKDF2.
+
+Keys are distributed as `io.element.call.encryption_keys`, **Olm-encrypted
+per device** through `Encryption::encrypt_and_send_raw_to_device`, so the
+homeserver never sees one. Only devices that have declared themselves
+present in the call are sent the key; a device that cannot be resolved is
+skipped, never substituted. The SDK answers with the devices it could *not*
+reach, so a partial delivery is visible rather than silently successful.
+Inbound, what is trusted is the **Olm-decrypted sender** — the `member`
+block in the content is a claim and is used only to fill in an id.
+
+This needs matrix-sdk's `experimental-send-custom-to-device` feature: it
+gates the only public API for sending a custom event type Olm-encrypted per
+device, and there is no stable equivalent in 0.18.
+
+## Packaging (lightning-deploy)
+
+GStreamer **plugins are `dlopen`ed from a plugin path**, so nothing that
+inspects ELF NEEDED entries can find them — `dpkg-shlibdeps`, rpm's
+automatic generator and `linuxdeploy` all miss them, because the binary
+links only gstreamer core/webrtc/sdp. Every format therefore names them
+explicitly, and each fails identically if it stops: the package installs and
+launches perfectly, then refuses every call because the engine's runtime
+element probe finds nothing.
+
+* **deb** — `CALL_DEPENDS` beside the existing `QML_DEPENDS`, which exists
+  for the same reason.
+* **rpm** — explicit `Requires:` lines.
+* **AppImage** — the plugins are *staged into the AppDir* before
+  `linuxdeploy` runs (so it also bundles their own dependencies and rewrites
+  their RPATHs), **plus an AppRun hook** setting
+  `GST_PLUGIN_SYSTEM_PATH_1_0`. Staging without the hook bundles files
+  nothing ever loads.
+* **Flatpak** — `--filesystem=xdg-run/pipewire-0` only. The portal is
+  reachable from a sandbox by default and *it* decides what may be
+  captured; the socket is merely how the negotiated stream is read.
+  Deliberately **not** `--filesystem=host` and **not** `--device=all`.
+
+All of this is pinned by `tests/test-pipeline-config.py`.
+
+## Validation
+
+**Live, against a real LiveKit 1.13.5 server** (nixpkgs, `--dev` mode,
+running locally):
+
+* The signalling handshake this module implements **completes**: WebSocket
+  connect to `/rtc`, `JOIN_OK`, our identity echoed back, ICE servers
+  delivered, `subscriber_primary=true`. The server's own log shows a real
+  room, a real participant, and both PUBLISHER and SUBSCRIBER transports,
+  with our exact client info (`sdk: CPP, version 0.7.6, protocol 15`).
+
+**Automated:** Rust `cargo test` 174 passed / 0 failed / 4 ignored, including
+32 `rtc::` and 5 `sfu::` cases. C++ `call-frame-cryptor` 19 passed, including
+the known-answer derivation, byte-exact IV layout, AAD coverage, tamper
+detection, rotation, and the no-key-no-output property.
+
+**NOT TESTED — and this is the honest headline:**
+
+* **No call has ever been completed between two clients.** Not
+  Lightning↔Element, not Lightning↔Lightning. No audio or video has been
+  exchanged over an SFU by this code.
+* The frame cryptor is **not yet wired into the GStreamer pipeline** — it is
+  a correct, tested unit with no pad probes attached, so media currently
+  publishes unencrypted. Encrypted rooms must therefore not be offered a
+  call until that wiring lands; see "Remaining work".
+* No screen-share **source picker** exists: the engine accepts a PipeWire
+  node id, but nothing yet opens an xdg-desktop-portal ScreenCast session to
+  obtain one.
+* The packaging changes are **unbuilt** — no pipeline has run with them.
+* Federation, TURN traversal, reconnection, and every platform other than
+  Linux: untested.
+
+## The call lifecycle
+
+`SfuCallController` binds the three halves that must agree, and the ORDER is
+the main thing it exists to get right:
+
+1. Discover a focus (phase 1's `RtcController`).
+2. **Publish membership first**, carrying that focus. Other clients pick
+   their SFU from the oldest membership, so ours has to be on the wire before
+   we expect anyone to meet us there.
+3. Connect to the SFU and negotiate both peer connections.
+4. Only then publish tracks.
+
+Leaving runs in reverse, and every step is idempotent, because the leave path
+is also the failure path — anything that goes wrong mid-join has to unwind
+from wherever it got to. Teardown releases **media first**, so no device
+stays live because a network call hung.
+
+`join()` refuses, with plain wording rather than a category, when: the room is
+encrypted and media E2EE is unavailable; no focus is known; there is no media
+engine; or the build has no WebRTC. One call at a time globally — a second
+join tears the first down explicitly rather than leaving two engines holding
+the microphone.
+
+## The encrypted-room gate, and why it fails closed
+
+`RtcController::joinBlock()` returns `media_encryption_unavailable` for an
+encrypted room whenever media E2EE is not active, and `SfuCallController`
+refuses the join outright. §6 requires failing safely and saying so, never
+silently weakening encryption.
+
+The default is deliberately **encrypted**: a room the controller has not been
+told about is treated as encrypted, because a boolean cannot say "unknown"
+and the safe answer to "might this be encrypted?" is yes. `AppController`
+supplies the real answer from the room's own `encrypted`/`encryptionKnown`
+pair — and an unknown `encryptionKnown` also fails closed, so the tri-state
+survives the whole way down.
+
+## What the UI is
+
+* **`CallStage`** — the call surface, hosted in the timeline column and
+  *replacing* the timeline while the call's room is open. A call is the thing
+  the user is doing; half-covering the room gives neither surface room.
+  Layout follows the participant count automatically (grid, or spotlight when
+  someone shares or a participant is pinned) with a manual override.
+* **`CallParticipantTile`** — avatar, speaking ring, name strip, state
+  badges. A badge appears only when the SFU actually reported that track's
+  state; unknown renders nothing rather than a confident "not muted".
+* **`CallControlBar`** — mic, deafen, camera, raise hand, layout,
+  participants, leave. Every control reaches something real; nothing is shown
+  disabled with a tooltip, because a disabled control receives no hover in Qt
+  Quick and so cannot explain itself.
+* **`VoiceConnectedBar`** — the persistent footer in the room list. The call
+  does not end because the user opened another room, and this is how they get
+  back to it.
+
+Layout and interaction follow Discord; every colour, radius and type value
+comes from `AppTheme`, so all eleven themes and the text scale apply. No
+Discord artwork or colour is used.
+
+## Validation
+
+**Live, against a real LiveKit 1.13.5 server** (nixpkgs, `--dev`, local):
+the signalling handshake this module implements **completes** — WebSocket
+connect to `/rtc`, `JOIN_OK`, our identity echoed back, ICE servers
+delivered, `subscriber_primary=true`. The server's own log shows a real room,
+a real participant, and both PUBLISHER and SUBSCRIBER transports, with our
+exact client info (`sdk: CPP, version 0.7.6, protocol 15`).
+
+**Automated:** see the table in the completion report; the frame cryptor's
+key derivation is pinned by a known-answer test cross-checked against a
+from-scratch RFC 5869 HKDF, not against itself.
+
+**NOT TESTED — the honest headline:**
+
+* **No call has ever been completed between two clients.** Not
+  Lightning↔Element, not Lightning↔Lightning. No audio or video has been
+  exchanged over an SFU by this code.
+* The frame cryptor is **not attached to the pipeline** — it is a correct,
+  tested unit with no pad probes wired. That is exactly why encrypted rooms
+  refuse to join rather than publishing in the clear.
+* No screen-share **source picker**: the engine and controller accept a
+  PipeWire node id and refuse a negative one, but nothing yet opens an
+  xdg-desktop-portal ScreenCast session to obtain one.
+* Raise hand and call reactions are **local state only** — no
+  MatrixRTC-compatible event is sent, so other clients cannot see them.
+* The packaging changes are **unbuilt**: no pipeline has run with them.
+* Federation, TURN traversal, reconnection, and every platform other than
+  Linux: untested.
+
+## Remaining work, stated plainly
+
+1. **Wire the frame cryptor into the pipeline** (pad probes on the RTP
+   payloader/depayloader), then flip `mediaEncrypted` and let encrypted rooms
+   join. Until then the gate above is what keeps this honest.
+2. **Portal integration** for screen-share and camera source selection.
+3. **Video rendering**: remote tracks are received and decoded, but the
+   spotlight shows who holds the stage rather than their picture — there is
+   no `QVideoSink` bridge yet.
+4. **Raise hand and reactions on the wire**, using whatever MatrixRTC
+   defines rather than a Lightning-only event.
+5. Live interoperability with Element, which is the only thing that turns any
+   of the above from "implemented" into "works".

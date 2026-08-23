@@ -96,6 +96,11 @@ public:
         /// media transport, so joining would publish a membership nobody
         /// can connect to.
         NoMediaTransport,
+        /// The room is ENCRYPTED but call media E2EE is not active, so
+        /// joining would carry audio and video the SFU could read. Refused
+        /// rather than downgraded: §6 requires failing safely and saying so,
+        /// never silently weakening encryption.
+        MediaEncryptionUnavailable,
     };
     Q_ENUM(JoinBlock)
 
@@ -144,6 +149,12 @@ public:
     Q_INVOKABLE QVariantList participantFaces(const QString &roomId,
                                               int max = -1) const;
 
+    /// The SFU service URL to use for this room: the homeserver's own
+    /// answer if it gave one, otherwise the focus this room's participants
+    /// advertise. Empty means no transport is known, which is a real answer
+    /// and not an error.
+    Q_INVOKABLE QString focusUrlFor(const QString &roomId) const;
+
     /// Why joining this room's call is refused right now.
     Q_INVOKABLE JoinBlock joinBlock(const QString &roomId) const;
     /// The same answer as a stable, translatable-at-the-QML-layer token.
@@ -153,6 +164,19 @@ public:
     void setPokeCoalesceMsForTest(int ms);
     /// Test seam: how long an unanswered read holds its room.
     void setReadTimeoutMsForTest(int ms);
+
+    /// Whether call MEDIA can be encrypted end to end on this build.
+    ///
+    /// Distinct from the room's own encryption: a Matrix-encrypted room
+    /// hides message bodies, and says nothing about whether the SFU can
+    /// read the audio. Defaults FALSE — a boolean that cannot say "unknown"
+    /// must default to the safe answer.
+    void setMediaEncryptionAvailable(bool available);
+    bool mediaEncryptionAvailable() const { return m_mediaEncryption; }
+    /// Tell the controller which rooms are encrypted. Supplied by the owner
+    /// rather than read here, so this class keeps no second opinion about
+    /// room encryption state.
+    void setRoomEncrypted(const QString &roomId, bool encrypted);
 
 Q_SIGNALS:
     /// One room's observed session changed (or was read for the first time).
@@ -219,5 +243,8 @@ private:
     QString m_discoveryRoomId;
     QString m_availabilityCategory;
     quint64 m_discoveryOp = 0;
+    /// False until an owner says otherwise: see setMediaEncryptionAvailable.
+    bool m_mediaEncryption = false;
+    QHash<QString, bool> m_encryptedRooms;
 
 };

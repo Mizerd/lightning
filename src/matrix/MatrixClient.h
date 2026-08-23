@@ -767,6 +767,54 @@ public:
     { Q_UNUSED(roomId); return 0; }
     // Send an org.matrix.msc4075.rtc.notification. Answers on
     // rtcSendFinished.
+    // Publish/refresh our own membership; answers rtcMembershipPublished.
+    virtual quint64 rtcPublishMembership(const QString &roomId,
+                                         const QString &focusUrl,
+                                         const QString &intent)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(focusUrl); Q_UNUSED(intent); return 0;
+    }
+    /// Restart the server-side delayed retraction so it keeps not firing.
+    virtual quint64 rtcRestartDelayedLeave(const QString &delayId)
+    { Q_UNUSED(delayId); return 0; }
+    /// Retract our membership and cancel the pending delayed retraction.
+    virtual quint64 rtcRetractMembership(const QString &roomId,
+                                         const QString &delayId)
+    { Q_UNUSED(roomId); Q_UNUSED(delayId); return 0; }
+    /// Distribute a media key, Olm-encrypted per device. The key is raw
+    /// bytes base64'd; it is never logged and never reaches QML.
+    virtual quint64 rtcSendMediaKey(const QString &roomId,
+                                    const QString &keyBase64, int keyIndex,
+                                    const QString &targetsJson)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(keyBase64); Q_UNUSED(keyIndex);
+        Q_UNUSED(targetsJson); return 0;
+    }
+
+    // ── LiveKit SFU signalling ──
+    virtual bool supportsSfu() const { return false; }
+    virtual quint64 sfuConnect(const QString &serviceUrl,
+                               const QString &roomId)
+    { Q_UNUSED(serviceUrl); Q_UNUSED(roomId); return 0; }
+    /// `target` is "publisher" (our tracks) or "subscriber" (everyone
+    /// else's) — LiveKit runs two peer connections.
+    virtual void sfuLocalDescription(const QString &kind,
+                                     const QString &target,
+                                     const QString &sdp)
+    { Q_UNUSED(kind); Q_UNUSED(target); Q_UNUSED(sdp); }
+    virtual void sfuLocalCandidate(const QString &target,
+                                   const QString &candidateInit)
+    { Q_UNUSED(target); Q_UNUSED(candidateInit); }
+    virtual void sfuAddTrack(const QString &cid, const QString &name,
+                             int kind, bool screenShare)
+    {
+        Q_UNUSED(cid); Q_UNUSED(name); Q_UNUSED(kind);
+        Q_UNUSED(screenShare);
+    }
+    virtual void sfuMuteTrack(const QString &sid, bool muted)
+    { Q_UNUSED(sid); Q_UNUSED(muted); }
+    virtual void sfuDisconnect() {}
+
     virtual quint64 rtcNotify(const QString &roomId,
                               const QString &notificationType,
                               const QString &intent, quint64 lifetimeMs,
@@ -1279,6 +1327,37 @@ Q_SIGNALS:
                                const QString &participantFocusUrl);
     void rtcSendFinished(quint64 opId, bool ok, const QString &category,
                          const QString &eventId);
+    /// Our membership was published. `delayId` empty means the server has no
+    /// MSC4140, so cleanup falls back to the membership's own `expires`.
+    void rtcMembershipPublished(quint64 opId, bool ok, const QString &category,
+                                const QString &eventId,
+                                const QString &delayId);
+    void rtcMembershipRetracted(quint64 opId, bool ok,
+                                const QString &category);
+    void rtcMediaKeySent(quint64 opId, bool ok, const QString &category,
+                         int delivered, int keyIndex);
+    /// A media key from another device, already Olm-decrypted. `sender` is
+    /// what the SDK vouches for; `claimedDeviceId` is a CLAIM. The key is
+    /// base64 raw bytes: C++ memory only, never QML, never logged.
+    void rtcMediaKeyReceived(const QString &roomId, const QString &sender,
+                             const QString &claimedDeviceId, int keyIndex,
+                             const QString &keyBase64);
+
+    // ── SFU signalling ──
+    /// Closed-set lifecycle: authorized / signalling / ended / closed /
+    /// failed. `category` explains a failure and is safe to log.
+    void sfuStateChanged(const QString &state, const QString &category);
+    void sfuJoined(const QString &identity, const QVariantList &participants,
+                   const QVariantList &iceServers);
+    void sfuParticipantsChanged(const QVariantList &participants);
+    void sfuTrackPublished(const QString &cid, const QString &sid);
+    void sfuSpeakersChanged(const QVariantList &speakers);
+    void sfuConnectionQuality(const QVariantList &updates);
+    /// Media transport only; never logged, never exposed to QML.
+    void sfuRemoteDescription(const QString &kind, const QString &target,
+                              const QString &sdp);
+    void sfuRemoteCandidate(const QString &target,
+                            const QString &candidateInit);
     // v0.7.x UIA: the server requires interactive auth before the pending
     // privileged operation completes. `stages` carries the flow stage
     // names for the honest "unsupported stage" surface; only the password

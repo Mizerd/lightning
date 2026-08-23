@@ -907,6 +907,70 @@ char *mx_rust_rtc_notify(void *client,
                          unsigned long long lifetime_ms,
                          const char *membership_event_id_or_empty,
                          unsigned long long op_id);
+/* MatrixRTC phase 2 — publishing our own membership. Publish arms an
+ * MSC4140 DELAYED retraction that the client restarts periodically, so a
+ * crash removes the membership instead of leaving a phantom participant
+ * until `expires`. An empty delay_id in the answer means the server has no
+ * MSC4140 and cleanup falls back to `expires` alone.
+ * Answers: rtc_membership_published / rtc_membership_retracted /
+ * rtc_delayed_updated. */
+char *mx_rust_rtc_publish_membership(void *client,
+                                     const char *room_id,
+                                     const char *focus_url_or_empty,
+                                     const char *intent,
+                                     unsigned long long op_id);
+char *mx_rust_rtc_restart_delayed_leave(void *client,
+                                        const char *delay_id,
+                                        unsigned long long op_id);
+char *mx_rust_rtc_retract_membership(void *client,
+                                     const char *room_id,
+                                     const char *delay_id_or_empty,
+                                     unsigned long long op_id);
+/* MatrixRTC phase 2 — call media E2EE key distribution.
+ * The key is generated on the C++ side (OpenSSL) and handed here ONLY to be
+ * Olm-encrypted per device; it is never logged, never enqueued back, and
+ * never reaches QML. Inbound keys arrive as rtc_key_received {room_id,
+ * sender, claimed_device_id, key_index, key} — `sender` is what the SDK
+ * vouches for after Olm decryption; the claimed device id is a CLAIM. */
+char *mx_rust_rtc_send_media_key(void *client,
+                                 const char *room_id,
+                                 const char *key_base64,
+                                 unsigned char key_index,
+                                 const char *targets_json,
+                                 unsigned long long op_id);
+/* MatrixRTC phase 2 — LiveKit SFU signalling. Media stays on the C++
+ * GStreamer engine; this is signalling only. Authorization uses a Matrix
+ * OpenID token, so the access token never reaches the SFU, and the SFU's
+ * JWT never crosses this boundary.
+ *
+ * Poll events: sfu_state {generation, state, category}, sfu_joined
+ * {identity, participants[], ice_servers[]}, sfu_participants,
+ * sfu_track_published, sfu_speakers, sfu_quality, sfu_server_mute.
+ * sfu_remote_description {kind, target, sdp} and sfu_remote_candidate
+ * {target, candidate_init} cross ONLY in media-capable mode.
+ * `target` is "publisher" (our own tracks) or "subscriber" (everyone
+ * else's) — LiveKit runs two peer connections and confusing them wires
+ * audio the wrong way. */
+char *mx_rust_sfu_connect(void *client,
+                          const char *service_url,
+                          const char *room_id,
+                          unsigned long long op_id);
+char *mx_rust_sfu_local_description(void *client,
+                                    const char *kind,
+                                    const char *target,
+                                    const char *sdp);
+char *mx_rust_sfu_local_candidate(void *client,
+                                  const char *target,
+                                  const char *candidate_init_json);
+char *mx_rust_sfu_add_track(void *client,
+                            const char *cid,
+                            const char *name,
+                            int kind_audio0_video1,
+                            unsigned char screen_share);
+char *mx_rust_sfu_mute_track(void *client,
+                             const char *sid,
+                             unsigned char muted);
+char *mx_rust_sfu_disconnect(void *client);
 /* v0.7.x UIA + device sign-out. delete may raise a uia_required challenge
  * event ({op_id, flows, completed, has_password_stage, wrong_password});
  * answer with mx_rust_uia_submit_password (the password transit buffer is

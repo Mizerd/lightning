@@ -29,6 +29,7 @@
 #include "calls/CallController.h"
 #ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/GstCallMediaBackend.h"
+#include "calls/SfuMediaEngine.h"
 #endif
 #include "presence/PresenceManager.h"
 #include "threads/ThreadManager.h"
@@ -242,6 +243,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // kill switch (diagnosis, or a machine whose plugins misbehave).
     m_calls        = std::make_unique<CallController>(this);
     m_rtc          = std::make_unique<RtcController>(this);
+    m_groupCall    = std::make_unique<SfuCallController>(this);
     // Application updates. Constructed once and never rebuilt: it holds no
     // Matrix state, is not account-scoped, and signing in, signing out or
     // switching account must not disturb an update check or download.
@@ -590,6 +592,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_presence->setClient(m_client.get());
     m_calls->setClient(m_client.get());
     m_rtc->setClient(m_client.get());
+    m_groupCall->setClient(m_client.get());
+    m_groupCall->setRtcController(m_rtc.get());
     // ── Voice-call ring policy, wired to its real owners (round 2) ──
     // State truth stays in CallController; these close the policy gates
     // shouldRing() consults. The functors capture `this` and read live
@@ -1858,6 +1862,10 @@ ThreadManager *AppController::threads() const { return m_threads.get(); }
 PresenceManager *AppController::presence() const { return m_presence.get(); }
 CallController *AppController::calls() const { return m_calls.get(); }
 RtcController *AppController::rtc() const { return m_rtc.get(); }
+SfuCallController *AppController::groupCall() const
+{
+    return m_groupCall.get();
+}
 
 void AppController::enableCallMediaEngine()
 {
@@ -1875,7 +1883,19 @@ void AppController::enableCallMediaEngine()
         auto *engine = new GstCallMediaBackend(this);
         m_calls->setMediaBackend(engine);
         qCInfo(lcApp) << "voice-call media engine active (webrtcbin)";
+    }
+    // The SFU engine probes a WIDER element set (video and screen capture on
+    // top of audio), so it can legitimately be unavailable where the 1:1
+    // engine is fine. Probed separately for exactly that reason.
+    QString sfuWhyNot;
+    if (SfuMediaEngine::runtimeAvailable(&sfuWhyNot)) {
+        auto *sfu = new SfuMediaEngine(this);
+        m_groupCall->setMediaEngine(sfu);
+        qCInfo(lcApp) << "group-call media engine active (webrtcbin/SFU)";
     } else {
+        qCInfo(lcApp) << "group-call media engine unavailable:" << sfuWhyNot;
+    }
+    if (!GstCallMediaBackend::runtimeAvailable(&whyNot)) {
         // Coarse reason only (element name), safe to log.
         qCInfo(lcApp) << "voice-call media engine unavailable:" << whyNot;
     }
@@ -2004,8 +2024,19 @@ void AppController::setCurrentRoomId(const QString &roomId)
     // 2026-08-23 MatrixRTC: read the newly opened room's call session so the
     // banner is right on arrival rather than only after the next membership
     // change. A read is cheap (state store, no request) and coalesced.
-    if (!roomId.isEmpty())
+    if (!roomId.isEmpty()) {
         m_rtc->refresh(roomId);
+        // Feed the room's REAL encryption state to the join gate. The
+        // tri-state matters: `encryptionKnown` false means we do not yet
+        // know, and an unknown room must fail CLOSED — treating it as
+        // unencrypted would be exactly the silent downgrade §6 forbids.
+        const QVariantMap room = m_roomList->findRoom(roomId);
+        const bool known =
+            room.value(QStringLiteral("encryptionKnown")).toBool();
+        const bool encrypted =
+            room.value(QStringLiteral("encrypted")).toBool();
+        m_rtc->setRoomEncrypted(roomId, !known || encrypted);
+    }
     // v0.7.x: drop QUEUED thread-participant fetches for the room we just
     // left. Those summary cards are gone; letting their fetches run would
     // make the new room's facepiles wait behind answers nothing will read.
