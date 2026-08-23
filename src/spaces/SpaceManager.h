@@ -97,6 +97,19 @@ public:
     // (unjoined subspaces come from /hierarchy via RoomDiscoveryController
     // and are rendered as join offers).
     Q_INVOKABLE QVariantList childSpacesDetailed(const QString &spaceId) const;
+    // 2026-08-23 Channels navigation layout: DIRECT child rooms only, in
+    // `m.space.child` state order.
+    //
+    // NOT the same thing as childRoomsDetailed, which is TRANSITIVE:
+    // rebuild() deliberately flattens a subspace's rooms into every
+    // ancestor's membership, so childRoomsDetailed on a Space with three
+    // subspaces returns every room in the tree as one undifferentiated run.
+    // That is right for "show me everything in this Space" and wrong for a
+    // channel list, where the whole point is the structure the Space's admin
+    // built. This reads the Space's OWN `childRoomIds` and keeps only joined
+    // non-Space children.
+    Q_INVOKABLE QVariantList directChildRoomsDetailed(
+        const QString &spaceId) const;
     Q_INVOKABLE QVariantList addableRooms(const QString &spaceId,
                                           const QString &filter) const;
     // Sends the real m.space.child state event through the backend. The

@@ -987,6 +987,45 @@ QtObject {
     // sidebar so the shell stays coherent.
     readonly property color rail:                _p.rail !== undefined
                                                  ? _p.rail : _p.sidebar
+    // ── Channels navigation layout ───────────────────────────────────────
+    //
+    // DERIVED, not added to eleven palettes. Every one of these falls back to
+    // a token the palette already defines, so the Channels layout works in
+    // all eleven themes on the day it ships and a palette can override any
+    // single tone later without touching this file. A new required key in
+    // eleven palettes is how a theme ends up with one undefined colour and a
+    // transparent row.
+    //
+    // The category header is a quiet, all-caps label — Sable and Discord both
+    // make it the least prominent thing in the column, because it is
+    // structure rather than content and it repeats down the whole list.
+    readonly property color channelCategoryText:
+        _p.channelCategoryText !== undefined ? _p.channelCategoryText
+                                             : textMuted
+    /// The channel name at rest. Deliberately DIMMER than a Classic room
+    /// row's name: a channel list is long and mostly-read, so "read" is the
+    /// resting state and unread is what earns full-strength ink.
+    readonly property color channelText:
+        _p.channelText !== undefined ? _p.channelText : textSecondary
+    /// A channel with unread messages. Full-strength, because in this layout
+    /// weight is the ONLY unread signal for a row without a count.
+    readonly property color channelTextUnread:
+        _p.channelTextUnread !== undefined ? _p.channelTextUnread : text
+    /// The channel you are in. Reuses the room list's own selected pair so a
+    /// user switching layouts does not have to relearn what "here" looks
+    /// like.
+    readonly property color channelSelected:
+        _p.channelSelected !== undefined ? _p.channelSelected : selected
+    readonly property color channelSelectedText:
+        _p.channelSelectedText !== undefined ? _p.channelSelectedText
+                                             : selectedText
+    readonly property color channelHover:
+        _p.channelHover !== undefined ? _p.channelHover : hover
+    /// The unread dot/rail on a channel row. The accent, so it reads as
+    /// "attention" rather than as an error.
+    readonly property color channelUnreadMark:
+        _p.channelUnreadMark !== undefined ? _p.channelUnreadMark : accent
+
     readonly property color surface:             _p.surface
     readonly property color card:                surface
     readonly property color cardElevated:        _p.cardElevated

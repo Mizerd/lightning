@@ -1654,6 +1654,50 @@ Item {
                                        + "Moss Light in light mode, Storm in dark mode.")
                         }
 
+                        SettingsGroupLabel { text: qsTr("Conversation list") }
+                        RowLayout {
+                            objectName: "roomNavigationLayoutCards"
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing12
+
+                            NavigationLayoutCard {
+                                objectName: "navLayoutClassicCard"
+                                Layout.fillWidth: true
+                                variant: "classic"
+                                title: qsTr("Classic")
+                                subtitle: qsTr("One list, most recent first, "
+                                               + "with message previews.")
+                                current: app.settings.roomNavigationLayout === 0
+                                onClicked: app.settings.roomNavigationLayout = 0
+                            }
+                            NavigationLayoutCard {
+                                objectName: "navLayoutChannelsCard"
+                                Layout.fillWidth: true
+                                variant: "channels"
+                                title: qsTr("Channels")
+                                subtitle: qsTr("The space's own categories and "
+                                               + "channels, in its order.")
+                                current: app.settings.roomNavigationLayout === 1
+                                onClicked: app.settings.roomNavigationLayout = 1
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: AppTheme.spacing4
+                            wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
+                            color: AppTheme.stormTextMuted
+                            font.pixelSize: AppTheme.textMeta
+                            // States the limit plainly rather than letting the
+                            // user discover it: Channels shows ONE space's
+                            // hierarchy, so it has nothing to show at Home, and
+                            // Home falls back to Classic instead of rendering
+                            // an empty column.
+                            text: qsTr("Channels shows the space you have open. "
+                                       + "Home and direct messages always use Classic.")
+                        }
+
                         SettingsGroupLabel { text: qsTr("Message layout") }
                         SegmentedControl {
                             storm: true

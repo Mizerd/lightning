@@ -16,6 +16,7 @@
 #include "models/MessageComposer.h"
 #include "models/EmojiCatalog.h"
 #include "models/RoomListModel.h"
+#include "models/SpaceChannelModel.h"
 #include "models/ReverseListProxyModel.h"
 #include "models/TimelineModel.h"
 #include "models/TimelineScrollController.h"
@@ -726,6 +727,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_draftStore->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
     m_roomList->setSpaceManager(m_spaces.get());
+    // The Channels layout reads the same authoritative hierarchy, DIRECTLY
+    // rather than transitively, and follows the rail's active Space.
+    m_spaceChannels = std::make_unique<SpaceChannelModel>(this);
+    m_spaceChannels->setSpaceManager(m_spaces.get());
+    m_spaceChannels->setSpaceId(m_spaces->activeSpaceId());
+    connect(m_spaces.get(), &SpaceManager::activeSpaceIdChanged, this,
+            [this] {
+                m_spaceChannels->setSpaceId(m_spaces->activeSpaceId());
+            });
     m_quickSwitcher->setClient(m_client.get());
     m_quickSwitcher->setSpaceManager(m_spaces.get());
     m_timeline->setClient(m_client.get());
@@ -1852,6 +1862,8 @@ void AppController::applyDemoLaunchOptions(const QString &scenario,
 
 AccountManager *AppController::accounts() const { return m_accounts.get(); }
 RoomListModel *AppController::roomList() const { return m_roomList.get(); }
+SpaceChannelModel *AppController::spaceChannels() const
+{ return m_spaceChannels.get(); }
 QuickSwitcherModel *AppController::quickSwitcher() const
 { return m_quickSwitcher.get(); }
 TimelineModel *AppController::timeline() const { return m_timeline.get(); }

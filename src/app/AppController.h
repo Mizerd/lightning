@@ -36,6 +36,7 @@
 #include "models/QuickSwitcherModel.h"
 #include "models/ReadReceiptCoordinator.h"
 #include "models/RoomListModel.h"
+#include "models/SpaceChannelModel.h"
 #include "models/TimelineModel.h"
 #include "app/PinnedMessagesController.h"
 #include "app/RoomUpgradeController.h"
@@ -215,6 +216,11 @@ class AppController : public QObject
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
     Q_PROPERTY(AccountManager* accounts READ accounts CONSTANT)
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
+    /// The Channels navigation layout's model: the active Space's DIRECT
+    /// hierarchy. Separate from roomList because the two answer different
+    /// questions — see SpaceChannelModel's header for why a filtered
+    /// roomList cannot do this.
+    Q_PROPERTY(SpaceChannelModel* spaceChannels READ spaceChannels CONSTANT)
     Q_PROPERTY(QuickSwitcherModel* quickSwitcher READ quickSwitcher CONSTANT)
     Q_PROPERTY(TimelineModel* timeline READ timeline CONSTANT)
     Q_PROPERTY(QAbstractItemModel* timelineView READ timelineView CONSTANT)
@@ -459,6 +465,7 @@ public:
     AuthManager *auth() const;
     AccountManager *accounts() const;
     RoomListModel *roomList() const;
+    SpaceChannelModel *spaceChannels() const;
     QuickSwitcherModel *quickSwitcher() const;
     TimelineModel *timeline() const;
     QAbstractItemModel *timelineView() const;
@@ -1082,6 +1089,7 @@ private:
     std::unique_ptr<AccountManager> m_accounts;
     std::unique_ptr<AuthManager> m_auth;
     std::unique_ptr<RoomListModel> m_roomList;
+    std::unique_ptr<SpaceChannelModel> m_spaceChannels;
     std::unique_ptr<QuickSwitcherModel> m_quickSwitcher;
     std::unique_ptr<TimelineModel> m_timeline;
     std::unique_ptr<ReverseListProxyModel> m_timelineView;

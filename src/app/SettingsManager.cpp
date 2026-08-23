@@ -15,6 +15,7 @@ namespace {
 constexpr auto kHomeserver          = "homeserver/url";
 constexpr auto kTheme               = "ui/theme";
 constexpr auto kMessageLayout       = "ui/messageLayout";
+constexpr auto kRoomNavLayout       = "ui/roomNavigationLayout";
 constexpr auto kRoomFilterMode      = "ui/roomFilterMode";
 constexpr auto kTextScale           = "ui/textScale";
 constexpr auto kUiFont              = "ui/uiFont";
@@ -444,6 +445,7 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     // different values, so consumers must re-read them.
     Q_EMIT themeChanged();
     Q_EMIT messageLayoutChanged();
+    Q_EMIT roomNavigationLayoutChanged();
     Q_EMIT textScaleChanged();
     Q_EMIT uiFontChanged();
     // Also account-scoped: the switched-to account has its own answer.
@@ -729,6 +731,26 @@ int SettingsManager::messageLayout() const
 {
     const int stored = appearanceValue(kMessageLayout, 0).toInt();
     return (stored < 0 || stored > kMaxMessageLayout) ? 0 : stored;
+}
+
+int SettingsManager::roomNavigationLayout() const
+{
+    const int stored = appearanceValue(kRoomNavLayout, 0).toInt();
+    // Clamped rather than trusted: an out-of-range value from a
+    // hand-edited config or a future version must fall back to Classic,
+    // which is the layout that works in every account including one with no
+    // Spaces at all.
+    return (stored < 0 || stored > kMaxRoomNavigationLayout) ? 0 : stored;
+}
+
+void SettingsManager::setRoomNavigationLayout(int layout)
+{
+    if (layout < 0 || layout > kMaxRoomNavigationLayout)
+        layout = 0;
+    if (roomNavigationLayout() == layout)
+        return;
+    setAppearanceValue(kRoomNavLayout, layout);
+    Q_EMIT roomNavigationLayoutChanged();
 }
 
 void SettingsManager::setMessageLayout(int layout)

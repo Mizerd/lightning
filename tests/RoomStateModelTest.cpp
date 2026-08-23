@@ -791,7 +791,10 @@ void RoomStateModelTest::favouriteToggleIsNeverAppliedLocally()
 // would have shipped mislabelled.
 void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
 {
-    QFile file(QStringLiteral(QML_DIR "/RoomsPanel.qml"));
+    // 2026-08-23: the Classic list moved out of RoomsPanel.qml when that
+    // became a host with two interchangeable presenters. Repointed rather
+    // than deleted — the invariant is unchanged, only the file is.
+    QFile file(QStringLiteral(QML_DIR "/RoomListClassicPresenter.qml"));
     QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
              qPrintable(file.fileName()));
     const QString source = QString::fromUtf8(file.readAll());
@@ -818,9 +821,9 @@ void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
             continue;
         QVERIFY2(source.contains(QStringLiteral("section === \"%1\"")
                                      .arg(category)),
-                 qPrintable(QStringLiteral("RoomsPanel has no section label "
-                                           "for category '%1'")
-                                .arg(category)));
+                 qPrintable(QStringLiteral("the Classic presenter has no "
+                                           "section label for category "
+                                           "'%1'").arg(category)));
     }
     QVERIFY(source.contains(QStringLiteral("qsTr(\"Favourites\")")));
     QVERIFY(source.contains(QStringLiteral("qsTr(\"Rooms\")")));
@@ -842,13 +845,15 @@ void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
 // rather than Lightning's use of it.
 void RoomStateModelTest::theFavouritesSectionIsClosedOffByADivider()
 {
-    QFile panel(QStringLiteral(QML_DIR "/RoomsPanel.qml"));
+    QFile panel(
+        QStringLiteral(QML_DIR "/RoomListClassicPresenter.qml"));
     QVERIFY2(panel.open(QIODevice::ReadOnly | QIODevice::Text),
              qPrintable(panel.fileName()));
     const QString panelSource = QString::fromUtf8(panel.readAll());
 
     const int bindingAt = panelSource.indexOf(QStringLiteral("showGroupDivider:"));
-    QVERIFY2(bindingAt >= 0, "RoomsPanel never binds showGroupDivider");
+    QVERIFY2(bindingAt >= 0,
+             "the Classic presenter never binds showGroupDivider");
     const QString binding = panelSource.mid(bindingAt, 260);
     // The view must ASK THE MODEL. ListView.section / ListView.nextSection
     // go stale under reuseItems and row moves — selecting a room re-sorts

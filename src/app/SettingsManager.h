@@ -33,6 +33,18 @@ class SettingsManager : public QObject
     // logged-out default and the fallback for accounts without one.
     Q_PROPERTY(int messageLayout READ messageLayout WRITE setMessageLayout
                    NOTIFY messageLayoutChanged)
+    /// How the room-list column is organised: 0 = Classic (one activity-
+    /// ordered list with DM/Rooms sections), 1 = Channels (the active
+    /// Space's own hierarchy, categories and channels, in the order its
+    /// admin built).
+    ///
+    /// Account-scoped through appearanceValue like the other Appearance
+    /// choices, so someone whose work account is a Space-heavy workspace and
+    /// whose personal account is a handful of DMs is not forced into one
+    /// shape for both.
+    Q_PROPERTY(int roomNavigationLayout READ roomNavigationLayout
+                   WRITE setRoomNavigationLayout
+                   NOTIFY roomNavigationLayoutChanged)
     // Room-list filter chips (0 All, 1 People, 2 Rooms, 3 Unreads) —
     // per-account with global fallback, like the other appearance state.
     Q_PROPERTY(int roomFilterMode READ roomFilterMode WRITE setRoomFilterMode
@@ -259,7 +271,11 @@ public:
     // Message layout ids (see Q_PROPERTY note). Out-of-range values read
     // back as Modern.
     static constexpr int kMaxMessageLayout = 2;
+    /// 0 Classic, 1 Channels.
+    static constexpr int kMaxRoomNavigationLayout = 1;
     int messageLayout() const;
+    int roomNavigationLayout() const;
+    void setRoomNavigationLayout(int layout);
     void setMessageLayout(int layout);
     int roomFilterMode() const;
     void setRoomFilterMode(int mode);
@@ -617,6 +633,7 @@ Q_SIGNALS:
     void loginHomeserverPrefillChanged();
     void themeChanged();
     void messageLayoutChanged();
+    void roomNavigationLayoutChanged();
     void roomFilterModeChanged();
     void textScaleChanged();
     void uiFontChanged();

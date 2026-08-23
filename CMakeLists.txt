@@ -450,6 +450,8 @@ set(APP_SOURCES
 
     src/models/RoomListModel.h
     src/models/RoomListModel.cpp
+    src/models/SpaceChannelModel.h
+    src/models/SpaceChannelModel.cpp
     src/models/QuickSwitcherModel.h
     src/models/QuickSwitcherModel.cpp
     src/models/TimelineModel.h
@@ -667,6 +669,14 @@ set(APP_QML_FILES
     qml/RoomsPanel.qml
     qml/TimelinePane.qml
     qml/RoomDelegate.qml
+    # 2026-08-23 navigation layouts: the room-list column is now a host with
+    # two interchangeable presenters.
+    qml/RoomListClassicPresenter.qml
+    qml/RoomChannelsPresenter.qml
+    qml/ChannelDelegate.qml
+    qml/ChannelCategoryHeader.qml
+    qml/UnreadBadge.qml
+    qml/NavigationLayoutCard.qml
     qml/MessageDelegate.qml
     qml/RoomActivityDelegate.qml
     qml/MessageComposerBar.qml
@@ -2608,6 +2618,41 @@ if(BUILD_TESTING)
     target_link_libraries(sfu-video-router-test
         PRIVATE Qt6::Core Qt6::Multimedia Qt6::Test)
     add_test(NAME sfu-video-router COMMAND sfu-video-router-test)
+
+    # 2026-08-23 navigation layouts: SpaceChannelModel flattening one Space's
+    # DIRECT hierarchy. The defect it exists to prevent is subtle — the
+    # pre-existing childRoomsDetailed() is TRANSITIVE, so building on it
+    # showed every subspace room twice, once at the top level and again under
+    # its own category.
+    qt_add_executable(space-channels-test
+        tests/SpaceChannelsTest.cpp
+        src/models/SpaceChannelModel.h
+        src/models/SpaceChannelModel.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(space-channels-test PRIVATE src)
+    target_link_libraries(space-channels-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME space-channels COMMAND space-channels-test)
+
+    # 2026-08-23: the host/presenter SEPARATION. A source-scan suite on
+    # purpose — what it defends is which file contains what, which no runtime
+    # assertion can see. Chiefly: a presenter must never reach up into the
+    # host by id (the 2026-08-19 dead-click shape), only one presenter is
+    # instantiated, Channels never renders without a Space, and every new
+    # theme token is DERIVED rather than added to eleven palettes.
+    qt_add_executable(navigation-layout-contract-test
+        tests/NavigationLayoutContractTest.cpp
+    )
+    target_compile_definitions(navigation-layout-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(navigation-layout-contract-test
+        PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME navigation-layout-contract
+             COMMAND navigation-layout-contract-test)
 
     # 2026-08-23 MatrixRTC observation: the session store's op-id/room
     # matching and generation isolation, poke coalescing (including a poke

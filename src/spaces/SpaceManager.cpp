@@ -251,6 +251,55 @@ QVariantList SpaceManager::childRoomsDetailed(const QString &spaceId) const
     return out;
 }
 
+QVariantList SpaceManager::directChildRoomsDetailed(
+    const QString &spaceId) const
+{
+    QVariantList out;
+    if (!m_client || spaceId.isEmpty())
+        return out;
+    const auto rooms = m_client->rooms();
+    QHash<QString, RoomInfo> byId;
+    byId.reserve(rooms.size());
+    for (const RoomInfo &room : rooms)
+        byId.insert(room.id, room);
+
+    const auto parent = byId.constFind(spaceId);
+    if (parent == byId.constEnd() || !parent->isSpace)
+        return out;
+
+    // The Space's own state order. Children the account has not joined, and
+    // child SPACES (which are categories, not channels), are simply absent —
+    // never fabricated placeholder rows.
+    QSet<QString> seen;
+    for (const QString &childId : parent->childRoomIds) {
+        if (seen.contains(childId))
+            continue;
+        seen.insert(childId);
+        const auto it = byId.constFind(childId);
+        if (it == byId.constEnd() || it->isSpace
+            || it->membership != RoomInfo::Joined) {
+            continue;
+        }
+        out.append(QVariantMap{
+            { QStringLiteral("roomId"),           it->id },
+            { QStringLiteral("name"),             it->name },
+            { QStringLiteral("avatarUrl"),        it->avatarUrl },
+            { QStringLiteral("isDirect"),         it->isDirect },
+            // KNOWN encryption only. The channel row draws a lock for this,
+            // and a lock on a room whose state has not resolved would claim
+            // encryption as a fact — the hash glyph is the honest fallback
+            // for "not established yet".
+            { QStringLiteral("encrypted"),
+              it->encrypted && it->encryptionKnown },
+            { QStringLiteral("identityColorKey"), identityColorKey(*it) },
+            { QStringLiteral("hasUnread"),        it->hasUnreadMessages },
+            { QStringLiteral("unreadCount"),      it->unreadCount },
+            { QStringLiteral("highlightCount"),   it->highlightCount },
+        });
+    }
+    return out;
+}
+
 QVariantList SpaceManager::childSpacesDetailed(const QString &spaceId) const
 {
     QVariantList out;
