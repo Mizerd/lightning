@@ -69,6 +69,20 @@ class SettingsManager : public QObject
     // are governed by notificationsEnabled; this only silences the ring.
     Q_PROPERTY(bool ringForCalls READ ringForCalls WRITE setRingForCalls
                    NOTIFY ringForCallsChanged)
+    // Call device preferences. DEVICE-scoped, not account-scoped: a
+    // microphone belongs to the machine, and two accounts on one desktop
+    // share the same hardware. Stored as the PipeWire/Pulse node name; an
+    // empty value means "system default", which is a real choice and is
+    // stored as such rather than as the resolved id of the day.
+    Q_PROPERTY(QString preferredMicrophoneId READ preferredMicrophoneId
+                   WRITE setPreferredMicrophoneId
+                   NOTIFY callDevicePreferenceChanged)
+    Q_PROPERTY(QString preferredSpeakerId READ preferredSpeakerId
+                   WRITE setPreferredSpeakerId
+                   NOTIFY callDevicePreferenceChanged)
+    Q_PROPERTY(QString preferredCameraId READ preferredCameraId
+                   WRITE setPreferredCameraId
+                   NOTIFY callDevicePreferenceChanged)
     // v0.5.11: link previews. Encrypted-room previews default OFF (privacy).
     Q_PROPERTY(bool autoLoadLinkPreviews READ autoLoadLinkPreviews
                    WRITE setAutoLoadLinkPreviews NOTIFY autoLoadLinkPreviewsChanged)
@@ -273,6 +287,12 @@ public:
     int notificationSound() const;
     void setNotificationSound(int mode);
     bool ringForCalls() const;
+    QString preferredMicrophoneId() const;
+    void setPreferredMicrophoneId(const QString &id);
+    QString preferredSpeakerId() const;
+    void setPreferredSpeakerId(const QString &id);
+    QString preferredCameraId() const;
+    void setPreferredCameraId(const QString &id);
     void setRingForCalls(bool enabled);
     void setNotificationPreview(int mode);
     // v0.6.0 checkpoint 11: per-room notification mode (0 = all messages,
@@ -607,6 +627,7 @@ Q_SIGNALS:
     void notificationPreviewChanged();
     void notificationSoundChanged();
     void ringForCallsChanged();
+    void callDevicePreferenceChanged();
     void roomNotificationModeChanged(const QString &roomId);
     void autoLoadLinkPreviewsChanged();
     void loadPreviewsInEncryptedRoomsChanged();

@@ -39,30 +39,55 @@ private:
     }
 
 private Q_SLOTS:
-    void inCallAudioControlsCannotAppearAsDeadButtons()
+    void inCallControlsLiveAtTheTopOfTheConversation()
     {
-        // The mute and deafen controls are the ONLY affordance for those
-        // features in the app, so two things must hold and both are easy to
-        // regress:
-        //
-        //  1. They are gated on `muteControlAvailable`, not merely on a
-        //     backend existing. `CallMediaBackend`'s mute methods default to
-        //     a NO-OP, so a backend that does not override them would
-        //     otherwise present a control that silently does nothing.
-        //  2. They are scoped to a LIVE call. Offering mute while idle would
-        //     set an intent with nothing to apply it to.
-        const QString norm = normalized(
+        // 2026-08-23 (maintainer request, with a reference screenshot): the
+        // in-call controls moved from the corner card to a bar directly
+        // under the room header. Three things must hold.
+        const QString bar = normalized(
+            read(QStringLiteral(QML_DIR "/CallHeaderBar.qml")));
+        QVERIFY(!bar.isEmpty());
+
+        // 1. Mute, deafen, camera, screen share and leave are all there —
+        //    the gaps the maintainer reported were the missing device
+        //    chooser and screen share, so their absence is the regression
+        //    this pins.
+        for (const auto &name : {"callBarMicButton", "callBarDeafenButton",
+                                 "callBarCameraButton",
+                                 "callBarScreenShareButton",
+                                 "callBarHangUpButton"}) {
+            QVERIFY2(bar.contains(QStringLiteral("objectName: \"%1\"")
+                                      .arg(QLatin1String(name))),
+                     qPrintable(QStringLiteral("missing %1")
+                                    .arg(QLatin1String(name))));
+        }
+        // 2. Device choosers exist for microphone and output. Without these
+        //    a user with several microphones cannot pick one, which is
+        //    exactly what was reported.
+        QVERIFY(bar.contains(QStringLiteral("objectName: \"callBarMicChevron\"")));
+        QVERIFY(bar.contains(
+            QStringLiteral("objectName: \"callBarSpeakerChevron\"")));
+        // 3. It only shows for the room the call is IN. A bar in the wrong
+        //    room would hang up a call the user is not looking at.
+        QVERIFY(bar.contains(QStringLiteral("callRoomId === app.currentRoomId")));
+        // Screen share goes through the portal entry point, never a
+        // hardcoded node id.
+        QVERIFY(bar.contains(QStringLiteral("app.groupCall.requestScreenShare()")));
+    }
+
+    void theCornerCardNoLongerOwnsALiveCall()
+    {
+        // Two surfaces offering mute, with nothing to say they are the same
+        // state, is worse than either alone. The card keeps the RING and the
+        // dialing states — the cases where the user may not be looking at
+        // the call's room — and hands an ACTIVE call to the top bar.
+        const QString card = normalized(
             read(QStringLiteral(QML_DIR "/IncomingCallPrompt.qml")));
-        QVERIFY(!norm.isEmpty());
-        QVERIFY(norm.contains(QStringLiteral("objectName: \"inCallMuteButton\"")));
-        QVERIFY(norm.contains(QStringLiteral("objectName: \"inCallDeafenButton\"")));
-        QVERIFY2(norm.contains(QStringLiteral(
-                     "visible: root.inCall && app.calls.muteControlAvailable")),
-                 "audio controls must be gated on a live call AND an engine "
-                 "that really implements mute");
-        // The toggles must reach the controller, never a local-only flag.
-        QVERIFY(norm.contains(QStringLiteral("app.calls.toggleMicrophoneMuted()")));
-        QVERIFY(norm.contains(QStringLiteral("app.calls.toggleDeafened()")));
+        QVERIFY(!card.isEmpty());
+        QVERIFY2(!card.contains(QStringLiteral("inCallMuteButton")),
+                 "mute moved to the top bar and must not be duplicated here");
+        QVERIFY(card.contains(QStringLiteral(
+            "(inCall && app.calls.state !== CallController.Active)")));
     }
 
     void promptBindsToCallStateNotPolicy()
@@ -170,6 +195,102 @@ private Q_SLOTS:
             QStringLiteral("checked: app.settings.ringForCalls")));
         QVERIFY(norm.contains(
             QStringLiteral("app.settings.ringForCalls = checked")));
+    }
+
+    void callHeaderBarInstantiatesAndLaysOutItsControls()
+    {
+        // A REAL instantiation, not a source scan: this is what catches a
+        // control that fails to lay out, a binding against a property that
+        // does not exist, or a Loader whose component cannot be created —
+        // none of which a text search can see.
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(),
+                            &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine,
+                              &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallHeaderBar"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(3000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY2(root != nullptr, "CallHeaderBar must instantiate");
+
+        // Collapsed while no call is live, so a room without one reserves
+        // no vertical space.
+        QCOMPARE(root->property("live").toBool(), false);
+        QCOMPARE(root->property("visible").toBool(), false);
+        QCOMPARE(root->property("height").toDouble(), 0.0);
+
+        // The controls exist as real items, and each has a non-zero size —
+        // a control that lays out to nothing is invisible in practice even
+        // though every source check passes.
+        for (const auto &name : {"callBarMicButton", "callBarMicChevron",
+                                 "callBarDeafenButton",
+                                 "callBarSpeakerChevron",
+                                 "callBarHangUpButton"}) {
+            auto *item = root->findChild<QQuickItem *>(QLatin1String(name));
+            QVERIFY2(item != nullptr,
+                     qPrintable(QStringLiteral("missing %1")
+                                    .arg(QLatin1String(name))));
+            QVERIFY2(item->implicitWidth() > 0 && item->implicitHeight() > 0,
+                     qPrintable(QStringLiteral("%1 has no size")
+                                    .arg(QLatin1String(name))));
+        }
+    }
+
+    void callHeaderBarShowsForALiveCallInItsOwnRoomOnly()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(),
+                            &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine,
+                              &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallHeaderBar"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(3000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        // A ring is NOT the bar's job: the corner card owns that, because
+        // the user may not be looking at the ringing room.
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        CallSignal invite;
+        invite.kind = CallSignal::Kind::Invite;
+        invite.roomId = QStringLiteral("!general:mock.local");
+        invite.eventId = QStringLiteral("$invite-bar");
+        invite.sender = QStringLiteral("@peer:mock.local");
+        invite.callId = QStringLiteral("bar-call");
+        invite.partyId = QStringLiteral("peer-party");
+        invite.lifetimeMs = 60000;
+        invite.originServerTs = QDateTime::currentMSecsSinceEpoch();
+        mock->emitCallSignalForTest(invite);
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        QCOMPARE(root->property("live").toBool(), false);
+
+        // The room the call belongs to is what gates visibility. Without
+        // this, a bar in the wrong room would hang up a call the user is
+        // not even looking at.
+        QCOMPARE(root->property("callRoomId").toString(),
+                 QStringLiteral("!general:mock.local"));
     }
 
     void promptInstantiatesAndReactsToARealRing()

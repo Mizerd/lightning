@@ -46,6 +46,18 @@ public:
     // WebRTC handshake with no audio devices. Set before the first call.
     void setTestToneMode(bool on) { m_testTone = on; }
 
+    /// Capture/playback element descriptions from CallDeviceController, e.g.
+    /// `pulsesrc device="alsa_input.…"`. EMPTY means "use the automatic
+    /// element", which follows the system default as it changes instead of
+    /// pinning today's answer — so an empty string is a real setting, not a
+    /// missing one.
+    ///
+    /// Applied to the NEXT call. Changing a device mid-call would require
+    /// rebuilding the capture branch inside a live pipeline; the controller
+    /// reports the change and the next call picks it up.
+    void setAudioDevices(const QString &sourceElement,
+                         const QString &sinkElement);
+
     void createOffer(const QString &callId) override;
     void createAnswer(const QString &callId,
                       const QString &remoteOfferSdp) override;
@@ -134,6 +146,8 @@ private:
     // without letting the track go audible first.
     std::atomic<bool> m_outputMuted{false};
     bool m_testTone = false;
+    QString m_audioSourceElement;
+    QString m_audioSinkElement;
     QStringList m_iceUris;
     QString m_iceUsername;
     QString m_icePassword;

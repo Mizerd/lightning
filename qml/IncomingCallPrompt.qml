@@ -31,13 +31,16 @@ Rectangle {
         || app.calls.state === CallController.Active
 
     readonly property bool shouldShow:
-        // A LIVE call (dialing/connecting/active) follows the user
-        // everywhere — this card carries the only Hang Up in the app, and
-        // opening Settings mid-call must not hide it (review round 3). A
-        // RING stays chat-shell-only (currentScreen 1): the desktop
-        // notification covers the user elsewhere, and never over
-        // login/boot where there is no account to act on.
-        inCall
+        // 2026-08-23: the in-call form now lives at the TOP of the
+        // conversation (CallHeaderBar), so this card is the RING and the
+        // dialing/connecting states only — the two cases where the user may
+        // not be looking at the call's room, and where a control anchored to
+        // that room would therefore be unreachable.
+        //
+        // Once a call is ACTIVE the top bar owns it. Showing both would give
+        // the user two places to mute with nothing to say they are the same
+        // state.
+        (inCall && app.calls.state !== CallController.Active)
         || (ringing && app.calls.activeCallId !== dismissedCallId
             && app.currentScreen === 1)
 
@@ -123,48 +126,6 @@ Rectangle {
                           .arg(caller)
                     : qsTr("Answering on this device isn't supported yet.")
             }
-        }
-
-        // In-call audio controls. Shown only while a call is LIVE and only
-        // when the engine genuinely implements them
-        // (`muteControlAvailable`) — the seam's default is a no-op, so a
-        // backend that does not override mute must not light up a control
-        // that silently does nothing.
-        //
-        // These are the only affordance for mute and deafen in the app, so
-        // they also make the state VISIBLE: deafen persists across calls
-        // (the familiar convention), and a persisting state with no
-        // indicator would leave a user unable to hear with no visible
-        // cause.
-        RowLayout {
-            objectName: "inCallAudioControls"
-            Layout.fillWidth: true
-            visible: root.inCall && app.calls.muteControlAvailable
-            spacing: AppTheme.spacing8
-
-            CallControlButton {
-                objectName: "inCallMuteButton"
-                // The icon states the CURRENT state, which is what a muted
-                // user needs to see at a glance.
-                iconName: app.calls.microphoneMuted ? "mic_off" : "mic"
-                role: app.calls.microphoneMuted ? "active" : "neutral"
-                diameter: 36
-                glyphSize: 18
-                tooltip: app.calls.microphoneMuted
-                         ? qsTr("Unmute microphone")
-                         : qsTr("Mute microphone")
-                onClicked: app.calls.toggleMicrophoneMuted()
-            }
-            CallControlButton {
-                objectName: "inCallDeafenButton"
-                iconName: app.calls.deafened ? "headset_off" : "headset_mic"
-                role: app.calls.deafened ? "active" : "neutral"
-                diameter: 36
-                glyphSize: 18
-                tooltip: app.calls.deafened ? qsTr("Undeafen") : qsTr("Deafen")
-                onClicked: app.calls.toggleDeafened()
-            }
-            Item { Layout.fillWidth: true }
         }
 
         RowLayout {

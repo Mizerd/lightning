@@ -29,6 +29,7 @@
 #include "calls/CallController.h"
 #ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/GstCallMediaBackend.h"
+#include "calls/ScreenCastPortal.h"
 #include "calls/SfuMediaEngine.h"
 #endif
 #include "presence/PresenceManager.h"
@@ -244,6 +245,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_calls        = std::make_unique<CallController>(this);
     m_rtc          = std::make_unique<RtcController>(this);
     m_groupCall    = std::make_unique<SfuCallController>(this);
+    m_callDevices  = std::make_unique<CallDeviceController>(this);
     // Application updates. Constructed once and never rebuilt: it holds no
     // Matrix state, is not account-scoped, and signing in, signing out or
     // switching account must not disturb an update check or download.
@@ -594,6 +596,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_rtc->setClient(m_client.get());
     m_groupCall->setClient(m_client.get());
     m_groupCall->setRtcController(m_rtc.get());
+    m_callDevices->setSettings(m_settings.get());
     // ── Voice-call ring policy, wired to its real owners (round 2) ──
     // State truth stays in CallController; these close the policy gates
     // shouldRing() consults. The functors capture `this` and read live
@@ -1867,6 +1870,11 @@ SfuCallController *AppController::groupCall() const
     return m_groupCall.get();
 }
 
+CallDeviceController *AppController::callDevices() const
+{
+    return m_callDevices.get();
+}
+
 void AppController::enableCallMediaEngine()
 {
     // Called from main.cpp for the REAL application run only — never from
@@ -1882,6 +1890,18 @@ void AppController::enableCallMediaEngine()
     if (GstCallMediaBackend::runtimeAvailable(&whyNot)) {
         auto *engine = new GstCallMediaBackend(this);
         m_calls->setMediaBackend(engine);
+        // Apply the user's chosen capture/playback devices, and follow a
+        // hotplug that actually moves the ACTIVE device. Applied per session
+        // by the engine, so a change lands on the next call rather than
+        // relinking a live pipeline.
+        const auto applyDevices = [this, engine] {
+            engine->setAudioDevices(m_callDevices->microphoneElement(),
+                                    m_callDevices->speakerElement());
+        };
+        applyDevices();
+        connect(m_callDevices.get(),
+                &CallDeviceController::activeDevicesChanged, engine,
+                applyDevices);
         qCInfo(lcApp) << "voice-call media engine active (webrtcbin)";
     }
     // The SFU engine probes a WIDER element set (video and screen capture on
@@ -1891,6 +1911,16 @@ void AppController::enableCallMediaEngine()
     if (SfuMediaEngine::runtimeAvailable(&sfuWhyNot)) {
         auto *sfu = new SfuMediaEngine(this);
         m_groupCall->setMediaEngine(sfu);
+        // Screen sharing goes through the desktop portal, so the picker is
+        // the compositor's and Lightning never enumerates windows itself.
+        // Registered only when a portal actually answers on this session
+        // bus; without one the control refuses honestly.
+        if (ScreenCastPortal::available()) {
+            m_groupCall->setScreenCastPortal(new ScreenCastPortal(this));
+            qCInfo(lcApp) << "screen-share portal available";
+        } else {
+            qCInfo(lcApp) << "screen-share portal unavailable";
+        }
         qCInfo(lcApp) << "group-call media engine active (webrtcbin/SFU)";
     } else {
         qCInfo(lcApp) << "group-call media engine unavailable:" << sfuWhyNot;

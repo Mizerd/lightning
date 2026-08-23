@@ -383,6 +383,10 @@ set(APP_SOURCES
     src/calls/RtcController.cpp
     src/calls/SfuCallController.h
     src/calls/SfuCallController.cpp
+    src/calls/CallDeviceController.h
+    src/calls/CallDeviceController.cpp
+    src/calls/ScreenCastPortal.h
+    src/calls/ScreenCastPortal.cpp
     # Header only: AUTOMOC supplies the CallMediaBackend metaobject; no
     # implementation exists in the tree (the media seam — tests use a fake).
     src/calls/CallMediaBackend.h
@@ -703,6 +707,10 @@ set(APP_QML_FILES
     qml/UpdateAvailablePrompt.qml
     qml/IncomingCallPrompt.qml
     qml/CallControlButton.qml
+    qml/CallDeviceChevron.qml
+    qml/CallDeviceMenu.qml
+    qml/CallDeviceSettings.qml
+    qml/CallHeaderBar.qml
     qml/CallControlBar.qml
     qml/CallTileBadge.qml
     qml/CallParticipantTile.qml
@@ -2517,6 +2525,8 @@ if(BUILD_TESTING)
         src/calls/RtcController.cpp
         src/calls/SfuCallController.h
         src/calls/SfuCallController.cpp
+        src/calls/ScreenCastPortal.h
+        src/calls/ScreenCastPortal.cpp
         src/calls/CallMediaBackend.h
         src/calls/SdpStore.h
         src/matrix/CallSignal.h
@@ -2551,6 +2561,16 @@ if(BUILD_TESTING)
     add_test(NAME call-ring-policy COMMAND call-ring-policy-test)
     set_tests_properties(call-ring-policy PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Screenshot harness for the in-call header bar. Not a test: it renders
+    # the real component in a real window and saves a PNG, so a visual
+    # complaint can be checked visually. Built only under BUILD_TESTING.
+    qt_add_executable(call-bar-shot
+        tests/CallBarShot.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(call-bar-shot)
+    target_link_libraries(call-bar-shot PRIVATE Qt6::Test)
 
     # 2026-08-23 MatrixRTC phase 2: LiveKit-compatible frame encryption.
     # Asserts the WIRE FORMAT against livekit-client's own implementation —

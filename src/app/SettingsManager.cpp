@@ -880,6 +880,76 @@ void SettingsManager::setRingForCalls(bool enabled)
     Q_EMIT ringForCallsChanged();
 }
 
+// Call device preferences. Device-scoped on purpose (see the header): the
+// hardware belongs to the machine, not the account.
+//
+// The id is bounded and control-character-checked before storage even though
+// it comes from QMediaDevices rather than the network: it is written into a
+// GStreamer pipeline description, and a stored value could also be edited by
+// hand in the config file.
+namespace {
+QString sanitizedDeviceId(const QString &id)
+{
+    if (id.size() > 256)
+        return QString();
+    for (const QChar c : id) {
+        if (c.isNull() || c.category() == QChar::Other_Control)
+            return QString();
+    }
+    // A quote or backslash would break out of the pipeline description this
+    // ends up in; no legitimate PipeWire node name contains one.
+    if (id.contains(QLatin1Char('"')) || id.contains(QLatin1Char('\\'))
+        || id.contains(QLatin1Char('!')))
+        return QString();
+    return id;
+}
+} // namespace
+
+QString SettingsManager::preferredMicrophoneId() const
+{
+    return sanitizedDeviceId(
+        m_store->value(QStringLiteral("calls/microphoneId")).toString());
+}
+
+void SettingsManager::setPreferredMicrophoneId(const QString &id)
+{
+    const QString clean = sanitizedDeviceId(id);
+    if (preferredMicrophoneId() == clean)
+        return;
+    m_store->setValue(QStringLiteral("calls/microphoneId"), clean);
+    Q_EMIT callDevicePreferenceChanged();
+}
+
+QString SettingsManager::preferredSpeakerId() const
+{
+    return sanitizedDeviceId(
+        m_store->value(QStringLiteral("calls/speakerId")).toString());
+}
+
+void SettingsManager::setPreferredSpeakerId(const QString &id)
+{
+    const QString clean = sanitizedDeviceId(id);
+    if (preferredSpeakerId() == clean)
+        return;
+    m_store->setValue(QStringLiteral("calls/speakerId"), clean);
+    Q_EMIT callDevicePreferenceChanged();
+}
+
+QString SettingsManager::preferredCameraId() const
+{
+    return sanitizedDeviceId(
+        m_store->value(QStringLiteral("calls/cameraId")).toString());
+}
+
+void SettingsManager::setPreferredCameraId(const QString &id)
+{
+    const QString clean = sanitizedDeviceId(id);
+    if (preferredCameraId() == clean)
+        return;
+    m_store->setValue(QStringLiteral("calls/cameraId"), clean);
+    Q_EMIT callDevicePreferenceChanged();
+}
+
 // The per-room mode became account-derived state when the Rust backend's
 // server push-rule sync landed, so it is stored per account
 // (accounts/<slug>/notifications/room-mode/<roomId>) like the appearance

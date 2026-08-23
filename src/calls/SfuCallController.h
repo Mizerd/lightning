@@ -43,6 +43,7 @@
 
 class MatrixClient;
 class RtcController;
+class ScreenCastPortal;
 class SfuMediaEngine;
 
 class SfuCallController : public QObject
@@ -94,6 +95,8 @@ public:
     /// Not owned. Absent means calling refuses honestly rather than
     /// pretending — the same discipline as the 1:1 lane's media seam.
     void setMediaEngine(SfuMediaEngine *engine);
+    /// Not owned. Absent means screen sharing refuses honestly.
+    void setScreenCastPortal(ScreenCastPortal *portal);
 
     State state() const { return m_state; }
     int stateInt() const { return static_cast<int>(m_state); }
@@ -122,10 +125,13 @@ public:
     Q_INVOKABLE void toggleDeafened();
     Q_INVOKABLE void setCameraOn(bool on);
     Q_INVOKABLE void toggleCamera();
-    /// `pipewireNodeId` comes from an xdg-desktop-portal ScreenCast session;
-    /// -1 stops sharing. A negative id when starting is REFUSED rather than
-    /// defaulted — "whatever PipeWire feels like" is how you publish the
-    /// wrong monitor.
+    /// Ask the desktop portal for a source and start sharing what the user
+    /// picks. This is the entry point the UI uses: the portal owns the
+    /// picker, so Lightning never enumerates windows itself.
+    Q_INVOKABLE void requestScreenShare();
+    /// Start sharing a PipeWire node the portal already granted. A negative
+    /// id is REFUSED rather than defaulted — "whatever PipeWire feels like"
+    /// is how you publish the wrong monitor.
     Q_INVOKABLE bool startScreenShare(int pipewireNodeId);
     Q_INVOKABLE void stopScreenShare();
     Q_INVOKABLE void setHandRaised(bool raised);
@@ -182,6 +188,7 @@ private:
     QPointer<MatrixClient> m_client;
     QPointer<RtcController> m_rtc;
     QPointer<SfuMediaEngine> m_engine;
+    QPointer<ScreenCastPortal> m_portal;
 
     State m_state = State::Idle;
     QString m_roomId;

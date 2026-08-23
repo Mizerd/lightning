@@ -70,6 +70,21 @@ Item {
           keywords: qsTr("wheel speed scroll timeline"), section: "appearance",
           breadcrumb: qsTr("Appearance · Timeline") },
 
+        { title: qsTr("Microphone"),
+          keywords: qsTr("microphone mic input device voice call audio"),
+          section: "notifications",
+          breadcrumb: qsTr("Notifications · Voice & video"),
+          control: "callDevice_microphone" },
+        { title: qsTr("Output device"),
+          keywords: qsTr("speaker output headphones device voice call audio"),
+          section: "notifications",
+          breadcrumb: qsTr("Notifications · Voice & video"),
+          control: "callDevice_speaker" },
+        { title: qsTr("Camera"),
+          keywords: qsTr("camera webcam video device call"),
+          section: "notifications",
+          breadcrumb: qsTr("Notifications · Voice & video"),
+          control: "callDevice_camera" },
         { title: qsTr("Desktop notifications"),
           keywords: qsTr("notifications desktop enable"),
           section: "notifications", breadcrumb: qsTr("Notifications"),
@@ -2782,6 +2797,26 @@ Item {
                                                + "active rooms stay silent. Bursts are "
                                                + "coalesced into a single alert.")
                                 }
+                                // Voice & video devices. A separate component:
+                                // this file is already one of the largest in
+                                // the tree, and device pickers are a coherent
+                                // unit of their own.
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing12
+                                    text: qsTr("Voice & video")
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightBold
+                                }
+                                CallDeviceSettings {
+                                    objectName: "callDeviceSettings"
+                                    Layout.fillWidth: true
+                                    // Enumeration initialises Qt Multimedia,
+                                    // so it waits until this section is
+                                    // actually on screen.
+                                    activated: visible
+                                }
+
                                 CheckBox {
                                     objectName: "ringForCallsCheck"
                                     palette.windowText: AppTheme.stormText

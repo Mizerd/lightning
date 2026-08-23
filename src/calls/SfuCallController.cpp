@@ -5,6 +5,7 @@
 #include <QVariantMap>
 
 #include "calls/RtcController.h"
+#include "calls/ScreenCastPortal.h"
 #include "matrix/MatrixClient.h"
 
 #ifdef HAVE_LIGHTNING_WEBRTC
@@ -90,6 +91,54 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
             &SfuCallController::onEngineFailed);
 #else
     Q_UNUSED(engine);
+#endif
+}
+
+void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
+{
+    if (m_portal == portal)
+        return;
+    if (m_portal)
+        disconnect(m_portal, nullptr, this, nullptr);
+    m_portal = portal;
+    if (!m_portal)
+        return;
+    connect(m_portal, &ScreenCastPortal::ready, this,
+            [this](unsigned nodeId) {
+                // The portal granted exactly what the user picked. Guard on
+                // still being in a call: the picker is modal to the desktop,
+                // not to us, so the call can end while it is open.
+                if (!active())
+                    return;
+                startScreenShare(static_cast<int>(nodeId));
+            });
+    connect(m_portal, &ScreenCastPortal::cancelled, this, [] {
+        // The user declined. Deliberately silent: a dialog saying "you
+        // cancelled" is noise.
+    });
+    connect(m_portal, &ScreenCastPortal::failed, this,
+            [this](const QString &category) {
+                Q_EMIT callFailed(category == QLatin1String("no_portal")
+                                      ? tr("Screen sharing isn't available on "
+                                           "this desktop.")
+                                      : tr("Screen sharing couldn't start."));
+            });
+}
+
+void SfuCallController::requestScreenShare()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!active() || m_engine.isNull())
+        return;
+    if (m_portal.isNull() || !ScreenCastPortal::available()) {
+        Q_EMIT callFailed(
+            tr("Screen sharing isn't available on this desktop."));
+        return;
+    }
+    // Monitors and windows. Virtual sources are deliberately not offered:
+    // they exist for remote-desktop use and would confuse the picker here.
+    m_portal->requestShare(ScreenCastPortal::Monitor
+                           | ScreenCastPortal::Window);
 #endif
 }
 
@@ -485,6 +534,8 @@ void SfuCallController::teardown(State finalState, const QString &error)
     if (!m_engine.isNull())
         m_engine->stop();
 #endif
+    if (m_portal)
+        m_portal->cancel();
     if (m_client) {
         m_client->sfuDisconnect();
         if (!m_roomId.isEmpty()) {
@@ -628,6 +679,10 @@ void SfuCallController::stopScreenShare()
         break;
     }
     m_screenSharing = false;
+    // Close the portal session too: leaving it open keeps the compositor
+    // capturing a surface nothing is reading.
+    if (m_portal)
+        m_portal->cancel();
     Q_EMIT mediaStateChanged();
 #endif
 }

@@ -880,6 +880,20 @@ Rectangle {
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
+        // In-call controls, directly under the room header (2026-08-23,
+        // maintainer request with a reference screenshot). A call is the
+        // thing the user is doing in this room, so its controls belong with
+        // the room rather than floating in a corner where they compete with
+        // passive prompts for the same space.
+        //
+        // Serves BOTH lanes: the legacy 1:1 call that carries audio today
+        // and the MatrixRTC group call. Collapses to zero height when no
+        // call is live in THIS room, so a room without one reserves nothing.
+        CallHeaderBar {
+            objectName: "timelineCallHeaderBar"
+            Layout.fillWidth: true
+        }
+
         // The call surface REPLACES the timeline while a call is live and
         // the user has not navigated away from it. It is not an overlay: a
         // call is the thing the user is doing, and half-covering the room

@@ -219,7 +219,11 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     const QString source = m_testTone
         ? QStringLiteral(
               "audiotestsrc is-live=true wave=sine freq=440 volume=0.05")
-        : QStringLiteral("autoaudiosrc");
+        // A chosen device, or autoaudiosrc when the user is on "system
+        // default" — which keeps following the default as it changes.
+        : (m_audioSourceElement.isEmpty()
+               ? QStringLiteral("autoaudiosrc")
+               : m_audioSourceElement);
     // As the OFFERER we pick 111 (the ecosystem convention). As the
     // ANSWERER RFC 3264 requires reusing the OFFERER's number for the
     // matched codec, so createAnswer() extracts it from the remote offer's
@@ -476,6 +480,16 @@ void GstCallMediaBackend::addRemoteCandidate(const QString &callId,
     g_signal_emit_by_name(m_session.webrtc, "add-ice-candidate",
                           static_cast<guint>(qMax(0, sdpMLineIndex)),
                           candidate.toUtf8().constData());
+}
+
+void GstCallMediaBackend::setAudioDevices(const QString &sourceElement,
+                                          const QString &sinkElement)
+{
+    // Stored for the NEXT session: swapping a capture element inside a live
+    // pipeline means tearing down and relinking the send branch, and a
+    // half-relinked pipeline is worse than a device change that waits.
+    m_audioSourceElement = sourceElement;
+    m_audioSinkElement = sinkElement;
 }
 
 void GstCallMediaBackend::setMicrophoneMuted(const QString &callId,
@@ -789,11 +803,20 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         return;
     // The receive chain. m_testTone is set before any session and never
     // mutated during one, so this cross-thread read is benign.
-    const char *description = backend->m_testTone
-        ? "queue ! rtpopusdepay ! opusdec ! audioconvert ! audioresample "
-          "! volume name=outvol ! fakesink sync=false"
-        : "queue ! rtpopusdepay ! opusdec ! audioconvert ! audioresample "
-          "! volume name=outvol ! autoaudiosink";
+    // m_audioSinkElement is set before any session and not mutated during
+    // one, so this cross-thread read is benign (same reasoning as m_testTone).
+    const QString sink = backend->m_audioSinkElement.isEmpty()
+        ? QStringLiteral("autoaudiosink")
+        : backend->m_audioSinkElement;
+    const QString descriptionString = backend->m_testTone
+        ? QStringLiteral("queue ! rtpopusdepay ! opusdec ! audioconvert "
+                         "! audioresample ! volume name=outvol "
+                         "! fakesink sync=false")
+        : QStringLiteral("queue ! rtpopusdepay ! opusdec ! audioconvert "
+                         "! audioresample ! volume name=outvol ! %1")
+              .arg(sink);
+    const QByteArray descriptionUtf8 = descriptionString.toUtf8();
+    const char *description = descriptionUtf8.constData();
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
     GError *error = nullptr;
     GstElement *bin =
