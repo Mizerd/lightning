@@ -159,6 +159,23 @@ public:
     /// and sending it to ourselves would be one more copy on the wire.
     QString mediaKeyTargetsJson(const QString &roomId) const;
 
+    /// The focus the room's OWN session advertises: `select_focus` over its
+    /// memberships, which is the oldest membership's first `foci_preferred`
+    /// entry — the same rule the reference implementation applies.
+    ///
+    /// This is the only focus that exists on a homeserver without MSC4143,
+    /// which is nearly all of them, so it is the PRIMARY source rather than
+    /// a fallback. It also has to win over our own homeserver's advertised
+    /// SFU when a session exists: joining a different SFU than everyone else
+    /// is a call with nobody in it.
+    QString sessionFocusFor(const QString &roomId) const;
+
+    /// Whether the ACCOUNT-scoped discovery is worth running again. False
+    /// while one is in flight and once the server has answered either way.
+    /// The automatic room-change trigger consults this; an explicit
+    /// `discover()` is always honoured.
+    bool discoveryWorthRetrying() const;
+
     /// The SFU service URL to use for this room: the homeserver's own
     /// answer if it gave one, otherwise the focus this room's participants
     /// advertise. Empty means no transport is known, which is a real answer

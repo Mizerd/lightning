@@ -102,15 +102,67 @@ bool RtcController::callingAvailable() const
     // Availability is a POSITIVE fact: a transport was actually named. An
     // unanswered or failed discovery is not availability, and neither is a
     // server that answered with an empty list.
-    return supported() && m_discovered
-        && (!m_serviceUrls.isEmpty() || !m_participantFocus.isEmpty());
+    // A session that names a focus is a transport we can actually reach, and
+    // it does not depend on discovery having completed — so it counts here
+    // even when the homeserver has no MSC4143 endpoint to answer.
+    bool sessionNamesAFocus = false;
+    for (auto it = m_sessions.cbegin(); it != m_sessions.cend(); ++it) {
+        if (!it->slotClosed && !it->focusServiceUrl.isEmpty()) {
+            sessionNamesAFocus = true;
+            break;
+        }
+    }
+    return supported()
+        && (sessionNamesAFocus
+            || (m_discovered && (!m_serviceUrls.isEmpty()
+                                 || !m_participantFocus.isEmpty())));
+}
+
+bool RtcController::discoveryWorthRetrying() const
+{
+    // The bound for the AUTOMATIC (room-change) trigger, deliberately not
+    // inside discover() itself: an explicit request must always be honoured,
+    // and putting the policy in the primitive turned a caller's discover()
+    // into a silent no-op.
+    //
+    // One in flight is enough — a second request cannot learn anything the
+    // first will not, and the op-id guard would discard its reply anyway.
+    if (m_discoveryOp != 0)
+        return false;
+    // A server that ANSWERED has settled the account-scoped question in
+    // either direction: it named transports, or it named none because it has
+    // no MatrixRTC. Neither changes within a session, so re-asking on every
+    // room change would be a poll against a constant.
+    return !m_serverAnswered;
+}
+
+QString RtcController::sessionFocusFor(const QString &roomId) const
+{
+    const auto it = m_sessions.constFind(roomId);
+    if (it == m_sessions.cend() || it->slotClosed)
+        return {};
+    return it->focusServiceUrl;
 }
 
 bool RtcController::transportReachableFor(const QString &roomId) const
 {
+    // The ROOM's own session first. It carries the focus the participants
+    // are actually on, it arrives with every session read, and on a
+    // homeserver with no MSC4143 endpoint — which is nearly all of them — it
+    // is the only focus that exists.
+    //
+    // This used to consult only `m_serviceUrls` and `m_participantFocus`,
+    // and `m_participantFocus` is populated by a per-room DISCOVERY that
+    // runs exactly once, on the initial-sync edge, for whatever room was
+    // open at that moment — which is none. So a room could show "3 people in
+    // call" from memberships that plainly carried a focus, and the join gate
+    // still reported `discovery_failed`. Joining was impossible in every
+    // room, always, on any server without MSC4143.
+    //
     // The homeserver's answer applies everywhere; a participant-advertised
     // focus applies ONLY to the room whose participants advertised it.
-    return !m_serviceUrls.isEmpty()
+    return !sessionFocusFor(roomId).isEmpty()
+        || !m_serviceUrls.isEmpty()
         || !m_participantFocus.value(roomId).isEmpty();
 }
 
@@ -444,9 +496,18 @@ QVariantList RtcController::participantFaces(const QString &roomId,
 
 QString RtcController::focusUrlFor(const QString &roomId) const
 {
-    // The homeserver's own answer applies everywhere and is preferred; a
-    // participant-advertised focus is the fallback that makes a server
-    // without the MSC4143 endpoint usable at all.
+    // An EXISTING session's focus wins, and the order matters more than it
+    // looks. When a call is already running, its participants are on the
+    // focus the oldest membership named; picking our own homeserver's SFU
+    // instead would put us alone on a different server while the room says
+    // three people are in the call. The reference implementation resolves it
+    // the same way, which is what keeps Lightning and Element in one call.
+    //
+    // The homeserver's own answer is for STARTING a call, where there is no
+    // session to agree with yet.
+    const QString session = sessionFocusFor(roomId);
+    if (!session.isEmpty())
+        return session;
     if (!m_serviceUrls.isEmpty())
         return m_serviceUrls.first();
     return m_participantFocus.value(roomId);
@@ -459,9 +520,14 @@ RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const
     const auto it = m_sessions.constFind(roomId);
     if (it != m_sessions.cend() && it->slotClosed)
         return JoinBlock::SessionClosed;
-    if (!m_discovered)
-        return JoinBlock::Undiscovered;
+    // Reachability BEFORE the discovery state. A room whose session names a
+    // focus is joinable whether or not the account-scoped discovery ever
+    // answered, and gating on `m_discovered` first reported "still checking"
+    // (or, once a failed discovery had set it, "couldn't check") for a call
+    // the client could see three people in and had a focus for.
     if (!transportReachableFor(roomId)) {
+        if (!m_discovered)
+            return JoinBlock::Undiscovered;
         // A server that answered and named nothing is a different fact from
         // a discovery that never completed, and the user-facing wording
         // differs: "this homeserver has no calling" versus "couldn't check".

@@ -144,7 +144,7 @@ ItemDelegate {
                 elide: Text.ElideRight
                 maximumLineCount: 1
                 font.pixelSize: AppTheme.textBody
-                font.weight: root.readsUnread && !root.muted ? AppTheme.weightMedium : AppTheme.weightRegular
+                font.weight: root.readsUnread && !root.muted ? AppTheme.weightMedium : AppTheme.weightBody
                 color: root.active ? AppTheme.channelSelectedText : (root.muted ? AppTheme.channelCategoryText : (root.readsUnread ? AppTheme.channelTextUnread : AppTheme.channelText))
             }
         }

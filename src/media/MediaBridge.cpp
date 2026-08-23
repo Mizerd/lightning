@@ -412,6 +412,46 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
                 qUtf8Printable(keyTag(cacheKey)));
         return cached;
     }
+    // READ-THROUGH across the classes, before dispatching anything.
+    //
+    // The three classes exist so the smaller ones can REFUSE to create an
+    // expensive fetch: a list thumbnail never substitutes a full encrypted
+    // attachment merely to fill a 42x34 tile. That is about what a class may
+    // ASK FOR, not about what it may reuse — and reading bytes another class
+    // already holds creates no fetch at all.
+    //
+    // Without this, opening Room Information -> Media re-fetched and
+    // re-cached every item the timeline had already fetched: a live capture
+    // showed SEVENTEEN payloads fetched twice in one short session, several
+    // of them 500-950 KB, each one a second write through the SDK's media
+    // store. Same bytes, different key prefix.
+    //
+    // Only the SMALLEST class borrows, and only from a larger one.
+    //
+    // The direction is the whole safety argument. The 42x34 list tile can
+    // render anything at least its own size, so reusing a timeline thumbnail
+    // or a full payload costs nothing and loses nothing. The reverse is a
+    // silent downgrade: serving a timeline row the list tile's bytes renders
+    // a blurry image at the wrong natural size.
+    //
+    // My first version of this had `thumb` borrow from `listthumb` too, and
+    // timeline-pane-qml caught it immediately —
+    // `topEdgePrependKeepsReaderOnTheSameRowMidGesture` went from flaky to
+    // failing 2/2, because rows that used to resolve asynchronously at their
+    // real size now resolved synchronously at the wrong one and moved the
+    // reader mid-prepend.
+    if (kindValue == 2) {
+        for (const int larger : { 1, 0 }) {
+            const QString borrowed =
+                cachedSource(mediaCacheKey(mediaKey, larger));
+            if (borrowed.isEmpty())
+                continue;
+            ++m_statCacheHit;
+            qCDebug(lcMediaTrace, "media %s cache=hit(class %d)",
+                    qUtf8Printable(keyTag(cacheKey)), larger);
+            return borrowed;
+        }
+    }
     // A marked failure blocks re-dispatch (transient marks expire; see
     // failureBlocks) — QML repolling a broken source must not turn into a
     // request loop.

@@ -147,6 +147,8 @@ private Q_SLOTS:
     void aReplacedClientsLateReplyCannotBeDelivered();
     void oneRoomsFocusDoesNotDecideAnothers();
     void anEncryptedRoomRefusesWithoutMediaEncryption();
+    void aSessionThatNamesAFocusIsJoinableWithoutDiscovery();
+    void anExistingSessionsFocusOutranksOurOwnHomeserver();
     void mediaKeyTargetsAddressEveryOtherDeviceAndNotOurOwn();
     void mediaKeyTargetsAreEmptyForARoomWithNoSession();
 };
@@ -539,6 +541,102 @@ void RtcSessionTest::oneRoomsFocusDoesNotDecideAnothers()
     // ...room B does not, and must say so.
     QCOMPARE(controller.joinBlockReason(kOther),
              QStringLiteral("no_transport"));
+}
+
+void RtcSessionTest::aSessionThatNamesAFocusIsJoinableWithoutDiscovery()
+{
+    // THE user-reported defect (2026-08-23): a room showing "3 people in
+    // call" whose Join reported "Couldn't check whether calling is
+    // available", while the same call worked in Element.
+    //
+    // The memberships plainly carried a focus — the banner counted them — but
+    // the join gate consulted only the account-scoped discovery and a
+    // per-room participant fallback that was fetched exactly ONCE, on the
+    // initial-sync edge, for whatever room was open then, which is none. So
+    // on any homeserver without the MSC4143 endpoint (nearly all of them)
+    // joining was impossible in every room, always.
+    //
+    // A session that names a focus is a reachable transport, full stop, and
+    // it must not depend on discovery having answered.
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setRoomEncrypted(kRoom, false);
+    controller.setMediaAvailable(true);
+    controller.setMediaEncryptionAvailable(true);
+
+    // Nothing discovered, and nothing ever will be: no MSC4143 here.
+    QCOMPARE(controller.joinBlockReason(kRoom),
+             QStringLiteral("undiscovered"));
+
+    controller.refresh(kRoom);
+    RtcSessionData session =
+        sessionFor(kRoom, {person(QStringLiteral("@a:example.org"),
+                                  QStringLiteral("AAA"), 1000)});
+    session.focusServiceUrl = QStringLiteral("https://sfu.example.org/");
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp, session);
+
+    QVERIFY2(controller.joinBlockReason(kRoom).isEmpty(),
+             qPrintable(QStringLiteral("still blocked: %1")
+                            .arg(controller.joinBlockReason(kRoom))));
+    QCOMPARE(controller.focusUrlFor(kRoom),
+             QStringLiteral("https://sfu.example.org/"));
+    // And it counts as availability without a discovery round trip.
+    QVERIFY(controller.callingAvailable());
+
+    // A FAILED discovery must not undo it. This is the exact state the user
+    // was in: discovery ran, did not answer, and the gate then reported
+    // "couldn't check" for a call it could see and had a focus for.
+    controller.discover(kRoom);
+    Q_EMIT client.rtcTransportsReceived(client.lastTransportsOp, false,
+                                        QStringLiteral("network"), {},
+                                        QString());
+    QVERIFY2(controller.joinBlockReason(kRoom).isEmpty(),
+             qPrintable(QStringLiteral("a failed discovery re-blocked a "
+                                       "session that names a focus: %1")
+                            .arg(controller.joinBlockReason(kRoom))));
+}
+
+void RtcSessionTest::anExistingSessionsFocusOutranksOurOwnHomeserver()
+{
+    // Order, not just presence. When a call is already running its
+    // participants are on the focus the oldest membership named; picking our
+    // own homeserver's SFU instead would put us alone on a different server
+    // while the room says people are in the call. The reference
+    // implementation resolves it the same way, and that agreement is what
+    // keeps Lightning and Element in ONE call.
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setRoomEncrypted(kRoom, false);
+
+    controller.discover(kRoom);
+    Q_EMIT client.rtcTransportsReceived(
+        client.lastTransportsOp, true, QString(),
+        QStringList{QStringLiteral("https://ours.example.org/")}, QString());
+    // With no session, our own server is the right answer: this is the
+    // START-a-call case, where there is nobody to agree with yet.
+    QCOMPARE(controller.focusUrlFor(kRoom),
+             QStringLiteral("https://ours.example.org/"));
+
+    controller.refresh(kRoom);
+    RtcSessionData session =
+        sessionFor(kRoom, {person(QStringLiteral("@a:example.org"),
+                                  QStringLiteral("AAA"), 1000)});
+    session.focusServiceUrl = QStringLiteral("https://theirs.example.org/");
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp, session);
+
+    QCOMPARE(controller.focusUrlFor(kRoom),
+             QStringLiteral("https://theirs.example.org/"));
+
+    // A CLOSED slot is not a session to agree with, so our own server comes
+    // back — the call it named is over.
+    RtcSessionData closed = session;
+    closed.slotClosed = true;
+    controller.refresh(kRoom);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp, closed);
+    QCOMPARE(controller.focusUrlFor(kRoom),
+             QStringLiteral("https://ours.example.org/"));
 }
 
 void RtcSessionTest::mediaKeyTargetsAddressEveryOtherDeviceAndNotOurOwn()

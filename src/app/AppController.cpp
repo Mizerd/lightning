@@ -623,6 +623,25 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 if (m_client->initialSyncDone())
                     m_rtc->discover(m_currentRoomId);
             });
+    // Discovery used to run ONLY on the line above — once, for whatever room
+    // was open at the initial-sync edge, which is none. The account-scoped
+    // server transports were therefore never retried after a failure, and
+    // the per-room participant fallback was never fetched for any room the
+    // user actually opened.
+    //
+    // The room's own session now carries its focus (RtcController::
+    // sessionFocusFor), so this is no longer load-bearing for joining. It
+    // stays as the retry for the SERVER transports, which is what a room
+    // with no call yet needs in order to START one. Bounded by
+    // RtcController::discover itself, which refuses while one is in flight
+    // and does nothing once the server has answered.
+    connect(this, &AppController::currentRoomIdChanged, this, [this] {
+        if (!m_client || !m_client->initialSyncDone())
+            return;
+        if (!m_rtc->discoveryWorthRetrying())
+            return;
+        m_rtc->discover(m_currentRoomId);
+    });
 
     // ── Incoming-call notification + ring ──
     connect(m_calls.get(), &CallController::incomingCallStarted, this,

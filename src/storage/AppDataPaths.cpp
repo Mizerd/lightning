@@ -511,9 +511,44 @@ QString quarantineRustStore(const AccountIdentity &identity)
         + QLatin1String(".orphaned-") + stamp;
     if (QFileInfo::exists(target))
         return {};
-    // Same directory, so this is one atomic rename(2).
-    if (!QDir().rename(identity.rustStorePath, target))
+    // Same directory, so this is one atomic rename(2) — on POSIX.
+    if (QDir().rename(identity.rustStorePath, target))
+        return target;
+
+    // Windows refuses to rename a DIRECTORY while any file inside it is
+    // held, and a store directory is exactly that: matrix-sdk keeps the four
+    // sqlite files plus their -wal/-shm open, and an earlier login attempt in
+    // this same process may still own the handles. So the atomic rename fails
+    // and the user is dead-ended on "could not be moved aside. Check
+    // filesystem permissions" — which is a lie, because permissions were
+    // never the problem.
+    //
+    // Renaming the FILES is permitted on Windows (the same asymmetry
+    // AtomicReplace::moveDirectoryEntries exists for), so move the entries
+    // into a fresh sibling and leave the original directory standing empty.
+    // The caller re-checks existence, so an empty directory left behind must
+    // still count as "moved" — and it does, because a store with no sqlite
+    // files in it is not a store the SDK will adopt.
+    QDir parent(QFileInfo(identity.rustStorePath).absolutePath());
+    if (!parent.mkpath(QFileInfo(target).fileName()))
         return {};
+    const QDir source(identity.rustStorePath);
+    const QDir destination(target);
+    const QStringList names = source.entryList(
+        QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
+    for (const QString &name : names) {
+        if (!QDir().rename(source.absoluteFilePath(name),
+                           destination.absoluteFilePath(name))) {
+            // Partial move. Report failure rather than a half-quarantined
+            // store: the caller's honest error is better than a store split
+            // across two directories, and nothing has been DELETED either
+            // way.
+            return {};
+        }
+    }
+    // The now-empty original is removed only if it is genuinely empty, so a
+    // file that appeared mid-move is never destroyed.
+    parent.rmdir(QFileInfo(identity.rustStorePath).fileName());
     return target;
 }
 

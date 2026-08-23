@@ -5,6 +5,8 @@
 // the AppTheme singleton.
 
 #include <QFile>
+#include <QDirIterator>
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <QSet>
 #include <QtTest/QtTest>
@@ -1378,6 +1380,76 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("Qt.rgba literal in %1")
                                     .arg(path)));
         }
+    }
+
+    // 2026-08-23: every `AppTheme.<name>` in every QML file must actually be
+    // declared in AppTheme.qml.
+    //
+    // QML does not error on a missing property — it yields `undefined`, and
+    // assigning that to a colour or an int produces a runtime warning nobody
+    // sees unless the component is INSTANTIATED. `ChannelDelegate.qml`
+    // shipped with `AppTheme.weightRegular` (the real token is `weightBody`)
+    // and the offscreen no-QML-warnings gates were all green, because no test
+    // ever renders the Channels layout with a live Space. It surfaced as
+    // hundreds of "Unable to assign [undefined] to int" lines in a real run.
+    //
+    // A source scan needs no instantiation, so it covers every component
+    // including the ones no fixture reaches. This is the whole class, caught
+    // mechanically.
+    void everyAppThemeTokenReferencedInQmlIsDeclared()
+    {
+        const QString theme = readAll(QStringLiteral(QML_DIR "/AppTheme.qml"));
+        QVERIFY(!theme.isEmpty());
+
+        // Declared names: `property <type> <name>:` and
+        // `readonly property <type> <name>:`, plus `function <name>(`, plus
+        // signals — anything reachable as AppTheme.<name>.
+        QSet<QString> declared;
+        static const QRegularExpression propertyRe(
+            QStringLiteral(R"(property\s+\w+\s+(\w+)\s*:)"));
+        for (auto it = propertyRe.globalMatch(theme); it.hasNext();)
+            declared.insert(it.next().captured(1));
+        static const QRegularExpression functionRe(
+            QStringLiteral(R"(function\s+(\w+)\s*\()"));
+        for (auto it = functionRe.globalMatch(theme); it.hasNext();)
+            declared.insert(it.next().captured(1));
+        static const QRegularExpression signalRe(
+            QStringLiteral(R"(signal\s+(\w+))"));
+        for (auto it = signalRe.globalMatch(theme); it.hasNext();)
+            declared.insert(it.next().captured(1));
+        // Enum-ish / attached names AppTheme legitimately exposes through
+        // QML itself rather than a declaration.
+        declared.insert(QStringLiteral("objectName"));
+        QVERIFY2(declared.size() > 50,
+                 "AppTheme declaration scan found implausibly little");
+
+        static const QRegularExpression useRe(
+            QStringLiteral(R"(AppTheme\.(\w+))"));
+        QStringList missing;
+        QDirIterator walker(QStringLiteral(QML_DIR),
+                            { QStringLiteral("*.qml") }, QDir::Files,
+                            QDirIterator::Subdirectories);
+        while (walker.hasNext()) {
+            const QString path = walker.next();
+            if (path.endsWith(QLatin1String("AppTheme.qml")))
+                continue;
+            // Comments stripped: a token NAMED in prose (including one being
+            // explained as wrong) must not count as a use.
+            const QString source = stripComments(readAll(path));
+            for (auto it = useRe.globalMatch(source); it.hasNext();) {
+                const QString name = it.next().captured(1);
+                if (declared.contains(name))
+                    continue;
+                const QString entry =
+                    QFileInfo(path).fileName() + QStringLiteral(" -> AppTheme.")
+                    + name;
+                if (!missing.contains(entry))
+                    missing.append(entry);
+            }
+        }
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral("undeclared AppTheme tokens: ")
+                                + missing.join(QStringLiteral(", "))));
     }
 };
 
