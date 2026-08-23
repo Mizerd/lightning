@@ -425,6 +425,29 @@ QVariantList TimelineModel::readReceiptsVariant(const TimelineEvent &e) const
 // split a run of state-change events into separate activity groups; only an
 // actual visible message/media event (or the start/end of the timeline)
 // ends a group.
+namespace {
+/// Whether a room-state kind is MatrixRTC call membership.
+///
+/// Every join, every keepalive refresh and every leave writes one of these
+/// state events. They were rendering inside the "N room updates" group as a
+/// generic "<user> updated room settings." line each — nine of them for one
+/// call in a reported screenshot, none of them telling the reader anything.
+/// Element shows a call as a single tile and keeps its membership churn out
+/// of the timeline; the call banner and the notification are the equivalents
+/// here.
+///
+/// All four spellings: the legacy session format Element writes today, the
+/// sticky MSC4143 format, and the stable names both are heading for. A
+/// spelling this misses comes back as spam, so the set is deliberately wide.
+bool isRtcMembershipKind(const QString &kind)
+{
+    return kind == QLatin1String("org.matrix.msc3401.call.member")
+        || kind == QLatin1String("org.matrix.msc4143.rtc.member")
+        || kind == QLatin1String("m.call.member")
+        || kind == QLatin1String("m.rtc.member");
+}
+} // namespace
+
 int TimelineModel::stateGroupLeaderRow(int row) const
 {
     if (row < 0 || row >= m_events.size()
@@ -526,6 +549,16 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
     for (int i = leaderRow; i < m_events.size();) {
         const auto &e = m_events.at(i);
         if (e.type == TimelineEvent::StateChange) {
+            // Call membership is skipped but does NOT end the run: the rows
+            // stay in place (they hold their position in the SDK's index
+            // space, and the group is defined by adjacency), they simply do
+            // not become entries. A group that is nothing BUT membership
+            // therefore yields an empty list, which the summary treats as
+            // nothing to show.
+            if (isRtcMembershipKind(e.stateKind)) {
+                ++i;
+                continue;
+            }
             QVariantMap entry;
             entry.insert(QStringLiteral("stableEventId"),
                          e.itemId.isEmpty() ? e.eventId : e.itemId);

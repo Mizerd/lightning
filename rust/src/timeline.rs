@@ -3113,12 +3113,17 @@ fn event_item_to_json(
             out["body"] = "".into();
         }
         TimelineItemContent::OtherState(state) => {
-            out["msgtype"] = "state".into();
             let kind = state.content().event_type().to_string();
             let actor = event.sender().to_string();
-            let text = state_row_text(&kind, &actor);
-            out["state_kind"] = kind.into();
-            out["body"] = text.into();
+            // Call MEMBERSHIP is bookkeeping, not room history — every
+            // join, keepalive refresh and leave writes one of these. The
+            // suppression lives in TimelineModel::stateGroupEntriesFrom,
+            // which is where the "N room updates" group is actually built:
+            // the msgtype must stay "state" so the row keeps its place in
+            // the SDK's index space, and `state_kind` is what C++ keys on.
+            out["msgtype"] = "state".into();
+            out["state_kind"] = kind.clone().into();
+            out["body"] = state_row_text(&kind, &actor).into();
         }
         TimelineItemContent::FailedToParseMessageLike { .. }
         | TimelineItemContent::FailedToParseState { .. } => {
@@ -3126,7 +3131,13 @@ fn event_item_to_json(
             out["body"] = "[unsupported event]".into();
         }
         TimelineItemContent::CallInvite | TimelineItemContent::RtcNotification { .. } => {
+            // "call event" told the reader nothing — not who, not whether it
+            // was answered, not whether it is still going. Given a
+            // `state_kind` it becomes routine activity, so the existing
+            // room-activity preference governs it like any other annotation
+            // instead of it being permanently visible.
             out["msgtype"] = "state".into();
+            out["state_kind"] = "m.call".into();
             out["body"] = "call event".into();
         }
     }

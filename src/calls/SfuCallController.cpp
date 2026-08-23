@@ -1,5 +1,7 @@
 #include "calls/SfuCallController.h"
 
+#include <QLoggingCategory>
+
 #include <QRandomGenerator>
 #include <QUuid>
 #include <QVariantMap>
@@ -15,6 +17,8 @@
 #include "calls/SfuMediaEngine.h"
 #include "calls/SfuVideoRouter.h"
 #endif
+
+Q_LOGGING_CATEGORY(lcSfuCall, "lightning.calls.group")
 
 namespace {
 /// Membership claims four hours of validity; refresh well inside that, and
@@ -204,10 +208,12 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     return false;
 #else
     if (m_engine.isNull()) {
+        qCWarning(lcSfuCall) << "join refused: no media engine";
         setState(State::Failed, tr("This build has no calling media support."));
         return false;
     }
     if (!m_rtc) {
+        qCWarning(lcSfuCall) << "join refused: no rtc controller";
         setState(State::Failed, tr("Calling isn't ready yet."));
         return false;
     }
@@ -217,6 +223,8 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     // that room is end-to-end encrypted, and carrying their audio where the
     // SFU can read it would make that untrue.
     const QString block = m_rtc->joinBlockReason(roomId);
+    if (!block.isEmpty())
+        qCWarning(lcSfuCall) << "join refused: block=" << block;
     if (block == QLatin1String("media_encryption_unavailable")) {
         setState(State::Failed,
                  tr("This room is encrypted, and encrypted calls aren't "
@@ -230,6 +238,11 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     if (active())
         teardown(State::Ended);
 
+    qCInfo(lcSfuCall) << "join begin encrypted="
+                      << m_rtc->roomEncrypted(roomId)
+                      << "focus=" << (m_rtc->focusUrlFor(roomId).isEmpty()
+                                      ? QStringLiteral("<none>")
+                                      : QStringLiteral("<set>"));
     ++m_generation;
     m_roomId = roomId;
     m_withVideo = withVideo;
@@ -268,6 +281,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_publishOp = m_client->rtcPublishMembership(
         roomId, m_focusUrl, withVideo ? QStringLiteral("video")
                                       : QStringLiteral("audio"));
+    qCInfo(lcSfuCall) << "membership publish op=" << m_publishOp;
     if (m_publishOp == 0) {
         teardown(State::Failed, tr("Couldn't announce you in the call."));
         Q_EMIT callFailed(m_lastError);
@@ -285,6 +299,9 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
     if (opId == 0 || opId != m_publishOp)
         return;
     m_publishOp = 0;
+    qCInfo(lcSfuCall) << "membership published ok=" << ok
+                      << "category=" << category
+                      << "delayed=" << !delayId.isEmpty();
     if (m_state != State::Preparing)
         return; // a reply for a call we already left
     if (!ok) {
@@ -305,7 +322,9 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
         return;
     }
     setState(State::Authorizing);
-    if (m_client->sfuConnect(m_focusUrl, m_roomId) == 0) {
+    const quint64 connectOp = m_client->sfuConnect(m_focusUrl, m_roomId);
+    qCInfo(lcSfuCall) << "sfu connect op=" << connectOp;
+    if (connectOp == 0) {
         teardown(State::Failed, tr("Couldn't connect to the call."));
         Q_EMIT callFailed(m_lastError);
     }
@@ -314,6 +333,8 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
 void SfuCallController::onSfuState(const QString &state,
                                     const QString &category)
 {
+    qCInfo(lcSfuCall) << "sfu state=" << state << "category=" << category
+                      << "active=" << active();
     if (!active())
         return;
     if (state == QLatin1String("authorized")) {
@@ -486,6 +507,8 @@ void SfuCallController::onEngineLocalCandidate(int target,
 
 void SfuCallController::onEngineFailed(const QString &category)
 {
+    qCWarning(lcSfuCall) << "engine failed category=" << category
+                         << "active=" << active();
     if (!active())
         return;
     // A media failure ends the call: continuing would leave the user in a
@@ -656,6 +679,11 @@ void SfuCallController::leave()
 
 void SfuCallController::teardown(State finalState, const QString &error)
 {
+    // Logged unconditionally: a call that ends for a reason nobody can see is
+    // the whole of "it just dies".
+    qCInfo(lcSfuCall) << "teardown state=" << static_cast<int>(finalState)
+                      << "error=" << (error.isEmpty()
+                                      ? QStringLiteral("<none>") : error);
     ++m_generation;
     m_refreshTimer.stop();
     m_publishOp = 0;

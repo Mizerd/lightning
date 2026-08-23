@@ -214,13 +214,33 @@ async fn fetch_sfu_credentials(
         serde_json::from_str(&text).map_err(|_| "invalid".to_owned())?;
 
     // The SFU websocket URL is remote-supplied and is where media
-    // authorization is presented, so it gets the same scheme discipline as
-    // the transport itself: wss only.
+    // authorization is presented, so cleartext is refused — the JWT travels
+    // in this URL's query string.
+    //
+    // `https` is ACCEPTED and normalised to `wss`. lk-jwt-service echoes its
+    // configured LIVEKIT_URL verbatim, and `https://…` is a perfectly normal
+    // value there (livekit-client does the same conversion in
+    // `toWebsocketUrl`). Requiring `wss` outright rejected a correctly
+    // configured deployment and failed the call instantly with "invalid".
     let raw_url = parsed.get("url").and_then(|v| v.as_str()).unwrap_or("");
     let url_ok = sane(raw_url, 1024)
         .and_then(|value| url::Url::parse(value).ok())
-        .filter(|parsed| parsed.scheme() == "wss" && parsed.has_host())
-        .map(|parsed| parsed.to_string())
+        .and_then(|mut parsed| {
+            match parsed.scheme() {
+                "wss" => {}
+                // set_scheme can only fail between incompatible special
+                // schemes; https -> wss is allowed.
+                "https" => parsed.set_scheme("wss").ok()?,
+                // ws / http would carry the JWT in the clear.
+                _ => return None,
+            }
+            // has_host() alone is TRUE for an empty host ("wss:///rtc"),
+            // which normalises cleanly and then cannot connect to anything.
+            parsed
+                .host_str()
+                .is_some_and(|host| !host.is_empty())
+                .then(|| parsed.to_string())
+        })
         .ok_or_else(|| "invalid".to_owned())?;
     let jwt = parsed
         .get("jwt")
@@ -383,7 +403,16 @@ async fn run_session(
             return;
         }
     };
-    url.set_path("/rtc");
+    // `/rtc` is APPENDED to whatever path the SFU URL already has, never
+    // substituted for it. `set_path("/rtc")` discarded the prefix, so a
+    // LiveKit behind a reverse proxy at, say, `https://host/livekit` was
+    // asked for `/rtc` at the root and the handshake could not succeed.
+    // livekit-client appends too; the known double-slash bug in its own
+    // issue tracker is the same join being done less carefully.
+    {
+        let existing = url.path().trim_end_matches('/').to_owned();
+        url.set_path(&format!("{existing}/rtc"));
+    }
     url.query_pairs_mut()
         .append_pair("access_token", &credentials.jwt)
         .append_pair("protocol", &LK_PROTOCOL_VERSION.to_string())
@@ -772,6 +801,114 @@ mod tests {
         assert!(participant_json(&info).is_none());
         info.identity = String::new();
         assert!(participant_json(&info).is_none());
+    }
+
+    /// The two URL transforms the LiveKit signalling connect depends on,
+    /// extracted so they can be asserted without a live SFU.
+    fn normalize_sfu_url(raw: &str) -> Option<String> {
+        let mut parsed = url::Url::parse(raw).ok()?;
+        match parsed.scheme() {
+            "wss" => {}
+            "https" => parsed.set_scheme("wss").ok()?,
+            _ => return None,
+        }
+        if !parsed.host_str().is_some_and(|host| !host.is_empty()) {
+            return None;
+        }
+        let existing = parsed.path().trim_end_matches('/').to_owned();
+        parsed.set_path(&format!("{existing}/rtc"));
+        Some(parsed.to_string())
+    }
+
+    #[test]
+    fn an_https_sfu_url_is_accepted_and_normalised_to_wss() {
+        // lk-jwt-service echoes its configured LIVEKIT_URL verbatim, and
+        // `https://…` is a normal value there — livekit-client converts it in
+        // `toWebsocketUrl`. Requiring `wss` outright rejected a correctly
+        // configured deployment and failed the call instantly with "invalid",
+        // which is what "calls insta fail" looked like.
+        assert_eq!(
+            normalize_sfu_url("https://livekit.example.net").as_deref(),
+            Some("wss://livekit.example.net/rtc")
+        );
+        assert_eq!(
+            normalize_sfu_url("wss://livekit.example.net").as_deref(),
+            Some("wss://livekit.example.net/rtc")
+        );
+    }
+
+    #[test]
+    fn cleartext_signalling_is_still_refused() {
+        // The JWT travels in this URL's query string, so ws/http would put a
+        // media authorization credential on the wire in the clear. Accepting
+        // https is a normalisation; accepting ws would be a downgrade.
+        assert!(normalize_sfu_url("ws://livekit.example.net").is_none());
+        assert!(normalize_sfu_url("http://livekit.example.net").is_none());
+        assert!(normalize_sfu_url("not a url").is_none());
+        // NOT `wss:///rtc` — measured, that parses with host "rtc" (the
+        // triple slash collapses), so it is a well-formed URL for a host
+        // that simply will not resolve. A genuinely hostless form is what
+        // has to be refused.
+        assert!(normalize_sfu_url("wss:").is_none());
+        assert!(normalize_sfu_url("wss://").is_none());
+    }
+
+    #[test]
+    fn the_rtc_path_is_appended_never_substituted() {
+        // A LiveKit behind a reverse proxy carries a path prefix.
+        // `set_path("/rtc")` discarded it and asked the root for /rtc, so the
+        // handshake could not succeed.
+        assert_eq!(
+            normalize_sfu_url("https://host.example.net/livekit").as_deref(),
+            Some("wss://host.example.net/livekit/rtc")
+        );
+        // A trailing slash must not produce a double slash — the exact shape
+        // livekit-client has its own bug report about.
+        assert_eq!(
+            normalize_sfu_url("https://host.example.net/livekit/").as_deref(),
+            Some("wss://host.example.net/livekit/rtc")
+        );
+        assert_eq!(
+            normalize_sfu_url("https://host.example.net/").as_deref(),
+            Some("wss://host.example.net/rtc")
+        );
+    }
+
+    #[test]
+    fn the_jwt_service_request_body_matches_the_reference_service() {
+        // lk-jwt-service declares its request types with
+        // #[serde(deny_unknown_fields)], so ONE extra field is a 400. The
+        // legacy /sfu/get body is exactly `room`, `openid_token` and
+        // `device_id`; the openid token is the homeserver's response verbatim.
+        // Probed live against a real deployment: an empty body answers
+        // `M_BAD_JSON: Missing room parameter`, which is this handler.
+        let body = json!({
+            "room": "!room:example.org",
+            "openid_token": {
+                "access_token": "tok",
+                "token_type": "Bearer",
+                "matrix_server_name": "example.org",
+                "expires_in": 3600,
+            },
+            "device_id": "DEVICE",
+        });
+        let object = body.as_object().expect("object");
+        let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, vec!["device_id", "openid_token", "room"]);
+        let token = object["openid_token"].as_object().expect("token");
+        let mut token_keys: Vec<&str> =
+            token.keys().map(String::as_str).collect();
+        token_keys.sort_unstable();
+        assert_eq!(
+            token_keys,
+            vec![
+                "access_token",
+                "expires_in",
+                "matrix_server_name",
+                "token_type"
+            ]
+        );
     }
 
     #[test]

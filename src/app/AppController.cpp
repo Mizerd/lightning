@@ -1926,8 +1926,19 @@ bool AppController::canStartCall(const QString &roomId) const
 bool AppController::startCall(const QString &roomId, bool withVideo)
 {
     const QString lane = preferredCallLane(roomId);
-    if (lane == QLatin1String("matrixrtc"))
-        return m_groupCall->join(roomId, withVideo);
+    // The call path had NO logging at all, which is why "pressing call does
+    // nothing / the app goes away" could not be diagnosed from a user's
+    // console at all. Room ids are structural, not content.
+    qCInfo(lcApp) << "call start requested lane=" << lane
+                  << "video=" << withVideo
+                  << "rtcBlock="
+                  << (m_rtc ? m_rtc->joinBlockReason(roomId)
+                            : QStringLiteral("<no controller>"));
+    if (lane == QLatin1String("matrixrtc")) {
+        const bool ok = m_groupCall->join(roomId, withVideo);
+        qCInfo(lcApp) << "matrixrtc join dispatched ok=" << ok;
+        return ok;
+    }
     if (lane == QLatin1String("legacy")) {
         if (withVideo) {
             // The legacy lane is audio-only by design. Saying so beats
@@ -1937,7 +1948,9 @@ bool AppController::startCall(const QString &roomId, bool withVideo)
                    "available here yet."));
             return false;
         }
-        return m_calls->placeCall(roomId);
+        const bool ok = m_calls->placeCall(roomId);
+        qCInfo(lcApp) << "legacy call dispatched ok=" << ok;
+        return ok;
     }
 
     // Neither lane. The reason matters: "this homeserver has no calling" and

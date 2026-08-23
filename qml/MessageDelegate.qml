@@ -900,7 +900,11 @@ Item {
     RoomActivityDelegate {
         id: stateActivity
         objectName: "stateActivityGroup"
+        // An EMPTY entry list draws nothing: a run made only of call
+        // membership yields no entries, and "0 room updates" is worse than
+        // no row at all.
         visible: root.isStateActivity && model.stateGroupLeader === true
+                 && root.stateActivityEntries.length > 0
         width: parent.width
         groupId: model.stateGroupId || ""
         entries: root.stateActivityEntries
