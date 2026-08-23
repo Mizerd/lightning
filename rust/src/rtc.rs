@@ -608,18 +608,37 @@ pub(crate) fn select_focus(members: &[RtcMember]) -> Option<LivekitTransport> {
 // Transport discovery endpoint (MSC4143)
 // ---------------------------------------------------------------------------
 
-/// `GET /_matrix/client/unstable/org.matrix.msc4143/rtc/transports`.
+/// `GET https://<server_name>/.well-known/matrix/client`, read for
+/// `org.matrix.msc4143.rtc_foci`.
 ///
-/// Hand-rolled over the SDK's own HTTP client because ruma-client-api 0.24
-/// carries no MSC4143 endpoint, and defining one needs ruma's endpoint
-/// macros, which require `ruma` as a DIRECT dependency (their path
-/// resolution reads the manifest). Taking `client.http_client()` keeps the
-/// SDK's TLS/proxy/timeout configuration and adds no dependency — the same
-/// trade `banner.rs` already made for MSC4133 profile fields.
+/// This is where MSC4143 actually advertises the SFU, and where Element
+/// Call reads it. It is NOT a client-API endpoint: an earlier version of
+/// this module invented
+/// `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports`, which
+/// exists on no server, so discovery never answered anywhere. Every call
+/// then fell back to the legacy 1:1 lane — which carries no video and no
+/// screen share — and starting a MatrixRTC call was impossible on any
+/// homeserver including matrix.org.
 ///
-/// The access token is read from the SDK, used for one request, and never
-/// logged, stored, enqueued, or returned. Swap this for the ruma endpoint
-/// once one exists.
+/// The authority is ruma's own model of the well-known response:
+///   #[serde(rename = "org.matrix.msc4143.rtc_foci", alias = "m.rtc_foci")]
+///   pub rtc_foci: Vec<RtcTransport>
+/// Both spellings are read here, unstable first, because a server that has
+/// moved to the stable key should still work.
+///
+/// Hand-rolled over the SDK's own HTTP client rather than through ruma:
+/// `Client::well_known()` is private, and the field is behind matrix-sdk's
+/// `unstable-msc4143` feature which this build does not enable — turning it
+/// on is a dependency change for one field. `client.http_client()` keeps the
+/// SDK's TLS/proxy configuration and adds nothing, the same trade
+/// `banner.rs` already made for MSC4133 profile fields.
+///
+/// The well-known file is PUBLIC and unauthenticated, so unlike the old
+/// endpoint this sends no access token at all.
+///
+/// Fetched from the MXID's server name, not the resolved homeserver base
+/// URL: under .well-known delegation those differ, and the delegating
+/// domain is the one that serves this file.
 mod transports_endpoint {
     use matrix_sdk::Client;
 
@@ -632,19 +651,38 @@ mod transports_endpoint {
     }
 
     fn endpoint(client: &Client) -> Result<String, String> {
-        let mut url = client.homeserver();
-        url.path_segments_mut()
-            .map_err(|_| "homeserver url cannot carry a path".to_owned())?
-            .pop_if_empty()
-            .extend([
-                "_matrix",
-                "client",
-                "unstable",
-                "org.matrix.msc4143",
-                "rtc",
-                "transports",
-            ]);
-        Ok(url.to_string())
+        // The server name from the MXID. Bounded and host-shaped before it
+        // is pasted into a URL: this reaches the network, and a hostile
+        // value must not be able to redirect the request elsewhere.
+        let server_name = client
+            .user_id()
+            .ok_or_else(|| "no session".to_owned())?
+            .server_name()
+            .as_str()
+            .to_owned();
+        if server_name.is_empty()
+            || server_name.len() > 255
+            || server_name.contains('/')
+            || server_name.contains('\\')
+            || server_name.contains('@')
+            || server_name.contains('?')
+            || server_name.contains('#')
+            || server_name.chars().any(|c| c.is_whitespace() || c.is_control())
+        {
+            return Err("unusable server name".to_owned());
+        }
+        // Always https: the well-known file is the root of MatrixRTC
+        // discovery, and fetching it over cleartext would let anyone on the
+        // path choose the SFU every call is routed through.
+        let url = format!("https://{server_name}/.well-known/matrix/client");
+        // Parsed rather than trusted, so a value that slipped the checks
+        // above still cannot produce a request to another host.
+        let parsed = url::Url::parse(&url).map_err(|_| "bad url".to_owned())?;
+        if parsed.scheme() != "https" || parsed.host_str() != Some(&server_name)
+        {
+            return Err("unusable server name".to_owned());
+        }
+        Ok(parsed.to_string())
     }
 
     pub(super) async fn get(
@@ -652,14 +690,13 @@ mod transports_endpoint {
         timeout: std::time::Duration,
     ) -> Result<Answer, String> {
         let url = endpoint(client)?;
-        let token = client
-            .access_token()
-            .ok_or_else(|| "no session".to_owned())?;
+        // No Authorization header: .well-known is a public file, and sending
+        // a bearer token to it would leak the session to any host the MXID's
+        // domain resolves to.
         let response = client
             .http_client()
             .get(url)
             .timeout(timeout)
-            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
             .send()
             .await
             .map_err(|err| err.to_string())?;
@@ -686,11 +723,14 @@ mod transports_endpoint {
             body.extend_from_slice(&chunk);
         }
         let body = String::from_utf8_lossy(&body).into_owned();
+        // Unstable key first, stable alias second — the same pair ruma
+        // reads. A server that has moved on must still work.
         let transports = serde_json::from_str::<serde_json::Value>(&body)
             .ok()
             .and_then(|value| {
                 value
-                    .get("rtc_transports")
+                    .get("org.matrix.msc4143.rtc_foci")
+                    .or_else(|| value.get("m.rtc_foci"))
                     .and_then(|list| list.as_array())
                     .cloned()
             })
@@ -1874,6 +1914,63 @@ mod tests {
         let member =
             parse_session_membership(&content, "@a:x", 1_000).expect("valid");
         assert_eq!(member.expires_at_ms, 1_000 + DEFAULT_EXPIRE_MS);
+    }
+
+    #[test]
+    fn foci_are_read_from_the_well_known_keys_element_uses() {
+        // The discovery LOCATION was wrong for the whole of the MatrixRTC
+        // work: an invented
+        // `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports`
+        // endpoint that exists on no server. Discovery therefore never
+        // answered anywhere, every call fell back to the legacy 1:1 lane
+        // (no video, no screen share), and starting a MatrixRTC call was
+        // impossible on any homeserver.
+        //
+        // The real place is `.well-known/matrix/client`, under
+        // `org.matrix.msc4143.rtc_foci` with `m.rtc_foci` as the stable
+        // alias — exactly what ruma models and what Element Call reads.
+        // Pinned as the literal KEY NAMES, because the mistake was a name,
+        // not a shape: the transport objects parsed correctly all along.
+        let unstable = serde_json::json!({
+            "m.homeserver": { "base_url": "https://matrix.example.org" },
+            "org.matrix.msc4143.rtc_foci": [
+                {
+                    "type": "livekit",
+                    "livekit_service_url": "https://sfu.example.org/",
+                },
+            ],
+        });
+        let pick = |value: &serde_json::Value| -> Vec<LivekitTransport> {
+            let list = value
+                .get("org.matrix.msc4143.rtc_foci")
+                .or_else(|| value.get("m.rtc_foci"))
+                .and_then(|list| list.as_array())
+                .cloned()
+                .unwrap_or_default();
+            list.iter().filter_map(parse_transport).collect()
+        };
+        let found = pick(&unstable);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].service_url, "https://sfu.example.org/");
+
+        // The stable alias works too.
+        let stable = serde_json::json!({
+            "m.rtc_foci": [
+                { "type": "livekit",
+                  "livekit_service_url": "https://sfu.example.org/" },
+            ],
+        });
+        assert_eq!(pick(&stable).len(), 1);
+
+        // And the key we used to read is NOT a source. A server that
+        // happens to carry it must not resurrect the wrong mechanism.
+        let wrong = serde_json::json!({
+            "rtc_transports": [
+                { "type": "livekit",
+                  "livekit_service_url": "https://sfu.example.org/" },
+            ],
+        });
+        assert!(pick(&wrong).is_empty());
     }
 
     #[test]

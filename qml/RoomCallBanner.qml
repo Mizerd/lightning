@@ -29,18 +29,17 @@ Rectangle {
     // `participantCount` means `visible` stays false and the banner never
     // appears at all.
     readonly property int participantCount: {
-        var _ = root.refreshTick
-        return roomId.length > 0 ? app.rtc.participantCount(roomId) : 0
+        var _ = root.refreshTick;
+        return roomId.length > 0 ? app.rtc.participantCount(roomId) : 0;
     }
     readonly property bool hasCall: participantCount > 0
     readonly property bool ownUserPresent: {
-        var _ = root.refreshTick
-        return roomId.length > 0 && app.rtc.ownUserInSession(roomId)
+        var _ = root.refreshTick;
+        return roomId.length > 0 && app.rtc.ownUserInSession(roomId);
     }
     readonly property string blockReason: {
-        var _ = root.refreshTick
-        return roomId.length > 0 ? app.rtc.joinBlockReason(roomId)
-                                 : "unsupported"
+        var _ = root.refreshTick;
+        return roomId.length > 0 ? app.rtc.joinBlockReason(roomId) : "unsupported";
     }
 
     /// Human wording for `blockReason`. The tokens are a closed set from
@@ -48,21 +47,21 @@ Rectangle {
     readonly property string blockText: {
         switch (root.blockReason) {
         case "":
-            return ""
+            return "";
         case "unsupported":
-            return qsTr("This build can't join Matrix calls")
+            return qsTr("This build can't join Matrix calls");
         case "undiscovered":
-            return qsTr("Checking whether calling is available…")
+            return qsTr("Checking whether calling is available…");
         case "no_transport":
-            return qsTr("No MatrixRTC service on this homeserver")
+            return qsTr("No MatrixRTC service on this homeserver");
         case "discovery_failed":
-            return qsTr("Couldn't check whether calling is available")
+            return qsTr("Couldn't check whether calling is available");
         case "session_closed":
-            return qsTr("This call has ended")
+            return qsTr("This call has ended");
         case "no_media_transport":
-            return qsTr("Joining calls isn't supported yet in this build")
+            return qsTr("Joining calls isn't supported yet in this build");
         default:
-            return qsTr("Joining isn't available")
+            return qsTr("Joining isn't available");
         }
     }
 
@@ -72,15 +71,27 @@ Rectangle {
     /// profile, so real avatars are drawn where known and initials only
     /// where they are not.
     readonly property var faces: {
-        var _ = root.refreshTick
-        return roomId.length > 0 ? app.rtc.participantFaces(roomId, 4) : []
+        var _ = root.refreshTick;
+        return roomId.length > 0 ? app.rtc.participantFaces(roomId, 4) : [];
     }
 
+    /// This device is in this room's call, so the call CONTROLS are up and
+    /// this banner has nothing left to offer. `ownUserPresent` is not enough:
+    /// the same account on another device is a genuine other participant, and
+    /// the banner should still offer to join from here.
+    readonly property bool ownDeviceHere: {
+        var _ = root.refreshTick;
+        return roomId.length > 0 && app.rtc.ownDeviceInSession(roomId);
+    }
+    /// ...and the same when the local call controller is on this room, which
+    /// covers the window between pressing Join and the membership landing.
+    readonly property bool locallyInCall: app.groupCall.active && app.groupCall.roomId === root.roomId
+
     objectName: "roomCallBanner"
-    visible: hasCall
+    visible: hasCall && !ownDeviceHere && !locallyInCall
     // Height collapses when there is no call so the room layout does not
     // reserve space for a banner nobody can see.
-    implicitHeight: hasCall ? content.implicitHeight + AppTheme.spacing12 * 2 : 0
+    implicitHeight: visible ? content.implicitHeight + AppTheme.spacing12 * 2 : 0
     height: implicitHeight
     color: AppTheme.accentSoft
     radius: AppTheme.radiusMd
@@ -96,10 +107,12 @@ Rectangle {
                 // Re-evaluate the count/facepile bindings, which are plain
                 // function calls and therefore have no dependency Qt could
                 // track on its own.
-                root.refresh()
+                root.refresh();
             }
         }
-        function onAvailabilityChanged() { root.refresh() }
+        function onAvailabilityChanged() {
+            root.refresh();
+        }
     }
 
     // Bindings above call C++ functions, which Qt cannot observe for
@@ -107,11 +120,13 @@ Rectangle {
     // the same pattern the media-cache handlers use: bump a counter the
     // binding READS, never assign over the binding itself.
     property int refreshTick: 0
-    function refresh() { refreshTick = refreshTick + 1 }
+    function refresh() {
+        refreshTick = refreshTick + 1;
+    }
 
     onRoomIdChanged: {
         if (roomId.length > 0)
-            app.rtc.refresh(roomId)
+            app.rtc.refresh(roomId);
     }
 
     RowLayout {
@@ -149,11 +164,7 @@ Rectangle {
                         anchors.centerIn: parent
                         size: 22
                         mxc: parent.modelData ? parent.modelData.avatarMxc : ""
-                        name: parent.modelData
-                              ? (parent.modelData.displayName.length > 0
-                                 ? parent.modelData.displayName
-                                 : parent.modelData.userId)
-                              : ""
+                        name: parent.modelData ? (parent.modelData.displayName.length > 0 ? parent.modelData.displayName : parent.modelData.userId) : ""
                         colorKey: parent.modelData ? parent.modelData.userId : ""
                     }
                 }
@@ -172,17 +183,16 @@ Rectangle {
             visible: active
             sourceComponent: Text {
                 text: {
-                    var _ = root.refreshTick
-                    var n = root.participantCount
+                    var _ = root.refreshTick;
+                    var n = root.participantCount;
                     if (n <= 0)
-                        return ""
+                        return "";
                     // Branched explicitly rather than %n: without a loaded
                     // translation a %n source string renders its "(s)"
                     // literally.
                     if (root.ownUserPresent && n === 1)
-                        return qsTr("You are in a call")
-                    return n === 1 ? qsTr("1 person in call")
-                                   : qsTr("%1 people in call").arg(n)
+                        return qsTr("You are in a call");
+                    return n === 1 ? qsTr("1 person in call") : qsTr("%1 people in call").arg(n);
                 }
                 color: AppTheme.textPrimary
                 font.pixelSize: 13
@@ -209,7 +219,9 @@ Rectangle {
             // The full sentence is always reachable, even when elided.
             ToolTip.visible: hoverHandler.hovered && text.length > 0
             ToolTip.text: root.blockText
-            HoverHandler { id: hoverHandler }
+            HoverHandler {
+                id: hoverHandler
+            }
         }
 
         AppButton {
@@ -217,11 +229,11 @@ Rectangle {
             text: qsTr("Join")
             visible: root.blockReason.length === 0
             enabled: visible
-            onClicked: {
-                // No join path exists in this phase; the button is only
-                // visible when one does, so this stays unreachable rather
-                // than pretending to act.
-            }
+            // This handler was an EMPTY BLOCK with a comment saying no join
+            // path existed yet, long after one did. The button rendered,
+            // looked enabled, and did nothing — reported as "when I try to
+            // join a call started from Element it just doesn't join".
+            onClicked: app.groupCall.join(root.roomId, false)
         }
     }
 }

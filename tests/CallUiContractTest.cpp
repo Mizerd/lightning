@@ -362,6 +362,89 @@ private Q_SLOTS:
                                   false, 3000);
     }
 
+    // 2026-08-23 reporter round: FOUR call surfaces were on screen at once
+    // for one call — the header bar, the stage's own control bar, the Voice
+    // Connected strip, and a "You are in a call" banner still offering Join.
+    // Each of these pins one of them shut.
+    void exactlyOneSurfaceOwnsTheMediaControls()
+    {
+        // Mute / deafen / camera / hang up belong to the header bar. The
+        // stage's control bar keeps only what has nowhere else to live: the
+        // layout toggle, raise hand, participants.
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(!stage.isEmpty());
+        QVERIFY2(normalized(stage).contains(
+                     QStringLiteral("showMediaControls: false")),
+                 "the call stage draws the header bar's controls again");
+
+        const QString bar = read(QStringLiteral(QML_DIR "/CallControlBar.qml"));
+        QVERIFY(!bar.isEmpty());
+        // The four header-owned buttons must all be gated, or the stage
+        // still shows some of them.
+        for (const QString &button : { QStringLiteral("callMicButton"),
+                                      QStringLiteral("callDeafenButton"),
+                                      QStringLiteral("callCameraButton"),
+                                      QStringLiteral("callHangUpButton") }) {
+            const int at = bar.indexOf(button);
+            QVERIFY2(at >= 0, qPrintable(button + " is gone"));
+            QVERIFY2(normalized(bar.mid(at, 120))
+                         .contains(QStringLiteral(
+                             "visible: root.showMediaControls")),
+                     qPrintable(button + " is not gated on showMediaControls"));
+        }
+    }
+
+    void theJoinButtonActuallyJoins()
+    {
+        // THE reported defect. This handler was an empty block with a
+        // comment saying no join path existed yet, long after one did: the
+        // button rendered, looked enabled, and did nothing.
+        const QString banner =
+            read(QStringLiteral(QML_DIR "/RoomCallBanner.qml"));
+        QVERIFY(!banner.isEmpty());
+        const int at = banner.indexOf(QStringLiteral("roomCallJoinButton"));
+        QVERIFY2(at >= 0, "the Join button is gone");
+        // Comments stripped, then a generous window: the explanatory comment
+        // above this handler is longer than the code and pushed the call out
+        // of a fixed-size slice.
+        QString body = banner.mid(at, 900);
+        body.remove(QRegularExpression(QStringLiteral("(?m)^\\s*//.*$")));
+        body = normalized(body);
+        QVERIFY2(body.contains(QStringLiteral("app.groupCall.join(")),
+                 "the Join button does not call join()");
+        QVERIFY2(!body.contains(QStringLiteral("onClicked: { }")),
+                 "the Join handler is empty again");
+    }
+
+    void theBannerStandsDownOnceThisDeviceIsInTheCall()
+    {
+        // Offering "Join" to someone already in the call is nonsense, and
+        // the header bar owns the call at that point.
+        const QString banner =
+            normalized(read(QStringLiteral(QML_DIR "/RoomCallBanner.qml")));
+        QVERIFY2(banner.contains(QStringLiteral(
+                     "visible: hasCall && !ownDeviceHere && !locallyInCall")),
+                 "the banner does not stand down for this device's own call");
+        // ownDEVICE, not ownUser: the same account on another device is a
+        // real other participant and this device should still be offered a
+        // way in.
+        QVERIFY2(banner.contains(QStringLiteral("ownDeviceInSession(")),
+                 "the banner keys on the account rather than the device");
+    }
+
+    void theVoiceStripOnlyShowsWhenTheCallIsElsewhere()
+    {
+        // Its whole purpose is surviving a walk away from the call's room.
+        // Inside that room it was a third copy of the same call.
+        const QString strip =
+            normalized(read(QStringLiteral(QML_DIR "/VoiceConnectedBar.qml")));
+        QVERIFY(!strip.isEmpty());
+        QVERIFY2(strip.contains(QStringLiteral(
+                     "app.groupCall.roomId === app.currentRoomId")),
+                 "the Voice Connected strip does not exclude the call's own "
+                 "room");
+    }
+
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());

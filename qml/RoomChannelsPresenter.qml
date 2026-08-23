@@ -27,6 +27,16 @@ Item {
     /// The room the timeline is showing, so the active row can be marked.
     property string currentRoomId: ""
 
+    // The filter chips above this presenter write the SAME per-account
+    // preference the Classic list follows. Without this binding they were
+    // visible and inert in Channels mode — reported as "in channels mode all
+    // list doesn't show people and in people list doesn't show people".
+    Binding {
+        target: app.spaceChannels
+        property: "filterMode"
+        value: app.settings.roomFilterMode
+    }
+
     signal roomActivated(string roomId)
     /// A category was opened as a Space in its own right (long-press / the
     /// context action), which re-roots the model at it.
@@ -38,6 +48,7 @@ Item {
         anchors.centerIn: parent
         width: parent.width - AppTheme.spacing24 * 2
         active: app.spaceChannels.emptyHierarchy
+                && app.spaceChannels.count === 0
         visible: active
         sourceComponent: Label {
             horizontalAlignment: Text.AlignHCenter

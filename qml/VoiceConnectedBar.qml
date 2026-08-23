@@ -11,9 +11,13 @@ Rectangle {
 
     objectName: "voiceConnectedBar"
     /// Emitted when the user asks to return to the call surface.
-    signal returnToCallRequested()
+    signal returnToCallRequested
 
-    visible: app.groupCall.active
+    // Only while the call is somewhere ELSE. This bar exists so a call
+    // survives browsing away from its room; inside that room the call
+    // controls are already at the top of the conversation, and showing both
+    // put three copies of the same call on screen at once.
+    visible: app.groupCall.active && !(app.currentScreen === 1 && app.groupCall.roomId === app.currentRoomId)
     implicitHeight: visible ? content.implicitHeight + AppTheme.spacing8 * 2 : 0
     height: implicitHeight
     color: AppTheme.stormInset
@@ -37,15 +41,11 @@ Rectangle {
                     size: 14
                     // Green while connected, warning while reconnecting —
                     // the state is shown, never left as a frozen picture.
-                    color: app.groupCall.state === SfuCallController.Connected
-                           ? AppTheme.success : AppTheme.warning
+                    color: app.groupCall.state === SfuCallController.Connected ? AppTheme.success : AppTheme.warning
                 }
                 Text {
-                    text: app.groupCall.state === SfuCallController.Connected
-                          ? qsTr("Voice connected")
-                          : qsTr("Connecting…")
-                    color: app.groupCall.state === SfuCallController.Connected
-                           ? AppTheme.success : AppTheme.warning
+                    text: app.groupCall.state === SfuCallController.Connected ? qsTr("Voice connected") : qsTr("Connecting…")
+                    color: app.groupCall.state === SfuCallController.Connected ? AppTheme.success : AppTheme.warning
                     font.pixelSize: 11
                     font.weight: Font.DemiBold
                 }
@@ -57,9 +57,9 @@ Rectangle {
                     // this re-reads whenever the call's room changes —
                     // which is the only thing that can change it here.
                     if (!app.roomList || app.groupCall.roomId.length === 0)
-                        return ""
-                    var room = app.roomList.findRoom(app.groupCall.roomId)
-                    return room && room.name ? room.name : ""
+                        return "";
+                    var room = app.roomList.findRoom(app.groupCall.roomId);
+                    return room && room.name ? room.name : "";
                 }
                 visible: text.length > 0
                 color: AppTheme.stormTextSecondary
@@ -74,8 +74,7 @@ Rectangle {
             role: app.groupCall.microphoneMuted ? "active" : "neutral"
             diameter: 28
             glyphSize: 15
-            tooltip: app.groupCall.microphoneMuted ? qsTr("Unmute microphone")
-                                                   : qsTr("Mute microphone")
+            tooltip: app.groupCall.microphoneMuted ? qsTr("Unmute microphone") : qsTr("Mute microphone")
             onClicked: app.groupCall.toggleMicrophoneMuted()
         }
         CallControlButton {

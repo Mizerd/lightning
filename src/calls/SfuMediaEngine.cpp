@@ -549,8 +549,16 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                        "! valve name=micvalve drop=%2 "
                        "! opusenc name=audioenc "
                        "! rtpopuspay pt=111 "
-                       "! application/x-rtp,media=audio,encoding-name=OPUS,"
-                       "payload=111")
+                       // capsfilter, NOT a bare caps string. gst_parse only
+                       // accepts caps as a filter BETWEEN two elements; as
+                       // the last item in a bin description the parser reads
+                       // it as an element name and fails with
+                       // `no element "application"`. That is exactly what
+                       // happened here — every SFU audio and video publish
+                       // failed on every machine, so the MatrixRTC lane
+                       // never put a single track on the wire.
+                       "! capsfilter caps=\"application/x-rtp,media=audio,"
+                       "encoding-name=OPUS,payload=111\"")
             .arg(source, m_microphoneMuted ? QStringLiteral("true")
                                            : QStringLiteral("false"));
 
@@ -559,6 +567,11 @@ void SfuMediaEngine::publishAudio(const QString &cid)
         gst_parse_bin_from_description(description.toUtf8().constData(), TRUE,
                                        &error);
     if (error) {
+        // The message is GStreamer's own parse diagnostic — element and
+        // property names, never user content. It used to be discarded, which
+        // left "the call publishes nothing" with no way to find out why.
+        qCWarning(lcSfuMedia) << "audio pipeline parse failed:"
+                              << (error->message ? error->message : "?");
         g_error_free(error);
         if (bin)
             gst_object_unref(bin);
@@ -665,8 +678,9 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                        "! %2 "
                        "! valve name=vidvalve drop=false ! %3 name=videoenc "
                        "! rtpvp8pay pt=96 "
-                       "! application/x-rtp,media=video,encoding-name=VP8,"
-                       "payload=96")
+                       // capsfilter for the same reason as the audio path.
+                       "! capsfilter caps=\"application/x-rtp,media=video,"
+                       "encoding-name=VP8,payload=96\"")
             .arg(source, limits, encoder);
 
     GError *error = nullptr;
@@ -674,6 +688,8 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         gst_parse_bin_from_description(description.toUtf8().constData(), TRUE,
                                        &error);
     if (error) {
+        qCWarning(lcSfuMedia) << "video pipeline parse failed:"
+                              << (error->message ? error->message : "?");
         g_error_free(error);
         if (bin)
             gst_object_unref(bin);
@@ -782,10 +798,18 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
     GstSDPMessage *message = nullptr;
     if (gst_sdp_message_new(&message) != GST_SDP_OK)
         return;
-    if (gst_sdp_message_parse_buffer(
-            reinterpret_cast<const guint8 *>(sdp.toUtf8().constData()),
-            static_cast<guint>(sdp.toUtf8().size()), message)
-        != GST_SDP_OK) {
+    const QByteArray sdpBytes = sdp.toUtf8();
+    const bool parsed = gst_sdp_message_parse_buffer(
+                            reinterpret_cast<const guint8 *>(
+                                sdpBytes.constData()),
+                            static_cast<guint>(sdpBytes.size()), message)
+        == GST_SDP_OK;
+    // GStreamer's SDP parser is PERMISSIVE: it returns OK for text that is
+    // not SDP at all, producing an empty message. A description with no
+    // media sections describes nothing, and handing that to webrtcbin as a
+    // remote description is how a call ends up negotiated against garbage.
+    // So the section count is the real check, not the parser's verdict.
+    if (!parsed || gst_sdp_message_medias_len(message) == 0) {
         gst_sdp_message_free(message);
         // The SDP text itself is never logged: it carries host IPs.
         Q_EMIT failed(QStringLiteral("bad_remote_sdp"));

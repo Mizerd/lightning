@@ -21,6 +21,7 @@
 #include "models/SpaceChannelModel.h"
 
 #include "matrix/MatrixClient.h"
+#include "models/RoomListModel.h"
 #include "spaces/SpaceManager.h"
 
 #include <QSignalSpy>
@@ -478,6 +479,172 @@ private slots:
                                QStringLiteral("frontend"),
                                QStringLiteral("Deep"),
                                QStringLiteral("nested") }));
+    }
+
+    void favouritesAndDirectMessagesAppearAboveTheHierarchy()
+    {
+        // Reported: "in channels mode all list doesn't show people and in
+        // people list doesn't show people, also make sure favourites work in
+        // channels mode too."
+        //
+        // A Space hierarchy cannot contain a DM or a favourite — those belong
+        // to the ACCOUNT — so the Channels layout could not reach a direct
+        // message at all and the People chip had nothing to show.
+        FakeClient client;
+        auto rooms = workspace();
+        RoomInfo dm = channel(QStringLiteral("!dm:x"), QStringLiteral("alice"),
+                              {});
+        dm.isDirect = true;
+        rooms.append(dm);
+        RoomInfo fav = channel(QStringLiteral("!fav:x"),
+                               QStringLiteral("favourite room"), {});
+        fav.isFavourite = true;
+        rooms.append(fav);
+        client.roomList = rooms;
+
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        RoomListModel list;
+        list.setClient(&client);
+
+        SpaceChannelModel model;
+        model.setSpaceManager(&spaces);
+        model.setRoomListModel(&list);
+        model.setSpaceId(QStringLiteral("!work:x"));
+
+        const QStringList names = namesOf(model);
+        QVERIFY2(names.contains(QStringLiteral("alice")),
+                 qPrintable(QStringLiteral("no DM in: ")
+                                + names.join(QLatin1Char(','))));
+        QVERIFY(names.contains(QStringLiteral("favourite room")));
+        // ...and the Space's own channels are still there.
+        QVERIFY(names.contains(QStringLiteral("general")));
+        QVERIFY(names.contains(QStringLiteral("Engineering")));
+
+        // Group labels, and the account groups come FIRST — the Classic order
+        // is favourites then DMs then rooms, and switching layout must not
+        // rearrange what the user already knows.
+        const QStringList kinds = kindsOf(model);
+        QVERIFY(kinds.contains(QStringLiteral("section")));
+        QCOMPARE(names.indexOf(QStringLiteral("favourite room")) <
+                     names.indexOf(QStringLiteral("alice")), true);
+        QCOMPARE(names.indexOf(QStringLiteral("alice")) <
+                     names.indexOf(QStringLiteral("general")), true);
+    }
+
+    void aFavouritedDmIsListedOnceNotTwice()
+    {
+        FakeClient client;
+        auto rooms = workspace();
+        RoomInfo dm = channel(QStringLiteral("!dm:x"), QStringLiteral("alice"),
+                              {});
+        dm.isDirect = true;
+        dm.isFavourite = true;
+        rooms.append(dm);
+        client.roomList = rooms;
+
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        RoomListModel list;
+        list.setClient(&client);
+        SpaceChannelModel model;
+        model.setSpaceManager(&spaces);
+        model.setRoomListModel(&list);
+        model.setSpaceId(QStringLiteral("!work:x"));
+
+        QCOMPARE(namesOf(model).count(QStringLiteral("alice")), 1);
+    }
+
+    void theFilterChipsSelectWhichGroupsAppear()
+    {
+        FakeClient client;
+        auto rooms = workspace();
+        RoomInfo dm = channel(QStringLiteral("!dm:x"), QStringLiteral("alice"),
+                              {});
+        dm.isDirect = true;
+        rooms.append(dm);
+        client.roomList = rooms;
+
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        RoomListModel list;
+        list.setClient(&client);
+        SpaceChannelModel model;
+        model.setSpaceManager(&spaces);
+        model.setRoomListModel(&list);
+        model.setSpaceId(QStringLiteral("!work:x"));
+
+        // People: DMs only. A channel list is not people, so the hierarchy is
+        // skipped entirely rather than left standing over nothing.
+        model.setFilterMode(1);
+        QVERIFY(namesOf(model).contains(QStringLiteral("alice")));
+        QVERIFY(!namesOf(model).contains(QStringLiteral("general")));
+        QVERIFY(!namesOf(model).contains(QStringLiteral("Engineering")));
+
+        // Rooms: the hierarchy only.
+        model.setFilterMode(2);
+        QVERIFY(!namesOf(model).contains(QStringLiteral("alice")));
+        QVERIFY(namesOf(model).contains(QStringLiteral("general")));
+
+        // Unreads: only rows with something unread. `backend` has 4 unread
+        // and `frontend` 2 mentions in the fixture; `general` has none.
+        model.setFilterMode(3);
+        const QStringList unread = namesOf(model);
+        QVERIFY(unread.contains(QStringLiteral("backend")));
+        QVERIFY(unread.contains(QStringLiteral("frontend")));
+        QVERIFY(!unread.contains(QStringLiteral("general")));
+
+        // All: everything back.
+        model.setFilterMode(0);
+        QVERIFY(namesOf(model).contains(QStringLiteral("alice")));
+        QVERIFY(namesOf(model).contains(QStringLiteral("general")));
+
+        // Out of range clamps to All rather than emptying the list.
+        model.setFilterMode(99);
+        QCOMPARE(model.filterMode(), 0);
+    }
+
+    void anEmptyGroupDropsItsOwnHeader()
+    {
+        // A "Favourites" label over nothing is worse than no label.
+        FakeClient client;
+        client.roomList = workspace();   // no DMs, no favourites
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        RoomListModel list;
+        list.setClient(&client);
+        SpaceChannelModel model;
+        model.setSpaceManager(&spaces);
+        model.setRoomListModel(&list);
+        model.setSpaceId(QStringLiteral("!work:x"));
+
+        QVERIFY(!namesOf(model).contains(QStringLiteral("Favourites")));
+        QVERIFY(!namesOf(model).contains(QStringLiteral("Direct messages")));
+        // With nothing above it, the hierarchy needs no "Channels" label
+        // either — it is the whole list.
+        QVERIFY(!namesOf(model).contains(QStringLiteral("Channels")));
+        QVERIFY(!kindsOf(model).contains(QStringLiteral("section")));
+    }
+
+    void aFilterThatMatchesNothingIsNotAnEmptySpace()
+    {
+        // "This space has no channels yet" is a fact about the SPACE. A
+        // filter that matched nothing is a fact about the filter, and saying
+        // the first sends the user looking for a problem that is not there.
+        FakeClient client;
+        client.roomList = workspace();
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        RoomListModel list;
+        list.setClient(&client);
+        SpaceChannelModel model;
+        model.setSpaceManager(&spaces);
+        model.setRoomListModel(&list);
+        model.setSpaceId(QStringLiteral("!work:x"));
+
+        model.setFilterMode(1);   // People, and there are none
+        QCOMPARE(model.rowCount(), 0);
+        QVERIFY(!model.emptyHierarchy());
     }
 
     void encryptionIsOnlyReportedWhenItIsKnown()

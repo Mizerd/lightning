@@ -13,11 +13,17 @@ Item {
     id: root
 
     property int participantCount: 0
+    /// Whether this host is responsible for mute / deafen / camera / hang up.
+    ///
+    /// False on the call STAGE, where CallHeaderBar already owns them at the
+    /// top of the conversation. Without this the same four controls were
+    /// drawn twice on one screen for one call.
+    property bool showMediaControls: true
     property bool participantsOpen: false
 
-    signal hangUpRequested()
-    signal participantsToggled()
-    signal layoutCycleRequested()
+    signal hangUpRequested
+    signal participantsToggled
+    signal layoutCycleRequested
 
     implicitWidth: bar.implicitWidth
     implicitHeight: bar.implicitHeight
@@ -39,17 +45,18 @@ Item {
 
             CallControlButton {
                 objectName: "callMicButton"
+                visible: root.showMediaControls
                 // The icon states the CURRENT state, which is what a muted
                 // user needs to see at a glance.
                 iconName: app.groupCall.microphoneMuted ? "mic_off" : "mic"
                 role: app.groupCall.microphoneMuted ? "active" : "neutral"
-                tooltip: app.groupCall.microphoneMuted
-                         ? qsTr("Unmute microphone") : qsTr("Mute microphone")
+                tooltip: app.groupCall.microphoneMuted ? qsTr("Unmute microphone") : qsTr("Mute microphone")
                 onClicked: app.groupCall.toggleMicrophoneMuted()
             }
 
             CallControlButton {
                 objectName: "callDeafenButton"
+                visible: root.showMediaControls
                 iconName: app.groupCall.deafened ? "headset_off" : "headset_mic"
                 role: app.groupCall.deafened ? "active" : "neutral"
                 tooltip: app.groupCall.deafened ? qsTr("Undeafen") : qsTr("Deafen")
@@ -58,10 +65,10 @@ Item {
 
             CallControlButton {
                 objectName: "callCameraButton"
+                visible: root.showMediaControls
                 iconName: app.groupCall.cameraOn ? "videocam" : "videocam_off"
                 role: app.groupCall.cameraOn ? "active" : "neutral"
-                tooltip: app.groupCall.cameraOn ? qsTr("Turn off camera")
-                                                : qsTr("Turn on camera")
+                tooltip: app.groupCall.cameraOn ? qsTr("Turn off camera") : qsTr("Turn on camera")
                 onClicked: app.groupCall.toggleCamera()
             }
 
@@ -69,8 +76,7 @@ Item {
                 objectName: "callHandButton"
                 iconName: "front_hand"
                 role: app.groupCall.handRaised ? "active" : "neutral"
-                tooltip: app.groupCall.handRaised ? qsTr("Lower hand")
-                                                  : qsTr("Raise hand")
+                tooltip: app.groupCall.handRaised ? qsTr("Lower hand") : qsTr("Raise hand")
                 onClicked: app.groupCall.toggleHandRaised()
             }
 
@@ -105,6 +111,7 @@ Item {
 
             CallControlButton {
                 objectName: "callHangUpButton"
+                visible: root.showMediaControls
                 iconName: "call_end"
                 role: "danger"
                 // Wider than the round controls: leaving is the one

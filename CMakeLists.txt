@@ -675,6 +675,7 @@ set(APP_QML_FILES
     qml/RoomChannelsPresenter.qml
     qml/ChannelDelegate.qml
     qml/ChannelCategoryHeader.qml
+    qml/ChannelSectionHeader.qml
     qml/UnreadBadge.qml
     qml/NavigationLayoutCard.qml
     qml/MessageDelegate.qml
@@ -2628,6 +2629,10 @@ if(BUILD_TESTING)
         tests/SpaceChannelsTest.cpp
         src/models/SpaceChannelModel.h
         src/models/SpaceChannelModel.cpp
+        # Favourites and DMs come from here: they belong to the account, not
+        # to any Space.
+        src/models/RoomListModel.h
+        src/models/RoomListModel.cpp
         src/spaces/SpaceManager.h
         src/spaces/SpaceManager.cpp
         src/matrix/MatrixClient.h
@@ -2697,6 +2702,30 @@ if(BUILD_TESTING)
         target_link_libraries(call-media-loopback-test PRIVATE
             Qt6::Core Qt6::Test PkgConfig::GSTWEBRTC)
         add_test(NAME call-media-loopback COMMAND call-media-loopback-test)
+
+        # 2026-08-23: SfuMediaEngine had NO test while becoming the engine
+        # every call runs through — the .well-known discovery fix turned it
+        # from unreachable into the default path in one commit, and the next
+        # real run died instantly on pressing call. Test-source mode only:
+        # this exercises pipeline construction, the crypto pad probes and
+        # teardown, not the network.
+        qt_add_executable(sfu-media-engine-test
+            tests/SfuMediaEngineTest.cpp
+            src/calls/SfuMediaEngine.h
+            src/calls/SfuMediaEngine.cpp
+            src/calls/CallFrameCryptor.h
+            src/calls/CallFrameCryptor.cpp
+            src/calls/SfuVideoRouter.h
+            src/calls/SfuVideoRouter.cpp
+        )
+        target_include_directories(sfu-media-engine-test PRIVATE src)
+        target_compile_definitions(sfu-media-engine-test PRIVATE
+            HAVE_LIGHTNING_WEBRTC)
+        target_link_libraries(sfu-media-engine-test PRIVATE
+            Qt6::Core Qt6::Multimedia Qt6::Test
+            PkgConfig::GSTWEBRTC OpenSSL::Crypto)
+        add_test(NAME sfu-media-engine COMMAND sfu-media-engine-test)
+        set_tests_properties(sfu-media-engine PROPERTIES TIMEOUT 120)
         # A real ICE+DTLS handshake needs a little longer than unit suites.
         set_tests_properties(call-media-loopback PROPERTIES TIMEOUT 120)
     endif()

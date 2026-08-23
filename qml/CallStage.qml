@@ -31,40 +31,40 @@ Rectangle {
     // reads (the media-cache lesson).
     property int refreshTick: 0
     readonly property var people: {
-        var _ = root.refreshTick
-        return app.groupCall.participants()
+        var _ = root.refreshTick;
+        return app.groupCall.participants();
     }
     readonly property int peopleCount: {
-        var _ = root.refreshTick
-        return app.groupCall.participantCount
+        var _ = root.refreshTick;
+        return app.groupCall.participantCount;
     }
     readonly property bool someoneSharing: {
-        var _ = root.refreshTick
+        var _ = root.refreshTick;
         for (var i = 0; i < people.length; ++i) {
             if (people[i].screenSharing)
-                return true
+                return true;
         }
-        return false
+        return false;
     }
 
     Connections {
         target: app.groupCall
         function onParticipantsChanged() {
-            root.refreshTick = root.refreshTick + 1
+            root.refreshTick = root.refreshTick + 1;
         }
         function onMediaStateChanged() {
-            root.refreshTick = root.refreshTick + 1
+            root.refreshTick = root.refreshTick + 1;
         }
     }
 
     readonly property string effectiveLayout: {
         if (root.layoutMode !== "auto")
-            return root.layoutMode
+            return root.layoutMode;
         // A screen share is the reason everyone is looking, so it takes the
         // stage automatically; likewise a manual pin.
         if (root.someoneSharing || root.focusedIdentity.length > 0)
-            return "spotlight"
-        return "grid"
+            return "spotlight";
+        return "grid";
     }
 
     ColumnLayout {
@@ -85,12 +85,11 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 text: {
-                    var _ = root.refreshTick
-                    var n = root.peopleCount
+                    var _ = root.refreshTick;
+                    var n = root.peopleCount;
                     if (n <= 0)
-                        return qsTr("Connecting…")
-                    return n === 1 ? qsTr("1 person in call")
-                                   : qsTr("%1 people in call").arg(n)
+                        return qsTr("Connecting…");
+                    return n === 1 ? qsTr("1 person in call") : qsTr("%1 people in call").arg(n);
                 }
                 color: AppTheme.stormText
                 font.pixelSize: 14
@@ -138,10 +137,9 @@ Rectangle {
                     clip: true
                     model: root.people
                     readonly property int columns: {
-                        var n = Math.max(1, root.peopleCount)
-                        var byWidth = Math.max(1, Math.floor(width / 200))
-                        return Math.max(1, Math.min(byWidth,
-                                                    Math.ceil(Math.sqrt(n))))
+                        var n = Math.max(1, root.peopleCount);
+                        var byWidth = Math.max(1, Math.floor(width / 200));
+                        return Math.max(1, Math.min(byWidth, Math.ceil(Math.sqrt(n))));
                     }
                     cellWidth: Math.floor(width / columns)
                     cellHeight: Math.min(cellWidth * 0.72, height)
@@ -156,9 +154,7 @@ Rectangle {
                             // Routes video. The identity, not userId+deviceId:
                             // the sticky format's identity is a hash.
                             identity: parent.modelData.identity
-                            displayName: app.displayNameFor
-                                         ? app.displayNameFor(parent.modelData.userId)
-                                         : parent.modelData.userId
+                            displayName: app.displayNameFor ? app.displayNameFor(parent.modelData.userId) : parent.modelData.userId
                             micKnown: parent.modelData.micKnown
                             micMuted: parent.modelData.micMuted
                             cameraKnown: parent.modelData.cameraKnown
@@ -205,9 +201,7 @@ Rectangle {
                             }
                             Text {
                                 Layout.alignment: Qt.AlignHCenter
-                                text: root.someoneSharing
-                                      ? qsTr("Someone is sharing their screen")
-                                      : qsTr("Spotlight")
+                                text: root.someoneSharing ? qsTr("Someone is sharing their screen") : qsTr("Spotlight")
                                 color: AppTheme.stormTextSecondary
                                 font.pixelSize: 13
                             }
@@ -221,8 +215,8 @@ Rectangle {
                             size: "sm"
                             text: qsTr("Back to grid")
                             onClicked: {
-                                root.focusedIdentity = ""
-                                root.layoutMode = "grid"
+                                root.focusedIdentity = "";
+                                root.layoutMode = "grid";
                             }
                         }
                     }
@@ -243,9 +237,7 @@ Rectangle {
                             width: 140
                             userId: modelData.userId
                             identity: modelData.identity
-                            displayName: app.displayNameFor
-                                         ? app.displayNameFor(modelData.userId)
-                                         : modelData.userId
+                            displayName: app.displayNameFor ? app.displayNameFor(modelData.userId) : modelData.userId
                             micKnown: modelData.micKnown
                             micMuted: modelData.micMuted
                             cameraKnown: modelData.cameraKnown
@@ -261,15 +253,27 @@ Rectangle {
             }
         }
 
-        // Control bar, centred.
+        // Control bar, centred — and ONLY the controls the header bar does
+        // not already own.
+        //
+        // The call controls moved to the top of the conversation
+        // (CallHeaderBar) on the reporter's own request. This bar stayed, so a
+        // live call drew mic/output/camera/hangup TWICE on one screen — plus
+        // the Voice Connected strip and the "Join" banner, four surfaces for
+        // one call. What is genuinely stage-local is the layout toggle and
+        // the raise-hand/participants affordances, which have nowhere else to
+        // live; mute, camera, screen share and hang up belong to the header.
         CallControlBar {
             objectName: "callStageControls"
             Layout.fillWidth: true
             Layout.preferredHeight: implicitHeight
             participantCount: root.peopleCount
+            // Header-owned controls suppressed here rather than the component
+            // being duplicated: one CallControlBar, two hosts, and the host
+            // says which half it is responsible for.
+            showMediaControls: false
             onLayoutCycleRequested: {
-                root.layoutMode = root.effectiveLayout === "grid"
-                                  ? "spotlight" : "grid"
+                root.layoutMode = root.effectiveLayout === "grid" ? "spotlight" : "grid";
             }
             onHangUpRequested: app.groupCall.leave()
         }

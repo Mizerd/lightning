@@ -35,6 +35,7 @@
 #include <QVector>
 
 class SpaceManager;
+class RoomListModel;
 
 class SpaceChannelModel : public QAbstractListModel
 {
@@ -47,6 +48,11 @@ class SpaceChannelModel : public QAbstractListModel
     Q_PROPERTY(QString spaceId READ spaceId WRITE setSpaceId
                    NOTIFY spaceIdChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
+    /// Which groups to include: 0 All, 1 People, 2 Rooms, 3 Unreads. The same
+    /// closed set the room list's filter chips already write, so the chips
+    /// mean the same thing in both layouts instead of going inert in one.
+    Q_PROPERTY(int filterMode READ filterMode WRITE setFilterMode
+                   NOTIFY filterModeChanged)
     /// True when the Space genuinely has no direct children. Distinct from
     /// "no Space selected", because the empty states differ: one says "this
     /// Space has no channels yet", the other is not shown at all.
@@ -58,6 +64,11 @@ public:
         ChannelKind = 0,
         /// A direct child space, drawn as a collapsible header.
         CategoryKind = 1,
+        /// A plain group label — "Favourites", "Direct messages". Not a
+        /// Space, so it neither collapses nor opens: a category IS a room
+        /// you can enter, and conflating the two would offer to navigate
+        /// into a heading.
+        SectionKind = 2,
     };
     Q_ENUM(Kind)
 
@@ -94,10 +105,20 @@ public:
     explicit SpaceChannelModel(QObject *parent = nullptr);
 
     void setSpaceManager(SpaceManager *spaces);
+    /// Source for the groups a Space hierarchy cannot contain: favourites and
+    /// direct messages.
+    ///
+    /// Those belong to the ACCOUNT, not to any Space, so without them the
+    /// Channels layout could not reach a DM at all and the People filter had
+    /// nothing to show — reported as "in channels mode all list doesn't show
+    /// people and in people list doesn't show people".
+    void setRoomListModel(RoomListModel *rooms);
 
     QString spaceId() const { return m_spaceId; }
     void setSpaceId(const QString &spaceId);
     bool emptyHierarchy() const;
+    int filterMode() const { return m_filterMode; }
+    void setFilterMode(int mode);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -116,6 +137,7 @@ public:
 Q_SIGNALS:
     void spaceIdChanged();
     void countChanged();
+    void filterModeChanged();
 
 private:
     struct Row {
@@ -130,6 +152,7 @@ private:
         int unread = 0;
         int highlight = 0;
         bool hasUnread = false;
+        bool muted = false;
         /// Categories only.
         int hiddenUnread = 0;
         int hiddenHighlight = 0;
@@ -142,8 +165,17 @@ private:
     /// collapsed category needs.
     void appendChannels(const QString &parentId, int depth, bool append,
                         int *unread, int *highlight);
+    /// Append a "Favourites" / "Direct messages" group from the room list.
+    /// `wantDirect` selects DMs; otherwise favourites. Returns how many rows
+    /// were appended, so an empty group's HEADER can be dropped rather than
+    /// left standing over nothing.
+    int appendRoomListGroup(const QString &label, bool wantDirect);
+    /// Whether this row survives the current filter.
+    bool filterAdmits(bool isDirect, bool unread) const;
 
     SpaceManager *m_spaces = nullptr;
+    RoomListModel *m_rooms = nullptr;
+    int m_filterMode = 0;
     QString m_spaceId;
     QVector<Row> m_rows;
     /// Collapsed category ids, per Space. Keyed by Space so collapsing a

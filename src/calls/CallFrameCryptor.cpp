@@ -14,6 +14,8 @@ namespace {
 constexpr char kSalt[] = "LKFrameEncryptionKey";
 /// AES-128-GCM: 16-byte key, 12-byte IV, 16-byte tag.
 constexpr int kKeyBytes = 16;
+/// The RAW key both ends of the protocol agree on, before HKDF.
+constexpr int kRawKeyBytes = 32;
 constexpr int kIvBytes = 12;
 constexpr int kTagBytes = 16;
 /// { IV length, key index }.
@@ -90,6 +92,14 @@ bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
 {
     QMutexLocker lock(&m_mutex);
     if (index < 0 || index >= 16)
+        return false;
+    // The INPUT size, not just the derived one. HKDF turns any length into
+    // 16 bytes, so validating only the output accepted a 7-byte key: it
+    // derived cleanly, `encryptionActive()` then reported true, and every
+    // frame went out under a key no other participant could possibly have.
+    // Both ends of this protocol agree on 32 raw bytes — a different length
+    // is a bug or a hostile sender, never a key to use.
+    if (rawKey.size() != kRawKeyBytes)
         return false;
     const QByteArray derived = deriveKey(rawKey);
     if (derived.size() != kKeyBytes)

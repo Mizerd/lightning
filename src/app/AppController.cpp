@@ -750,6 +750,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // rather than transitively, and follows the rail's active Space.
     m_spaceChannels = std::make_unique<SpaceChannelModel>(this);
     m_spaceChannels->setSpaceManager(m_spaces.get());
+    // Favourites and direct messages belong to the ACCOUNT, not to any
+    // Space, so the Channels layout needs the room list to reach them at all.
+    m_spaceChannels->setRoomListModel(m_roomList.get());
     m_spaceChannels->setSpaceId(m_spaces->activeSpaceId());
     connect(m_spaces.get(), &SpaceManager::activeSpaceIdChanged, this,
             [this] {
