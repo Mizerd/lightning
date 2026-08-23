@@ -398,9 +398,18 @@ void RtcSessionTest::joinBlockKeepsItsCausesApart()
     Q_EMIT client.rtcTransportsReceived(
         client.lastTransportsOp, true, QString(),
         QStringList{QStringLiteral("https://sfu.example.org/")}, QString());
+    // A transport exists but this run has no SFU media engine, so joining
+    // would publish a membership no peer could connect to.
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("no_media_transport"));
     QVERIFY(controller.callingAvailable());
+
+    // With an engine, the call is genuinely joinable — and this is the ONLY
+    // path to an empty reason, so a Join button can never light up while any
+    // blocker remains.
+    controller.setMediaAvailable(true);
+    QVERIFY(controller.joinBlockReason(kRoom).isEmpty());
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
 }
 
 void RtcSessionTest::unsupportedBackendDoesNothingAtAll()
@@ -556,6 +565,9 @@ void RtcSessionTest::anEncryptedRoomRefusesWithoutMediaEncryption()
     controller.setMediaEncryptionAvailable(true);
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("no_media_transport"));
+    // ...and with an engine as well, an encrypted room becomes joinable.
+    controller.setMediaAvailable(true);
+    QVERIFY(controller.joinBlockReason(kRoom).isEmpty());
 
     // A room we were never told about defaults to ENCRYPTED. A boolean
     // cannot say "unknown", and the safe answer to "might this be
@@ -568,6 +580,11 @@ void RtcSessionTest::anEncryptedRoomRefusesWithoutMediaEncryption()
     Q_EMIT freshClient.rtcTransportsReceived(
         freshClient.lastTransportsOp, true, QString(),
         QStringList{QStringLiteral("https://sfu.example.org/")}, QString());
+    QCOMPARE(fresh.joinBlockReason(kOther),
+             QStringLiteral("media_encryption_unavailable"));
+    // Even with media available: encryption is checked FIRST, because it is
+    // the objection that matters to the user.
+    fresh.setMediaAvailable(true);
     QCOMPARE(fresh.joinBlockReason(kOther),
              QStringLiteral("media_encryption_unavailable"));
 }

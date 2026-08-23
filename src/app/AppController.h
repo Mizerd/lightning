@@ -485,6 +485,23 @@ public:
     ThreadManager *threads() const;
     PresenceManager *presence() const;
     CallController *calls() const;
+    /// Start a call in `roomId`, choosing the lane.
+    ///
+    /// MatrixRTC (SFU) is PRIMARY: it is what current Element speaks, it
+    /// carries video and screen share, and it works in a group. The legacy
+    /// 1:1 lane is the FALLBACK, for a room or homeserver with no MatrixRTC
+    /// — and it is audio-only and DM-only by protocol, because a legacy
+    /// invite rings every member of a room.
+    ///
+    /// Returns false and reports through `callStartRefused` when neither
+    /// lane can carry a call, rather than appearing to start one.
+    Q_INVOKABLE bool startCall(const QString &roomId, bool withVideo = false);
+    /// Whether `startCall` would do anything for this room — the gate the
+    /// room-header button uses, so a dead button is never offered.
+    Q_INVOKABLE bool canStartCall(const QString &roomId) const;
+    /// Which lane `startCall` would use: "matrixrtc", "legacy" or "" for
+    /// none. Diagnostics and tests; not shown in normal UI.
+    Q_INVOKABLE QString preferredCallLane(const QString &roomId) const;
     RtcController *rtc() const;
     SfuCallController *groupCall() const;
     CallDeviceController *callDevices() const;
@@ -914,6 +931,8 @@ Q_SIGNALS:
     void syncModeChanged();
     void systemDarkModeChanged();
     void errorReported(const QString &message);
+    /// A call could not be started, with wording already fit to show.
+    void callStartRefused(const QString &message);
     // v0.7.x: see openMatrixLink().
     void matrixLinkRequested(const QString &link);
     void rustDeviceIdChanged();

@@ -784,32 +784,31 @@ Rectangle {
                         // member of the room, so a group room must never
                         // get this button. Idle/Ended only — one call at a
                         // time, and the corner card owns a live one.
+                        // ONE policy question, answered in AppController:
+                        // MatrixRTC where available (video, screen share,
+                        // groups — what Element speaks), the legacy 1:1 lane
+                        // as the audio-only DM fallback. The button is
+                        // absent when neither can carry a call, rather than
+                        // present and dead.
                         visible: app.currentRoomId !== ""
-                                 && app.calls.mediaBackendAvailable
-                                 && root.currentRoom.isDirect === true
+                                 && app.canStartCall(app.currentRoomId)
+                                 && !app.groupCall.active
                                  && (app.calls.state === CallController.Idle
                                      || app.calls.state
                                         === CallController.Ended)
-                        // 2026-08-23 (maintainer request): ENABLED. The
-                        // engine is real — the call-media-loopback suite
-                        // completes an in-process WebRTC call with genuine
-                        // ICE, DTLS-SRTP and Opus — and mute now actually
-                        // stops publishing. What remains unproven is the
-                        // NETWORK: no answered call between two machines has
-                        // been live-tested, so a call may still fail for
-                        // reasons this build cannot show in advance.
-                        //
-                        // `mediaBackendAvailable` in the visibility gate is
-                        // what keeps this honest on a packaged build without
-                        // the GStreamer plugins: the button is absent there
-                        // rather than present and dead.
+                        // 2026-08-23: enabled, and its VISIBILITY now asks
+                        // AppController whether either lane can actually
+                        // carry a call — so a packaged build without the
+                        // GStreamer plugins, or a homeserver with no
+                        // MatrixRTC and a non-DM room, shows no button at
+                        // all rather than a dead one.
                         enabled: true
                         iconName: "call"
                         Accessible.name: qsTr("Start a voice call")
                         ToolTip.text: qsTr("Start a voice call")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        onClicked: app.calls.placeCall(app.currentRoomId)
+                        onClicked: app.startCall(app.currentRoomId, false)
                     }
                     // Pinned-messages shortcut: shown only when the room
                     // actually has pins, so users reach the list in one

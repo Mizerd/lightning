@@ -1864,6 +1864,74 @@ SpaceManager *AppController::spaces() const { return m_spaces.get(); }
 ThreadManager *AppController::threads() const { return m_threads.get(); }
 PresenceManager *AppController::presence() const { return m_presence.get(); }
 CallController *AppController::calls() const { return m_calls.get(); }
+
+QString AppController::preferredCallLane(const QString &roomId) const
+{
+    if (roomId.isEmpty())
+        return QString();
+    // MatrixRTC first. It is what current Element speaks, it carries video
+    // and screen share, and it works in a group — the legacy lane does none
+    // of those.
+    if (m_rtc && m_rtc->joinBlock(roomId) == RtcController::JoinBlock::None)
+        return QStringLiteral("matrixrtc");
+    // Legacy fallback, and only where it is protocol-safe: a legacy
+    // m.call.invite rings EVERY member of a room, so it is 1:1 DMs only.
+    if (m_calls && m_calls->mediaBackendAvailable()) {
+        const QVariantMap room = m_roomList->findRoom(roomId);
+        if (room.value(QStringLiteral("isDirect")).toBool())
+            return QStringLiteral("legacy");
+    }
+    return QString();
+}
+
+bool AppController::canStartCall(const QString &roomId) const
+{
+    return !preferredCallLane(roomId).isEmpty();
+}
+
+bool AppController::startCall(const QString &roomId, bool withVideo)
+{
+    const QString lane = preferredCallLane(roomId);
+    if (lane == QLatin1String("matrixrtc"))
+        return m_groupCall->join(roomId, withVideo);
+    if (lane == QLatin1String("legacy")) {
+        if (withVideo) {
+            // The legacy lane is audio-only by design. Saying so beats
+            // starting an audio call the user asked to be a video one.
+            Q_EMIT callStartRefused(
+                tr("Video calls need a MatrixRTC service, which isn't "
+                   "available here yet."));
+            return false;
+        }
+        return m_calls->placeCall(roomId);
+    }
+
+    // Neither lane. The reason matters: "this homeserver has no calling" and
+    // "this room is encrypted and encrypted calls are not ready" are
+    // different problems with different answers.
+    if (m_rtc) {
+        const QString reason = m_rtc->joinBlockReason(roomId);
+        if (reason == QLatin1String("media_encryption_unavailable")) {
+            Q_EMIT callStartRefused(
+                tr("This room is encrypted, and encrypted calls aren't "
+                   "available yet on this build."));
+            return false;
+        }
+        if (reason == QLatin1String("no_transport")) {
+            Q_EMIT callStartRefused(
+                tr("Calling isn't available on this homeserver because no "
+                   "MatrixRTC service is configured."));
+            return false;
+        }
+        if (reason == QLatin1String("undiscovered")) {
+            Q_EMIT callStartRefused(
+                tr("Still checking whether calling is available…"));
+            return false;
+        }
+    }
+    Q_EMIT callStartRefused(tr("Calling isn't available here."));
+    return false;
+}
 RtcController *AppController::rtc() const { return m_rtc.get(); }
 SfuCallController *AppController::groupCall() const
 {
@@ -1911,6 +1979,10 @@ void AppController::enableCallMediaEngine()
     if (SfuMediaEngine::runtimeAvailable(&sfuWhyNot)) {
         auto *sfu = new SfuMediaEngine(this);
         m_groupCall->setMediaEngine(sfu);
+        // The join gate can now say "joinable": until an engine exists it
+        // reports NoMediaTransport, because publishing a membership nobody
+        // can connect to is worse than refusing.
+        m_rtc->setMediaAvailable(true);
         // Screen sharing goes through the desktop portal, so the picker is
         // the compositor's and Lightning never enumerates windows itself.
         // Registered only when a portal actually answers on this session

@@ -61,6 +61,37 @@ private:
     }
 
 private Q_SLOTS:
+    void callLanePrefersMatrixRtcAndFallsBackToDmOnlyLegacy()
+    {
+        // Lane selection is ONE policy question and it lives here, not in
+        // QML. Two rules it must never lose:
+        //
+        //  * MatrixRTC is PRIMARY where it can carry a call — it is what
+        //    current Element speaks, and it is the only lane with video,
+        //    screen share and groups.
+        //  * The legacy fallback is 1:1 DMs ONLY, because a legacy
+        //    m.call.invite rings EVERY member of a room. Offering it in a
+        //    group room would ring everyone.
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+
+        // The mock backend has no MatrixRTC and registers no media engine,
+        // so neither lane can carry a call: no button, and no pretending.
+        QVERIFY(!controller.canStartCall(QStringLiteral("!general:mock.local")));
+        QCOMPARE(controller.preferredCallLane(
+                     QStringLiteral("!general:mock.local")),
+                 QString());
+
+        // An empty room id is never callable.
+        QVERIFY(!controller.canStartCall(QString()));
+
+        // Refusing must SAY why rather than failing silently.
+        QSignalSpy refused(&controller, &AppController::callStartRefused);
+        QVERIFY(!controller.startCall(QStringLiteral("!general:mock.local")));
+        QCOMPARE(refused.count(), 1);
+        QVERIFY(!refused.at(0).at(0).toString().isEmpty());
+    }
+
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());

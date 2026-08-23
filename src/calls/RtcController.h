@@ -172,6 +172,11 @@ public:
     /// read the audio. Defaults FALSE — a boolean that cannot say "unknown"
     /// must default to the safe answer.
     void setMediaEncryptionAvailable(bool available);
+    /// Whether an SFU media engine exists in this build/run. Until it does,
+    /// joining would publish a membership no peer could connect to, so the
+    /// join block says exactly that.
+    void setMediaAvailable(bool available);
+    bool mediaAvailable() const { return m_mediaAvailable; }
     bool mediaEncryptionAvailable() const { return m_mediaEncryption; }
     /// Tell the controller which rooms are encrypted. Supplied by the owner
     /// rather than read here, so this class keeps no second opinion about
@@ -245,6 +250,7 @@ private:
     quint64 m_discoveryOp = 0;
     /// False until an owner says otherwise: see setMediaEncryptionAvailable.
     bool m_mediaEncryption = false;
+    bool m_mediaAvailable = false;
     QHash<QString, bool> m_encryptedRooms;
 
 };

@@ -60,8 +60,13 @@ AppMenu {
         // system default as it changes", which is different from pinning
         // whichever device happens to be default today.
         text: qsTr("System default")
-        checkable: true
-        checked: {
+        // AppMenuItem has its OWN selected-state idiom (radio +
+        // radioSelected, drawn as a StormNode in the indicator column).
+        // Qt's `checkable` makes the control draw its default indicator on
+        // top of that custom contentItem, which is why the tick landed over
+        // the label.
+        radio: true
+        radioSelected: {
             var _ = root.refreshTick
             if (root.kind === "speaker")
                 return app.callDevices.activeSpeakerId === ""
@@ -82,8 +87,8 @@ AppMenu {
             // system named, not our string.
             text: modelData.description
                   + (modelData.isDefault ? " " + qsTr("(default)") : "")
-            checkable: true
-            checked: modelData.chosen
+            radio: true
+            radioSelected: modelData.chosen
             onTriggered: root.selectDevice(modelData.id)
         }
     }

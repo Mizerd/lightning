@@ -86,8 +86,16 @@ private Q_SLOTS:
         QVERIFY(!card.isEmpty());
         QVERIFY2(!card.contains(QStringLiteral("inCallMuteButton")),
                  "mute moved to the top bar and must not be duplicated here");
+        // EXACTLY ONE surface at a time. Gating on call STATE was wrong —
+        // during Inviting/Connecting both the bar and the card were visible,
+        // which is what the maintainer reported. The card now appears only
+        // where the bar cannot reach: another room, or another screen.
+        QVERIFY(card.contains(QStringLiteral("(inCall && !barCovers)")));
         QVERIFY(card.contains(QStringLiteral(
-            "(inCall && app.calls.state !== CallController.Active)")));
+            "app.calls.activeRoomId === app.currentRoomId")));
+        // Hang Up must still be reachable from the card, so leaving a call
+        // works from Settings or another room.
+        QVERIFY(card.contains(QStringLiteral("incomingCallPromptHangup")));
     }
 
     void promptBindsToCallStateNotPolicy()
@@ -139,14 +147,20 @@ private Q_SLOTS:
         // rationale comments (widened 2026-08-19 when the coming-soon note
         // landed) — a too-tight window fails on prose, not on behaviour.
         const QString scope = norm.mid(button, 1600);
-        // A legacy m.call.invite rings EVERY member of a room: the entry
-        // point must be gated to 1:1 DMs and to a registered engine.
+        // 2026-08-23: lane selection is ONE policy question, answered in
+        // AppController — MatrixRTC where available, the legacy 1:1 lane as
+        // the audio-only DM fallback. The button asks whether either lane
+        // can carry a call rather than re-deriving that rule in QML, so a
+        // homeserver with no MatrixRTC and a non-DM room shows no button.
+        //
+        // The DM restriction still EXISTS; it moved to where it belongs.
+        // AppControllerCallLaneTest covers it against the real policy.
         QVERIFY(scope.contains(
-            QStringLiteral("root.currentRoom.isDirect === true")));
-        QVERIFY(scope.contains(
-            QStringLiteral("app.calls.mediaBackendAvailable")));
+            QStringLiteral("app.canStartCall(app.currentRoomId)")));
         QVERIFY(scope.contains(QStringLiteral(
-            "onClicked: app.calls.placeCall(app.currentRoomId)")));
+            "onClicked: app.startCall(app.currentRoomId, false)")));
+        // A live group call must not offer "start a call" as well.
+        QVERIFY(scope.contains(QStringLiteral("!app.groupCall.active")));
         // 2026-08-23: ENABLED at the maintainer's request, after mute was
         // made real and the engine's handshake was proven in-process. The
         // "coming soon" wording must be gone with it — a live button whose
@@ -155,14 +169,17 @@ private Q_SLOTS:
         QVERIFY(scope.contains(QStringLiteral("enabled: true")));
         QVERIFY2(!norm.contains(QStringLiteral("Voice calls are coming soon")),
                  "the coming-soon wording must not outlive the disabled state");
-        // The ENGINE gate stays load-bearing: on a packaged build without the
-        // GStreamer plugins the button must be ABSENT, not present and dead.
-        // That is the one thing enabling it must not quietly give up.
+        // The ENGINE gate stays load-bearing, but it now lives inside
+        // canStartCall(): on a packaged build with no GStreamer plugins
+        // neither lane is available, so the button is ABSENT rather than
+        // present and dead. What this asserts is that the gate is in the
+        // VISIBILITY, not merely in the click handler — a button that
+        // appears and then refuses is the failure mode being prevented.
         const int visible = scope.indexOf(QStringLiteral("visible:"));
         const int enabled = scope.indexOf(QStringLiteral("enabled: true"));
         QVERIFY(visible >= 0 && enabled > visible);
         QVERIFY(scope.mid(visible, enabled - visible)
-                    .contains(QStringLiteral("app.calls.mediaBackendAvailable")));
+                    .contains(QStringLiteral("app.canStartCall(")));
     }
 
     void mainHostsTheCallPromptAboveThePassiveOnes()

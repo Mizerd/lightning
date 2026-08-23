@@ -119,6 +119,14 @@ void RtcController::setMediaEncryptionAvailable(bool available)
     Q_EMIT availabilityChanged();
 }
 
+void RtcController::setMediaAvailable(bool available)
+{
+    if (m_mediaAvailable == available)
+        return;
+    m_mediaAvailable = available;
+    Q_EMIT availabilityChanged();
+}
+
 void RtcController::setRoomEncrypted(const QString &roomId, bool encrypted)
 {
     if (roomId.isEmpty())
@@ -431,10 +439,12 @@ RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const
     // (AppController, from the room's own encrypted/encryptionKnown pair).
     if (m_encryptedRooms.value(roomId, true) && !m_mediaEncryption)
         return JoinBlock::MediaEncryptionUnavailable;
-    // Everything on the Matrix side checks out. What is missing is the SFU
-    // media transport, which this build does not have — so joining would
-    // publish a membership no peer could connect to.
-    return JoinBlock::NoMediaTransport;
+    // No SFU media engine: joining would publish a membership no peer could
+    // connect to, which is the one thing this controller must never do.
+    if (!m_mediaAvailable)
+        return JoinBlock::NoMediaTransport;
+    // Everything checks out — the call is joinable.
+    return JoinBlock::None;
 }
 
 QString RtcController::joinBlockReason(const QString &roomId) const

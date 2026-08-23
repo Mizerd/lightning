@@ -30,17 +30,24 @@ Rectangle {
         || app.calls.state === CallController.Connecting
         || app.calls.state === CallController.Active
 
+    /// True when the top-of-conversation bar is on screen for this call.
+    ///
+    /// That bar lives in the room's own column, so it is only reachable
+    /// while the user is looking at the call's room in the chat shell.
+    readonly property bool barCovers:
+        app.currentScreen === 1
+        && app.calls.activeRoomId === app.currentRoomId
+
     readonly property bool shouldShow:
-        // 2026-08-23: the in-call form now lives at the TOP of the
-        // conversation (CallHeaderBar), so this card is the RING and the
-        // dialing/connecting states only — the two cases where the user may
-        // not be looking at the call's room, and where a control anchored to
-        // that room would therefore be unreachable.
+        // EXACTLY ONE in-call surface at a time. The card appears only where
+        // CallHeaderBar cannot: another room, or another screen (Settings
+        // mid-call). Gating on the call's STATE instead was wrong — during
+        // Inviting/Connecting both were visible at once, which is what the
+        // maintainer reported.
         //
-        // Once a call is ACTIVE the top bar owns it. Showing both would give
-        // the user two places to mute with nothing to say they are the same
-        // state.
-        (inCall && app.calls.state !== CallController.Active)
+        // The card still carries Hang Up, so leaving a call stays reachable
+        // from anywhere; it simply stops duplicating the bar.
+        (inCall && !barCovers)
         || (ringing && app.calls.activeCallId !== dismissedCallId
             && app.currentScreen === 1)
 
