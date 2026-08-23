@@ -78,6 +78,7 @@ mod uia;
 mod presence;
 mod profile;
 mod rooms;
+mod rtc;
 mod timeline;
 
 /// The single HTTP user agent Lightning presents, to the homeserver and to any
@@ -6269,6 +6270,72 @@ pub unsafe extern "C" fn mx_rust_calls_rtc_decline(
     })
 }
 
+/// Report the current MatrixRTC session in one room.
+///
+/// Result arrives as an `rtc_session` poll event carrying the participant
+/// list, the selected focus and the slot status. Read-only: this publishes
+/// nothing and joins nothing.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_rtc_session(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        rtc::request_session(bridge, room_id, op_id).map(|_| String::new())
+    })
+}
+
+/// Discover the MatrixRTC transports available to this account.
+///
+/// `room_id` may be empty; when given it adds the focus the room's existing
+/// participants advertise, which is the only discovery route on a homeserver
+/// with no MSC4143 endpoint.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_rtc_transports(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        rtc::request_transports(bridge, room_id, op_id).map(|_| String::new())
+    })
+}
+
+/// Send an `org.matrix.msc4075.rtc.notification` (the ring).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_rtc_notify(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    notification_type: *const c_char,
+    intent: *const c_char,
+    lifetime_ms: u64,
+    membership_event_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let notification_type = unsafe { cstr_arg(notification_type) }?;
+        let intent = unsafe { cstr_arg(intent) }?;
+        let membership_event_id = unsafe { cstr_arg(membership_event_id) }?;
+        rtc::send_notification(
+            bridge,
+            room_id,
+            notification_type,
+            intent,
+            lifetime_ms,
+            membership_event_id,
+            op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
 /// Report one event to the homeserver administrator (stable /v3 endpoint).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_report_message(
@@ -7403,6 +7470,10 @@ async fn run_authoritative_sync(
     // an orphaned handler can never fire into a later account's queue.
     let _call_guards = calls::register_handlers(
         &client, &events, &timelines, &call_media_capable);
+    // MatrixRTC observation shares that lifetime for the same reason. Kept
+    // separate from the legacy lane because it answers a different question:
+    // who is in a room's call right now, versus who is inviting whom.
+    let _rtc_guards = rtc::register_rtc_handlers(&client, &events, &timelines);
 
     set_sync_mode(&sync_mode, &events, SyncMode::Probing, None);
 

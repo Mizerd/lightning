@@ -39,6 +39,32 @@ private:
     }
 
 private Q_SLOTS:
+    void inCallAudioControlsCannotAppearAsDeadButtons()
+    {
+        // The mute and deafen controls are the ONLY affordance for those
+        // features in the app, so two things must hold and both are easy to
+        // regress:
+        //
+        //  1. They are gated on `muteControlAvailable`, not merely on a
+        //     backend existing. `CallMediaBackend`'s mute methods default to
+        //     a NO-OP, so a backend that does not override them would
+        //     otherwise present a control that silently does nothing.
+        //  2. They are scoped to a LIVE call. Offering mute while idle would
+        //     set an intent with nothing to apply it to.
+        const QString norm = normalized(
+            read(QStringLiteral(QML_DIR "/IncomingCallPrompt.qml")));
+        QVERIFY(!norm.isEmpty());
+        QVERIFY(norm.contains(QStringLiteral("objectName: \"inCallMuteButton\"")));
+        QVERIFY(norm.contains(QStringLiteral("objectName: \"inCallDeafenButton\"")));
+        QVERIFY2(norm.contains(QStringLiteral(
+                     "visible: root.inCall && app.calls.muteControlAvailable")),
+                 "audio controls must be gated on a live call AND an engine "
+                 "that really implements mute");
+        // The toggles must reach the controller, never a local-only flag.
+        QVERIFY(norm.contains(QStringLiteral("app.calls.toggleMicrophoneMuted()")));
+        QVERIFY(norm.contains(QStringLiteral("app.calls.toggleDeafened()")));
+    }
+
     void promptBindsToCallStateNotPolicy()
     {
         const QString norm = normalized(

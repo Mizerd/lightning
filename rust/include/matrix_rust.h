@@ -879,6 +879,34 @@ char *mx_rust_calls_candidates(void *client,
  * call_turn_servers {op_id, ok, username, password, uris[], ttl_seconds}
  * carries short-lived credentials: engine-only, never logged. */
 char *mx_rust_calls_turn_servers(void *client, unsigned long long op_id);
+/* MatrixRTC (MSC4143) — the Matrix half of modern calling. Observation and
+ * discovery only in this round: nothing here publishes membership, because
+ * advertising a joinable session without a media stack tells every other
+ * client in the room to attempt an SFU connection that cannot complete.
+ *
+ * mx_rust_rtc_session   -> rtc_session {op_id, room_id, member_count,
+ *                          slot_present, slot_closed, focus, members[]}
+ * mx_rust_rtc_transports-> rtc_transports {op_id, room_id, server_answered,
+ *                          category, server_transports[], participant_focus}
+ * mx_rust_rtc_notify    -> rtc_send_result {op_id, ok, category, event_id}
+ *
+ * Membership changes are announced as a payload-free rtc_session_changed
+ * {room_id} poke; answer it by re-reading the session, so remote and local
+ * changes converge on one parse path. Inbound MSC4075 notifications arrive
+ * on the existing call_rtc_notification lane with rtc=true. */
+char *mx_rust_rtc_session(void *client,
+                          const char *room_id,
+                          unsigned long long op_id);
+char *mx_rust_rtc_transports(void *client,
+                             const char *room_id_or_empty,
+                             unsigned long long op_id);
+char *mx_rust_rtc_notify(void *client,
+                         const char *room_id,
+                         const char *notification_type,
+                         const char *intent,
+                         unsigned long long lifetime_ms,
+                         const char *membership_event_id_or_empty,
+                         unsigned long long op_id);
 /* v0.7.x UIA + device sign-out. delete may raise a uia_required challenge
  * event ({op_id, flows, completed, has_password_stage, wrong_password});
  * answer with mx_rust_uia_submit_password (the password transit buffer is

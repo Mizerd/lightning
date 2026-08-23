@@ -54,6 +54,27 @@ public:
                                const QString &username,
                                const QString &password) = 0;
 
+    // Microphone mute. This must STOP PUBLISHING, not lower a local
+    // volume: the peer must receive nothing while muted. (Lowering local
+    // gain still sends audio and is explicitly not mute.)
+    //
+    // Default no-op so an engine that genuinely cannot mute stays
+    // buildable; `supportsMuteControl()` is what the UI consults, so a
+    // no-op default can never present a working-looking mute button.
+    virtual void setMicrophoneMuted(const QString &callId, bool muted)
+    { Q_UNUSED(callId); Q_UNUSED(muted); }
+
+    // Local output mute ("deafen"): silence incoming call audio only. This
+    // legitimately IS a local volume operation — there is no upstream to
+    // stop — and must not touch media playback outside the call.
+    virtual void setOutputMuted(const QString &callId, bool muted)
+    { Q_UNUSED(callId); Q_UNUSED(muted); }
+
+    // Whether the two controls above actually do something in this engine.
+    // The UI must gate on this rather than assume, so a control is never
+    // offered that silently does nothing.
+    virtual bool supportsMuteControl() const { return false; }
+
     // Tear down all session state for the call. Must be idempotent and
     // must not emit further signals for this callId afterwards.
     virtual void close(const QString &callId) = 0;

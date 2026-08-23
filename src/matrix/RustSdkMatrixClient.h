@@ -419,6 +419,14 @@ public:
                            const QString &partyId,
                            const QVariantList &candidates) override;
     quint64 requestCallTurnServers() override;
+    // MatrixRTC (MSC4143): observation and discovery. There is deliberately
+    // no join/publish override — see MatrixClient::supportsMatrixRtc.
+    bool supportsMatrixRtc() const override { return true; }
+    quint64 rtcSession(const QString &roomId) override;
+    quint64 rtcTransports(const QString &roomId) override;
+    quint64 rtcNotify(const QString &roomId, const QString &notificationType,
+                      const QString &intent, quint64 lifetimeMs,
+                      const QString &membershipEventId) override;
     quint64 setUserIgnored(const QString &userId, bool ignored) override;
     quint64 requestIgnoredUsers() override;
     bool supportsEventReporting() const override { return true; }

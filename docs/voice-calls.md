@@ -1,5 +1,13 @@
 # Voice calls — signaling backend (2026-08-18)
 
+> **See also `docs/matrixrtc.md`** (2026-08-23) for the MatrixRTC lane —
+> membership observation, transport discovery, the room call banner, and the
+> mute/deafen controls this document's engine gained. One correction to the
+> claim below: the `m.rtc.notification` handler described here uses ruma's
+> **stable** `m.rtc.notification` type, and current Element sends
+> `org.matrix.msc4075.rtc.notification`, so it never fired for a current
+> Element ring. That is fixed in the MatrixRTC module, not here.
+
 Status: **internal pipes only.** No UI, no media. This document records what
 exists, what is deliberately absent, and the contract a future media backend
 plugs into.

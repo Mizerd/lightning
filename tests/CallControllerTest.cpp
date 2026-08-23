@@ -216,6 +216,36 @@ public:
     QString lastRemoteAnswer;
 };
 
+/// FakeMediaBackend plus real mute bookkeeping.
+///
+/// Separate from FakeMediaBackend on purpose: the base double deliberately
+/// leaves `supportsMuteControl()` at its false default, so the "no mute
+/// without an engine that implements it" case has something honest to test
+/// against.
+class MuteTrackingBackend : public FakeMediaBackend
+{
+public:
+    using FakeMediaBackend::FakeMediaBackend;
+
+    void setMicrophoneMuted(const QString &callId, bool muted) override
+    {
+        micCalls.append(callId);
+        micMuted = muted;
+    }
+    void setOutputMuted(const QString &callId, bool muted) override
+    {
+        outputCalls.append(callId);
+        outputMuted = muted;
+    }
+    bool supportsMuteControl() const override { return true; }
+
+    QStringList micCalls;
+    QStringList outputCalls;
+    bool micMuted = false;
+    bool outputMuted = false;
+};
+
+
 CallSignal freshInvite(const QString &callId,
                        const QString &roomId = QStringLiteral("!r:x"),
                        const QString &sender = QStringLiteral("@peer:x"))
@@ -240,6 +270,24 @@ CallSignal freshInvite(const QString &callId,
 class CallControllerTest : public QObject
 {
     Q_OBJECT
+
+private:
+    // Helper, NOT a slot: QtTest treats every private slot as a test case.
+    static void ringForRtcNotification(RecordingCallClient &client,
+                                       const QString &roomId,
+                                       const QString &sender)
+    {
+        CallSignal notify;
+        notify.kind = CallSignal::Kind::RtcNotification;
+        notify.roomId = roomId;
+        notify.eventId = QStringLiteral("$notify-1");
+        notify.sender = sender;
+        notify.lifetimeMs = 30000;
+        notify.senderTs = QDateTime::currentMSecsSinceEpoch();
+        notify.originServerTs = notify.senderTs;
+        notify.callIntent = QStringLiteral("audio");
+        client.emitSignal(notify);
+    }
 
 private Q_SLOTS:
     void inboundInviteRingsAndLocalRejectSendsOurParty()
@@ -509,6 +557,222 @@ private Q_SLOTS:
         QCOMPARE(client.sent.size(), 1);
         QCOMPARE(client.sent.first().kind, QStringLiteral("rtc_decline"));
         QCOMPARE(client.sent.first().extra, QStringLiteral("$notify-1"));
+    }
+
+    void aDualStackCallerDoesNotGetAFalseDecline()
+    {
+        // PART 7 (legacy/MatrixRTC coexistence). One caller can announce a
+        // single call on BOTH lanes: an m.rtc.notification and a legacy
+        // m.call.invite. Their ids can never match — an RTC session is keyed
+        // on the notification event id — so the re-delivery guard misses it,
+        // and before the fix the invite fell into the busy branch and sent
+        // m.call.reject. Two wrongs at once: the caller is told we declined
+        // while we are actually ringing the user for exactly that person in
+        // exactly that room, and the user may then answer a call the caller
+        // has already abandoned.
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+
+        CallSignal notify;
+        notify.kind = CallSignal::Kind::RtcNotification;
+        notify.roomId = QStringLiteral("!r:x");
+        notify.eventId = QStringLiteral("$notify-1");
+        notify.sender = QStringLiteral("@peer:x");
+        notify.lifetimeMs = 30000;
+        notify.senderTs = QDateTime::currentMSecsSinceEpoch();
+        notify.originServerTs = notify.senderTs;
+        client.emitSignal(notify);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+
+        // The same caller's legacy leg for the same conversation.
+        CallSignal legacy = freshInvite(QStringLiteral("legacy-1"));
+        legacy.roomId = QStringLiteral("!r:x");
+        legacy.sender = QStringLiteral("@peer:x");
+        client.emitSignal(legacy);
+
+        // Still one ring, and NOTHING on the wire.
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QCOMPARE(calls.activeCallId(), QStringLiteral("$notify-1"));
+        QVERIFY2(client.sent.isEmpty(),
+                 "a second lane for the same call must not be rejected");
+    }
+
+    void aDifferentSenderInTheSameRoomIsStillRejectedAsBusy()
+    {
+        // The guard must be narrow. Varying ONLY the sender proves the
+        // sender clause carries weight — the earlier version of this case
+        // changed room AND sender together, so it passed even with the
+        // sender comparison deleted.
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        ringForRtcNotification(client, QStringLiteral("!r:x"),
+                               QStringLiteral("@peer:x"));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+
+        CallSignal other = freshInvite(QStringLiteral("other-1"));
+        other.roomId = QStringLiteral("!r:x"); // same room
+        other.sender = QStringLiteral("@stranger:x"); // different person
+        client.emitSignal(other);
+
+        QCOMPARE(client.sent.size(), 1);
+        QCOMPARE(client.sent.first().kind, QStringLiteral("reject"));
+    }
+
+    void theSameSenderInADifferentRoomIsStillRejectedAsBusy()
+    {
+        // ...and varying ONLY the room proves the room clause carries
+        // weight too. The same person calling from another room is a
+        // genuinely different call.
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        ringForRtcNotification(client, QStringLiteral("!r:x"),
+                               QStringLiteral("@peer:x"));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+
+        CallSignal other = freshInvite(QStringLiteral("other-1"));
+        other.roomId = QStringLiteral("!other:x"); // different room
+        other.sender = QStringLiteral("@peer:x"); // same person
+        client.emitSignal(other);
+
+        QCOMPARE(client.sent.size(), 1);
+        QCOMPARE(client.sent.first().kind, QStringLiteral("reject"));
+    }
+
+    void muteStopsPublishingAndDeafenRestoresThePriorMicState()
+    {
+        // PART 11. Mute must reach the ENGINE (which stops publishing), and
+        // deafen must not resurrect a microphone the user had deliberately
+        // muted before deafening.
+        RecordingCallClient client;
+        CallController calls;
+        MuteTrackingBackend backend;
+        calls.setClient(&client);
+        calls.setMediaBackend(&backend);
+        QVERIFY(calls.muteControlAvailable());
+
+        // Get to a live call so the intent has somewhere to land.
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        const QString callId = calls.activeCallId();
+        backend.deliverOffer(callId, QStringLiteral("v=0 offer"));
+        CallSignal answer;
+        answer.kind = CallSignal::Kind::Answer;
+        answer.roomId = QStringLiteral("!r:x");
+        answer.callId = callId;
+        answer.partyId = QStringLiteral("peer");
+        answer.sender = QStringLiteral("@peer:x");
+        answer.hasDescription = true;
+        client.emitSignal(answer);
+        backend.deliverConnected(callId);
+        QCOMPARE(calls.state(), CallController::State::Active);
+
+        calls.setMicrophoneMuted(true);
+        QVERIFY(calls.microphoneMuted());
+        QCOMPARE(backend.micMuted, true);
+
+        // Deafening while already muted, then undeafening, must leave the
+        // microphone MUTED — it was muted before, and coming back live would
+        // publish someone who never asked to be heard.
+        calls.setDeafened(true);
+        QVERIFY(calls.deafened());
+        QCOMPARE(backend.outputMuted, true);
+        QCOMPARE(backend.micMuted, true);
+
+        calls.setDeafened(false);
+        QVERIFY(!calls.deafened());
+        QCOMPARE(backend.outputMuted, false);
+        QVERIFY2(calls.microphoneMuted(),
+                 "undeafening must not unmute a mic the user muted first");
+        QCOMPARE(backend.micMuted, true);
+    }
+
+    void aStandingMuteIsAppliedBeforeMediaCanFlow()
+    {
+        // The regression this pins: the intent used to be pushed to the
+        // engine only from onMediaConnected, which arrives through a QUEUED
+        // marshal — at least one event-loop turn AFTER RTP is already
+        // flowing. A user who muted in a previous call therefore published
+        // live audio, and a deafened user heard remote audio, for the
+        // opening window of every subsequent call.
+        //
+        // So the assertion is deliberately made BEFORE deliverConnected().
+        RecordingCallClient client;
+        CallController calls;
+        MuteTrackingBackend backend;
+        calls.setClient(&client);
+        calls.setMediaBackend(&backend);
+
+        calls.setMicrophoneMuted(true);
+        calls.setDeafened(true);
+        backend.micCalls.clear();
+        backend.outputCalls.clear();
+        backend.micMuted = false;    // engine state resets per session
+        backend.outputMuted = false;
+
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        QVERIFY2(backend.micMuted,
+                 "the mic must be muted before any media can flow");
+        QVERIFY2(backend.outputMuted,
+                 "deafen must apply before any remote track can be heard");
+    }
+
+    void aStandingMuteIsAppliedBeforeAnsweringToo()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        MuteTrackingBackend backend;
+        calls.setClient(&client);
+        calls.setMediaBackend(&backend);
+        client.mediaCapable = true;
+
+        CallSignal invite = freshInvite(QStringLiteral("inbound-1"));
+        client.storedDescriptions.insert(invite.eventId,
+                                         QStringLiteral("v=0 remote offer"));
+        client.emitSignal(invite);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+
+        calls.setMicrophoneMuted(true);
+        backend.micMuted = false; // as a fresh pipeline would start
+
+        QVERIFY(calls.answer());
+        QVERIFY2(backend.micMuted,
+                 "answering must not publish a muted user live");
+    }
+
+    void signingOutClearsTheAudioIntent()
+    {
+        // Mute/deafen survives call-to-call by design, but an account change
+        // clears everything else here, and a deafened state carried silently
+        // into the next account is unhearable with no visible cause.
+        RecordingCallClient client;
+        CallController calls;
+        MuteTrackingBackend backend;
+        calls.setClient(&client);
+        calls.setMediaBackend(&backend);
+        calls.setDeafened(true);
+        QVERIFY(calls.deafened());
+        QVERIFY(calls.microphoneMuted());
+
+        client.emitLoggedOut();
+        QVERIFY(!calls.deafened());
+        QVERIFY(!calls.microphoneMuted());
+    }
+
+    void muteControlIsUnavailableWithoutAnEngineThatImplementsIt()
+    {
+        // The seam's default implementation is a no-op, so an engine that
+        // does not override it must not light up a working-looking control.
+        RecordingCallClient client;
+        CallController calls;
+        FakeMediaBackend plain;
+        calls.setClient(&client);
+        QVERIFY(!calls.muteControlAvailable());
+        calls.setMediaBackend(&plain);
+        QVERIFY(calls.mediaBackendAvailable());
+        QVERIFY2(!calls.muteControlAvailable(),
+                 "a backend without mute support must not offer mute");
     }
 
     void ownRtcDeclineFromAnotherDeviceStopsTheRing()

@@ -19,6 +19,8 @@
 // setIceServers) — no third-party STUN fallback.
 #pragma once
 
+#include <atomic>
+
 #include "CallMediaBackend.h"
 
 #include <QString>
@@ -53,6 +55,11 @@ public:
                             const QString &sdpMid, int sdpMLineIndex) override;
     void setIceServers(const QStringList &uris, const QString &username,
                        const QString &password) override;
+    void setMicrophoneMuted(const QString &callId, bool muted) override;
+    void setOutputMuted(const QString &callId, bool muted) override;
+    // A real valve/volume pair exists in the pipeline, so this engine can
+    // honestly claim mute support.
+    bool supportsMuteControl() const override { return true; }
     void close(const QString &callId) override;
 
 private:
@@ -63,6 +70,14 @@ private:
         bool offerer = false;
         bool remoteDescriptionSet = false;
         QList<QPair<int, QString>> pendingRemoteCandidates;
+        // Named send-side valve: drop=true stops buffers reaching the
+        // encoder, so no RTP is produced at all. That is a real mute.
+        GstElement *micValve = nullptr;
+        // Desired states, kept on the session because a receive bin can be
+        // created AFTER the user deafens — a late remote track must come up
+        // already silenced rather than briefly audible.
+        bool micMuted = false;
+        bool outputMuted = false;
     };
 
     bool startSession(const QString &callId, bool offerer,
@@ -111,6 +126,13 @@ private:
 
     Session m_session; // exactly one live call, matching CallController
     bool m_sessionActive = false;
+    // Read from the GStreamer streaming thread in onPadAdded (a remote
+    // track can arrive while deafened and must come up already silenced),
+    // written from the Qt thread. Atomic because those are different
+    // threads and this engine has no lock — every other cross-thread hop
+    // here goes through marshal(), which a pad-added handler cannot use
+    // without letting the track go audible first.
+    std::atomic<bool> m_outputMuted{false};
     bool m_testTone = false;
     QStringList m_iceUris;
     QString m_iceUsername;

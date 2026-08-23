@@ -43,6 +43,7 @@
 #include "spaces/SpaceManager.h"
 #include "threads/ThreadController.h"
 #include "calls/CallController.h"
+#include "calls/RtcController.h"
 #include "presence/PresenceManager.h"
 #include "update/UpdateManager.h"
 #include "threads/ThreadManager.h"
@@ -262,6 +263,8 @@ class AppController : public QObject
     Q_PROPERTY(ThreadManager* threads READ threads CONSTANT)
     Q_PROPERTY(PresenceManager* presence READ presence CONSTANT)
     Q_PROPERTY(CallController* calls READ calls CONSTANT)
+    // MatrixRTC observation/discovery (modern group calling).
+    Q_PROPERTY(RtcController* rtc READ rtc CONSTANT)
     // v0.7.x pinned messages for the ACTIVE room (not the Room Information
     // panel's room): the message-action menu asks it whether the message
     // under the cursor is pinned.
@@ -476,6 +479,7 @@ public:
     ThreadManager *threads() const;
     PresenceManager *presence() const;
     CallController *calls() const;
+    RtcController *rtc() const;
     // Registers the real WebRTC media engine (webrtcbin) when the build
     // carries it and its runtime elements resolve. Called by main.cpp for
     // the real application only; tests opt in explicitly.
@@ -1084,6 +1088,7 @@ private:
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<PresenceManager> m_presence;
     std::unique_ptr<CallController> m_calls;
+    std::unique_ptr<RtcController> m_rtc;
     // The one call whose ring was actually announced (notification shown):
     // the missed-call notice requires it, so suppressed rings never
     // resurface as "missed". Bounded per-sender ring cooldown alongside.

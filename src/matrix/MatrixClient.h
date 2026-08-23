@@ -1,6 +1,7 @@
 #pragma once
 
 #include "matrix/CallSignal.h"
+#include "matrix/RtcSession.h"
 #include "matrix/RoomInfo.h"
 #include "matrix/TimelineEvent.h"
 
@@ -747,6 +748,33 @@ public:
     }
     // Homeserver TURN credentials for the engine's ICE config.
     virtual quint64 requestCallTurnServers() { return 0; }
+
+    // MatrixRTC (MSC4143) — modern group/room calling. OBSERVATION and
+    // DISCOVERY only in this round: there is no publish/join pipe here at
+    // all, because advertising a joinable session without a media transport
+    // tells every other client in the room to attempt an SFU connection
+    // that cannot complete. That is a lie on the wire, not a stub, and it
+    // is the same reason the legacy lane refuses to invite without an
+    // engine.
+    virtual bool supportsMatrixRtc() const { return false; }
+    // Read one room's session. Answers on rtcSessionReceived.
+    virtual quint64 rtcSession(const QString &roomId)
+    { Q_UNUSED(roomId); return 0; }
+    // Discover usable transports for this account; `roomId` may be empty
+    // and, when given, adds the focus the room's participants advertise.
+    // Answers on rtcTransportsReceived.
+    virtual quint64 rtcTransports(const QString &roomId)
+    { Q_UNUSED(roomId); return 0; }
+    // Send an org.matrix.msc4075.rtc.notification. Answers on
+    // rtcSendFinished.
+    virtual quint64 rtcNotify(const QString &roomId,
+                              const QString &notificationType,
+                              const QString &intent, quint64 lifetimeMs,
+                              const QString &membershipEventId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(notificationType); Q_UNUSED(intent);
+        Q_UNUSED(lifetimeMs); Q_UNUSED(membershipEventId); return 0;
+    }
     // v0.7.x device sign-out through reusable UIA. The flow: deleteDevices
     // → (server may answer with a challenge → uiaRequired) →
     // uiaSubmitPassword / uiaCancel → deviceDeleteFinished. Credentials
@@ -1234,6 +1262,23 @@ Q_SIGNALS:
                                  const QString &password,
                                  const QStringList &uris, qint64 ttlSeconds,
                                  const QString &category);
+
+    // MatrixRTC observation. `rtcSessionChanged` is a payload-free poke: a
+    // membership in that room changed and the session should be re-read, so
+    // remote and local changes converge on ONE parse path (the
+    // roomPinnedChanged precedent). `rtcSessionReceived` is the answer to a
+    // read, whether we asked or a poke prompted it.
+    void rtcSessionReceived(quint64 opId, const RtcSessionData &session);
+    void rtcSessionChanged(const QString &roomId);
+    // Discovery. `serverAnswered` false with a category distinguishes "this
+    // homeserver has no MatrixRTC" from "the request failed", which the UI
+    // must not conflate. URLs are opaque and must not be rendered raw.
+    void rtcTransportsReceived(quint64 opId, bool serverAnswered,
+                               const QString &category,
+                               const QStringList &serverServiceUrls,
+                               const QString &participantFocusUrl);
+    void rtcSendFinished(quint64 opId, bool ok, const QString &category,
+                         const QString &eventId);
     // v0.7.x UIA: the server requires interactive auth before the pending
     // privileged operation completes. `stages` carries the flow stage
     // names for the honest "unsupported stage" surface; only the password

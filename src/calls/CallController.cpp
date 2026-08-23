@@ -86,6 +86,7 @@ void CallController::setClient(MatrixClient *client)
     m_turnUris.clear();
     m_turnUsername.clear();
     m_turnPassword.clear();
+    resetAudioIntent();
     if (!m_client)
         return;
     connect(m_client, &MatrixClient::callSignalReceived, this,
@@ -110,6 +111,84 @@ void CallController::setClient(MatrixClient *client)
     // call, with no ICE restart to recover).
     if (m_mediaBackend)
         requestTurnServersIfStale();
+}
+
+bool CallController::muteControlAvailable() const
+{
+    // Two conditions, both required: an engine exists AND it actually
+    // implements mute. The seam's default is a no-op, so an engine that
+    // does not override it must not light up the control.
+    return !m_mediaBackend.isNull()
+        && m_mediaBackend->supportsMuteControl();
+}
+
+void CallController::setMicrophoneMuted(bool muted)
+{
+    if (m_microphoneMuted == muted)
+        return;
+    m_microphoneMuted = muted;
+    // Unmuting by hand while deafened is contradictory (deafen implies a
+    // muted mic), so it also lifts the deafen rather than leaving the user
+    // in a state where the button says live and the engine says silent.
+    if (!muted && m_deafened) {
+        m_deafened = false;
+        applyAudioStateToBackend();
+        Q_EMIT audioStateChanged();
+        return;
+    }
+    applyAudioStateToBackend();
+    Q_EMIT audioStateChanged();
+}
+
+void CallController::toggleMicrophoneMuted()
+{
+    setMicrophoneMuted(!m_microphoneMuted);
+}
+
+void CallController::setDeafened(bool deafened)
+{
+    if (m_deafened == deafened)
+        return;
+    if (deafened) {
+        // Remember what to come back to: a user who was already muted must
+        // not be published live again by undeafening.
+        m_micMutedBeforeDeafen = m_microphoneMuted;
+        m_deafened = true;
+        m_microphoneMuted = true;
+    } else {
+        m_deafened = false;
+        m_microphoneMuted = m_micMutedBeforeDeafen;
+    }
+    applyAudioStateToBackend();
+    Q_EMIT audioStateChanged();
+}
+
+void CallController::toggleDeafened() { setDeafened(!m_deafened); }
+
+void CallController::resetAudioIntent()
+{
+    // The audio intent deliberately survives call-to-call (the familiar
+    // convention), but NOT an account change. Everything else on these two
+    // paths is cleared for the next account, and a deafened state carried
+    // silently across a sign-out would leave the next account unable to
+    // hear with no visible cause.
+    if (!m_microphoneMuted && !m_deafened && !m_micMutedBeforeDeafen)
+        return;
+    m_microphoneMuted = false;
+    m_deafened = false;
+    m_micMutedBeforeDeafen = false;
+    Q_EMIT audioStateChanged();
+}
+
+void CallController::applyAudioStateToBackend()
+{
+    // Nothing to apply without a live session; the intent is kept and
+    // re-applied when one starts (see onMediaConnected).
+    if (m_mediaBackend.isNull() || !sessionLive()
+        || m_session.callId.isEmpty())
+        return;
+    m_mediaBackend->setMicrophoneMuted(m_session.callId, m_microphoneMuted);
+    m_mediaBackend->setOutputMuted(m_session.callId, m_deafened);
 }
 
 bool CallController::mediaBackendAvailable() const
@@ -367,6 +446,13 @@ bool CallController::placeCall(const QString &roomId)
     // lifetime once the invite is out.
     armLifetimeTimer(kMediaProductionTimeoutMs);
     m_mediaBackend->createOffer(m_session.callId);
+    // Seed the engine with the user's standing intent NOW, not on connect.
+    // createOffer builds the pipeline, whose valve starts open and whose
+    // receive volume starts unmuted, and `connected` reaches us through a
+    // QUEUED marshal — i.e. at least one event-loop turn AFTER RTP is
+    // already flowing. Applying only there publishes a muted user live, and
+    // lets a deafened user hear, for the opening window of every call.
+    applyAudioStateToBackend();
     return true;
 }
 
@@ -405,6 +491,8 @@ bool CallController::answer()
     // bounds answer production instead.
     armLifetimeTimer(kMediaProductionTimeoutMs);
     m_mediaBackend->createAnswer(m_session.callId, remoteOffer);
+    // Same reasoning as the outbound path: seed before media can flow.
+    applyAudioStateToBackend();
     // Now the engine has a session: drain everything the caller trickled
     // while we were ringing (the engine buffers internally until the
     // remote description is applied).
@@ -601,6 +689,7 @@ void CallController::onLoggedOut()
     m_turnUris.clear();
     m_turnUsername.clear();
     m_turnPassword.clear();
+    resetAudioIntent();
     if (sessionLive())
         endSession(EndReason::SessionLost);
     else {
@@ -631,6 +720,22 @@ void CallController::handleInvite(const CallSignal &signal)
     // own live call while we kept ringing it.
     if (sessionLive() && signal.roomId == m_session.roomId
         && signal.callId == m_session.callId)
+        return;
+    // A dual-stack caller may announce ONE call on both lanes: an
+    // m.rtc.notification AND a legacy m.call.invite. Their ids can never
+    // match (an RTC session is keyed on the notification event id), so the
+    // guard above does not catch it and the busy branch below would send
+    // m.call.reject — telling the caller "declined" while we are, in fact,
+    // ringing the user for exactly that person in exactly that room. Two
+    // wrongs at once: the caller sees a decline that never happened, and
+    // the user may answer a call the caller has already given up on.
+    // Treat it as the same conversation and stay silent: no second ring, no
+    // wire event. (Adopting the legacy leg instead would make an otherwise
+    // unanswerable RTC ring answerable; that is a deliberate follow-up, not
+    // done here, because it would change session identity mid-ring.)
+    if (m_state == State::Ringing && m_session.rtc
+        && signal.roomId == m_session.roomId
+        && !signal.sender.isEmpty() && signal.sender == m_session.senderId)
         return;
     // Targeted invite for a different (known) user: not ours to ring.
     const QString ownUser = ownUserId();
@@ -882,6 +987,12 @@ void CallController::onMediaConnected(const QString &callId)
     if (m_state != State::Connecting || callId != m_session.callId)
         return;
     setState(State::Active);
+    // The engine's mute state is per session and starts clean, so the
+    // user's standing intent — possibly chosen during a previous call, or
+    // before this one finished connecting — has to be pushed down here.
+    // Without this a muted user is published live the moment a call
+    // connects.
+    applyAudioStateToBackend();
 }
 
 void CallController::onMediaFailed(const QString &callId,

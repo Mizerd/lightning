@@ -378,6 +378,9 @@ set(APP_SOURCES
 
     src/calls/CallController.h
     src/calls/CallController.cpp
+    src/matrix/RtcSession.h
+    src/calls/RtcController.h
+    src/calls/RtcController.cpp
     # Header only: AUTOMOC supplies the CallMediaBackend metaobject; no
     # implementation exists in the tree (the media seam — tests use a fake).
     src/calls/CallMediaBackend.h
@@ -690,6 +693,8 @@ set(APP_QML_FILES
     qml/ForwardMessageDialog.qml
     qml/UpdateAvailablePrompt.qml
     qml/IncomingCallPrompt.qml
+    qml/CallControlButton.qml
+    qml/RoomCallBanner.qml
     qml/VerifySessionPrompt.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
@@ -2493,6 +2498,9 @@ if(BUILD_TESTING)
         tests/CallControllerTest.cpp
         src/calls/CallController.h
         src/calls/CallController.cpp
+        src/matrix/RtcSession.h
+        src/calls/RtcController.h
+        src/calls/RtcController.cpp
         src/calls/CallMediaBackend.h
         src/calls/SdpStore.h
         src/matrix/CallSignal.h
@@ -2526,6 +2534,21 @@ if(BUILD_TESTING)
     target_link_libraries(call-ring-policy-test PRIVATE Qt6::Test)
     add_test(NAME call-ring-policy COMMAND call-ring-policy-test)
     set_tests_properties(call-ring-policy PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # 2026-08-23 MatrixRTC observation: the session store's op-id/room
+    # matching and generation isolation, poke coalescing (including a poke
+    # that lands during an in-flight read), slot-closed suppression, one
+    # face per person across devices, and the join-block reasons staying
+    # distinguishable.
+    qt_add_executable(rtc-session-test
+        tests/RtcSessionTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(rtc-session-test)
+    target_link_libraries(rtc-session-test PRIVATE Qt6::Test)
+    add_test(NAME rtc-session COMMAND rtc-session-test)
+    set_tests_properties(rtc-session PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # 2026-08-18 round 2: incoming-call corner card contracts + a real

@@ -52,6 +52,14 @@ class CallController : public QObject
     Q_PROPERTY(QString activeCallId READ activeCallId NOTIFY stateChanged)
     Q_PROPERTY(bool mediaBackendAvailable READ mediaBackendAvailable
                    NOTIFY mediaBackendAvailableChanged)
+    // Mute / deafen. `muteControlAvailable` is what the UI gates on: a
+    // control that silently does nothing is worse than one that is absent,
+    // and the seam's default implementation is a no-op.
+    Q_PROPERTY(bool muteControlAvailable READ muteControlAvailable
+                   NOTIFY mediaBackendAvailableChanged)
+    Q_PROPERTY(bool microphoneMuted READ microphoneMuted
+                   NOTIFY audioStateChanged)
+    Q_PROPERTY(bool deafened READ deafened NOTIFY audioStateChanged)
 
 public:
     enum class State { Idle, Inviting, Ringing, Connecting, Active, Ended };
@@ -110,6 +118,21 @@ public:
 
     // UI-facing entries. Both refuse without a media backend: a stubbed
     // offer/answer would place or accept a call that dies at the peer.
+    // Mute the microphone. Real mute: the engine stops PUBLISHING, so the
+    // peer receives nothing (never a local gain change).
+    Q_INVOKABLE void setMicrophoneMuted(bool muted);
+    Q_INVOKABLE void toggleMicrophoneMuted();
+    // Deafen — silence incoming call audio. Following the familiar
+    // convention, deafening also mutes the microphone, and UNdeafening
+    // restores whatever the microphone state was BEFORE deafening rather
+    // than blindly unmuting: someone who was muted, then deafened, must not
+    // come back live.
+    Q_INVOKABLE void setDeafened(bool deafened);
+    Q_INVOKABLE void toggleDeafened();
+    bool muteControlAvailable() const;
+    bool microphoneMuted() const { return m_microphoneMuted; }
+    bool deafened() const { return m_deafened; }
+
     Q_INVOKABLE bool placeCall(const QString &roomId);
     Q_INVOKABLE bool answer();
     QString lastRefusal() const { return m_lastRefusal; }
@@ -144,6 +167,7 @@ public:
     bool shouldRing() const;
 
 Q_SIGNALS:
+    void audioStateChanged();
     void stateChanged();
     void mediaBackendAvailableChanged();
     // remainingMs is the invite's real remaining validity, so the ring's
@@ -253,7 +277,17 @@ private:
     // of m.call.reject events with zero user interaction.
     int m_busyRejectsThisSession = 0;
     QString m_ownUserId;
+    void applyAudioStateToBackend();
+    void resetAudioIntent();
+
     QString m_lastRefusal;
+    // Local audio intent. Owned here, not in the engine: the engine resets
+    // per session, while the user's choice must survive a reconnect and be
+    // re-applied when the next call connects.
+    bool m_microphoneMuted = false;
+    bool m_deafened = false;
+    // The mic state to return to when undeafening.
+    bool m_micMutedBeforeDeafen = false;
     // Locally gathered candidates, batched (150 ms) into one
     // m.call.candidates event; MSC2746's empty end-of-candidates marker
     // rides the final batch.

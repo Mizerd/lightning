@@ -5517,6 +5517,49 @@ quint64 RustSdkMatrixClient::callRtcDecline(const QString &roomId,
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::rtcSession(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_rtc_session(m_rustHandle, room.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::rtcTransports(const QString &roomId)
+{
+    if (!m_rustHandle)
+        return 0;
+    // An empty room id is legal: discovery is account-scoped and the room
+    // only contributes the participant-advertised fallback focus.
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_rtc_transports(m_rustHandle, room.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::rtcNotify(const QString &roomId,
+                                       const QString &notificationType,
+                                       const QString &intent,
+                                       quint64 lifetimeMs,
+                                       const QString &membershipEventId)
+{
+    if (!m_rustHandle || roomId.isEmpty() || notificationType.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray type = notificationType.toUtf8();
+    const QByteArray callIntent = intent.toUtf8();
+    const QByteArray membership = membershipEventId.toUtf8();
+    const QString result = takeRustString(mx_rust_rtc_notify(
+        m_rustHandle, room.constData(), type.constData(),
+        callIntent.constData(), lifetimeMs, membership.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::callCandidates(const QString &roomId,
                                             const QString &callId,
                                             const QString &partyId,
@@ -6173,6 +6216,93 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("call_id")).toString(),
             event.value(QStringLiteral("party_id")).toString(),
             event.value(QStringLiteral("own")).toBool(), candidates);
+        return true;
+    }
+    // MatrixRTC (MSC4143) observation. Every string here was bounded and
+    // sanitized in rust/src/rtc.rs; ids and the transport URL are opaque
+    // (compared, never logged, never rendered raw).
+    if (type == QLatin1String("rtc_session_changed")) {
+        // Payload-free poke: a membership in that room changed. The owner
+        // answers by re-reading, so a remote change and our own follow the
+        // same parse path.
+        Q_EMIT rtcSessionChanged(
+            event.value(QStringLiteral("room_id")).toString());
+        return true;
+    }
+    if (type == QLatin1String("rtc_session")) {
+        RtcSessionData session;
+        session.roomId = event.value(QStringLiteral("room_id")).toString();
+        session.slotPresent =
+            event.value(QStringLiteral("slot_present")).toBool();
+        session.slotClosed =
+            event.value(QStringLiteral("slot_closed")).toBool();
+        const QJsonObject focus =
+            event.value(QStringLiteral("focus")).toObject();
+        session.focusServiceUrl =
+            focus.value(QStringLiteral("livekit_service_url")).toString();
+        const QString ownUser = currentUserId();
+        const QString ownDevice = currentDeviceId();
+        const QJsonArray members =
+            event.value(QStringLiteral("members")).toArray();
+        session.participants.reserve(members.size());
+        for (const QJsonValue &value : members) {
+            const QJsonObject row = value.toObject();
+            RtcParticipant participant;
+            participant.userId =
+                row.value(QStringLiteral("user_id")).toString();
+            participant.deviceId =
+                row.value(QStringLiteral("device_id")).toString();
+            participant.rtcIdentity =
+                row.value(QStringLiteral("rtc_identity")).toString();
+            participant.intent = row.value(QStringLiteral("intent")).toString();
+            participant.displayName =
+                row.value(QStringLiteral("display_name")).toString();
+            participant.avatarMxc =
+                row.value(QStringLiteral("avatar_mxc")).toString();
+            participant.joinedAtMs = static_cast<qint64>(
+                row.value(QStringLiteral("created_ts")).toDouble());
+            participant.expiresAtMs = static_cast<qint64>(
+                row.value(QStringLiteral("expires_at_ms")).toDouble());
+            participant.wireFormat = row.value(QStringLiteral("kind")).toString();
+            participant.ownUser =
+                !ownUser.isEmpty() && participant.userId == ownUser;
+            // Own DEVICE, not just own user: the same account on another
+            // device is a genuine second participant, and conflating them
+            // would make "am I in this call?" answer yes from the wrong
+            // device.
+            participant.ownDevice = participant.ownUser
+                && !ownDevice.isEmpty() && participant.deviceId == ownDevice;
+            session.participants.append(participant);
+        }
+        session.observedAtMs = QDateTime::currentMSecsSinceEpoch();
+        Q_EMIT rtcSessionReceived(opId(), session);
+        return true;
+    }
+    if (type == QLatin1String("rtc_transports")) {
+        QStringList urls;
+        const QJsonArray rows =
+            event.value(QStringLiteral("server_transports")).toArray();
+        for (const QJsonValue &value : rows) {
+            const QString url = value.toObject()
+                                    .value(QStringLiteral("livekit_service_url"))
+                                    .toString();
+            if (!url.isEmpty())
+                urls.append(url);
+        }
+        Q_EMIT rtcTransportsReceived(
+            opId(), event.value(QStringLiteral("server_answered")).toBool(),
+            event.value(QStringLiteral("category")).toString(), urls,
+            event.value(QStringLiteral("participant_focus"))
+                .toObject()
+                .value(QStringLiteral("livekit_service_url"))
+                .toString());
+        return true;
+    }
+    if (type == QLatin1String("rtc_send_result")) {
+        Q_EMIT rtcSendFinished(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString(),
+            event.value(QStringLiteral("event_id")).toString());
         return true;
     }
     if (type == QLatin1String("call_turn_servers")) {

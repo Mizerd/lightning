@@ -169,6 +169,10 @@ bool GstCallMediaBackend::runtimeAvailable(QString *whyNot)
         "dtlssrtpdec",  "opusenc",      "opusdec",      "rtpopuspay",
         "rtpopusdepay", "audioconvert", "audioresample", "audiotestsrc",
         "fakesink",     "autoaudiosrc", "autoaudiosink", "queue",
+        // Mute is implemented with a real valve (send) and volume (receive)
+        // rather than by lowering gain, so both must resolve or the engine
+        // must not claim mute support.
+        "valve",        "volume",
         "capsfilter",
     };
     for (const char *name : kRequired) {
@@ -224,7 +228,11 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     const int payload = qBound(96, opusPayloadType, 127);
     const QString description = QStringLiteral(
         "webrtcbin name=wb bundle-policy=max-bundle latency=100 "
-        "%1 ! queue ! audioconvert ! audioresample ! opusenc "
+        "%1 ! queue ! audioconvert ! audioresample "
+        // valve name=micvalve: drop=true stops buffers reaching the encoder,
+        // so NOTHING is published while muted. Lowering volume here would
+        // still send audio and is not mute.
+        "! valve name=micvalve drop=false ! opusenc "
         "! rtpopuspay pt=%2 "
         "! application/x-rtp,media=audio,encoding-name=OPUS,payload=%2 "
         "! wb. ").arg(source).arg(payload);
@@ -250,6 +258,14 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     m_session.pipeline = pipeline;
     m_session.webrtc = webrtc;
     m_session.offerer = offerer;
+    // Owned by the pipeline; borrowed here (gst_bin_get_by_name returns a
+    // ref, released immediately — the pipeline outlives the session struct
+    // and destroySessionLocked drops the whole pipeline).
+    if (GstElement *valve = gst_bin_get_by_name(GST_BIN(pipeline),
+                                                "micvalve")) {
+        m_session.micValve = valve;
+        gst_object_unref(valve);
+    }
     m_sessionActive = true;
 
     applyIceConfigLocked();
@@ -305,6 +321,10 @@ void GstCallMediaBackend::destroySessionLocked()
     }
     m_session = Session();
     m_sessionActive = false;
+    // Engine state is PER SESSION. The user's deafen intent belongs to the
+    // controller, which re-applies it when the next call connects; leaving
+    // it latched here would silence a later call with no visible cause.
+    m_outputMuted.store(false);
     qCInfo(lcCallMedia) << "media session destroyed";
 }
 
@@ -456,6 +476,81 @@ void GstCallMediaBackend::addRemoteCandidate(const QString &callId,
     g_signal_emit_by_name(m_session.webrtc, "add-ice-candidate",
                           static_cast<guint>(qMax(0, sdpMLineIndex)),
                           candidate.toUtf8().constData());
+}
+
+void GstCallMediaBackend::setMicrophoneMuted(const QString &callId,
+                                             bool muted)
+{
+    if (!m_sessionActive || m_session.callId != callId)
+        return;
+    m_session.micMuted = muted;
+    if (!m_session.micValve)
+        return;
+    // drop=true discards buffers BEFORE the encoder, so no RTP is produced
+    // and the peer receives nothing. This is a real mute, not attenuation.
+    g_object_set(m_session.micValve, "drop", muted ? TRUE : FALSE, nullptr);
+}
+
+void GstCallMediaBackend::setOutputMuted(const QString &callId, bool muted)
+{
+    if (!m_sessionActive || m_session.callId != callId)
+        return;
+    m_session.outputMuted = muted;
+    // Published for onPadAdded, which runs on a GStreamer thread and must
+    // silence a track that arrives AFTER the user deafened.
+    m_outputMuted.store(muted);
+    if (!m_session.pipeline)
+        return;
+    // Every receive bin has its own volume element, and a group call has one
+    // per remote track, so mute them ALL rather than the first found.
+    //
+    // Matched on the NAME we gave them ("outvol"), not on the "volume"
+    // factory: `autoaudiosrc`/`autoaudiosink` are bins that may contain a
+    // volume element of their own, and a recursive factory match would reach
+    // into the SEND chain. Muting our own capture here would be wrong even
+    // though deafen also mutes the mic, because the two controls must stay
+    // independent — undeafening would then fight the valve.
+    GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_session.pipeline));
+    if (!it)
+        return;
+    GValue item = G_VALUE_INIT;
+    bool done = false;
+    // A pipeline that keeps changing must not spin this loop forever; a
+    // handful of resyncs is far more than a track add needs.
+    int resyncsLeft = 8;
+    while (!done) {
+        switch (gst_iterator_next(it, &item)) {
+        case GST_ITERATOR_OK: {
+            auto *element = GST_ELEMENT(g_value_get_object(&item));
+            if (element) {
+                gchar *name = gst_element_get_name(element);
+                if (g_strcmp0(name, "outvol") == 0)
+                    g_object_set(element, "mute", muted ? TRUE : FALSE,
+                                 nullptr);
+                g_free(name);
+            }
+            g_value_reset(&item);
+            break;
+        }
+        case GST_ITERATOR_RESYNC:
+            // The pipeline changed under us — a remote track being added is
+            // exactly when that happens, and it is exactly when a missed
+            // element would stay audible while deafened. Restart rather than
+            // stop, but bounded.
+            if (resyncsLeft-- <= 0) {
+                done = true;
+                break;
+            }
+            gst_iterator_resync(it);
+            break;
+        case GST_ITERATOR_ERROR:
+        case GST_ITERATOR_DONE:
+            done = true;
+            break;
+        }
+    }
+    g_value_unset(&item);
+    gst_iterator_free(it);
 }
 
 void GstCallMediaBackend::close(const QString &callId)
@@ -696,9 +791,9 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
     // mutated during one, so this cross-thread read is benign.
     const char *description = backend->m_testTone
         ? "queue ! rtpopusdepay ! opusdec ! audioconvert ! audioresample "
-          "! fakesink sync=false"
+          "! volume name=outvol ! fakesink sync=false"
         : "queue ! rtpopusdepay ! opusdec ! audioconvert ! audioresample "
-          "! autoaudiosink";
+          "! volume name=outvol ! autoaudiosink";
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
     GError *error = nullptr;
     GstElement *bin =
@@ -721,6 +816,14 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
             backend->handleFailure(token, QStringLiteral("media_receive"));
         });
         return;
+    }
+    // Apply the CURRENT deafen state before the bin goes playing: a remote
+    // track can arrive after the user deafened, and coming up audible for
+    // even a moment defeats the control.
+    if (GstElement *vol = gst_bin_get_by_name(GST_BIN(bin), "outvol")) {
+        g_object_set(vol, "mute",
+                     backend->m_outputMuted.load() ? TRUE : FALSE, nullptr);
+        gst_object_unref(vol);
     }
     gst_element_sync_state_with_parent(bin);
     GstPad *sinkPad = gst_element_get_static_pad(bin, "sink");

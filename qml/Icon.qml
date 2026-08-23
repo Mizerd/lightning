@@ -121,6 +121,18 @@ Text {
         "flight": "\ue539",
         "lightbulb": "\ue90f",
         "emoji_symbols": "\uea1e",
+        // Call surface (2026-08-23). Codepoints resolved from upstream
+        // Material Symbols; the bundled font is a SUBSET, so every name here
+        // must also be in scripts/generate-icon-font.sh or it renders tofu.
+        "mic_off": "\ue02b",
+        "call_end": "\uf0bc",
+        "videocam_off": "\ue04c",
+        "screen_share": "\ue0e2",
+        "stop_screen_share": "\ue0e3",
+        "front_hand": "\ue769",
+        "headset_mic": "\ue311",
+        "headset_off": "\ue33a",
+        "grid_view": "\ue9b0",
         "flag": "\uf0c6",
     })
 

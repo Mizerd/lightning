@@ -125,6 +125,48 @@ Rectangle {
             }
         }
 
+        // In-call audio controls. Shown only while a call is LIVE and only
+        // when the engine genuinely implements them
+        // (`muteControlAvailable`) — the seam's default is a no-op, so a
+        // backend that does not override mute must not light up a control
+        // that silently does nothing.
+        //
+        // These are the only affordance for mute and deafen in the app, so
+        // they also make the state VISIBLE: deafen persists across calls
+        // (the familiar convention), and a persisting state with no
+        // indicator would leave a user unable to hear with no visible
+        // cause.
+        RowLayout {
+            objectName: "inCallAudioControls"
+            Layout.fillWidth: true
+            visible: root.inCall && app.calls.muteControlAvailable
+            spacing: AppTheme.spacing8
+
+            CallControlButton {
+                objectName: "inCallMuteButton"
+                // The icon states the CURRENT state, which is what a muted
+                // user needs to see at a glance.
+                iconName: app.calls.microphoneMuted ? "mic_off" : "mic"
+                role: app.calls.microphoneMuted ? "active" : "neutral"
+                diameter: 36
+                glyphSize: 18
+                tooltip: app.calls.microphoneMuted
+                         ? qsTr("Unmute microphone")
+                         : qsTr("Mute microphone")
+                onClicked: app.calls.toggleMicrophoneMuted()
+            }
+            CallControlButton {
+                objectName: "inCallDeafenButton"
+                iconName: app.calls.deafened ? "headset_off" : "headset_mic"
+                role: app.calls.deafened ? "active" : "neutral"
+                diameter: 36
+                glyphSize: 18
+                tooltip: app.calls.deafened ? qsTr("Undeafen") : qsTr("Deafen")
+                onClicked: app.calls.toggleDeafened()
+            }
+            Item { Layout.fillWidth: true }
+        }
+
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8

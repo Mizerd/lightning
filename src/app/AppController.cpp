@@ -241,6 +241,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // refusal path, exactly as before. LIGHTNING_DISABLE_WEBRTC=1 is the
     // kill switch (diagnosis, or a machine whose plugins misbehave).
     m_calls        = std::make_unique<CallController>(this);
+    m_rtc          = std::make_unique<RtcController>(this);
     // Application updates. Constructed once and never rebuilt: it holds no
     // Matrix state, is not account-scoped, and signing in, signing out or
     // switching account must not disturb an update check or download.
@@ -588,6 +589,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_threads->setClient(m_client.get());
     m_presence->setClient(m_client.get());
     m_calls->setClient(m_client.get());
+    m_rtc->setClient(m_client.get());
     // ── Voice-call ring policy, wired to its real owners (round 2) ──
     // State truth stays in CallController; these close the policy gates
     // shouldRing() consults. The functors capture `this` and read live
@@ -605,6 +607,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_client.get(), &MatrixClient::initialSyncDoneChanged, this,
             [this] {
                 m_calls->setBacklogSuppressed(!m_client->initialSyncDone());
+                // MatrixRTC transport discovery is ACCOUNT-scoped and needs a
+                // live session, so it runs on the sync edge rather than at
+                // construction. Until it answers, the call banner honestly
+                // says it is still checking instead of claiming calling is
+                // unavailable.
+                if (m_client->initialSyncDone())
+                    m_rtc->discover(m_currentRoomId);
             });
 
     // ── Incoming-call notification + ring ──
@@ -1848,6 +1857,7 @@ SpaceManager *AppController::spaces() const { return m_spaces.get(); }
 ThreadManager *AppController::threads() const { return m_threads.get(); }
 PresenceManager *AppController::presence() const { return m_presence.get(); }
 CallController *AppController::calls() const { return m_calls.get(); }
+RtcController *AppController::rtc() const { return m_rtc.get(); }
 
 void AppController::enableCallMediaEngine()
 {
@@ -1991,6 +2001,11 @@ void AppController::setCurrentRoomId(const QString &roomId)
     // the open timeline, and a failed Continue from the previous room must
     // not follow the user into this one.
     m_roomUpgrade->setRoomId(roomId);
+    // 2026-08-23 MatrixRTC: read the newly opened room's call session so the
+    // banner is right on arrival rather than only after the next membership
+    // change. A read is cheap (state store, no request) and coalesced.
+    if (!roomId.isEmpty())
+        m_rtc->refresh(roomId);
     // v0.7.x: drop QUEUED thread-participant fetches for the room we just
     // left. Those summary cards are gone; letting their fetches run would
     // make the new room's facepiles wait behind answers nothing will read.

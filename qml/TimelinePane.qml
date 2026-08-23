@@ -880,6 +880,26 @@ Rectangle {
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
+        // 2026-08-23 MatrixRTC — "N people in call".
+        //
+        // An ordinary Layout child for the same reason roomUpgradeBanner is
+        // one: a live call is PERSISTENT state, so it must reflow the
+        // timeline rather than occlude messages. Placed ABOVE the upgrade
+        // banner because a call in progress is the more urgent of the two.
+        //
+        // Purely observational — it reports the room's MatrixRTC membership
+        // (typically started by an Element client) and produces no timeline
+        // rows of its own. It collapses to zero height when there is no
+        // call, so a room without one reserves no space.
+        RoomCallBanner {
+            objectName: "timelineRoomCallBanner"
+            Layout.fillWidth: true
+            Layout.leftMargin: AppTheme.spacing16
+            Layout.rightMargin: AppTheme.spacing16
+            Layout.topMargin: visible ? AppTheme.spacing8 : 0
+            roomId: app.currentRoomId
+        }
+
         // v0.7.x room upgrades — the banner half of banner-and-link.
         //
         // Matrix leaves an upgraded room in place and creates a

@@ -52,6 +52,11 @@ tendril = "0.5"
 # pinned matrix-sdk already uses internally (no new transitive code).
 mime = "0.3"
 once_cell = "1"
+# MSC4143 rtc member identity is unpadded-base64(sha256(canonical JSON)).
+# This exact crate/version is ALREADY pinned transitively by the pinned
+# matrix-sdk (crypto), so declaring it directly adds no new transitive
+# code — the `mime`/`emojis` precedent.
+sha2 = "=0.10.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
@@ -65,6 +70,15 @@ emojis = "=0.8.2"
 # crypto tracing (gossip/backup state transitions) during the ignored
 # live test. Same version the lock file already pins transitively.
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[lints.rust]
+# ruma's `EventContent` derive expands a `cfg(ruma_unstable_exhaustive_types)`
+# check that only ruma's own build defines. Declaring it here keeps the two
+# custom MatrixRTC event contents (rust/src/rtc.rs) from emitting warnings for
+# a cfg that is not ours and is never set. Scoped to this one cfg name.
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(ruma_unstable_exhaustive_types)',
+] }
 
 [profile.release]
 lto = true
