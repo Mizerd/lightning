@@ -88,6 +88,7 @@ CallFrameCryptor::CallFrameCryptor() = default;
 
 bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
 {
+    QMutexLocker lock(&m_mutex);
     if (index < 0 || index >= 16)
         return false;
     const QByteArray derived = deriveKey(rawKey);
@@ -99,17 +100,20 @@ bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
 
 void CallFrameCryptor::setCurrentKeyIndex(int index)
 {
+    QMutexLocker lock(&m_mutex);
     if (index >= 0 && index < 16)
         m_currentIndex = index;
 }
 
 bool CallFrameCryptor::hasKey(int index) const
 {
+    QMutexLocker lock(&m_mutex);
     return index >= 0 && index < 16 && m_keys[index].size() == kKeyBytes;
 }
 
 void CallFrameCryptor::clearKeys()
 {
+    QMutexLocker lock(&m_mutex);
     for (QByteArray &key : m_keys) {
         // Best-effort scrub before release. Not a guarantee (the allocator
         // may already have copied), but the same transit hygiene the UIA
@@ -142,6 +146,7 @@ QByteArray CallFrameCryptor::makeIvForTest(quint32 ssrc, quint32 rtpTimestamp,
 
 QByteArray CallFrameCryptor::ivFor(quint32 ssrc, quint32 rtpTimestamp)
 {
+    QMutexLocker lock(&m_mutex);
     auto it = m_sendCounts.find(ssrc);
     if (it == m_sendCounts.end()) {
         // Seeded at a random offset, as the reference does, so two calls on
@@ -158,6 +163,7 @@ QByteArray CallFrameCryptor::ivFor(quint32 ssrc, quint32 rtpTimestamp)
 
 void CallFrameCryptor::setSendCounterForTest(quint32 ssrc, quint32 value)
 {
+    QMutexLocker lock(&m_mutex);
     m_sendCounts.insert(ssrc, value);
 }
 
@@ -165,6 +171,10 @@ QByteArray CallFrameCryptor::encryptFrame(const QByteArray &payload,
                                           FrameKind kind, quint32 ssrc,
                                           quint32 rtpTimestamp)
 {
+    // Held across the WHOLE frame: the key ring must not be rotated out
+    // from under a frame between choosing the index and using the key, and
+    // the nested hasKey()/ivFor() calls re-enter this same recursive mutex.
+    QMutexLocker lock(&m_mutex);
     const int header = headerBytes(kind);
     if (payload.size() < header)
         return {}; // too short to carry its own header: refuse, never guess
@@ -245,6 +255,7 @@ QByteArray CallFrameCryptor::encryptFrame(const QByteArray &payload,
 QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
                                           FrameKind kind)
 {
+    QMutexLocker lock(&m_mutex);
     const int header = headerBytes(kind);
     if (wire.size() < header + kTagBytes + kIvBytes + kTrailerBytes)
         return {};

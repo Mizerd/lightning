@@ -43,6 +43,34 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use livekit_protocol as lkp;
+
+/// The LiveKit `TrackSource` for a track we are about to publish.
+///
+/// Exists as a named function so the test and the production path cannot
+/// disagree: the first version of this mapping was written inline with
+/// literals and every value was off by one, which published our screen share
+/// as SCREEN_SHARE_AUDIO — a track Element Call treats as audio and never
+/// renders.
+pub(crate) fn track_source_for(kind: i32, screen_share: bool) -> i32 {
+    if screen_share {
+        lkp::TrackSource::ScreenShare as i32
+    } else if kind == lkp::TrackType::Video as i32 {
+        lkp::TrackSource::Camera as i32
+    } else {
+        lkp::TrackSource::Microphone as i32
+    }
+}
+
+/// LiveKit's per-track E2EE declaration. A receiving client reads this to
+/// decide whether to run its frame decryptor at all, so encrypting the bytes
+/// while declaring None renders as garbage at the far end.
+pub(crate) fn track_encryption_for(encrypted: bool) -> i32 {
+    if encrypted {
+        lkp::encryption::Type::Gcm as i32
+    } else {
+        lkp::encryption::Type::None as i32
+    }
+}
 use matrix_sdk::ruma::api::client::account::request_openid_token;
 use prost::Message as _;
 use serde_json::json;
@@ -225,6 +253,11 @@ pub(crate) enum SfuCommand {
         kind: i32,
         /// True for a screen share, which LiveKit sources separately.
         screen_share: bool,
+        /// Whether the frames on this track are E2EE-encrypted. LiveKit
+        /// carries this per TRACK, and a receiving client decides whether
+        /// to decrypt from it — encrypting the bytes while declaring NONE
+        /// means Element renders our frames as garbage rather than trying.
+        encrypted: bool,
     },
     /// Mute/unmute a published track at the SFU, so other participants see
     /// the state even though the valve already stopped the bytes.
@@ -265,11 +298,16 @@ fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
                 "sid": sid,
                 // Closed set: never the raw enum from the wire.
                 "kind": if track.r#type == 1 { "video" } else { "audio" },
-                "source": match track.source {
-                    2 => "camera",
-                    3 => "microphone",
-                    4 => "screen_share",
-                    5 => "screen_share_audio",
+                // Named constants, never literals: these were once written
+                // out by hand and every one was off by one, which made our
+                // screen share arrive at Element as SCREEN_SHARE_AUDIO and
+                // never render.
+                "source": match lkp::TrackSource::try_from(track.source) {
+                    Ok(lkp::TrackSource::Camera) => "camera",
+                    Ok(lkp::TrackSource::Microphone) => "microphone",
+                    Ok(lkp::TrackSource::ScreenShare) => "screen_share",
+                    Ok(lkp::TrackSource::ScreenShareAudio)
+                        => "screen_share_audio",
                     _ => "unknown",
                 },
                 "muted": track.muted,
@@ -405,12 +443,14 @@ async fn run_session(
                                 candidate_init, target, r#final: false,
                             })
                     }
-                    SfuCommand::AddTrack { cid, name, kind, screen_share } => {
+                    SfuCommand::AddTrack {
+                        cid, name, kind, screen_share, encrypted,
+                    } => {
                         lkp::signal_request::Message::AddTrack(
                             lkp::AddTrackRequest {
                                 cid, name, r#type: kind,
-                                source: if screen_share { 4 }
-                                        else if kind == 1 { 2 } else { 3 },
+                                source: track_source_for(kind, screen_share),
+                                encryption: track_encryption_for(encrypted),
                                 ..Default::default()
                             })
                     }
@@ -735,25 +775,66 @@ mod tests {
     }
 
     #[test]
+    fn track_source_numbers_match_the_livekit_wire() {
+        // The values Element Call and every livekit-client read. They were
+        // hand-written once and every one was off by one, which put our
+        // screen share on SCREEN_SHARE_AUDIO — a track Element renders as
+        // audio and never shows. Pinned as NUMBERS on purpose: an
+        // assertion written in terms of the same enum could not have
+        // caught the original defect.
+        assert_eq!(lkp::TrackSource::Camera as i32, 1);
+        assert_eq!(lkp::TrackSource::Microphone as i32, 2);
+        assert_eq!(lkp::TrackSource::ScreenShare as i32, 3);
+        assert_eq!(lkp::TrackSource::ScreenShareAudio as i32, 4);
+        assert_eq!(lkp::TrackType::Audio as i32, 0);
+        assert_eq!(lkp::TrackType::Video as i32, 1);
+        // The E2EE declaration. Element Call publishes GCM when the room is
+        // encrypted, and a receiver reads this to decide whether to run the
+        // frame decryptor at all.
+        assert_eq!(lkp::encryption::Type::None as i32, 0);
+        assert_eq!(lkp::encryption::Type::Gcm as i32, 1);
+    }
+
+    #[test]
+    fn added_tracks_carry_the_right_source() {
+        // Calls the SAME function the AddTrack path calls, in the raw numbers
+        // that go on the wire. Asserting through the enum would pass against
+        // the original off-by-one defect, which is why these are literals.
+        assert_eq!(track_source_for(1, true), 3);   // screen share
+        assert_eq!(track_source_for(1, false), 1);  // camera
+        assert_eq!(track_source_for(0, false), 2);  // microphone
+        // A screen share is a VIDEO track whose source is the screen, never
+        // SCREEN_SHARE_AUDIO — the original bug, in one assertion.
+        assert_ne!(track_source_for(1, true),
+                   lkp::TrackSource::ScreenShareAudio as i32);
+        // Screen share must not be mistaken for a camera either: Element
+        // lays the two out differently and pins a share to the stage.
+        assert_ne!(track_source_for(1, true), track_source_for(1, false));
+
+        assert_eq!(track_encryption_for(true), 1);  // GCM
+        assert_eq!(track_encryption_for(false), 0); // NONE
+    }
+
+    #[test]
     fn track_kinds_and_sources_are_closed_sets() {
         let info = lkp::ParticipantInfo {
             identity: "@a:x:DEVICE".to_owned(),
             tracks: vec![
                 lkp::TrackInfo {
                     sid: "TR_a".to_owned(),
-                    r#type: 0,
-                    source: 3,
+                    r#type: lkp::TrackType::Audio as i32,
+                    source: lkp::TrackSource::Microphone as i32,
                     ..Default::default()
                 },
                 lkp::TrackInfo {
                     sid: "TR_b".to_owned(),
-                    r#type: 1,
-                    source: 4,
+                    r#type: lkp::TrackType::Video as i32,
+                    source: lkp::TrackSource::ScreenShare as i32,
                     ..Default::default()
                 },
                 lkp::TrackInfo {
                     sid: "TR_c".to_owned(),
-                    r#type: 1,
+                    r#type: lkp::TrackType::Video as i32,
                     source: 99, // unknown to us
                     ..Default::default()
                 },

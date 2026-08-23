@@ -44,6 +44,7 @@
 class MatrixClient;
 class RtcController;
 class ScreenCastPortal;
+class SfuVideoRouter;
 class SfuMediaEngine;
 
 class SfuCallController : public QObject
@@ -97,6 +98,24 @@ public:
     void setMediaEngine(SfuMediaEngine *engine);
     /// Not owned. Absent means screen sharing refuses honestly.
     void setScreenCastPortal(ScreenCastPortal *portal);
+
+    /// Attach a QML `VideoOutput`'s sink to one participant's video.
+    ///
+    /// Keyed on the SFU participant `identity` the stage already has, NOT on
+    /// (userId, deviceId). The participant rows derive those two by
+    /// splitting the identity on ':', which is right for the legacy
+    /// `@user:server:DEVICE` form and GARBAGE for the sticky form, whose
+    /// identity is a sha256 — so a modern Element participant would resolve
+    /// to nothing and simply never show video. The identity is authoritative
+    /// in both formats.
+    ///
+    /// An identity we cannot resolve to a stream routes nothing at all: a
+    /// guess would put one participant's frames in another's tile.
+    Q_INVOKABLE void attachVideoSink(const QString &identity,
+                                     QObject *videoSink);
+    /// Release a tile's sink. Must be called when a tile is destroyed, or
+    /// the router keeps a dangling destination for one frame.
+    Q_INVOKABLE void detachVideoSink(const QString &identity);
 
     State state() const { return m_state; }
     int stateInt() const { return static_cast<int>(m_state); }
@@ -179,6 +198,20 @@ private:
     void teardown(State finalState, const QString &error = QString());
     void publishTracks();
     void applyAudioState();
+    /// The LiveKit stream id (participant sid) one Matrix device is sending
+    /// under, or empty if we cannot attribute it.
+    ///
+    /// Two hops, and both are needed: the MatrixRTC membership gives the
+    /// device's SFU IDENTITY, and the SFU's own participant list gives the
+    /// SID that appears in the SDP's `msid`. Empty means "do not guess" —
+    /// installing a key under the wrong stream id would decrypt one
+    /// participant's frames with another's key, which is silent corruption
+    /// rather than an honest drop.
+    QString streamIdForSender(const QString &userId,
+                              const QString &deviceId) const;
+    /// The LiveKit stream id (participant sid) for one SFU identity.
+    QString streamIdForIdentity(const QString &identity) const;
+
     /// Rotate and redistribute the media key. Called on join and whenever
     /// the participant set changes, because a leaver must not keep being
     /// able to decrypt.
@@ -187,6 +220,10 @@ private:
 
     QPointer<MatrixClient> m_client;
     QPointer<RtcController> m_rtc;
+    /// Owned. Created eagerly because a tile can attach before any media
+    /// exists, and dropping those attachments would mean the first frames of
+    /// every call go nowhere.
+    SfuVideoRouter *m_videoRouter = nullptr;
     QPointer<SfuMediaEngine> m_engine;
     QPointer<ScreenCastPortal> m_portal;
 
@@ -206,6 +243,10 @@ private:
     bool m_screenSharing = false;
     bool m_handRaised = false;
     bool m_mediaEncrypted = false;
+    /// Whether the ROOM is encrypted, so call media must be too. Captured at
+    /// join from the tri-state the client reports, and UNKNOWN fails closed
+    /// to true — a call in a room we cannot prove is unencrypted encrypts.
+    bool m_roomEncrypted = true;
 
     /// Bumped on every join/leave. Every async reply carries the generation
     /// it was dispatched under; a mismatch is dropped.

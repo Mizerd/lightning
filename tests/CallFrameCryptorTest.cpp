@@ -9,6 +9,9 @@
 #include "calls/CallFrameCryptor.h"
 
 #include <QSet>
+#include <mutex>
+#include <thread>
+
 #include <QtTest/QtTest>
 
 namespace {
@@ -121,6 +124,71 @@ private Q_SLOTS:
             seen.insert(wire.mid(wire.size() - 14, 12));
         }
         QCOMPARE(seen.size(), 512);
+    }
+
+    void twoTracksSharingOneCryptorMustNotShareAnIv()
+    {
+        // The engine runs audio and video through ONE send cryptor, each on
+        // its own GStreamer streaming thread. The counter is kept per SSRC,
+        // so two tracks passing the SAME ssrc share it — and two frames
+        // with the same timestamp and counter under the same key produce
+        // the same IV, which for AES-GCM breaks both frames.
+        //
+        // This asserts the property the engine relies on: DIFFERENT ssrc
+        // values never collide, even at an identical timestamp.
+        CallFrameCryptor cryptor;
+        QVERIFY(cryptor.setKey(0, rawKey()));
+        QSet<QByteArray> seen;
+        for (int i = 0; i < 256; ++i) {
+            for (quint32 ssrc : {1u, 2u, 3u}) {
+                const QByteArray wire = cryptor.encryptFrame(
+                    QByteArray("\x01payload"),
+                    CallFrameCryptor::FrameKind::Audio, ssrc,
+                    /*rtpTimestamp=*/9000);
+                QVERIFY(!wire.isEmpty());
+                seen.insert(wire.mid(wire.size() - 14, 12));
+            }
+        }
+        // Every one of the 768 frames got its own IV.
+        QCOMPARE(seen.size(), 768);
+    }
+
+    void twoThreadsThroughOneCryptorStayCorrect()
+    {
+        // The engine's audio and video probes really do reach one cryptor
+        // concurrently, on separate GStreamer streaming threads. This drives
+        // that shape.
+        //
+        // HONEST LIMITATION: this does NOT fail on the unlocked code —
+        // measured, five runs, all green with the mutex removed. Two
+        // threads on distinct ssrc keys touch distinct QHash entries, so
+        // the race needs a rehash to land badly and does not reproduce on
+        // demand. It is a usage smoke test, not regression coverage for the
+        // lock, and the lock is not justified by it: it is justified by the
+        // failure mode, which is a duplicated AES-GCM IV — silent, and a
+        // total break of both frames rather than a degradation.
+        CallFrameCryptor cryptor;
+        QVERIFY(cryptor.setKey(0, rawKey()));
+
+        // std::thread rather than QtConcurrent: this needs no new Qt module
+        // on ~150 test targets to prove one lock works.
+        std::mutex guard;
+        QSet<QByteArray> seen;
+        const auto run = [&](quint32 ssrc) {
+            for (int i = 0; i < 400; ++i) {
+                const QByteArray wire = cryptor.encryptFrame(
+                    QByteArray("\x01payload"),
+                    CallFrameCryptor::FrameKind::Audio, ssrc,
+                    /*rtpTimestamp=*/7000);
+                const std::lock_guard<std::mutex> lock(guard);
+                seen.insert(wire.mid(wire.size() - 14, 12));
+            }
+        };
+        std::thread a(run, 11u);
+        std::thread b(run, 22u);
+        a.join();
+        b.join();
+        QCOMPARE(seen.size(), 800);
     }
 
     void encryptedFrameHasTheReferenceWireLayout()

@@ -9,8 +9,11 @@
 #include "matrix/MatrixClient.h"
 
 #ifdef HAVE_LIGHTNING_WEBRTC
+#include <QVideoSink>
+
 #include "calls/CallFrameCryptor.h"
 #include "calls/SfuMediaEngine.h"
+#include "calls/SfuVideoRouter.h"
 #endif
 
 namespace {
@@ -24,6 +27,9 @@ constexpr int kMaxParticipants = 64;
 
 SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
 {
+#ifdef HAVE_LIGHTNING_WEBRTC
+    m_videoRouter = new SfuVideoRouter(this);
+#endif
     m_refreshTimer.setInterval(kRefreshIntervalMs);
     connect(&m_refreshTimer, &QTimer::timeout, this,
             &SfuCallController::refreshMembership);
@@ -83,6 +89,8 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
     m_engine = engine;
     if (!m_engine)
         return;
+    // Received frames need a destination before the first call, not after.
+    m_engine->setVideoRouter(m_videoRouter);
     connect(m_engine, &SfuMediaEngine::localDescription, this,
             &SfuCallController::onEngineLocalDescription);
     connect(m_engine, &SfuMediaEngine::localCandidate, this,
@@ -235,6 +243,16 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_delayId.clear();
     m_ownIdentity.clear();
     m_mediaEncrypted = false;
+    m_keyIndex = 0;
+
+    // Captured once for the call, so a room-state change mid-call cannot
+    // quietly relax what we already promised the user. Unknown is true.
+    m_roomEncrypted = m_rtc->roomEncrypted(roomId);
+    // Armed BEFORE any media exists. With this set the pad probes DROP a
+    // frame they have no key for, which is what makes the promise real
+    // rather than a label.
+    m_engine->setEncryptionRequired(m_roomEncrypted);
+    m_engine->clearKeys();
 
     // The focus other participants advertise, or the homeserver's own.
     // Empty is legal: the server may name one we simply do not echo.
@@ -339,8 +357,8 @@ void SfuCallController::onSfuJoined(const QString &identity,
     }
     setState(State::Connecting);
     Q_EMIT participantsChanged();
-    // Everyone who is already here needs our key, and we need theirs.
-    rotateAndDistributeKey();
+    // The key is minted inside publishTracks(), before the first frame can
+    // be encrypted — not here, or we would distribute two in a row.
 #else
     Q_UNUSED(identity); Q_UNUSED(participants); Q_UNUSED(iceServers);
 #endif
@@ -351,19 +369,26 @@ void SfuCallController::publishTracks()
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (m_engine.isNull() || !m_client)
         return;
+    // The key BEFORE the first frame. A probe with no key drops in an
+    // encrypted room, so publishing first would mean our own audio is
+    // silently discarded until the key lands.
+    if (m_roomEncrypted)
+        rotateAndDistributeKey();
     // The client chooses the track id and DECLARES it before negotiating, so
     // the SFU can map the negotiated media section to the track it
     // authorized. Declaring and publishing must use the same id.
     const QString audioCid =
         QUuid::createUuid().toString(QUuid::WithoutBraces);
-    m_client->sfuAddTrack(audioCid, QStringLiteral("microphone"), 0, false);
+    m_client->sfuAddTrack(audioCid, QStringLiteral("microphone"), 0,
+                          false, m_roomEncrypted);
     m_engine->publishAudio(audioCid);
     m_publishedTrackIds.append(audioCid);
 
     if (m_cameraOn) {
         const QString videoCid =
             QUuid::createUuid().toString(QUuid::WithoutBraces);
-        m_client->sfuAddTrack(videoCid, QStringLiteral("camera"), 1, false);
+        m_client->sfuAddTrack(videoCid, QStringLiteral("camera"), 1, false,
+                              m_roomEncrypted);
         m_engine->publishVideo(videoCid, /*screenShare=*/false,
                                /*nodeId=*/-1);
         m_publishedTrackIds.append(videoCid);
@@ -475,35 +500,142 @@ void SfuCallController::onMediaKeyReceived(const QString &roomId,
                                             int keyIndex,
                                             const QString &keyBase64)
 {
-    Q_UNUSED(sender);
-    Q_UNUSED(claimedDeviceId);
     if (!active() || roomId != m_roomId)
         return;
 #ifdef HAVE_LIGHTNING_WEBRTC
-    // Keys are held by the engine's cryptor, which is the only thing that
-    // needs them. They are never stored, never logged, and never reach QML.
-    Q_UNUSED(keyIndex);
-    Q_UNUSED(keyBase64);
-    // Wiring the received key into the per-participant cryptor requires the
-    // pipeline-level frame routing that is not attached yet; until it is,
-    // an encrypted room cannot be joined at all (see join()), so there is
-    // nothing here that could silently proceed unencrypted.
+    if (!m_engine)
+        return;
+    if (keyIndex < 0 || keyIndex > 15)
+        return;
+    // Sender-chosen bytes. Bounded before decoding, then length-checked:
+    // a key of the wrong size is not a key, and the cryptor refuses it
+    // anyway — this only avoids doing the work.
+    if (keyBase64.size() > 256)
+        return;
+    const QByteArray raw =
+        QByteArray::fromBase64(keyBase64.toUtf8(),
+                               QByteArray::AbortOnBase64DecodingErrors);
+    if (raw.size() != 32)
+        return;
+    // Keys live ONLY in the engine's cryptor, which is the only thing that
+    // needs them: never stored, never logged, never in QML.
+    // Addressed to the SENDER's own key ring. The sender is identified by
+    // their MatrixRTC identity, which the SFU echoes as the participant
+    // identity, and the participant list carries the LiveKit sid the SDP
+    // uses. Without that mapping the key would have to go into a shared
+    // ring, where two senders both using index 0 would collide.
+    const QString streamId = streamIdForSender(sender, claimedDeviceId);
+    if (streamId.isEmpty())
+        return;
+    m_engine->setInboundKey(streamId, keyIndex, raw);
 #else
     Q_UNUSED(keyIndex); Q_UNUSED(keyBase64);
 #endif
 }
 
+void SfuCallController::attachVideoSink(const QString &identity,
+                                        QObject *videoSink)
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_videoRouter)
+        return;
+    // A QVideoSink arrives from QML as a QObject*; cast rather than trust.
+    // A wrong type attaches nothing instead of being reinterpreted.
+    auto *sink = qobject_cast<QVideoSink *>(videoSink);
+    const QString streamId = streamIdForIdentity(identity);
+    if (streamId.isEmpty())
+        return;
+    m_videoRouter->attachSink(streamId, sink);
+#else
+    Q_UNUSED(identity); Q_UNUSED(videoSink);
+#endif
+}
+
+void SfuCallController::detachVideoSink(const QString &identity)
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_videoRouter)
+        return;
+    const QString streamId = streamIdForIdentity(identity);
+    if (streamId.isEmpty())
+        return;
+    m_videoRouter->detachSink(streamId);
+#else
+    Q_UNUSED(identity);
+#endif
+}
+
+QString SfuCallController::streamIdForIdentity(const QString &identity) const
+{
+    if (identity.isEmpty())
+        return {};
+    for (const QVariant &row : m_participants) {
+        const QVariantMap participant = row.toMap();
+        if (participant.value(QStringLiteral("identity")).toString()
+            != identity) {
+            continue;
+        }
+        return participant.value(QStringLiteral("sid")).toString();
+    }
+    return {};
+}
+
+QString SfuCallController::streamIdForSender(const QString &userId,
+                                            const QString &deviceId) const
+{
+    if (!m_rtc || m_roomId.isEmpty())
+        return {};
+    // The membership is what knows a device's SFU identity — derived in Rust
+    // and a sha256 in the sticky format, so it cannot be reconstructed here.
+    return streamIdForIdentity(
+        m_rtc->rtcIdentityFor(m_roomId, userId, deviceId));
+}
+
 void SfuCallController::rotateAndDistributeKey()
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
-    if (!active() || !m_client)
+    if (!active() || !m_client || !m_engine)
         return;
-    // Only meaningful once the frame cryptor is attached to the pipeline.
-    // Until then this deliberately does nothing rather than distributing a
-    // key nothing uses — a key on the wire implies media is encrypted.
-    if (!m_mediaEncrypted)
+    if (!m_roomEncrypted)
         return;
-    m_keyIndex = (m_keyIndex + 1) % 16;
+
+    // 32 bytes from the system CSPRNG. QRandomGenerator::system() is
+    // getrandom(2) here; the generic generator is a PRNG and must never be
+    // used for key material.
+    QByteArray key(32, Qt::Uninitialized);
+    QRandomGenerator::system()->generate(
+        reinterpret_cast<quint32 *>(key.data()),
+        reinterpret_cast<quint32 *>(key.data() + key.size()));
+
+    const int index = (m_keyIndex + 1) % 16;
+
+    // Distribute FIRST, install second. The other way round means our own
+    // frames are already encrypted under a key nobody else has yet, and
+    // every receiver drops them until the to-device message lands.
+    //
+    // Sending to an empty target list is not an error and not a no-op we
+    // should skip: a call we are alone in still encrypts, and a key nobody
+    // needed yet is the correct state.
+    const QString targets = m_rtc
+        ? m_rtc->mediaKeyTargetsJson(m_roomId)
+        : QStringLiteral("[]");
+    const quint64 op =
+        m_client->rtcSendMediaKey(m_roomId, QString::fromUtf8(key.toBase64()),
+                                  index, targets);
+    Q_UNUSED(op);
+
+    m_keyIndex = index;
+    m_engine->setOutboundKey(index, key);
+    // Best-effort scrub of our own transit copy. §16 is explicit that this
+    // is hygiene, not a guarantee: the base64 QString handed to the bridge
+    // is copied and dropped without zeroing.
+    key.fill('\0');
+
+    const bool encrypted = m_engine->encryptionActive();
+    if (encrypted != m_mediaEncrypted) {
+        m_mediaEncrypted = encrypted;
+        Q_EMIT mediaStateChanged();
+    }
 #endif
 }
 
@@ -622,7 +754,8 @@ void SfuCallController::setCameraOn(bool on)
     m_cameraOn = on;
     if (on) {
         const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        m_client->sfuAddTrack(cid, QStringLiteral("camera"), 1, false);
+        m_client->sfuAddTrack(cid, QStringLiteral("camera"), 1, false,
+                              m_roomEncrypted);
         m_engine->publishVideo(cid, false, -1);
         m_publishedTrackIds.append(cid);
     } else {
@@ -656,7 +789,8 @@ bool SfuCallController::startScreenShare(int pipewireNodeId)
     if (m_screenSharing)
         stopScreenShare();
     const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    m_client->sfuAddTrack(cid, QStringLiteral("screen"), 1, true);
+    m_client->sfuAddTrack(cid, QStringLiteral("screen"), 1, true,
+                          m_roomEncrypted);
     m_engine->publishVideo(cid, /*screenShare=*/true, pipewireNodeId);
     m_publishedTrackIds.append(cid);
     m_screenSharing = true;

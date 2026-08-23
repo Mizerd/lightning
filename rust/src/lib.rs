@@ -6360,6 +6360,7 @@ pub unsafe extern "C" fn mx_rust_sfu_add_track(
     name: *const c_char,
     kind: i32,
     screen_share: u8,
+    encrypted: u8,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
@@ -6370,6 +6371,7 @@ pub unsafe extern "C" fn mx_rust_sfu_add_track(
             name,
             kind: if kind == 1 { 1 } else { 0 },
             screen_share: screen_share != 0,
+            encrypted: encrypted != 0,
         });
         Ok(String::new())
     })

@@ -805,11 +805,15 @@ public:
     virtual void sfuLocalCandidate(const QString &target,
                                    const QString &candidateInit)
     { Q_UNUSED(target); Q_UNUSED(candidateInit); }
+    /// Declare a track to the SFU before negotiating it. `encrypted` tells
+    /// LiveKit the frames carry E2EE (Encryption::GCM), which is how a
+    /// receiving client decides to decrypt; encrypting the bytes while
+    /// declaring NONE renders as garbage at the far end.
     virtual void sfuAddTrack(const QString &cid, const QString &name,
-                             int kind, bool screenShare)
+                             int kind, bool screenShare, bool encrypted)
     {
         Q_UNUSED(cid); Q_UNUSED(name); Q_UNUSED(kind);
-        Q_UNUSED(screenShare);
+        Q_UNUSED(screenShare); Q_UNUSED(encrypted);
     }
     virtual void sfuMuteTrack(const QString &sid, bool muted)
     { Q_UNUSED(sid); Q_UNUSED(muted); }

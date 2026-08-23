@@ -966,7 +966,11 @@ char *mx_rust_sfu_add_track(void *client,
                             const char *cid,
                             const char *name,
                             int kind_audio0_video1,
-                            unsigned char screen_share);
+                            unsigned char screen_share,
+                            /* Declares LiveKit Encryption::GCM on the track,
+                             * which is how a receiving client (Element Call
+                             * included) knows to run its frame decryptor. */
+                            unsigned char encrypted);
 char *mx_rust_sfu_mute_track(void *client,
                              const char *sid,
                              unsigned char muted);

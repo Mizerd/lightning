@@ -1983,6 +1983,13 @@ void AppController::enableCallMediaEngine()
         // reports NoMediaTransport, because publishing a membership nobody
         // can connect to is worse than refusing.
         m_rtc->setMediaAvailable(true);
+        // Frame encryption exists in this engine (CallFrameCryptor on pad
+        // probes between the encoder and the RTP payloader, which is where
+        // LiveKit and Element Call encrypt), so an ENCRYPTED room is no
+        // longer refused. This flag says the capability is present; whether
+        // a given call is actually encrypting is SfuCallController's
+        // `mediaEncrypted`, which reads the engine rather than this.
+        m_rtc->setMediaEncryptionAvailable(true);
         // Screen sharing goes through the desktop portal, so the picker is
         // the compositor's and Lightning never enumerates windows itself.
         // Registered only when a portal actually answers on this session

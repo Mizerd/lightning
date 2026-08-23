@@ -52,6 +52,7 @@
 #include <cstdint>
 
 #include <QByteArray>
+#include <QRecursiveMutex>
 #include <QHash>
 
 class CallFrameCryptor
@@ -111,6 +112,19 @@ public:
 private:
     QByteArray ivFor(quint32 ssrc, quint32 rtpTimestamp);
 
+    /// Guards the key ring AND the per-SSRC counters.
+    ///
+    /// Not optional. One cryptor serves every track in a direction, and
+    /// GStreamer runs each track on its OWN streaming thread: the audio and
+    /// video pad probes call in concurrently. Unsynchronised, the counter
+    /// QHash is a data race, and a torn read of it could hand two frames
+    /// the same IV under the same key — which for AES-GCM is not a
+    /// degradation, it is a total break.
+    ///
+    /// Recursive so a future caller inside a locked section cannot deadlock
+    /// on itself; the sections are a few hundred bytes of AES and never
+    /// block.
+    mutable QRecursiveMutex m_mutex;
     /// 16 slots, matching LiveKit's key ring size.
     QByteArray m_keys[16];
     int m_currentIndex = 0;

@@ -153,6 +153,9 @@ Rectangle {
                             anchors.fill: parent
                             anchors.margins: 6
                             userId: parent.modelData.userId
+                            // Routes video. The identity, not userId+deviceId:
+                            // the sticky format's identity is a hash.
+                            identity: parent.modelData.identity
                             displayName: app.displayNameFor
                                          ? app.displayNameFor(parent.modelData.userId)
                                          : parent.modelData.userId
@@ -239,6 +242,7 @@ Rectangle {
                             height: 88
                             width: 140
                             userId: modelData.userId
+                            identity: modelData.identity
                             displayName: app.displayNameFor
                                          ? app.displayNameFor(modelData.userId)
                                          : modelData.userId

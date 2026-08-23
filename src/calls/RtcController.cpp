@@ -1,5 +1,8 @@
 #include "calls/RtcController.h"
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QVariantMap>
 #include <algorithm>
 
@@ -348,6 +351,46 @@ QVariantList RtcController::participants(const QString &roomId, int max) const
         out.append(row);
     }
     return out;
+}
+
+QString RtcController::rtcIdentityFor(const QString &roomId,
+                                      const QString &userId,
+                                      const QString &deviceId) const
+{
+    const auto it = m_sessions.constFind(roomId);
+    if (it == m_sessions.cend() || it->slotClosed)
+        return {};
+    if (userId.isEmpty() || deviceId.isEmpty())
+        return {};
+    for (const RtcParticipant &participant : it->participants) {
+        if (participant.userId == userId
+            && participant.deviceId == deviceId) {
+            return participant.rtcIdentity;
+        }
+    }
+    return {};
+}
+
+QString RtcController::mediaKeyTargetsJson(const QString &roomId) const
+{
+    const auto it = m_sessions.constFind(roomId);
+    if (it == m_sessions.cend() || it->slotClosed)
+        return QStringLiteral("[]");
+    QJsonArray targets;
+    for (const RtcParticipant &participant : it->participants) {
+        if (participant.ownDevice)
+            continue;
+        if (participant.userId.isEmpty() || participant.deviceId.isEmpty())
+            continue;
+        if (targets.size() >= kMaxPresentedParticipants)
+            break;
+        QJsonObject target;
+        target.insert(QStringLiteral("user_id"), participant.userId);
+        target.insert(QStringLiteral("device_id"), participant.deviceId);
+        targets.append(target);
+    }
+    return QString::fromUtf8(
+        QJsonDocument(targets).toJson(QJsonDocument::Compact));
 }
 
 QStringList RtcController::participantUserIds(const QString &roomId,

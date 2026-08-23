@@ -285,3 +285,196 @@ that have the engine.
   decrypting at the peer): **NOT TESTED** — the loopback suite proves the
   engine and the handshake, not the network or another client; see
   `docs/element-interop-checklist.md`.
+
+## Round 6: frame encryption actually attached, and LiveKit wire corrections
+
+Until this round the frame cryptor was a tested library nothing called, and
+an encrypted room could not be joined at all. That was honest but useless.
+The cryptor is now attached to the pipeline, so an encrypted room joins and
+screen sharing works there.
+
+### Where encryption happens, and why exactly there
+
+Send side: a pad probe on the **encoder's src pad** — after encoding, before
+RTP payloading. Receive side: a probe on the **depayloader's src pad** —
+after the frame is whole again, before decoding.
+
+That placement is the whole interoperability story. LiveKit and Element Call
+encrypt one **encoded frame**; a frame spans many RTP packets, so encrypting
+per packet would be a different scheme that interoperates with nobody while
+looking perfectly reasonable in a capture. The cleartext header (VP8 keyframe
+10 bytes, VP8 delta 3, Opus 1) is what lets the SFU keep routing and
+detecting keyframes without holding a key.
+
+Keyframe detection comes from `GST_BUFFER_FLAG_DELTA_UNIT` rather than from
+parsing the VP8 bitstream: the encoder already told us, and re-deriving it
+would be a second source of truth for the header size.
+
+### The gate is real, not a label
+
+`setEncryptionRequired(true)` is armed at join from the room's encryption
+state, **before any media exists**. With it set and no key installed, the
+probe returns `GST_PAD_PROBE_DROP`. There is no cleartext fallback anywhere
+in the path — a decryption that fails its authentication tag drops too.
+`encryptionActive()` reads whether a key is actually installed, so
+`mediaEncrypted` cannot claim encryption that is not happening.
+
+Room encryption is captured **once per call**, and UNKNOWN fails closed to
+encrypted. A room-state change mid-call cannot quietly relax what the user
+was already told.
+
+### Key lifecycle
+
+Keys are 32 bytes from `QRandomGenerator::system()` (getrandom(2)) — never
+the generic generator, which is a PRNG. Distribution is Olm-encrypted
+to-device, addressed **per device**: our own device is excluded, but our own
+account on a second device is not, because that is a separate Olm session
+that would otherwise be deafened.
+
+Distribution happens **before** installation. The other order encrypts our
+frames under a key nobody has yet, and every receiver drops them until the
+to-device message lands. The first key is minted inside `publishTracks()`,
+before the first frame can exist. Any change in the participant set rotates,
+so a leaver stops being able to decrypt. Keys are cleared on teardown: they
+must not outlive the call that used them.
+
+### Two IV mistakes that were in my own first wiring
+
+Both fixed here, and both are worth stating because neither is visible in a
+working call:
+
+1. **Both probes passed `ssrc=1`.** The cryptor keeps its send counter per
+   SSRC, so audio and video shared one. Two frames with the same timestamp
+   and counter under the same key produce the **same IV**, which for AES-GCM
+   is a total break of both frames, not a weakening. Each encrypting track
+   now takes a distinct IV stream id. The value need not be the real RTP
+   SSRC: the IV travels inside the frame and livekit-client uses it verbatim
+   without checking that field, so local uniqueness is the entire
+   requirement.
+2. **The cryptor had no lock.** One cryptor serves every track in a
+   direction and GStreamer runs each track on its own streaming thread, so
+   the counter `QHash` was a data race. Now a recursive mutex held across
+   the whole frame, so the key ring cannot rotate out from under a frame
+   between choosing the index and using the key.
+
+### LiveKit wire corrections (interoperability)
+
+Two things Element Call reads that we were getting wrong:
+
+* **`TrackSource` was off by one in both directions.** Hand-written
+  literals had camera=2, microphone=3, screen_share=4 against LiveKit's
+  actual `CAMERA=1, MICROPHONE=2, SCREEN_SHARE=3, SCREEN_SHARE_AUDIO=4`.
+  Our screen share therefore arrived at Element as `SCREEN_SHARE_AUDIO` — a
+  track it treats as audio and never renders — and Element's camera arrived
+  here as `unknown`. Now read through the generated enum, with the raw wire
+  numbers pinned in a test: an assertion written in terms of the same enum
+  would have passed against the defect.
+* **`AddTrackRequest.encryption` was never set.** LiveKit carries E2EE
+  per track and a receiving client decides whether to run its frame
+  decryptor from it. Encrypting the bytes while declaring `NONE` renders as
+  garbage at the far end. Now `GCM` whenever the room is encrypted, which
+  is the same value Element Call publishes.
+
+### Screen share, matched to livekit-client's own presets
+
+Screen share is `ScreenSharePresets.h1080fps30` — 1920x1080, 30 fps,
+3 Mbit/s — and camera is the h720 default, 1280x720 at 1.7 Mbit/s. Those
+are ceilings expressed as caps **ranges**, so videoscale picks the largest
+size inside them that keeps the display aspect ratio: an ultrawide stays
+ultrawide instead of being stretched to 16:9.
+
+The ceiling is the point. A screencast source is whatever the monitor is; on
+a 4K display an uncapped pipeline asks VP8 to encode 3840x2160 in real time,
+which costs far more CPU than the frame is worth and overruns the bitrate
+anyway.
+
+Encoder settings differ from the camera's on every axis because screen
+content is text-heavy and mostly static: `static-threshold=100` skips
+macroblocks that did not change (most of a desktop, most of the time; on a
+camera it would smear real motion, so it stays 0 there), a longer keyframe
+distance spends the budget on legible text, and `cpu-used=4` buys the
+headroom 1080p needs.
+
+The share is published as an **additional** track, so the camera keeps
+running — the same as Element.
+
+### Per-sender key rings, and the pad-to-participant mapping
+
+LiveKit's key index is **per participant**: two senders may both use index 0
+with entirely different material. One shared ring would decrypt at most one
+of them, so there is one ring per sender, exactly as livekit-client keeps one
+decryptor per participant.
+
+Attributing a received pad to its sender is the mapping that makes that
+possible. The subscriber offer carries one `a=msid:<stream-id> <track-id>`
+per media section and LiveKit's stream id **is** the sending participant's
+sid — the same attribute livekit-client reads. webrtcbin names a received pad
+`src_<index>` where the index is the media-section index, so the pad, the
+SDP section and the sender line up without guessing.
+
+A section we cannot attribute gets its **own** ring keyed by the media-section
+index rather than being folded into a shared one. A ring nobody has keyed
+drops; decrypting one participant's frames with another's key would be silent
+corruption.
+
+Keys reach the right ring by two hops, and both are needed: the MatrixRTC
+membership gives a device's SFU **identity** (derived in Rust — a sha256 in
+the sticky format, so it cannot be recomputed in C++), and the SFU's own
+participant list gives the **sid** that appears in the `msid`. An
+unresolvable sender installs nothing.
+
+### Received video is rendered
+
+It previously went to a `fakesink`: the pipeline decoded every frame
+correctly and then discarded it, so a video call showed nothing at all.
+
+The pinned toolchain ships neither `qml6glsink` nor `qmlglsink` (checked with
+`gst-inspect-1.0`), and a package cannot depend on a plugin that may be
+absent — so frames come out through `appsink`, which is in
+gst-plugins-base and always present, and are pushed into the `QVideoSink`
+that a QML `VideoOutput` already exposes. No new plugin dependency, and the
+declarative surface is the one the rest of the app uses.
+
+Decisions worth keeping:
+
+* `max-buffers=1 drop=true` on the video appsink. A late video frame is
+  worthless, and queueing them turns a slow consumer into growing latency.
+  Audio is never dropped this way.
+* The frame is **copied**, because a `QVideoFrame` cannot borrow a
+  `GstBuffer`'s memory: the buffer is unreffed when the callback returns
+  while the frame lives until the GUI thread has rendered it. Copying is why
+  the router is asked `watching()` first — an unwatched participant costs a
+  hash lookup instead of a full-frame memcpy at frame rate.
+* Row-by-row copy, not one block: GStreamer and Qt need not agree on stride,
+  and copying the whole thing when they disagree shears the image.
+* `SfuVideoRouter` holds `QPointer`s and takes its own mutex. A VideoOutput
+  can be destroyed between a frame being queued on the streaming thread and
+  delivered on the GUI thread — a window that opens on every grid relayout —
+  and `watching()` is called from a streaming thread while the GUI thread
+  inserts, where an unguarded QHash rehash is a crash rather than a wrong
+  answer.
+* Tiles route on **identity**, never on userId+deviceId. The participant
+  rows derive those two by splitting the identity on `:`, which is right for
+  the legacy `@user:server:DEVICE` form and garbage for the sticky form —
+  so a modern Element participant would have resolved to nothing and simply
+  never shown video.
+* Teardown clears every sink. A sink attached for the call that just ended is
+  a live destination for the next call's frames, whose stream ids the SFU
+  assigns afresh.
+
+### Screen-share audio
+
+Not captured, and this is parity rather than a gap: xdg-desktop-portal's
+ScreenCast interface does not offer audio, which is the same position Element
+Call is in on Wayland. Capturing the default sink's monitor instead would
+share everything the computer plays — including the other participants'
+voices back to them — so it is deliberately not done.
+
+### NOT TESTED
+
+No call has completed between two clients, so nothing here has decrypted a
+frame another implementation encrypted, and no remote video frame has been
+rendered from a real sender. What *is* verified: the cryptor's format against
+a known answer and an independent HKDF, the LiveKit handshake against a real
+`nixpkgs#livekit` SFU, and the router's lifetime discipline in
+`sfu-video-router`. End-to-end interop with Element Call is unproven.

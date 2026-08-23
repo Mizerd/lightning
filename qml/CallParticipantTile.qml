@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtMultimedia
 import MatrixClient
 
 // One participant on the call stage — Discord-style layout, Lightning tokens.
@@ -32,6 +33,11 @@ Item {
     property bool micMuted: false
     property bool cameraKnown: false
     property bool cameraOn: false
+    /// The SFU participant identity this tile shows. Routes video, and it
+    /// is the only identifier that works for BOTH membership formats — the
+    /// sticky form's identity is a hash, so it cannot be rebuilt from a user
+    /// and device id.
+    property string identity: ""
     property bool screenSharing: false
     property bool handRaised: false
 
@@ -101,11 +107,54 @@ Item {
                       ? AppTheme.focusRing
                       : (root.focused ? AppTheme.accentBorder : AppTheme.borderSubtle)
 
+        // Live video, when there is any.
+        //
+        // Behind a Loader so a voice-only tile builds no VideoOutput at all
+        // — this is a per-participant delegate, and a grid of idle video
+        // surfaces costs real GPU memory for nothing.
+        //
+        // `cameraOn` is only ever true when something authoritative said so
+        // (see the honesty rule above), so an unknown camera shows the
+        // avatar rather than a black rectangle.
+        Loader {
+            id: videoLoader
+            anchors.fill: parent
+            active: root.cameraKnown && root.cameraOn
+                    && root.identity.length > 0 && !root.local
+            visible: active && item && item.hasFrame
+            sourceComponent: Item {
+                /// Nothing has arrived yet: the tile keeps showing the
+                /// avatar instead of a black hole while the first frame is
+                /// in flight.
+                readonly property bool hasFrame:
+                    output.videoSink && output.videoSink.videoSize.width > 0
+
+                VideoOutput {
+                    id: output
+                    anchors.fill: parent
+                    fillMode: VideoOutput.PreserveAspectCrop
+                }
+
+                // Attach on creation, DETACH on destruction. The router
+                // holds a QPointer so a missed detach cannot crash, but it
+                // would keep routing frames at a dead tile for one frame and
+                // keep the entry alive until then.
+                Component.onCompleted: app.groupCall.attachVideoSink(
+                                           root.identity, output.videoSink)
+                Component.onDestruction: app.groupCall.detachVideoSink(
+                                             root.identity)
+            }
+        }
+
         // Speaking ring around the AVATAR, not a moving avatar: Discord's
         // cue reads as a halo, and shifting the avatar on every syllable is
         // what makes a grid feel unstable.
         Item {
             id: avatarBlock
+            // Hidden, not destroyed, while video is live: the camera can go
+            // off at any moment and rebuilding the avatar block then would
+            // flash an empty tile.
+            visible: !videoLoader.visible
             anchors.centerIn: parent
             anchors.verticalCenterOffset: root.compact ? -6 : -8
             width: root._avatarSize

@@ -1,5 +1,8 @@
 #include "calls/SfuMediaEngine.h"
 
+#include "calls/CallFrameCryptor.h"
+#include "calls/SfuVideoRouter.h"
+
 #include <mutex>
 
 #include <QJsonDocument>
@@ -10,7 +13,10 @@
 #include <QSet>
 #include <QUrl>
 #include <QVariantMap>
+#include <QVideoFrame>
+#include <QVideoFrameFormat>
 
+#include <gst/app/gstappsink.h>
 #include <gst/gst.h>
 #include <gst/sdp/sdp.h>
 #define GST_USE_UNSTABLE_API
@@ -95,6 +101,219 @@ bool parseCandidateInit(const QString &json, QString *candidate,
 }
 } // namespace
 
+namespace {
+/// What a pad probe needs to know. Owned by the probe, freed when the probe
+/// is removed.
+struct CryptoProbeCtx {
+    SfuMediaEngine *engine = nullptr;
+    /// Shared, not raw: a receive cryptor belongs to a sender who can leave
+    /// while a frame of theirs is still in the probe.
+    std::shared_ptr<CallFrameCryptor> cryptor;
+    /// Direction: true encrypts (send side), false decrypts (receive side).
+    bool encrypting = false;
+    /// Video uses VP8's cleartext-header rule; audio uses Opus's.
+    bool video = false;
+    /// Read on the streaming thread; see SfuMediaEngine's atomics.
+    const std::atomic<bool> *required = nullptr;
+    const std::atomic<bool> *keyReady = nullptr;
+    /// This track's IV stream id, unique among encrypting tracks. Send side
+    /// only; a receiver reads the IV out of the frame.
+    quint32 ivStream = 0;
+};
+
+/// Which sender an appsink belongs to. One per received video track.
+struct VideoSinkCtx {
+    SfuMediaEngine *engine = nullptr;
+    QString streamId;
+};
+
+void videoSinkCtxFree(void *data, GClosure *)
+{
+    delete static_cast<VideoSinkCtx *>(data);
+}
+
+/// One decoded RGBA frame, from a GStreamer streaming thread to the router.
+///
+/// The frame is COPIED. A QVideoFrame cannot borrow a GstBuffer's memory:
+/// the buffer is unreffed when this returns, while the frame lives until the
+/// GUI thread has rendered it. Copying is also why `watching()` is checked
+/// first — an unwatched participant costs a hash lookup instead of a
+/// full-frame memcpy at frame rate.
+GstFlowReturn onVideoSample(GstElement *sink, void *userData)
+{
+    auto *ctx = static_cast<VideoSinkCtx *>(userData);
+    if (!ctx || !ctx->engine)
+        return GST_FLOW_OK;
+
+    GstSample *sample = gst_app_sink_pull_sample(GST_APP_SINK(sink));
+    if (!sample)
+        return GST_FLOW_OK;
+
+    // Ask before copying: an unwatched participant costs a hash lookup
+    // instead of a full-frame memcpy at frame rate. SfuVideoRouter takes its
+    // own mutex, so this is safe to call from here.
+    bool wanted = false;
+    if (SfuVideoRouter *router = ctx->engine->videoRouter())
+        wanted = router->watching(ctx->streamId);
+    if (!wanted) {
+        gst_sample_unref(sample);
+        return GST_FLOW_OK;
+    }
+
+    GstCaps *caps = gst_sample_get_caps(sample);
+    GstBuffer *buffer = gst_sample_get_buffer(sample);
+    int width = 0;
+    int height = 0;
+    if (caps) {
+        const GstStructure *structure = gst_caps_get_structure(caps, 0);
+        if (structure) {
+            gst_structure_get_int(structure, "width", &width);
+            gst_structure_get_int(structure, "height", &height);
+        }
+    }
+    // A frame with no geometry is not a frame. Bounded because these numbers
+    // come from a remote sender and are about to size an allocation.
+    if (!buffer || width <= 0 || height <= 0 || width > 8192
+        || height > 8192) {
+        gst_sample_unref(sample);
+        return GST_FLOW_OK;
+    }
+
+    GstMapInfo map;
+    if (!gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+        gst_sample_unref(sample);
+        return GST_FLOW_OK;
+    }
+
+    QVideoFrame frame(QVideoFrameFormat(QSize(width, height),
+                                        QVideoFrameFormat::Format_RGBA8888));
+    if (frame.map(QVideoFrame::WriteOnly)) {
+        const int sourceStride = width * 4;
+        const int targetStride = frame.bytesPerLine(0);
+        const qsizetype available = static_cast<qsizetype>(map.size);
+        uchar *target = frame.bits(0);
+        // Row by row: GStreamer and Qt need not agree on stride, and copying
+        // the whole block when they disagree shears the image.
+        for (int row = 0; row < height; ++row) {
+            const qsizetype offset =
+                static_cast<qsizetype>(row) * sourceStride;
+            if (offset + sourceStride > available)
+                break;
+            memcpy(target + static_cast<qsizetype>(row) * targetStride,
+                   map.data + offset, static_cast<size_t>(sourceStride));
+        }
+        frame.unmap();
+    }
+    gst_buffer_unmap(buffer, &map);
+    gst_sample_unref(sample);
+
+    // Delivered on the GUI thread: a QVideoSink belongs to its own thread.
+    SfuMediaEngine *engine = ctx->engine;
+    const QString streamId = ctx->streamId;
+    marshal(engine, [engine, streamId, frame] {
+        if (SfuVideoRouter *router = engine->videoRouter())
+            router->deliverFrame(streamId, frame);
+    });
+    return GST_FLOW_OK;
+}
+
+void cryptoProbeCtxFree(void *data)
+{
+    delete static_cast<CryptoProbeCtx *>(data);
+}
+
+/// Encrypt or decrypt one ENCODED FRAME in the dataflow.
+///
+/// Placed between the encoder and the RTP payloader (send) or after the
+/// depayloader (receive), so the buffer here is one complete encoded frame —
+/// which is the unit LiveKit and Element Call encrypt. Doing this on RTP
+/// packets instead would be a different scheme that interoperates with
+/// nobody, and one frame can span many packets.
+GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
+                              void *userData)
+{
+    Q_UNUSED(pad);
+    auto *ctx = static_cast<CryptoProbeCtx *>(userData);
+    auto *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+    if (!buffer || !ctx || !ctx->cryptor)
+        return GST_PAD_PROBE_OK;
+
+    const bool haveKey = ctx->keyReady && ctx->keyReady->load();
+    if (!haveKey) {
+        // No key yet. In an encrypted room that means DROP: sending in the
+        // clear would silently un-encrypt a call the user was told is
+        // end-to-end encrypted, and rendering an undecryptable frame is
+        // worse than dropping it.
+        const bool required = ctx->required && ctx->required->load();
+        return required ? GST_PAD_PROBE_DROP : GST_PAD_PROBE_OK;
+    }
+
+    // VP8 keyframes leave 10 header bytes in the clear and delta frames 3
+    // (so an SFU can still route and detect keyframes); Opus leaves the TOC
+    // byte. The keyframe answer comes from GStreamer's own flag rather than
+    // from parsing the bitstream — the encoder already told us.
+    CallFrameCryptor::FrameKind kind = CallFrameCryptor::FrameKind::Audio;
+    if (ctx->video) {
+        kind = GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT)
+            ? CallFrameCryptor::FrameKind::VideoDelta
+            : CallFrameCryptor::FrameKind::VideoKey;
+    }
+
+    GstMapInfo map;
+    if (!gst_buffer_map(buffer, &map, GST_MAP_READ))
+        return GST_PAD_PROBE_OK;
+    const QByteArray input(reinterpret_cast<const char *>(map.data),
+                           static_cast<int>(map.size));
+    gst_buffer_unmap(buffer, &map);
+
+    QByteArray output;
+    if (ctx->encrypting) {
+        // ssrc/timestamp feed the IV. The PTS is the frame's own timestamp,
+        // and the per-SSRC counter inside the cryptor is what guarantees a
+        // unique IV even when two frames share one — AES-GCM IV reuse is a
+        // total break, so this must never be derived from content alone.
+        const quint32 timestamp =
+            GST_BUFFER_PTS_IS_VALID(buffer)
+                ? static_cast<quint32>(GST_BUFFER_PTS(buffer) / 1000)
+                : 0;
+        output = ctx->cryptor->encryptFrame(input, kind, ctx->ivStream,
+                                            timestamp);
+    } else {
+        output = ctx->cryptor->decryptFrame(input, kind);
+    }
+
+    if (output.isEmpty()) {
+        // Encryption refused (no key), or decryption failed its
+        // authentication tag. Either way the frame does not go on: there is
+        // no cleartext fallback in this path by design.
+        return GST_PAD_PROBE_DROP;
+    }
+
+    // The payload changed size, so this is a NEW buffer carrying the
+    // original's timing and flags rather than an in-place edit.
+    GstBuffer *replacement = gst_buffer_new_allocate(
+        nullptr, static_cast<gsize>(output.size()), nullptr);
+    if (!replacement)
+        return GST_PAD_PROBE_DROP;
+    GstMapInfo out;
+    if (!gst_buffer_map(replacement, &out, GST_MAP_WRITE)) {
+        gst_buffer_unref(replacement);
+        return GST_PAD_PROBE_DROP;
+    }
+    memcpy(out.data, output.constData(), static_cast<size_t>(output.size()));
+    gst_buffer_unmap(replacement, &out);
+    gst_buffer_copy_into(replacement, buffer,
+                         static_cast<GstBufferCopyFlags>(
+                             GST_BUFFER_COPY_TIMESTAMPS
+                             | GST_BUFFER_COPY_FLAGS),
+                         0, static_cast<gsize>(-1));
+
+    gst_buffer_unref(buffer);
+    GST_PAD_PROBE_INFO_DATA(info) = replacement;
+    return GST_PAD_PROBE_OK;
+}
+} // namespace
+
 bool SfuMediaEngine::runtimeAvailable(QString *whyNot)
 {
     static std::once_flag once;
@@ -137,7 +356,9 @@ bool SfuMediaEngine::runtimeAvailable(QString *whyNot)
     return true;
 }
 
-SfuMediaEngine::SfuMediaEngine(QObject *parent) : QObject(parent)
+SfuMediaEngine::SfuMediaEngine(QObject *parent)
+    : QObject(parent)
+    , m_sendCryptor(std::make_unique<CallFrameCryptor>())
 {
     QMutexLocker lock(&g_aliveMutex);
     g_aliveEngines.insert(this);
@@ -179,6 +400,8 @@ void SfuMediaEngine::stop()
     // controller and is re-applied on the next start.
     m_microphoneMuted = false;
     m_outputMuted.store(false);
+    // Media keys must not outlive the call that used them.
+    clearKeys();
     Q_EMIT connectionStateChanged(QStringLiteral("closed"));
 }
 
@@ -323,7 +546,8 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     // convention and what LiveKit expects for audio.
     const QString description =
         QStringLiteral("%1 ! queue ! audioconvert ! audioresample "
-                       "! valve name=micvalve drop=%2 ! opusenc "
+                       "! valve name=micvalve drop=%2 "
+                       "! opusenc name=audioenc "
                        "! rtpopuspay pt=111 "
                        "! application/x-rtp,media=audio,encoding-name=OPUS,"
                        "payload=111")
@@ -347,6 +571,16 @@ void SfuMediaEngine::publishAudio(const QString &cid)
         return;
     }
     m_publishedBins.insert(cid, bin);
+    // Encrypt on the ENCODER's src pad — after encoding, before RTP
+    // payloading. That is one whole encoded frame, which is the unit
+    // LiveKit and Element Call encrypt.
+    if (GstElement *encoder = gst_bin_get_by_name(GST_BIN(bin), "audioenc")) {
+        if (GstPad *encoded = gst_element_get_static_pad(encoder, "src")) {
+            installEncryptProbe(encoded, /*video=*/false);
+            gst_object_unref(encoded);
+        }
+        gst_object_unref(encoder);
+    }
     GstPad *srcPad = gst_element_get_static_pad(bin, "src");
     GstPad *sinkPad = gst_element_request_pad_simple(m_publisher.webrtc,
                                                      "sink_%u");
@@ -387,21 +621,53 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         source = QStringLiteral("autovideosrc");
     }
 
-    // Screen content is text-heavy: deadline=1 keeps latency sane while
-    // keyframe-max-dist favours readability over motion smoothness, and the
-    // camera path prefers the opposite trade.
+    // Resolution and rate CEILINGS, matching livekit-client's own presets:
+    // screen share is ScreenSharePresets.h1080fps30 (1920x1080, 30 fps,
+    // 3 Mbit/s) and camera is the h720 default (1280x720, 30 fps,
+    // 1.7 Mbit/s). Element Call publishes at those numbers, so a Lightning
+    // share lands in an Element grid looking like every other one.
+    //
+    // The ceiling is the point, not the exact size. A screencast source is
+    // whatever the monitor is: on a 4K display an uncapped pipeline asks
+    // VP8 to encode 3840x2160 in real time, which costs far more CPU than
+    // the frame is worth and overruns the bitrate anyway. The caps are
+    // RANGES, so videoscale picks the largest size inside them that keeps
+    // the display aspect ratio — an ultrawide stays ultrawide instead of
+    // being stretched into 16:9.
+    const QString limits = screenShare
+        ? QStringLiteral("video/x-raw,width=(int)[1,1920],"
+                         "height=(int)[1,1080],"
+                         "framerate=(fraction)[0/1,30/1]")
+        : QStringLiteral("video/x-raw,width=(int)[1,1280],"
+                         "height=(int)[1,720],"
+                         "framerate=(fraction)[0/1,30/1]");
+
+    // Screen content is text-heavy and mostly static, so the trades differ
+    // from a camera's on every axis:
+    //   * static-threshold skips macroblocks that did not change, which on a
+    //     desktop is most of the frame most of the time. On a camera it
+    //     would smear real motion, so it stays 0 there.
+    //   * a longer keyframe distance spends the budget on legible text
+    //     rather than on periodic full frames.
+    //   * cpu-used trades encoder effort for headroom, which 1080p needs and
+    //     720p does not.
     const QString encoder = screenShare
-        ? QStringLiteral("vp8enc deadline=1 keyframe-max-dist=60 "
-                         "end-usage=cbr target-bitrate=2500000")
-        : QStringLiteral("vp8enc deadline=1 keyframe-max-dist=30 "
-                         "end-usage=cbr target-bitrate=1200000");
+        ? QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
+                         "cpu-used=4 static-threshold=100 "
+                         "keyframe-max-dist=60 "
+                         "end-usage=cbr target-bitrate=3000000")
+        : QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
+                         "cpu-used=2 static-threshold=0 "
+                         "keyframe-max-dist=30 "
+                         "end-usage=cbr target-bitrate=1700000");
     const QString description =
         QStringLiteral("%1 ! queue ! videoconvert ! videoscale ! videorate "
-                       "! valve name=vidvalve drop=false ! %2 "
+                       "! %2 "
+                       "! valve name=vidvalve drop=false ! %3 name=videoenc "
                        "! rtpvp8pay pt=96 "
                        "! application/x-rtp,media=video,encoding-name=VP8,"
                        "payload=96")
-            .arg(source, encoder);
+            .arg(source, limits, encoder);
 
     GError *error = nullptr;
     GstElement *bin =
@@ -421,6 +687,13 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         return;
     }
     m_publishedBins.insert(cid, bin);
+    if (GstElement *encoder = gst_bin_get_by_name(GST_BIN(bin), "videoenc")) {
+        if (GstPad *encoded = gst_element_get_static_pad(encoder, "src")) {
+            installEncryptProbe(encoded, /*video=*/true);
+            gst_object_unref(encoded);
+        }
+        gst_object_unref(encoder);
+    }
     GstPad *srcPad = gst_element_get_static_pad(bin, "src");
     GstPad *sinkPad = gst_element_request_pad_simple(m_publisher.webrtc,
                                                      "sink_%u");
@@ -454,6 +727,49 @@ void SfuMediaEngine::renegotiatePublisher()
                           promise);
 }
 
+namespace {
+
+/// Media-section index -> LiveKit stream id, from each section's `msid`.
+///
+/// Unified plan puts one `a=msid:<stream-id> <track-id>` per media section,
+/// and LiveKit's stream id IS the sending participant's sid. That is the
+/// same attribute livekit-client reads to decide which participant a
+/// received track belongs to.
+QHash<int, QString> streamIdsFromSdp(GstSDPMessage *message)
+{
+    QHash<int, QString> out;
+    if (!message)
+        return out;
+    const guint sections = gst_sdp_message_medias_len(message);
+    for (guint index = 0; index < sections; ++index) {
+        const GstSDPMedia *media = gst_sdp_message_get_media(message, index);
+        if (!media)
+            continue;
+        QString streamId;
+        const guint attributes = gst_sdp_media_attributes_len(media);
+        for (guint a = 0; a < attributes; ++a) {
+            const GstSDPAttribute *attribute =
+                gst_sdp_media_get_attribute(media, a);
+            if (!attribute || !attribute->key)
+                continue;
+            const QLatin1String key(attribute->key);
+            if (key != QLatin1String("msid"))
+                continue;
+            // "<stream-id> <track-id>"; the stream id is what attributes the
+            // track to a sender.
+            const QString value = QString::fromUtf8(attribute->value
+                                                        ? attribute->value
+                                                        : "");
+            streamId = value.section(QLatin1Char(' '), 0, 0).trimmed();
+            break;
+        }
+        out.insert(static_cast<int>(index), streamId);
+    }
+    return out;
+}
+
+} // namespace
+
 void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
                                             const QString &sdp)
 {
@@ -475,6 +791,13 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
         Q_EMIT failed(QStringLiteral("bad_remote_sdp"));
         return;
     }
+    // Only the SUBSCRIBER connection carries other people's tracks, so only
+    // its description tells us who a received pad belongs to. Recorded
+    // BEFORE set-remote-description, because pad-added can fire from inside
+    // that call and would otherwise find the map empty.
+    if (target == Target::Subscriber)
+        noteStreamIds(streamIdsFromSdp(message));
+
     const GstWebRTCSDPType type = (kind == QLatin1String("offer"))
         ? GST_WEBRTC_SDP_TYPE_OFFER
         : GST_WEBRTC_SDP_TYPE_ANSWER;
@@ -613,6 +936,132 @@ void SfuMediaEngine::setParticipantVolume(const QString &identity,
         g_object_set(element, "volume", volume, nullptr);
         gst_object_unref(element);
     }
+}
+
+void SfuMediaEngine::setVideoRouter(SfuVideoRouter *router)
+{
+    m_videoRouter = router;
+}
+
+SfuVideoRouter *SfuMediaEngine::videoRouter() const
+{
+    return m_videoRouter.data();
+}
+
+void SfuMediaEngine::setOutboundKey(int index, const QByteArray &rawKey)
+{
+    if (!m_sendCryptor->setKey(index, rawKey))
+        return;
+    m_sendCryptor->setCurrentKeyIndex(index);
+    // Published only after the key is really installed, so a probe can never
+    // see "ready" without a usable key behind it.
+    m_sendKeyReady.store(true);
+}
+
+void SfuMediaEngine::setInboundKey(const QString &streamId, int index,
+                                   const QByteArray &rawKey)
+{
+    if (streamId.isEmpty())
+        return;
+    // Created on first sight, so a key can arrive before that sender's
+    // track does. The reverse order is handled in pad-added.
+    if (!recvCryptorFor(streamId)->setKey(index, rawKey))
+        return;
+    m_recvKeyReady.store(true);
+}
+
+std::shared_ptr<CallFrameCryptor>
+SfuMediaEngine::recvCryptorFor(const QString &streamId)
+{
+    QMutexLocker lock(&m_recvMutex);
+    auto it = m_recvCryptors.constFind(streamId);
+    if (it != m_recvCryptors.cend())
+        return it.value();
+    auto cryptor = std::make_shared<CallFrameCryptor>();
+    m_recvCryptors.insert(streamId, cryptor);
+    return cryptor;
+}
+
+bool SfuMediaEngine::encryptionActive() const
+{
+    // The honest answer: frames are encrypted only when a key is installed.
+    // Never optimistic — this is what the controller reports to the user.
+    return m_sendKeyReady.load();
+}
+
+void SfuMediaEngine::setEncryptionRequired(bool required)
+{
+    m_encryptionRequired.store(required);
+}
+
+void SfuMediaEngine::clearKeys()
+{
+    m_sendCryptor->clearKeys();
+    {
+        QMutexLocker lock(&m_recvMutex);
+        // Cleared AND dropped: the per-sender rings belong to the call that
+        // is ending. A probe still holding a shared_ptr sees an empty ring
+        // and drops, which is the correct answer for a torn-down call.
+        for (const auto &cryptor : std::as_const(m_recvCryptors))
+            cryptor->clearKeys();
+        m_recvCryptors.clear();
+        m_streamForMline.clear();
+    }
+    m_sendKeyReady.store(false);
+    m_recvKeyReady.store(false);
+}
+
+void SfuMediaEngine::noteStreamIds(const QHash<int, QString> &byMline)
+{
+    QMutexLocker lock(&m_recvMutex);
+    for (auto it = byMline.cbegin(); it != byMline.cend(); ++it) {
+        // An absent or absurd value leaves the section UNATTRIBUTED, which
+        // drops rather than mis-decrypts.
+        if (it.value().isEmpty() || it.value().size() > 256)
+            m_streamForMline.remove(it.key());
+        else
+            m_streamForMline.insert(it.key(), it.value());
+    }
+}
+
+void SfuMediaEngine::installEncryptProbe(GstPad *pad, bool video)
+{
+    if (!pad)
+        return;
+    auto *ctx = new CryptoProbeCtx;
+    ctx->engine = this;
+    // The send cryptor outlives every send probe (it is owned by the engine
+    // for the engine's whole life), so a non-owning alias is enough here.
+    ctx->cryptor = std::shared_ptr<CallFrameCryptor>(m_sendCryptor.get(),
+                                                     [](CallFrameCryptor *) {});
+    ctx->encrypting = true;
+    ctx->video = video;
+    ctx->required = &m_encryptionRequired;
+    ctx->keyReady = &m_sendKeyReady;
+    // One per encrypting track, never reused within a session.
+    ctx->ivStream = m_nextIvStream.fetch_add(1);
+    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, cryptoProbe, ctx,
+                      cryptoProbeCtxFree);
+}
+
+void SfuMediaEngine::installDecryptProbe(GstPad *pad, bool video,
+                                         const QString &streamId)
+{
+    if (!pad)
+        return;
+    auto *ctx = new CryptoProbeCtx;
+    ctx->engine = this;
+    // A sender we cannot attribute gets its own ring under the empty key
+    // rather than sharing anyone else's: decrypting one participant's frames
+    // with another's key is a silent corruption, and no key at all is an
+    // honest drop.
+    ctx->cryptor = recvCryptorFor(streamId);
+    ctx->encrypting = false;
+    ctx->video = video;
+    ctx->required = &m_encryptionRequired;
+    ctx->keyReady = &m_recvKeyReady;
+    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, cryptoProbe, ctx,
+                      cryptoProbeCtxFree);
 }
 
 bool SfuMediaEngine::tokenIsLive(quintptr token, Target *target) const
@@ -757,6 +1206,30 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     if (!pipeline)
         return;
 
+    // Which sender is this? webrtcbin names a received pad `src_<index>`
+    // where the index is the SDP media-section index, which is exactly the
+    // key noteStreamIds() recorded. That is how a decrypt probe gets the
+    // right sender's key ring instead of a shared one.
+    QString streamId;
+    {
+        const gchar *rawName = GST_PAD_NAME(srcPad);
+        const QString padName = QString::fromUtf8(rawName ? rawName : "");
+        bool ok = false;
+        const int mline =
+            padName.section(QLatin1Char('_'), -1).toInt(&ok);
+        if (ok) {
+            QMutexLocker lock(&engine->m_recvMutex);
+            streamId = engine->m_streamForMline.value(mline);
+        }
+        if (streamId.isEmpty()) {
+            // Unattributed. Deliberately given its OWN ring keyed by the
+            // media-section index rather than folded into a shared one: a
+            // frame decrypted with the wrong participant's key is silent
+            // corruption, and a ring nobody has keyed simply drops.
+            streamId = QStringLiteral("mline:%1").arg(mline);
+        }
+    }
+
     // What kind of media is this? The caps tell us; without them we cannot
     // build a chain, and guessing would produce a pipeline that fails later
     // and further from the cause.
@@ -775,20 +1248,31 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         mediaKind = QStringLiteral("audio");
 
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
-    // The remote track's identity is not known from the pad alone — LiveKit
-    // maps it through the SDP's mid. Until that mapping is wired the volume
-    // element still gets the "outvol" prefix, so deafen reaches it.
+    // The volume element keeps the "outvol" name so deafen reaches every
+    // received track regardless of who sent it.
+    // Received video goes to an appsink whose samples become QVideoFrames on
+    // a QML VideoOutput. RGBA because that maps 1:1 onto
+    // QVideoFrameFormat::Format_RGBA8888 with a plain row copy — a planar
+    // format would need per-plane strides for no benefit at these sizes.
+    //
+    // max-buffers=1 drop=true is deliberate: a late video frame is worthless
+    // and queueing them turns a slow consumer into growing latency. Audio is
+    // never dropped this way.
     const QString description = mediaKind == QLatin1String("video")
         ? (engine->testSourceMode()
-               ? QStringLiteral("queue ! rtpvp8depay ! vp8dec ! videoconvert "
-                                "! fakesink sync=false")
-               : QStringLiteral("queue ! rtpvp8depay ! vp8dec ! videoconvert "
-                                "! fakesink sync=false"))
+               ? QStringLiteral("queue ! rtpvp8depay name=recvdepay ! vp8dec "
+                                "! videoconvert ! fakesink sync=false")
+               : QStringLiteral("queue ! rtpvp8depay name=recvdepay ! vp8dec "
+                                "! videoconvert ! video/x-raw,format=RGBA "
+                                "! appsink name=vidsink emit-signals=true "
+                                "sync=false max-buffers=1 drop=true"))
         : (engine->testSourceMode()
-               ? QStringLiteral("queue ! rtpopusdepay ! opusdec ! audioconvert "
+               ? QStringLiteral("queue ! rtpopusdepay name=recvdepay "
+                                "! opusdec ! audioconvert "
                                 "! audioresample ! volume name=outvol "
                                 "! fakesink sync=false")
-               : QStringLiteral("queue ! rtpopusdepay ! opusdec ! audioconvert "
+               : QStringLiteral("queue ! rtpopusdepay name=recvdepay "
+                                "! opusdec ! audioconvert "
                                 "! audioresample ! volume name=outvol "
                                 "! autoaudiosink"));
 
@@ -812,6 +1296,28 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         });
         return;
     }
+    // Decrypt on the DEPAYLOADER's src pad: the encoded frame is whole again
+    // there, which is the unit LiveKit encrypted. Installed before the bin
+    // plays, so no frame can reach the decoder unexamined.
+    if (GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay")) {
+        if (GstPad *framePad = gst_element_get_static_pad(depay, "src")) {
+            engine->installDecryptProbe(framePad,
+                                        mediaKind == QLatin1String("video"),
+                                        streamId);
+            gst_object_unref(framePad);
+        }
+        gst_object_unref(depay);
+    }
+    // Route decoded video to whoever is showing this participant. Installed
+    // before the bin plays so no frame is produced without a destination
+    // decided.
+    if (GstElement *appsink = gst_bin_get_by_name(GST_BIN(bin), "vidsink")) {
+        auto *ctx = new VideoSinkCtx{engine, streamId};
+        g_signal_connect_data(appsink, "new-sample",
+                              G_CALLBACK(onVideoSample), ctx,
+                              videoSinkCtxFree, GConnectFlags(0));
+        gst_object_unref(appsink);
+    }
     // Apply the CURRENT deafen state before the bin plays: a track arriving
     // after the user deafened must not be audible even briefly.
     if (GstElement *volume = gst_bin_get_by_name(GST_BIN(bin), "outvol")) {
@@ -831,10 +1337,11 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         });
         return;
     }
-    marshal(engine, [engine, mediaKind] {
-        // Identity mapping through the SDP mid is not wired yet, so this
-        // reports the KIND only. The UI keys tiles off MatrixRTC membership,
-        // which is authoritative for who is present.
-        Q_EMIT engine->remoteTrackAdded(QString(), mediaKind);
+    marshal(engine, [engine, mediaKind, streamId] {
+        // The stream id is the sending participant's LiveKit sid, from the
+        // subscriber offer's msid. The UI still keys tiles off MatrixRTC
+        // membership, which is authoritative for who is PRESENT; this says
+        // which of them is actually sending.
+        Q_EMIT engine->remoteTrackAdded(streamId, mediaKind);
     });
 }

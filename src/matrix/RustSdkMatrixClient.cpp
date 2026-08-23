@@ -5640,7 +5640,8 @@ void RustSdkMatrixClient::sfuLocalCandidate(const QString &target,
 }
 
 void RustSdkMatrixClient::sfuAddTrack(const QString &cid, const QString &name,
-                                      int kind, bool screenShare)
+                                      int kind, bool screenShare,
+                                      bool encrypted)
 {
     if (!m_rustHandle || cid.isEmpty())
         return;
@@ -5648,7 +5649,7 @@ void RustSdkMatrixClient::sfuAddTrack(const QString &cid, const QString &name,
     const QByteArray n = name.toUtf8();
     takeRustString(mx_rust_sfu_add_track(
         m_rustHandle, c.constData(), n.constData(), kind,
-        screenShare ? 1 : 0));
+        screenShare ? 1 : 0, encrypted ? 1 : 0));
 }
 
 void RustSdkMatrixClient::sfuMuteTrack(const QString &sid, bool muted)

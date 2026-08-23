@@ -149,6 +149,16 @@ public:
     Q_INVOKABLE QVariantList participantFaces(const QString &roomId,
                                               int max = -1) const;
 
+    /// Every OTHER device in the session, as the targets JSON the media-key
+    /// send takes: `[{"user_id":…,"device_id":…}, …]`.
+    ///
+    /// NOT Q_INVOKABLE and deliberately not a property: device ids are
+    /// compared, never rendered, and this is the one consumer that genuinely
+    /// needs them (an Olm-encrypted to-device message is addressed per
+    /// device). Our own device is excluded — we already hold our own key,
+    /// and sending it to ourselves would be one more copy on the wire.
+    QString mediaKeyTargetsJson(const QString &roomId) const;
+
     /// The SFU service URL to use for this room: the homeserver's own
     /// answer if it gave one, otherwise the focus this room's participants
     /// advertise. Empty means no transport is known, which is a real answer
@@ -182,6 +192,22 @@ public:
     /// rather than read here, so this class keeps no second opinion about
     /// room encryption state.
     void setRoomEncrypted(const QString &roomId, bool encrypted);
+    /// The SFU identity one device uses in this room's session, or empty if
+    /// that device is not a participant.
+    ///
+    /// NOT Q_INVOKABLE: this is a wire identifier, not something to render.
+    /// It is DERIVED in Rust from the membership (a sha256 for the sticky
+    /// format), never recomputed here — the identity must match what Element
+    /// computes or the two clients disagree about which SFU participant is
+    /// which Matrix device.
+    QString rtcIdentityFor(const QString &roomId, const QString &userId,
+                           const QString &deviceId) const;
+
+    /// Whether this room's media must be encrypted. UNKNOWN fails CLOSED to
+    /// true: a room we cannot prove is unencrypted is treated as encrypted,
+    /// so the honest failure is a refused call, never a cleartext one.
+    bool roomEncrypted(const QString &roomId) const
+    { return m_encryptedRooms.value(roomId, true); }
 
 Q_SIGNALS:
     /// One room's observed session changed (or was read for the first time).

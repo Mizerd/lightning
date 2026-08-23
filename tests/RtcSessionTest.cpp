@@ -17,6 +17,10 @@
 #include "calls/RtcController.h"
 #include "matrix/MatrixClient.h"
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSet>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 
@@ -143,6 +147,8 @@ private Q_SLOTS:
     void aReplacedClientsLateReplyCannotBeDelivered();
     void oneRoomsFocusDoesNotDecideAnothers();
     void anEncryptedRoomRefusesWithoutMediaEncryption();
+    void mediaKeyTargetsAddressEveryOtherDeviceAndNotOurOwn();
+    void mediaKeyTargetsAreEmptyForARoomWithNoSession();
 };
 
 void RtcSessionTest::reportsParticipantsFromAReplyWeAskedFor()
@@ -533,6 +539,66 @@ void RtcSessionTest::oneRoomsFocusDoesNotDecideAnothers()
     // ...room B does not, and must say so.
     QCOMPARE(controller.joinBlockReason(kOther),
              QStringLiteral("no_transport"));
+}
+
+void RtcSessionTest::mediaKeyTargetsAddressEveryOtherDeviceAndNotOurOwn()
+{
+    // The media key is an Olm-encrypted to-device message, so it is
+    // addressed per DEVICE. Two properties matter and both are silent when
+    // wrong: a device we omit cannot decrypt our audio at all, and our own
+    // device does not need a copy of a key it just generated.
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.refresh(kRoom);
+    Q_EMIT client.rtcSessionReceived(
+        client.lastSessionOp,
+        sessionFor(kRoom,
+                   {person(QStringLiteral("@me:example.org"),
+                           QStringLiteral("MINE"), 1000,
+                           /*ownUser=*/true, /*ownDevice=*/true),
+                    person(QStringLiteral("@me:example.org"),
+                           QStringLiteral("OTHER"), 1100,
+                           /*ownUser=*/true, /*ownDevice=*/false),
+                    person(QStringLiteral("@them:example.org"),
+                           QStringLiteral("THEIRS"), 1200,
+                           /*ownUser=*/false, /*ownDevice=*/false)}));
+
+    const QJsonArray targets =
+        QJsonDocument::fromJson(
+            controller.mediaKeyTargetsJson(kRoom).toUtf8()).array();
+    QCOMPARE(targets.size(), 2);
+
+    // Our OWN device is absent; our own account on a SECOND device is not —
+    // that device is a separate Olm session and needs the key like anyone
+    // else. Excluding by user id instead of by device would silently
+    // deafen the user's own laptop.
+    QSet<QString> pairs;
+    for (const QJsonValue &value : targets) {
+        pairs.insert(value.toObject().value(QStringLiteral("user_id"))
+                         .toString()
+                     + QLatin1Char('/')
+                     + value.toObject().value(QStringLiteral("device_id"))
+                           .toString());
+    }
+    QVERIFY(!pairs.contains(QStringLiteral("@me:example.org/MINE")));
+    QVERIFY(pairs.contains(QStringLiteral("@me:example.org/OTHER")));
+    QVERIFY(pairs.contains(QStringLiteral("@them:example.org/THEIRS")));
+}
+
+void RtcSessionTest::mediaKeyTargetsAreEmptyForARoomWithNoSession()
+{
+    // A well-formed empty list, never a malformed string: the Rust side
+    // parses this and fails the whole send on invalid JSON, so "nobody to
+    // tell" must still be valid JSON rather than an empty QString.
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    QCOMPARE(controller.mediaKeyTargetsJson(kRoom), QStringLiteral("[]"));
+    const QJsonDocument parsed = QJsonDocument::fromJson(
+        controller.mediaKeyTargetsJson(kOther).toUtf8());
+    QVERIFY(parsed.isArray());
+    QVERIFY(parsed.array().isEmpty());
 }
 
 void RtcSessionTest::anEncryptedRoomRefusesWithoutMediaEncryption()

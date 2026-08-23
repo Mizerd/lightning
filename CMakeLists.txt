@@ -330,8 +330,13 @@ option(LIGHTNING_ENABLE_WEBRTC
     "Build the GStreamer webrtcbin voice-call media engine when available" ON)
 set(HAVE_LIGHTNING_WEBRTC OFF)
 if(LIGHTNING_ENABLE_WEBRTC AND PkgConfig_FOUND)
+    # gstreamer-app-1.0 is for the received-video appsink: decoded frames are
+    # pulled out and pushed into a QML VideoOutput's QVideoSink, because the
+    # pinned toolchain ships no qml6glsink and a package cannot depend on a
+    # plugin that may be absent.
     pkg_check_modules(GSTWEBRTC IMPORTED_TARGET
-        gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0)
+        gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0
+        gstreamer-app-1.0)
     if(GSTWEBRTC_FOUND)
         set(HAVE_LIGHTNING_WEBRTC ON)
         message(STATUS "GStreamer WebRTC found (${GSTWEBRTC_gstreamer-webrtc-1.0_VERSION}) — building the voice-call media engine")
@@ -622,7 +627,11 @@ if(HAVE_LIGHTNING_WEBRTC)
         # OpenSSL directly — keeping it here rather than in the shared app
         # sources avoids linking libcrypto into every test target.
         src/calls/CallFrameCryptor.h
-        src/calls/CallFrameCryptor.cpp)
+        src/calls/CallFrameCryptor.cpp
+        # Received video: the pipeline decoded frames and dropped them into a
+        # fakesink until this existed.
+        src/calls/SfuVideoRouter.h
+        src/calls/SfuVideoRouter.cpp)
 endif()
 
 set(APP_LIB_SOURCES ${APP_SOURCES})
@@ -2585,6 +2594,20 @@ if(BUILD_TESTING)
     target_link_libraries(call-frame-cryptor-test
         PRIVATE Qt6::Core Qt6::Test OpenSSL::Crypto)
     add_test(NAME call-frame-cryptor COMMAND call-frame-cryptor-test)
+
+    # 2026-08-23: routing received video to a QML VideoOutput. Standalone
+    # (two files, no app graph) because the class it tests deliberately knows
+    # nothing about calls — it is a sink table with lifetime discipline, and
+    # the defects it prevents are a dead tile still receiving frames and one
+    # participant's video landing in another's tile.
+    qt_add_executable(sfu-video-router-test
+        tests/SfuVideoRouterTest.cpp
+        src/calls/SfuVideoRouter.cpp
+    )
+    target_include_directories(sfu-video-router-test PRIVATE src)
+    target_link_libraries(sfu-video-router-test
+        PRIVATE Qt6::Core Qt6::Multimedia Qt6::Test)
+    add_test(NAME sfu-video-router COMMAND sfu-video-router-test)
 
     # 2026-08-23 MatrixRTC observation: the session store's op-id/room
     # matching and generation isolation, poke coalescing (including a poke
