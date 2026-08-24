@@ -32,6 +32,10 @@ Item {
     signal createRequested(string mode)
     signal discoverRequested
     signal roomLinkCopyRequested(string roomId)
+    /// The search field belongs to the HOST. `roomSearch` is not in this
+    /// file's scope, so calling it here threw a ReferenceError and the button
+    /// did nothing — the same class of dead click as the reader popover.
+    signal clearSearchRequested
     signal leaveRoomRequested(string roomId, string roomName)
     signal inviteRejectRequested(string roomId, string roomName)
 
@@ -229,7 +233,7 @@ Item {
             Layout.alignment: Qt.AlignHCenter
             visible: roomListEmptyState.phase === 2
             text: qsTr("Clear search")
-            onClicked: roomSearch.clear()
+            onClicked: root.clearSearchRequested()
         }
 
         RowLayout {

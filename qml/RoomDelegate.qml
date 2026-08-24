@@ -491,168 +491,22 @@ Item {
             event.accepted = true
         }
     }
-    AppMenu {
+    // The menu itself lives in RoomActionsMenu.qml — ONE menu, used by this
+    // row and by the Channels layout's row, which had none at all.
+    RoomActionsMenu {
         id: roomMenu
         objectName: "roomContextMenu"
-        menuWidth: AppTheme.menuWidthRoom
-        // Storm §4 2b: mono room-address header. Mono is for ADDRESSES —
-        // use the canonical alias when the room has one; otherwise the
-        // display name WITHOUT a fabricated # prefix.
-        contextLabel: model.isDirect === true
-                      ? (model.name || "")
-                      : ((model.canonicalAlias || "").length > 0
-                         ? model.canonicalAlias : (model.name || ""))
-        // Element classic puts Favourite at the top of the room menu, as a
-        // toggle showing the CURRENT state. Offered only where the backend
-        // can write the tag: a device-local "favourite" would mean something
-        // different here than on every other client on the account.
-        AppMenuItem {
-            objectName: "roomFavouriteItem"
-            visible: app.roomList.roomFavouritesSupported
-            // One glyph for both states: the icon font is Material Symbols
-            // at FILL=0, so "star" is already the OUTLINE and there is no
-            // filled counterpart to switch to. The row's text carries the
-            // state, which is how the read/unread rows below do it too.
-            iconName: "star"
-            text: model.isFavourite === true ? qsTr("Remove from favourites")
-                                             : qsTr("Add to favourites")
-            onTriggered: root.setFavourite(model.isFavourite !== true)
-        }
-        AppMenuSeparator { visible: app.roomList.roomFavouritesSupported }
-        AppMenuItem {
-            iconName: "check"
-            text: qsTr("Mark as read")
-            onTriggered: root.markRead()
-        }
-        AppMenuItem {
-            iconName: "visibility_off"
-            text: qsTr("Mark as unread")
-            onTriggered: root.markUnread()
-        }
-        AppMenuSeparator {}
-        // v0.6.5 (SPEC 1d): per-room notification mode, three radio rows
-        // bound to the REAL setting (SettingsManager::roomNotification-
-        // Mode is Q_INVOKABLE, not a property, so it is re-queried explicitly
-        // rather than bound directly — see refreshMode() below). radioSelected
-        // stays a pure binding on the local currentMode property; it is never
-        // imperatively assigned (AppMenuItem itself never self-toggles it).
-        // On backends with server push-rule support the setting doubles as
-        // the cache of the account's server mode (see AppController).
-        AppMenu {
-            id: notificationsFlyout
-            objectName: "roomNotificationsFlyout"
-            title: qsTr("Notifications")
-            submenuIconName: "notifications"
-            menuWidth: AppTheme.menuWidthFlyout
-            // Storm §4 2b: flyout header is a bare mono caption, no bolt.
-            contextLabel: qsTr("Notify mode")
-            contextBolt: false
-            property int currentMode: 0
-            // True while the room's last server push-rule write failed —
-            // the disclaimer then says the mode was kept on this device
-            // instead of claiming it was saved to the account.
-            property bool syncFailed: false
-            function refreshMode() {
-                currentMode = app.settings.roomNotificationMode(model.roomId)
-                syncFailed = app.roomNotificationModeSyncFailed(model.roomId)
-            }
-            onAboutToShow: {
-                refreshMode()
-                // Poll-on-open: re-query the server rule so a change made
-                // in another client lands in the cache (and, via the
-                // Connections below, in this flyout). A guarded no-op on
-                // backends without server push-rule support.
-                app.requestRoomNotificationMode(model.roomId)
-            }
-            Connections {
-                target: app.settings
-                function onRoomNotificationModeChanged(roomId) {
-                    if (roomId === model.roomId)
-                        notificationsFlyout.refreshMode()
-                }
-            }
-            Connections {
-                target: app
-                function onRoomNotificationModeSyncStateChanged(roomId) {
-                    if (roomId === model.roomId)
-                        notificationsFlyout.refreshMode()
-                }
-            }
-            AppMenuItem {
-                text: qsTr("All messages")
-                radio: true
-                radioSelected: notificationsFlyout.currentMode === 0
-                onTriggered: root.setNotificationMode(0)
-            }
-            AppMenuItem {
-                // "& keywords" is what the rule actually does: the SDK's
-                // MentionsAndKeywordsOnly mode keeps keyword rules firing.
-                text: qsTr("Mentions & keywords")
-                radio: true
-                radioSelected: notificationsFlyout.currentMode === 1
-                onTriggered: root.setNotificationMode(1)
-            }
-            AppMenuItem {
-                text: qsTr("Muted")
-                radio: true
-                radioSelected: notificationsFlyout.currentMode === 2
-                onTriggered: root.setNotificationMode(2)
-            }
-            // v0.7: the same "follow account default" choice Room
-            // Information offers. Without it a room set to mode 3 shows NO
-            // selected radio here — two entry points to one setting
-            // disagreeing, with this one rendering a state it cannot
-            // express. Server-capable backends only: with a device-local
-            // backend there is no account rule to defer to.
-            AppMenuItem {
-                visible: app.serverRoomNotificationModes
-                text: qsTr("Follow account default")
-                radio: true
-                radioSelected: notificationsFlyout.currentMode === 3
-                onTriggered: root.setNotificationMode(3)
-            }
-            Label {
-                objectName: "roomNotificationDisclaimer"
-                leftPadding: AppTheme.menuItemPadding
-                rightPadding: AppTheme.menuItemPadding
-                topPadding: AppTheme.spacing4
-                bottomPadding: AppTheme.spacing6
-                // Backend-honest: the Rust backend writes the account's
-                // server push rules through the SDK ("saved", not
-                // continuously synced — there is no live push-rule watcher
-                // yet); a failed write is admitted instead of claimed
-                // saved; other backends keep the mode strictly
-                // device-local.
-                // v0.7: a failed write is now retried on the next
-                // reconnection, so the failure line says so. It still
-                // admits the failure first — the retry is a promise to try
-                // again, never a claim that the rule was saved.
-                text: app.serverRoomNotificationModes
-                      ? (notificationsFlyout.syncFailed
-                         ? qsTr("Couldn't save to the server — "
-                                + "kept on this device. "
-                                + "Retried when you reconnect.")
-                         : qsTr("Saved to your account's notification "
-                                + "settings (server push rules)."))
-                      : qsTr("Local setting: it does not change this "
-                             + "room's server push rules.")
-                color: AppTheme.stormTextFaint
-                font.pixelSize: AppTheme.fontMicro
-                wrapMode: Text.WordWrap
-            }
-        }
-        AppMenuSeparator {}
-        AppMenuItem {
-            iconName: "link"
-            text: qsTr("Copy room link")
-            onTriggered: root.copyRoomLink()
-        }
-        AppMenuItem {
-            iconName: "logout"
-            text: qsTr("Leave room")
-            danger: true
-            onTriggered: root.leaveRoomRequested()
-        }
+        roomId: model.roomId
+        roomName: model.name || ""
+        canonicalAlias: model.canonicalAlias || ""
+        isDirect: model.isDirect === true
+        isFavourite: model.isFavourite === true
+        onMarkRead: root.markRead()
+        onMarkUnread: root.markUnread()
+        onSetFavourite: on => root.setFavourite(on)
+        onSetNotificationMode: mode => root.setNotificationMode(mode)
+        onCopyRoomLink: root.copyRoomLink()
+        onLeaveRoomRequested: root.leaveRoomRequested()
     }
 
     // Design shell: no per-row hairline — rows separate through spacing

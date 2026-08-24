@@ -57,6 +57,53 @@ Rectangle {
         }
     }
 
+    /// The participant whose SCREEN is on the spotlight, if anyone's is.
+    /// A share is why everyone is looking, so it outranks a manual pin.
+    readonly property var sharingPerson: {
+        var _ = root.refreshTick;
+        for (var i = 0; i < people.length; ++i) {
+            if (people[i].screenSharing)
+                return people[i];
+        }
+        return null;
+    }
+    /// The manually pinned participant, if they are still in the call.
+    readonly property var focusedPerson: {
+        var _ = root.refreshTick;
+        if (root.focusedIdentity.length === 0)
+            return null;
+        for (var i = 0; i < people.length; ++i) {
+            if (people[i].identity === root.focusedIdentity)
+                return people[i];
+        }
+        return null;
+    }
+    /// Whoever the spotlight is actually showing, and which of their tracks.
+    readonly property var spotlightPerson:
+        root.sharingPerson !== null ? root.sharingPerson : root.focusedPerson
+    readonly property string spotlightKind:
+        root.sharingPerson !== null ? "screen" : "camera"
+    /// The strip below the spotlight, with the spotlighted person removed
+    /// WHEN the spotlight is showing their camera.
+    ///
+    /// Not cosmetic de-duplication: the video router holds ONE sink per track
+    /// key, so two surfaces asking for the same camera means the second attach
+    /// replaces the first and the first destruction detaches the survivor —
+    /// one of the two goes blank. A screen share has its own track key, so the
+    /// sharer legitimately stays in the strip (as their camera or avatar),
+    /// which is also where Discord leaves them.
+    readonly property var stripPeople: {
+        var _ = root.refreshTick;
+        if (root.spotlightKind !== "camera" || root.spotlightPerson === null)
+            return people;
+        var out = [];
+        for (var i = 0; i < people.length; ++i) {
+            if (people[i].identity !== root.spotlightPerson.identity)
+                out.push(people[i]);
+        }
+        return out;
+    }
+
     readonly property string effectiveLayout: {
         if (root.layoutMode !== "auto")
             return root.layoutMode;
@@ -119,6 +166,16 @@ Rectangle {
             }
         }
 
+        // Who is here and who is talking, at a glance. Above the stage
+        // because it answers a different question from it: the stage shows
+        // what is being shown, this shows who is present.
+        CallSpeakerBubbles {
+            Layout.fillWidth: true
+            people: root.people
+            refreshTick: root.refreshTick
+            onActivated: identity => root.focusedIdentity = identity
+        }
+
         // The stage itself.
         Item {
             Layout.fillWidth: true
@@ -166,6 +223,8 @@ Rectangle {
                             screenSharing: parent.modelData.screenSharing
                             speaking: parent.modelData.speaking
                             local: parent.modelData.local
+                            cameraTrackKey: parent.modelData.cameraTrackKey || ""
+                            screenTrackKey: parent.modelData.screenTrackKey || ""
                             onActivated: root.focusedIdentity = parent.modelData.identity
                         }
                     }
@@ -191,21 +250,55 @@ Rectangle {
                         border.width: 1
                         border.color: AppTheme.stormBorder
 
-                        // Video rendering is not attached yet, so this says
-                        // WHO holds the stage rather than drawing a black
-                        // rectangle that looks like a broken stream.
-                        ColumnLayout {
+                        // The spotlight RENDERS. It used to draw a glyph and
+                        // the words "someone is sharing their screen" over an
+                        // empty rectangle — so a screen share was announced
+                        // and never shown, which is exactly what "I did not
+                        // see their screenshare" was. CallParticipantTile
+                        // already owns video attachment, the avatar fallback
+                        // and the honesty rules, so the stage reuses it here
+                        // rather than growing a second one.
+                        CallParticipantTile {
+                            anchors.fill: parent
+                            anchors.margins: 1
+                            visible: root.spotlightPerson !== null
+                            mediaKind: root.spotlightKind
+                            userId: root.spotlightPerson
+                                    ? (root.spotlightPerson.userId || "") : ""
+                            identity: root.spotlightPerson
+                                      ? (root.spotlightPerson.identity || "") : ""
+                            displayName: root.spotlightPerson
+                                         ? (root.spotlightPerson.displayName || "") : ""
+                            avatarMxc: root.spotlightPerson
+                                       ? (root.spotlightPerson.avatarMxc || "") : ""
+                            micKnown: root.spotlightPerson
+                                      ? root.spotlightPerson.micKnown === true : false
+                            micMuted: root.spotlightPerson
+                                      ? root.spotlightPerson.micMuted === true : false
+                            cameraKnown: root.spotlightPerson
+                                         ? root.spotlightPerson.cameraKnown === true : false
+                            cameraOn: root.spotlightPerson
+                                      ? root.spotlightPerson.cameraOn === true : false
+                            screenSharing: root.spotlightPerson
+                                           ? root.spotlightPerson.screenSharing === true : false
+                            speaking: root.spotlightPerson
+                                      ? root.spotlightPerson.speaking === true : false
+                            local: root.spotlightPerson
+                                   ? root.spotlightPerson.local === true : false
+                            cameraTrackKey: root.spotlightPerson
+                                            ? (root.spotlightPerson.cameraTrackKey || "") : ""
+                            screenTrackKey: root.spotlightPerson
+                                            ? (root.spotlightPerson.screenTrackKey || "") : ""
+                        }
+
+                        // Only when there is genuinely nobody to spotlight —
+                        // a pinned participant who has left, for instance.
+                        Loader {
                             anchors.centerIn: parent
-                            spacing: AppTheme.spacing8
-                            Icon {
-                                Layout.alignment: Qt.AlignHCenter
-                                name: root.someoneSharing ? "screen_share" : "person"
-                                size: 32
-                                color: AppTheme.stormTextMuted
-                            }
-                            Text {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: root.someoneSharing ? qsTr("Someone is sharing their screen") : qsTr("Spotlight")
+                            active: root.spotlightPerson === null
+                            visible: active
+                            sourceComponent: Text {
+                                text: qsTr("Nobody to show here yet")
                                 color: AppTheme.stormTextSecondary
                                 font.pixelSize: 13
                             }
@@ -233,7 +326,7 @@ Rectangle {
                         orientation: ListView.Horizontal
                         spacing: AppTheme.spacing8
                         clip: true
-                        model: root.people
+                        model: root.stripPeople
                         delegate: CallParticipantTile {
                             required property var modelData
                             compact: true
@@ -250,6 +343,8 @@ Rectangle {
                             screenSharing: modelData.screenSharing
                             speaking: modelData.speaking
                             local: modelData.local
+                            cameraTrackKey: modelData.cameraTrackKey || ""
+                            screenTrackKey: modelData.screenTrackKey || ""
                             focused: modelData.identity === root.focusedIdentity
                             onActivated: root.focusedIdentity = modelData.identity
                         }

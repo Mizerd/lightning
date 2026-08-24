@@ -18,6 +18,10 @@
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
+
 class SfuMediaEngineTest : public QObject
 {
     Q_OBJECT
@@ -215,6 +219,68 @@ private slots:
         QCOMPARE(failed.at(0).at(0).toString(),
                  QStringLiteral("screen_share_no_source"));
         engine.stop();
+    }
+
+    // THE screen-share defect. The portal grants a node id AND a descriptor
+    // to the PipeWire remote that node lives in (OpenPipeWireRemote); the
+    // handshake used to stop before that call and hand `pipewiresrc path=<n>`
+    // the id alone. That element resolves `path` against the CALLER's default
+    // remote, where a portal node need not appear at all — so the pipeline
+    // reaches PLAYING, reports no error, and never produces a buffer. A black
+    // share that claims success, in both directions of the report.
+    void aScreenShareCaptureUsesThePortalsOwnPipeWireRemote()
+    {
+        const QString withFd = SfuMediaEngine::screenShareSource(42, 7);
+        QVERIFY2(withFd.contains(QStringLiteral("fd=7")),
+                 qPrintable(QStringLiteral("no remote fd in: %1").arg(withFd)));
+        QVERIFY(withFd.contains(QStringLiteral("path=42")));
+        // The fd must come BEFORE the path: pipewiresrc resolves the path
+        // against whichever remote it has been given.
+        QVERIFY(withFd.indexOf(QStringLiteral("fd="))
+                < withFd.indexOf(QStringLiteral("path=")));
+
+        // With no remote there is nothing to do but ask the default one — but
+        // it must not silently claim a descriptor it does not have.
+        const QString withoutFd = SfuMediaEngine::screenShareSource(42, -1);
+        QVERIFY(!withoutFd.contains(QStringLiteral("fd=")));
+        QVERIFY(withoutFd.contains(QStringLiteral("path=42")));
+    }
+
+    // The engine takes ownership of the descriptor, so a refusal must close
+    // it. Otherwise every declined or too-late share leaks one fd, and a user
+    // who opens the picker repeatedly runs the process out of descriptors.
+    void arefusedScreenShareClosesTheDescriptorItWasGiven()
+    {
+        int fds[2] = { -1, -1 };
+        QCOMPARE(::pipe(fds), 0);
+        // fds[0] is handed over; fds[1] stays ours to clean up.
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(false);
+        QSignalSpy failed(&engine, &SfuMediaEngine::failed);
+        engine.start();
+        // A negative node id is refused (the portal decides the source), and
+        // the descriptor still has to be released.
+        engine.publishVideo(QStringLiteral("cid-screen"),
+                            /*screenShare=*/true, /*nodeId=*/-1, fds[0]);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(::fcntl(fds[0], F_GETFD), -1);
+        QCOMPARE(errno, EBADF);
+        engine.stop();
+        ::close(fds[1]);
+    }
+
+    // Discord shows the sharer their own share, and it is the only way to
+    // learn that a share is carrying pixels without asking the other end.
+    // The self-view is a branch off the capture, keyed so it can never
+    // collide with a LiveKit id.
+    void theLocalScreenShareKeyCannotCollideWithASfuId()
+    {
+        const QString key = SfuMediaEngine::localScreenStreamId();
+        QVERIFY(!key.isEmpty());
+        // LiveKit ids are "PA_…" / "TR_…" and contain no colon.
+        QVERIFY(key.contains(QLatin1Char(':')));
+        QVERIFY(!key.startsWith(QStringLiteral("PA_")));
+        QVERIFY(!key.startsWith(QStringLiteral("TR_")));
     }
 
     void muteAndDeafenBeforeAnyMediaAreSafe()

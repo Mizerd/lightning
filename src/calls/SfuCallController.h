@@ -116,6 +116,22 @@ public:
     /// Release a tile's sink. Must be called when a tile is destroyed, or
     /// the router keeps a dangling destination for one frame.
     Q_INVOKABLE void detachVideoSink(const QString &identity);
+    /// Attach a sink to one participant's SCREEN SHARE, which is a second,
+    /// separate video track from the same person.
+    ///
+    /// This needs its own entry point precisely because it is a second track:
+    /// routing keyed on the participant alone can only ever feed ONE surface,
+    /// so a camera and a share from the same person landed on the same key and
+    /// only one of them could render. Resolution goes through the track's
+    /// media-section id (`mid`), which LiveKit states per track.
+    Q_INVOKABLE void attachScreenSink(const QString &identity,
+                                      QObject *videoSink);
+    Q_INVOKABLE void detachScreenSink(const QString &identity);
+    /// Attach a sink to OUR OWN screen share, straight off the capture
+    /// pipeline. Nothing is sent for this and nothing is decrypted: it is the
+    /// only way the sharer can see that their share is carrying pixels.
+    Q_INVOKABLE void attachLocalScreenSink(QObject *videoSink);
+    Q_INVOKABLE void detachLocalScreenSink();
 
     State state() const { return m_state; }
     int stateInt() const { return static_cast<int>(m_state); }
@@ -151,7 +167,14 @@ public:
     /// Start sharing a PipeWire node the portal already granted. A negative
     /// id is REFUSED rather than defaulted — "whatever PipeWire feels like"
     /// is how you publish the wrong monitor.
-    Q_INVOKABLE bool startScreenShare(int pipewireNodeId);
+    /// Publish a screen share the desktop portal has already granted.
+    ///
+    /// `pipewireFd` is the descriptor from OpenPipeWireRemote and OWNERSHIP
+    /// PASSES to the media engine on success; on any refusal the caller still
+    /// owns it and must close it. -1 means "no remote", which only the test
+    /// source path accepts.
+    Q_INVOKABLE bool startScreenShare(int pipewireNodeId,
+                                      int pipewireFd = -1);
     Q_INVOKABLE void stopScreenShare();
     Q_INVOKABLE void setHandRaised(bool raised);
     Q_INVOKABLE void toggleHandRaised();
@@ -211,11 +234,21 @@ private:
                               const QString &deviceId) const;
     /// The LiveKit stream id (participant sid) for one SFU identity.
     QString streamIdForIdentity(const QString &identity) const;
+    /// The routing key for one participant's track of `source`
+    /// ("camera" / "screen_share"): the track's `mid` when the SFU stated
+    /// one, else empty. Never the participant sid — that is the caller's
+    /// fallback to apply deliberately, not a silent substitution that could
+    /// point a screen-share surface at a camera.
+    QString trackKeyForSource(const QString &identity,
+                              const QString &source) const;
 
     /// Rotate and redistribute the media key. Called on join and whenever
     /// the participant set changes, because a leaver must not keep being
     /// able to decrypt.
     void rotateAndDistributeKey();
+    /// Unpublish `cid` and clear it. Takes the member by reference so the
+    /// slot cannot be left naming a track that no longer exists.
+    void unpublishTrack(QString &cid);
     QString userFacingError(const QString &category) const;
 
     QPointer<MatrixClient> m_client;
@@ -261,6 +294,12 @@ private:
     QTimer m_refreshTimer;
     /// Track ids we published, so leave can unpublish them.
     QStringList m_publishedTrackIds;
+    /// The published track id PER KIND. One list plus "unpublish the last
+    /// one" cannot express this: with a camera and a screen share live at
+    /// once, stopping either one took whichever was published second.
+    QString m_audioCid;
+    QString m_cameraCid;
+    QString m_screenCid;
     int m_keyIndex = 0;
     /// Local ICE candidates produced this session. Diagnostic only — zero on
     /// the publisher means the peer connection never started, which is what

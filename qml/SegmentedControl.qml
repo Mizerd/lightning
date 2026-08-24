@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import MatrixClient
 
 // One coherent segmented row for mutually exclusive choices (Room
@@ -11,7 +12,11 @@ import MatrixClient
 // model: list of { label, value, enabled?, tip? } (or plain strings, where
 // the string is both label and value). `current` is the selected value;
 // clicking emits activated(value) — the owner updates `current`.
-Row {
+//
+// A RowLayout rather than a Row so `fitWidth` can compact it (see below).
+// With fitWidth off the two are equivalent: no segment fills, so each takes
+// its natural width and the control's implicit width is their sum.
+RowLayout {
     id: root
 
     property var model: []
@@ -19,12 +24,31 @@ Row {
     // Compact variant for tight hosts (the 260px Settings-nav inline
     // results): smaller type and padding, same interaction and states.
     property bool dense: false
+    // Fit the row into the width the host gives it instead of overflowing
+    // past its edge. Opt-in, because a row wider than its host is harmless
+    // in a host that sizes itself to this control (Room Information tabs, the
+    // GIF provider tabs) and wrong in a host that clips — the room-list
+    // column clips, so its four chips lost "Unreads" to the pane boundary.
+    //
+    // The compaction is the LAYOUT's, not arithmetic of ours: fillWidth plus
+    // a maximumWidth of the segment's natural width makes QtQuickLayouts
+    // shrink the segments proportionally. A hand-rolled scale factor cannot
+    // work here — a plain Row derives its implicitWidth from its children's
+    // ASSIGNED widths, so shrinking them shrinks the total the scale was
+    // computed from, and the measured result is a polish() loop that settles
+    // at less than half the available width. A RowLayout's implicitWidth is
+    // the sum of the children's IMPLICIT widths and stays put, which is why
+    // `overflowing` below can read it safely.
+    property bool fitWidth: false
+    readonly property real segmentSpacing: 2
+    readonly property bool overflowing:
+        fitWidth && width > 0 && implicitWidth > width
     // Storm surfaces (Settings, pickers): storm selection fill and inks;
     // themed hosts (Room Information tabs) keep the default treatment.
     property bool storm: false
     signal activated(var value)
 
-    spacing: 2
+    spacing: root.segmentSpacing
 
     Repeater {
         model: root.model
@@ -46,6 +70,11 @@ Row {
             implicitWidth: segText.implicitWidth + (root.dense ? 12 : 24)
             implicitHeight: root.dense ? AppTheme.buttonHeightSm
                                        : AppTheme.buttonHeight
+            // Only while the row genuinely does not fit. fillWidth when it
+            // DOES fit spreads the segments across the host's width, which
+            // turns a compact chip row into four widely separated buttons.
+            Layout.fillWidth: root.overflowing
+            Layout.maximumWidth: implicitWidth
             hoverEnabled: true
             focusPolicy: Qt.TabFocus
             // A disabled segment is not a target: it must not offer a tip it
@@ -97,6 +126,10 @@ Row {
                 font.weight: AppTheme.weightStrong
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
+                // Last resort once the padding has been squeezed out: a
+                // clipped glyph reads as a rendering fault, an ellipsis
+                // reads as a narrow column.
+                elide: Text.ElideRight
             }
             background: Rectangle {
                 radius: AppTheme.buttonRadius

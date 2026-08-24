@@ -446,6 +446,15 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT themeChanged();
     Q_EMIT messageLayoutChanged();
     Q_EMIT roomNavigationLayoutChanged();
+    // The room-list filter is account-scoped too, and leaving it out of this
+    // list is not a cosmetic omission: the chips write THIS setting and the
+    // model follows it through a binding, so without the notify the switched-
+    // to account's list keeps filtering by the PREVIOUS account's choice
+    // while the chips show it as current. Clicking the chip whose stored
+    // value already matches is then a silent no-op (setRoomFilterMode returns
+    // early), which is why "you can't click All" and "the filter shows
+    // nothing" were reported together and only after a switch.
+    Q_EMIT roomFilterModeChanged();
     Q_EMIT textScaleChanged();
     Q_EMIT uiFontChanged();
     // Also account-scoped: the switched-to account has its own answer.

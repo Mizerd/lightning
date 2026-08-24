@@ -669,6 +669,8 @@ set(APP_QML_FILES
     qml/RoomsPanel.qml
     qml/TimelinePane.qml
     qml/RoomDelegate.qml
+    # The room row context menu, shared by both navigation layouts.
+    qml/RoomActionsMenu.qml
     # 2026-08-23 navigation layouts: the room-list column is now a host with
     # two interchangeable presenters.
     qml/RoomListClassicPresenter.qml
@@ -734,6 +736,7 @@ set(APP_QML_FILES
     qml/CallControlBar.qml
     qml/CallTileBadge.qml
     qml/CallParticipantTile.qml
+    qml/CallSpeakerBubbles.qml
     qml/CallStage.qml
     qml/VoiceConnectedBar.qml
     qml/RoomCallBanner.qml
@@ -1999,6 +2002,18 @@ if(BUILD_TESTING)
     # properties that make that impossible: a long line becomes horizontal
     # SCROLL RANGE and never geometry, the gutter is never part of a copy,
     # and a vertical wheel notch still belongs to the timeline.
+    # The Channels layout's rows, measured in real geometry. Every one of
+    # them was 0px tall — see the file header — and six source-scanning
+    # contract suites passed the whole time.
+    qt_add_executable(channel-row-geometry-qml-test
+        tests/ChannelRowGeometryQmlTest.cpp)
+    lightning_configure_qml_test(channel-row-geometry-qml-test)
+    target_link_libraries(channel-row-geometry-qml-test PRIVATE Qt6::Test)
+    add_test(NAME channel-row-geometry-qml
+        COMMAND channel-row-geometry-qml-test)
+    set_tests_properties(channel-row-geometry-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     qt_add_executable(code-block-qml-test tests/CodeBlockQmlTest.cpp)
     lightning_configure_qml_test(code-block-qml-test)
     target_link_libraries(code-block-qml-test PRIVATE Qt6::Test)
@@ -2683,7 +2698,8 @@ if(BUILD_TESTING)
     lightning_configure_qml_test(call-ui-contract-test)
     target_link_libraries(call-ui-contract-test PRIVATE Qt6::Test)
     target_compile_definitions(call-ui-contract-test PRIVATE
-        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
     add_test(NAME call-ui-contract COMMAND call-ui-contract-test)
     set_tests_properties(call-ui-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

@@ -4,6 +4,10 @@
 #include <QRandomGenerator>
 
 #ifdef HAVE_QT_DBUS
+#include <unistd.h>
+#endif
+
+#ifdef HAVE_QT_DBUS
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusMetaType>
@@ -11,6 +15,7 @@
 #include <QDBusPendingCall>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
+#include <QDBusUnixFileDescriptor>
 #include <QDBusVariant>
 #endif
 
@@ -334,9 +339,50 @@ void ScreenCastPortal::handleStreams(const QVariantMap &results)
     // The SESSION stays open: closing it would stop the stream we just
     // obtained. It is closed by cancel(), which the caller invokes when the
     // share stops.
-    m_busy = false;
     qCInfo(lcPortal) << "screen share source selected";
-    Q_EMIT ready(nodeId);
+    openRemote(nodeId);
+}
+
+void ScreenCastPortal::openRemote(unsigned nodeId)
+{
+    // OpenPipeWireRemote is the step that actually grants access. The node id
+    // on its own names a node in a remote we were never given, and the
+    // resulting pipeline reports no error and produces no frames — a black
+    // share, which is exactly what was reported. Firefox, Chromium and OBS
+    // all take this fd; so do we.
+    //
+    // It is a plain method call, not a Request: the reply carries the fd.
+    const quint64 generation = m_generation;
+    QDBusMessage open = QDBusMessage::createMethodCall(
+        kService, kPath, kScreenCast, QStringLiteral("OpenPipeWireRemote"));
+    open << QVariant::fromValue(QDBusObjectPath(m_sessionHandle))
+         << QVariantMap();
+
+    auto *watcher = new QDBusPendingCallWatcher(
+        QDBusConnection::sessionBus().asyncCall(open), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, generation, nodeId](QDBusPendingCallWatcher *w) {
+                w->deleteLater();
+                QDBusPendingReply<QDBusUnixFileDescriptor> reply = *w;
+                if (generation != m_generation)
+                    return;
+                if (reply.isError() || !reply.value().isValid()) {
+                    cancel();
+                    Q_EMIT failed(QStringLiteral("no_pipewire_remote"));
+                    return;
+                }
+                // QDBusUnixFileDescriptor closes its descriptor when the
+                // last copy dies, so hand over a DUP that outlives it. The
+                // receiver owns the result.
+                const int fd = ::dup(reply.value().fileDescriptor());
+                if (fd < 0) {
+                    cancel();
+                    Q_EMIT failed(QStringLiteral("no_pipewire_remote"));
+                    return;
+                }
+                m_busy = false;
+                Q_EMIT ready(nodeId, fd);
+            });
 }
 #endif
 

@@ -100,8 +100,27 @@ public:
     void publishAudio(const QString &cid);
     /// Publish the camera, or a screen share when `screenShare` is true.
     /// `nodeId` is the PipeWire node a desktop portal handed us; -1 means
-    /// the camera.
-    void publishVideo(const QString &cid, bool screenShare, int nodeId);
+    /// the camera. `pipewireFd` is the descriptor from the portal's
+    /// OpenPipeWireRemote and OWNERSHIP PASSES HERE — pipewiresrc dups it, so
+    /// this closes the copy it was given once the element exists (including
+    /// on every failure path). A node id without a remote fd names a node in
+    /// the caller's own default PipeWire remote, where a portal node need not
+    /// be visible at all: the pipeline then plays and produces no frames,
+    /// which is a black screen share that reports success.
+    void publishVideo(const QString &cid, bool screenShare, int nodeId,
+                      int pipewireFd = -1);
+    /// The router key under which the LOCAL screen share's own frames are
+    /// delivered. Discord shows the sharer their own share; without a
+    /// self-view the only way to find out whether a share is actually
+    /// carrying pixels is to ask the person on the other end.
+    static QString localScreenStreamId();
+    /// The capture-source fragment for a screen share, exposed so the one
+    /// thing that decides whether a share carries pixels at all is testable
+    /// without a live PipeWire node: a portal node id is only reachable
+    /// through the portal's OWN remote, and `pipewiresrc path=` alone
+    /// resolves it against the caller's default remote, where it need not
+    /// exist. That pipeline plays, reports no error, and emits no buffer.
+    static QString screenShareSource(int nodeId, int pipewireFd);
     /// Stop publishing one track and renegotiate.
     void unpublish(const QString &cid);
 
@@ -158,7 +177,11 @@ Q_SIGNALS:
     /// A local ICE candidate to trickle, already in LiveKit's JSON form.
     void localCandidate(int target, const QString &candidateInit);
     /// A remote track started or stopped rendering.
-    void remoteTrackAdded(const QString &identity, const QString &kind);
+    /// A remote track came up. `streamId` attributes it to a SENDER (the
+    /// LiveKit participant sid) and `mid` to the exact TRACK, which is what
+    /// tells a camera from a screen share when one person sends both.
+    void remoteTrackAdded(const QString &identity, const QString &mid,
+                          const QString &kind);
     void remoteTrackRemoved(const QString &identity, const QString &kind);
     /// Aggregate connection state for the session, as a closed-set string.
     void connectionStateChanged(const QString &state);
@@ -182,6 +205,8 @@ private:
     void destroyPeer(Peer &peer);
     void applyIceTo(Peer &peer);
     void renegotiatePublisher();
+    /// Close and forget the PipeWire descriptor a published bin owned.
+    void releasePublishedFd(const QString &cid);
 
     // GStreamer-thread callbacks. Each carries the EMITTING element's
     // pointer as a session token, checked against the live session before
@@ -218,7 +243,8 @@ private:
     /// a typedef of an ANONYMOUS struct, so it cannot be forward-declared,
     /// and pulling gst/sdp into this header for one parameter would put
     /// GStreamer on every translation unit that mentions the engine.
-    void noteStreamIds(const QHash<int, QString> &byMline);
+    void noteStreamIds(const QHash<int, QString> &byMline,
+                       const QHash<int, QString> &midsByMline);
 
     Peer m_publisher;
     Peer m_subscriber;
@@ -233,6 +259,9 @@ private:
     bool m_microphoneMuted = false;
     /// Published tracks by client-chosen id, so unpublish can find them.
     QHash<QString, GstElement *> m_publishedBins;
+    /// PipeWire remote descriptors owned by a publishing bin (screen shares
+    /// only), closed when that bin is torn down. See publishVideo.
+    QHash<QString, int> m_publishedFds;
     /// One cryptor for what we send.
     std::unique_ptr<CallFrameCryptor> m_sendCryptor;
     /// One cryptor PER SENDER for what we receive, keyed by LiveKit stream
@@ -248,6 +277,10 @@ private:
     /// `msid`. webrtcbin names a received pad `src_<index>`, so the index is
     /// how a pad is attributed to the sender that produced it.
     QHash<int, QString> m_streamForMline;
+    /// Media-section index -> the section's SDP `mid`. LiveKit states the
+    /// same value on every TrackInfo, so this is what distinguishes two video
+    /// tracks from ONE participant — a camera and a screen share.
+    QHash<int, QString> m_midForMline;
     /// Read from GStreamer streaming threads inside the pad probes, written
     /// from the Qt thread. Atomic because those are different threads and a
     /// probe cannot marshal without letting a frame through first.

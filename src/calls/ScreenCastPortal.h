@@ -57,9 +57,17 @@ public:
     bool busy() const { return m_busy; }
 
 Q_SIGNALS:
-    /// The user chose a source. `pipewireNodeId` is what `pipewiresrc
-    /// path=` consumes.
-    void ready(unsigned pipewireNodeId);
+    /// The user chose a source, and the PipeWire remote for it is open.
+    ///
+    /// BOTH values are needed. A portal ScreenCast node lives in a PipeWire
+    /// remote the portal opens for US: `pipewiresrc path=<node>` alone asks
+    /// the caller's own default remote for a node that need not be visible
+    /// there, which is how a share ends up producing no frames at all while
+    /// every step of the handshake reports success. `fd` is the duplicated
+    /// descriptor from OpenPipeWireRemote and the OWNER is the receiver —
+    /// GStreamer's pipewiresrc dups it again, so it must be closed once the
+    /// element has been created.
+    void ready(unsigned pipewireNodeId, int pipewireFd);
     /// The user declined. NOT an error: no message should be shown.
     void cancelled();
     /// A coarse, safe-to-log category. Never a raw D-Bus error string, which
@@ -72,6 +80,9 @@ private:
     void selectSources(int types);
     void startSession();
     void handleStreams(const QVariantMap &results);
+    /// Step 4: ask the portal for a file descriptor to the PipeWire remote
+    /// holding the node it just granted.
+    void openRemote(unsigned nodeId);
 #endif
 
     bool m_busy = false;

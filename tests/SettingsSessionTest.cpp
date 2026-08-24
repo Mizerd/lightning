@@ -96,6 +96,7 @@ private Q_SLOTS:
     void messageLayoutAndTextScalePersistAndClamp();
     void interfaceZoomAndRoomFilterPersistAndClamp();
     void appearanceIsPerAccountWithGlobalFallback();
+    void switchingAccountsReAnnouncesTheRoomListFilter();
     void uiFontPersistsPerAccountAndValidates();
     void loginHomeserverPrefillIsAccountIndependent();
     // v0.6.7.
@@ -525,6 +526,53 @@ void SettingsSessionTest::appearanceIsPerAccountWithGlobalFallback()
     QCOMPARE(settings.theme(), SettingsManager::DeepTealTheme);
     QCOMPARE(settings.messageLayout(), 2);
     QCOMPARE(settings.textScale(), 140);
+}
+
+// The room-list filter is account-scoped appearance state like the theme, and
+// it was the ONE such value missing from the switch's re-announcement. That is
+// not cosmetic: the chips write this setting and the model follows it through a
+// binding, so without the notify the switched-to account's list keeps
+// filtering by the previous account's choice while the chips report it as
+// current — and clicking the chip whose stored value already matches is then a
+// silent no-op, because the setter returns early on an unchanged value. Which
+// is exactly "sometimes you can't click All, sometimes the filter shows
+// nothing, especially if the account is switched".
+void SettingsSessionTest::switchingAccountsReAnnouncesTheRoomListFilter()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    const QString alice = QStringLiteral("@alice:matrix.example");
+    const QString bob = QStringLiteral("@bob:matrix.example");
+    settings.saveSession(QStringLiteral("https://matrix.example"), alice,
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+    settings.saveSession(QStringLiteral("https://matrix.example"), bob,
+                         QStringLiteral("BOBDEVICE"),
+                         QStringLiteral("bob-token-fixture"));
+
+    settings.setActiveAccountUserId(alice);
+    settings.setRoomFilterMode(1);   // People
+    settings.setActiveAccountUserId(bob);
+    settings.setRoomFilterMode(0);   // All
+    QCOMPARE(settings.roomFilterMode(), 0);
+
+    // Back to Alice, whose stored answer differs. The signal is what makes
+    // the model re-read; without it the model keeps Bob's filter.
+    QSignalSpy filterSpy(&settings, &SettingsManager::roomFilterModeChanged);
+    settings.setActiveAccountUserId(alice);
+    QCOMPARE(settings.roomFilterMode(), 1);
+    QVERIFY2(filterSpy.count() >= 1,
+             "an account switch did not re-announce roomFilterMode, so the "
+             "room list keeps the previous account's filter");
+
+    // And the other direction, which is the case that made a chip click a
+    // no-op: Bob's stored value is 0, so a click on All can only work if the
+    // switch already told the model to go back to 0.
+    filterSpy.clear();
+    settings.setActiveAccountUserId(bob);
+    QCOMPARE(settings.roomFilterMode(), 0);
+    QVERIFY(filterSpy.count() >= 1);
 }
 
 void SettingsSessionTest::uiFontPersistsPerAccountAndValidates()

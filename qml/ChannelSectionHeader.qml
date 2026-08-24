@@ -16,6 +16,11 @@ Item {
 
     property string label: ""
 
+    // A Loader-hosted row: the Channels presenter picks between three row
+    // kinds, so this is loaded rather than declared inline. The Loader takes
+    // its height from this value (measured, Qt 6.11: loader implicitHeight
+    // 26 for a Control declaring height 26), which is what makes the rows lay
+    // out one below another instead of stacking at y=0.
     height: 26
 
     // Announced as a heading so a screen reader can skip by group, which is

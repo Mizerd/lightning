@@ -263,6 +263,80 @@ private Q_SLOTS:
         }
     }
 
+    // A REAL instantiation of the bubble row with a real participant list,
+    // because a source scan cannot see a binding against a token that does not
+    // exist, a delegate that lays out to nothing, or a row that reserves space
+    // while the call is still connecting. (An undeclared AppTheme token is
+    // exactly the class of mistake that shipped hundreds of "Unable to assign
+    // [undefined]" warnings past every offscreen gate once already.)
+    void speakerBubblesInstantiateAndSizeThemselves()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(),
+                            &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        QSignalSpy createdSpy(&engine,
+                              &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallSpeakerBubbles"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(3000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY2(root != nullptr, "CallSpeakerBubbles must instantiate");
+
+        // Nobody yet: no strip of empty space above the stage.
+        QCOMPARE(root->property("height").toDouble(), 0.0);
+        QCOMPARE(root->property("visible").toBool(), false);
+
+        // Two people, one of them speaking and muted-unknown.
+        QVariantList people;
+        QVariantMap one;
+        one.insert(QStringLiteral("identity"), QStringLiteral("PA_one"));
+        one.insert(QStringLiteral("userId"), QStringLiteral("@alice:mock.local"));
+        one.insert(QStringLiteral("displayName"), QStringLiteral("Alice"));
+        one.insert(QStringLiteral("speaking"), true);
+        one.insert(QStringLiteral("local"), true);
+        people.append(one);
+        QVariantMap two;
+        two.insert(QStringLiteral("identity"), QStringLiteral("PA_two"));
+        two.insert(QStringLiteral("userId"), QStringLiteral("@bob:mock.local"));
+        two.insert(QStringLiteral("displayName"), QStringLiteral("Bob"));
+        two.insert(QStringLiteral("micKnown"), true);
+        two.insert(QStringLiteral("micMuted"), true);
+        two.insert(QStringLiteral("screenSharing"), true);
+        people.append(two);
+        root->setProperty("people", people);
+        root->setWidth(300);
+        QCoreApplication::processEvents();
+        root->polish();
+        QCoreApplication::processEvents();
+
+        QVERIFY2(root->property("height").toDouble() > 0.0,
+                 "the bubble row has no height with people in the call");
+        auto *strip =
+            root->findChild<QQuickItem *>(QStringLiteral("callSpeakerBubbles"));
+        QVERIFY(strip != nullptr);
+        QCOMPARE(strip->property("count").toInt(), 2);
+        for (const QString &warning : warnings) {
+            QVERIFY2(!warning.contains(QStringLiteral("Unable to assign"))
+                         && !warning.contains(QStringLiteral("is not available")),
+                     qPrintable(warning));
+        }
+    }
+
     void callHeaderBarShowsForALiveCallInItsOwnRoomOnly()
     {
         AppController controller(AppController::MockBackend);
@@ -395,6 +469,95 @@ private Q_SLOTS:
             QVERIFY2(header.contains(button),
                      qPrintable(button + " is missing from the header bar"));
         }
+    }
+
+    // The spotlight is where a screen share lands, and it used to draw a glyph
+    // and the words "someone is sharing their screen" over an empty rectangle
+    // — announcing a share it never rendered. Reported as "I couldn't see
+    // their screenshare"; the receive path was only half the cause.
+    void theSpotlightRendersVideoRatherThanDescribingIt()
+    {
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(!stage.isEmpty());
+        const int spotlight =
+            stage.indexOf(QStringLiteral("objectName: \"callSpotlight\""));
+        QVERIFY(spotlight >= 0);
+        const QString block = stage.mid(spotlight, 3000);
+        QVERIFY2(block.contains(QStringLiteral("CallParticipantTile {")),
+                 "the spotlight draws no video surface at all");
+        // It shows the SHARE when there is one, and it says which track it is
+        // asking for — a surface that asked for the camera would render a face
+        // where the user asked for a screen.
+        QVERIFY(block.contains(QStringLiteral("mediaKind: root.spotlightKind")));
+        QVERIFY(stage.contains(QStringLiteral("readonly property string spotlightKind")));
+        QVERIFY(stage.contains(QStringLiteral("\"screen\" : \"camera\"")));
+        // The old placeholder wording must not survive next to a real surface,
+        // or the stage claims a share is unviewable while showing it.
+        QVERIFY(!stage.contains(
+            QStringLiteral("Someone is sharing their screen")));
+    }
+
+    // A camera and a screen share are two tracks from one person, and one
+    // surface can only render one of them. The tile therefore says which, and
+    // routing goes through the TRACK's key, not the participant's — a
+    // participant-keyed route can only ever feed one surface.
+    void aScreenShareAndACameraAreRoutedAsSeparateTracks()
+    {
+        const QString tile =
+            read(QStringLiteral(QML_DIR "/CallParticipantTile.qml"));
+        QVERIFY(!tile.isEmpty());
+        QVERIFY(tile.contains(QStringLiteral("property string mediaKind")));
+        QVERIFY(tile.contains(QStringLiteral("attachScreenSink(")));
+        QVERIFY(tile.contains(QStringLiteral("attachLocalScreenSink(")));
+        QVERIFY(tile.contains(QStringLiteral("detachScreenSink(")));
+        QVERIFY(tile.contains(QStringLiteral("detachLocalScreenSink(")));
+        // Re-attached when the routing key arrives: the SFU can announce a
+        // participant before it says which media section their tracks landed
+        // on, and an attach made under an empty key never gets a frame.
+        QVERIFY(tile.contains(QStringLiteral("onActiveTrackKeyChanged:")));
+        // A shared screen is content: it is fitted, never cropped, or the
+        // edges of what the other person is showing are hidden.
+        QVERIFY(tile.contains(QStringLiteral("VideoOutput.PreserveAspectFit")));
+    }
+
+    // Discord's bubble row: who is here and who is talking, above the stage.
+    // The ring is driven by the SFU's OWN speaker updates — no local audio is
+    // inspected to produce it.
+    void theCallStageCarriesSpeakerBubbles()
+    {
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        const QString bubbles =
+            read(QStringLiteral(QML_DIR "/CallSpeakerBubbles.qml"));
+        QVERIFY(!stage.isEmpty());
+        QVERIFY(!bubbles.isEmpty());
+        QVERIFY(stage.contains(QStringLiteral("CallSpeakerBubbles {")));
+        QVERIFY(bubbles.contains(QStringLiteral("objectName: \"callSpeakerBubbles\"")));
+        QVERIFY(bubbles.contains(QStringLiteral("Avatar {")));
+        // The ring is bound to the model's speaking flag, never to anything
+        // measured here.
+        QVERIFY(bubbles.contains(QStringLiteral("modelData.speaking === true")));
+        QVERIFY(bubbles.contains(QStringLiteral("border.color: AppTheme.success")));
+        // Initials come from the real name, never the "You" label — that
+        // would render a Y for the local user.
+        QVERIFY(bubbles.contains(QStringLiteral("name: bubble.modelData.displayName")));
+    }
+
+    // Stopping one published track must never stop another. "Unpublish the
+    // last track we published" is the screen share whenever the share started
+    // after the camera, so turning the camera off killed the share and left
+    // the camera live — the LED being the user's only honest indicator.
+    void stoppingOneTrackNamesItRatherThanTakingTheLastOne()
+    {
+        QFile file(QStringLiteral(SRC_DIR "/calls/SfuCallController.cpp"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString source = QString::fromUtf8(file.readAll());
+        QVERIFY(source.contains(QStringLiteral("unpublishTrack(m_cameraCid)")));
+        QVERIFY(source.contains(QStringLiteral("unpublishTrack(m_screenCid)")));
+        // The old shape: a reverse scan of the published list that breaks on
+        // the first entry, i.e. "the last one published".
+        QVERIFY2(!source.contains(QStringLiteral(
+                     "for (int i = m_publishedTrackIds.size() - 1")),
+                 "a track is still stopped by taking the last published one");
     }
 
     void theJoinButtonActuallyJoins()

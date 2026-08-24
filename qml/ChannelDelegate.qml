@@ -32,6 +32,18 @@ ItemDelegate {
     property bool active: false
     /// Indentation level: 0 uncategorised, 1 inside a category.
     property int depth: 0
+    /// Element-parity favourite flag, for the context menu's toggle. The row
+    /// draws nothing from it — a channel list has no star column.
+    property bool isFavourite: false
+
+    // The same actions the Classic row offers. Signal-only: the presenter
+    // performs every mutation, exactly as RoomDelegate's host does.
+    signal markRead()
+    signal markUnread()
+    signal setFavourite(bool on)
+    signal setNotificationMode(int mode)
+    signal copyRoomLink()
+    signal leaveRoomRequested()
 
     // SettingsManager::roomNotificationMode is Q_INVOKABLE, not a property,
     // so it cannot be bound. Re-queried on the two events that can change
@@ -65,6 +77,11 @@ ItemDelegate {
     readonly property bool showsPill: root.highlightCount > 0 && !root.muted
     readonly property bool readsUnread: (root.hasUnread || root.unreadCount > 0 || root.highlightCount > 0)
 
+    // A Loader-hosted row: the Channels presenter picks between three row
+    // kinds, so this is loaded rather than declared inline. The Loader takes
+    // its height from this value (measured, Qt 6.11: loader implicitHeight
+    // 32 for a Control declaring height 32), which is what makes the rows lay
+    // out one below another instead of stacking at y=0.
     height: 32
     padding: 0
     hoverEnabled: true
@@ -175,5 +192,37 @@ ItemDelegate {
                 color: AppTheme.channelCategoryText
             }
         }
+    }
+
+    // Right-click and the Menu key, matching the Classic row. Without this
+    // the whole action set — favourite, mark read/unread, notification mode,
+    // copy link, leave — was unreachable in this layout.
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        enabled: root.roomId.length > 0
+        onTapped: channelMenu.popup()
+    }
+    Keys.onPressed: event => {
+        if (root.roomId.length > 0
+            && (event.key === Qt.Key_Menu
+                || (event.key === Qt.Key_F10
+                    && (event.modifiers & Qt.ShiftModifier)))) {
+            channelMenu.popup();
+            event.accepted = true;
+        }
+    }
+    RoomActionsMenu {
+        id: channelMenu
+        objectName: "channelContextMenu"
+        roomId: root.roomId
+        roomName: root.channelName
+        isDirect: root.isDirect
+        isFavourite: root.isFavourite
+        onMarkRead: root.markRead()
+        onMarkUnread: root.markUnread()
+        onSetFavourite: on => root.setFavourite(on)
+        onSetNotificationMode: mode => root.setNotificationMode(mode)
+        onCopyRoomLink: root.copyRoomLink()
+        onLeaveRoomRequested: root.leaveRoomRequested()
     }
 }

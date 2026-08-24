@@ -100,6 +100,7 @@ public:
         /// happened. Zero when expanded — the rows speak for themselves then.
         HiddenUnreadRole,
         HiddenHighlightRole,
+        IsFavouriteRole,
     };
 
     explicit SpaceChannelModel(QObject *parent = nullptr);
@@ -153,6 +154,9 @@ private:
         int highlight = 0;
         bool hasUnread = false;
         bool muted = false;
+        /// Element-parity favourite flag. Carried so the row's context menu
+        /// can offer the CURRENT state instead of a blind toggle.
+        bool favourite = false;
         /// Categories only.
         int hiddenUnread = 0;
         int hiddenHighlight = 0;

@@ -41,6 +41,11 @@ Item {
     /// A category was opened as a Space in its own right (long-press / the
     /// context action), which re-roots the model at it.
     signal spaceActivated(string spaceId)
+    // The host owns the clipboard proxy and the leave-confirm dialog, exactly
+    // as it does for the Classic list — a presenter that reached up into the
+    // host by id is how the reader popover's click ended up silently dead.
+    signal roomLinkCopyRequested(string roomId)
+    signal leaveRoomRequested(string roomId, string roomName)
 
     // Empty state. Two distinct ones, because conflating them tells the user
     // the wrong thing about what to do next.
@@ -103,7 +108,12 @@ Item {
             // delegate with everything in it behind visibility flags: a
             // category and a channel share no geometry and no controls, and a
             // combined delegate would instantiate both for every row.
-            sourceComponent: rowLoader.model.kind === "category" ? categoryComponent : channelComponent
+            // Three row kinds, and the chooser must name all three: a
+            // "section" row falling through to channelComponent rendered the
+            // group LABEL as a clickable channel row — which is exactly what
+            // "in channels mode when I click people it says direct messages
+            // at the top" was.
+            sourceComponent: rowLoader.model.kind === "category" ? categoryComponent : (rowLoader.model.kind === "section" ? sectionComponent : channelComponent)
 
             Component {
                 id: channelComponent
@@ -116,9 +126,26 @@ Item {
                     unreadCount: rowLoader.model.unreadCount
                     highlightCount: rowLoader.model.highlightCount
                     hasUnread: rowLoader.model.hasUnread
+                    isFavourite: rowLoader.model.isFavourite
                     depth: rowLoader.model.depth
                     active: rowLoader.model.roomId === root.currentRoomId
                     onClicked: root.roomActivated(rowLoader.model.roomId)
+                    // The same mutations the Classic host performs, so the
+                    // two layouts cannot disagree about what a menu row does.
+                    onMarkRead: app.roomList.markRoomRead(rowLoader.model.roomId)
+                    onMarkUnread: app.roomList.markRoomUnread(rowLoader.model.roomId)
+                    onSetFavourite: on => app.roomList.setRoomFavourite(rowLoader.model.roomId, on)
+                    onSetNotificationMode: mode => app.setRoomNotificationMode(rowLoader.model.roomId, mode)
+                    onCopyRoomLink: root.roomLinkCopyRequested(rowLoader.model.roomId)
+                    onLeaveRoomRequested: root.leaveRoomRequested(rowLoader.model.roomId, rowLoader.model.name)
+                }
+            }
+
+            Component {
+                id: sectionComponent
+                ChannelSectionHeader {
+                    width: channelList.width
+                    label: rowLoader.model.name
                 }
             }
 

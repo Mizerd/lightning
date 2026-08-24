@@ -139,6 +139,10 @@ private Q_SLOTS:
             QStringLiteral("Main.qml"), QStringLiteral("MainScreen.qml"),
             QStringLiteral("SpacesRail.qml"), QStringLiteral("RoomsPanel.qml"),
             QStringLiteral("RoomDelegate.qml"),
+            // The row menu moved into its own component, shared with the
+            // Channels layout; its glyphs are still shell glyphs.
+            QStringLiteral("RoomActionsMenu.qml"),
+            QStringLiteral("ChannelDelegate.qml"),
             QStringLiteral("TimelinePane.qml"),
             QStringLiteral("MessageDelegate.qml"),
             QStringLiteral("MessageComposerBar.qml"),

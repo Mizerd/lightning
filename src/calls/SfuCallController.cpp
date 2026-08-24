@@ -6,6 +6,10 @@
 #include <QUuid>
 #include <QVariantMap>
 
+#ifdef Q_OS_UNIX
+#include <unistd.h>
+#endif
+
 #include "calls/RtcController.h"
 #include "calls/ScreenCastPortal.h"
 #include "matrix/MatrixClient.h"
@@ -116,13 +120,20 @@ void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
     if (!m_portal)
         return;
     connect(m_portal, &ScreenCastPortal::ready, this,
-            [this](unsigned nodeId) {
+            [this](unsigned nodeId, int pipewireFd) {
                 // The portal granted exactly what the user picked. Guard on
                 // still being in a call: the picker is modal to the desktop,
                 // not to us, so the call can end while it is open.
-                if (!active())
-                    return;
-                startScreenShare(static_cast<int>(nodeId));
+                //
+                // The fd is OURS now (the portal duplicated it for us), so
+                // every path out of here closes it — including the refusals,
+                // or a declined share leaks a descriptor per attempt.
+                if (!active()
+                    || !startScreenShare(static_cast<int>(nodeId),
+                                         pipewireFd)) {
+                    if (pipewireFd >= 0)
+                        ::close(pipewireFd);
+                }
             });
     connect(m_portal, &ScreenCastPortal::cancelled, this, [] {
         // The user declined. Deliberately silent: a dialog saying "you
@@ -252,6 +263,9 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_participants.clear();
     m_speaking.clear();
     m_publishedTrackIds.clear();
+    m_audioCid.clear();
+    m_cameraCid.clear();
+    m_screenCid.clear();
     m_membershipEventId.clear();
     m_delayId.clear();
     m_ownIdentity.clear();
@@ -414,6 +428,7 @@ void SfuCallController::publishTracks()
     m_client->sfuAddTrack(audioCid, QStringLiteral("microphone"), 0,
                           false, m_roomEncrypted);
     m_engine->publishAudio(audioCid);
+    m_audioCid = audioCid;
     m_publishedTrackIds.append(audioCid);
 
     if (m_cameraOn) {
@@ -423,6 +438,7 @@ void SfuCallController::publishTracks()
                               m_roomEncrypted);
         m_engine->publishVideo(videoCid, /*screenShare=*/false,
                                /*nodeId=*/-1);
+        m_cameraCid = videoCid;
         m_publishedTrackIds.append(videoCid);
     }
 #endif
@@ -593,10 +609,17 @@ void SfuCallController::attachVideoSink(const QString &identity,
     // A QVideoSink arrives from QML as a QObject*; cast rather than trust.
     // A wrong type attaches nothing instead of being reinterpreted.
     auto *sink = qobject_cast<QVideoSink *>(videoSink);
+    // The camera's own track key first, so a participant who is sharing a
+    // screen AND a camera feeds two different surfaces. The participant sid
+    // remains the fallback: it is what the engine routes under when the SFU
+    // states no mid, and it is what worked before per-track routing existed.
+    const QString cameraKey = trackKeyForSource(
+        identity, QStringLiteral("camera"));
     const QString streamId = streamIdForIdentity(identity);
-    if (streamId.isEmpty())
-        return;
-    m_videoRouter->attachSink(streamId, sink);
+    if (!cameraKey.isEmpty())
+        m_videoRouter->attachSink(cameraKey, sink);
+    if (!streamId.isEmpty())
+        m_videoRouter->attachSink(streamId, sink);
 #else
     Q_UNUSED(identity); Q_UNUSED(videoSink);
 #endif
@@ -607,13 +630,97 @@ void SfuCallController::detachVideoSink(const QString &identity)
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (!m_videoRouter)
         return;
+    const QString cameraKey = trackKeyForSource(
+        identity, QStringLiteral("camera"));
+    if (!cameraKey.isEmpty())
+        m_videoRouter->detachSink(cameraKey);
     const QString streamId = streamIdForIdentity(identity);
-    if (streamId.isEmpty())
-        return;
-    m_videoRouter->detachSink(streamId);
+    if (!streamId.isEmpty())
+        m_videoRouter->detachSink(streamId);
 #else
     Q_UNUSED(identity);
 #endif
+}
+
+void SfuCallController::attachScreenSink(const QString &identity,
+                                         QObject *videoSink)
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_videoRouter)
+        return;
+    auto *sink = qobject_cast<QVideoSink *>(videoSink);
+    // NO participant-sid fallback here, deliberately. That key is where a
+    // camera also lands, so using it for the screen surface would render a
+    // face where the user asked for a screen — worse than rendering nothing.
+    const QString key = trackKeyForSource(identity,
+                                          QStringLiteral("screen_share"));
+    if (key.isEmpty())
+        return;
+    m_videoRouter->attachSink(key, sink);
+#else
+    Q_UNUSED(identity); Q_UNUSED(videoSink);
+#endif
+}
+
+void SfuCallController::detachScreenSink(const QString &identity)
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_videoRouter)
+        return;
+    const QString key = trackKeyForSource(identity,
+                                          QStringLiteral("screen_share"));
+    if (key.isEmpty())
+        return;
+    m_videoRouter->detachSink(key);
+#else
+    Q_UNUSED(identity);
+#endif
+}
+
+void SfuCallController::attachLocalScreenSink(QObject *videoSink)
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_videoRouter)
+        return;
+    m_videoRouter->attachSink(SfuMediaEngine::localScreenStreamId(),
+                              qobject_cast<QVideoSink *>(videoSink));
+#else
+    Q_UNUSED(videoSink);
+#endif
+}
+
+void SfuCallController::detachLocalScreenSink()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_videoRouter)
+        return;
+    m_videoRouter->detachSink(SfuMediaEngine::localScreenStreamId());
+#endif
+}
+
+QString SfuCallController::trackKeyForSource(const QString &identity,
+                                            const QString &source) const
+{
+    if (identity.isEmpty() || source.isEmpty())
+        return {};
+    for (const QVariant &row : m_participants) {
+        const QVariantMap participant = row.toMap();
+        if (participant.value(QStringLiteral("identity")).toString()
+            != identity) {
+            continue;
+        }
+        for (const QVariant &t :
+             participant.value(QStringLiteral("tracks")).toList()) {
+            const QVariantMap track = t.toMap();
+            if (track.value(QStringLiteral("source")).toString() != source)
+                continue;
+            const QString mid = track.value(QStringLiteral("mid")).toString();
+            if (!mid.isEmpty())
+                return QStringLiteral("%1").arg(mid);
+        }
+        return {};
+    }
+    return {};
 }
 
 QString SfuCallController::streamIdForIdentity(const QString &identity) const
@@ -742,6 +849,9 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_participants.clear();
     m_speaking.clear();
     m_publishedTrackIds.clear();
+    m_audioCid.clear();
+    m_cameraCid.clear();
+    m_screenCid.clear();
     m_cameraOn = false;
     m_screenSharing = false;
     m_handRaised = false;
@@ -813,16 +923,15 @@ void SfuCallController::setCameraOn(bool on)
         m_client->sfuAddTrack(cid, QStringLiteral("camera"), 1, false,
                               m_roomEncrypted);
         m_engine->publishVideo(cid, false, -1);
+        m_cameraCid = cid;
         m_publishedTrackIds.append(cid);
     } else {
-        // Stop the LAST video track we published. The camera must actually
-        // go off, not merely stop being rendered — the LED is the user's
-        // only unambiguous indicator.
-        for (int i = m_publishedTrackIds.size() - 1; i >= 0; --i) {
-            m_engine->unpublish(m_publishedTrackIds.at(i));
-            m_publishedTrackIds.removeAt(i);
-            break;
-        }
+        // Unpublish the CAMERA track by id. This used to take "the last
+        // track we published", which is the SCREEN SHARE whenever the share
+        // started after the camera — so turning the camera off killed the
+        // share instead, and the camera stayed live. The camera must
+        // actually go off: the LED is the user's only unambiguous indicator.
+        unpublishTrack(m_cameraCid);
     }
     Q_EMIT mediaStateChanged();
 #else
@@ -832,7 +941,7 @@ void SfuCallController::setCameraOn(bool on)
 
 void SfuCallController::toggleCamera() { setCameraOn(!m_cameraOn); }
 
-bool SfuCallController::startScreenShare(int pipewireNodeId)
+bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd)
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (!active() || m_engine.isNull() || !m_client)
@@ -847,13 +956,15 @@ bool SfuCallController::startScreenShare(int pipewireNodeId)
     const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_client->sfuAddTrack(cid, QStringLiteral("screen"), 1, true,
                           m_roomEncrypted);
-    m_engine->publishVideo(cid, /*screenShare=*/true, pipewireNodeId);
+    m_engine->publishVideo(cid, /*screenShare=*/true, pipewireNodeId,
+                           pipewireFd);
+    m_screenCid = cid;
     m_publishedTrackIds.append(cid);
     m_screenSharing = true;
     Q_EMIT mediaStateChanged();
     return true;
 #else
-    Q_UNUSED(pipewireNodeId);
+    Q_UNUSED(pipewireNodeId); Q_UNUSED(pipewireFd);
     return false;
 #endif
 }
@@ -863,17 +974,26 @@ void SfuCallController::stopScreenShare()
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (!m_screenSharing || m_engine.isNull())
         return;
-    for (int i = m_publishedTrackIds.size() - 1; i >= 0; --i) {
-        m_engine->unpublish(m_publishedTrackIds.at(i));
-        m_publishedTrackIds.removeAt(i);
-        break;
-    }
+    unpublishTrack(m_screenCid);
     m_screenSharing = false;
     // Close the portal session too: leaving it open keeps the compositor
     // capturing a surface nothing is reading.
     if (m_portal)
         m_portal->cancel();
     Q_EMIT mediaStateChanged();
+#endif
+}
+
+void SfuCallController::unpublishTrack(QString &cid)
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (cid.isEmpty() || m_engine.isNull())
+        return;
+    m_engine->unpublish(cid);
+    m_publishedTrackIds.removeAll(cid);
+    cid.clear();
+#else
+    Q_UNUSED(cid);
 #endif
 }
 
@@ -968,6 +1088,16 @@ QVariantList SfuCallController::participants() const
         row.insert(QStringLiteral("cameraKnown"), cameraKnown);
         row.insert(QStringLiteral("cameraOn"), cameraOn);
         row.insert(QStringLiteral("screenSharing"), sharing);
+        // The routing keys, so a tile can RE-ATTACH when they change. The SFU
+        // can announce a participant before it announces which section their
+        // tracks landed on, and an attach that happened while the key was
+        // still empty is a surface that never receives a frame. QML watches
+        // these two values; it does not interpret them.
+        row.insert(QStringLiteral("cameraTrackKey"),
+                   trackKeyForSource(identity, QStringLiteral("camera")));
+        row.insert(QStringLiteral("screenTrackKey"),
+                   trackKeyForSource(identity,
+                                     QStringLiteral("screen_share")));
         out.append(row);
     }
     return out;

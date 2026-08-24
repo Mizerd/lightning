@@ -349,13 +349,25 @@ Rectangle {
                 anchors.rightMargin: AppTheme.spacing12
                 anchors.verticalCenter: parent.verticalCenter
                 dense: true
+                // The column is 300px by default and user-resizable, and the
+                // four labels translate to whatever they translate to — so
+                // the row compacts instead of running off the pane edge
+                // ("Unreads" was clipped by the column boundary).
+                fitWidth: true
                 model: [
                     { label: qsTr("All"), value: 0 },
                     { label: qsTr("People"), value: 1 },
                     { label: qsTr("Rooms"), value: 2 },
                     { label: qsTr("Unreads"), value: 3 }
                 ]
-                current: app.roomList.filterMode
+                // Reads the SETTING it writes, not the model it drives. With
+                // `current` bound to app.roomList.filterMode the chips
+                // reported the model while every click wrote the setting, so
+                // any moment the two disagreed — an account switch being the
+                // reliable one — left the chips showing a filter the user had
+                // not chosen and made clicking the stored value a no-op.
+                // One direction now: chips -> setting -> model (Binding).
+                current: app.settings.roomFilterMode
                 onActivated: (value) => {
                     app.settings.roomFilterMode = value
                 }
@@ -563,6 +575,7 @@ Rectangle {
                     onRoomActivated: (roomId) => app.openRoom(roomId)
                     onCreateRequested: newConversationDialog.openDialog()
                     onDiscoverRequested: discoverJoinDialog.openDialog()
+                    onClearSearchRequested: roomSearch.clear()
                     onRoomLinkCopyRequested: (roomId) => {
                         var row = app.roomList.findRoom(roomId)
                         var link = app.roomList.roomPermalink(
@@ -587,6 +600,22 @@ Rectangle {
                     currentRoomId: app.currentRoomId
                     onRoomActivated: (roomId) => app.openRoom(roomId)
                     onSpaceActivated: (spaceId) => app.openSpaceHome(spaceId)
+                    // The SAME clipboard proxy and leave-confirm dialog the
+                    // Classic list uses, so a room left from either layout
+                    // gets the same confirmation and the same honest failure.
+                    onRoomLinkCopyRequested: (roomId) => {
+                        var row = app.roomList.findRoom(roomId)
+                        var link = app.roomList.roomPermalink(
+                            roomId, (row && row.canonicalAlias) || "")
+                        if (link.length > 0) {
+                            roomLinkClipboard.text = link
+                            roomLinkClipboard.selectAll()
+                            roomLinkClipboard.copy()
+                            roomLinkClipboard.text = ""
+                        }
+                    }
+                    onLeaveRoomRequested: (roomId, roomName) =>
+                        leaveRoomConfirm.openFor(roomId, roomName)
                 }
             }
         }

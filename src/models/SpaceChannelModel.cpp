@@ -150,6 +150,7 @@ int SpaceChannelModel::appendRoomListGroup(const QString &label,
         row.identityColorKey =
             m_rooms->data(index, RoomListModel::IdentityColorKeyRole).toString();
         row.isDirect = isDirect;
+        row.favourite = favourite;
         row.encrypted =
             m_rooms->data(index, RoomListModel::EncryptedRole).toBool();
         row.unread = unread;
@@ -187,6 +188,7 @@ QHash<int, QByteArray> SpaceChannelModel::roleNames() const
         { CollapsedRole, "collapsed" },
         { HiddenUnreadRole, "hiddenUnread" },
         { HiddenHighlightRole, "hiddenHighlight" },
+        { IsFavouriteRole, "isFavourite" },
     };
 }
 
@@ -231,6 +233,8 @@ QVariant SpaceChannelModel::data(const QModelIndex &index, int role) const
         return row.hiddenUnread;
     case HiddenHighlightRole:
         return row.hiddenHighlight;
+    case IsFavouriteRole:
+        return row.favourite;
     default:
         return {};
     }
@@ -311,6 +315,14 @@ void SpaceChannelModel::appendChannels(const QString &parentId, int depth,
         row.identityColorKey =
             child.value(QStringLiteral("identityColorKey")).toString();
         row.isDirect = child.value(QStringLiteral("isDirect")).toBool();
+        // Asked of the room list, because the Space hierarchy does not carry
+        // account tags. Only the row's MENU reads it (so its toggle offers
+        // the current state instead of a blind "Add"); a channel row draws no
+        // star, and a favourited channel is deliberately still listed in its
+        // Space — the hierarchy is the Space's structure, and hiding a room
+        // from it because the user starred it would make the Space look
+        // incomplete.
+        row.favourite = m_rooms && m_rooms->isRoomFavourite(row.roomId);
         row.encrypted = child.value(QStringLiteral("encrypted")).toBool();
         row.unread = rowUnread;
         row.highlight = rowHighlight;
@@ -336,8 +348,19 @@ void SpaceChannelModel::rebuild()
     //
     // Favourites first, matching the Classic order (invites, favourites, DMs,
     // rooms) so switching layout does not rearrange what the user knows.
-    if (m_filterMode != 2)   // "Rooms" is explicitly the hierarchy only
-        appendRoomListGroup(tr("Favourites"), /*wantDirect=*/false);
+    //
+    // Favourites are offered under EVERY filter, and the filter decides what
+    // is in the group rather than whether the group exists at all: under
+    // Rooms a favourited room, under People a favourited DM, under Unreads a
+    // favourite with something in it. Gating the whole group on the filter is
+    // what made favourites vanish the moment the user pressed Rooms — the
+    // group's own predicate (filterAdmits, applied per row inside
+    // appendRoomListGroup) already answers the question correctly, and an
+    // empty group drops its own header.
+    appendRoomListGroup(tr("Favourites"), /*wantDirect=*/false);
+    // Direct messages stay out of the Rooms view: that filter's whole
+    // meaning is "not people", so a DM group under it would contradict the
+    // chip the user just pressed. Every other filter offers it.
     if (m_filterMode != 2)
         appendRoomListGroup(tr("Direct messages"), /*wantDirect=*/true);
 

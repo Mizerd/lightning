@@ -345,6 +345,92 @@ private slots:
         QVERIFY(row.contains(QStringLiteral("refreshNotificationMode")));
     }
 
+    // The row chooser must name every kind the MODEL can produce. It named
+    // two of three, so a "section" row (a group label like "Direct messages"
+    // or "Favourites") fell through to the channel-row component and rendered
+    // as a room row with an empty room id — clickable-looking, opening
+    // nothing, and carrying a room's context menu over a heading. Reported as
+    // "when I click People it says direct messages at the top" and "I can't
+    // left click room names".
+    void theRowChooserNamesEveryRowKindTheModelCanProduce()
+    {
+        const QString presenter =
+            read(QStringLiteral("RoomChannelsPresenter.qml"));
+        QVERIFY(!presenter.isEmpty());
+        // Every kind string SpaceChannelModel::data can return.
+        QVERIFY2(presenter.contains(QStringLiteral("=== \"category\"")),
+                 "the chooser does not name the category kind");
+        QVERIFY2(presenter.contains(QStringLiteral("=== \"section\"")),
+                 "the chooser does not name the section kind, so a group "
+                 "label renders as a channel row");
+        QVERIFY(presenter.contains(QStringLiteral("sectionComponent")));
+        QVERIFY(presenter.contains(QStringLiteral("ChannelSectionHeader {")));
+    }
+
+    // The Channels row offers the SAME actions the Classic row does, through
+    // the SAME component — the alternative is two menus that drift, and what
+    // it actually was is no menu at all.
+    void bothLayoutsRowsUseTheOneSharedActionsMenu()
+    {
+        const QString classicRow = read(QStringLiteral("RoomDelegate.qml"));
+        const QString channelRow = read(QStringLiteral("ChannelDelegate.qml"));
+        QVERIFY(!classicRow.isEmpty());
+        QVERIFY(!channelRow.isEmpty());
+        QVERIFY(classicRow.contains(QStringLiteral("RoomActionsMenu {")));
+        QVERIFY2(channelRow.contains(QStringLiteral("RoomActionsMenu {")),
+                 "the Channels row has no actions menu");
+        // Neither row re-declares the menu's rows: one definition only.
+        QVERIFY(!classicRow.contains(QStringLiteral("roomFavouriteItem")));
+        QVERIFY(!channelRow.contains(QStringLiteral("roomFavouriteItem")));
+        // And the Channels row stays signal-only for every mutation, like the
+        // Classic one — the presenter performs the writes.
+        for (const QString &sig : { QStringLiteral("signal markRead()"),
+                                    QStringLiteral("signal markUnread()"),
+                                    QStringLiteral("signal setFavourite(bool on)"),
+                                    QStringLiteral("signal setNotificationMode(int mode)"),
+                                    QStringLiteral("signal copyRoomLink()"),
+                                    QStringLiteral("signal leaveRoomRequested()") }) {
+            QVERIFY2(channelRow.contains(sig), qPrintable(sig));
+        }
+        QVERIFY(!channelRow.contains(QStringLiteral("app.roomList.setRoomFavourite")));
+        QVERIFY(!channelRow.contains(QStringLiteral("app.setRoomNotificationMode")));
+    }
+
+    // The filter chips sit in a 300px column that CLIPS, and the four labels
+    // are translated. They compact instead of running off the pane edge —
+    // "Unreads" was clipped by the column boundary in a real screenshot.
+    void theRoomFilterChipsCompactInsteadOfOverflowingTheColumn()
+    {
+        const QString host = read(QStringLiteral("RoomsPanel.qml"));
+        const QString control = read(QStringLiteral("SegmentedControl.qml"));
+        QVERIFY(!host.isEmpty());
+        QVERIFY(!control.isEmpty());
+        QVERIFY2(host.contains(QStringLiteral("fitWidth: true")),
+                 "the room-list filter chips do not ask to be fitted");
+        // A RowLayout, because a plain Row derives its implicitWidth from its
+        // children's ASSIGNED widths — shrinking them shrinks the total the
+        // scale was computed from, which measured as a polish() loop.
+        QVERIFY(control.contains(QStringLiteral("RowLayout {")));
+        QVERIFY(control.contains(QStringLiteral("Layout.fillWidth: root.overflowing")));
+        QVERIFY(control.contains(QStringLiteral("Layout.maximumWidth: implicitWidth")));
+        // Only while it genuinely does not fit: filling when it DOES fit
+        // spreads four chips across the whole column.
+        QVERIFY(control.contains(QStringLiteral("fitWidth && width > 0 && implicitWidth > width")));
+        QVERIFY(control.contains(QStringLiteral("elide: Text.ElideRight")));
+    }
+
+    // One direction only: chips -> setting -> model. `current` bound to the
+    // MODEL while every click wrote the SETTING meant any moment the two
+    // disagreed left the chips reporting a filter the user had not chosen.
+    void theFilterChipsReadTheSettingTheyWrite()
+    {
+        const QString host = read(QStringLiteral("RoomsPanel.qml"));
+        QVERIFY(!host.isEmpty());
+        QVERIFY(host.contains(QStringLiteral("current: app.settings.roomFilterMode")));
+        QVERIFY(!host.contains(QStringLiteral("current: app.roomList.filterMode")));
+        QVERIFY(host.contains(QStringLiteral("app.settings.roomFilterMode = value")));
+    }
+
     void theChannelsPresenterDrawsNoSecondGrouping()
     {
         // The MODEL is already ordered and grouped by the hierarchy. A

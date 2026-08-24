@@ -1,5 +1,7 @@
 #include "calls/SfuMediaEngine.h"
 
+#include <unistd.h>
+
 #include "calls/CallFrameCryptor.h"
 #include "calls/SfuVideoRouter.h"
 
@@ -124,6 +126,15 @@ struct CryptoProbeCtx {
 /// Which sender an appsink belongs to. One per received video track.
 struct VideoSinkCtx {
     SfuMediaEngine *engine = nullptr;
+    /// Primary routing key: the media section's SDP `mid`, which LiveKit also
+    /// states on the TrackInfo, so it names ONE track. Empty for the local
+    /// self-view branch, which has no negotiated section.
+    QString mid;
+    /// Fallback routing key: the sending participant's sid. One per
+    /// participant, so it cannot distinguish their camera from their screen
+    /// share — kept because it is what a tile attaches to before any track
+    /// has been announced, and because a server that omits `mid` must still
+    /// render video.
     QString streamId;
 };
 
@@ -153,8 +164,19 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
     // instead of a full-frame memcpy at frame rate. SfuVideoRouter takes its
     // own mutex, so this is safe to call from here.
     bool wanted = false;
-    if (SfuVideoRouter *router = ctx->engine->videoRouter())
-        wanted = router->watching(ctx->streamId);
+    QString routeKey;
+    if (SfuVideoRouter *router = ctx->engine->videoRouter()) {
+        // The mid wins when something is listening for it: that is the tile
+        // that asked for THIS track. Otherwise fall back to the sender.
+        if (!ctx->mid.isEmpty() && router->watching(ctx->mid)) {
+            routeKey = ctx->mid;
+            wanted = true;
+        } else if (!ctx->streamId.isEmpty()
+                   && router->watching(ctx->streamId)) {
+            routeKey = ctx->streamId;
+            wanted = true;
+        }
+    }
     if (!wanted) {
         gst_sample_unref(sample);
         return GST_FLOW_OK;
@@ -209,7 +231,7 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
 
     // Delivered on the GUI thread: a QVideoSink belongs to its own thread.
     SfuMediaEngine *engine = ctx->engine;
-    const QString streamId = ctx->streamId;
+    const QString streamId = routeKey;
     marshal(engine, [engine, streamId, frame] {
         if (SfuVideoRouter *router = engine->videoRouter())
             router->deliverFrame(streamId, frame);
@@ -395,6 +417,14 @@ void SfuMediaEngine::stop()
     m_generation.fetch_add(1);
     m_active = false;
     m_publishedBins.clear();
+    // destroyPeer tears the pipelines down; the descriptors those bins were
+    // using are ours to close and would otherwise leak one per screen share
+    // per call.
+    for (auto it = m_publishedFds.cbegin(); it != m_publishedFds.cend(); ++it) {
+        if (it.value() > 0)
+            ::close(it.value());
+    }
+    m_publishedFds.clear();
     destroyPeer(m_publisher);
     destroyPeer(m_subscriber);
     // Engine state is per session; the user's intent lives in the
@@ -624,13 +654,46 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     renegotiatePublisher();
 }
 
-void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
-                                  int nodeId)
+QString SfuMediaEngine::localScreenStreamId()
 {
-    if (!ensurePeer(Target::Publisher) || cid.isEmpty())
+    // Not a LiveKit sid and deliberately shaped so it can never collide with
+    // one: LiveKit ids are "PA_..."/"TR_..." and this has a colon in it.
+    return QStringLiteral("local:screen");
+}
+
+QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd)
+{
+    // `fd` FIRST: the portal's remote is where this node lives, and
+    // pipewiresrc resolves `path` against whichever remote it was given.
+    // Without the fd it looks in the caller's own default remote, finds
+    // nothing, and plays happily forever without emitting a buffer.
+    if (pipewireFd >= 0) {
+        return QStringLiteral("pipewiresrc fd=%1 path=%2 do-timestamp=true")
+            .arg(pipewireFd).arg(nodeId);
+    }
+    return QStringLiteral("pipewiresrc path=%1 do-timestamp=true").arg(nodeId);
+}
+
+void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
+                                  int nodeId, int pipewireFd)
+{
+    // The fd belongs to this engine now. It is held for the LIFETIME of the
+    // publishing bin and closed by unpublish(), NOT once the element exists:
+    // whether pipewiresrc dups the descriptor it is handed is a detail of the
+    // plugin version, and closing a descriptor it did not dup stops the
+    // capture dead. Holding it costs one fd; guessing costs the share.
+    const auto closeFd = [pipewireFd] {
+        if (pipewireFd >= 0)
+            ::close(pipewireFd);
+    };
+    if (!ensurePeer(Target::Publisher) || cid.isEmpty()) {
+        closeFd();
         return;
-    if (m_publishedBins.contains(cid))
+    }
+    if (m_publishedBins.contains(cid)) {
+        closeFd();
         return;
+    }
 
     QString source;
     if (m_testSources) {
@@ -643,11 +706,11 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         // PipeWire feels like", which is exactly how you publish the wrong
         // monitor, so it is refused.
         if (nodeId < 0) {
+            closeFd();
             Q_EMIT failed(QStringLiteral("screen_share_no_source"));
             return;
         }
-        source = QStringLiteral("pipewiresrc path=%1 do-timestamp=true")
-                     .arg(nodeId);
+        source = screenShareSource(nodeId, pipewireFd);
     } else {
         source = QStringLiteral("autovideosrc");
     }
@@ -691,15 +754,29 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                          "cpu-used=2 static-threshold=0 "
                          "keyframe-max-dist=30 "
                          "end-usage=cbr target-bitrate=1700000");
+    // A screen share carries a SELF-VIEW branch. The tee is placed after the
+    // scaler, so the preview costs one extra RGBA convert of an
+    // already-downscaled frame rather than a second capture: sharing is the
+    // one case where the user genuinely cannot tell from their own screen
+    // whether anything is being sent. `max-buffers=1 drop=true` keeps a slow
+    // preview from becoming latency on the branch that is actually published.
+    const QString selfView = screenShare && !m_testSources
+        ? QStringLiteral("t. ! queue max-size-buffers=2 leaky=downstream "
+                         "! videoconvert ! video/x-raw,format=RGBA "
+                         "! appsink name=selfvidsink emit-signals=true "
+                         "sync=false max-buffers=1 drop=true ")
+        : QString();
     const QString description =
         QStringLiteral("%1 ! queue ! videoconvert ! videoscale ! videorate "
                        "! %2 "
+                       "! tee name=t %4"
+                       "t. ! queue "
                        "! valve name=vidvalve drop=false ! %3 name=videoenc "
                        "! rtpvp8pay pt=96 "
                        // capsfilter for the same reason as the audio path.
                        "! capsfilter caps=\"application/x-rtp,media=video,"
                        "encoding-name=VP8,payload=96\"")
-            .arg(source, limits, encoder);
+            .arg(source, limits, encoder, selfView);
 
     GError *error = nullptr;
     GstElement *bin =
@@ -721,6 +798,17 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         return;
     }
     m_publishedBins.insert(cid, bin);
+    if (pipewireFd >= 0)
+        m_publishedFds.insert(cid, pipewireFd);
+    if (GstElement *selfSink = gst_bin_get_by_name(GST_BIN(bin),
+                                                   "selfvidsink")) {
+        auto *ctx = new VideoSinkCtx{this, QString(),
+                                     localScreenStreamId()};
+        g_signal_connect_data(selfSink, "new-sample",
+                              G_CALLBACK(onVideoSample), ctx,
+                              videoSinkCtxFree, GConnectFlags(0));
+        gst_object_unref(selfSink);
+    }
     if (GstElement *encoder = gst_bin_get_by_name(GST_BIN(bin), "videoenc")) {
         if (GstPad *encoded = gst_element_get_static_pad(encoder, "src")) {
             installEncryptProbe(encoded, /*video=*/true);
@@ -744,6 +832,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     if (linked != GST_PAD_LINK_OK) {
         qCWarning(lcSfuMedia) << "publisher link failed code=" << linked;
         m_publishedBins.remove(cid);
+        releasePublishedFd(cid);
         gst_element_set_state(bin, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
         Q_EMIT failed(QStringLiteral("publish_link_failed"));
@@ -756,13 +845,25 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     renegotiatePublisher();
 }
 
+void SfuMediaEngine::releasePublishedFd(const QString &cid)
+{
+    const int fd = m_publishedFds.take(cid);
+    if (fd > 0)
+        ::close(fd);
+}
+
 void SfuMediaEngine::unpublish(const QString &cid)
 {
     GstElement *bin = m_publishedBins.take(cid);
-    if (!bin || !m_publisher.pipeline)
+    if (!bin || !m_publisher.pipeline) {
+        releasePublishedFd(cid);
         return;
+    }
     gst_element_set_state(bin, GST_STATE_NULL);
     gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
+    // Only after the element is at NULL: the descriptor is what its PipeWire
+    // connection rides on.
+    releasePublishedFd(cid);
     if (m_publishedMedia.load() > 0)
         --m_publishedMedia;
     renegotiatePublisher();
@@ -787,17 +888,18 @@ namespace {
 /// and LiveKit's stream id IS the sending participant's sid. That is the
 /// same attribute livekit-client reads to decide which participant a
 /// received track belongs to.
-QHash<int, QString> streamIdsFromSdp(GstSDPMessage *message)
+void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
+                      QHash<int, QString> *mids)
 {
-    QHash<int, QString> out;
     if (!message)
-        return out;
+        return;
     const guint sections = gst_sdp_message_medias_len(message);
     for (guint index = 0; index < sections; ++index) {
         const GstSDPMedia *media = gst_sdp_message_get_media(message, index);
         if (!media)
             continue;
         QString streamId;
+        QString mid;
         const guint attributes = gst_sdp_media_attributes_len(media);
         for (guint a = 0; a < attributes; ++a) {
             const GstSDPAttribute *attribute =
@@ -805,19 +907,27 @@ QHash<int, QString> streamIdsFromSdp(GstSDPMessage *message)
             if (!attribute || !attribute->key)
                 continue;
             const QLatin1String key(attribute->key);
-            if (key != QLatin1String("msid"))
-                continue;
-            // "<stream-id> <track-id>"; the stream id is what attributes the
-            // track to a sender.
             const QString value = QString::fromUtf8(attribute->value
                                                         ? attribute->value
                                                         : "");
-            streamId = value.section(QLatin1Char(' '), 0, 0).trimmed();
-            break;
+            if (key == QLatin1String("msid")) {
+                // "<stream-id> <track-id>"; the stream id is what attributes
+                // the track to a SENDER — one per participant, so it cannot
+                // tell that participant's camera from their screen share.
+                streamId = value.section(QLatin1Char(' '), 0, 0).trimmed();
+            } else if (key == QLatin1String("mid")) {
+                // The section's own id, which LiveKit also states on every
+                // TrackInfo it publishes (`mid`, tag 12). That pairing is
+                // what lets a receiver route a SECOND video track from the
+                // same person to a different surface.
+                mid = value.trimmed();
+            }
         }
-        out.insert(static_cast<int>(index), streamId);
+        if (streams)
+            streams->insert(static_cast<int>(index), streamId);
+        if (mids)
+            mids->insert(static_cast<int>(index), mid);
     }
-    return out;
 }
 
 } // namespace
@@ -855,8 +965,12 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
     // its description tells us who a received pad belongs to. Recorded
     // BEFORE set-remote-description, because pad-added can fire from inside
     // that call and would otherwise find the map empty.
-    if (target == Target::Subscriber)
-        noteStreamIds(streamIdsFromSdp(message));
+    if (target == Target::Subscriber) {
+        QHash<int, QString> streams;
+        QHash<int, QString> mids;
+        streamIdsFromSdp(message, &streams, &mids);
+        noteStreamIds(streams, mids);
+    }
 
     const GstWebRTCSDPType type = (kind == QLatin1String("offer"))
         ? GST_WEBRTC_SDP_TYPE_OFFER
@@ -1066,12 +1180,14 @@ void SfuMediaEngine::clearKeys()
             cryptor->clearKeys();
         m_recvCryptors.clear();
         m_streamForMline.clear();
+        m_midForMline.clear();
     }
     m_sendKeyReady.store(false);
     m_recvKeyReady.store(false);
 }
 
-void SfuMediaEngine::noteStreamIds(const QHash<int, QString> &byMline)
+void SfuMediaEngine::noteStreamIds(const QHash<int, QString> &byMline,
+                                   const QHash<int, QString> &midsByMline)
 {
     QMutexLocker lock(&m_recvMutex);
     for (auto it = byMline.cbegin(); it != byMline.cend(); ++it) {
@@ -1081,6 +1197,12 @@ void SfuMediaEngine::noteStreamIds(const QHash<int, QString> &byMline)
             m_streamForMline.remove(it.key());
         else
             m_streamForMline.insert(it.key(), it.value());
+    }
+    for (auto it = midsByMline.cbegin(); it != midsByMline.cend(); ++it) {
+        if (it.value().isEmpty() || it.value().size() > 128)
+            m_midForMline.remove(it.key());
+        else
+            m_midForMline.insert(it.key(), it.value());
     }
 }
 
@@ -1295,6 +1417,7 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     // key noteStreamIds() recorded. That is how a decrypt probe gets the
     // right sender's key ring instead of a shared one.
     QString streamId;
+    QString trackMid;
     {
         const gchar *rawName = GST_PAD_NAME(srcPad);
         const QString padName = QString::fromUtf8(rawName ? rawName : "");
@@ -1304,6 +1427,7 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         if (ok) {
             QMutexLocker lock(&engine->m_recvMutex);
             streamId = engine->m_streamForMline.value(mline);
+            trackMid = engine->m_midForMline.value(mline);
         }
         if (streamId.isEmpty()) {
             // Unattributed. Deliberately given its OWN ring keyed by the
@@ -1396,7 +1520,7 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     // before the bin plays so no frame is produced without a destination
     // decided.
     if (GstElement *appsink = gst_bin_get_by_name(GST_BIN(bin), "vidsink")) {
-        auto *ctx = new VideoSinkCtx{engine, streamId};
+        auto *ctx = new VideoSinkCtx{engine, trackMid, streamId};
         g_signal_connect_data(appsink, "new-sample",
                               G_CALLBACK(onVideoSample), ctx,
                               videoSinkCtxFree, GConnectFlags(0));
@@ -1421,11 +1545,12 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         });
         return;
     }
-    marshal(engine, [engine, mediaKind, streamId] {
+    marshal(engine, [engine, mediaKind, streamId, trackMid] {
         // The stream id is the sending participant's LiveKit sid, from the
-        // subscriber offer's msid. The UI still keys tiles off MatrixRTC
-        // membership, which is authoritative for who is PRESENT; this says
-        // which of them is actually sending.
-        Q_EMIT engine->remoteTrackAdded(streamId, mediaKind);
+        // subscriber offer's msid; the mid names the individual track. The UI
+        // still keys tiles off MatrixRTC membership, which is authoritative
+        // for who is PRESENT; this says which of them is actually sending,
+        // and on which section.
+        Q_EMIT engine->remoteTrackAdded(streamId, trackMid, mediaKind);
     });
 }

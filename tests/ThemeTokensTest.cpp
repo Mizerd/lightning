@@ -1323,6 +1323,7 @@ private Q_SLOTS:
         // viewer's committed-dark overlay chrome.
         const QStringList files = {
             QStringLiteral(QML_DIR "/RoomDelegate.qml"),
+            QStringLiteral(QML_DIR "/RoomActionsMenu.qml"),
             QStringLiteral(QML_DIR "/MessageDelegate.qml"),
             QStringLiteral(QML_DIR "/RoomsPanel.qml"),
             QStringLiteral(QML_DIR "/TimelinePane.qml"),

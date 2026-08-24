@@ -331,6 +331,16 @@ fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
                     _ => "unknown",
                 },
                 "muted": track.muted,
+                // The media-section id this track was negotiated on. THE
+                // authoritative pad-to-track mapping: the subscriber SDP's
+                // `a=mid:` for a section names exactly this, so a receiver
+                // can tell a participant's camera from their screen share
+                // instead of guessing from an msid that carries only the
+                // sending participant. Bounded like every other wire string.
+                "mid": sane(&track.mid, 128).unwrap_or_default(),
+                // LiveKit's own stream id for the track, when the server
+                // states it. Used only as a fallback key.
+                "stream": sane(&track.stream, 256).unwrap_or_default(),
             }))
         })
         .collect();
@@ -1049,6 +1059,69 @@ mod tests {
         // An unrecognised source must not be forwarded verbatim; it becomes
         // "unknown" so the UI cannot act on a value it does not understand.
         assert_eq!(tracks[2]["source"], json!("unknown"));
+    }
+
+    // A camera and a screen share from ONE participant are two tracks, and a
+    // receiver keyed only on the participant can feed exactly one surface —
+    // which is why a remote screen share never rendered. `mid` is the
+    // media-section id LiveKit states per track and the subscriber SDP repeats
+    // as `a=mid:`, so it is what tells the two apart.
+    #[test]
+    fn tracks_carry_their_media_section_id() {
+        let info = lkp::ParticipantInfo {
+            identity: "@a:x:DEVICE".to_owned(),
+            tracks: vec![
+                lkp::TrackInfo {
+                    sid: "TR_cam".to_owned(),
+                    r#type: lkp::TrackType::Video as i32,
+                    source: lkp::TrackSource::Camera as i32,
+                    mid: "1".to_owned(),
+                    stream: "PA_sender".to_owned(),
+                    ..Default::default()
+                },
+                lkp::TrackInfo {
+                    sid: "TR_screen".to_owned(),
+                    r#type: lkp::TrackType::Video as i32,
+                    source: lkp::TrackSource::ScreenShare as i32,
+                    mid: "2".to_owned(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let value = participant_json(&info).expect("valid");
+        let tracks = value["tracks"].as_array().expect("tracks");
+        assert_eq!(tracks[0]["mid"], json!("1"));
+        assert_eq!(tracks[0]["stream"], json!("PA_sender"));
+        assert_eq!(tracks[1]["mid"], json!("2"));
+        // The two video tracks are distinguishable, which is the whole point.
+        assert_ne!(tracks[0]["mid"], tracks[1]["mid"]);
+        // A server that states no stream id must not produce a null the UI
+        // would have to special-case; absent is the empty string.
+        assert_eq!(tracks[1]["stream"], json!(""));
+    }
+
+    // Wire strings are bounded like every other one: a mid is an SDP token,
+    // and an absurd or control-laden value is dropped rather than forwarded
+    // into a routing key.
+    #[test]
+    fn an_absurd_media_section_id_is_dropped_not_forwarded() {
+        let info = lkp::ParticipantInfo {
+            identity: "@a:x:DEVICE".to_owned(),
+            tracks: vec![lkp::TrackInfo {
+                sid: "TR_a".to_owned(),
+                r#type: lkp::TrackType::Video as i32,
+                source: lkp::TrackSource::Camera as i32,
+                mid: "x".repeat(500),
+                stream: "s\u{7}p".to_owned(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let value = participant_json(&info).expect("valid");
+        let tracks = value["tracks"].as_array().expect("tracks");
+        assert_eq!(tracks[0]["mid"], json!(""));
+        assert_eq!(tracks[0]["stream"], json!(""));
     }
 
     #[test]

@@ -41,6 +41,28 @@ Item {
     property bool screenSharing: false
     property bool handRaised: false
 
+    /// Which of this participant's video tracks this surface shows:
+    /// "camera" or "screen". A person can send BOTH at once, and one surface
+    /// can only render one of them — the stage puts the share on the
+    /// spotlight and the camera in the grid, exactly as Discord does.
+    property string mediaKind: "camera"
+    /// Routing keys from the participant row, watched only so the sink is
+    /// RE-ATTACHED when they change. The SFU can announce a participant
+    /// before it says which media section their tracks landed on, and an
+    /// attach made while the key was still empty never receives a frame.
+    property string cameraTrackKey: ""
+    property string screenTrackKey: ""
+    readonly property string activeTrackKey: root.mediaKind === "screen" ? root.screenTrackKey : root.cameraTrackKey
+    // Re-attach when the routing key finally arrives. Attaching once at
+    // creation is not enough: the key can still be empty then, and an attach
+    // under an empty key never receives a frame. Declared HERE rather than in
+    // a Connections inside the Loader — the change signal of a property whose
+    // name starts with an underscore is not reachable by an `on…Changed`
+    // handler name, and a handler that never runs looks exactly like one that
+    // does nothing.
+    onActiveTrackKeyChanged: if (videoLoader.item)
+        videoLoader.item.attach()
+
     /// Voice-activity ring, driven by the SFU's speaker updates.
     property bool speaking: false
     /// This participant is the local device.
@@ -135,9 +157,16 @@ Item {
             // `local` is excluded because the engine publishes our own media
             // rather than receiving it: there is no remote stream for this
             // device, so a self-view would be a permanently black rectangle.
-            active: root.identity.length > 0 && !root.local
-                    && ((root.cameraKnown && root.cameraOn)
-                        || root.screenSharing)
+            // OUR OWN screen share is included, and it is the one local
+            // video there is: the engine tees the capture into a self-view
+            // branch, so the sharer can see that the share is carrying
+            // pixels. Nothing else about the local device is receivable —
+            // our camera is published, not received — so a local camera tile
+            // would be a permanently black rectangle and keeps the avatar.
+            active: root.identity.length > 0
+                    && (root.mediaKind === "screen"
+                        ? root.screenSharing
+                        : (!root.local && root.cameraKnown && root.cameraOn))
             visible: active && item && item.hasFrame
             sourceComponent: Item {
                 /// Nothing has arrived yet: the tile keeps showing the
@@ -149,17 +178,44 @@ Item {
                 VideoOutput {
                     id: output
                     anchors.fill: parent
-                    fillMode: VideoOutput.PreserveAspectCrop
+                    // A shared screen is CONTENT: cropping it hides the
+                    // edges of what the other person is showing, which is
+                    // usually where their toolbars and tabs are. A camera
+                    // frame crops to fill because a letterboxed face in a
+                    // grid cell looks broken.
+                    fillMode: root.mediaKind === "screen"
+                              ? VideoOutput.PreserveAspectFit
+                              : VideoOutput.PreserveAspectCrop
                 }
 
                 // Attach on creation, DETACH on destruction. The router
                 // holds a QPointer so a missed detach cannot crash, but it
                 // would keep routing frames at a dead tile for one frame and
                 // keep the entry alive until then.
-                Component.onCompleted: app.groupCall.attachVideoSink(
-                                           root.identity, output.videoSink)
-                Component.onDestruction: app.groupCall.detachVideoSink(
-                                             root.identity)
+                function attach() {
+                    if (root.mediaKind === "screen") {
+                        if (root.local)
+                            app.groupCall.attachLocalScreenSink(output.videoSink);
+                        else
+                            app.groupCall.attachScreenSink(root.identity,
+                                                           output.videoSink);
+                    } else {
+                        app.groupCall.attachVideoSink(root.identity,
+                                                      output.videoSink);
+                    }
+                }
+                function detach() {
+                    if (root.mediaKind === "screen") {
+                        if (root.local)
+                            app.groupCall.detachLocalScreenSink();
+                        else
+                            app.groupCall.detachScreenSink(root.identity);
+                    } else {
+                        app.groupCall.detachVideoSink(root.identity);
+                    }
+                }
+                Component.onCompleted: attach()
+                Component.onDestruction: detach()
             }
         }
 

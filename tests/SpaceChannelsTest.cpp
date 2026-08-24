@@ -604,6 +604,116 @@ private slots:
         QCOMPARE(model.filterMode(), 0);
     }
 
+    // Reported as "favorites disappear in All when going to Rooms, People and
+    // All". Favourites are ACCOUNT state, not a property of any filter, so the
+    // group is offered under every one of them and the filter decides its
+    // CONTENTS: a favourited room under Rooms, a favourited DM under People.
+    // Gating the whole group on the filter — which is what it used to do for
+    // Rooms — makes the user's pinned block vanish the moment they narrow the
+    // list.
+    void favouritesSurviveEveryFilter()
+    {
+        FakeClient client;
+        auto rooms = workspace();
+        RoomInfo favRoom = channel(QStringLiteral("!favroom:x"),
+                                   QStringLiteral("favourite room"), {});
+        favRoom.isFavourite = true;
+        favRoom.hasUnreadMessages = true;
+        rooms.append(favRoom);
+        RoomInfo favDm = channel(QStringLiteral("!favdm:x"),
+                                 QStringLiteral("favourite dm"), {});
+        favDm.isDirect = true;
+        favDm.isFavourite = true;
+        favDm.hasUnreadMessages = true;
+        rooms.append(favDm);
+        client.roomList = rooms;
+
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        RoomListModel list;
+        list.setClient(&client);
+        SpaceChannelModel model;
+        model.setSpaceManager(&spaces);
+        model.setRoomListModel(&list);
+        model.setSpaceId(QStringLiteral("!work:x"));
+
+        // All: both, under one Favourites heading.
+        QStringList names = namesOf(model);
+        QVERIFY(names.contains(QStringLiteral("Favourites")));
+        QVERIFY(names.contains(QStringLiteral("favourite room")));
+        QVERIFY(names.contains(QStringLiteral("favourite dm")));
+
+        // Rooms: the favourited ROOM is still there. This is the case that
+        // was broken — the group was skipped outright under this filter.
+        model.setFilterMode(2);
+        names = namesOf(model);
+        QVERIFY2(names.contains(QStringLiteral("Favourites")),
+                 "the Favourites group vanished under the Rooms filter");
+        QVERIFY(names.contains(QStringLiteral("favourite room")));
+        // A DM is not a room, so it is correctly absent here.
+        QVERIFY(!names.contains(QStringLiteral("favourite dm")));
+
+        // People: the favourited DM, and not the favourited room.
+        model.setFilterMode(1);
+        names = namesOf(model);
+        QVERIFY(names.contains(QStringLiteral("Favourites")));
+        QVERIFY(names.contains(QStringLiteral("favourite dm")));
+        QVERIFY(!names.contains(QStringLiteral("favourite room")));
+
+        // Unreads: both, because both have something unread in the fixture.
+        model.setFilterMode(3);
+        names = namesOf(model);
+        QVERIFY(names.contains(QStringLiteral("favourite room")));
+        QVERIFY(names.contains(QStringLiteral("favourite dm")));
+
+        // Back to All and they are all still there — the reported symptom was
+        // that they did not come back.
+        model.setFilterMode(0);
+        names = namesOf(model);
+        QVERIFY(names.contains(QStringLiteral("favourite room")));
+        QVERIFY(names.contains(QStringLiteral("favourite dm")));
+    }
+
+    // A group label is a HEADING, and the presenter must render it as one. The
+    // model's job here is to say so: the row's kind is "section", never
+    // "channel", and it carries no room id — a label that reported a room id
+    // would be openable, which is what made "Direct messages" look like a
+    // room row you could not click.
+    void aGroupLabelIsASectionRowWithNoRoomId()
+    {
+        FakeClient client;
+        auto rooms = workspace();
+        RoomInfo dm = channel(QStringLiteral("!dm:x"), QStringLiteral("alice"),
+                              {});
+        dm.isDirect = true;
+        rooms.append(dm);
+        client.roomList = rooms;
+
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        RoomListModel list;
+        list.setClient(&client);
+        SpaceChannelModel model;
+        model.setSpaceManager(&spaces);
+        model.setRoomListModel(&list);
+        model.setSpaceId(QStringLiteral("!work:x"));
+
+        bool sawSection = false;
+        for (int i = 0; i < model.rowCount(); ++i) {
+            const QModelIndex index = model.index(i, 0);
+            const QString name =
+                model.data(index, SpaceChannelModel::NameRole).toString();
+            if (name != QStringLiteral("Direct messages"))
+                continue;
+            sawSection = true;
+            QCOMPARE(model.data(index, SpaceChannelModel::KindRole).toString(),
+                     QStringLiteral("section"));
+            QVERIFY(model.data(index, SpaceChannelModel::RoomIdRole)
+                        .toString().isEmpty());
+        }
+        QVERIFY2(sawSection, "no Direct messages group was produced at all");
+    }
+
     void anEmptyGroupDropsItsOwnHeader()
     {
         // A "Favourites" label over nothing is worse than no label.

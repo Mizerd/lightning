@@ -38,14 +38,19 @@ class ContextMenuContractTest : public QObject
     // The `roomMenu` AppMenu, including the Leave room item's own action —
     // bounded by the trailing comment after the AppMenu's closing brace so
     // the block is never truncated exactly at content it also asserts.
+    // The room menu moved OUT of RoomDelegate.qml into RoomActionsMenu.qml
+    // when the Channels layout needed the same menu — one menu with two
+    // hosts, rather than 160 duplicated lines that drift. The invariants
+    // below are unchanged; only the file they live in is, so this reads the
+    // whole component instead of slicing a block out of the row.
+    //
+    // `delegate` is still taken so the call sites read the same and so the
+    // row itself is still required to exist and to own the menu.
     static QString roomMenuBlock(const QString &delegate)
     {
-        const int start = delegate.indexOf(QStringLiteral("id: roomMenu"));
-        if (start < 0) return {};
-        const int end = delegate.indexOf(
-            QStringLiteral("Design shell: no per-row hairline"), start);
-        if (end < start) return {};
-        return delegate.mid(start, end - start);
+        if (!delegate.contains(QStringLiteral("RoomActionsMenu {")))
+            return {};
+        return read(QStringLiteral("RoomActionsMenu.qml"));
     }
 
 private Q_SLOTS:
@@ -203,11 +208,11 @@ private Q_SLOTS:
         // backend. A bare `root.setFavourite()` or a local assignment here
         // would be an optimistic apply.
         QVERIFY(block.contains(QStringLiteral(
-            "onTriggered: root.setFavourite(model.isFavourite !== true)")));
-        // An ASSIGNMENT only — `model.isFavourite ===` is the read above
-        // and must not trip this.
+            "onTriggered: root.setFavourite(!root.isFavourite)")));
+        // An ASSIGNMENT only — `root.isFavourite ?` is the read above and
+        // must not trip this.
         QVERIFY(!block.contains(
-            QRegularExpression(QStringLiteral("model\\.isFavourite\\s*=(?!=)"))));
+            QRegularExpression(QStringLiteral("root\\.isFavourite\\s*=(?!=)"))));
         QVERIFY(delegate.contains(QStringLiteral("signal setFavourite(bool on)")));
     }
 
@@ -224,14 +229,14 @@ private Q_SLOTS:
         // opening also re-polls the server rule (a guarded no-op on
         // backends without server push-rule support).
         QVERIFY(block.contains(QStringLiteral(
-            "currentMode = app.settings.roomNotificationMode(model.roomId)")));
+            "currentMode = app.settings.roomNotificationMode(root.roomId)")));
         const int aboutToShow =
             block.indexOf(QStringLiteral("onAboutToShow: {"));
         QVERIFY(aboutToShow >= 0);
         const QString showBlock = block.mid(aboutToShow, 500);
         QVERIFY(showBlock.contains(QStringLiteral("refreshMode()")));
         QVERIFY(showBlock.contains(QStringLiteral(
-            "app.requestRoomNotificationMode(model.roomId)")));
+            "app.requestRoomNotificationMode(root.roomId)")));
         QVERIFY(block.contains(QStringLiteral(
             "function onRoomNotificationModeChanged(roomId) {")));
         // FOUR radio rows since v0.7, each a pure binding — never an
@@ -326,7 +331,7 @@ private Q_SLOTS:
         // controller tracks, re-queried through each surface's refresh.
         QVERIFY(block.contains(QStringLiteral("notificationsFlyout.syncFailed")));
         QVERIFY(block.contains(QStringLiteral(
-            "app.roomNotificationModeSyncFailed(model.roomId)")));
+            "app.roomNotificationModeSyncFailed(root.roomId)")));
         QVERIFY(roomInfo.contains(QStringLiteral("notificationModeCombo.syncFailed")));
         QVERIFY(roomInfo.contains(QStringLiteral(
             "app.roomNotificationModeSyncFailed(")));
@@ -399,7 +404,8 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("activeFocusOnTab: true")));
         const int keysStart = delegate.indexOf(QStringLiteral("Keys.onPressed: (event) => {"));
         QVERIFY(keysStart >= 0);
-        const int keysEnd = delegate.indexOf(QStringLiteral("id: roomMenu"), keysStart);
+        const int keysEnd =
+            delegate.indexOf(QStringLiteral("RoomActionsMenu {"), keysStart);
         QVERIFY(keysEnd > keysStart);
         const QString keysBlock = delegate.mid(keysStart, keysEnd - keysStart);
         QVERIFY(keysBlock.contains(QStringLiteral("model.membership === \"joined\"")));
