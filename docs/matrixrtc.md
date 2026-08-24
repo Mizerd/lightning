@@ -427,6 +427,223 @@ sticky event at all.
   that order: a redundant no-op retraction is harmless, a window with
   neither is not.
 
+## LiveKit wire facts that each cost a working call
+
+Every one of these was read out of the reference (livekit-client 2.22.0 and
+the LiveKit server's own `pkg/rtc`), and every one was wrong here first. They
+are listed together because they share a failure mode: the call CONNECTS, the
+UI says it is fine, and no media is usable.
+
+* **`ParticipantUpdate` is a DELTA, not the room.** It names only the
+  participants whose state changed, including ourselves. Assigning it over
+  the participant list erases everyone it does not mention — so publishing
+  our own audio produced an update about us that deleted the person we were
+  talking to, and their next update deleted us. That is a permanent "1 person
+  in call", and it takes the media key with it, because a key can only be
+  installed against a participant still held. Merge by `identity`; remove on
+  `state == DISCONNECTED`. Reference: `Room.handleParticipantUpdates`.
+* **`JoinResponse.participant` is US**, and `other_participants` is everyone
+  else. Both belong in the participant list, or the local tile cannot be
+  drawn from the join and nothing can find our own track sids — which is what
+  a mute has to name.
+* **The `msid` stream id is PACKED.** The server writes
+  `PackStreamID(publisherID, trackID)` — `PA_…|TR_…`, separator `|` — for
+  every client above protocol 0 (`SupportsPackedStreamId()` is literally
+  `v > 0`). Taking the token whole yields a name matching nothing: media keys
+  are installed per participant and video sinks attached per participant, so
+  a remote participant is silent AND invisible at once. Split it, exactly as
+  `unpackStreamId()` does; a LEADING separator names no participant and must
+  resolve to empty rather than to a confident wrong id.
+* **`SessionDescription.id` is the offer correlation id, not the peer-
+  connection target.** The server seeds its own offer ids randomly
+  (`rand.Intn(1<<8)+1`) and compares an incoming answer against
+  `localOfferId`. Sending the target there matched only by accident. Echo the
+  id of the offer being answered; number our own offers with a counter.
+  Reference: `toProtoSessionDescription(offer, offerId)`.
+* **`AddTrackRequest.disable_red` must be TRUE whenever frames are
+  encrypted.** RED (RFC 2198) wraps the Opus payload, so a receiver hands its
+  frame decryptor a packet whose first byte is not the Opus TOC the format
+  leaves in the clear, and every frame fails its authentication tag.
+  livekit-client says it in one line: `disableRed: this.isE2EEEnabled || …`.
+* **A media key names a DEVICE; a frame names a sid.** Nothing orders the
+  to-device key, the SFU participant list and the MatrixRTC membership
+  against each other, so resolving the sid first and dropping the key when it
+  is not known yet loses that key permanently — nothing re-sends it. Store
+  the ring under a name derived from the key itself (the Olm-decrypted sender
+  plus the claimed device id) and BIND the sid to that ring whenever the
+  participant list makes it possible, re-running the binding on every update.
+  The binding makes the two names one shared ring rather than a redirection,
+  because a redirection strands whichever ring was created first.
+
+* **A media key is 16 OR 32 raw bytes.** element-call mints **16**
+  (`new Uint8Array(16)` in matrix-js-sdk's `RTCEncryptionManager`);
+  livekit-client's own `createE2EEKey()` mints 32. HKDF accepts either and
+  derives the same 16-byte AES-128 key. Requiring 32 meant every key an
+  Element peer sent was rejected for its LENGTH — the key arrived, was
+  discarded, and every frame from that participant dropped for want of a key,
+  so an Element user could never be heard or seen while our own media reached
+  them normally. Still a closed set: a length nobody uses must not derive
+  cleanly and light up `encryptionActive()` under material no peer can have.
+* **`rtpvp8pay` cannot payload an encrypted frame, so Lightning ships its
+  own.** GStreamer's payloader READS the VP8 bitstream to build its descriptor
+  — partition0's size from the frame tag, a keyframe's `0x9d 0x01 0x2a` start
+  code, then segmentation and loop-filter fields bool-decoded out of the
+  compressed partition (`gst_rtp_vp8_pay_parse_frame`). Frame encryption
+  leaves only 10 header bytes of a keyframe (3 of a delta) in the clear, so it
+  is handed ciphertext, fails, and posts STREAM/ENCODE "Failed to parse VP8
+  frame": a screen share publishes exactly ONE frame and stops, a camera
+  publishes none, and the far end shows a grey rectangle. libwebrtc — and so
+  Chrome and Element Call — never hits this, because `RtpPacketizerVp8` takes
+  the keyframe flag and picture id from the encoder as METADATA and never
+  reads the payload. `src/calls/RtpVp8Payloader.*` reproduces that: the
+  RFC 7741 descriptor in Chrome's aggregate form (X=0, N=0, PID=0, S=1 on the
+  first packet of a frame, marker bit on the last) and MTU fragmentation,
+  reading nothing. The DEPAYLOADER needs no equivalent — it only touches the
+  first 10 header bytes, which are cleartext by construction.
+* **The VP8 PICTURE ID is not optional in practice.** libwebrtc always emits
+  one, and LiveKit's SFU **rewrites** the descriptor when it forwards —
+  `pkg/sfu/codecmunger/vp8.go` unwraps `vp8.PictureID`, munges it, and
+  marshals a new header whose size it computes from that field. Handed packets
+  with `X=0` and no picture id, its idea of the header no longer matches the
+  sender's and everything after the first frame is corrupted: the far end
+  renders one frame and then nothing. Lightning's payloader therefore sends
+  Chrome's shape — `X=1`, `I=1`, a 15-bit `M=1` picture id incremented once
+  per FRAME and repeated on every packet of it, `S=1` only on the first packet,
+  marker bit on the last.
+* **A received track is identified by its TRACK SID, never by a `mid`.**
+  `a=msid:PA_<participant>|TR_<track> TR_<track>` — the track sid is the half
+  after the separator, exactly as livekit-client's `extractTrackSid()` reads
+  it. The `mid` LiveKit states on a `TrackInfo` belongs to the PUBLISHER's
+  connection; the mid our subscriber transceiver is given is assigned
+  independently on ours, and the two agree only by coincidence. Keying on it
+  meant a remote screen share ARRIVED AND DECRYPTED — 500+ frames, measured —
+  with no surface waiting for it, so it was never drawn.
+* **A video track must declare its size and one explicit layer.**
+  livekit-client always sets `width`/`height` on `AddTrackRequest` (it waits on
+  `waitForDimensions()` to do it), and the proto says of `VideoLayer.quality`:
+  *"for tracks with a single layer, this should be HIGH"*. Declaring neither
+  leaves the SFU to infer the track's shape — it logs the three-layer simulcast
+  default `sdpRids ["q","h","f"]` — while we publish one untagged stream, so
+  what it forwards and what we send do not describe the same track. With them
+  declared the SFU records a single `{quality: HIGH, width, height, ssrc}`
+  layer, which is what Chrome produces.
+* **A desktop capture is VARIABLE RATE, and the encoder must not inherit that.**
+  Measured straight off the portal on KDE/Wayland:
+  `video/x-raw, format=BGRA, width=3840, height=2160, framerate=(fraction)0/1,
+  max-framerate=(fraction)59/1` — PipeWire delivers a buffer when the screen
+  CHANGES, not on a clock, and the source is the full 4K panel. The publish
+  caps used a framerate RANGE `[0/1,30/1]`, so 0/1 negotiated all the way
+  through: `videorate` had no target to convert to and `vp8enc` no rate to
+  plan its bitrate against. Every WebRTC sender encodes at a steady cadence
+  and every receiver's jitter buffer expects one. The framerate is now FIXED
+  (`30/1`), which is what videorate is for — it turns the on-damage source
+  into an even stream, repeating the last picture while the screen is still.
+  The SIZE stays a range, because those are ceilings and videoscale keeps the
+  display aspect ratio. Note also: no `memory:DMABuf` feature appears, so the
+  usual DMA-BUF stall is NOT what happens here.
+* **The screen capture can deliver ONE frame and stop, and it is not the pool
+  size.** Measured as `capture delivered frames count= 1` with no second
+  report, while `videorate` repeated that frame into two thousand encoded ones
+  — so every counter downstream looked healthy and both ends showed the screen
+  frozen at the instant the portal picker closed. It is a RACE: another run of
+  the same build reached hundreds of frames. pipewiresrc's `min-buffers`
+  (default 1) was the obvious suspect, because this pipeline holds several
+  buffers downstream; raising it to 8 was tried and made things STRICTLY WORSE
+  — not one frame arrived. So the pool size is refuted, and the cause is still
+  open. `capture negotiated caps=` is logged once per share for the next
+  attempt: a `memory:DMABuf` feature there is the other classic reason a
+  PipeWire capture stalls silently.
+* **`videorate` masks a dead capture.** It repeats the last picture to hold
+  the output rate, so a screen capture that stalls still produces a full-rate
+  stream of identical frames: every counter downstream — encoded, encrypted,
+  sent — looks healthy while both ends show one frozen image. The capture's own
+  buffers are therefore counted separately (`capture delivered frames count=`),
+  and the capture queue is `leaky=downstream` so a software encoder falling
+  behind at 1080p drops frames instead of reaching back and stalling the
+  PipeWire source.
+* **The local camera needs a self-view tee.** Our own camera is published,
+  never received, so without one there is no local camera video anywhere and
+  a local tile can only show an avatar while the capture light is on. The
+  screen share already had this; both now route under `local:camera` /
+  `local:screen`.
+
+## The 2026-08-24/25 interop round: what was tried, and what actually worked
+
+Calls went from "connects and carries nothing" to audio, camera and screen
+share working in both directions against Element. It took a long chain of
+separate defects, and roughly as many refuted theories. Both halves are
+recorded, because the refuted ones are expensive to re-derive.
+
+### What was actually wrong (in the order it was found)
+
+| # | Defect | How it presented |
+|---|---|---|
+| 1 | `ParticipantUpdate` treated as the whole room, not a delta | permanent "1 person in call"; publishing our own audio deleted the peer |
+| 2 | `JoinResponse.participant` (ourselves) dropped from the list | no local tile; mute could not find its own track sid |
+| 3 | msid stream id taken whole, not unpacked at `\|` | remote peer silent AND invisible: keys and sinks keyed on a name matching nothing |
+| 4 | Media key dropped when the sid was not yet known | that sender stayed undecryptable for the whole call; nothing re-sends a key |
+| 5 | `SessionDescription.id` carried the target, not the offer id | answers never matched the server's offer |
+| 6 | RED left enabled on encrypted tracks | RED wraps Opus, so the frame decryptor never sees the TOC byte |
+| 7 | Call stage never replaced the timeline (both `fillHeight`) | the call UI squashed into a strip, message rows under the dock |
+| 8 | Media keys addressed by membership alone | went to devices with a lingering membership rather than those in the call |
+| 9 | `get_device` is a store lookup that fetches nothing | `no_devices`; falls back to a real `/keys/query` now |
+| 10 | **Media key length required exactly 32 bytes** | element-call mints **16**; every key Element sent was rejected for its LENGTH — could never hear them |
+| 11 | Received tracks attributed by a pad-name index | LiveKit's subscriber offer has a data channel in section 0, so `src_0` read the wrong section: frames decrypted into an empty ring |
+| 12 | **`rtpvp8pay` parses the VP8 bitstream** | cannot payload an encrypted frame; share published exactly one frame then STREAM/ENCODE. Replaced by `RtpVp8Payloader` |
+| 13 | Video track declared with no size and no layer | the SFU inferred three-layer simulcast for a single untagged stream |
+| 14 | Local camera had no self-view tee | capture light on, tile showing an avatar |
+| 15 | Portal request could wedge `m_busy` forever | "sometimes it won't let me share" |
+| 16 | **Publish caps allowed `framerate=(fraction)[0/1,30/1]`** | a desktop capture negotiates `0/1`, which propagated to `vp8enc`; fixed at `30/1` — this is what finally made Element render |
+
+### Theories that were tested and REFUTED — do not re-propose
+
+* **The frame crypto is wrong.** It is not. An independent implementation of
+  LiveKit's format (WebCrypto, transcribed from `livekit-client`) decrypts our
+  audio, VP8 keyframes AND VP8 delta frames byte-for-byte.
+* **RTP timestamps stall.** They advance per frame and are identical across a
+  frame's packets.
+* **The keyframe/delta flag disagrees with the bitstream.** It agrees on every
+  frame, so both ends pick the same cleartext header length.
+* **Keyframe requests (PLI) never reach the encoder.** They do, through our
+  own payloader.
+* **Our packetization is malformed.** Every frame survives strict
+  libwebrtc-style reassembly, and an independent pion subscriber
+  (`livekit-cli`) receives camera *and* screen share at ~1.1 Mbps, 0% loss.
+* **The `encryption` sliding-sync connection never starts.** It does. That
+  reading came from a harness that never synced.
+* **The capture stalls because pipewiresrc's pool is one buffer.** Raising
+  `min-buffers` made it strictly WORSE — no frame at all. Reverted and pinned.
+* **DMA-BUF.** The negotiated caps carry no `memory:DMABuf` feature.
+
+### Harness traps that produced false findings
+
+Every one of these produced a confident wrong conclusion at least once:
+
+* `startSync()` returns silently unless the session is logged in, and restore
+  is ASYNCHRONOUS — a harness that calls it too early never syncs while still
+  sending, reading state and connecting to the SFU.
+* Publishing a screen share before the call reaches `Connected` reaches
+  `ensurePeer()` with an inactive engine: it returns `true` and puts no track
+  on the wire.
+* Sampling the SFU before the share starts shows a call with no screen share
+  and looks exactly like a forwarding failure.
+* Test-source mode used to end video receive in a `fakesink`, so the whole
+  route-to-a-surface path was exercised only on a real desktop.
+* `videorate` repeats the last picture, so a DEAD capture still produces
+  full-rate encoded frames and healthy-looking counters everywhere downstream.
+
+### The diagnostics that made it findable
+
+Counters and one-line facts, never content. `capture delivered frames count=`
+(before videorate) against `frames encrypted` is the single most valuable
+pair: in step means healthy, diverging means a dead capture being repeated.
+Then `capture negotiated caps=`, `received track attributed=`, `media key
+sent/received`, `video frames decrypted but NOT rendered`, and the peer
+connection's ICE/DTLS transitions.
+
+`tests/CallLiveDiagnostic.cpp` drives a real call against a real homeserver
+and SFU, headless, and SKIPS unless `LIGHTNING_LIVE_*` is set.
+
 ## Media: `SfuMediaEngine`
 
 A separate class from the 1:1 `GstCallMediaBackend`, because LiveKit differs

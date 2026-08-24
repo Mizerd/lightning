@@ -1403,6 +1403,54 @@ their index explicitly.
 
 Lessons only; features are described in §7, SHAs point into `git log`.
 
+**2026-08-24/25 MatrixRTC interop round — calls carry media at last.**
+Audio, camera and screen share now work in both directions against Element,
+live-validated. Sixteen separate defects; the full table, the REFUTED
+theories and the harness traps are in `docs/matrixrtc.md` ("what was tried,
+and what actually worked") and must be read before touching this lane again.
+The load-bearing lessons:
+
+*A counter downstream of `videorate` cannot tell you the capture is alive.*
+`videorate` repeats the last picture to hold the output rate, so a DEAD
+screen capture still produces full-rate encoded, encrypted and sent frames —
+every counter healthy, both ends frozen on one image. Count the capture's own
+buffers, before it. This masked the real fault for several rounds.
+
+*A desktop capture is VARIABLE RATE.* PipeWire negotiates
+`framerate=(fraction)0/1` (delivery on damage, not on a clock) and the panel's
+native size — measured 3840x2160 BGRA. A publish caps framerate RANGE
+including `0/1` propagates that to `vp8enc`, which then has no rate to plan
+against. Fixing the framerate at `30/1` is what finally made Element render;
+sizes stay ranges because they are ceilings.
+
+*`rtpvp8pay` parses the VP8 bitstream and therefore cannot payload an
+encrypted frame.* It reads partition0's size, a keyframe's `0x9d 01 2a` start
+code, then bool-decodes segmentation fields out of the compressed partition.
+libwebrtc's packetizer takes that from the encoder as METADATA and never
+reads the payload. Hence `src/calls/RtpVp8Payloader.*` — descriptor plus MTU
+fragmentation, reading nothing.
+
+*element-call mints a 16-byte media key*, livekit-client 32. Requiring 32
+rejected every key Element ever sent, for its LENGTH, so an Element peer
+could never be heard — while our own media reached them normally.
+
+*Identify a received track by its TRACK SID from the msid, never by a `mid`.*
+A `TrackInfo.mid` belongs to the PUBLISHER's connection; our subscriber
+transceiver's mid is assigned independently.
+
+*Verify against something that is not Lightning.* Two Lightning clients agree
+on streams a libwebrtc receiver rejects. `livekit-cli` (pion) as a subscriber,
+and an independent implementation of LiveKit's frame crypto, each refuted a
+confident wrong theory. `tests/CallLiveDiagnostic.cpp` drives a real call
+headlessly and SKIPs without `LIGHTNING_LIVE_*`.
+
+*Harness bugs produced false findings repeatedly* — `startSync()` returns
+silently before login completes, publishing before `Connected` puts no track
+on the wire, sampling the SFU before a share starts looks like a forwarding
+failure. Suspect the harness first when a measurement indicts something
+distant. One guess (`min-buffers=8`) was shipped without measurement, made
+things strictly worse, and is now pinned against by a test.
+
 **2026-08-23 disk + test audit.**
 
 *`QAbstractSocket::waitForReadyRead()` cannot work against a server on
