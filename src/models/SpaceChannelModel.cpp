@@ -1,5 +1,7 @@
 #include "models/SpaceChannelModel.h"
 
+#include <QScopeGuard>
+
 #include <QVariantMap>
 
 #include "models/RoomListModel.h"
@@ -275,6 +277,24 @@ int SpaceChannelModel::rowForRoom(const QString &roomId) const
     return -1;
 }
 
+QSet<QString> SpaceChannelModel::favouriteRoomIds() const
+{
+    QSet<QString> out;
+    if (!m_rooms)
+        return out;
+    const int total = m_rooms->rowCount();
+    for (int i = 0; i < total; ++i) {
+        const QModelIndex index = m_rooms->index(i, 0);
+        if (!m_rooms->data(index, RoomListModel::IsFavouriteRole).toBool())
+            continue;
+        const QString id =
+            m_rooms->data(index, RoomListModel::RoomIdRole).toString();
+        if (!id.isEmpty())
+            out.insert(id);
+    }
+    return out;
+}
+
 void SpaceChannelModel::appendChannels(const QString &parentId, int depth,
                                        bool append, int *unread,
                                        int *highlight)
@@ -315,14 +335,14 @@ void SpaceChannelModel::appendChannels(const QString &parentId, int depth,
         row.identityColorKey =
             child.value(QStringLiteral("identityColorKey")).toString();
         row.isDirect = child.value(QStringLiteral("isDirect")).toBool();
-        // Asked of the room list, because the Space hierarchy does not carry
-        // account tags. Only the row's MENU reads it (so its toggle offers
+        // From the set the rebuild collected, not a per-row scan of every
+        // joined room. Only the row's MENU reads this (so its toggle offers
         // the current state instead of a blind "Add"); a channel row draws no
         // star, and a favourited channel is deliberately still listed in its
         // Space — the hierarchy is the Space's structure, and hiding a room
         // from it because the user starred it would make the Space look
         // incomplete.
-        row.favourite = m_rooms && m_rooms->isRoomFavourite(row.roomId);
+        row.favourite = m_favouriteIds.contains(row.roomId);
         row.encrypted = child.value(QStringLiteral("encrypted")).toBool();
         row.unread = rowUnread;
         row.highlight = rowHighlight;
@@ -335,6 +355,10 @@ void SpaceChannelModel::rebuild()
 {
     beginResetModel();
     m_rows.clear();
+    // One pass for the whole rebuild, then cleared: holding it between
+    // rebuilds would let a row report a tag the account no longer has.
+    m_favouriteIds = favouriteRoomIds();
+    const auto clearFavourites = qScopeGuard([this] { m_favouriteIds.clear(); });
     if (!m_spaces || m_spaceId.isEmpty()) {
         endResetModel();
         Q_EMIT countChanged();

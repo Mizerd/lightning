@@ -39,6 +39,15 @@ RowLayout {
     // at less than half the available width. A RowLayout's implicitWidth is
     // the sum of the children's IMPLICIT widths and stays put, which is why
     // `overflowing` below can read it safely.
+    //
+    // The trailing filler is NOT decoration. A RowLayout given more width
+    // than it needs SPREADS its children across it — as gaps, even when no
+    // child can grow — where a Row leaves them packed at the start. Measured:
+    // four chips in a 536px row landed at x = 0, 75, 221, 367 instead of
+    // 0, 28, 81, 134. Every host that hands this control a fillWidth cell got
+    // that, which is how the room-list chips ended up strewn across the
+    // column. One filler that soaks up the surplus restores Row's packing in
+    // every host, and it contributes nothing to the implicit width.
     property bool fitWidth: false
     readonly property real segmentSpacing: 2
     readonly property bool overflowing:
@@ -183,5 +192,13 @@ RowLayout {
                 visible: segment.visualFocus
             }
         }
+    }
+
+    // See the fitWidth note: this exists so surplus width becomes trailing
+    // space instead of gaps between the segments.
+    Item {
+        Layout.fillWidth: true
+        implicitWidth: 0
+        implicitHeight: 0
     }
 }

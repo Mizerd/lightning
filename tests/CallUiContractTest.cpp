@@ -455,10 +455,19 @@ private Q_SLOTS:
         QVERIFY2(!stage.contains(QStringLiteral("CallControlBar {")),
                  "the call stage instantiates a control bar again");
 
+        // The stage's dock is the SAME component in another placement, not a
+        // second control bar — that distinction is the whole lesson here. And
+        // the header instance stands down while the stage is showing, so the
+        // controls are never drawn twice.
+        QVERIFY(stage.contains(QStringLiteral("CallHeaderBar {")));
+        QVERIFY(stage.contains(QStringLiteral("placement: \"dock\"")));
+
         // ...and the header owns the full set.
         const QString header =
             read(QStringLiteral(QML_DIR "/CallHeaderBar.qml"));
         QVERIFY(!header.isEmpty());
+        QVERIFY(header.contains(QStringLiteral("stageOwnsControls")));
+        QVERIFY(header.contains(QStringLiteral("root.dock || !root.stageOwnsControls")));
         for (const QString &button : { QStringLiteral("callBarMicButton"),
                                        QStringLiteral("callBarDeafenButton"),
                                        QStringLiteral("callBarCameraButton"),
@@ -558,6 +567,25 @@ private Q_SLOTS:
         QVERIFY2(!source.contains(QStringLiteral(
                      "for (int i = m_publishedTrackIds.size() - 1")),
                  "a track is still stopped by taking the last published one");
+    }
+
+    // A voice call is circular avatars on the canvas, not a grid of empty
+    // bordered panels — the shape the maintainer asked for, with a reference
+    // screenshot. A tile only becomes a panel when it has video to hold.
+    void aVoiceOnlyCallDrawsAvatarsNotPanels()
+    {
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        const QString tile =
+            read(QStringLiteral(QML_DIR "/CallParticipantTile.qml"));
+        QVERIFY(!stage.isEmpty());
+        QVERIFY(!tile.isEmpty());
+        QVERIFY(stage.contains(QStringLiteral("readonly property bool voiceOnly")));
+        QVERIFY(stage.contains(QStringLiteral("bare: root.voiceOnly")));
+        QVERIFY(tile.contains(QStringLiteral("property bool bare")));
+        // Selection and keyboard focus still draw: those are states the user
+        // caused and must be able to see.
+        QVERIFY(tile.contains(QStringLiteral("readonly property bool _drawsCard")));
+        QVERIFY(tile.contains(QStringLiteral("root.focused || root.activeFocus")));
     }
 
     void theJoinButtonActuallyJoins()

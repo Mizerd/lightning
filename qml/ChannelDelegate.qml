@@ -197,32 +197,52 @@ ItemDelegate {
     // Right-click and the Menu key, matching the Classic row. Without this
     // the whole action set — favourite, mark read/unread, notification mode,
     // copy link, leave — was unreachable in this layout.
+    //
+    // Behind a Loader, and that is a PERFORMANCE contract, not tidiness. The
+    // menu is a Popup with a submenu and ten items; declaring it inline built
+    // all of that for EVERY row, and a channel row is 32px so a screen holds
+    // three times as many rows as the Classic list plus a cache buffer. The
+    // first version of this shipped the menu inline and switching the filter
+    // — which resets the model and rebuilds every delegate — went from
+    // instant to visibly laggy. The menu is created by the first right-click
+    // on the row and kept after that.
+    function openContextMenu() {
+        if (root.roomId.length === 0)
+            return;
+        menuLoader.active = true;
+        if (menuLoader.item)
+            menuLoader.item.popup();
+    }
     TapHandler {
         acceptedButtons: Qt.RightButton
         enabled: root.roomId.length > 0
-        onTapped: channelMenu.popup()
+        onTapped: root.openContextMenu()
     }
     Keys.onPressed: event => {
         if (root.roomId.length > 0
             && (event.key === Qt.Key_Menu
                 || (event.key === Qt.Key_F10
                     && (event.modifiers & Qt.ShiftModifier)))) {
-            channelMenu.popup();
+            root.openContextMenu();
             event.accepted = true;
         }
     }
-    RoomActionsMenu {
-        id: channelMenu
-        objectName: "channelContextMenu"
-        roomId: root.roomId
-        roomName: root.channelName
-        isDirect: root.isDirect
-        isFavourite: root.isFavourite
-        onMarkRead: root.markRead()
-        onMarkUnread: root.markUnread()
-        onSetFavourite: on => root.setFavourite(on)
-        onSetNotificationMode: mode => root.setNotificationMode(mode)
-        onCopyRoomLink: root.copyRoomLink()
-        onLeaveRoomRequested: root.leaveRoomRequested()
+    Loader {
+        id: menuLoader
+        objectName: "channelContextMenuLoader"
+        active: false
+        sourceComponent: RoomActionsMenu {
+            objectName: "channelContextMenu"
+            roomId: root.roomId
+            roomName: root.channelName
+            isDirect: root.isDirect
+            isFavourite: root.isFavourite
+            onMarkRead: root.markRead()
+            onMarkUnread: root.markUnread()
+            onSetFavourite: on => root.setFavourite(on)
+            onSetNotificationMode: mode => root.setNotificationMode(mode)
+            onCopyRoomLink: root.copyRoomLink()
+            onLeaveRoomRequested: root.leaveRoomRequested()
+        }
     }
 }

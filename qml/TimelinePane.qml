@@ -910,7 +910,12 @@ Rectangle {
             active: app.groupCall.active
                     && app.groupCall.roomId === app.currentRoomId
             visible: active
-            sourceComponent: CallStage {}
+            sourceComponent: CallStage {
+                // The dock's participants button reaches the room's existing
+                // side panel, exactly as the header bar's does — one list,
+                // not a second one belonging to the stage.
+                onParticipantsRequested: root.infoOpen = !root.infoOpen
+            }
         }
 
         // 2026-08-23 MatrixRTC — "N people in call".

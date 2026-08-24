@@ -128,9 +128,15 @@ void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
                 // The fd is OURS now (the portal duplicated it for us), so
                 // every path out of here closes it — including the refusals,
                 // or a declined share leaks a descriptor per attempt.
+                qCInfo(lcSfuCall) << "screen share portal ready node="
+                                  << nodeId << "remote_fd="
+                                  << (pipewireFd >= 0);
                 if (!active()
                     || !startScreenShare(static_cast<int>(nodeId),
                                          pipewireFd)) {
+                    qCWarning(lcSfuCall)
+                        << "screen share refused after portal grant active="
+                        << active();
                     if (pipewireFd >= 0)
                         ::close(pipewireFd);
                 }
@@ -141,6 +147,8 @@ void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
     });
     connect(m_portal, &ScreenCastPortal::failed, this,
             [this](const QString &category) {
+                qCWarning(lcSfuCall) << "screen share portal failed category="
+                                     << category;
                 Q_EMIT callFailed(category == QLatin1String("no_portal")
                                       ? tr("Screen sharing isn't available on "
                                            "this desktop.")
@@ -154,10 +162,13 @@ void SfuCallController::requestScreenShare()
     if (!active() || m_engine.isNull())
         return;
     if (m_portal.isNull() || !ScreenCastPortal::available()) {
+        qCWarning(lcSfuCall) << "screen share unavailable portal="
+                             << !m_portal.isNull();
         Q_EMIT callFailed(
             tr("Screen sharing isn't available on this desktop."));
         return;
     }
+    qCInfo(lcSfuCall) << "screen share requested";
     // Monitors and windows. Virtual sources are deliberately not offered:
     // they exist for remote-desktop use and would confuse the picker here.
     m_portal->requestShare(ScreenCastPortal::Monitor
@@ -457,6 +468,11 @@ void SfuCallController::onSfuParticipants(const QVariantList &participants)
     // means someone keeps a key they should not have.
     if (m_participants.size() != before)
         rotateAndDistributeKey();
+    // The track sid arrives with this update, so a mute the user made before
+    // the SFU announced the track is applied here — and a state that drifted
+    // for any other reason is corrected on the next update rather than
+    // staying wrong for the rest of the call.
+    syncMicMuteToSfu();
 }
 
 void SfuCallController::onSfuSpeakers(const QVariantList &speakers)
@@ -870,6 +886,12 @@ void SfuCallController::applyAudioState()
         return;
     m_engine->setMicrophoneMuted(m_micMuted);
     m_engine->setOutputMuted(m_deafened);
+    // Local muting stops packets; it does not tell anyone. Other clients read
+    // the mute state off the TRACK, so without this the mic icon in Element
+    // never moved — and a mute the SFU inferred from silence stayed set after
+    // we started sending again, which is the reported "I unmute and remain
+    // muted in Element".
+    syncMicMuteToSfu();
 #endif
 }
 
@@ -954,6 +976,8 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd)
     if (m_screenSharing)
         stopScreenShare();
     const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    qCInfo(lcSfuCall) << "screen share publishing node=" << pipewireNodeId
+                      << "encrypted=" << m_roomEncrypted;
     m_client->sfuAddTrack(cid, QStringLiteral("screen"), 1, true,
                           m_roomEncrypted);
     m_engine->publishVideo(cid, /*screenShare=*/true, pipewireNodeId,
@@ -981,6 +1005,50 @@ void SfuCallController::stopScreenShare()
     if (m_portal)
         m_portal->cancel();
     Q_EMIT mediaStateChanged();
+#endif
+}
+
+QVariantMap SfuCallController::ownParticipantRow() const
+{
+    for (const QVariant &row : m_participants) {
+        const QVariantMap participant = row.toMap();
+        if (participant.value(QStringLiteral("identity")).toString()
+            == m_ownIdentity) {
+            return participant;
+        }
+    }
+    return {};
+}
+
+void SfuCallController::syncMicMuteToSfu()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_client || !active())
+        return;
+    // The SERVER's track sid, never our client-chosen cid: MuteTrackRequest
+    // names the published track as the SFU knows it.
+    const QVariantMap own = ownParticipantRow();
+    if (own.isEmpty())
+        return;
+    for (const QVariant &t : own.value(QStringLiteral("tracks")).toList()) {
+        const QVariantMap track = t.toMap();
+        if (track.value(QStringLiteral("source")).toString()
+            != QLatin1String("microphone")) {
+            continue;
+        }
+        const QString sid = track.value(QStringLiteral("sid")).toString();
+        if (sid.isEmpty())
+            return;
+        // Only when the server's answer differs from ours. Reconciling
+        // against the REPORTED state rather than remembering what we last
+        // sent is what makes this idempotent: it converges from whatever the
+        // server currently believes, including a mute it inferred itself,
+        // and it cannot loop because the request changes the reported value.
+        if (track.value(QStringLiteral("muted")).toBool() == m_micMuted)
+            return;
+        m_client->sfuMuteTrack(sid, m_micMuted);
+        return;
+    }
 #endif
 }
 

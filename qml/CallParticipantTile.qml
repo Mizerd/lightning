@@ -71,6 +71,17 @@ Item {
     property bool focused: false
     /// Compact form for the strip beside a screen share.
     property bool compact: false
+    /// Draw no card: just the avatar, its speaking ring and the name, on
+    /// whatever the stage's canvas is.
+    ///
+    /// This is what a voice call looks like in the client the maintainer
+    /// asked us to match — large circular avatars on the canvas, not a grid
+    /// of bordered panels. A tile only becomes a panel when it has video to
+    /// hold. Selection and keyboard focus still draw, because those are
+    /// states the user caused and must be able to see.
+    property bool bare: false
+    readonly property bool _drawsCard:
+        !root.bare || videoLoader.visible || root.focused || root.activeFocus
 
     signal activated()
 
@@ -81,8 +92,11 @@ Item {
         // Fit the avatar to the tile rather than to a fixed ladder, so the
         // grid stays sane from a 2-up 1:1 layout to a 12-up group.
         var box = Math.min(width, height - (compact ? 18 : 26))
-        var size = Math.round(box * 0.52)
-        return Math.max(compact ? 28 : 40, Math.min(size, 96))
+        // A bare tile has no card to sit inside, so the avatar IS the tile
+        // and takes the room a panel's padding would have used.
+        var size = Math.round(box * (root.bare && !root.compact ? 0.74 : 0.52))
+        return Math.max(compact ? 28 : 40,
+                        Math.min(size, root.bare && !root.compact ? 148 : 96))
     }
 
     // "You" for the local device, but the AVATAR and colour key still come
@@ -132,8 +146,11 @@ Item {
         id: surface
         anchors.fill: parent
         radius: AppTheme.radiusTile
-        color: root.focused ? AppTheme.selected : AppTheme.cardElevated
-        border.width: root.focused || root.activeFocus ? 2 : 1
+        color: !root._drawsCard
+               ? "transparent"
+               : (root.focused ? AppTheme.selected : AppTheme.cardElevated)
+        border.width: !root._drawsCard
+                      ? 0 : (root.focused || root.activeFocus ? 2 : 1)
         border.color: root.activeFocus
                       ? AppTheme.focusRing
                       : (root.focused ? AppTheme.accentBorder : AppTheme.borderSubtle)
@@ -235,11 +252,11 @@ Item {
 
             Rectangle {
                 anchors.centerIn: parent
-                width: parent.width + 12
-                height: parent.height + 12
+                width: parent.width + (root.bare ? 8 : 12)
+                height: parent.height + (root.bare ? 8 : 12)
                 radius: width / 2
                 color: "transparent"
-                border.width: 2
+                border.width: root.bare ? 3 : 2
                 border.color: AppTheme.success
                 opacity: root.speaking ? 1 : 0
                 scale: root.speaking ? 1 : 0.94
@@ -292,6 +309,11 @@ Item {
                     font.weight: Font.Medium
                     elide: Text.ElideRight
                     maximumLineCount: 1
+                    // Centred under the avatar on a bare tile: a name pinned
+                    // to the leading edge of a card that is not painted reads
+                    // as text floating in the canvas.
+                    horizontalAlignment: root.bare && !videoLoader.visible
+                                         ? Text.AlignHCenter : Text.AlignLeft
                 }
             }
         }

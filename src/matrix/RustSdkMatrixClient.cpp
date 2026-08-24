@@ -3964,6 +3964,15 @@ void RustSdkMatrixClient::handleRoomsEvent(const QJsonArray &rooms)
         nextRooms.insert(room.id, room);
         nextOrder.append(room.id);
     }
+    // Spaces are NOT in the SDK's room list, so a snapshot of that list does
+    // not mention them — and replacing the whole map wholesale therefore
+    // dropped the entire Space hierarchy until the next spaces event
+    // happened to arrive. Carried over instead: they are keyed separately in
+    // m_rooms and rooms() returns unordered entries after the ordered ones.
+    for (auto it = m_rooms.cbegin(); it != m_rooms.cend(); ++it) {
+        if (it->isSpace && !seen.contains(it.key()))
+            nextRooms.insert(it.key(), *it);
+    }
     m_rooms = nextRooms;
     m_roomOrder = nextOrder;
     Q_EMIT roomsChanged();
@@ -4131,7 +4140,20 @@ void RustSdkMatrixClient::handleSpacesEvent(const QJsonArray &spaces)
             if (!parentId.isEmpty()) room.parentSpaceIds.append(parentId);
         }
         m_rooms.insert(id, room);
-        if (!m_roomOrder.contains(id)) m_roomOrder.append(id);
+        // DELIBERATELY not appended to m_roomOrder. That list mirrors the
+        // SDK's own room list ONE FOR ONE, because every Set/Remove/Truncate
+        // diff addresses it BY INDEX. Appending spaces made our list longer
+        // than the SDK's, so as soon as the room list grew past the point the
+        // spaces were appended at, every index referred to a different room
+        // here than there: `Set` then landed on the wrong entry, saw an id
+        // that already existed elsewhere, and was rejected as malformed —
+        // which requested a fresh snapshot, which re-appended the spaces, and
+        // round again. That loop is the "room_list malformed diff rejected"
+        // storm in the logs, and it re-emitted the whole room list (with its
+        // avatar fetches) many times a minute.
+        //
+        // Nothing is lost by leaving them out: rooms() returns every m_rooms
+        // entry that is not in the order list, after the ordered ones.
     }
     for (auto it = m_rooms.begin(); it != m_rooms.end(); ++it) {
         if (it->isSpace && !present.contains(it.key())) {

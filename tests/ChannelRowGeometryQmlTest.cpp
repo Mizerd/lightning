@@ -218,6 +218,17 @@ private Q_SLOTS:
         })")));
         QQuickItem *row = h.item();
         QVERIFY(row);
+        // The menu is built on FIRST USE, not declared inline: it is a Popup
+        // with a submenu and ten items, and building that for every row made
+        // a filter change (which rebuilds every delegate) visibly laggy. So
+        // this drives the real entry point rather than looking for a child
+        // that should not exist yet — which also makes it a test of
+        // REACHABILITY instead of of a declaration.
+        QVERIFY2(row->findChild<QObject *>(QStringLiteral("channelContextMenu"))
+                     == nullptr,
+                 "the row builds its context menu eagerly");
+        QVERIFY(QMetaObject::invokeMethod(row, "openContextMenu"));
+        QCoreApplication::processEvents();
         QObject *menu =
             row->findChild<QObject *>(QStringLiteral("channelContextMenu"));
         QVERIFY2(menu != nullptr,

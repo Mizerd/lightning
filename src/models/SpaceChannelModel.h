@@ -163,6 +163,12 @@ private:
     };
 
     void rebuild();
+    /// The account's favourite room ids, collected ONCE per rebuild.
+    ///
+    /// RoomListModel::isRoomFavourite scans every joined room, so calling it
+    /// per channel row is a full scan per row — and rebuild() runs on every
+    /// filter change and every room-list refresh, of which there are many.
+    QSet<QString> favouriteRoomIds() const;
     /// Append one Space's direct child rooms at `depth`, accumulating their
     /// unread totals into `unread`/`highlight` for a collapsed category.
     /// `emit` false counts without appending, which is exactly what a
@@ -179,6 +185,8 @@ private:
 
     SpaceManager *m_spaces = nullptr;
     RoomListModel *m_rooms = nullptr;
+    /// Valid only for the duration of one rebuild(). See favouriteRoomIds().
+    QSet<QString> m_favouriteIds;
     int m_filterMode = 0;
     QString m_spaceId;
     QVector<Row> m_rows;

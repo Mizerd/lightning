@@ -431,6 +431,62 @@ private slots:
         QVERIFY(host.contains(QStringLiteral("app.settings.roomFilterMode = value")));
     }
 
+    // The room-list ORDER mirrors the SDK's own room list one for one,
+    // because every Set/Remove/Truncate diff addresses it BY INDEX.
+    //
+    // This is a performance invariant with a nasty failure mode, and it was
+    // broken: the spaces handler appended Space ids to the same list. As soon
+    // as the room list grew past the point they were appended at, the SDK's
+    // index i named a different room here than there — Set landed on the
+    // wrong entry, saw an id that already existed, and was rejected as
+    // malformed. Rejection asks Rust for a fresh snapshot, which re-appends
+    // the spaces, which collides again: a loop that re-emitted the whole room
+    // list, with its avatar fetches, many times a minute. It showed up as
+    // "room_list malformed diff rejected" filling the log while account
+    // switching, message sending and the room list itself all went slow.
+    //
+    // A source scan because the diff handler needs the Rust FFI to
+    // instantiate; the assertion is exactly the line that caused it.
+    void theRoomOrderMirrorsTheSdkRoomListAndNothingElse()
+    {
+        QFile file(QStringLiteral(SRC_DIR "/matrix/RustSdkMatrixClient.cpp"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString source = QString::fromUtf8(file.readAll());
+        QVERIFY(!source.isEmpty());
+
+        const int spaces =
+            source.indexOf(QStringLiteral("void RustSdkMatrixClient::handleSpacesEvent"));
+        QVERIFY(spaces > 0);
+        const int nextFunction =
+            source.indexOf(QStringLiteral("\nvoid RustSdkMatrixClient::"),
+                           spaces + 10);
+        const QString body = source.mid(
+            spaces, (nextFunction > spaces ? nextFunction : source.size()) - spaces);
+        QVERIFY(!body.isEmpty());
+        QVERIFY2(!body.contains(QStringLiteral("m_roomOrder.append")),
+                 "handleSpacesEvent appends to the ordered room list again — "
+                 "every SDK diff index after that point addresses the wrong "
+                 "room, and each rejection triggers a full resync");
+        QVERIFY2(!body.contains(QStringLiteral("m_roomOrder.insert")),
+                 "handleSpacesEvent inserts into the ordered room list");
+
+        // The other half: a snapshot of the SDK's list must not delete the
+        // spaces, which are not in it.
+        const int snapshot =
+            source.indexOf(QStringLiteral("void RustSdkMatrixClient::handleRoomsEvent"));
+        QVERIFY(snapshot > 0);
+        const int afterSnapshot =
+            source.indexOf(QStringLiteral("\nRoomInfo RustSdkMatrixClient::"),
+                           snapshot);
+        const QString snapBody = source.mid(
+            snapshot,
+            (afterSnapshot > snapshot ? afterSnapshot : source.size()) - snapshot);
+        QVERIFY2(snapBody.contains(QStringLiteral("isSpace")),
+                 "a room-list snapshot replaces the whole room map without "
+                 "carrying the Spaces over, so the hierarchy disappears until "
+                 "the next spaces event");
+    }
+
     void theChannelsPresenterDrawsNoSecondGrouping()
     {
         // The MODEL is already ordered and grouped by the hierarchy. A

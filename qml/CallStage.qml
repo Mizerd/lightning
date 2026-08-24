@@ -19,6 +19,11 @@ Rectangle {
     objectName: "callStage"
     color: AppTheme.stormCanvas
 
+    /// The participant list was asked for from the dock. The host (the
+    /// timeline pane) decides where it opens — the stage has no side panel of
+    /// its own to put it in.
+    signal participantsRequested()
+
     /// Manually spotlighted participant identity; empty follows the
     /// automatic layout.
     property string focusedIdentity: ""
@@ -37,6 +42,18 @@ Rectangle {
     readonly property int peopleCount: {
         var _ = root.refreshTick;
         return app.groupCall.participantCount;
+    }
+    /// True when nothing in this call is sending video at all — the ordinary
+    /// voice call, which is drawn as circular avatars on the canvas rather
+    /// than a grid of empty panels.
+    readonly property bool voiceOnly: {
+        var _ = root.refreshTick;
+        for (var i = 0; i < people.length; ++i) {
+            if (people[i].screenSharing
+                || (people[i].cameraKnown && people[i].cameraOn))
+                return false;
+        }
+        return true;
     }
     readonly property bool someoneSharing: {
         var _ = root.refreshTick;
@@ -225,6 +242,7 @@ Rectangle {
                             local: parent.modelData.local
                             cameraTrackKey: parent.modelData.cameraTrackKey || ""
                             screenTrackKey: parent.modelData.screenTrackKey || ""
+                            bare: root.voiceOnly
                             onActivated: root.focusedIdentity = parent.modelData.identity
                         }
                     }
@@ -353,16 +371,23 @@ Rectangle {
             }
         }
 
-        // NO control bar here.
+        // The control dock: ONE control surface, at the bottom of the stage,
+        // where a call client puts it.
         //
-        // Every call control lives in CallHeaderBar at the top of the
-        // conversation, which is what was asked for. This stage used to
-        // carry its own bar; once the media controls moved up, what was left
-        // were two orphan buttons (raise hand, participants) floating under
-        // the call UI, reported as exactly that. They are in the header now.
-        //
-        // The layout toggle went with them: a control that changes how the
-        // stage looks is still a call control, and splitting them across two
-        // surfaces is what caused this.
+        // It is the SAME component as the header bar, in its "dock"
+        // placement — not a second control bar. That distinction is the whole
+        // lesson of this surface: the stage used to carry a partial bar of
+        // its own, and when the media controls moved to the header what was
+        // left were two orphan buttons floating under the call UI. There is
+        // one definition of the control set; the header instance hides itself
+        // while this stage is showing (CallHeaderBar.stageOwnsControls), so
+        // the controls are never drawn twice.
+        CallHeaderBar {
+            objectName: "callStageDock"
+            placement: "dock"
+            Layout.fillWidth: true
+            Layout.topMargin: AppTheme.spacing4
+            onParticipantsRequested: root.participantsRequested()
+        }
     }
 }

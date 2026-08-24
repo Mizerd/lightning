@@ -249,6 +249,12 @@ private:
     /// Unpublish `cid` and clear it. Takes the member by reference so the
     /// slot cannot be left naming a track that no longer exists.
     void unpublishTrack(QString &cid);
+    /// Our own row in the SFU participant list, or an empty map.
+    QVariantMap ownParticipantRow() const;
+    /// Tell the SFU whether our microphone track is muted, so every other
+    /// client's mic indicator matches ours. Idempotent: it compares against
+    /// the state the server currently reports and sends only on a difference.
+    void syncMicMuteToSfu();
     QString userFacingError(const QString &category) const;
 
     QPointer<MatrixClient> m_client;

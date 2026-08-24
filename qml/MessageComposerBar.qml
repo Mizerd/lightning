@@ -1342,6 +1342,59 @@ Item {
                                 event.accepted = false
                             }
                         }
+                        // Right-click editing menu.
+                        //
+                        // Ours, because the default one's Paste is TextEdit's
+                        // own — text only. A copied image carries BOTH the
+                        // bitmap and its source URL, so right-click Paste sent
+                        // the link while Ctrl+V sent the picture: the same
+                        // gesture, two different messages, reported exactly
+                        // that way. Both routes go through
+                        // Composer::pasteFromClipboard() now and fall back to
+                        // a plain text paste when there is no image.
+                        //
+                        // A MouseArea rather than a TapHandler: it CONSUMES
+                        // the right press, which is what stops the built-in
+                        // menu opening behind ours. Left presses are not
+                        // accepted, so caret placement and selection are
+                        // untouched.
+                        MouseArea {
+                            anchors.fill: parent
+                            acceptedButtons: Qt.RightButton
+                            onClicked: {
+                                input.forceActiveFocus()
+                                composerEditMenu.popup()
+                            }
+                        }
+                        AppMenu {
+                            id: composerEditMenu
+                            objectName: "composerEditMenu"
+                            menuWidth: AppTheme.menuWidthFlyout
+                            AppMenuItem {
+                                text: qsTr("Cut")
+                                enabled: input.selectedText.length > 0
+                                onTriggered: input.cut()
+                            }
+                            AppMenuItem {
+                                text: qsTr("Copy")
+                                enabled: input.selectedText.length > 0
+                                onTriggered: input.copy()
+                            }
+                            AppMenuItem {
+                                objectName: "composerPasteItem"
+                                text: qsTr("Paste")
+                                onTriggered: {
+                                    if (!app.composer.pasteFromClipboard())
+                                        input.paste()
+                                }
+                            }
+                            AppMenuSeparator {}
+                            AppMenuItem {
+                                text: qsTr("Select all")
+                                enabled: input.length > 0
+                                onTriggered: input.selectAll()
+                            }
+                        }
                         Keys.onPressed: (event) => {
                             // Clipboard images / file URLs become attachments;
                             // ordinary text pastes normally.

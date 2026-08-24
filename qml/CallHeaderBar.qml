@@ -38,6 +38,25 @@ Rectangle {
     /// fabricate call STATE — a preview shows an idle-but-visible bar.
     property bool previewMode: false
 
+    /// Where this bar is being shown: "header" (the strip under the room
+    /// header, which is also the only placement the legacy 1:1 lane has) or
+    /// "dock" (a floating pill at the bottom of the call stage, which is
+    /// where a call client's controls belong and what was asked for).
+    ///
+    /// ONE definition of the control set, two placements. A second component
+    /// for the dock would be two control bars to keep in step, and the last
+    /// time this surface was split the result was two orphan buttons under
+    /// the call UI.
+    property string placement: "header"
+    readonly property bool dock: root.placement === "dock"
+    /// True when the call STAGE for this room is on screen. The stage carries
+    /// its own dock, so the header must not draw a second copy of the same
+    /// controls directly above it.
+    readonly property bool stageOwnsControls:
+        app.groupCall.active && app.groupCall.roomId === app.currentRoomId
+    readonly property int controlDiameter: root.dock ? 48 : 40
+    readonly property int controlGlyph: root.dock ? 22 : 19
+
     // ── Which lane is live ──
     readonly property bool legacyLive:
         app.calls.state === CallController.Inviting
@@ -83,19 +102,38 @@ Rectangle {
         return qsTr("Voice call")
     }
 
-    visible: previewMode || (live && callRoomId === app.currentRoomId)
+    visible: previewMode
+             || (live && callRoomId === app.currentRoomId
+                 && (root.dock || !root.stageOwnsControls))
     implicitHeight: visible ? bar.implicitHeight + AppTheme.spacing12 * 2 : 0
     height: implicitHeight
-    color: AppTheme.stormInset
-    // A hairline underneath rather than a floating card: the bar is part of
-    // the room's chrome, continuous with the header above it.
+    // The dock floats over the stage's canvas, so it paints no field of its
+    // own — the pill behind the controls is the surface.
+    color: root.dock ? "transparent" : AppTheme.stormInset
+    // A hairline underneath rather than a floating card: the header bar is
+    // part of the room's chrome, continuous with the header above it. The
+    // dock has no edge to continue from.
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: 1
         color: AppTheme.stormBorder
-        visible: root.visible
+        visible: root.visible && !root.dock
+    }
+
+    // The dock's own surface: one rounded pill under the controls, which is
+    // what makes a floating control row read as a single object rather than
+    // a scatter of circles on the canvas.
+    Rectangle {
+        anchors.centerIn: bar
+        width: bar.implicitWidth + AppTheme.spacing16 * 2
+        height: bar.implicitHeight + AppTheme.spacing8 * 2
+        radius: height / 2
+        visible: root.dock && root.visible
+        color: AppTheme.stormPanel
+        border.width: 1
+        border.color: AppTheme.stormBorder
     }
 
     RowLayout {
@@ -104,9 +142,13 @@ Rectangle {
         spacing: AppTheme.spacing8
 
         // State, on the leading side so the controls stay optically centred.
+        // Not in the dock: the stage's own header already names the call and
+        // its state, and repeating it inside the control pill is noise.
         RowLayout {
             spacing: 6
-            Layout.rightMargin: AppTheme.spacing8
+            visible: !root.dock
+            Layout.rightMargin: root.dock ? 0 : AppTheme.spacing8
+            Layout.preferredWidth: visible ? implicitWidth : 0
             Icon {
                 name: "call"
                 size: 16
@@ -133,8 +175,8 @@ Rectangle {
                     iconName: app.groupCall.cameraOn ? "videocam"
                                                      : "videocam_off"
                     role: app.groupCall.cameraOn ? "active" : "neutral"
-                    diameter: 40
-                    glyphSize: 19
+                    diameter: root.controlDiameter
+                    glyphSize: root.controlGlyph
                     tooltip: app.groupCall.cameraOn ? qsTr("Turn off camera")
                                                     : qsTr("Turn on camera")
                     onClicked: app.groupCall.toggleCamera()
@@ -158,8 +200,8 @@ Rectangle {
                 iconName: app.groupCall.screenSharing ? "stop_screen_share"
                                                       : "screen_share"
                 role: app.groupCall.screenSharing ? "active" : "neutral"
-                diameter: 40
-                glyphSize: 19
+                diameter: root.controlDiameter
+                glyphSize: root.controlGlyph
                 tooltip: app.groupCall.screenSharing
                          ? qsTr("Stop sharing your screen")
                          : qsTr("Share your screen")
@@ -189,8 +231,8 @@ Rectangle {
                 // an unmapped glyph renders as tofu.
                 iconName: "front_hand"
                 role: app.groupCall.handRaised ? "active" : "neutral"
-                diameter: 40
-                glyphSize: 19
+                diameter: root.controlDiameter
+                glyphSize: root.controlGlyph
                 tooltip: app.groupCall.handRaised ? qsTr("Lower your hand")
                                                   : qsTr("Raise your hand")
                 onClicked: app.groupCall.toggleHandRaised()
@@ -205,8 +247,8 @@ Rectangle {
                 objectName: "callBarParticipantsButton"
                 iconName: "group"
                 role: "neutral"
-                diameter: 40
-                glyphSize: 19
+                diameter: root.controlDiameter
+                glyphSize: root.controlGlyph
                 // The count goes in the TOOLTIP: CallControlButton has no
                 // badge, and inventing one here would be a second styling
                 // path for the same control.
@@ -227,8 +269,8 @@ Rectangle {
                 // means "you are muted", as in every other call client.
                 iconName: root.micMuted ? "mic_off" : "mic"
                 role: root.micMuted ? "active" : "neutral"
-                diameter: 40
-                glyphSize: 19
+                diameter: root.controlDiameter
+                glyphSize: root.controlGlyph
                 tooltip: root.micMuted ? qsTr("Unmute microphone")
                                        : qsTr("Mute microphone")
                 enabled: root.audioControlAvailable
@@ -259,8 +301,8 @@ Rectangle {
                 objectName: "callBarDeafenButton"
                 iconName: root.deafened ? "headset_off" : "headset_mic"
                 role: root.deafened ? "active" : "neutral"
-                diameter: 40
-                glyphSize: 19
+                diameter: root.controlDiameter
+                glyphSize: root.controlGlyph
                 tooltip: root.deafened ? qsTr("Undeafen") : qsTr("Deafen")
                 enabled: root.audioControlAvailable
                 onClicked: {
@@ -293,12 +335,12 @@ Rectangle {
             objectName: "callBarHangUpButton"
             iconName: "call_end"
             role: "danger"
-            diameter: 40
+            diameter: root.controlDiameter
             // Wider than the round controls: leaving is the one irreversible
             // action on this bar and must not be a same-shaped neighbour of
             // Mute.
-            implicitWidth: 58
-            glyphSize: 19
+            implicitWidth: root.dock ? 70 : 58
+            glyphSize: root.controlGlyph
             tooltip: qsTr("Leave call")
             onClicked: {
                 if (root.groupLive)

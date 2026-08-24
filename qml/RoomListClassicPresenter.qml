@@ -22,6 +22,15 @@ import MatrixClient
 Item {
     id: root
 
+    // The column is 300px and the pane next to it is not ours to draw on.
+    // The empty state's action buttons have a real minimum width and
+    // QtQuickLayouts does not shrink a button below it, so on a narrow
+    // column the row overflowed and the buttons were painted over the
+    // timeline — reported as "buttons get overlapped" and "the UI gets under
+    // the screen". The buttons wrap now (see the Flow below); this is the
+    // backstop that makes overflow impossible rather than merely unlikely.
+    clip: true
+
     /// The room the timeline is showing.
     property string currentRoomId: ""
 
@@ -71,7 +80,17 @@ Item {
         // The delegate is opaque sidebar, so it occludes the rows it
         // floats over correctly; ListView already raises the current
         // section label above them.
-        section.labelPositioning: ViewSection.CurrentLabelAtStart
+        //
+        // InlineLabels is OR-ed in, and leaving it out was a real defect
+        // rather than a preference: labelPositioning is a FLAG SET, so
+        // CurrentLabelAtStart alone means the pinned label for the current
+        // section is the ONLY one drawn — every later section header
+        // vanished. The list then showed "Favourites" at the top, the
+        // favourites-group rule under the last starred room, and no header
+        // over the DMs and rooms below it. Reported, accurately, as "a
+        // random line under a room under favourites".
+        section.labelPositioning: ViewSection.InlineLabels
+                                  | ViewSection.CurrentLabelAtStart
         section.delegate: Rectangle {
             required property string section
             width: roomList.width
@@ -236,9 +255,18 @@ Item {
             onClicked: root.clearSearchRequested()
         }
 
-        RowLayout {
+        // A GridLayout that drops to one column, not a RowLayout: two buttons
+        // side by side need about 300px and this column can be narrower than
+        // that. A RowLayout keeps them on one line at their minimum width and
+        // lets the line run past the pane — which is how they ended up painted
+        // over the timeline. Stacking is the honest answer to "there is not
+        // enough room", and the layout still sizes to its content so
+        // AlignHCenter keeps the block centred like everything above it.
+        GridLayout {
             Layout.alignment: Qt.AlignHCenter
-            spacing: AppTheme.spacing8
+            columns: roomListEmptyState.width >= 300 ? 2 : 1
+            rowSpacing: AppTheme.spacing8
+            columnSpacing: AppTheme.spacing8
             visible: roomListEmptyState.phase === 3
             AppButton {
                 objectName: "roomListEmptyNewButton"

@@ -367,6 +367,12 @@ void ScreenCastPortal::openRemote(unsigned nodeId)
                 if (generation != m_generation)
                     return;
                 if (reply.isError() || !reply.value().isValid()) {
+                    // The D-Bus error NAME only: a portal error message can
+                    // carry a window title or a path.
+                    qCWarning(lcPortal)
+                        << "OpenPipeWireRemote failed error="
+                        << (reply.isError() ? reply.error().name()
+                                            : QStringLiteral("no_fd"));
                     cancel();
                     Q_EMIT failed(QStringLiteral("no_pipewire_remote"));
                     return;

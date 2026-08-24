@@ -437,6 +437,62 @@ void SfuMediaEngine::stop()
     Q_EMIT connectionStateChanged(QStringLiteral("closed"));
 }
 
+namespace {
+/// GStreamer bus messages from an SFU pipeline.
+///
+/// This exists because the engine used to CLEAR a sync handler it never set:
+/// every ERROR any element posted was discarded, so a capture that could not
+/// start — a screen share whose PipeWire source cannot connect, for one —
+/// looked exactly like a capture that produced no interesting frames. There
+/// was nothing in a log to read.
+///
+/// Runs on a STREAMING THREAD: it logs and hands the pipeline back, and never
+/// touches a Qt object. What is logged is the element's own name and the
+/// plugin's static error string; the `debug` field is deliberately NOT logged
+/// because it carries file paths and source locations.
+GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
+{
+    auto *engine = static_cast<SfuMediaEngine *>(userData);
+    const GstMessageType type = GST_MESSAGE_TYPE(message);
+    if (type != GST_MESSAGE_ERROR && type != GST_MESSAGE_WARNING)
+        return GST_BUS_PASS;
+
+    GError *error = nullptr;
+    gchar *debug = nullptr;
+    if (type == GST_MESSAGE_ERROR)
+        gst_message_parse_error(message, &error, &debug);
+    else
+        gst_message_parse_warning(message, &error, &debug);
+    const gchar *rawName = GST_MESSAGE_SRC_NAME(message);
+    const QString element = QString::fromUtf8(rawName ? rawName : "?");
+    const QString reason =
+        QString::fromUtf8(error && error->message ? error->message : "?");
+    if (type == GST_MESSAGE_ERROR) {
+        qCWarning(lcSfuMedia) << "pipeline error element=" << element
+                              << "code=" << (error ? error->code : 0)
+                              << "reason=" << reason;
+    } else {
+        qCInfo(lcSfuMedia) << "pipeline warning element=" << element
+                           << "code=" << (error ? error->code : 0)
+                           << "reason=" << reason;
+    }
+    if (error)
+        g_error_free(error);
+    if (debug)
+        g_free(debug);
+    // LOGGED ONLY, deliberately. Turning a bus ERROR into failed() was tried
+    // and reverted the same hour: a pipeline posts errors during ordinary
+    // teardown ("Internal data stream error" from a source whose downstream
+    // has already gone), and under load the engine's own suite saw three of
+    // them on a healthy key install. Reporting those as a call failure would
+    // tear down working calls. The purpose here is that the reason a capture
+    // produced nothing is READABLE — which it was not, because this handler
+    // did not exist and the one place that touched the bus only CLEARED it.
+    Q_UNUSED(engine);
+    return GST_BUS_PASS;
+}
+} // namespace
+
 void SfuMediaEngine::destroyPeer(Peer &peer)
 {
     if (peer.webrtc) {
@@ -466,6 +522,14 @@ bool SfuMediaEngine::ensurePeer(Target target)
     // bundle-policy=max-bundle is what LiveKit negotiates; anything else
     // produces an SDP the SFU will not accept.
     GstElement *pipeline = gst_pipeline_new(nullptr);
+    if (pipeline) {
+        // Set BEFORE anything is added: an element that fails during its own
+        // construction posts on the bus immediately.
+        if (GstBus *bus = gst_element_get_bus(pipeline)) {
+            gst_bus_set_sync_handler(bus, onBusMessage, this, nullptr);
+            gst_object_unref(bus);
+        }
+    }
     GstElement *webrtc = gst_element_factory_make("webrtcbin", "wb");
     if (!pipeline || !webrtc) {
         if (pipeline)
