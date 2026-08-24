@@ -173,17 +173,20 @@ Item {
             //
             // `local` is excluded because the engine publishes our own media
             // rather than receiving it: there is no remote stream for this
-            // device, so a self-view would be a permanently black rectangle.
-            // OUR OWN screen share is included, and it is the one local
-            // video there is: the engine tees the capture into a self-view
-            // branch, so the sharer can see that the share is carrying
-            // pixels. Nothing else about the local device is receivable —
-            // our camera is published, not received — so a local camera tile
-            // would be a permanently black rectangle and keeps the avatar.
+            // device — but the engine TEES both captures into a self-view
+            // branch, so our own screen share AND our own camera do have
+            // local video. Without the camera branch a local tile could only
+            // ever show an avatar while the capture light was on, which read
+            // as "the camera doesn't work".
+            //
+            // A local CAMERA tile follows our own cameraOn rather than the
+            // SFU's report about us, which is the same fact arriving later.
             active: root.identity.length > 0
                     && (root.mediaKind === "screen"
                         ? root.screenSharing
-                        : (!root.local && root.cameraKnown && root.cameraOn))
+                        : (root.local
+                            ? app.groupCall.cameraOn
+                            : (root.cameraKnown && root.cameraOn)))
             visible: active && item && item.hasFrame
             sourceComponent: Item {
                 /// Nothing has arrived yet: the tile keeps showing the
@@ -216,6 +219,8 @@ Item {
                         else
                             app.groupCall.attachScreenSink(root.identity,
                                                            output.videoSink);
+                    } else if (root.local) {
+                        app.groupCall.attachLocalCameraSink(output.videoSink);
                     } else {
                         app.groupCall.attachVideoSink(root.identity,
                                                       output.videoSink);
@@ -227,6 +232,8 @@ Item {
                             app.groupCall.detachLocalScreenSink();
                         else
                             app.groupCall.detachScreenSink(root.identity);
+                    } else if (root.local) {
+                        app.groupCall.detachLocalCameraSink();
                     } else {
                         app.groupCall.detachVideoSink(root.identity);
                     }

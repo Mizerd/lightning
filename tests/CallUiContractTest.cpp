@@ -626,6 +626,36 @@ private Q_SLOTS:
                  "the banner keys on the account rather than the device");
     }
 
+    // The stage is documented as REPLACING the timeline, and it was only
+    // ever ADDED beside it. Both are `Layout.fillHeight` in one ColumnLayout,
+    // so the column was SPLIT between them: the stage got roughly half, its
+    // spotlight collapsed to a ~45px strip with the avatar and the "Back to
+    // grid" button piled on top of each other, and message rows kept drawing
+    // underneath the call's control dock. Every reported "the call UI is
+    // broken" screenshot is this.
+    void theCallStageOwnsTheColumnRatherThanSharingIt()
+    {
+        const QString pane =
+            normalized(read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
+        QVERIFY(!pane.isEmpty());
+        // ONE condition, so the stage and everything it replaces cannot
+        // drift apart again.
+        QVERIFY2(pane.contains(QStringLiteral(
+                     "readonly property bool callStageOwnsColumn: "
+                     "app.groupCall.active && app.groupCall.roomId === "
+                     "app.currentRoomId")),
+                 "TimelinePane has no single call-stage ownership condition");
+        QVERIFY2(pane.contains(QStringLiteral("active: root.callStageOwnsColumn")),
+                 "the call stage host does not read the ownership condition");
+        QVERIFY2(pane.contains(QStringLiteral("visible: !root.callStageOwnsColumn")),
+                 "the timeline does not stand down while the call stage owns "
+                 "the column, so the two share its height");
+        QVERIFY2(pane.contains(QStringLiteral(
+                     "visible: app.currentRoomId !== \"\" && "
+                     "!root.callStageOwnsColumn")),
+                 "the composer does not stand down under the call stage");
+    }
+
     void theVoiceStripOnlyShowsWhenTheCallIsElsewhere()
     {
         // Its whole purpose is surviving a walk away from the call's room.

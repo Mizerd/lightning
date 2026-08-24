@@ -22,6 +22,18 @@ Rectangle {
     // room's Threads list view is showing.
     readonly property bool threadSurfaceOpen: app.thread.active
                                               || app.thread.listOpen
+    /// The call stage owns this column: a live MatrixRTC call in THIS room.
+    ///
+    /// ONE condition, read by the stage's Loader and by everything the stage
+    /// replaces, because the two must never disagree. They did: the stage was
+    /// documented as REPLACING the timeline and was only ever ADDED beside it,
+    /// and both are `Layout.fillHeight` — so a ColumnLayout split the column
+    /// between them and the stage got roughly half. That is what made the
+    /// call UI look broken the moment it appeared: the participant spotlight
+    /// was squeezed to a ~45px strip, its avatar and controls piled onto each
+    /// other, and message rows kept showing underneath the control dock.
+    readonly property bool callStageOwnsColumn:
+        app.groupCall.active && app.groupCall.roomId === app.currentRoomId
     // The authoritative right-panel state. Exactly one surface is open:
     // the thread surface (controller-owned state) wins, then the info/member
     // panel, else none. All open/close paths flow through the two underlying
@@ -907,8 +919,7 @@ Rectangle {
             objectName: "timelineCallStageHost"
             Layout.fillWidth: true
             Layout.fillHeight: active
-            active: app.groupCall.active
-                    && app.groupCall.roomId === app.currentRoomId
+            active: root.callStageOwnsColumn
             visible: active
             sourceComponent: CallStage {
                 // The dock's participants button reaches the room's existing
@@ -1339,6 +1350,13 @@ Rectangle {
 
         // Timeline
         Item {
+            // Stands down while the call stage owns the column. Both are
+            // `Layout.fillHeight`, so leaving this visible does not put the
+            // timeline BEHIND the call — it makes the two SHARE the height,
+            // which is what squashed the stage into an unusable strip. The
+            // room is not unloaded, only hidden: everything here is alive and
+            // reappears with its scroll position when the call ends.
+            visible: !root.callStageOwnsColumn
             Layout.fillWidth: true
             Layout.fillHeight: true
 
@@ -5101,7 +5119,11 @@ Rectangle {
             id: messageComposer
             objectName: "messageComposer"
             Layout.fillWidth: true
-            visible: app.currentRoomId !== ""
+            // Also hidden under the call stage: the stage is a full-column
+            // surface with its own control dock at the bottom, and a composer
+            // beneath it is a second bottom bar for a timeline that is not on
+            // screen.
+            visible: app.currentRoomId !== "" && !root.callStageOwnsColumn
         }
     }
 

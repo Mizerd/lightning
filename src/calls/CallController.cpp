@@ -574,6 +574,22 @@ bool CallController::rejectIncoming()
     return true;
 }
 
+void CallController::noteAnsweredByOtherLane(const QString &roomId)
+{
+    // Only an unanswered RING is affected. An already-connected legacy call
+    // is a real call in its own right and must not be torn down because a
+    // group call started in the same room.
+    if (m_state != State::Ringing || roomId.isEmpty())
+        return;
+    if (m_session.roomId != roomId)
+        return;
+    qCInfo(lcCalls) << "ring cleared: answered through the MatrixRTC lane";
+    // AnsweredElsewhere is deliberately reused: it is exactly this fact, and
+    // it is already excluded from isMissedCallReason(), so joining a call
+    // cannot leave a "missed call" notice behind.
+    endSession(EndReason::AnsweredElsewhere);
+}
+
 bool CallController::hangup()
 {
     if (!m_client || !sessionLive())

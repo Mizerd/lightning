@@ -24,6 +24,7 @@
 #pragma once
 
 #include <QObject>
+#include <QTimer>
 #include <QVariantMap>
 #include <QString>
 
@@ -86,6 +87,13 @@ private:
 #endif
 
     bool m_busy = false;
+    /// Frees a wedged picker. The portal's `Response` signal is the ONLY thing
+    /// that ends a request, and a picker the user never answers — or a portal
+    /// that never replies — leaves `m_busy` set forever, after which every
+    /// later attempt is refused with `busy` and screen sharing is dead until
+    /// the app restarts. Reported as "the client sometimes doesn't allow me to
+    /// screenshare". Generous, because the human is choosing a window.
+    QTimer m_requestTimeout;
     QString m_sessionHandle;
     /// Distinguishes replies from a superseded request: a stale Response for
     /// a share the user already cancelled must not start a capture.

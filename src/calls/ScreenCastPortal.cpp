@@ -22,6 +22,13 @@
 namespace {
 Q_LOGGING_CATEGORY(lcPortal, "lightning.calls.portal")
 
+/// How long a portal request may stay outstanding. The user is picking a
+/// window or a monitor by hand, so this is deliberately long; it exists only
+/// so a request that will NEVER be answered cannot wedge the feature.
+/// Declared outside the D-Bus guard because the constructor arms the timer in
+/// every build.
+constexpr int kRequestTimeoutMs = 120000;
+
 #ifdef HAVE_QT_DBUS
 constexpr auto kService = "org.freedesktop.portal.Desktop";
 constexpr auto kPath = "/org/freedesktop/portal/desktop";
@@ -79,7 +86,20 @@ private:
 };
 #endif
 
-ScreenCastPortal::ScreenCastPortal(QObject *parent) : QObject(parent) {}
+ScreenCastPortal::ScreenCastPortal(QObject *parent) : QObject(parent)
+{
+    // Single-shot: armed when a request starts, stopped by cancel() and by a
+    // granted source. See m_requestTimeout.
+    m_requestTimeout.setSingleShot(true);
+    m_requestTimeout.setInterval(kRequestTimeoutMs);
+    connect(&m_requestTimeout, &QTimer::timeout, this, [this] {
+        if (!m_busy)
+            return;
+        qCWarning(lcPortal) << "screen share request timed out; releasing";
+        cancel();
+        Q_EMIT failed(QStringLiteral("timeout"));
+    });
+}
 
 ScreenCastPortal::~ScreenCastPortal()
 {
@@ -110,6 +130,7 @@ void ScreenCastPortal::cancel()
 {
     ++m_generation;
     m_busy = false;
+    m_requestTimeout.stop();
 #ifdef HAVE_QT_DBUS
     if (!m_sessionHandle.isEmpty()) {
         // Close the session explicitly. Leaving it open would keep the
@@ -151,6 +172,7 @@ void ScreenCastPortal::requestShare(int types)
     }
 
     m_busy = true;
+    m_requestTimeout.start();
     const quint64 generation = ++m_generation;
     const auto stale = [this, generation] {
         return generation != m_generation;
@@ -387,6 +409,7 @@ void ScreenCastPortal::openRemote(unsigned nodeId)
                     return;
                 }
                 m_busy = false;
+                m_requestTimeout.stop();
                 Q_EMIT ready(nodeId, fd);
             });
 }

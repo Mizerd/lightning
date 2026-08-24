@@ -145,6 +145,16 @@ public:
 
     // Decline the ringing inbound call (legacy reject or m.rtc.decline).
     Q_INVOKABLE bool rejectIncoming();
+    /// The user answered this conversation through the OTHER lane in this
+    /// same app — they opened the room and pressed Join on the MatrixRTC
+    /// call instead of pressing Accept on the ring.
+    ///
+    /// Clears the local ring and puts NOTHING on the wire. It is emphatically
+    /// not rejectIncoming(): a decline would tell the caller "no" about a
+    /// call the user has just walked into. Reported as: the ring card and its
+    /// desktop notification stayed up after joining from the room, and had to
+    /// be dismissed by hand.
+    void noteAnsweredByOtherLane(const QString &roomId);
     // Hang up our own outbound call (Inviting/Connecting/Active).
     Q_INVOKABLE bool hangup();
 
