@@ -14,7 +14,8 @@
 // format libwebrtc's native FrameCryptor implements and therefore the same
 // one Element Call speaks. Do not "simplify" any of it.
 //
-//   key derivation : HKDF-SHA256(ikm = raw 32-byte key,
+//   key derivation : HKDF-SHA256(ikm = raw key, 16 or 32 bytes — element-call
+//                    sends 16, livekit-client 32; see CallFrameCryptor.cpp,
 //                                salt = "LKFrameEncryptionKey",
 //                                info = 128 zero bytes) -> 16 bytes
 //                    (AES-128-GCM). Raw keys take the HKDF path;

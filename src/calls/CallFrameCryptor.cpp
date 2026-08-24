@@ -15,7 +15,27 @@ constexpr char kSalt[] = "LKFrameEncryptionKey";
 /// AES-128-GCM: 16-byte key, 12-byte IV, 16-byte tag.
 constexpr int kKeyBytes = 16;
 /// The RAW key both ends of the protocol agree on, before HKDF.
-constexpr int kRawKeyBytes = 32;
+// The raw key lengths this protocol actually uses on the wire.
+//
+// NOT a single value. element-call mints a **16-byte** key
+// (`new Uint8Array(16)` in matrix-js-sdk's RTCEncryptionManager) while
+// livekit-client's own `createE2EEKey()` mints 32. HKDF accepts either and
+// derives the same 16-byte AES-128 key, so both are legitimate — and
+// requiring 32 meant every key Element sent was REJECTED for its length.
+// The symptom was total: the key arrived, was discarded, and every frame
+// from that participant dropped for want of a key, so an Element peer could
+// never be heard or seen while our own media reached them normally.
+//
+// Still a CLOSED set rather than "any length": the check exists so a 7-byte
+// key cannot derive cleanly and light up `encryptionActive()` under material
+// no other participant could have.
+constexpr int kRawKeyBytesElement = 16;
+constexpr int kRawKeyBytesLivekit = 32;
+
+bool isSupportedRawKeyLength(int size)
+{
+    return size == kRawKeyBytesElement || size == kRawKeyBytesLivekit;
+}
 constexpr int kIvBytes = 12;
 constexpr int kTagBytes = 16;
 /// { IV length, key index }.
@@ -97,9 +117,8 @@ bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
     // 16 bytes, so validating only the output accepted a 7-byte key: it
     // derived cleanly, `encryptionActive()` then reported true, and every
     // frame went out under a key no other participant could possibly have.
-    // Both ends of this protocol agree on 32 raw bytes — a different length
-    // is a bug or a hostile sender, never a key to use.
-    if (rawKey.size() != kRawKeyBytes)
+    // See isSupportedRawKeyLength() for why this is a SET and not one value.
+    if (!isSupportedRawKeyLength(rawKey.size()))
         return false;
     const QByteArray derived = deriveKey(rawKey);
     if (derived.size() != kKeyBytes)

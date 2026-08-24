@@ -221,7 +221,8 @@ public:
                            const QString &deviceId) const;
 
     /// The Matrix person behind one SFU participant identity:
-    /// {userId, displayName, avatarMxc, ownUser, ownDevice}, or an empty map.
+    /// {userId, deviceId, displayName, avatarMxc, ownUser, ownDevice}, or an
+    /// empty map.
     ///
     /// The REVERSE of rtcIdentityFor, and the only correct way to label a
     /// call tile. The identity was previously split on its last colon to

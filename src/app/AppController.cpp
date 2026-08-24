@@ -597,6 +597,21 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_rtc->setClient(m_client.get());
     m_groupCall->setClient(m_client.get());
     m_groupCall->setRtcController(m_rtc.get());
+    // ONE conversation, two doors. A ring arrives on the notification lane
+    // (CallController); the user can answer it by pressing Accept on the
+    // ring card, or by opening the room and pressing Join — which goes to
+    // the MatrixRTC lane and told the ringing lane nothing. So the ring card
+    // and its desktop notification stayed up over a call the user was
+    // already in, and had to be dismissed by hand.
+    //
+    // Connected once here rather than called from inside join(): every path
+    // that makes a group call live passes through this state change, so a
+    // future entry point cannot forget it.
+    connect(m_groupCall.get(), &SfuCallController::stateChanged, this,
+            [this] {
+                if (m_groupCall->active())
+                    m_calls->noteAnsweredByOtherLane(m_groupCall->roomId());
+            });
     m_callDevices->setSettings(m_settings.get());
     // ── Voice-call ring policy, wired to its real owners (round 2) ──
     // State truth stays in CallController; these close the policy gates
@@ -2026,6 +2041,20 @@ void AppController::enableCallMediaEngine()
     if (SfuMediaEngine::runtimeAvailable(&sfuWhyNot)) {
         auto *sfu = new SfuMediaEngine(this);
         m_groupCall->setMediaEngine(sfu);
+        // SDP transport is opt-in at the Rust edge, and the SFU lane shares
+        // ONE flag with the legacy 1:1 lane — so until now the group call's
+        // ability to carry media depended on whether the OTHER lane's engine
+        // happened to register. It always did, because the SFU engine probes
+        // a strict superset of its elements, which is precisely why this
+        // never showed: the coupling is invisible while it holds and silent
+        // when it breaks. If it ever broke, every offer, answer and ICE
+        // candidate from the SFU would be discarded in Rust while
+        // participants, speakers and mute kept updating — a call that looks
+        // connected and can never carry a packet.
+        //
+        // Asserted here so this lane states its own requirement.
+        if (m_client)
+            m_client->setCallMediaCapable(true);
         // The join gate can now say "joinable": until an engine exists it
         // reports NoMediaTransport, because publishing a membership nobody
         // can connect to is worse than refusing.

@@ -76,6 +76,8 @@ use matrix_sdk::ruma::events::relation::Reference;
 use matrix_sdk::ruma::events::{Mentions, StateEventType};
 use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId};
 use matrix_sdk_base::crypto::CollectStrategy;
+use matrix_sdk::config::RequestConfig;
+use matrix_sdk::ruma::api::client::state::get_state_events;
 use matrix_sdk::{Client, Room};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -127,6 +129,11 @@ const MAX_MEMBERS: usize = 128;
 /// cap applies after aggregation, so without this a room carrying tens of
 /// thousands of stale membership events would do all that work first.
 const MAX_RAW_MEMBER_EVENTS: usize = 512;
+/// Bound on the server's `/state` answer when the membership fallback runs.
+/// A room's full state can be large; only membership events are wanted.
+const MAX_SERVER_STATE_EVENTS: usize = 4096;
+/// The membership fallback must not stall a call's key distribution.
+const MEMBERSHIP_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_TRANSPORTS: usize = 8;
 #[allow(dead_code)]
 const MAX_VERSIONS: usize = 8;
@@ -401,7 +408,6 @@ pub(crate) fn parse_session_membership(
     if object.is_empty() {
         return None;
     }
-
     let application = sane_string(object.get("application"), MAX_WIRE_LEN)?;
     if application != APPLICATION_CALL {
         return None;
@@ -806,19 +812,94 @@ fn raw_state_json(raw: &RawAnySyncOrStrippedState) -> Option<serde_json::Value> 
 /// State-store backed, so this is cheap and needs no request. It only sees
 /// what sync has delivered, which is the same constraint every other
 /// state-driven surface in Lightning lives with.
+/// Every membership state event for a room, as raw JSON.
+///
+/// The STORE is asked first and the HOMESERVER second, and the second half is
+/// not an optimisation — it is what makes the call work at all.
+///
+/// Sliding sync does list `CallMember` in its default `required_state`, so the
+/// store does receive these events; what it does not guarantee is receiving
+/// them PROMPTLY for a room the client is not actively subscribed to. Measured
+/// against a real homeserver: during a live call the store held thirteen
+/// membership events and every one of them was a stale RETRACTION, while the
+/// server's own `/state` had the live memberships — including this device's
+/// own, published seconds earlier and acknowledged.
+///
+/// That is not a cosmetic lag. Media keys are addressed to the devices named
+/// by these events, so an empty read means a key is sent to NOBODY: both ends
+/// encrypt, neither can decrypt, and every frame is dropped for want of a key
+/// while the call otherwise looks perfectly connected. Audio, video and screen
+/// share all fail together, which is exactly how it was reported.
+///
+/// The network read is therefore a FALLBACK, spent only when the store yields
+/// no usable membership, so a healthy store still costs nothing. Same trade
+/// `banner.rs` makes, and for the same reason.
+async fn read_membership_events(
+    room: &Room,
+    now_ms: u64,
+) -> Vec<serde_json::Value> {
+    let from_store: Vec<serde_json::Value> = room
+        .get_state_events(StateEventType::from(EV_MEMBER_LEGACY))
+        .await
+        .unwrap_or_default()
+        .iter()
+        .take(MAX_RAW_MEMBER_EVENTS)
+        .filter_map(raw_state_json)
+        .collect();
+
+    // "Usable" means at least one membership that is neither retracted nor
+    // expired. A room whose only memberships are retractions reads exactly
+    // like a room the store has not caught up on, so both take the fallback.
+    let store_has_live = from_store.iter().any(|value| {
+        value
+            .get("content")
+            .and_then(|content| content.as_object())
+            .is_some_and(|content| !content.is_empty())
+    });
+    if store_has_live {
+        return from_store;
+    }
+
+    let client = room.client();
+    let config = RequestConfig::new()
+        .disable_retry()
+        .timeout(MEMBERSHIP_FETCH_TIMEOUT);
+    let request = get_state_events::v3::Request::new(room.room_id().to_owned());
+    let Ok(response) = client.send(request).with_request_config(config).await
+    else {
+        return from_store;
+    };
+    let mut from_server = Vec::new();
+    for raw in response.room_state.iter().take(MAX_SERVER_STATE_EVENTS) {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(raw.json().get())
+        else {
+            continue;
+        };
+        if value.get("type").and_then(|t| t.as_str()) != Some(EV_MEMBER_LEGACY) {
+            continue;
+        }
+        from_server.push(value);
+        if from_server.len() >= MAX_RAW_MEMBER_EVENTS {
+            break;
+        }
+    }
+    let _ = now_ms;
+    if from_server.is_empty() {
+        from_store
+    } else {
+        from_server
+    }
+}
+
 async fn read_session(room: &Room, now_ms: u64) -> RtcSession {
     let mut members = Vec::new();
 
-    let raw_members = room
-        .get_state_events(StateEventType::from(EV_MEMBER_LEGACY))
-        .await
-        .unwrap_or_default();
+    let raw_members = read_membership_events(room, now_ms).await;
 
-    for raw in raw_members.iter().take(MAX_RAW_MEMBER_EVENTS) {
+    for value in raw_members.iter() {
         // Deserialize as loose JSON: the envelope fields we need are
         // `sender`, `content` and `origin_server_ts`, and a membership we
         // cannot read must not poison the ones we can.
-        let Some(value) = raw_state_json(&raw) else { continue };
         let Some(object) = value.as_object() else { continue };
         let Some(sender) = object.get("sender").and_then(|v| v.as_str()) else {
             continue;
@@ -1261,6 +1342,22 @@ pub(crate) fn publish_membership(
         // Preserve created_ts across a refresh: read our own membership back
         // and reuse its join time.
         let created_ts = read_own_created_ts(&room, &state_key).await;
+        // CARRY THE ROOM AS `livekit_alias`, which is what Element publishes.
+        //
+        // The alias names the SFU room a client should be placed in, and
+        // lk-jwt-service derives that name from it. Advertising a focus
+        // WITHOUT one is not obviously wrong — the service falls back to the
+        // room we send in `/sfu/get` — but it makes our membership a shape no
+        // other client in the ecosystem produces, and a peer comparing the two
+        // transports sees different objects for the same SFU. Matching Element
+        // exactly costs nothing and removes the difference from the question.
+        let focus = focus.map(|transport| LivekitTransport {
+            service_url: transport.service_url.clone(),
+            alias: transport
+                .alias
+                .clone()
+                .or_else(|| Some(room.room_id().to_string())),
+        });
 
         let content = own_membership_content(
             &device_id, &user_id, focus.as_ref(), intent, created_ts);
@@ -1593,10 +1690,29 @@ pub(crate) fn send_media_key(
             };
             let device_id: matrix_sdk::ruma::OwnedDeviceId =
                 device.as_str().into();
-            if let Ok(Some(found)) =
-                client.encryption().get_device(&user_id, &device_id).await
-            {
-                resolved.push(found);
+            let mut found =
+                client.encryption().get_device(&user_id, &device_id).await;
+            // `get_device` is a STORE lookup and does not fetch anything.
+            //
+            // A peer whose device keys this client has never downloaded is
+            // simply absent from it, and the key was then sent to NOBODY —
+            // reported as `no_devices`, after which both ends encrypt and
+            // neither can decrypt, so audio, video and screen share all fail
+            // together while the call looks connected. That is reachable in
+            // ordinary use: the first call in a room, a device that joined
+            // the call after our last `/keys/query`, or any peer the crypto
+            // store has not caught up on.
+            //
+            // `request_user_identity` performs a real `/keys/query` for that
+            // user, so the store is populated and the SECOND lookup succeeds.
+            // Spent only on a miss, so a warm store costs nothing extra.
+            if !matches!(found, Ok(Some(_))) {
+                let _ = client.encryption().request_user_identity(&user_id).await;
+                found =
+                    client.encryption().get_device(&user_id, &device_id).await;
+            }
+            if let Ok(Some(device)) = found {
+                resolved.push(device);
             }
         }
 

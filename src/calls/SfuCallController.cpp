@@ -2,7 +2,11 @@
 
 #include <QLoggingCategory>
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRandomGenerator>
+#include <QSet>
 #include <QUuid>
 #include <QVariantMap>
 
@@ -76,13 +80,75 @@ void SfuCallController::setClient(MatrixClient *client)
             &SfuCallController::onSfuRemoteCandidate);
     connect(m_client, &MatrixClient::rtcMediaKeyReceived, this,
             &SfuCallController::onMediaKeyReceived);
+    // The key SEND result was reported by the bridge and listened to by
+    // NOBODY, so a distribution that reached zero devices was
+    // indistinguishable from one that worked — and the only visible effect
+    // was every remote frame being dropped for want of a key, which looks
+    // like a dead call rather than a failed key. Counts only; never the key.
+    connect(m_client, &MatrixClient::rtcMediaKeySent, this,
+            [this](quint64, bool ok, const QString &category, int delivered,
+                   int keyIndex) {
+                if (ok) {
+                    qCInfo(lcSfuCall) << "media key sent index=" << keyIndex
+                                      << "delivered=" << delivered;
+                    return;
+                }
+                qCWarning(lcSfuCall)
+                    << "media key NOT sent index=" << keyIndex
+                    << "category=" << category << "delivered=" << delivered;
+            });
     connect(m_client, &MatrixClient::loggedOut, this,
             [this] { teardown(State::Ended); });
 }
 
 void SfuCallController::setRtcController(RtcController *rtc)
 {
+    if (m_rtc == rtc)
+        return;
+    if (m_rtc)
+        disconnect(m_rtc, nullptr, this, nullptr);
     m_rtc = rtc;
+    if (!m_rtc)
+        return;
+    // THE MEMBERSHIP IS WHAT MAKES A KEY ADDRESSABLE, and it arrives on its
+    // own schedule.
+    //
+    // A media key is sent to (user, device) pairs taken from the room's
+    // MatrixRTC membership; the SFU's participant list is a different feed
+    // over a different transport, and nothing orders the two. So a peer
+    // routinely appears in the SFU list before their `m.call.member` state
+    // event has been read — and rotateAndDistributeKey(), which runs on
+    // exactly that SFU change, then finds NO targets and sends nothing.
+    // Nothing re-sent it either, so both sides encrypted happily and dropped
+    // every frame the other sent with "no key" for the whole call. That is
+    // audio, video and screen share all dead at once while the call looks
+    // perfectly connected.
+    //
+    // Re-running distribution when the membership lands closes the race from
+    // the other side. It is safe to run repeatedly: distributeKeyIfNeeded()
+    // only acts when the addressable set actually grew.
+    connect(m_rtc, &RtcController::sessionChanged, this,
+            [this](const QString &roomId) {
+                if (!active() || roomId != m_roomId)
+                    return;
+                // BIND FIRST, then distribute.
+                //
+                // A frame names its sender only by the LiveKit sid, and a key
+                // is stored under the sending DEVICE — so the two are one ring
+                // only after noteParticipantIdentities() has joined them, and
+                // that join needs the membership, which is what just arrived.
+                //
+                // Binding only from onSfuParticipants() was not enough: the
+                // SFU announces a participant BEFORE their membership is read,
+                // so the bind attempted there resolves nothing, and if the SFU
+                // then sends no further update the binding never happens at
+                // all. The key sits in a ring keyed by device while every
+                // arriving frame consults the ring keyed by sid, and the
+                // symptom is `decrypt failed` on every single frame — a key
+                // that was received, installed, and never findable.
+                noteParticipantIdentities();
+                distributeKeyIfNeeded();
+            });
 }
 
 void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
@@ -166,6 +232,17 @@ void SfuCallController::requestScreenShare()
                              << !m_portal.isNull();
         Q_EMIT callFailed(
             tr("Screen sharing isn't available on this desktop."));
+        return;
+    }
+    // Already sharing? STOP the old share first rather than opening a second
+    // portal session beside it. Two live sessions leave one orphaned — the
+    // compositor keeps capturing for a pipeline nothing reads — and the
+    // second request is refused as `busy` anyway, which is what made the
+    // button look broken after the first share.
+    if (m_screenSharing)
+        stopScreenShare();
+    if (!m_portal.isNull() && m_portal->busy()) {
+        qCInfo(lcSfuCall) << "screen share already being chosen; ignoring";
         return;
     }
     qCInfo(lcSfuCall) << "screen share requested";
@@ -283,6 +360,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_mediaEncrypted = false;
     m_keyIndex = 0;
     m_candidatesSent = 0;
+    m_lastKeyTargets.clear();
 
     // Captured once for the call, so a room-state change mid-call cannot
     // quietly relax what we already promised the user. Unknown is true.
@@ -402,6 +480,7 @@ void SfuCallController::onSfuJoined(const QString &identity,
 #ifdef HAVE_LIGHTNING_WEBRTC
     m_ownIdentity = identity;
     m_participants = participants.mid(0, kMaxParticipants);
+    noteParticipantIdentities();
     if (!m_engine.isNull()) {
         m_engine->start();
         m_engine->setIceServers(iceServers);
@@ -437,7 +516,7 @@ void SfuCallController::publishTracks()
     const QString audioCid =
         QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_client->sfuAddTrack(audioCid, QStringLiteral("microphone"), 0,
-                          false, m_roomEncrypted);
+                          /*width=*/0, /*height=*/0, false, m_roomEncrypted);
     m_engine->publishAudio(audioCid);
     m_audioCid = audioCid;
     m_publishedTrackIds.append(audioCid);
@@ -445,8 +524,13 @@ void SfuCallController::publishTracks()
     if (m_cameraOn) {
         const QString videoCid =
             QUuid::createUuid().toString(QUuid::WithoutBraces);
-        m_client->sfuAddTrack(videoCid, QStringLiteral("camera"), 1, false,
-                              m_roomEncrypted);
+        // The ceiling the camera pipeline scales to. Declaring the real
+        // shape is what stops the SFU inferring simulcast (SfuMediaEngine's
+        // caps are the authority on these numbers).
+        m_client->sfuAddTrack(videoCid, QStringLiteral("camera"), 1,
+                              SfuMediaEngine::kCameraWidth,
+                              SfuMediaEngine::kCameraHeight,
+                              false, m_roomEncrypted);
         m_engine->publishVideo(videoCid, /*screenShare=*/false,
                                /*nodeId=*/-1);
         m_cameraCid = videoCid;
@@ -455,24 +539,81 @@ void SfuCallController::publishTracks()
 #endif
 }
 
-void SfuCallController::onSfuParticipants(const QVariantList &participants)
+void SfuCallController::onSfuParticipants(const QVariantList &updates)
 {
     if (!active())
         return;
-    const int before = m_participants.size();
-    m_participants = participants.mid(0, kMaxParticipants);
+    // The identity SET, not the count. An update can legitimately carry a
+    // join and a disconnect at once, which leaves the size unchanged — and
+    // keying the key rotation on the size then lets a participant who LEFT
+    // keep a key that still decrypts everything said after they went. The
+    // count was only ever a proxy for this.
+    QSet<QString> before;
+    for (const QVariant &row : std::as_const(m_participants)) {
+        before.insert(
+            row.toMap().value(QStringLiteral("identity")).toString());
+    }
+    // A LiveKit `ParticipantUpdate` is a DELTA, not the room.
+    //
+    // It carries only the participants whose state changed — including OUR
+    // OWN row, which is how the client learns the track sids the server
+    // assigned. Assigning it over the list therefore threw away everyone it
+    // did not mention: publishing our audio produced an update about us and
+    // erased the person we were talking to, and their next update erased us.
+    // That is the "1 person in call" report, and it took the media key with
+    // it, because a key can only be installed against a participant we still
+    // hold. livekit-client merges by identity and removes on DISCONNECTED
+    // (`Room.handleParticipantUpdates`); so does this.
+    for (const QVariant &value : updates) {
+        const QVariantMap row = value.toMap();
+        const QString identity =
+            row.value(QStringLiteral("identity")).toString();
+        if (identity.isEmpty())
+            continue;
+        int at = -1;
+        for (int i = 0; i < m_participants.size(); ++i) {
+            if (m_participants.at(i).toMap()
+                    .value(QStringLiteral("identity")).toString()
+                == identity) {
+                at = i;
+                break;
+            }
+        }
+        if (row.value(QStringLiteral("state")).toString()
+            == QLatin1String("disconnected")) {
+            if (at >= 0)
+                m_participants.removeAt(at);
+            continue;
+        }
+        if (at >= 0)
+            m_participants[at] = row;
+        else if (m_participants.size() < kMaxParticipants)
+            m_participants.append(row);
+    }
+    noteParticipantIdentities();
     Q_EMIT participantsChanged();
     // A LEAVER must stop being able to decrypt, so any change in the set
     // rotates the key. Rotating on joins too is the simple, safe choice:
     // the alternative is tracking who is new, and being wrong about that
     // means someone keeps a key they should not have.
-    if (m_participants.size() != before)
+    QSet<QString> after;
+    for (const QVariant &row : std::as_const(m_participants)) {
+        after.insert(
+            row.toMap().value(QStringLiteral("identity")).toString());
+    }
+    if (after != before)
         rotateAndDistributeKey();
     // The track sid arrives with this update, so a mute the user made before
     // the SFU announced the track is applied here — and a state that drifted
     // for any other reason is corrected on the next update rather than
     // staying wrong for the rest of the call.
     syncMicMuteToSfu();
+    // Ask for the room's membership. A participant the SFU has announced but
+    // whose membership we have not read cannot be sent a key, and without
+    // this the read happens only when the user opens the room or the server
+    // happens to poke us.
+    if (m_rtc && !m_roomId.isEmpty())
+        m_rtc->refresh(m_roomId);
 }
 
 void SfuCallController::onSfuSpeakers(const QVariantList &speakers)
@@ -583,6 +724,13 @@ void SfuCallController::onMediaKeyReceived(const QString &roomId,
                                             int keyIndex,
                                             const QString &keyBase64)
 {
+    // Logged BEFORE every early return, because "the key never arrived" and
+    // "the key arrived and we discarded it" are different faults with the
+    // same symptom: every remote frame dropped for want of a key. Counts and
+    // an index only — never the key, never the sender.
+    qCInfo(lcSfuCall) << "media key received index=" << keyIndex
+                      << "forThisRoom=" << (roomId == m_roomId)
+                      << "active=" << active();
     if (!active() || roomId != m_roomId)
         return;
 #ifdef HAVE_LIGHTNING_WEBRTC
@@ -598,19 +746,49 @@ void SfuCallController::onMediaKeyReceived(const QString &roomId,
     const QByteArray raw =
         QByteArray::fromBase64(keyBase64.toUtf8(),
                                QByteArray::AbortOnBase64DecodingErrors);
-    if (raw.size() != 32)
+    // 16 OR 32 raw bytes. element-call mints 16 and livekit-client 32; both
+    // derive the same AES-128 key through HKDF. Hardcoding 32 here dropped
+    // every key an Element peer ever sent — see CallFrameCryptor's
+    // isSupportedRawKeyLength(), which is the authority on this.
+    if (raw.size() != 16 && raw.size() != 32) {
+        qCWarning(lcSfuCall) << "media key refused: unsupported length"
+                             << raw.size();
         return;
+    }
     // Keys live ONLY in the engine's cryptor, which is the only thing that
     // needs them: never stored, never logged, never in QML.
-    // Addressed to the SENDER's own key ring. The sender is identified by
-    // their MatrixRTC identity, which the SFU echoes as the participant
-    // identity, and the participant list carries the LiveKit sid the SDP
-    // uses. Without that mapping the key would have to go into a shared
-    // ring, where two senders both using index 0 would collide.
-    const QString streamId = streamIdForSender(sender, claimedDeviceId);
-    if (streamId.isEmpty())
-        return;
-    m_engine->setInboundKey(streamId, keyIndex, raw);
+    //
+    // Stored under the SENDING DEVICE's own name, which is derivable from
+    // the Olm-decrypted sender alone and is therefore ALWAYS available here.
+    //
+    // This used to resolve the LiveKit sid first and RETURN when it could
+    // not. But a to-device key, the SFU's participant list and the room's
+    // MatrixRTC membership arrive in no particular order, so a key that won
+    // that race was discarded outright — and nothing re-sends it, so that
+    // sender stayed undecryptable for the whole call. Now the key is always
+    // kept, and the sid is bound to it whenever the participant list makes
+    // that possible (noteParticipantIdentities, re-run on every update).
+    const QString ringName = mediaKeyRingName(sender, claimedDeviceId);
+    m_engine->setInboundKey(ringName, keyIndex, raw);
+    // Alias the ring to the sender's SFU IDENTITY as well, so binding it to
+    // an arriving frame never needs the room's membership to have resolved.
+    //
+    // `{user}:{device}` is not a guess: it is the identity the reference
+    // treats as the default whenever a session membership omits
+    // `membershipID` ("Other clients will treat undefined as
+    // `${sender}:${device_id}`"), and it is what the JWT service assigns.
+    // The membership-derived identity is aliased too where it is known,
+    // which is what covers the sticky format's hashed identity.
+    m_engine->noteParticipantIdentity(
+        sender + QLatin1Char(':') + claimedDeviceId, ringName);
+    if (m_rtc) {
+        const QString identity =
+            m_rtc->rtcIdentityFor(m_roomId, sender, claimedDeviceId);
+        if (!identity.isEmpty())
+            m_engine->noteParticipantIdentity(identity, ringName);
+    }
+    // If the participant list already names their sid, bind it now.
+    noteParticipantIdentities();
 #else
     Q_UNUSED(keyIndex); Q_UNUSED(keyBase64);
 #endif
@@ -693,6 +871,27 @@ void SfuCallController::detachScreenSink(const QString &identity)
 #endif
 }
 
+void SfuCallController::attachLocalCameraSink(QObject *videoSink)
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_videoRouter)
+        return;
+    m_videoRouter->attachSink(SfuMediaEngine::localCameraStreamId(),
+                              qobject_cast<QVideoSink *>(videoSink));
+#else
+    Q_UNUSED(videoSink);
+#endif
+}
+
+void SfuCallController::detachLocalCameraSink()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_videoRouter)
+        return;
+    m_videoRouter->detachSink(SfuMediaEngine::localCameraStreamId());
+#endif
+}
+
 void SfuCallController::attachLocalScreenSink(QObject *videoSink)
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
@@ -730,9 +929,15 @@ QString SfuCallController::trackKeyForSource(const QString &identity,
             const QVariantMap track = t.toMap();
             if (track.value(QStringLiteral("source")).toString() != source)
                 continue;
-            const QString mid = track.value(QStringLiteral("mid")).toString();
-            if (!mid.isEmpty())
-                return QStringLiteral("%1").arg(mid);
+            // The track's SID, which is what the subscriber SDP's msid
+            // carries and therefore what the engine routes under. NOT the
+            // `mid`: LiveKit states a TrackInfo's mid on the PUBLISHER's
+            // connection, while our subscriber transceiver gets its own,
+            // independently assigned — so keying on it meant a remote screen
+            // share arrived, decrypted, and had no surface waiting for it.
+            const QString sid = track.value(QStringLiteral("sid")).toString();
+            if (!sid.isEmpty())
+                return sid;
         }
         return {};
     }
@@ -754,15 +959,135 @@ QString SfuCallController::streamIdForIdentity(const QString &identity) const
     return {};
 }
 
-QString SfuCallController::streamIdForSender(const QString &userId,
-                                            const QString &deviceId) const
+QString SfuCallController::mediaKeyTargets() const
 {
+    // THE DEVICES ACTUALLY IN THE CALL — the SFU's participant list — and not
+    // merely every device with a membership event in the room.
+    //
+    // A membership is a state event with a four-hour default expiry, so a
+    // client that died without retracting leaves a GHOST behind: a device
+    // that is not in the call, is not syncing, and cannot receive anything.
+    // Addressing the key by membership alone sent it to exactly those ghosts
+    // — measured against the real homeserver, the key sat undelivered in
+    // Synapse's `device_inbox` for a dead device while the live peer got
+    // nothing, so every frame it sent was dropped for want of a key. The call
+    // connects, audio flows one way (the peer has OUR key), and the return
+    // direction is silent forever.
+    //
+    // The SFU list is the authority on presence: a participant is there
+    // because they hold an open signalling connection. The membership is
+    // still what maps an SFU identity to a Matrix device, so both are needed
+    // — this is the INTERSECTION, which is the only correct answer.
     if (!m_rtc || m_roomId.isEmpty())
+        return QStringLiteral("[]");
+    QJsonArray out;
+    QSet<QString> seen;
+    for (const QVariant &row : std::as_const(m_participants)) {
+        const QVariantMap participant = row.toMap();
+        const QString identity =
+            participant.value(QStringLiteral("identity")).toString();
+        if (identity.isEmpty() || identity == m_ownIdentity)
+            continue;
+        const QVariantMap person =
+            m_rtc->participantForIdentity(m_roomId, identity);
+        // Our own device is never a target, and an identity the membership
+        // has not resolved yet is SKIPPED rather than guessed — the next
+        // participant update or membership read tries again.
+        if (person.value(QStringLiteral("ownDevice")).toBool())
+            continue;
+        const QString userId =
+            person.value(QStringLiteral("userId")).toString();
+        const QString deviceId =
+            person.value(QStringLiteral("deviceId")).toString();
+        if (userId.isEmpty() || deviceId.isEmpty())
+            continue;
+        const QString key = userId + QChar(0x1f) + deviceId;
+        if (seen.contains(key))
+            continue;
+        seen.insert(key);
+        QJsonObject target;
+        target.insert(QStringLiteral("user_id"), userId);
+        target.insert(QStringLiteral("device_id"), deviceId);
+        out.append(target);
+    }
+    return QString::fromUtf8(QJsonDocument(out).toJson(QJsonDocument::Compact));
+}
+
+QString SfuCallController::mediaKeyRingName(const QString &userId,
+                                            const QString &deviceId)
+{
+    // A key ring belongs to one DEVICE. The same person on a laptop and a
+    // phone are two senders publishing two independent key streams, and
+    // LiveKit's key index is per-participant, so both legitimately use index
+    // 0 with different material — collapsing them by user would decrypt one
+    // with the other's key. The unit separator cannot occur in either half.
+    if (userId.isEmpty() || deviceId.isEmpty())
         return {};
-    // The membership is what knows a device's SFU identity — derived in Rust
-    // and a sha256 in the sticky format, so it cannot be reconstructed here.
-    return streamIdForIdentity(
-        m_rtc->rtcIdentityFor(m_roomId, userId, deviceId));
+    return userId + QChar(0x1f) + deviceId;
+}
+
+void SfuCallController::noteParticipantIdentities()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (m_engine.isNull() || !m_rtc)
+        return;
+    // The engine decrypts per SENDING DEVICE; a frame names its sender only
+    // by the LiveKit sid in the subscriber SDP's `msid`; and a media key
+    // names a Matrix device. This is the join between those two names.
+    //
+    // Re-run on every participant update AND on every key, because neither
+    // the sid (which the SFU assigns) nor the membership (which resolves the
+    // sid's identity to a device) is knowable at a fixed point — and a
+    // binding that could not be made yet is retried simply by running this
+    // again, with no key ever being buffered or re-requested.
+    for (const QVariant &row : std::as_const(m_participants)) {
+        const QVariantMap participant = row.toMap();
+        const QString identity =
+            participant.value(QStringLiteral("identity")).toString();
+        const QString sid = participant.value(QStringLiteral("sid")).toString();
+        if (identity.isEmpty() || sid.isEmpty())
+            continue;
+        // The sid to the IDENTITY first, and unconditionally. Both come
+        // from the same SFU participant row, so this binding needs nothing
+        // else to have arrived — which matters, because the arriving frames
+        // name only the sid and every one of them is DROPPED until the ring
+        // they land in is the ring the key went into. Making that depend on
+        // the room's membership meant a membership that never resolved was
+        // total, permanent silence with signalling working perfectly.
+        m_engine->noteParticipantIdentity(sid, identity);
+        // ...and to the sending device where the membership knows it, which
+        // is what covers an identity that is NOT `{user}:{device}` — the
+        // sticky format hashes it. Empty means "not resolved yet": never a
+        // guess, because binding a sid to the wrong device would decrypt one
+        // participant's frames with another's key. The next update retries.
+        const QVariantMap person =
+            m_rtc->participantForIdentity(m_roomId, identity);
+        const QString name = mediaKeyRingName(
+            person.value(QStringLiteral("userId")).toString(),
+            person.value(QStringLiteral("deviceId")).toString());
+        if (!name.isEmpty())
+            m_engine->noteParticipantIdentity(sid, name);
+    }
+#endif
+}
+
+void SfuCallController::distributeKeyIfNeeded()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!active() || !m_rtc || !m_roomEncrypted)
+        return;
+    // The set of devices we can currently address. Compared against what the
+    // last distribution reached, so this is idempotent: a membership read
+    // that reveals nobody new does nothing, and the sessionChanged signal can
+    // therefore be connected without fear of a rotation storm.
+    const QString targets = mediaKeyTargets();
+    if (targets == m_lastKeyTargets)
+        return;
+    if (targets == QLatin1String("[]"))
+        return;
+    qCInfo(lcSfuCall) << "media key: addressable set changed, redistributing";
+    rotateAndDistributeKey();
+#endif
 }
 
 void SfuCallController::rotateAndDistributeKey()
@@ -790,9 +1115,16 @@ void SfuCallController::rotateAndDistributeKey()
     // Sending to an empty target list is not an error and not a no-op we
     // should skip: a call we are alone in still encrypts, and a key nobody
     // needed yet is the correct state.
-    const QString targets = m_rtc
-        ? m_rtc->mediaKeyTargetsJson(m_roomId)
-        : QStringLiteral("[]");
+    const QString targets = mediaKeyTargets();
+    // Remembered so distributeKeyIfNeeded() can tell "nobody new" from "a
+    // peer we could not address last time is addressable now". An EMPTY set
+    // is deliberately not remembered: it means the membership has not been
+    // read yet, and recording it would make the retry a no-op forever.
+    if (targets != QLatin1String("[]"))
+        m_lastKeyTargets = targets;
+    qCInfo(lcSfuCall) << "media key distributed index=" << index
+                      << "targets=" << (targets == QLatin1String("[]")
+                                        ? 0 : targets.count(QLatin1Char('{')));
     const quint64 op =
         m_client->rtcSendMediaKey(m_roomId, QString::fromUtf8(key.toBase64()),
                                   index, targets);
@@ -942,8 +1274,10 @@ void SfuCallController::setCameraOn(bool on)
     m_cameraOn = on;
     if (on) {
         const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        m_client->sfuAddTrack(cid, QStringLiteral("camera"), 1, false,
-                              m_roomEncrypted);
+        m_client->sfuAddTrack(cid, QStringLiteral("camera"), 1,
+                              SfuMediaEngine::kCameraWidth,
+                              SfuMediaEngine::kCameraHeight,
+                              false, m_roomEncrypted);
         m_engine->publishVideo(cid, false, -1);
         m_cameraCid = cid;
         m_publishedTrackIds.append(cid);
@@ -978,8 +1312,10 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd)
     const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
     qCInfo(lcSfuCall) << "screen share publishing node=" << pipewireNodeId
                       << "encrypted=" << m_roomEncrypted;
-    m_client->sfuAddTrack(cid, QStringLiteral("screen"), 1, true,
-                          m_roomEncrypted);
+    m_client->sfuAddTrack(cid, QStringLiteral("screen"), 1,
+                          SfuMediaEngine::kScreenWidth,
+                          SfuMediaEngine::kScreenHeight,
+                          true, m_roomEncrypted);
     m_engine->publishVideo(cid, /*screenShare=*/true, pipewireNodeId,
                            pipewireFd);
     m_screenCid = cid;

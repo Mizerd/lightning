@@ -54,6 +54,15 @@ public:
     /// mapping to the wire is one-to-one and unmistakable.
     enum class Target { Publisher, Subscriber };
 
+    /// The declared ceiling for each video source, matching the capsfilters
+    /// the publish pipelines use. Declared to the SFU in AddTrack: a video
+    /// track with no size and no layer leaves it to infer the shape of the
+    /// track, and it infers three-layer simulcast.
+    static constexpr int kScreenWidth = 1920;
+    static constexpr int kScreenHeight = 1080;
+    static constexpr int kCameraWidth = 1280;
+    static constexpr int kCameraHeight = 720;
+
     /// One-time probe: GStreamer initializes and every element the SFU
     /// pipelines need resolves. `whyNot` receives a short, safe reason.
     static bool runtimeAvailable(QString *whyNot = nullptr);
@@ -109,6 +118,42 @@ public:
     /// which is a black screen share that reports success.
     void publishVideo(const QString &cid, bool screenShare, int nodeId,
                       int pipewireFd = -1);
+    /// The VIDEO publish pipeline, as a gst_parse description.
+    ///
+    /// Exposed so the SCREEN-SHARE shape — which adds a `tee` and a self-view
+    /// branch and is therefore not the shape test-source mode builds — can be
+    /// parsed by a test. A typo there is a screen share that dies on its first
+    /// frame, which is exactly the class of failure this file has already had.
+    static QString videoPipelineDescription(const QString &source,
+                                            const QString &limits,
+                                            const QString &encoder,
+                                            const QString &selfView,
+                                            quint32 ssrc);
+    /// A distinct, non-zero SSRC for one published track. See the
+    /// definition: without an explicit one the offer carries no `a=ssrc`,
+    /// and then no `a=msid` either.
+    static quint32 nextPublishSsrc();
+    /// Give one publisher pad the msid the SFU will use to recognise the
+    /// track we declared. See the definition for why an offer without it is
+    /// a call that connects and carries nothing.
+    static void applyPublisherMsid(GstPad *sinkPad, const QString &cid);
+    /// The TRACK SID (`TR_…`) out of one SDP `a=msid:` value — the id that
+    /// names one track identically on both ends. See the definition: a
+    /// media-section `mid` cannot serve here, because the SFU's TrackInfo mid
+    /// belongs to the PUBLISHER's connection, not ours.
+    static QString trackSidFromMsid(const QString &msid);
+    /// The sending participant's id out of one SDP `a=msid:` value.
+    ///
+    /// Exposed as a static because it is the single thing that decides
+    /// whether a received track can be attributed to anyone at all — the
+    /// media key and the video sink are BOTH keyed on what this returns — and
+    /// testing it otherwise would need a live SFU. Same reason
+    /// screenShareSource() is exposed.
+    static QString participantIdFromMsid(const QString &msid);
+    /// The router key under which the LOCAL CAMERA's own frames are
+    /// delivered. Our camera is published rather than received, so this
+    /// self-view branch is the only local video that exists.
+    static QString localCameraStreamId();
     /// The router key under which the LOCAL screen share's own frames are
     /// delivered. Discord shows the sharer their own share; without a
     /// self-view the only way to find out whether a share is actually
@@ -155,16 +200,53 @@ public:
     /// Install a key received from one sender, for decrypting THAT sender's
     /// media.
     ///
-    /// Keyed by the sender's LiveKit stream id (the participant sid the SFU
-    /// puts in the SDP's `msid`), because LiveKit's key index is
-    /// per-participant: two senders may legitimately both use index 0 with
-    /// different key material. One shared ring would decrypt at most one of
-    /// them, so this is a ring PER sender, exactly as livekit-client keeps
-    /// one decryptor per participant.
-    void setInboundKey(const QString &streamId, int index,
+    /// `senderName` is the caller's stable per-DEVICE name, not a LiveKit
+    /// sid: a key is addressed to a Matrix device and arrives whenever its
+    /// to-device message does, which may be long before the SFU has named
+    /// that device's sid. noteParticipantIdentity() joins the two names
+    /// afterwards. One ring PER sender, because LiveKit's key index is
+    /// per-participant — two senders may legitimately both use index 0 with
+    /// different material, and one shared ring would decrypt at most one of
+    /// them. livekit-client keeps one decryptor per participant for the same
+    /// reason.
+    void setInboundKey(const QString &senderName, int index,
                        const QByteArray &rawKey);
+    /// Bind the LiveKit stream id a sender publishes under to the stable
+    /// name their key ring is stored under, making the two ONE ring.
+    ///
+    /// A media key is addressed to a Matrix DEVICE and arrives whenever its
+    /// to-device message lands; the sid that device publishes under is only
+    /// learned from the SFU's participant list. Nothing orders those two, so
+    /// the ring is stored under the device name (which is always knowable
+    /// from the key itself) and this is what lets an arriving FRAME find it.
+    /// Without the binding, every frame from that sender is dropped as
+    /// undecryptable for the whole call. Idempotent, and safe to re-run on
+    /// every participant update — which is exactly how a binding that could
+    /// not be made yet is retried.
+    void noteParticipantIdentity(const QString &streamId,
+                                 const QString &senderName);
+    /// The key ring for one sender, created on first sight. `name` is either
+    /// a MatrixRTC participant identity or a LiveKit stream id;
+    /// noteParticipantIdentity() makes those two names one ring.
+    ///
+    /// PUBLIC because the decrypt pad probe resolves it per frame on a
+    /// GStreamer streaming thread: which participant owns a media section can
+    /// be learned after the pad exists, so a ring captured at install time
+    /// froze whichever order the SFU happened to send things in. Internally
+    /// locked; safe from any thread.
+    std::shared_ptr<CallFrameCryptor> recvCryptorFor(const QString &name);
     /// Whether outgoing frames are actually being encrypted right now.
     bool encryptionActive() const;
+    /// Frames that reached the wire, and frames that arrived and decrypted.
+    ///
+    /// The two numbers that separate "media never flowed" from "media flowed
+    /// and was unusable" — indistinguishable from the outside (silence, a
+    /// black tile, a mute badge at the far end) and completely different
+    /// faults. Counts only; never content. Written from GStreamer streaming
+    /// threads, so atomic.
+    quint64 framesEncrypted() const { return m_framesEncrypted.load(); }
+    quint64 framesDecrypted() const { return m_framesDecrypted.load(); }
+    quint64 framesDropped() const { return m_framesDropped.load(); }
     /// Require encryption. With this set and no key installed, frames are
     /// DROPPED rather than sent in the clear — the whole point of the gate.
     void setEncryptionRequired(bool required);
@@ -213,6 +295,14 @@ private:
     // anything is acted on — the engine is one object reused call after
     // call, and a queued event from a closed session must never be
     // attributed to the next one.
+    /// ICE / DTLS state transitions on one peer connection, logged.
+    ///
+    /// The single missing signal that separates "media never negotiated"
+    /// from "media negotiated and is unusable": those two produce identical
+    /// symptoms (silence, a black tile, a mute badge at the far end) and
+    /// have completely different causes.
+    static void onPeerStateNotify(GstElement *webrtc, void *paramSpec,
+                                  void *userData);
     static void onNegotiationNeeded(GstElement *webrtc, void *userData);
     static void onIceCandidate(GstElement *webrtc, unsigned mlineIndex,
                                char *candidate, void *userData);
@@ -235,8 +325,6 @@ private:
     /// `streamId`. An unknown stream id still gets a cryptor, so a key
     /// arriving later is applied to the right sender.
     void installDecryptProbe(GstPad *pad, bool video, const QString &streamId);
-    /// The cryptor for one sender, created if this is the first sight of it.
-    std::shared_ptr<CallFrameCryptor> recvCryptorFor(const QString &streamId);
     /// Record media-section index -> stream id.
     ///
     /// Takes the already-extracted map rather than the SDP: GstSDPMessage is
@@ -287,6 +375,10 @@ private:
     std::atomic<bool> m_encryptionRequired{false};
     std::atomic<bool> m_sendKeyReady{false};
     std::atomic<bool> m_recvKeyReady{false};
+    /// See framesEncrypted(). Reset per session in start().
+    std::atomic<quint64> m_framesEncrypted{0};
+    std::atomic<quint64> m_framesDecrypted{0};
+    std::atomic<quint64> m_framesDropped{0};
     /// A distinct IV stream id per encrypting track.
     ///
     /// The cryptor keeps its send counter PER SSRC, so two tracks sharing

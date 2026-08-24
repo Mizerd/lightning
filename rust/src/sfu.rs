@@ -271,6 +271,11 @@ pub(crate) enum SfuCommand {
         name: String,
         /// 0 = audio, 1 = video
         kind: i32,
+        /// Video only, and 0 for audio. See the AddTrack arm: a video track
+        /// declared with no size and no layer leaves the SFU to guess, and it
+        /// guesses SIMULCAST.
+        width: u32,
+        height: u32,
         /// True for a screen share, which LiveKit sources separately.
         screen_share: bool,
         /// Whether the frames on this track are E2EE-encrypted. LiveKit
@@ -478,6 +483,17 @@ async fn run_session(
     // parked interval does not ping before the join.
     ping_ticker.tick().await;
     let mut ping_armed = false;
+    // LiveKit correlates an answer with the offer it answers through
+    // `SessionDescription.id`. It is NOT the peer-connection target, which is
+    // what this used to send: the server generates its offer ids from a
+    // RANDOM base (`rand.Intn(1<<8)+1`, then incremented), so a hardcoded
+    // value matched only by accident and the server logged an "answer id
+    // mismatch" against every answer we ever sent. livekit-client keeps the
+    // last remote offer id and echoes it back (`latestRemoteOfferId`), and
+    // numbers its OWN offers with a counter; both are done here.
+    // Index 0 = publisher, 1 = subscriber, matching `target_str`.
+    let mut remote_offer_id = [0u32; 2];
+    let mut local_offer_id = [0u32; 2];
 
     loop {
         tokio::select! {
@@ -508,17 +524,27 @@ async fn run_session(
                 let Some(command) = command else { break };
                 let message = match command {
                     SfuCommand::Offer { sdp, target } => {
+                        let slot = (target as usize).min(1);
+                        local_offer_id[slot] =
+                            local_offer_id[slot].wrapping_add(1).max(1);
                         lkp::signal_request::Message::Offer(
                             lkp::SessionDescription {
                                 r#type: "offer".to_owned(), sdp,
-                                id: target as u32, ..Default::default()
+                                id: local_offer_id[slot],
+                                ..Default::default()
                             })
                     }
                     SfuCommand::Answer { sdp, target } => {
+                        let slot = (target as usize).min(1);
                         lkp::signal_request::Message::Answer(
                             lkp::SessionDescription {
                                 r#type: "answer".to_owned(), sdp,
-                                id: target as u32, ..Default::default()
+                                // The id of the offer this answers, echoed
+                                // back. 0 means "we never saw an offer", and
+                                // the server treats 0 as unset rather than as
+                                // a mismatch.
+                                id: remote_offer_id[slot],
+                                ..Default::default()
                             })
                     }
                     SfuCommand::Candidate { candidate_init, target } => {
@@ -528,13 +554,49 @@ async fn run_session(
                             })
                     }
                     SfuCommand::AddTrack {
-                        cid, name, kind, screen_share, encrypted,
+                        cid, name, kind, width, height, screen_share, encrypted,
                     } => {
+                        // ONE explicit layer for video, with real dimensions.
+                        //
+                        // livekit-client always sets `req.width`/`req.height`
+                        // (it waits on `track.waitForDimensions()` to do it),
+                        // and the proto says of VideoLayer.quality: "for
+                        // tracks with a single layer, this should be HIGH".
+                        // Declaring neither leaves the SFU to infer the shape
+                        // of the track — it logs `sdpRids ["q","h","f"]`, the
+                        // three-layer simulcast default — while we publish a
+                        // single untagged stream, so what it forwards and what
+                        // we send do not describe the same track.
+                        let layers = if kind == lkp::TrackType::Video as i32 {
+                            vec![lkp::VideoLayer {
+                                quality: lkp::VideoQuality::High as i32,
+                                width,
+                                height,
+                                ..Default::default()
+                            }]
+                        } else {
+                            Vec::new()
+                        };
                         lkp::signal_request::Message::AddTrack(
                             lkp::AddTrackRequest {
                                 cid, name, r#type: kind,
+                                width, height, layers,
                                 source: track_source_for(kind, screen_share),
                                 encryption: track_encryption_for(encrypted),
+                                // RED (RFC 2198 redundant audio) and frame
+                                // E2EE are mutually exclusive, and the
+                                // reference says so in one line:
+                                // livekit-client sets
+                                // `disableRed: this.isE2EEEnabled || …`.
+                                // RED wraps the Opus payload, so a receiver
+                                // hands its frame decryptor a RED packet
+                                // whose first byte is not the Opus TOC the
+                                // format leaves in the clear — every frame
+                                // then fails its authentication tag and is
+                                // dropped. Left false, an SFU is free to
+                                // apply RED to our audio and nobody can
+                                // decrypt a word of it.
+                                disable_red: encrypted,
                                 ..Default::default()
                             })
                     }
@@ -593,10 +655,28 @@ async fn run_session(
                             tokio::time::MissedTickBehavior::Delay);
                         ping_ticker.tick().await;   // consume the immediate one
                         ping_armed = true;
-                        let others: Vec<serde_json::Value> = join
+                        // OUR OWN row FIRST, then the others.
+                        //
+                        // `JoinResponse.participant` is the local
+                        // participant and `other_participants` is everyone
+                        // else — livekit-client keeps them apart, but this
+                        // bridge carries ONE list, and leaving ours out of it
+                        // meant the call stage could never draw the local
+                        // tile from the join alone, and `ownParticipantRow()`
+                        // (which is how a mute reaches the SFU) had nothing
+                        // to find until the server happened to send an update
+                        // about us.
+                        let mut participants: Vec<serde_json::Value> =
+                            Vec::with_capacity(MAX_PARTICIPANTS);
+                        if let Some(own) = join.participant.as_ref()
+                            .and_then(participant_json)
+                        {
+                            participants.push(own);
+                        }
+                        participants.extend(join
                             .other_participants.iter()
-                            .take(MAX_PARTICIPANTS)
-                            .filter_map(participant_json).collect();
+                            .take(MAX_PARTICIPANTS.saturating_sub(1))
+                            .filter_map(participant_json));
                         // ICE servers the SFU names. Credentials among them
                         // are short-lived and engine-only, exactly like the
                         // homeserver's TURN answer.
@@ -615,13 +695,16 @@ async fn run_session(
                                 .map(|p| p.identity.clone())
                                 .unwrap_or_default(),
                             "subscriber_primary": join.subscriber_primary,
-                            "participants": others,
+                            "participants": participants,
                             "ice_servers": ice,
                         }));
                     }
                     lkp::signal_response::Message::Offer(sdp) => {
                         // The server offers on SUBSCRIBER: this is everyone
-                        // else's media arriving.
+                        // else's media arriving. Its id has to survive until
+                        // our answer is built, or the answer cannot name the
+                        // offer it answers.
+                        remote_offer_id[1] = sdp.id;
                         if media_capable.load(Ordering::SeqCst) {
                             emit(json!({
                                 "type": "sfu_remote_description",

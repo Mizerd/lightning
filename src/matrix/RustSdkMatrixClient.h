@@ -441,7 +441,8 @@ public:
     void sfuLocalCandidate(const QString &target,
                            const QString &candidateInit) override;
     void sfuAddTrack(const QString &cid, const QString &name, int kind,
-                     bool screenShare, bool encrypted) override;
+                     int width, int height, bool screenShare,
+                     bool encrypted) override;
     void sfuMuteTrack(const QString &sid, bool muted) override;
     void sfuDisconnect() override;
     quint64 rtcNotify(const QString &roomId, const QString &notificationType,

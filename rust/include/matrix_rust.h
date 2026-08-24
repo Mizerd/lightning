@@ -966,6 +966,12 @@ char *mx_rust_sfu_add_track(void *client,
                             const char *cid,
                             const char *name,
                             int kind_audio0_video1,
+                            /* Video only (0 for audio). A video track declared
+                             * with no size and no layer leaves the SFU to
+                             * infer the track's shape, and it infers
+                             * three-layer simulcast. */
+                            unsigned int width,
+                            unsigned int height,
                             unsigned char screen_share,
                             /* Declares LiveKit Encryption::GCM on the track,
                              * which is how a receiving client (Element Call

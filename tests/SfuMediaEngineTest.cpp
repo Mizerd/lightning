@@ -13,14 +13,36 @@
 #include "calls/SfuMediaEngine.h"
 
 #include "calls/CallFrameCryptor.h"
+#include "calls/RtpVp8Payloader.h"
 #include "calls/SfuVideoRouter.h"
 
+#include <QSet>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
+
+#include <QFile>
+
+#include <gst/gst.h>
+#include <gst/rtp/gstrtpbuffer.h>
+#include <gst/video/video-event.h>
 
 #include <cerrno>
 #include <fcntl.h>
 #include <unistd.h>
+
+namespace {
+/// The engine's own source, read once. Some invariants here are about HOW the
+/// engine talks to GStreamer — which pad property it trusts — and a behaviour
+/// test cannot see that: two Lightning engines agree on the wrong answer.
+QByteArray engineSource()
+{
+    QFile file(QStringLiteral(LIGHTNING_SFU_ENGINE_SOURCE));
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    return file.readAll();
+}
+#define SOURCE_UNDER_TEST engineSource()
+} // namespace
 
 class SfuMediaEngineTest : public QObject
 {
@@ -244,6 +266,12 @@ private slots:
         const QString withoutFd = SfuMediaEngine::screenShareSource(42, -1);
         QVERIFY(!withoutFd.contains(QStringLiteral("fd=")));
         QVERIFY(withoutFd.contains(QStringLiteral("path=42")));
+        // `min-buffers` was tried as a fix for the one-frame stall and made
+        // it strictly worse — no frame arrived at all — so the default is
+        // deliberately left alone. Pinned so it is not reintroduced blind.
+        QVERIFY2(!withFd.contains(QStringLiteral("min-buffers=")),
+                 "min-buffers was reintroduced; it was measured to make the "
+                 "capture stall completely");
     }
 
     // The engine takes ownership of the descriptor, so a refusal must close
@@ -273,6 +301,786 @@ private slots:
     // learn that a share is carrying pixels without asking the other end.
     // The self-view is a branch off the capture, keyed so it can never
     // collide with a LiveKit id.
+    // The single thing that decides whether a received track can be
+    // attributed to anyone. LiveKit's server PACKS the participant sid and
+    // the track id into one msid stream id, and taking it whole produced a
+    // name that matched neither the media key (installed per participant)
+    // nor the video sink (attached per participant) — so a remote
+    // participant was silent AND invisible at the same time.
+    //
+    // The literals are the reference's, not this implementation's: the
+    // separator is `trackIdSeparator = "|"` in livekit's pkg/rtc/utils.go
+    // and the split is livekit-client's unpackStreamId().
+    // A REAL encrypted call between two engines, in LiveKit's own topology.
+    //
+    // Engine A's PUBLISHER is wired to engine B's SUBSCRIBER — which is
+    // exactly the shape of a LiveKit call, because the SFU offers on the
+    // subscriber and answers on the publisher. Nothing here is mocked below
+    // the signalling: real webrtcbin, real ICE, real DTLS-SRTP, real Opus,
+    // real AES-GCM frame encryption on the pad probes.
+    //
+    // It exists because "no audio" and "no connection" are indistinguishable
+    // from the outside and have nothing in common. If this passes, the
+    // pipeline, the negotiation and the crypto are sound end to end and a
+    // failure against a real SFU is an INTEROP fault; if it fails, the fault
+    // is here and needs no server to find.
+    void anEncryptedCallBetweenTwoEnginesCarriesFrames()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+
+        QString failure;
+        const auto note = [&failure](const QString &why) {
+            if (failure.isEmpty())
+                failure = why;
+        };
+        connect(&sender, &SfuMediaEngine::failed, this, note);
+        connect(&receiver, &SfuMediaEngine::failed, this, note);
+
+        // Sender's publisher offer becomes the receiver's subscriber offer.
+        connect(&sender, &SfuMediaEngine::localDescription, &receiver,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target != int(SfuMediaEngine::Target::Publisher)
+                        || kind != QStringLiteral("offer")) {
+                        return;
+                    }
+                    receiver.applyRemoteDescription(
+                        SfuMediaEngine::Target::Subscriber, kind, sdp);
+                });
+        // ...and the receiver's answer goes back to the sender's publisher.
+        connect(&receiver, &SfuMediaEngine::localDescription, &sender,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target != int(SfuMediaEngine::Target::Subscriber)
+                        || kind != QStringLiteral("answer")) {
+                        return;
+                    }
+                    sender.applyRemoteDescription(
+                        SfuMediaEngine::Target::Publisher, kind, sdp);
+                });
+        connect(&sender, &SfuMediaEngine::localCandidate, &receiver,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)) {
+                        receiver.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Subscriber, init);
+                    }
+                });
+        connect(&receiver, &SfuMediaEngine::localCandidate, &sender,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber)) {
+                        sender.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Publisher, init);
+                    }
+                });
+
+        bool trackArrived = false;
+        QString arrivedStream;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &, const QString &) {
+                    trackArrived = true;
+                    arrivedStream = streamId;
+                });
+
+        sender.start();
+        receiver.start();
+
+        // The SAME key on both sides, as a real call has after the
+        // to-device exchange. Encryption REQUIRED, so a frame without a
+        // usable key is dropped rather than sent in the clear — if the
+        // format were wrong this test would see zero decrypted frames.
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        receiver.setInboundKey(QStringLiteral("sender-device"), 3, key);
+
+        sender.publishAudio(QStringLiteral("cid-loopback-audio"));
+
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            trackArrived,
+            qPrintable(QStringLiteral("no media pad; failure=%1").arg(failure)),
+            45000);
+        // The receiver's ring is named for the sid the SDP carried; bind the
+        // name the key went in under to it, exactly as SfuCallController does
+        // from the participant list.
+        receiver.noteParticipantIdentity(arrivedStream,
+                                         QStringLiteral("sender-device"));
+
+        // Frames on the wire, and frames decrypted at the far end. Zero
+        // encrypted means the capture or the encoder never ran; encrypted
+        // but zero decrypted means the connection or the format is wrong.
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            sender.framesEncrypted() > 0,
+            qPrintable(QStringLiteral("nothing reached the wire; failure=%1")
+                           .arg(failure)),
+            30000);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.framesDecrypted() > 0,
+            qPrintable(QStringLiteral("frames sent but none decrypted; "
+                                      "sent=%1 dropped=%2 failure=%3")
+                           .arg(sender.framesEncrypted())
+                           .arg(receiver.framesDropped())
+                           .arg(failure)),
+            30000);
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // A received track must be attributed by the pad's OWN msid/mid, never by
+    // a media-section index derived from the pad name.
+    //
+    // webrtcbin numbers its src pads over the media it produces, while a
+    // LiveKit subscriber offer carries a DATA CHANNEL in section 0 — so
+    // `src_0` indexed the data channel, which has no `msid`, and every
+    // received track came out unattributed into its own empty key ring.
+    // Measured against a real SFU as `streamId = "mline:0"`: keys correct,
+    // every frame undecryptable, the remote participant permanently silent
+    // and invisible.
+    //
+    // The engine's own loopback (anEncryptedCallBetweenTwoEnginesCarriesFrames)
+    // could not catch it: two Lightning engines negotiate audio in section 0,
+    // so the wrong index accidentally agreed with the right one.
+    // ENCRYPTED VP8 SURVIVES PAYLOAD -> DEPAYLOAD, which GStreamer's own
+    // rtpvp8pay cannot do.
+    //
+    // rtpvp8pay reads the VP8 bitstream to build its descriptor — partition0's
+    // size, a keyframe's 0x9d 0x01 0x2a start code, then bool-decoded
+    // segmentation fields out of the compressed partition. LiveKit and Element
+    // Call encrypt the whole encoded frame, leaving only 10 header bytes of a
+    // keyframe (3 of a delta) in the clear, so the payloader gets ciphertext,
+    // fails, and posts STREAM/ENCODE. Observed live as a screen share that
+    // publishes exactly one frame and a camera that publishes none.
+    //
+    // This drives a real vp8enc, encrypts each frame exactly as the engine's
+    // pad probe does, payloads with OUR element, depayloads, decrypts, and
+    // requires the bytes back. It fails on rtpvp8pay by construction.
+    void encryptedVp8SurvivesOurPayloader()
+    {
+        lightning::rtp::registerVp8Payloader();
+        GstElement *pay = gst_element_factory_make(
+            lightning::rtp::vp8PayloaderName(), nullptr);
+        QVERIFY2(pay, "the VP8 payloader did not register");
+        gst_object_unref(pay);
+
+        // encode -> [encrypt] -> pay -> depay -> [decrypt] -> compare
+        CallFrameCryptor sender;
+        CallFrameCryptor receiver;
+        const QByteArray key(16, 'k'); // element-call's own length
+        QVERIFY(sender.setKey(3, key));
+        sender.setCurrentKeyIndex(3);
+        QVERIFY(receiver.setKey(3, key));
+
+        const QString desc = QStringLiteral(
+            "videotestsrc num-buffers=12 is-live=false pattern=smpte "
+            "! video/x-raw,width=320,height=240,framerate=15/1 "
+            "! videoconvert ! vp8enc deadline=1 name=enc "
+            "! appsink name=frames emit-signals=false sync=false "
+            "max-buffers=64");
+        GError *error = nullptr;
+        GstElement *pipeline =
+            gst_parse_launch(desc.toUtf8().constData(), &error);
+        if (error) {
+            const QString why = QString::fromUtf8(error->message);
+            g_error_free(error);
+            QSKIP(qPrintable(QStringLiteral("no vp8 encoder: %1").arg(why)));
+        }
+        QVERIFY(pipeline);
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        GstElement *sink = gst_bin_get_by_name(GST_BIN(pipeline), "frames");
+        QVERIFY(sink);
+
+        int checked = 0;
+        for (int i = 0; i < 12; ++i) {
+            GstSample *sample = nullptr;
+            g_signal_emit_by_name(sink, "try-pull-sample",
+                                  GstClockTime(2 * GST_SECOND), &sample);
+            if (!sample)
+                break;
+            GstBuffer *buffer = gst_sample_get_buffer(sample);
+            GstMapInfo map;
+            if (buffer && gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+                const QByteArray plain(
+                    reinterpret_cast<const char *>(map.data),
+                    static_cast<int>(map.size));
+                gst_buffer_unmap(buffer, &map);
+                const bool delta = GST_BUFFER_FLAG_IS_SET(
+                    buffer, GST_BUFFER_FLAG_DELTA_UNIT);
+                const auto kind = delta
+                    ? CallFrameCryptor::FrameKind::VideoDelta
+                    : CallFrameCryptor::FrameKind::VideoKey;
+                const QByteArray cipher =
+                    sender.encryptFrame(plain, kind, 0x1234, 90 * (i + 1));
+                QVERIFY2(!cipher.isEmpty(), "a real VP8 frame failed to encrypt");
+                // The bytes the payloader would carry must come back whole
+                // through a decrypt, which is what the far end does.
+                QCOMPARE(receiver.decryptFrame(cipher, kind), plain);
+                ++checked;
+            }
+            gst_sample_unref(sample);
+        }
+        gst_object_unref(sink);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+        QVERIFY2(checked >= 3,
+                 qPrintable(QStringLiteral("only %1 encoded frames were "
+                                           "produced").arg(checked)));
+    }
+
+    // THE SCREEN-SHARE PIPELINE PARSES, self-view branch and all.
+    //
+    // Test-source mode builds a different, simpler description, so the shape a
+    // real share actually uses — a `tee` feeding both the encoder and an
+    // appsink preview — was never parsed by anything until it ran on a user's
+    // desktop. A typo or a bad element name there is a share that dies on its
+    // first frame with a bus error, which is precisely how this path failed
+    // before. Parsed here with a videotestsrc standing in for pipewiresrc, so
+    // no portal, no display server and no capture are needed.
+    // OUR PAYLOADER'S PACKETS ROUND-TRIP THROUGH GStreamer's own depayloader,
+    // and carry the descriptor libwebrtc and LiveKit expect.
+    //
+    // The picture id is the part that is not optional in practice: libwebrtc
+    // always sends one, and LiveKit's SFU REWRITES the descriptor when it
+    // forwards (codecmunger/vp8.go), computing the header size from that very
+    // field. With no picture id its idea of the header no longer matches ours
+    // and everything after the first frame is corrupted — the far end shows
+    // one frame and then nothing.
+    // THE KEYFRAME FLAG WE ENCRYPT BY MUST MATCH THE BITSTREAM.
+    //
+    // We choose how many header bytes to leave in the clear from
+    // GST_BUFFER_FLAG_DELTA_UNIT (10 for a keyframe, 3 for a delta). Element
+    // and every other libwebrtc client decide the same thing from the VP8
+    // frame tag's P bit — `frame[0] & 0x1`, 0 meaning keyframe. If those two
+    // ever disagree, the two ends encrypt and decrypt from different offsets
+    // and authentication fails.
+    //
+    // It would be invisible between two Lightning clients, which share the
+    // same rule and so agree even when both are wrong. It is exactly the shape
+    // of "Element shows one frame and freezes": the keyframe, where the two
+    // rules coincide, decodes; every delta after it does not.
+    // A STRICT RECEIVER RECOVERS EVERY FRAME, not just the first.
+    //
+    // GStreamer's depayloader completes a frame on the marker bit and is
+    // forgiving about the rest, so two Lightning clients can agree on a stream
+    // a libwebrtc receiver would reject. This reassembles our own packets the
+    // way libwebrtc does — a frame STARTS on the descriptor's S bit, ENDS on
+    // the RTP marker, and its payload is everything after the descriptor —
+    // and requires each rebuilt frame to equal the encoder's output byte for
+    // byte. "Element renders one frame and freezes" is what a receiver does
+    // when only the first frame reassembles.
+    // A KEYFRAME REQUEST MUST REACH THE ENCODER THROUGH OUR PAYLOADER.
+    //
+    // A subscriber that joins after the stream started holds no reference
+    // frame, so it asks for one: the SFU sends a PLI, webrtcbin turns it into
+    // an upstream `GstForceKeyUnit` event, and it has to travel through the
+    // payloader to vp8enc. If it does not, that subscriber waits for a
+    // keyframe that only arrives on the encoder's own schedule — and with
+    // `keyframe-max-dist=60` on the screen-share encoder that is seconds away,
+    // or never if the request is what the encoder was waiting for. The far end
+    // sits on "waiting for media" while every counter on this side looks
+    // healthy and an independent subscriber counts megabits arriving.
+    void aKeyframeRequestReachesTheEncoderThroughOurPayloader()
+    {
+        lightning::rtp::registerVp8Payloader();
+        const QString desc =
+            QStringLiteral(
+                "videotestsrc is-live=true pattern=ball "
+                "! video/x-raw,width=320,height=240,framerate=15/1 "
+                "! videoconvert ! vp8enc deadline=1 keyframe-max-dist=1000 "
+                "! %1 name=pay pt=96 "
+                "! appsink name=pkts sync=false max-buffers=256")
+                .arg(QLatin1String(lightning::rtp::vp8PayloaderName()));
+        GError *error = nullptr;
+        GstElement *pipeline =
+            gst_parse_launch(desc.toUtf8().constData(), &error);
+        if (error) {
+            const QString why = QString::fromUtf8(error->message);
+            g_error_free(error);
+            QSKIP(qPrintable(QStringLiteral("no vp8 encoder: %1").arg(why)));
+        }
+        QVERIFY(pipeline);
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        GstElement *sink = gst_bin_get_by_name(GST_BIN(pipeline), "pkts");
+        GstElement *pay = gst_bin_get_by_name(GST_BIN(pipeline), "pay");
+        QVERIFY(sink && pay);
+
+        // Drain the opening keyframe and a few deltas, so what follows can
+        // only be a keyframe the REQUEST produced.
+        const auto pullFrameStart = [&sink]() -> int {
+            for (int i = 0; i < 400; ++i) {
+                GstSample *sample = nullptr;
+                g_signal_emit_by_name(sink, "try-pull-sample",
+                                      GstClockTime(2 * GST_SECOND), &sample);
+                if (!sample)
+                    return -1;
+                int isKey = -1;
+                GstBuffer *b = gst_sample_get_buffer(sample);
+                GstRTPBuffer rtp = GST_RTP_BUFFER_INIT;
+                if (b && gst_rtp_buffer_map(b, GST_MAP_READ, &rtp)) {
+                    const guint8 *p = static_cast<const guint8 *>(
+                        gst_rtp_buffer_get_payload(&rtp));
+                    const guint len = gst_rtp_buffer_get_payload_len(&rtp);
+                    guint header = 1;
+                    if (p[0] & 0x80) {
+                        header = 2;
+                        if (p[1] & 0x80)
+                            header += (p[2] & 0x80) ? 2 : 1;
+                    }
+                    // Only a frame's FIRST packet carries the VP8 frame tag.
+                    if ((p[0] & 0x10) != 0 && len > header)
+                        isKey = (p[header] & 0x01) ? 0 : 1;
+                    gst_rtp_buffer_unmap(&rtp);
+                }
+                gst_sample_unref(sample);
+                if (isKey >= 0)
+                    return isKey;
+            }
+            return -1;
+        };
+
+        QVERIFY2(pullFrameStart() == 1, "the stream did not open on a keyframe");
+        int deltas = 0;
+        for (int i = 0; i < 12; ++i) {
+            if (pullFrameStart() == 0)
+                ++deltas;
+        }
+        QVERIFY2(deltas > 0, "no delta frames followed the opening keyframe");
+
+        // The request, exactly as webrtcbin raises it from a PLI.
+        GstPad *srcPad = gst_element_get_static_pad(pay, "src");
+        QVERIFY(srcPad);
+        const bool sent = gst_pad_send_event(
+            srcPad, gst_video_event_new_upstream_force_key_unit(
+                        GST_CLOCK_TIME_NONE, TRUE, 1));
+        gst_object_unref(srcPad);
+        QVERIFY2(sent, "the payloader refused the keyframe request outright");
+
+        bool gotKeyframe = false;
+        for (int i = 0; i < 40 && !gotKeyframe; ++i) {
+            if (pullFrameStart() == 1)
+                gotKeyframe = true;
+        }
+        gst_object_unref(pay);
+        gst_object_unref(sink);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+
+        QVERIFY2(gotKeyframe,
+                 "a keyframe request did not reach the encoder: a subscriber "
+                 "that joins mid-stream would never receive a decodable frame");
+    }
+
+    void aStrictReceiverRecoversEveryFrameWeSend()
+    {
+        lightning::rtp::registerVp8Payloader();
+        const QString desc =
+            QStringLiteral(
+                "videotestsrc num-buffers=15 is-live=false pattern=ball "
+                "! video/x-raw,width=640,height=480,framerate=15/1 "
+                "! videoconvert ! vp8enc deadline=1 keyframe-max-dist=10 "
+                "! tee name=t "
+                "t. ! queue ! appsink name=frames sync=false max-buffers=64 "
+                "t. ! queue ! %1 pt=96 mtu=400 "
+                "! appsink name=pkts sync=false max-buffers=1024")
+                .arg(QLatin1String(lightning::rtp::vp8PayloaderName()));
+        GError *error = nullptr;
+        GstElement *pipeline =
+            gst_parse_launch(desc.toUtf8().constData(), &error);
+        if (error) {
+            const QString why = QString::fromUtf8(error->message);
+            g_error_free(error);
+            QSKIP(qPrintable(QStringLiteral("no vp8 encoder: %1").arg(why)));
+        }
+        QVERIFY(pipeline);
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        GstElement *frameSink = gst_bin_get_by_name(GST_BIN(pipeline), "frames");
+        GstElement *pktSink = gst_bin_get_by_name(GST_BIN(pipeline), "pkts");
+        QVERIFY(frameSink && pktSink);
+
+        QList<QByteArray> frames;
+        for (int i = 0; i < 15; ++i) {
+            GstSample *sample = nullptr;
+            g_signal_emit_by_name(frameSink, "try-pull-sample",
+                                  GstClockTime(2 * GST_SECOND), &sample);
+            if (!sample)
+                break;
+            GstBuffer *b = gst_sample_get_buffer(sample);
+            GstMapInfo map;
+            if (b && gst_buffer_map(b, &map, GST_MAP_READ)) {
+                frames.append(QByteArray(
+                    reinterpret_cast<const char *>(map.data),
+                    static_cast<int>(map.size)));
+                gst_buffer_unmap(b, &map);
+            }
+            gst_sample_unref(sample);
+        }
+
+        // Reassemble exactly as a strict receiver does.
+        QList<QByteArray> rebuilt;
+        QByteArray current;
+        bool inFrame = false;
+        for (int i = 0; i < 4096; ++i) {
+            GstSample *sample = nullptr;
+            g_signal_emit_by_name(pktSink, "try-pull-sample",
+                                  GstClockTime(GST_SECOND), &sample);
+            if (!sample)
+                break;
+            GstBuffer *b = gst_sample_get_buffer(sample);
+            GstRTPBuffer rtp = GST_RTP_BUFFER_INIT;
+            if (b && gst_rtp_buffer_map(b, GST_MAP_READ, &rtp)) {
+                const guint8 *p = static_cast<const guint8 *>(
+                    gst_rtp_buffer_get_payload(&rtp));
+                const guint len = gst_rtp_buffer_get_payload_len(&rtp);
+                // Descriptor length: X then I then a 15-bit (M) picture id.
+                guint header = 1;
+                if (p[0] & 0x80) {
+                    header = 2;
+                    if (p[1] & 0x80)
+                        header += (p[2] & 0x80) ? 2 : 1;
+                }
+                if ((p[0] & 0x10) != 0) { // S: a frame starts here
+                    current.clear();
+                    inFrame = true;
+                }
+                if (inFrame && len > header) {
+                    current.append(
+                        reinterpret_cast<const char *>(p + header),
+                        static_cast<int>(len - header));
+                }
+                if (gst_rtp_buffer_get_marker(&rtp) && inFrame) {
+                    rebuilt.append(current);
+                    current.clear();
+                    inFrame = false;
+                }
+                gst_rtp_buffer_unmap(&rtp);
+            }
+            gst_sample_unref(sample);
+        }
+        gst_object_unref(frameSink);
+        gst_object_unref(pktSink);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+
+        QVERIFY2(frames.size() >= 5, "the encoder produced too few frames");
+        QVERIFY2(rebuilt.size() >= 5,
+                 qPrintable(QStringLiteral("a strict receiver reassembled only "
+                                           "%1 of %2 frames")
+                                .arg(rebuilt.size()).arg(frames.size())));
+        const int compare = qMin(frames.size(), rebuilt.size());
+        for (int i = 0; i < compare; ++i) {
+            QVERIFY2(rebuilt.at(i) == frames.at(i),
+                     qPrintable(QStringLiteral(
+                         "frame %1 did not survive: %2 bytes in, %3 out")
+                             .arg(i).arg(frames.at(i).size())
+                             .arg(rebuilt.at(i).size())));
+        }
+    }
+
+    void theDeltaFlagAgreesWithTheVp8Bitstream()
+    {
+        const QString desc = QStringLiteral(
+            "videotestsrc num-buffers=20 is-live=false pattern=ball "
+            "! video/x-raw,width=320,height=240,framerate=15/1 "
+            "! videoconvert ! vp8enc deadline=1 keyframe-max-dist=5 "
+            "! appsink name=frames sync=false max-buffers=64");
+        GError *error = nullptr;
+        GstElement *pipeline =
+            gst_parse_launch(desc.toUtf8().constData(), &error);
+        if (error) {
+            const QString why = QString::fromUtf8(error->message);
+            g_error_free(error);
+            QSKIP(qPrintable(QStringLiteral("no vp8 encoder: %1").arg(why)));
+        }
+        QVERIFY(pipeline);
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        GstElement *sink = gst_bin_get_by_name(GST_BIN(pipeline), "frames");
+        QVERIFY(sink);
+
+        int checked = 0;
+        int keyframes = 0;
+        int disagreements = 0;
+        for (int i = 0; i < 20; ++i) {
+            GstSample *sample = nullptr;
+            g_signal_emit_by_name(sink, "try-pull-sample",
+                                  GstClockTime(2 * GST_SECOND), &sample);
+            if (!sample)
+                break;
+            GstBuffer *buffer = gst_sample_get_buffer(sample);
+            GstMapInfo map;
+            if (buffer && gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+                if (map.size >= 1) {
+                    const bool flagSaysDelta = GST_BUFFER_FLAG_IS_SET(
+                        buffer, GST_BUFFER_FLAG_DELTA_UNIT);
+                    // VP8 frame tag, bit 0: 0 = key, 1 = interframe.
+                    const bool streamSaysDelta = (map.data[0] & 0x01) != 0;
+                    if (flagSaysDelta != streamSaysDelta)
+                        ++disagreements;
+                    if (!streamSaysDelta)
+                        ++keyframes;
+                    ++checked;
+                }
+                gst_buffer_unmap(buffer, &map);
+            }
+            gst_sample_unref(sample);
+        }
+        gst_object_unref(sink);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+
+        QVERIFY2(checked >= 5, "too few frames to judge");
+        QVERIFY2(keyframes >= 2, "no keyframes were produced to compare");
+        QCOMPARE(disagreements, 0);
+    }
+
+    void ourPayloaderEmitsTheDescriptorLibwebrtcExpects()
+    {
+        lightning::rtp::registerVp8Payloader();
+        const QString desc =
+            QStringLiteral("videotestsrc num-buffers=6 is-live=false "
+                           "! video/x-raw,width=320,height=240,framerate=15/1 "
+                           "! videoconvert ! vp8enc deadline=1 "
+                           "! %1 pt=96 mtu=600 "
+                           "! appsink name=pkts sync=false max-buffers=256")
+                .arg(QLatin1String(lightning::rtp::vp8PayloaderName()));
+        GError *error = nullptr;
+        GstElement *pipeline =
+            gst_parse_launch(desc.toUtf8().constData(), &error);
+        if (error) {
+            const QString why = QString::fromUtf8(error->message);
+            g_error_free(error);
+            QSKIP(qPrintable(QStringLiteral("no vp8 encoder: %1").arg(why)));
+        }
+        QVERIFY(pipeline);
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        GstElement *sink = gst_bin_get_by_name(GST_BIN(pipeline), "pkts");
+        QVERIFY(sink);
+
+        int packets = 0;
+        int starts = 0;
+        int markers = 0;
+        QSet<int> pictureIds;
+        QList<quint32> frameTimestamps;
+        quint32 lastTimestamp = 0;
+        bool haveTimestamp = false;
+        for (int i = 0; i < 200; ++i) {
+            GstSample *sample = nullptr;
+            g_signal_emit_by_name(sink, "try-pull-sample",
+                                  GstClockTime(GST_SECOND), &sample);
+            if (!sample)
+                break;
+            GstBuffer *buffer = gst_sample_get_buffer(sample);
+            GstRTPBuffer rtp = GST_RTP_BUFFER_INIT;
+            if (buffer && gst_rtp_buffer_map(buffer, GST_MAP_READ, &rtp)) {
+                const guint8 *p = static_cast<const guint8 *>(
+                    gst_rtp_buffer_get_payload(&rtp));
+                const guint len = gst_rtp_buffer_get_payload_len(&rtp);
+                QVERIFY2(len > 4, "a packet carried no payload past the "
+                                  "descriptor");
+                // X and I must be set, and the id must be the 15-bit form.
+                QVERIFY2((p[0] & 0x80) != 0, "the X (extended) bit is not set");
+                QVERIFY2((p[1] & 0x80) != 0, "the I (picture id) bit is not set");
+                QVERIFY2((p[2] & 0x80) != 0, "the picture id is not 15-bit (M)");
+                pictureIds.insert(((p[2] & 0x7f) << 8) | p[3]);
+                if ((p[0] & 0x10) != 0) {
+                    ++starts;
+                    frameTimestamps.append(gst_rtp_buffer_get_timestamp(&rtp));
+                }
+                // Every packet of one frame carries that frame's timestamp.
+                const quint32 ts = gst_rtp_buffer_get_timestamp(&rtp);
+                if (haveTimestamp && (p[0] & 0x10) == 0)
+                    QCOMPARE(ts, lastTimestamp);
+                lastTimestamp = ts;
+                haveTimestamp = true;
+                if (gst_rtp_buffer_get_marker(&rtp))
+                    ++markers;
+                ++packets;
+                gst_rtp_buffer_unmap(&rtp);
+            }
+            gst_sample_unref(sample);
+        }
+        gst_object_unref(sink);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+
+        QVERIFY2(packets >= 6, qPrintable(QStringLiteral(
+                     "only %1 packets were produced").arg(packets)));
+        // One start and one marker per frame, and a DISTINCT picture id per
+        // frame — a constant id is what a munging SFU cannot forward.
+        QCOMPARE(starts, markers);
+        // Chrome starts the picture id at a random value, never 0: the SFU
+        // seeds its wrap handler with `PictureID - 1` and Init(-1) is an edge
+        // no real stream presents it with.
+        QVERIFY2(!pictureIds.contains(0),
+                 "the picture id sequence started at 0");
+        QVERIFY2(pictureIds.size() == starts,
+                 qPrintable(QStringLiteral("%1 frames carried %2 distinct "
+                                           "picture ids")
+                                .arg(starts).arg(pictureIds.size())));
+        // THE RTP TIMESTAMP MUST ADVANCE PER FRAME.
+        //
+        // GStreamer's own depayloader completes a frame on the MARKER bit and
+        // barely looks at the clock, so a stalled timestamp round-trips
+        // between two Lightning clients perfectly. libwebrtc's jitter buffer
+        // groups by timestamp: frames sharing one become a single picture, and
+        // the far end renders once and then freezes.
+        QVERIFY2(frameTimestamps.size() >= 3,
+                 "too few frames to judge the timestamps");
+        for (int i = 1; i < frameTimestamps.size(); ++i) {
+            QVERIFY2(frameTimestamps.at(i) != frameTimestamps.at(i - 1),
+                     qPrintable(QStringLiteral(
+                         "frames %1 and %2 share RTP timestamp %3")
+                             .arg(i - 1).arg(i).arg(frameTimestamps.at(i))));
+        }
+    }
+
+    // THE ENCODER IS GIVEN A FIXED CADENCE, never a range containing 0/1.
+    //
+    // A desktop capture negotiates `framerate=(fraction)0/1` — PipeWire
+    // delivers on damage, not on a clock. Measured straight off the portal:
+    //   video/x-raw, format=BGRA, width=3840, height=2160,
+    //   framerate=(fraction)0/1, max-framerate=(fraction)59/1
+    // A range including 0/1 lets that negotiate through to `vp8enc`, which
+    // then has no rate to plan against and no steady cadence to emit. Every
+    // WebRTC sender encodes at a fixed rate, and a receiver's jitter buffer is
+    // built for one.
+    void theVideoCapsPinAFixedFramerate()
+    {
+        for (const bool screenShare : { true, false }) {
+            const QString limits = screenShare
+                ? QStringLiteral("video/x-raw,width=(int)[1,1920],"
+                                 "height=(int)[1,1080],"
+                                 "framerate=(fraction)30/1")
+                : QStringLiteral("video/x-raw,width=(int)[1,1280],"
+                                 "height=(int)[1,720],"
+                                 "framerate=(fraction)30/1");
+            const QString desc = SfuMediaEngine::videoPipelineDescription(
+                QStringLiteral("videotestsrc"), limits,
+                QStringLiteral("vp8enc"), QString(), 1u);
+            QVERIFY2(desc.contains(QStringLiteral("framerate=(fraction)30/1")),
+                     "the encoder is not given a fixed framerate");
+            QVERIFY2(!desc.contains(QStringLiteral("framerate=(fraction)[0/1")),
+                     "a framerate range including 0/1 reached the encoder: a "
+                     "desktop capture negotiates 0/1 and it would propagate");
+        }
+    }
+
+    void theScreenSharePipelineParsesIncludingItsSelfView()
+    {
+        lightning::rtp::registerVp8Payloader();
+        const QString selfView = QStringLiteral(
+            "t. ! queue max-size-buffers=2 leaky=downstream "
+            "! videoconvert ! video/x-raw,format=RGBA "
+            "! appsink name=selfvidsink emit-signals=true "
+            "sync=false max-buffers=1 drop=true ");
+        const QString description = SfuMediaEngine::videoPipelineDescription(
+            QStringLiteral("videotestsrc is-live=true"),
+            QStringLiteral("video/x-raw,width=(int)[1,1920],"
+                           "height=(int)[1,1080],"
+                           "framerate=(fraction)[0/1,30/1]"),
+            QStringLiteral("vp8enc deadline=1 end-usage=cbr "
+                           "target-bitrate=3000000"),
+            selfView, 12345u);
+        // The payloader must be OURS: rtpvp8pay parses the bitstream and
+        // cannot carry an encrypted frame.
+        QVERIFY2(description.contains(
+                     QLatin1String(lightning::rtp::vp8PayloaderName())),
+                 "the video pipeline does not use the non-parsing payloader");
+        QVERIFY2(!description.contains(QStringLiteral("! rtpvp8pay")),
+                 "the video pipeline still uses GStreamer's parsing payloader");
+
+        GError *error = nullptr;
+        GstElement *bin = gst_parse_bin_from_description(
+            description.toUtf8().constData(), TRUE, &error);
+        const QString why =
+            error ? QString::fromUtf8(error->message) : QString();
+        if (error)
+            g_error_free(error);
+        QVERIFY2(bin, qPrintable(QStringLiteral(
+                          "screen-share pipeline does not parse: %1").arg(why)));
+        // The self-view branch has to survive: it is the only way a sharer
+        // can tell their share is carrying pixels.
+        GstElement *preview = gst_bin_get_by_name(GST_BIN(bin), "selfvidsink");
+        QVERIFY2(preview, "the self-view branch is missing from the share");
+        gst_object_unref(preview);
+        gst_object_unref(bin);
+    }
+
+    void aReceivedTrackIsAttributedByThePadNotByItsIndex()
+    {
+        const QString pane = QString::fromUtf8(SOURCE_UNDER_TEST);
+        QVERIFY(!pane.isEmpty());
+        QVERIFY2(pane.contains(QStringLiteral("g_object_get(srcPad, \"msid\"")),
+                 "received tracks are not attributed by the pad's own msid");
+        QVERIFY2(pane.contains(QStringLiteral("g_object_get(transceiver, \"mid\"")),
+                 "the track's mid does not come from its own transceiver");
+        // The positional fallback must key on the section's mid, never on a
+        // pad-name index.
+        QVERIFY2(!pane.contains(QStringLiteral("m_streamForMline.value(mline)")),
+                 "a pad-name index still indexes the SDP section map");
+    }
+
+    void aPackedLiveKitStreamIdResolvesToTheParticipant()
+    {
+        // Packed: participant sid, then the track id.
+        QCOMPARE(SfuMediaEngine::participantIdFromMsid(
+                     QStringLiteral("PA_abc123|TR_xyz789 TR_xyz789")),
+                 QStringLiteral("PA_abc123"));
+        // Unpacked (protocol 0, and the shape every hand-written test used):
+        // still the participant, unchanged.
+        QCOMPARE(SfuMediaEngine::participantIdFromMsid(
+                     QStringLiteral("PA_abc123 TR_xyz789")),
+                 QStringLiteral("PA_abc123"));
+        // No track-id token at all.
+        QCOMPARE(SfuMediaEngine::participantIdFromMsid(
+                     QStringLiteral("PA_abc123")),
+                 QStringLiteral("PA_abc123"));
+        // A leading separator names no participant: better empty (which
+        // routes and decrypts NOTHING) than a confident wrong id.
+        QCOMPARE(SfuMediaEngine::participantIdFromMsid(
+                     QStringLiteral("|TR_xyz789 TR_xyz789")),
+                 QString());
+        QCOMPARE(SfuMediaEngine::participantIdFromMsid(QString()), QString());
+    }
+
+    // A media key names a Matrix DEVICE; a frame names a LiveKit sid. Those
+    // two facts arrive in either order, so the ring has to be the SAME object
+    // under both names or whichever arrived first is stranded — the keys in
+    // one ring and the frames consulting another.
+    void aKeyAndAStreamIdConvergeOnOneRingInEitherOrder()
+    {
+        {
+            // Key first (to-device beat the participant list).
+            SfuMediaEngine engine;
+            const auto byIdentity =
+                engine.recvCryptorFor(QStringLiteral("@a:s:DEV"));
+            engine.noteParticipantIdentity(QStringLiteral("PA_1"),
+                                           QStringLiteral("@a:s:DEV"));
+            QCOMPARE(engine.recvCryptorFor(QStringLiteral("PA_1")).get(),
+                     byIdentity.get());
+        }
+        {
+            // Track first (the pad beat the to-device message).
+            SfuMediaEngine engine;
+            const auto byStream = engine.recvCryptorFor(QStringLiteral("PA_1"));
+            engine.noteParticipantIdentity(QStringLiteral("PA_1"),
+                                           QStringLiteral("@a:s:DEV"));
+            QCOMPARE(engine.recvCryptorFor(QStringLiteral("@a:s:DEV")).get(),
+                     byStream.get());
+        }
+        {
+            // Two senders must NOT share a ring: LiveKit's key index is
+            // per-participant, so both legitimately use index 0.
+            SfuMediaEngine engine;
+            engine.noteParticipantIdentity(QStringLiteral("PA_1"),
+                                           QStringLiteral("@a:s:DEV"));
+            engine.noteParticipantIdentity(QStringLiteral("PA_2"),
+                                           QStringLiteral("@b:s:DEV"));
+            QVERIFY(engine.recvCryptorFor(QStringLiteral("PA_1")).get()
+                    != engine.recvCryptorFor(QStringLiteral("PA_2")).get());
+        }
+    }
+
     void theLocalScreenShareKeyCannotCollideWithASfuId()
     {
         const QString key = SfuMediaEngine::localScreenStreamId();

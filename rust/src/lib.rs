@@ -6359,6 +6359,8 @@ pub unsafe extern "C" fn mx_rust_sfu_add_track(
     cid: *const c_char,
     name: *const c_char,
     kind: i32,
+    width: u32,
+    height: u32,
     screen_share: u8,
     encrypted: u8,
 ) -> *mut c_char {
@@ -6369,6 +6371,8 @@ pub unsafe extern "C" fn mx_rust_sfu_add_track(
         sfu::send_command(bridge, sfu::SfuCommand::AddTrack {
             cid,
             name,
+            width,
+            height,
             kind: if kind == 1 { 1 } else { 0 },
             screen_share: screen_share != 0,
             encrypted: encrypted != 0,

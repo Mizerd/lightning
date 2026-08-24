@@ -130,6 +130,12 @@ public:
     /// Attach a sink to OUR OWN screen share, straight off the capture
     /// pipeline. Nothing is sent for this and nothing is decrypted: it is the
     /// only way the sharer can see that their share is carrying pixels.
+    /// Attach a sink to OUR OWN CAMERA, straight off the capture pipeline.
+    /// Our camera is published, never received, so this self-view is the only
+    /// local camera video there is — without it a local tile can only show an
+    /// avatar while the capture light is on.
+    Q_INVOKABLE void attachLocalCameraSink(QObject *videoSink);
+    Q_INVOKABLE void detachLocalCameraSink();
     Q_INVOKABLE void attachLocalScreenSink(QObject *videoSink);
     Q_INVOKABLE void detachLocalScreenSink();
 
@@ -201,7 +207,7 @@ private Q_SLOTS:
     void onSfuJoined(const QString &identity,
                      const QVariantList &participants,
                      const QVariantList &iceServers);
-    void onSfuParticipants(const QVariantList &participants);
+    void onSfuParticipants(const QVariantList &updates);
     void onSfuSpeakers(const QVariantList &speakers);
     void onSfuRemoteDescription(const QString &kind, const QString &target,
                                 const QString &sdp);
@@ -221,19 +227,24 @@ private:
     void teardown(State finalState, const QString &error = QString());
     void publishTracks();
     void applyAudioState();
-    /// The LiveKit stream id (participant sid) one Matrix device is sending
-    /// under, or empty if we cannot attribute it.
-    ///
-    /// Two hops, and both are needed: the MatrixRTC membership gives the
-    /// device's SFU IDENTITY, and the SFU's own participant list gives the
-    /// SID that appears in the SDP's `msid`. Empty means "do not guess" —
-    /// installing a key under the wrong stream id would decrypt one
-    /// participant's frames with another's key, which is silent corruption
-    /// rather than an honest drop.
-    QString streamIdForSender(const QString &userId,
-                              const QString &deviceId) const;
     /// The LiveKit stream id (participant sid) for one SFU identity.
     QString streamIdForIdentity(const QString &identity) const;
+    /// The devices a media key should go to: the SFU's live participants,
+    /// resolved to Matrix devices through the membership. The INTERSECTION,
+    /// because a membership alone includes ghosts — devices that died without
+    /// retracting and cannot receive anything.
+    QString mediaKeyTargets() const;
+    /// The name one sending DEVICE's media-key ring is stored under. Derived
+    /// from the to-device sender, so it is knowable the moment a key arrives
+    /// and never depends on the SFU or the membership having caught up.
+    static QString mediaKeyRingName(const QString &userId,
+                                    const QString &deviceId);
+    /// Bind every resolvable (sid, sending device) pair in the engine, so a
+    /// media key addressed to a Matrix device reaches the ring the arriving
+    /// FRAMES consult. Re-run on every participant update and every key: a
+    /// sid does not exist until the SFU announces the participant, which can
+    /// be long after that participant's key arrived.
+    void noteParticipantIdentities();
     /// The routing key for one participant's track of `source`
     /// ("camera" / "screen_share"): the track's `mid` when the SFU stated
     /// one, else empty. Never the participant sid — that is the caller's
@@ -242,6 +253,14 @@ private:
     QString trackKeyForSource(const QString &identity,
                               const QString &source) const;
 
+    /// Redistribute the media key IF the set of devices we can address has
+    /// grown since the last distribution.
+    ///
+    /// The membership and the SFU participant list are independent feeds and
+    /// nothing orders them, so a peer is routinely on the SFU before their
+    /// membership has been read — and a key can only be addressed to a
+    /// membership. Idempotent by comparison against `m_lastKeyTargets`.
+    void distributeKeyIfNeeded();
     /// Rotate and redistribute the media key. Called on join and whenever
     /// the participant set changes, because a leaver must not keep being
     /// able to decrypt.
@@ -307,6 +326,9 @@ private:
     QString m_cameraCid;
     QString m_screenCid;
     int m_keyIndex = 0;
+    /// The addressable-device set the last media key actually reached. See
+    /// distributeKeyIfNeeded(); an empty set is never recorded.
+    QString m_lastKeyTargets;
     /// Local ICE candidates produced this session. Diagnostic only — zero on
     /// the publisher means the peer connection never started, which is what
     /// LiveKit's 60 s JOIN_FAILURE timeout is reporting.

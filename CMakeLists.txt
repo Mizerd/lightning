@@ -336,7 +336,13 @@ if(LIGHTNING_ENABLE_WEBRTC AND PkgConfig_FOUND)
     # plugin that may be absent.
     pkg_check_modules(GSTWEBRTC IMPORTED_TARGET
         gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0
-        gstreamer-app-1.0)
+        gstreamer-app-1.0
+        # gstreamer-video-1.0: the force-key-unit event a PLI becomes.
+        gstreamer-video-1.0
+        # gstreamer-rtp-1.0: Lightning's own VP8 payloader subclasses
+        # GstRTPBasePayload, because rtpvp8pay parses the bitstream and so
+        # cannot payload an end-to-end encrypted frame (RtpVp8Payloader.h).
+        gstreamer-rtp-1.0)
     if(GSTWEBRTC_FOUND)
         set(HAVE_LIGHTNING_WEBRTC ON)
         message(STATUS "GStreamer WebRTC found (${GSTWEBRTC_gstreamer-webrtc-1.0_VERSION}) — building the voice-call media engine")
@@ -625,6 +631,8 @@ if(HAVE_LIGHTNING_WEBRTC)
         src/calls/GstCallMediaBackend.cpp
         src/calls/SfuMediaEngine.h
         src/calls/SfuMediaEngine.cpp
+        src/calls/RtpVp8Payloader.h
+        src/calls/RtpVp8Payloader.cpp
         # Only reachable through the SFU engine, and the one file that needs
         # OpenSSL directly — keeping it here rather than in the shared app
         # sources avoids linking libcrypto into every test target.
@@ -2729,6 +2737,10 @@ if(BUILD_TESTING)
             tests/SfuMediaEngineTest.cpp
             src/calls/SfuMediaEngine.h
             src/calls/SfuMediaEngine.cpp
+        src/calls/RtpVp8Payloader.h
+        src/calls/RtpVp8Payloader.cpp
+            src/calls/RtpVp8Payloader.h
+            src/calls/RtpVp8Payloader.cpp
             src/calls/CallFrameCryptor.h
             src/calls/CallFrameCryptor.cpp
             src/calls/SfuVideoRouter.h
@@ -2736,10 +2748,29 @@ if(BUILD_TESTING)
         )
         target_include_directories(sfu-media-engine-test PRIVATE src)
         target_compile_definitions(sfu-media-engine-test PRIVATE
-            HAVE_LIGHTNING_WEBRTC)
+            HAVE_LIGHTNING_WEBRTC
+            "LIGHTNING_SFU_ENGINE_SOURCE=\"${CMAKE_CURRENT_SOURCE_DIR}/src/calls/SfuMediaEngine.cpp\"")
         target_link_libraries(sfu-media-engine-test PRIVATE
             Qt6::Core Qt6::Multimedia Qt6::Test
             PkgConfig::GSTWEBRTC OpenSSL::Crypto)
+        # A REAL call against a REAL homeserver, headless. Needs the Rust
+        # backend (it logs in and syncs), so it is only built with it, and it
+        # SKIPS unless the LIGHTNING_LIVE_* environment names a server, an
+        # account and a room. Registered so it is built and kept compiling;
+        # inert without credentials.
+        if(ENABLE_RUST_SDK_BACKEND)
+            qt_add_executable(call-live-diagnostic-test
+                tests/CallLiveDiagnostic.cpp
+            )
+            lightning_configure_qml_test(call-live-diagnostic-test)
+            target_include_directories(call-live-diagnostic-test PRIVATE src)
+            target_compile_definitions(call-live-diagnostic-test PRIVATE
+                HAVE_LIGHTNING_WEBRTC)
+            add_test(NAME call-live-diagnostic
+                COMMAND call-live-diagnostic-test)
+            set_tests_properties(call-live-diagnostic PROPERTIES TIMEOUT 240)
+        endif()
+
         add_test(NAME sfu-media-engine COMMAND sfu-media-engine-test)
         set_tests_properties(sfu-media-engine PROPERTIES TIMEOUT 120)
         # A real ICE+DTLS handshake needs a little longer than unit suites.

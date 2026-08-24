@@ -809,10 +809,16 @@ public:
     /// LiveKit the frames carry E2EE (Encryption::GCM), which is how a
     /// receiving client decides to decrypt; encrypting the bytes while
     /// declaring NONE renders as garbage at the far end.
+    /// `width`/`height` are the video track's declared size, 0 for audio.
+    /// Not cosmetic: a video track with no size and no layer leaves the SFU
+    /// to infer the track's shape, and it infers three-layer simulcast while
+    /// we publish one untagged stream.
     virtual void sfuAddTrack(const QString &cid, const QString &name,
-                             int kind, bool screenShare, bool encrypted)
+                             int kind, int width, int height,
+                             bool screenShare, bool encrypted)
     {
         Q_UNUSED(cid); Q_UNUSED(name); Q_UNUSED(kind);
+        Q_UNUSED(width); Q_UNUSED(height);
         Q_UNUSED(screenShare); Q_UNUSED(encrypted);
     }
     virtual void sfuMuteTrack(const QString &sid, bool muted)

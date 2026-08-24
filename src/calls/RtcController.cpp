@@ -1,5 +1,7 @@
 #include "calls/RtcController.h"
 
+#include <QLoggingCategory>
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -9,6 +11,7 @@
 #include "matrix/MatrixClient.h"
 
 namespace {
+Q_LOGGING_CATEGORY(lcRtc, "lightning.calls.rtc")
 /// Facepiles and banners never need more than a handful, and the Rust side
 /// already caps a session at 128 devices. This is the presentation bound.
 constexpr int kMaxPresentedParticipants = 64;
@@ -280,6 +283,13 @@ void RtcController::onSessionReceived(quint64 opId,
 
     const RtcSessionData previous = m_sessions.value(session.roomId);
     m_sessions.insert(session.roomId, session);
+    // COUNTS ONLY — never an id, a name or a device. How many memberships a
+    // read actually found is the difference between "nobody else is in this
+    // call" and "we cannot address anyone, so no media key goes anywhere",
+    // and nothing distinguished those two before.
+    qCInfo(lcRtc) << "session read room participants=" << session.participants.size()
+                  << "slotPresent=" << session.slotPresent
+                  << "slotClosed=" << session.slotClosed;
 
     // Only announce a real change: a poke storm on an unchanged call would
     // otherwise re-render every banner and facepile for nothing.
@@ -436,6 +446,12 @@ QVariantMap RtcController::participantForIdentity(
         if (participant.rtcIdentity != identity)
             continue;
         out.insert(QStringLiteral("userId"), participant.userId);
+        // The DEVICE, not just the person. A media key is addressed to one
+        // device and one device's key ring, and the same human on a laptop
+        // and a phone is two senders with two different keys — collapsing
+        // them would decrypt one with the other's material. A public Matrix
+        // device id, which already crosses in mediaKeyTargetsJson().
+        out.insert(QStringLiteral("deviceId"), participant.deviceId);
         // Room-resolved profile. Empty means "not known here", which the UI
         // degrades to initials rather than inventing a name.
         out.insert(QStringLiteral("displayName"), participant.displayName);

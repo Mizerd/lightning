@@ -27,6 +27,31 @@ class CallFrameCryptorTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    // element-call mints a 16-byte media key (matrix-js-sdk's
+    // RTCEncryptionManager: `new Uint8Array(16)`), livekit-client's own
+    // createE2EEKey() mints 32. HKDF accepts either and derives the same
+    // 16-byte AES-128 key, so BOTH must be accepted.
+    //
+    // Requiring 32 meant every key an Element peer sent was rejected for its
+    // length: the key arrived, was silently discarded, and every frame from
+    // that participant dropped for want of a key — so an Element user could
+    // never be heard or seen, while our own media reached them normally.
+    void bothElementAndLivekitKeyLengthsAreAccepted()
+    {
+        CallFrameCryptor sixteen;
+        QVERIFY2(sixteen.setKey(0, QByteArray(16, 'k')),
+                 "a 16-byte element-call key was refused");
+        CallFrameCryptor thirtyTwo;
+        QVERIFY2(thirtyTwo.setKey(0, QByteArray(32, 'k')),
+                 "a 32-byte livekit-client key was refused");
+        // Still a CLOSED set: a length nobody uses must not derive cleanly and
+        // light up encryptionActive() under material no peer can have.
+        CallFrameCryptor odd;
+        QVERIFY2(!odd.setKey(0, QByteArray(7, 'k')), "a 7-byte key was accepted");
+        QVERIFY2(!odd.setKey(0, QByteArray(24, 'k')), "a 24-byte key was accepted");
+        QVERIFY2(!odd.setKey(0, QByteArray()), "an empty key was accepted");
+    }
+
     void headerSizesMatchTheReference()
     {
         // Read from livekit-client's UNENCRYPTED_BYTES. The SFU relies on
