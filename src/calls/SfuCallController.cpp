@@ -32,6 +32,29 @@
 Q_LOGGING_CATEGORY(lcSfuCall, "lightning.calls.group")
 
 namespace {
+/// Closes a descriptor the desktop portal handed us, and compiles everywhere.
+///
+/// The portal DUPLICATES the fd for us, so it is ours and every path out —
+/// including every refusal — has to close it, or a declined share leaks one
+/// per attempt. But there is no xdg-desktop-portal off Unix: `pipewireFd` is
+/// always -1 there and nothing is ever open.
+///
+/// The CALL SITE still has to compile. `<unistd.h>` was guarded with
+/// `#ifdef Q_OS_UNIX` while the bare `::close()` below it was not, so on
+/// MinGW the header was skipped and `::close` was undeclared — which is
+/// exactly how the Windows package build died (pipeline 112,
+/// "'::close' has not been declared; did you mean 'fclose'?"). One helper,
+/// guarded once, rather than an `#ifdef` around each use.
+void closePortalFd(int fd)
+{
+#ifdef Q_OS_UNIX
+    if (fd >= 0)
+        ::close(fd);
+#else
+    Q_UNUSED(fd);
+#endif
+}
+
 /// Membership claims four hours of validity; refresh well inside that, and
 /// often enough that the MSC4140 delayed retraction (8 s) keeps being
 /// restarted. This is the heartbeat that says "still here".
@@ -234,8 +257,7 @@ void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
                     qCWarning(lcSfuCall)
                         << "screen share refused after portal grant active="
                         << active();
-                    if (pipewireFd >= 0)
-                        ::close(pipewireFd);
+                    closePortalFd(pipewireFd);
                 }
             });
     connect(m_portal, &ScreenCastPortal::cancelled, this, [] {
