@@ -181,6 +181,12 @@ pub(crate) fn search_users(
 /// refuted) against the homeserver before it is offered as a result. Only
 /// display name and avatar mxc cross the FFI; a missing user surfaces as
 /// ok=false with category "not_found".
+/// A profile lookup is decoration — a face and a display name — and every room
+/// action is joined on the GUI thread at teardown, so an unbounded one is an
+/// unbounded freeze. Ten seconds matches the presence batch's per-request
+/// bound in `presence.rs`.
+const PROFILE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub(crate) fn fetch_user_profile(
     bridge: &RustClient,
     user_id: String,
@@ -193,7 +199,45 @@ pub(crate) fn fetch_user_profile(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let result = client.account().fetch_user_profile_of(&uid).await;
+        // BOUNDED, and it is the reason this one needed it more than most.
+        //
+        // This was the only network room action with NO timeout, on matrix-sdk's
+        // default RequestConfig — which RETRIES and honours M_LIMIT_EXCEEDED's
+        // retry_after_ms. DirectAvatarResolver fires one of these per DM peer
+        // the moment an account finishes restoring, which is exactly the burst
+        // a homeserver rate-limiter answers with a retry-after.
+        //
+        // And every room action is JOINED, on the GUI thread, when the session
+        // is torn down (shutdown_managed_tasks). So an unbounded profile
+        // request is an unbounded GUI freeze on the next account switch — the
+        // reported "switch to one acc and back to the first acc it freezes for
+        // about 3-5 seconds", which reproduces on the SECOND switch precisely
+        // because that is when the fan-out is still in flight.
+        //
+        // A profile is decoration: a face and a display name. It is never
+        // worth holding a teardown for, and a timed-out lookup is reported as
+        // an ordinary failure the resolver already handles.
+        let result = match tokio::time::timeout(
+            PROFILE_REQUEST_TIMEOUT,
+            client.account().fetch_user_profile_of(&uid),
+        )
+        .await
+        {
+            Ok(inner) => inner,
+            Err(_) => {
+                if timelines.lifecycle_current(lifecycle) {
+                    enqueue(&events, json!({
+                        "type": "user_profile_result",
+                        "op_id": op_id,
+                        "lifecycle": lifecycle,
+                        "ok": false,
+                        "user_id": uid.to_string(),
+                        "category": "timeout",
+                    }));
+                }
+                return;
+            }
+        };
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }

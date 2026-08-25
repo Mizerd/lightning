@@ -1129,7 +1129,42 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         }
         source = screenShareSource(nodeId, pipewireFd);
     } else {
-        source = QStringLiteral("autovideosrc");
+        // `v4l2src`, NOT `autovideosrc`, and the reason is measured.
+        //
+        // autovideosrc picks by RANK, and on a PipeWire desktop `pipewiresrc`
+        // outranks `v4l2src` (primary+1 vs primary), so autodetect always
+        // instantiated pipewiresrc — with NO `path` and no `target-object`,
+        // because only the screen-share branch has a portal node to give it.
+        // On its own that already fails: `autovideosrc ! fakesink` with no
+        // caps at all reports "stream error: target not found".
+        //
+        // It became invisible when the publish caps pinned
+        // `framerate=(fraction)30/1`. That pin is what finally made Element
+        // render a SCREEN SHARE (interop round, e189b8a) and its whole
+        // justification is about a desktop capture negotiating 0/1 — but it
+        // was applied to BOTH branches, and the camera never had that
+        // problem. Together they produce
+        //   stream error: error set output format: -22 (Invalid argument)
+        //   streaming stopped, reason not-negotiated (-4)
+        // so the bin never prerolls, the capture emits zero buffers, and
+        // nothing is ever encoded, encrypted or sent. Element sees a declared
+        // camera track carrying nothing. That is why the 2026-08-27 video
+        // router fix could not restore the camera: there was never a frame to
+        // route.
+        //
+        // Bisected against the real production pipeline, 3/3 deterministic
+        // each way: 30/1 fails; [0/1,30/1] (the pre-e189b8a caps) plays;
+        // **[1/1,30/1] ALSO FAILS** — so relaxing the range is NOT the cure,
+        // and "put 0/1 back" would restore exactly the variable-rate state
+        // the pin exists to prevent. The fragile element is
+        // pipewiresrc-without-a-target. The identical description with
+        // v4l2src and the 30/1 pin LEFT IN PLACE runs clean, negotiating a
+        // genuine 640x480 YUY2 @ 30/1 camera mode.
+        //
+        // Long-term this should be a node id resolved from a GstDeviceMonitor
+        // on Video/Source — that is the only shape that can offer a choice
+        // between two cameras, and it is docs/matrixrtc.md's open item 1.
+        source = QStringLiteral("v4l2src");
     }
 
     // Resolution and rate CEILINGS, matching livekit-client's own presets:

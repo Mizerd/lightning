@@ -1,6 +1,8 @@
 #include "matrix/RustSdkMatrixClient.h"
 
 #include "app/GuiStallTracer.h"
+
+#include <QElapsedTimer>
 #include "app/SyncLatencyTracer.h"
 
 #include "app/SettingsManager.h"
@@ -343,16 +345,33 @@ void RustSdkMatrixClient::releaseRustHandle()
     // and joined, an in-flight room-key import is joined (bounded last-resort
     // timeout), the sync loop is stopped. Only then is the handle destroyed,
     // so no task can still own the SDK store when callers delete it.
+    // TIMED, because this whole block runs on the GUI THREAD and was the
+    // largest uninstrumented section of it in the application. An account
+    // switch reaches here through switchToAccount -> detachSession, and a
+    // reported 3-5 s freeze could not be attributed to any one of the waits
+    // inside. The Rust side now reports its own per-segment milliseconds;
+    // this measures the two things it cannot see — its own total as the
+    // caller experiences it, and mx_rust_destroy, which drops the tokio
+    // runtime and therefore blocks until every in-flight spawn_blocking
+    // finishes, including the sqlite closes.
+    QElapsedTimer teardown;
+    teardown.start();
     const QString shutdown = takeRustString(mx_rust_shutdown_tasks(m_rustHandle));
-    qCInfo(lcRust) << "rust managed-task shutdown" << shutdown;
+    const qint64 shutdownMs = teardown.elapsed();
+    qCInfo(lcRust) << "rust managed-task shutdown" << shutdown
+                   << "observed_ms=" << shutdownMs;
     m_timelineTracker.reset();
     m_threadTracker.reset();
     m_pagination.clear();
+    teardown.restart();
     mx_rust_destroy(m_rustHandle);
+    const qint64 destroyMs = teardown.elapsed();
     m_rustHandle = nullptr;
     m_handleGeneration = 0;
     m_storePath.clear();
-    qCInfo(lcRust) << "rust client released";
+    qCInfo(lcRust) << "rust client released"
+                   << "destroy_ms=" << destroyMs
+                   << "teardown_total_ms=" << (shutdownMs + destroyMs);
 }
 
 void RustSdkMatrixClient::login(const QString &homeserver,

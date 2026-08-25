@@ -18,6 +18,7 @@
 
 #include <QSet>
 #include <QSignalSpy>
+#include <QRegularExpression>
 #include <QtTest/QtTest>
 
 #include <QFile>
@@ -963,6 +964,37 @@ private slots:
                      "a framerate range including 0/1 reached the encoder: a "
                      "desktop capture negotiates 0/1 and it would propagate");
         }
+    }
+
+    // THE CAMERA MUST NAME ITS SOURCE, and this is a source scan because the
+    // choice is a one-word literal whose consequence is invisible everywhere
+    // else.
+    //
+    // `autovideosrc` picks by RANK, and on a PipeWire desktop `pipewiresrc`
+    // outranks `v4l2src` — so it always selected pipewiresrc with no `path`
+    // and no `target-object`, because only the screen-share branch has a
+    // portal node to give it. Against the pinned `framerate=(fraction)30/1`
+    // that is `-22 (Invalid argument)` -> not-negotiated: zero capture
+    // buffers, nothing encoded, a declared camera track carrying nothing.
+    // Bus errors here are logged and deliberately never raised as failures,
+    // so the camera button stayed lit and the reason existed only in the log.
+    //
+    // ON THE BROKEN TREE this reports `autovideosrc`.
+    void theCameraNamesARealSourceRatherThanAutodetecting()
+    {
+        const QString engine = QString::fromUtf8(engineSource());
+        QVERIFY(!engine.isEmpty());
+        QString code = engine;
+        code.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
+        QVERIFY2(code.contains(QStringLiteral("QStringLiteral(\"v4l2src\")")),
+                 "the camera branch does not name a real capture source");
+        QVERIFY2(!code.contains(QStringLiteral("QStringLiteral(\"autovideosrc\")")),
+                 "autovideosrc is back: it resolves to an unconfigured "
+                 "pipewiresrc on this platform and cannot negotiate the "
+                 "pinned camera framerate");
+        // The stripper must strip, or the ban above is vacuous.
+        QVERIFY2(code.contains(QStringLiteral("pipewiresrc fd=")),
+                 "the comment stripper ate the code");
     }
 
     void theScreenSharePipelineParsesIncludingItsSelfView()

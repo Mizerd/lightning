@@ -452,7 +452,21 @@ impl RustClient {
         missed
     }
 
-    fn shutdown_managed_tasks(&self) -> (bool, bool, usize, usize) {
+    // Returns (import_joined, sync_stopped, actions_missed,
+    // verifications_missed, actions_ms, verifications_ms, total_ms).
+    //
+    // THE DURATIONS ARE THE POINT. Every wait below runs on the CALLING
+    // thread — `Runtime::block_on` drives its future there, the workers only
+    // serve spawned tasks — and the caller is the GUI thread, through
+    // `AppController::switchToAccount` -> `detachSession` ->
+    // `releaseRustHandle` -> `mx_rust_shutdown_tasks`. So the whole of this
+    // function is a UI freeze, and it was the largest uninstrumented
+    // GUI-thread section in the application: a reported 3-5 s freeze on an
+    // account switch could not be attributed to any one of its six waits.
+    // Milliseconds and counts only — no identifiers, nothing content-derived.
+    fn shutdown_managed_tasks(&self)
+        -> (bool, bool, usize, usize, u64, u64, u64) {
+        let total = std::time::Instant::now();
         // The token-persistence watcher holds a strong Client purely to read
         // rotated tokens, and its broadcast sender lives INSIDE that same
         // Client — so recv() can never return Closed on its own and the task
@@ -477,10 +491,12 @@ impl RustClient {
             .ok()
             .map(|mut guard| std::mem::take(&mut *guard))
             .unwrap_or_default();
+        let t_verifications = std::time::Instant::now();
         let verifications_missed = self.runtime.block_on(Self::join_or_abort(
             verifications,
             timeline::SHUTDOWN_JOIN_TIMEOUT_SECS,
         ));
+        let verifications_ms = t_verifications.elapsed().as_millis() as u64;
         // Every driver has stopped, so whatever is still parked in the slots
         // has nobody left to cancel it. That includes the case with no driver
         // at all: an incoming request the user never answered sits here from
@@ -523,10 +539,12 @@ impl RustClient {
         // room-action task (previously 15s EACH, sequentially — a handful
         // of hung media fetches could block an account switch for minutes).
         // Whatever misses the budget is aborted and briefly drained.
+        let t_actions = std::time::Instant::now();
         let actions_missed = self.runtime.block_on(Self::join_or_abort(
             actions,
             timeline::SHUTDOWN_JOIN_TIMEOUT_SECS,
         ));
+        let actions_ms = t_actions.elapsed().as_millis() as u64;
 
         let import = self.import_task.lock().ok().and_then(|mut guard| guard.take());
         let mut import_joined = true;
@@ -570,7 +588,8 @@ impl RustClient {
         if let Ok(mut guard) = self.notification_mode_targets.lock() {
             guard.clear();
         }
-        (import_joined, sync_stopped, actions_missed, verifications_missed)
+        (import_joined, sync_stopped, actions_missed, verifications_missed,
+         actions_ms, verifications_ms, total.elapsed().as_millis() as u64)
     }
 
     fn reap_finished_sync(&self) {
@@ -7180,11 +7199,14 @@ pub unsafe extern "C" fn mx_rust_shutdown_tasks(ptr: *mut c_void) -> *mut c_char
         // SIGABRT this function used to be able to take (see join_or_abort),
         // and nothing anywhere recorded that the budget had been exceeded.
         // Counts only — no task identity, no room id, nothing content-derived.
-        let (import_joined, sync_stopped, actions_missed, verifications_missed) =
+        let (import_joined, sync_stopped, actions_missed, verifications_missed,
+             actions_ms, verifications_ms, total_ms) =
             bridge.shutdown_managed_tasks();
         Ok(format!(
             "import_joined={import_joined} sync_stopped={sync_stopped} \
-             actions_missed={actions_missed} verifications_missed={verifications_missed}"
+             actions_missed={actions_missed} verifications_missed={verifications_missed} \
+             actions_ms={actions_ms} verifications_ms={verifications_ms} \
+             total_ms={total_ms}"
         ))
     })
 }
