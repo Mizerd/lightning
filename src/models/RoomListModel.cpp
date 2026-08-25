@@ -29,6 +29,9 @@ RoomListModel::RoomListModel(QObject *parent)
     connect(&m_reconcileCoalesce, &QTimer::timeout,
             this, &RoomListModel::reconcileRooms);
 
+    connect(&m_directAvatars, &DirectAvatarResolver::avatarResolved,
+            this, &RoomListModel::onDirectAvatarResolved);
+
     // The favourites group boundary is derived from the CURRENT rows, and
     // this model mutates through eight different entry points (reset,
     // append, prepend, insert, replace, move, remove, truncate). Hooking the
@@ -52,10 +55,8 @@ void RoomListModel::setClient(MatrixClient *client)
         return;
     if (m_client)
         m_client->disconnect(this);
-    m_profileAvatars.clear();
-    m_profileOps.clear();
-    m_profilePending.clear();
     m_client = client;
+    m_directAvatars.setClient(m_client);
     if (m_client) {
         connect(m_client, &MatrixClient::roomsChanged,
                 this, &RoomListModel::refresh);
@@ -65,8 +66,6 @@ void RoomListModel::setClient(MatrixClient *client)
                 this, &RoomListModel::refreshRoom);
         connect(m_client, &MatrixClient::loginSucceeded,
                 this, [this](const QString &) { refresh(); });
-        connect(m_client, &MatrixClient::userProfileFinished,
-                this, &RoomListModel::onUserProfileFinished);
         connect(m_client, &MatrixClient::loggedOut,
                 this, &RoomListModel::clearProfileCaches);
     }
@@ -78,9 +77,7 @@ void RoomListModel::setClient(MatrixClient *client)
 
 void RoomListModel::clearProfileCaches()
 {
-    m_profileAvatars.clear();
-    m_profileOps.clear();
-    m_profilePending.clear();
+    m_directAvatars.clear();
     refresh();
 }
 
@@ -285,44 +282,10 @@ QVariantList RoomListModel::spacesSummary(int max) const
 
 QString RoomListModel::effectiveAvatarUrl(const RoomInfo &room) const
 {
-    // Matrix room state always wins. An explicit room NAME must never
-    // disable this — only an explicit room AVATAR does. Otherwise derive a
-    // member avatar for a room authoritatively classified by m.direct, and
-    // only when it is unambiguously a strict 1:1 (never an arbitrary face
-    // for a group DM or our own profile).
-    if (!room.avatarUrl.isEmpty())
-        return room.avatarUrl;
-    if (!room.isDirect || room.directUserId.isEmpty())
-        return {};
-
-    // The Rust backend never populates the per-room member snapshot below
-    // (it is fetched separately, on demand, only for the Room Information
-    // "People" tab) — it instead reports the authoritative m.direct target
-    // list directly, which is exactly the "unambiguous 1:1" signal this
-    // needs and requires no member fetch at all. Backends that only ever
-    // populate `members` (Mock/HTTP) derive the same signal from there.
-    if (!room.directUserIds.isEmpty()) {
-        if (room.directUserIds.size() > 1)
-            return {};
-    } else if (m_client && !room.members.isEmpty()) {
-        const QString self = m_client->currentUserId();
-        QString other;
-        for (auto it = room.members.cbegin(); it != room.members.cend(); ++it) {
-            const QString userId = it.key().isEmpty() ? it->userId : it.key();
-            if (userId.isEmpty() || userId == self)
-                continue;
-            if (!other.isEmpty() && other != userId)
-                return {};
-            other = userId;
-        }
-        if (other != room.directUserId)
-            return {};
-    }
-
-    const auto member = room.members.constFind(room.directUserId);
-    if (member != room.members.cend() && !member->avatarMxcUrl.isEmpty())
-        return member->avatarMxcUrl;
-    return m_profileAvatars.value(room.directUserId);
+    // The derivation itself is DirectAvatarResolver's — the Channels column
+    // needs exactly the same answer, and a DM avatar rule that exists twice is
+    // a DM avatar rule that will disagree with itself.
+    return m_directAvatars.avatarFor(room);
 }
 
 // Scope filters only (space-room exclusion, search, Space membership) —
@@ -517,37 +480,8 @@ void RoomListModel::refreshRoom(const QString &roomId)
     m_reconcileCoalesce.start();
 }
 
-void RoomListModel::onUserProfileFinished(quint64 opId, bool ok,
-                                          const QString &userId,
-                                          const QString &displayName,
-                                          const QString &avatarUrl,
-                                          const QString &category)
+void RoomListModel::onDirectAvatarResolved(const QString &userId)
 {
-    Q_UNUSED(displayName);
-    Q_UNUSED(category);
-    // Always release the pending marker for the op that completed, keyed by
-    // BOTH what we requested and what the SDK reports. The previous early
-    // return whenever the requested and returned ids differed (SDK id
-    // normalization) left the target stuck in m_profilePending forever, so
-    // resolveMissingDirectAvatars never re-fetched it and the DM avatar was
-    // wedged on initials.
-    const QString requestedUser = m_profileOps.take(opId);
-    if (!requestedUser.isEmpty())
-        m_profilePending.remove(requestedUser);
-    if (!userId.isEmpty())
-        m_profilePending.remove(userId);
-
-    // Cache the resolved avatar under the SDK's authoritative user id, and
-    // accept results even for ops we did not start (every consumer shares the
-    // client's userProfileFinished signal). This is what lets a self-DM row
-    // — whose direct target is our OWN user id — adopt the signed-in
-    // account's own avatar (fetched for the account switcher) instead of
-    // resolving to an "M" initial forever, since the room list never sees the
-    // per-event room-member avatar the timeline uses.
-    if (ok && !userId.isEmpty() && !avatarUrl.isEmpty())
-        m_profileAvatars.insert(userId, avatarUrl);
-    if (userId.isEmpty())
-        return;
     for (int row = 0; row < m_rooms.size(); ++row) {
         if (m_rooms.at(row).isDirect && m_rooms.at(row).directUserId == userId)
             Q_EMIT dataChanged(index(row), index(row), {AvatarUrlRole});
@@ -556,22 +490,7 @@ void RoomListModel::onUserProfileFinished(quint64 opId, bool ok,
 
 void RoomListModel::resolveMissingDirectAvatars()
 {
-    if (!m_client)
-        return;
-    for (const RoomInfo &room : std::as_const(m_rooms)) {
-        const QString userId = room.directUserId;
-        if (!room.isDirect || !room.avatarUrl.isEmpty() || userId.isEmpty()
-            || room.directUserIds.size() > 1 // ambiguous group-DM mapping
-            || !effectiveAvatarUrl(room).isEmpty()
-            || m_profileAvatars.contains(userId)
-            || m_profilePending.contains(userId))
-            continue;
-        const quint64 opId = m_client->fetchUserProfile(userId);
-        if (opId != 0) {
-            m_profilePending.insert(userId);
-            m_profileOps.insert(opId, userId);
-        }
-    }
+    m_directAvatars.resolveMissing(m_rooms);
 }
 
 void RoomListModel::reconcileRooms()

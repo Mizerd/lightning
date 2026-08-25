@@ -725,6 +725,107 @@ private Q_SLOTS:
                  "account's rooms");
     }
 
+    // A DM usually carries NO room avatar: the face belongs to the other
+    // person, and deriving it is three jobs (is this an unambiguous 1:1? who
+    // is the peer? does anyone know their picture?) that the Classic list has
+    // done privately since 0.6.x. This column read RoomInfo::avatarUrl raw and
+    // drew initials for every DM, next to a Home strip showing the real faces
+    // — reported with an arrow pointing at both at once.
+    void aDirectMessageWearsThePeersFace()
+    {
+        RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
+        peer.directUserId = QStringLiteral("@sam:example.org");
+        peer.directUserIds = { QStringLiteral("@sam:example.org") };
+        MemberInfo member;
+        member.userId = peer.directUserId;
+        member.avatarMxcUrl = QStringLiteral("mxc://example.org/sam");
+        peer.members.insert(member.userId, member);
+
+        Fixture f;
+        f.build({ peer });
+        const int row = f.model.rowForRoom(QStringLiteral("!dm:x"));
+        QVERIFY(row >= 0);
+        QCOMPARE(f.model.data(f.model.index(row, 0),
+                              SpaceChannelModel::AvatarUrlRole).toString(),
+                 QStringLiteral("mxc://example.org/sam"));
+    }
+
+    // The Rust backend never populates the per-room member snapshot — it is
+    // fetched separately, on demand, only for Room Information's People tab —
+    // so the ONLY route to a DM's face there is the peer's profile. It arrives
+    // late, and it has to reach the row: this model's rows hold a SNAPSHOT, so
+    // a bare dataChanged would repaint the same initials.
+    void aLateProfileReachesTheRowRatherThanJustRepaintingIt()
+    {
+        RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
+        peer.directUserId = QStringLiteral("@sam:example.org");
+        peer.directUserIds = { QStringLiteral("@sam:example.org") };
+
+        Fixture f;
+        f.build({ peer });
+        const int row = f.model.rowForRoom(QStringLiteral("!dm:x"));
+        QVERIFY(row >= 0);
+        auto avatar = [&f, row] {
+            return f.model.data(f.model.index(row, 0),
+                                SpaceChannelModel::AvatarUrlRole).toString();
+        };
+        QVERIFY2(avatar().isEmpty(),
+                 "an avatar was invented before anyone looked the peer up");
+
+        Q_EMIT f.client.userProfileFinished(
+            0, true, QStringLiteral("@sam:example.org"),
+            QStringLiteral("Sam"), QStringLiteral("mxc://example.org/sam"),
+            QString());
+        QCOMPARE(avatar(), QStringLiteral("mxc://example.org/sam"));
+        // And the column did not move: this layout's whole point is that rows
+        // hold still, so a profile landing mid-scroll must not be the
+        // exception.
+        QCOMPARE(f.model.rowForRoom(QStringLiteral("!dm:x")), row);
+    }
+
+    // Never an arbitrary face for a group DM. `m.direct` naming two targets is
+    // the authoritative "this is not a 1:1" signal.
+    void aGroupDirectMessageBorrowsNobodysFace()
+    {
+        RoomInfo group = dm(QStringLiteral("!group:x"), QStringLiteral("Three"));
+        group.directUserId = QStringLiteral("@sam:example.org");
+        group.directUserIds = { QStringLiteral("@sam:example.org"),
+                                QStringLiteral("@kim:example.org") };
+        MemberInfo member;
+        member.userId = group.directUserId;
+        member.avatarMxcUrl = QStringLiteral("mxc://example.org/sam");
+        group.members.insert(member.userId, member);
+
+        Fixture f;
+        f.build({ group });
+        const int row = f.model.rowForRoom(QStringLiteral("!group:x"));
+        QVERIFY(row >= 0);
+        QVERIFY2(f.model.data(f.model.index(row, 0),
+                              SpaceChannelModel::AvatarUrlRole)
+                     .toString().isEmpty(),
+                 "a group DM wears one participant's face");
+    }
+
+    // An explicit room avatar always wins, even on a DM.
+    void anExplicitRoomAvatarIsNeverOverridden()
+    {
+        RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
+        peer.avatarUrl = QStringLiteral("mxc://example.org/room");
+        peer.directUserId = QStringLiteral("@sam:example.org");
+        peer.directUserIds = { QStringLiteral("@sam:example.org") };
+        MemberInfo member;
+        member.userId = peer.directUserId;
+        member.avatarMxcUrl = QStringLiteral("mxc://example.org/sam");
+        peer.members.insert(member.userId, member);
+
+        Fixture f;
+        f.build({ peer });
+        const int row = f.model.rowForRoom(QStringLiteral("!dm:x"));
+        QCOMPARE(f.model.data(f.model.index(row, 0),
+                              SpaceChannelModel::AvatarUrlRole).toString(),
+                 QStringLiteral("mxc://example.org/room"));
+    }
+
 private:
     QTemporaryDir m_configHome;
 };

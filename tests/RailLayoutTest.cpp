@@ -1016,6 +1016,63 @@ private Q_SLOTS:
         QVERIFY(store.folderOf(QStringLiteral("!b:x")).isEmpty());
     }
 
+    // The third thing a pointer can be doing, and why it needs its own verb.
+    //
+    // `updateDrag(row, false)` means "the pointer pushed through this row" and
+    // it REORDERS. There was no way to say "the pointer is resting on this row
+    // and has not pushed through it", so the rail said the only thing it
+    // could — and reordering into the row the user was aiming at is what made
+    // grouping unreachable: the tile stepped aside, the dragged block took its
+    // slot, and the row under the pointer was then the dragged entry, which is
+    // never a group target.
+    void restingOnATileClearsTheTargetWithoutMovingAnything()
+    {
+        FakeClient client;
+        client.roomList = { spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A")),
+                            spaceRoom(QStringLiteral("!b:x"), QStringLiteral("B")),
+                            spaceRoom(QStringLiteral("!c:x"), QStringLiteral("C")) };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+
+        auto order = [&model] {
+            QStringList out;
+            for (int i = 0; i < model.rowCount(); ++i) {
+                out << model.data(model.index(i, 0),
+                                  RailEntryModel::EntryIdRole).toString();
+            }
+            return out;
+        };
+
+        QVERIFY(model.beginDrag(QStringLiteral("!c:x")));
+        model.updateDrag(model.rowForEntry(QStringLiteral("!a:x")), true);
+        QVERIFY(model.grouping());
+        QCOMPARE(model.dropTargetId(), QStringLiteral("!a:x"));
+        const QStringList armed = order();
+
+        model.clearDropTarget();
+        QVERIFY2(!model.grouping(),
+                 "the group target survived the pointer leaving the tile");
+        QVERIFY2(model.dropTargetId().isEmpty(),
+                 "a stale drop target is still lit");
+        QVERIFY2(order() == armed,
+                 "clearing the target moved rows, so the tile being aimed at "
+                 "steps aside and can never be grouped with");
+        QVERIFY2(model.dragging(),
+                 "clearing the target ended the gesture");
+
+        // Still groupable afterwards: this is a hover leaving one tile, not
+        // the end of anything.
+        model.updateDrag(model.rowForEntry(QStringLiteral("!b:x")), true);
+        QVERIFY(model.grouping());
+        QCOMPARE(model.dropTargetId(), QStringLiteral("!b:x"));
+        model.endDrag(true);
+        QCOMPARE(store.folders().size(), 1);
+    }
+
     void aRefreshDuringADragIsDeferredRatherThanApplied()
     {
         // Rebuilding under the pointer destroys the delegate holding the

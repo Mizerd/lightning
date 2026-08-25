@@ -22,24 +22,26 @@ import MatrixClient
 //
 // So the layout always exists, and the rail's selection NARROWS it instead of
 // deciding whether it works: pick a Space and the column becomes that Space and
-// its subspaces (still flat folders, never nested); Lobby clears the selection
-// and the column is the whole account again. Both states are this layout, and
-// Lobby is always one row away from either.
+// its subspaces (still flat folders, never nested). Lobby is the HEAD of
+// whatever the column is showing — the scoped Space's own overview, or the
+// account's Home when nothing is scoped — so it is always one row away from
+// the page that lists everything the column is currently about.
 Item {
     id: root
 
     /// The room the timeline is showing, so the open room's row can be marked.
     property string currentRoomId: ""
-    /// True while the shell is on the home surface, which is what Lobby marks.
+    /// True while the shell is showing the overview Lobby opens, rather than a
+    /// timeline. That is Space Home when a Space is scoped and the account's
+    /// Home when none is — both are "no room open", which is the one condition
+    /// TimelinePane also uses to choose an overview over a timeline, so the
+    /// two cannot disagree about where the user is. It deliberately no longer
+    /// excludes the scoped case: Lobby now OPENS that page, so refusing to
+    /// mark the row would leave the column with nothing current on it.
     ///
-    /// The same condition TimelinePane uses to choose HomePane over a
-    /// timeline, so the two cannot disagree about where the user is. Computed
-    /// here rather than passed in because it is a fact about the shell, not
-    /// about this column, and the host would only be forwarding it.
-    readonly property bool lobbyActive:
-        app.currentRoomId === ""
-        && !(app.spaces && app.spaces.activeSpaceId.length > 0
-             && app.spaces.activeSpaceId.charAt(0) === "!")
+    /// Computed here rather than passed in because it is a fact about the
+    /// shell, not about this column, and the host would only be forwarding it.
+    readonly property bool lobbyActive: app.currentRoomId === ""
 
     signal roomActivated(string roomId)
     /// Lobby: the home / all-conversations surface. Navigation only — there is

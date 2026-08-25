@@ -80,8 +80,8 @@ the Space or folder a release would file into.
 
 | Gesture | Feedback |
 |---|---|
-| Between two Spaces → **reorder** | the tile is there |
-| Held over a Space or folder → **group** | the target ringed |
+| Pushed *through* a Space → **reorder** | the tile is there |
+| Resting *on* a Space or folder → **group** | the target lights up in the accent, 3 px ring; the dragged tile parks on it at 0.56 scale |
 
 **A released tile stops rendering as dragged immediately.** `endDrag` announces
 the cleared `DraggedRole`/`DropTargetRole` explicitly, because `refresh()` is
@@ -91,14 +91,42 @@ dimmed until some unrelated room update happened to refresh the model, reported
 as *"their icons get darkened after moved and let go and only clear up after
 entering a room"*.
 
-"Between" and "onto" are a few pixels apart and mean completely different
-things, so the group gesture needs both a **dead zone** (12 px at each edge of
-the tile band) and a **dwell** (320 ms in one tile's centre). Without the dwell,
-reordering *through* a Space would make a folder out of it on the way past.
+#### The band rule, and the defect it replaced
 
-The band is measured against the **tile**, not the row: an expanded Space's row
-is much taller than its tile, and centring on that would put the group band
-over its revealed rooms.
+**Dropping a Space onto a Space never once made a folder** before 2026-08-26,
+and every model test passed throughout.
+
+They passed because they call `updateDrag(rowOf(target), true)` — they hand the
+model the row the pointer is aiming at. Production could not. The rule was "the
+middle 24 px of a row is the group zone", and *reaching* that middle means first
+crossing the row's near edge, which reordered: the dragged block took the row,
+the tile being aimed at stepped aside, and by the time the 320 ms dwell elapsed
+the row under the pointer held the **dragged** entry — which is never a group
+target. Grouping was unreachable by construction. (Same lesson as the row
+window: a policy test that invokes the policy directly proves nothing about
+whether production ever reaches it.)
+
+The rule is now measured from **the side the pointer arrived from**, which is
+the side the dragged block is *not* on:
+
+* short of the row's **midpoint** the pointer is *resting* on that tile —
+  nothing moves, the tile keeps its identity, and it is what a release groups
+  with;
+* past the midpoint the pointer has *pushed through* — the dragged block takes
+  the row and the tile steps aside.
+
+The half-band either side of the midpoint is also the hysteresis that stops a
+pointer held near a boundary from flipping between the two readings.
+
+Resting needs its own verb in the model. `updateDrag(row, false)` means "pushed
+through" and *reorders*; `clearDropTarget()` drops a stale target and touches
+the order not at all. The dwell (**250 ms**, down from 320) is now a *second*
+guard rather than the only one — the geometry already means a pointer travelling
+through a tile spends its time past the midpoint, where grouping cannot arm.
+
+A row occupied by the dragged block is the **gap** its tile came out of (the
+tile is drawn under the pointer, not there). Nothing to group with, nowhere new
+to move: the pointer resting over it holds everything still.
 
 ### Auto-scroll
 
@@ -222,6 +250,71 @@ room id as the tiebreak, empty-`via` removals skipped), and emits it as
 `children`; `descendants` remains as a fallback for any producer that does not
 send it.
 
+## 4b. The Space menu, and Space settings
+
+Right-clicking a Space in the rail offers what Sable's does, and the menu names
+the Space it acts on in `AppMenu`'s context header — the row it was opened from
+is no longer under the pointer once the menu is up.
+
+| Row | What it actually does |
+|---|---|
+| **Mark as read** | every joined room in the Space, through the same `RoomListModel::markRoomRead` the room list uses (its target comes from the room's latest event and it sends the receipt and `m.fully_read` together). Disabled when the Space has nothing unread. |
+| **Mute space** / **Unmute** | each room's notification mode; unmute restores *follow the account default*, not "all messages" |
+| **Invite** | the shared invite dialog |
+| **Copy link** | the public `matrix.to` permalink, alias-preferred |
+| **Share link…** | the same link, selectable, with Copy and Open-in-browser |
+| **Space settings** | the dialog below |
+
+Matrix has no "mark a Space read" and no "mute a Space" primitive — a Space is a
+room with no timeline, so a receipt or a mute on the Space itself would do
+nothing. Both therefore do what a person would otherwise do by hand to each room
+inside it, bounded by the Space's own (transitive) membership so a subspace's
+rooms are not left out.
+
+**Invite is deliberately not gated on `canInvite`.** That gate reads
+`app.roomInfo`, which follows whatever surface last pointed it somewhere —
+usually the open room, not this Space — so gating on it would grey the row out
+because nobody has *looked*, which is a different and worse lie than offering
+something the server may refuse. The invite dialog reports the server's answer.
+
+### The dialog
+
+`SpaceSettingsDialog.qml`: General / Members / Permissions / Developer tools, on
+`RoomInfoController`. **A Space IS a Matrix room**, so every control writes
+ordinary room state through the same permission-gated backend a room's own
+settings use, gated on the room's REAL required power level for that state
+event — never on a role label, and never optimistically.
+
+* **General** — avatar, name, topic; Space access (`m.room.join_rules`, only
+  `invite`/`public`/`knock`: a restricted rule carries an allow-rule list this
+  surface cannot build, so it is displayed honestly and left alone); published
+  address (`m.room.canonical_alias`).
+* **Members** — the roster with each member's role, a search, and Invite.
+* **Permissions** — `Room::update_power_levels` through
+  `canSetPowerLevel`/`setMemberPowerLevel`, which fails CLOSED on an unknown
+  target because levels may legitimately be negative.
+* **Developer tools** — read-only: the Space id, its alias, join rule, your own
+  and the default power level, members loaded, direct children.
+
+Every text field is an **explicit mirror**, not a two-way binding: the first
+keystroke breaks a binding permanently, a rejected write must snap back to what
+the Space actually holds, and this dialog can be reopened on a different Space.
+A Space change always wins over a half-typed value; a roster refresh only
+re-snaps a field the user has not edited.
+
+`app.roomInfo` is shared with the Room Information panel and Space Home, so the
+dialog records where it was pointing on open and puts it back on close.
+
+**What is deliberately not there.** Sable also offers Cosmetics, Abbreviations,
+Emojis & Stickers and a per-Space Appearance. None of those is Matrix state
+Lightning can read or write: they would be private storage only Lightning could
+interpret, presented as though it were part of the Space, invisible to every
+other client and every other device of the same user. The local rail folders are
+the one place this app keeps device-local organisation, and they are defensible
+precisely because they touch NO Matrix state and say so on screen. Four dead
+tabs would be worse than four missing ones. `spaceSettingsWritesRoomStateAndNothingElse`
+bans `app.settings` and `app.railLayout` from the file.
+
 ## 5. Channels: Sable's model
 
 ```text
@@ -269,7 +362,25 @@ column would look like the account had nothing in it.
 
 A room row is the room's **avatar** and its name. Sable's own column shows a
 picture per room, and the first revision of this layout drew a hash glyph
-instead, which made every room in a Space look identical. The glyph survives as
+instead, which made every room in a Space look identical.
+
+**A DM's face belongs to the other person, not to the room.** A Matrix DM
+usually carries no `m.room.avatar` at all, so a row built from `RoomInfo::
+avatarUrl` alone draws initials — which is what this column did, next to a Home
+strip showing the real pictures. Deriving it is three jobs (is this an
+unambiguous 1:1? who is the peer? does anyone know their picture?) that the
+Classic list had done privately since 0.6.x, so the derivation moved into
+`DirectAvatarResolver` and both list models own one:
+
+* an explicit room avatar always wins — a room NAME must never disable this,
+  only a room AVATAR;
+* a group DM (`m.direct` naming more than one target) borrows nobody's face;
+* the peer's own room-member snapshot first, then a bounded, idempotent
+  `fetchUserProfile` per unresolved peer;
+* a late profile has to reach the **row**, not just repaint it: this model's
+  rows hold a snapshot, so the resolver's answer runs a `rebuild()`, whose diff
+  finds the ids and order identical and emits `dataChanged` rather than a
+  reset. Nothing moves. The glyph survives as
 a small ringed badge on the avatar's corner for the two things a picture cannot
 say: this room is a DM, or this room is encrypted (and the lock is still a
 CLAIM — only for encryption the client knows about).
@@ -291,10 +402,22 @@ each one tested:
 
 ### Lobby and Message Search
 
-**Lobby** maps onto the shell's existing home surface: no room open and no real
-Space selected, which is exactly the condition `TimelinePane` already uses to
-show `HomePane`. `AppController::openLobby()` reuses `openSpaceHome("")`'s
-teardown ordering. No fake room, no persisted event.
+**Lobby** is the HEAD of whatever the column is currently showing. With a Space
+scoped it opens **that Space's own overview** — its rooms and subspaces, its
+People, its settings — which is the page a single tap on the rail tile already
+opens; with nothing scoped it opens the account's Home. Either way it is
+`openSpaceHome`, so the teardown ordering (close the timeline before the
+selection clears) is not copied anywhere. No fake room, no persisted event.
+
+It used to clear the selection instead, which made Lobby a "leave this Space"
+control wearing the wrong name: the column jumped back to the whole account and
+there was no way back to the Space's overview from inside it. A pseudo rail
+selection ("" for Home, `@orphans`) is not a Space, so those still open Home.
+
+`lobbyActive` is therefore simply "no room open" — the same condition
+`TimelinePane` uses to choose an overview over a timeline. It deliberately no
+longer excludes the scoped case: Lobby now *opens* that page, so refusing to
+mark the row would leave the column with nothing current on it.
 
 **Message Search** opens the existing global `MessageSearchDialog` — the same one
 `Ctrl+Shift+F` opens — by signal through the host, because the dialog is
@@ -522,8 +645,14 @@ behind an open folder; both a light and a dark theme.
   whether the tile moving under the pointer reads right at pointer speed. Every
   assertion behind the drag is a MODEL assertion; nothing has driven it with a
   real pointer.
-* creating a folder by dropping one Space on another, and the folder-name
-  dialog's layout.
+* creating a folder by dropping one Space on another under a real pointer. The
+  band rule and `clearDropTarget` are pinned at the model and in the source; what
+  the *midpoint* rule feels like at pointer speed is not.
+* the folder-name dialog's layout.
+* the Space menu's own rows against a real homeserver: Mark as read over a
+  Space's rooms, Invite, and every write in Space settings (name, topic, avatar,
+  join rule, alias, power levels).
+* Lobby opening the scoped Space's overview on a real account with subspaces.
 * muting a whole Space against a real homeserver's push rules.
 * the Channels column against a real Space hierarchy — the demo backend has no
   subspaces, so nothing has confirmed a subspace appearing as its own flat

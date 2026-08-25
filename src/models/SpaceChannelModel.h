@@ -57,6 +57,8 @@
 #include <QStringList>
 #include <QVector>
 
+#include "models/DirectAvatarResolver.h"
+
 class MatrixClient;
 class RailLayoutStore;
 class SettingsManager;
@@ -237,6 +239,12 @@ private:
     QStringList listedSpaceIds() const;
 
     MatrixClient *m_client = nullptr;
+    /// A DM usually carries no room avatar of its own; the face belongs to the
+    /// other person. Deriving that is the resolver's job, and it is the SAME
+    /// derivation the Classic list uses — the Channels column showed initials
+    /// for every DM while Home showed the real pictures because this model
+    /// read RoomInfo::avatarUrl raw.
+    DirectAvatarResolver m_directAvatars;
     SpaceManager *m_spaces = nullptr;
     RailLayoutStore *m_layout = nullptr;
     SettingsManager *m_settings = nullptr;

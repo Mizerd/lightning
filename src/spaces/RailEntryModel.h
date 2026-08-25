@@ -125,6 +125,17 @@ public:
     /// the row plus a dwell, so that merely passing through a tile on the way
     /// somewhere else cannot create a folder.
     Q_INVOKABLE void updateDrag(int row, bool onto);
+    /// The pointer is RESTING on a row it has not pushed through yet: clear
+    /// any armed group target and leave the preview order exactly as it is.
+    ///
+    /// This is the third thing a pointer can be doing and it needs its own
+    /// entry point, because `updateDrag(row, false)` also REORDERS — and
+    /// reordering into the row under the pointer is what made grouping
+    /// unreachable. The dragged block would take the slot the user was aiming
+    /// at, the tile there would step aside, and by the time the dwell elapsed
+    /// the row under the pointer was the dragged entry itself, which is never
+    /// a group target. No drop ever created a folder.
+    Q_INVOKABLE void clearDropTarget();
     /// Ends the gesture. `commit` false abandons it and restores the stored
     /// arrangement.
     Q_INVOKABLE void endDrag(bool commit);

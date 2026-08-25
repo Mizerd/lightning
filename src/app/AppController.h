@@ -664,6 +664,18 @@ public Q_SLOTS:
     // Space with no rooms — there is nothing muted, and offering "unmute"
     // for it would be offering to change nothing.
     Q_INVOKABLE bool spaceIsMuted(const QString &spaceId) const;
+    // Marks every joined room in the Space read. Matrix has no "mark a Space
+    // read" primitive — a Space is a room with no timeline, so a receipt on
+    // the Space itself would clear nothing — so this does what a person would
+    // otherwise do by hand to each room inside it, through the SAME entry
+    // point the room list's own Mark as read uses (which takes its target from
+    // the room's latest event and sends the public receipt and m.fully_read
+    // together, and works for rooms other than the open one).
+    //
+    // Bounded by the Space's own membership, which SpaceManager resolves
+    // transitively: marking a Space read has to cover the rooms a subspace
+    // brought into it, or it is a half-read.
+    Q_INVOKABLE void markSpaceRead(const QString &spaceId);
     // Poll-on-open refresh: re-query the server rule when a notification
     // picker opens so changes made in another client land in the cache.
     // No-op on backends without server support.

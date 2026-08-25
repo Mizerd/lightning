@@ -155,12 +155,39 @@ Rectangle {
             y += rowBand(i) + list.spacing
         return y
     }
-    // 12 px of dead zone at each edge of the tile band, so passing through a
-    // tile's edges is unambiguously a reorder.
-    function pointerOverTileCentre(row, contentY) {
+    // RESTING ON a tile versus PUSHING THROUGH it. This is the whole
+    // reorder/group distinction and it has to be measured from the side the
+    // pointer arrived from, which is the side the dragged block is NOT on.
+    //
+    // The previous rule ("the middle 24 px of the band is the group zone")
+    // could never fire. Reaching that middle means first crossing the row's
+    // near edge, which reordered the dragged block INTO the row — so the tile
+    // being aimed at stepped aside and the row under the pointer became the
+    // dragged entry, which is never a group target. Dropping a Space onto a
+    // Space therefore always reordered and never once made a folder.
+    //
+    // So: short of the row's midpoint, nothing moves and that tile is what a
+    // release would group with. Past the midpoint, the pointer has pushed
+    // through and the dragged block takes the row. The half-band on either
+    // side of the midpoint is also the hysteresis that stops a pointer held
+    // near a boundary from oscillating between the two readings.
+    function pointerPushedThrough(row, dragRow, contentY) {
         var rel = contentY - rowTop(row)
-        var band = rowBand(row)
-        return rel >= 12 && rel <= band - 12
+        var half = rowBand(row) * 0.5
+        if (dragRow < 0)
+            return true
+        return row > dragRow ? rel > half : rel < half
+    }
+    // The dragged block's own slot is the GAP its tile came out of — the tile
+    // is drawn under the pointer, not here. There is nothing to group with and
+    // nowhere new to move, so a pointer over it holds everything still.
+    function rowIsDraggedBlock(row) {
+        var entry = app.railEntries.entryAt(row)
+        if (!entry)
+            return false
+        var held = app.railEntries.draggingEntryId
+        return entry.entryId === held
+               || (entry.folderId !== undefined && entry.folderId === held)
     }
     function updateTileDrag(sceneY) {
         if (!root.dragging)
@@ -171,34 +198,64 @@ Rectangle {
         dragContentY = contentY
         var row = rowAtContentY(contentY)
         if (row < 0) {
+            dwellTimer.stop()
+            dwellRow = -1
             app.railEntries.updateDrag(list.count - 1, false)
             return
         }
-        var centred = pointerOverTileCentre(row, contentY)
-        if (!centred) {
+        if (rowIsDraggedBlock(row)) {
+            dwellTimer.stop()
+            dwellRow = -1
+            // A target the pointer has LEFT must stop being lit, and must
+            // stop being armed: `endDrag` groups on the flag, not on where
+            // the pointer is, so a stale one would make a folder out of a
+            // release over the gap.
+            app.railEntries.clearDropTarget()
+            return
+        }
+        var dragRow = app.railEntries.rowForEntry(
+                          app.railEntries.draggingEntryId)
+        if (pointerPushedThrough(row, dragRow, contentY)) {
             dwellTimer.stop()
             dwellRow = -1
             app.railEntries.updateDrag(row, false)
             return
         }
-        // The dwell: the group gesture arms only after the pointer has stayed
-        // in one tile's centre band. Without it, reordering past a Space
-        // creates a folder out of it on the way through.
+        // The dwell is now a SECOND guard rather than the only one: the
+        // geometry above already means a pointer travelling through a tile
+        // spends its time past the midpoint, where grouping cannot arm. What
+        // the dwell still buys is that a pointer sweeping slowly across the
+        // near half of a tile on its way somewhere else does not light it up.
         if (dwellRow !== row) {
             dwellRow = row
             dwellTimer.restart()
-            app.railEntries.updateDrag(row, false)
+            // NOT updateDrag(row, false): that would reorder into the row the
+            // user is aiming at. Nothing moves while the pointer is resting.
+            app.railEntries.clearDropTarget()
             return
         }
         app.railEntries.updateDrag(row, !dwellTimer.running)
     }
     Timer {
         id: dwellTimer
-        interval: 320
+        interval: 250
         onTriggered: {
             if (root.dragging && root.dwellRow >= 0)
                 app.railEntries.updateDrag(root.dwellRow, true)
         }
+    }
+
+    // Where the dragged tile parks once a release would GROUP: the centre of
+    // the target's own row. The tile stops following the pointer and shrinks
+    // onto the target, so the two are visibly about to become one thing —
+    // and, just as importantly, the full-size dragged tile stops covering the
+    // ring that says which Space it would land in. -1 while reordering, where
+    // the tile follows the pointer exactly.
+    readonly property real groupAnchorY: {
+        if (!root.dragging || !app.railEntries.grouping)
+            return -1
+        var r = app.railEntries.rowForEntry(app.railEntries.dropTargetId)
+        return r < 0 ? -1 : rowTop(r) + rowBand(r) / 2
     }
 
     // Auto-scroll while dragging near either end, so a rail longer than the
@@ -319,9 +376,11 @@ Rectangle {
                 // the pointer. Zero for every row but the one being dragged,
                 // so nothing else pays for it.
                 readonly property real dragLift:
-                    spaceItem.dragged
-                    ? root.dragContentY - (spaceItem.y + spaceItem.tileBandHeight / 2)
-                    : 0
+                    !spaceItem.dragged
+                    ? 0
+                    : (root.groupAnchorY >= 0 ? root.groupAnchorY
+                                              : root.dragContentY)
+                      - (spaceItem.y + spaceItem.tileBandHeight / 2)
                 // Above its neighbours while it travels over them.
                 z: spaceItem.dragged ? 10 : 0
                 // Indentation: a filed Space steps in a little, a subspace
@@ -475,12 +534,24 @@ Rectangle {
                            : spaceItem.isFolder ? AppTheme.cardElevated
                            : spaceItem.pseudo ? AppTheme.cardElevated
                                               : "transparent"
-                    border.width: spaceItem.dropTarget ? 2 : 0
+                    // The GROUP target wears the rail's own "you are here"
+                    // colour, thicker: a release here merges the two into a
+                    // folder, and the accent is the one ink this column uses
+                    // to say "this tile is the one that matters".
+                    border.width: spaceItem.dropTarget ? 3 : 0
                     border.color: AppTheme.accent
                     // Full opacity, always. The tile keeps its normal image
                     // while it is dragged; dimming it made the one thing the
                     // user is looking at the hardest thing to see.
-                    scale: spaceItem.dragged ? 1.06 : 1.0
+                    //
+                    // Scale carries the merge: the dragged tile shrinks onto
+                    // the target it has parked on (see dragLift), and the
+                    // target opens up a little to receive it, so the two read
+                    // as about to become one thing rather than as one tile
+                    // sitting on another.
+                    scale: spaceItem.dragged
+                           ? (root.groupAnchorY >= 0 ? 0.56 : 1.06)
+                           : spaceItem.dropTarget ? 1.08 : 1.0
 
                     Behavior on color { ColorAnimation { duration: 120 } }
                     Behavior on scale { NumberAnimation { duration: 90 } }
@@ -605,6 +676,7 @@ Rectangle {
                         railMenu.spaceMuted =
                             spaceItem.isRealSpace
                             && app.spaceIsMuted(spaceItem.spaceId)
+                        railMenu.spaceUnread = spaceItem.unreadTotal
                         var p = spaceItem.mapToItem(Overlay.overlay,
                                                     eventPoint.position.x,
                                                     eventPoint.position.y)
@@ -1056,6 +1128,17 @@ Rectangle {
         // Sampled when the menu opens, not bound: spaceIsMuted() is a call
         // over every room in the Space and carries no NOTIFY of its own.
         property bool spaceMuted: false
+        // Same treatment, same reason: read once from the row that was
+        // right-clicked, so "Mark as read" can be honestly disabled when
+        // there is nothing to mark.
+        property int spaceUnread: 0
+        // Sable's menu names the Space it belongs to at the top. AppMenu's
+        // own context header does that here — the row it was opened from is
+        // no longer under the pointer once the menu is up.
+        contextLabel: railMenu.isFolder
+                      ? railMenu.folderName
+                      : (app.spaces ? app.spaces.spaceName(railMenu.spaceId)
+                                    : "")
 
         AppMenuItem {
             iconName: railMenu.collapsed ? "expand_more" : "expand_less"
@@ -1094,6 +1177,16 @@ Rectangle {
         // a room is in before anyone touched it, rather than asserting "all
         // messages" for rooms that never asked for it.
         AppMenuItem {
+            objectName: "railMarkSpaceRead"
+            iconName: "done_all"
+            text: qsTr("Mark as read")
+            visible: railMenu.isRealSpace
+            // A Space with nothing unread has nothing to mark, and a control
+            // that would do nothing should say so rather than pretend.
+            enabled: railMenu.spaceUnread > 0
+            onTriggered: app.markSpaceRead(railMenu.spaceId)
+        }
+        AppMenuItem {
             objectName: "railMuteSpace"
             iconName: railMenu.spaceMuted ? "notifications" : "notifications_off"
             text: railMenu.spaceMuted ? qsTr("Unmute space")
@@ -1102,6 +1195,47 @@ Rectangle {
             onTriggered: app.setSpaceMuted(railMenu.spaceId,
                                            !railMenu.spaceMuted)
         }
+        AppMenuItem {
+            objectName: "railSpaceInvite"
+            iconName: "person_add"
+            text: qsTr("Invite")
+            // Deliberately NOT gated on canInvite. That gate reads
+            // app.roomInfo, which follows whatever surface last pointed it
+            // somewhere — usually the open room, not this Space — so gating on
+            // it would grey the row out because nobody has LOOKED, which is a
+            // different and worse lie than offering something the server may
+            // refuse. The invite dialog reports the server's answer honestly.
+            visible: railMenu.isRealSpace
+            onTriggered: spaceInviteDialog.openFor(railMenu.spaceId)
+        }
+        AppMenuItem {
+            objectName: "railSpaceCopyLink"
+            iconName: "content_copy"
+            text: qsTr("Copy link")
+            visible: railMenu.isRealSpace
+            onTriggered: root.copySpaceLink(railMenu.spaceId)
+        }
+        AppMenuItem {
+            objectName: "railSpaceShareLink"
+            // Every glyph here has to exist in the bundled Material Symbols
+            // SUBSET, which carries exactly the icons the app already uses —
+            // a name the subset does not cover renders as tofu, not as a
+            // missing icon. IconChromeTest pins the whole set.
+            iconName: "link"
+            text: qsTr("Share link…")
+            visible: railMenu.isRealSpace
+            onTriggered: shareLinkDialog.openFor(
+                             railMenu.spaceId,
+                             app.spaces.spaceName(railMenu.spaceId))
+        }
+        AppMenuItem {
+            objectName: "railSpaceSettings"
+            iconName: "settings"
+            text: qsTr("Space settings")
+            visible: railMenu.isRealSpace
+            onTriggered: spaceSettings.openFor(railMenu.spaceId)
+        }
+
         AppMenuSeparator { visible: railMenu.isRealSpace }
 
         AppMenuItem {
@@ -1134,6 +1268,121 @@ Rectangle {
                 visible: modelData.id !== railMenu.inFolder
                 onTriggered: app.railLayout.setSpaceFolder(railMenu.spaceId,
                                                            modelData.id)
+            }
+        }
+    }
+
+    // ── What the Space menu opens ────────────────────────────────────────
+    // Hosted here, exactly as the folder-name dialog is: a delegate that
+    // reached up into its host by id is how the reader popover's click ended
+    // up silently dead, so the rows stay signal-only and every shared surface
+    // is ONE instance owned by the view.
+
+    // The clipboard write. A hidden TextEdit is the app's existing proxy for
+    // this (RoomsPanel uses the same one for room links); text is cleared
+    // immediately after the copy so a permalink does not sit in a live item.
+    TextEdit {
+        id: railLinkClipboard
+        visible: false
+        width: 0
+        height: 0
+    }
+
+    // matrix.to, the public link — never an authenticated media or client URL.
+    // Alias-preferred, id fallback, which is RoomListModel's own convention.
+    function spaceLink(spaceId) {
+        if (!app.roomList || !spaceId || spaceId.length === 0)
+            return ""
+        var row = app.roomList.findRoom(spaceId)
+        return app.roomList.roomPermalink(
+            spaceId, (row && row.canonicalAlias) || "")
+    }
+    function copySpaceLink(spaceId) {
+        var link = root.spaceLink(spaceId)
+        if (link.length === 0)
+            return
+        railLinkClipboard.text = link
+        railLinkClipboard.selectAll()
+        railLinkClipboard.copy()
+        railLinkClipboard.text = ""
+    }
+
+    InvitePeopleDialog {
+        id: spaceInviteDialog
+        parent: Overlay.overlay
+    }
+
+    SpaceSettingsDialog {
+        id: spaceSettings
+        onInviteRequested: (spaceId) => spaceInviteDialog.openFor(spaceId)
+    }
+
+    // Share: the link itself, selectable, with the two things anyone actually
+    // does with it. Lightning has no OS share sheet, and inventing one that
+    // silently copied would make "Share" and "Copy link" the same control
+    // under two names.
+    AppDialog {
+        id: shareLinkDialog
+        objectName: "railShareLinkDialog"
+        property string targetId: ""
+        property string targetName: ""
+        readonly property string link: root.spaceLink(targetId)
+        title: qsTr("Share space")
+        standardButtons: Dialog.Close
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+
+        function openFor(spaceId, name) {
+            targetId = spaceId
+            targetName = name || ""
+            open()
+        }
+
+        contentItem: ColumnLayout {
+            spacing: AppTheme.spacing8
+            Label {
+                Layout.fillWidth: true
+                Layout.maximumWidth: 380
+                wrapMode: Text.WordWrap
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textMeta
+                text: shareLinkDialog.link.length > 0
+                      ? qsTr("Anyone with this link can find “%1”. Whether "
+                             + "they can join still depends on the space's "
+                             + "access setting.").arg(
+                            shareLinkDialog.targetName)
+                      : qsTr("This space has no shareable address yet.")
+            }
+            AppTextField {
+                id: shareLinkField
+                objectName: "railShareLinkField"
+                storm: true
+                Layout.fillWidth: true
+                Layout.minimumWidth: 340
+                readOnly: true
+                text: shareLinkDialog.link
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing8
+                AppButton {
+                    storm: true
+                    kind: "primary"
+                    iconName: "content_copy"
+                    text: qsTr("Copy link")
+                    enabled: shareLinkDialog.link.length > 0
+                    onClicked: root.copySpaceLink(shareLinkDialog.targetId)
+                }
+                AppButton {
+                    storm: true
+                    iconName: "explore"
+                    text: qsTr("Open in browser")
+                    enabled: shareLinkDialog.link.length > 0
+                    onClicked: Qt.openUrlExternally(shareLinkDialog.link)
+                }
+                Item { Layout.fillWidth: true }
             }
         }
     }

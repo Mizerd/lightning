@@ -888,6 +888,122 @@ private slots:
         QVERIFY2(!card.contains(QStringLiteral("RoomListClassicPresenter")),
                  "the preview card instantiates a real presenter");
     }
+
+    // THE DEFECT THIS EXISTS FOR: dropping a Space onto a Space never once
+    // made a folder, and the model's own tests all passed throughout.
+    //
+    // They passed because they call `updateDrag(rowOf(target), true)` — they
+    // hand the model the row the pointer is aiming at. Production could not.
+    // The rail reordered as soon as the pointer crossed a row's NEAR EDGE, so
+    // the dragged block took that row, the tile being aimed at stepped aside,
+    // and by the time the 320 ms dwell elapsed the row under the pointer held
+    // the DRAGGED entry — which is never a group target. Grouping was
+    // unreachable by construction. (The same lesson as the row window: a
+    // policy test that invokes the policy directly proves nothing about
+    // whether production ever reaches it.)
+    //
+    // The fix is geometric: short of a row's MIDPOINT the pointer is resting
+    // on that tile and nothing moves, so the tile keeps its identity and is
+    // what a release groups with; past the midpoint the pointer has pushed
+    // through and the dragged block takes the row.
+    void theRailNeverReordersIntoTheTileTheDragIsAimingAt()
+    {
+        const QString rail = withoutComments(read(QStringLiteral("SpacesRail.qml")));
+        QVERIFY(!rail.isEmpty());
+        QVERIFY2(rail.contains(QStringLiteral("function pointerPushedThrough(")),
+                 "the reorder/group split is no longer measured from the side "
+                 "the pointer arrived from");
+        QVERIFY2(rail.contains(QStringLiteral("function rowIsDraggedBlock(")),
+                 "the dragged block's own slot is treated as a droppable row");
+        QVERIFY2(!rail.contains(QStringLiteral("function pointerOverTileCentre(")),
+                 "the centre-band rule is back; reaching that band means "
+                 "crossing the near edge first, which reorders");
+
+        // The resting branch — the one that arms the dwell — must clear any
+        // stale target WITHOUT reordering. A `updateDrag(row, false)` there is
+        // exactly the old defect.
+        const int dwell = rail.indexOf(QStringLiteral("dwellTimer.restart()"));
+        QVERIFY2(dwell > 0, "the dwell is gone");
+        const QString branch = rail.mid(dwell, 200);
+        QVERIFY2(branch.contains(QStringLiteral("clearDropTarget()")),
+                 "arming the dwell does not clear a stale drop target");
+        QVERIFY2(!branch.contains(QStringLiteral("updateDrag(row, false)")),
+                 "arming the dwell still reorders into the row being aimed at");
+
+        // And the model has to offer that third verb at all.
+        const QString model = readSrc(QStringLiteral("spaces/RailEntryModel.h"));
+        QVERIFY2(model.contains(QStringLiteral("void clearDropTarget()")),
+                 "the model has no way to clear a target without reordering");
+    }
+
+    // Sable's Space menu, and the header that names which Space it belongs to
+    // (the row it was opened from is no longer under the pointer once the menu
+    // is up). Every action here is a real one: no dead rows.
+    void theRailSpaceMenuCarriesTheSpaceActions()
+    {
+        const QString rail = withoutComments(read(QStringLiteral("SpacesRail.qml")));
+        for (const auto *name : { "railMarkSpaceRead", "railMuteSpace",
+                                  "railSpaceInvite", "railSpaceCopyLink",
+                                  "railSpaceShareLink", "railSpaceSettings" }) {
+            QVERIFY2(rail.contains(QLatin1String(name)),
+                     qPrintable(QStringLiteral("the Space menu lost %1")
+                                    .arg(QLatin1String(name))));
+        }
+        QVERIFY2(rail.contains(QStringLiteral("contextLabel:")),
+                 "the menu no longer names the Space it acts on");
+        // The share link is the PUBLIC matrix.to permalink, never an
+        // authenticated client or media URL.
+        QVERIFY2(rail.contains(QStringLiteral("roomPermalink(")),
+                 "the shared link is not the room permalink");
+    }
+
+    // A hidden menu row must take NO space. QQuickMenu lays its rows out in a
+    // ListView that honours each item's height, and MenuSeparator's height
+    // comes from its contentItem plus padding whether it is visible or not —
+    // so the rail's Space menu opened with a 13px band above its first row,
+    // left behind by the divider that belongs to the folder-only rows.
+    void aHiddenMenuRowTakesNoHeight()
+    {
+        const QString sep = read(QStringLiteral("AppMenuSeparator.qml"));
+        QVERIFY2(sep.contains(QStringLiteral("implicitHeight: visible ?")),
+                 "a hidden separator still reserves its own height");
+        const QString item = read(QStringLiteral("AppMenuItem.qml"));
+        QVERIFY2(item.contains(QStringLiteral("implicitHeight: visible ?")),
+                 "a hidden menu item still reserves its own height");
+    }
+
+    // Space settings is the ROOM settings backend behind a Space-shaped
+    // surface. It must invent no Space-only storage: the reference client's
+    // Cosmetics / Abbreviations / Emojis / Appearance pages have no Matrix
+    // state behind them, and shipping them would mean writing a private
+    // format only Lightning could read while presenting it as the Space's.
+    void spaceSettingsWritesRoomStateAndNothingElse()
+    {
+        const QString dialog = withoutComments(
+            read(QStringLiteral("SpaceSettingsDialog.qml")));
+        QVERIFY(!dialog.isEmpty());
+        for (const auto *call : { "setRoomName(", "setRoomTopic(",
+                                  "setRoomAvatar(", "setJoinRule(",
+                                  "setCanonicalAlias(" }) {
+            QVERIFY2(dialog.contains(QLatin1String(call)),
+                     qPrintable(QStringLiteral("space settings lost %1")
+                                    .arg(QLatin1String(call))));
+        }
+        // No local invention: nothing here may reach settings storage.
+        QVERIFY2(!dialog.contains(QStringLiteral("app.settings")),
+                 "space settings writes device-local state and presents it as "
+                 "part of the Space");
+        QVERIFY2(!dialog.contains(QStringLiteral("app.railLayout")),
+                 "space settings writes the local rail arrangement");
+        // The restricted join rule is displayed honestly and left alone: its
+        // allow-rule list is not something this surface can build.
+        QVERIFY2(dialog.contains(QStringLiteral("knock_restricted")),
+                 "a space-restricted join rule is no longer detected, so this "
+                 "surface would offer to overwrite it with an empty allow list");
+        // Themed throughout — no literal colours anywhere.
+        QVERIFY2(!dialog.contains(QRegularExpression(QStringLiteral("#[0-9a-fA-F]{6}"))),
+                 "space settings hardcodes a colour");
+    }
 };
 
 QTEST_MAIN(NavigationLayoutContractTest)

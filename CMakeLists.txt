@@ -456,6 +456,8 @@ set(APP_SOURCES
 
     src/models/RoomListModel.h
     src/models/RoomListModel.cpp
+    src/models/DirectAvatarResolver.h
+    src/models/DirectAvatarResolver.cpp
     src/models/SpaceChannelModel.h
     src/models/SpaceChannelModel.cpp
     src/models/QuickSwitcherModel.h
@@ -691,6 +693,9 @@ set(APP_QML_FILES
     qml/ChannelDelegate.qml
     qml/ChannelCategoryHeader.qml
     qml/ChannelNavRow.qml
+    # A Space IS a Matrix room: this is the room-settings backend behind a
+    # Space-shaped surface, reached from the rail's menu.
+    qml/SpaceSettingsDialog.qml
     qml/UnreadBadge.qml
     qml/NavigationLayoutCard.qml
     qml/MessageDelegate.qml
@@ -2261,6 +2266,8 @@ if(BUILD_TESTING)
         src/models/RoomDirectorySearchModel.cpp
         src/models/RoomListModel.h
         src/models/RoomListModel.cpp
+        src/models/DirectAvatarResolver.h
+        src/models/DirectAvatarResolver.cpp
         src/spaces/SpaceManager.h
         src/spaces/SpaceManager.cpp
         src/matrix/MatrixClient.h
@@ -2293,6 +2300,8 @@ if(BUILD_TESTING)
         tests/MarkRoomReadTest.cpp
         src/models/RoomListModel.h
         src/models/RoomListModel.cpp
+        src/models/DirectAvatarResolver.h
+        src/models/DirectAvatarResolver.cpp
         src/spaces/SpaceManager.h
         src/spaces/SpaceManager.cpp
         src/matrix/MatrixClient.h
@@ -2668,6 +2677,8 @@ if(BUILD_TESTING)
         tests/SpaceChannelsTest.cpp
         src/models/SpaceChannelModel.h
         src/models/SpaceChannelModel.cpp
+        src/models/DirectAvatarResolver.h
+        src/models/DirectAvatarResolver.cpp
         # The rooms come from the CLIENT, not from RoomListModel: that model is
         # scoped to the active Space and filtered by the chips, which would
         # make this layout's global groups vanish the moment a Space was
@@ -3131,6 +3142,8 @@ if(BUILD_TESTING)
         tests/RoomStateModelTest.cpp
         src/models/RoomListModel.h
         src/models/RoomListModel.cpp
+        src/models/DirectAvatarResolver.h
+        src/models/DirectAvatarResolver.cpp
         src/spaces/SpaceManager.h
         src/spaces/SpaceManager.cpp
         src/matrix/MatrixClient.h
@@ -3150,6 +3163,8 @@ if(BUILD_TESTING)
         tests/RoomPermalinkTest.cpp
         src/models/RoomListModel.h
         src/models/RoomListModel.cpp
+        src/models/DirectAvatarResolver.h
+        src/models/DirectAvatarResolver.cpp
         src/spaces/SpaceManager.h
         src/spaces/SpaceManager.cpp
         src/matrix/MatrixClient.h

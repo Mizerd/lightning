@@ -529,6 +529,20 @@ void RailEntryModel::updateDrag(int row, bool onto)
     refreshFolderRuns();
 }
 
+void RailEntryModel::clearDropTarget()
+{
+    if (!m_dragging || !m_grouping)
+        return;
+    const int previous = rowForEntry(m_dropTargetId);
+    m_grouping = false;
+    m_dropTargetId.clear();
+    if (previous >= 0) {
+        Q_EMIT dataChanged(index(previous, 0), index(previous, 0),
+                           { DropTargetRole });
+    }
+    Q_EMIT dragChanged();
+}
+
 void RailEntryModel::endDrag(bool commit)
 {
     if (!m_dragging)

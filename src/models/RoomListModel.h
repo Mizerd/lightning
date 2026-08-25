@@ -1,6 +1,7 @@
 #pragma once
 
 #include "matrix/RoomInfo.h"
+#include "models/DirectAvatarResolver.h"
 
 #include <QAbstractListModel>
 #include <QHash>
@@ -151,10 +152,9 @@ public:
 private Q_SLOTS:
     void refresh();
     void refreshRoom(const QString &roomId);
-    void onUserProfileFinished(quint64 opId, bool ok, const QString &userId,
-                               const QString &displayName,
-                               const QString &avatarUrl,
-                               const QString &category);
+    /// One DM peer's profile arrived. Repaints only the rows that wear that
+    /// face; a late profile must never reorder or rebuild the list.
+    void onDirectAvatarResolved(const QString &userId);
 
 private:
     QString effectiveAvatarUrl(const RoomInfo &room) const;
@@ -191,9 +191,7 @@ private:
     QTimer m_searchDebounce;
     // Coalesces per-event refreshRoom() calls into one reconcile per turn.
     QTimer m_reconcileCoalesce;
-    QHash<QString, QString> m_profileAvatars;
-    QHash<quint64, QString> m_profileOps;
-    QSet<QString> m_profilePending;
+    DirectAvatarResolver m_directAvatars;
 
 Q_SIGNALS:
     void searchQueryChanged();

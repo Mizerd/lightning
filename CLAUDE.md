@@ -411,12 +411,18 @@ backend capability checks and honest live-test status.
     rooms. It no longer falls back to Classic at Home — a layout that becomes
     the other layout depending on where you are is not a layout. The rail's
     selection NARROWS it (`scopeSpaceId`: that Space and its subspaces, with
-    the account-wide groups dropped) rather than deciding whether it renders;
-    Lobby clears the scope and is always the first row. Subspaces are NOT
-    nested; a subspace is a Space folder at the same level. A room in two
-    Spaces appears under both. Rows carry the room's AVATAR (the lock/DM glyph
-    is a corner badge, not a replacement). Order is the rail's arrangement for
-    Spaces and `m.space.child` for rooms — never activity.
+    the account-wide groups dropped) rather than deciding whether it renders.
+    **Lobby is the HEAD of whatever the column shows** — the scoped Space's own
+    overview, or Home when nothing is scoped — never a "clear the scope"
+    control wearing the wrong name; `lobbyActive` is therefore just "no room
+    open". Subspaces are NOT nested; a subspace is a Space folder at the same
+    level. A room in two Spaces appears under both. Rows carry the room's
+    AVATAR (the lock/DM glyph is a corner badge, not a replacement), and a DM's
+    face comes from `DirectAvatarResolver` — ONE derivation shared with the
+    Classic list, because `RoomInfo::avatarUrl` is empty on most DMs and this
+    column drew initials next to a Home strip showing the real pictures. Order
+    is the rail's arrangement for Spaces and `m.space.child` for rooms — never
+    activity.
   * **The rail's drag** lives in `RailEntryModel`, a real QAbstractListModel
     emitting `beginMoveRows`, so a preview reorder ANIMATES and the delegate
     holding the gesture survives a refresh. A JS array rebuilt per change is a
@@ -427,13 +433,50 @@ backend capability checks and honest live-test status.
     normal image and move freely without a line appearing between them").
     `endDrag` ANNOUNCES the cleared drag flags: `refresh()` may find the rows
     identical and emit nothing, which left a released tile dimmed until an
-    unrelated room update happened along. Held over a Space or folder = GROUP
-    (target ringed), gated on a dead zone AND a dwell so dragging through a
-    tile cannot make a folder.
-  * **A whole Space can be muted** from the rail menu. Matrix has no primitive
-    — a Space is a room with no timeline — so `setSpaceMuted` sets each member
-    room's mode through the one per-room path. Unmute restores FOLLOW THE
-    ACCOUNT DEFAULT, never "all messages".
+    unrelated room update happened along.
+    **REORDER vs GROUP is measured from the side the pointer arrived from.**
+    Short of a row's MIDPOINT the pointer is RESTING on that tile — nothing
+    moves, and it is what a release groups with; past the midpoint it has
+    PUSHED THROUGH and the dragged block takes the row. The previous rule
+    ("the middle 24 px is the group zone") could never fire: reaching that
+    middle means crossing the near edge first, which reordered, so the tile
+    being aimed at stepped aside and the row under the pointer became the
+    DRAGGED entry — never a group target. **No drop ever created a folder, and
+    every model test passed throughout**, because they hand the model the
+    target's row directly. Resting needs its own verb (`clearDropTarget()`);
+    `updateDrag(row, false)` reorders. The 250 ms dwell is now a SECOND guard,
+    not the only one. On a group the target lights accent with a 3 px ring and
+    the dragged tile PARKS on it at 0.56 scale, so a full-size tile no longer
+    covers the ring that says where it would land.
+  * **The rail's Space menu** carries Sable's set and names its Space in
+    AppMenu's context header: Mark as read, Mute/Unmute, Invite, Copy link,
+    Share link…, Space settings. Matrix has no "mark a Space read" and no "mute
+    a Space" primitive — a Space is a room with no timeline — so both do what a
+    person would do by hand to each room inside it, bounded by the Space's own
+    transitive membership, through the ONE per-room path. Unmute restores
+    FOLLOW THE ACCOUNT DEFAULT, never "all messages"; Mark as read routes to
+    `RoomListModel::markRoomRead`. Links are the PUBLIC `matrix.to` permalink.
+    **Invite is deliberately NOT gated on `canInvite`**: that reads
+    `app.roomInfo`, which follows whatever surface last pointed it somewhere,
+    so gating would grey the row out because nobody LOOKED — a worse lie than
+    offering something the server may refuse.
+  * **`SpaceSettingsDialog`** (General / Members / Permissions / Developer
+    tools) is `RoomInfoController` behind a Space-shaped surface: a Space IS a
+    Matrix room, so name/topic/avatar/join rule/alias/power levels are ordinary
+    room state, gated on the room's REAL required level and never applied
+    optimistically. Fields are EXPLICIT MIRRORS (a keystroke destroys a
+    binding; a rejection must snap back; the dialog reopens on other Spaces),
+    and it restores `app.roomInfo` to wherever it was pointing on close.
+    Sable's Cosmetics / Abbreviations / Emojis & Stickers / Appearance pages
+    are deliberately ABSENT — none is Matrix state, so they would be private
+    storage only Lightning could read presented as part of the Space. Four dead
+    tabs are worse than four missing ones; a contract test bans `app.settings`
+    and `app.railLayout` from the file.
+  * **A hidden `AppMenuSeparator` now takes NO height.** QQuickMenu lays rows
+    out in a ListView that honours each item's height, and a separator's height
+    comes from its contentItem plus padding whether it is visible or not — so
+    the rail's Space menu opened with a 13 px band above its first row, left by
+    the divider belonging to the folder-only rows. AppMenuItem already did this.
   * **Local Space folders** are device-local organisation and touch NO Matrix
     state — banned by contract test, not by convention. Dropping one Space
     onto another creates a folder where the target was; folders never nest.
@@ -1482,6 +1525,62 @@ their index explicitly.
 
 Lessons only; features are described in §7, SHAs point into `git log`.
 
+**2026-08-26 rail-drop / Space-menu / log-noise round.** Contract in
+`docs/navigation-layouts.md` §2 and §4b.
+
+*The gesture the whole feature exists for had never once worked, and fifteen
+model tests passed the entire time.* Dropping a Space onto a Space always
+reordered and never made a folder. The model was correct; the VIEW could not
+reach it. The band rule was "the middle 24 px of a row is the group zone", and
+reaching that middle means crossing the row's near edge first — which reordered,
+so the dragged block took the row, the target stepped aside, and by the time the
+dwell elapsed the row under the pointer held the DRAGGED entry, which is never a
+group target. The tests passed because they call `updateDrag(rowOf(target),
+true)` — they hand the model the row production could never produce. **This is
+the row-window lesson again: a policy test that invokes the policy directly
+proves nothing about whether production ever reaches it.** GENERALISE further:
+when a pointer gesture has two readings a few pixels apart, the reading has to
+be measured from the side the pointer ARRIVED from, and "resting on" needs its
+own verb — reusing the one that also mutates ("reorder") is what closed the door.
+
+*Two `Layout` bindings that read their own layout's output.* The log was a
+wall of `Detected recursive rearrange` (one per pass, per row, in a Space's
+list) plus `Binding loop detected for property "implicitWidth"` on every
+message carrying a fenced code block. Same shape both times: a cap read from
+something the layout PRODUCES. `Layout.maximumWidth: parent.width * 0.7` where
+`parent` is the enclosing RowLayout; and a segment sized against `bubble.width`,
+which in Bubbles mode IS `bubbleContent.implicitWidth`, which is the segments'.
+Both fixed by measuring against a row whose width comes from ABOVE and which
+reports no implicit width of its own. GENERALISE: in a Qt Quick Layout, a
+child's size constraint may only read a width that the layout does not compute.
+
+*An invisible `MenuSeparator` still reserves its height.* QQuickMenu lays rows
+out in a ListView that honours each item's height, and MenuSeparator's comes
+from its contentItem plus padding regardless of `visible`. That was the "empty
+space at the top" of the rail's Space menu: the divider belonging to the
+folder-only rows. AppMenuItem had `implicitHeight: visible ? … : 0` already —
+the separator did not.
+
+*A field's derivation that lives privately in one model will be wrong in the
+next one.* `RoomInfo::avatarUrl` is empty for most DMs; the room list had
+carried the whole peer-avatar derivation privately since 0.6.x, and the Channels
+column — written later, deliberately NOT reading RoomListModel — drew initials
+for every DM next to a Home strip showing the real faces. Extracted to
+`DirectAvatarResolver`, owned by both. Its late answer runs a `rebuild()`, not a
+bare `dataChanged`: the rows hold a SNAPSHOT, so repainting them would repaint
+the same initials.
+
+*A brand mark painted in the raw accent reads as a status light.* The
+wordmark's trailing bolt sat in primary-action blue next to plain header text
+and was reported as "the blue lightning session status". `AppTheme.wordmarkBolt`
+keeps Storm's brand yellow and blends the accent most of the way to the header's
+own secondary ink everywhere else.
+
+*The bundled Material Symbols font is a SUBSET.* A name that is not in
+`Icon.qml`'s map renders as tofu, and regenerating the subset needs the network.
+`IconChromeTest::everyReferencedIconNameIsMapped` catches it; pick from the
+mapped set rather than reaching for the "right" glyph.
+
 **2026-08-25 Spaces / Channels / hide-image round.** Full contract in
 `docs/navigation-layouts.md`; read it before touching any of this lane. The
 lessons worth carrying:
@@ -2121,16 +2220,21 @@ matrix-sdk-ui 0.18 are in `docs/receipt-semantics.md`. **NOT TESTED**.
 
 Highest value first:
 
-- **DRIVE THE RAIL'S DRAG WITH A REAL POINTER.** The 2026-08-25 round rebuilt
-  the drag around a model, and every assertion behind it is a MODEL assertion:
-  the preview reorder, the group decision and what a release writes are all
-  proven, and the view's half is not. Nothing has confirmed that the pointer
-  bands map to the tiles a person aims at, that 320 ms is the right dwell,
-  that the auto-scroll is usable, or that the gap plus the insertion line plus
-  the floating proxy is the right amount of feedback rather than one thing too
-  many. The whole point of the round was the FEEL. See also the standing lesson
-  that a policy test proves nothing about whether production reaches the
-  policy.
+- **DRIVE THE RAIL'S DRAG WITH A REAL POINTER.** Still the top item, and
+  2026-08-26 is why: the band rule had made grouping UNREACHABLE — no drop ever
+  created a folder — and fifteen model assertions did not notice, because they
+  hand the model the row production could never produce. The midpoint rule that
+  replaced it is pinned exactly the same way, in the model and in the source, so
+  what is unproven is again the half only a pointer can prove: that resting
+  short of a tile's midpoint lands on the tile a person is aiming at, that
+  250 ms is the right dwell, that the dragged tile parking on its target reads
+  as a merge, and that the auto-scroll is usable. The whole point of this lane
+  is the FEEL, and a policy test proves nothing about whether production reaches
+  the policy.
+- **Exercise the rail's Space menu against a real homeserver.** Mark as read
+  over a Space's rooms, Invite, Copy/Share link, and every write in
+  `SpaceSettingsDialog` (name, topic, avatar, join rule, canonical alias, power
+  levels). Each one is a real state event and none has been sent.
 - **See the Channels column on a real desktop with a real Space hierarchy**,
   including a subspace (which must NOT nest), a room in two Spaces (which must
   appear under both), the Lobby and Message Search rows, and a collapse
@@ -2174,10 +2278,14 @@ and a dark theme; the rail's composite folder tile and its open-folder
 container.
 
 **NOT TESTED (live):** the rail's drag FEEL under a real pointer, folder
-creation by drop, the folder-name dialog, muting a Space against real push
-rules, the Channels column against a real SUBSPACE hierarchy or a scoped
-Space, hide/show on a real image, the Rust backend's direct-children
-payload; Element interoperability of provider
+creation by drop (the midpoint band rule that finally makes it REACHABLE is
+pinned only in the model and the source), the folder-name dialog, the rail's
+Space menu (Mark as read, Invite, Copy/Share link) and every write in
+`SpaceSettingsDialog` — name, topic, avatar, join rule, canonical alias, power
+levels — muting a Space against real push rules, Lobby opening a scoped Space's
+overview, the Channels column against a real SUBSPACE hierarchy or a scoped
+Space, DM faces in the Channels column, hide/show on a real image, the Rust
+backend's direct-children payload; Element interoperability of provider
 GIF sends (plain and encrypted, rooms and threads), sent voice events,
 sent video posters, and formatted-body markdown rendering; notification
 coverage and routing for thread replies; thread timelines, thread

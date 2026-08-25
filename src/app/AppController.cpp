@@ -2544,12 +2544,35 @@ bool AppController::spaceIsMuted(const QString &spaceId) const
     return true;
 }
 
+void AppController::markSpaceRead(const QString &spaceId)
+{
+    if (!m_spaces || !m_roomList || spaceId.isEmpty()
+        || !spaceId.startsWith(QLatin1Char('!'))) {
+        return;
+    }
+    const QStringList rooms = m_spaces->roomsInSpace(spaceId);
+    for (const QString &roomId : rooms)
+        m_roomList->markRoomRead(roomId);
+    qCInfo(lcApp) << "space marked read rooms=" << rooms.size();
+}
+
 void AppController::openLobby()
 {
-    // Exactly openSpaceHome's teardown with no Space to activate: the same
-    // ordering matters (close the timeline before the selection clears), and
+    // "Lobby" is the head of whatever the column is currently showing. With a
+    // Space selected that is THAT SPACE'S overview — its rooms and subspaces,
+    // its People, its settings — which is the page Sable's Lobby row opens and
+    // the page a single tap on the rail tile already opens. Clearing the
+    // selection instead made Lobby a "leave this Space" control wearing the
+    // wrong name: the column jumped back to the whole account and there was no
+    // way back to the Space's own overview from inside it.
+    //
+    // A pseudo rail selection ("" for Home, "@orphans" for the unparented
+    // rooms) is not a Space, so those still open the account's Home. Either
+    // way this is openSpaceHome's teardown, not a second copy of it: the
+    // ordering (close the timeline before the selection clears) matters, and
     // reusing it is what keeps the two paths from drifting.
-    openSpaceHome(QString());
+    const QString active = m_spaces ? m_spaces->activeSpaceId() : QString();
+    openSpaceHome(active.startsWith(QLatin1Char('!')) ? active : QString());
 }
 
 bool AppController::trimHistoryAndJumpToLive()

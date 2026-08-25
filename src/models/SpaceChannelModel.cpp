@@ -31,6 +31,14 @@ bool SpaceChannelModel::Row::operator==(const Row &other) const
 SpaceChannelModel::SpaceChannelModel(QObject *parent)
     : QAbstractListModel(parent)
 {
+    // A late-arriving DM face has to reach the ROW, and the rows hold a
+    // snapshot: data() reads Row::avatarUrl, so a bare dataChanged would
+    // repaint the same initials. rebuild() re-reads and applyRows diffs — the
+    // ids and order are identical, so it is a dataChanged over the existing
+    // rows, never a reset, and nothing moves. resolveMissing() is guarded by
+    // its own cache, so this cannot feed itself.
+    connect(&m_directAvatars, &DirectAvatarResolver::avatarResolved, this,
+            &SpaceChannelModel::rebuild);
 }
 
 void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
@@ -43,6 +51,7 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
     if (m_layout)
         disconnect(m_layout, nullptr, this, nullptr);
     m_client = client;
+    m_directAvatars.setClient(client);
     m_spaces = spaces;
     m_layout = layout;
     if (m_spaces) {
@@ -425,17 +434,21 @@ void SpaceChannelModel::rebuild()
     }
 
     const QList<RoomInfo> allRooms = m_client->rooms();
+    // Ask once per unresolved DM peer. Idempotent and bounded: a peer already
+    // cached or already in flight is skipped, so running this on every rebuild
+    // costs nothing after the first pass.
+    m_directAvatars.resolveMissing(allRooms);
     QHash<QString, RoomInfo> byId;
     byId.reserve(allRooms.size());
     for (const RoomInfo &room : allRooms)
         byId.insert(room.id, room);
 
-    auto roomRow = [](const RoomInfo &info) {
+    auto roomRow = [this](const RoomInfo &info) {
         Row row;
         row.id = info.id;
         row.name = info.name;
         row.kind = RoomKind;
-        row.avatarUrl = info.avatarUrl;
+        row.avatarUrl = m_directAvatars.avatarFor(info);
         row.identityColorKey = identityColorKey(info);
         row.isDirect = info.isDirect;
         row.isInvite = info.membership == RoomInfo::Invited;
