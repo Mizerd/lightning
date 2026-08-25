@@ -8,6 +8,35 @@ import MatrixClient
 // bottom cluster with Settings and the account avatar that opens the account
 // switcher popover. The rail is always visible — it is the primary
 // navigation column, not a Spaces-only affordance.
+//
+// ── Dragging ──────────────────────────────────────────────────────────────
+//
+// The rows come from `app.railEntries` (a real QAbstractListModel), NOT from a
+// JavaScript array. That is what makes the drag feel like Element's: the model
+// emits a genuine `beginMoveRows` for the preview position, so the neighbours
+// ANIMATE out of the way while the pointer is still down, and the delegate
+// holding the gesture is never destroyed by a refresh underneath it. The
+// previous version rebuilt a JS array on every change, which is a model reset:
+// no move transition, every delegate torn down, and the resulting position
+// only discoverable after release — reported as "kinda hard to tell exactly
+// where you are moving them".
+//
+// What a drag looks like: THE TILE ITSELF MOVES. It follows the pointer at
+// full opacity and its neighbours animate out of the way around it, which is
+// Element's behaviour and what was asked for in those words — "spaces should
+// always be their normal image and move freely without a line appearing
+// between them".
+//
+// An earlier revision drew three things at once (a dimmed gap where the tile
+// would land, an accent insertion line at that gap, and a floating copy of the
+// tile under the pointer). All three are gone: the tile IS the feedback, and
+// where it currently sits IS where it will land, so a separate line claiming
+// the same thing was noise on 68 px of chrome.
+//
+// The one thing still drawn on top of the movement is the GROUP target: a ring
+// on the Space or folder a release would file into, armed only after a dwell,
+// so dragging THROUGH a tile on the way somewhere else can never make a
+// folder.
 Rectangle {
     id: root
     color: AppTheme.rail
@@ -16,34 +45,27 @@ Rectangle {
     // it into the creation dialog's Space mode.
     signal createSpaceRequested()
 
-    // 2026-08-19 tester request: inline space expansion — spaceId -> how
-    // many child rooms are revealed under the tile (absent = collapsed;
-    // reveals grow in steps of 5). State lives on the rail root, not the
-    // delegate, so ListView recycling and model resets never forget what
-    // the user expanded. Cleared on account switch.
-    property var railExpansion: ({})
+    // How many of a Space's rooms are revealed under its tile. SESSION state,
+    // unlike the expansion itself: "show me five more" is a momentary
+    // request, where "this Space is open" is how the user wants to navigate
+    // and is persisted by RailLayoutStore. Held on the rail root so ListView
+    // recycling and model resets never forget it.
+    property var railReveal: ({})
     // Bumped on every SpaceManager change so the revealed-rooms bindings
     // (function calls, which QML tracks through this read) re-evaluate.
     property int spacesRevision: 0
-    function expandedCount(spaceId) {
-        return railExpansion[spaceId] || 0
-    }
-    function toggleSpaceExpansion(spaceId) {
-        var next = {}
-        for (var k in railExpansion)
-            next[k] = railExpansion[k]
-        if (next[spaceId])
-            delete next[spaceId]
-        else
-            next[spaceId] = 5
-        railExpansion = next
+    function revealCount(spaceId) {
+        if (!app.railLayout || !app.railLayout.spaceExpanded(spaceId))
+            return 0
+        var explicitCount = railReveal[spaceId]
+        return explicitCount ? explicitCount : 5
     }
     function showMoreRooms(spaceId) {
         var next = {}
-        for (var k in railExpansion)
-            next[k] = railExpansion[k]
-        next[spaceId] = (next[spaceId] || 0) + 5
-        railExpansion = next
+        for (var k in railReveal)
+            next[k] = railReveal[k]
+        next[spaceId] = revealCount(spaceId) + 5
+        railReveal = next
     }
     // The space's joined child rooms, most recently active first — the
     // quick-access reading of "top rooms". Unjoined children are join
@@ -60,103 +82,155 @@ Rectangle {
     }
     Connections {
         target: app.spaces
-        function onSpacesChanged() {
-            root.spacesRevision++
-            root.refreshRail()
-        }
+        function onSpacesChanged() { root.spacesRevision++ }
     }
+    // The expansion lives in the store, so a toggle has to re-evaluate the
+    // reveal bindings too.
     Connections {
         target: app.railLayout
-        function onLayoutChanged() { root.refreshRail() }
-    }
-
-    // ── The rail's own arrangement ───────────────────────────────────────
-    // The user's drag order and folders, applied to whatever Spaces the
-    // account currently has. Recomputed rather than bound: `arrange()` is a
-    // function call over a model SNAPSHOT, so nothing about it would tell
-    // QML to re-evaluate when the model's rows change.
-    property var railEntries: []
-    function refreshRail() {
-        if (!app.spaces || !app.railLayout) {
-            railEntries = []
-            return
-        }
-        railEntries = app.railLayout.arrange(app.spaces.allSpaces())
-    }
-    Component.onCompleted: refreshRail()
-
-    // Drag-to-reorder state, held on the rail rather than on a delegate: the
-    // delegate being dragged can be recycled out from under the gesture the
-    // moment the model refreshes.
-    property string draggingEntryId: ""
-    property real dragSceneX: 0
-    property real dragSceneY: 0
-    // The folder a drop would file the dragged Space into, "" for none.
-    property string dropFolderId: ""
-
-    // The top-level ids exactly as the rail is showing them. This is what a
-    // drop is expressed against — positioning against the stored order alone
-    // is guesswork while entries that have never been dragged are implicit.
-    function topLevelIds() {
-        var ids = []
-        for (var i = 0; i < railEntries.length; ++i) {
-            var e = railEntries[i]
-            if (!e.entryId || e.entryId.length === 0)
-                continue
-            if ((e.folderId || "") !== "" && e.kind !== "folder")
-                continue
-            ids.push(e.entryId)
-        }
-        return ids
-    }
-
-    // Which rail row the pointer is over, in scene coordinates.
-    function entryAtScene(sceneX, sceneY) {
-        var p = list.mapFromItem(null, sceneX, sceneY)
-        var idx = list.indexAt(p.x, p.y + list.contentY)
-        if (idx < 0 || idx >= railEntries.length)
-            return null
-        return railEntries[idx]
-    }
-
-    function finishDrag() {
-        var dragged = draggingEntryId
-        draggingEntryId = ""
-        var folder = dropFolderId
-        dropFolderId = ""
-        if (dragged.length === 0)
-            return
-        var over = entryAtScene(dragSceneX, dragSceneY)
-        if (over && over.kind === "folder" && over.entryId !== dragged) {
-            // Dropped ON a folder: file it there.
-            app.railLayout.setSpaceFolder(dragged, over.entryId)
-            return
-        }
-        var ids = topLevelIds()
-        var from = ids.indexOf(dragged)
-        if (from < 0) {
-            // A filed Space dragged back out lands where it was dropped.
-            app.railLayout.setSpaceFolder(dragged, "")
-            ids = topLevelIds()
-            from = ids.indexOf(dragged)
-            if (from < 0)
-                return
-        }
-        ids.splice(from, 1)
-        var to = ids.length
-        if (over && over.entryId && over.entryId !== dragged) {
-            var at = ids.indexOf(over.entryId)
-            if (at >= 0)
-                to = at
-        }
-        ids.splice(to, 0, dragged)
-        app.railLayout.setTopLevelOrder(ids)
+        function onLayoutChanged() { root.spacesRevision++ }
     }
     Connections {
         target: app
         function onAccountSwitchingChanged() {
             if (app.accountSwitching)
-                root.railExpansion = ({})
+                root.railReveal = ({})
+        }
+    }
+
+    // ── Drag state that belongs to the VIEW ──────────────────────────────
+    // The order, the drop target and the reorder/group decision all live in
+    // the model (see RailEntryModel). What is left here is what only the view
+    // can know: where the pointer is, and what the proxy should look like.
+    readonly property bool dragging: app.railEntries.dragging
+    property real dragViewportY: 0
+    // The pointer in CONTENT coordinates. The dragged tile centres itself on
+    // this, which is what makes it follow the pointer rather than snap between
+    // slots — the model reorder underneath moves its neighbours.
+    property real dragContentY: 0
+
+    function beginTileDrag(entryId, sceneY) {
+        if (!app.railEntries.beginDrag(entryId))
+            return false
+        var first = app.railEntries.entryAt(0)
+        firstRowBand = (first && first.pseudo === true
+                        && (first.spaceId || "") === "") ? 58 : 48
+        dragViewportY = list.mapFromItem(null, 0, sceneY).y
+        dragContentY = dragViewportY + list.contentY
+        dwellTimer.stop()
+        dwellRow = -1
+        return true
+    }
+
+    // Which row the pointer is over, and whether it is held near that row's
+    // centre (the GROUP band) rather than near its edges (the reorder bands).
+    property int dwellRow: -1
+    // Home's row is taller than the rest (it carries the handoff divider).
+    // Sampled once per gesture rather than per pointer move.
+    property int firstRowBand: 48
+    function rowBand(index) {
+        return index === 0 ? firstRowBand : 48
+    }
+    // DERIVED from the row heights, not read off `itemAtIndex(i).y`.
+    //
+    // Every row is exactly its tile band tall while a drag is live — the
+    // revealed-rooms columns are hidden for the duration — so accumulating is
+    // exact. And it is the only way to be animation-independent: the move and
+    // displaced transitions interpolate `y` for 140 ms, so a pointer held
+    // still would map to one row, then to its neighbour, then back, and the
+    // dragged entry would oscillate between two slots.
+    function rowAtContentY(contentY) {
+        var y = 0
+        for (var i = 0; i < list.count; ++i) {
+            var band = rowBand(i) + list.spacing
+            if (contentY < y + band)
+                return i
+            y += band
+        }
+        return -1
+    }
+    function rowTop(index) {
+        var y = 0
+        for (var i = 0; i < index && i < list.count; ++i)
+            y += rowBand(i) + list.spacing
+        return y
+    }
+    // 12 px of dead zone at each edge of the tile band, so passing through a
+    // tile's edges is unambiguously a reorder.
+    function pointerOverTileCentre(row, contentY) {
+        var rel = contentY - rowTop(row)
+        var band = rowBand(row)
+        return rel >= 12 && rel <= band - 12
+    }
+    function updateTileDrag(sceneY) {
+        if (!root.dragging)
+            return
+        var local = list.mapFromItem(null, 0, sceneY)
+        dragViewportY = local.y
+        var contentY = local.y + list.contentY
+        dragContentY = contentY
+        var row = rowAtContentY(contentY)
+        if (row < 0) {
+            app.railEntries.updateDrag(list.count - 1, false)
+            return
+        }
+        var centred = pointerOverTileCentre(row, contentY)
+        if (!centred) {
+            dwellTimer.stop()
+            dwellRow = -1
+            app.railEntries.updateDrag(row, false)
+            return
+        }
+        // The dwell: the group gesture arms only after the pointer has stayed
+        // in one tile's centre band. Without it, reordering past a Space
+        // creates a folder out of it on the way through.
+        if (dwellRow !== row) {
+            dwellRow = row
+            dwellTimer.restart()
+            app.railEntries.updateDrag(row, false)
+            return
+        }
+        app.railEntries.updateDrag(row, !dwellTimer.running)
+    }
+    Timer {
+        id: dwellTimer
+        interval: 320
+        onTriggered: {
+            if (root.dragging && root.dwellRow >= 0)
+                app.railEntries.updateDrag(root.dwellRow, true)
+        }
+    }
+
+    // Auto-scroll while dragging near either end, so a rail longer than the
+    // window does not force the user to drop, scroll and start again.
+    Timer {
+        id: autoScroll
+        interval: 16
+        repeat: true
+        running: root.dragging && list.contentHeight > list.height
+        onTriggered: {
+            var zone = 44
+            var maxY = Math.max(0, list.contentHeight - list.height)
+            var step = 0
+            if (root.dragViewportY < zone) {
+                // Progressive: the closer to the edge, the faster.
+                step = -Math.ceil((zone - root.dragViewportY) / 4)
+            } else if (root.dragViewportY > list.height - zone) {
+                step = Math.ceil(
+                    (root.dragViewportY - (list.height - zone)) / 4)
+            }
+            if (step === 0)
+                return
+            var next = Math.max(0, Math.min(maxY, list.contentY + step))
+            if (next === list.contentY)
+                return
+            list.contentY = next
+            // The pointer did not move, but the row under it did.
+            var contentY = root.dragViewportY + list.contentY
+            root.dragContentY = contentY
+            var row = root.rowAtContentY(contentY)
+            if (row >= 0)
+                app.railEntries.updateDrag(row, false)
         }
     }
 
@@ -168,74 +242,152 @@ Rectangle {
 
         ListView {
             id: list
+            objectName: "spacesRailList"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            // NOT app.spaces directly: the rail shows the user's own
-            // arrangement (drag order and folders), and a ListView cannot
-            // reorder a QAbstractListModel from QML. RailLayoutStore::arrange
-            // turns the model's rows into the rail's rows; `railEntries` is
-            // recomputed on the two events that can change the answer.
-            model: root.railEntries
+            // A real model, so a preview reorder is a MOVE and not a reset.
+            model: app.railEntries
             clip: true
             spacing: AppTheme.spacing4
+            // Recycling is off on purpose: a rail holds a handful of rows, and
+            // a recycled delegate mid-drag is how the gesture loses its own
+            // tile.
+            reuseItems: false
 
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
+            // What makes the rearrangement read as movement rather than as a
+            // jump. `displaced` covers the rows the moved one pushed past.
+            move: Transition {
+                NumberAnimation {
+                    properties: "y"
+                    duration: 140
+                    easing.type: Easing.OutCubic
+                }
+            }
+            displaced: Transition {
+                NumberAnimation {
+                    properties: "y"
+                    duration: 140
+                    easing.type: Easing.OutCubic
+                }
+            }
+
             delegate: Item {
                 id: spaceItem
-                required property var modelData
                 required property int index
-                readonly property string entryId: modelData.entryId || ""
-                readonly property bool isFolder: modelData.kind === "folder"
-                readonly property string inFolder: modelData.folderId || ""
+                required property string entryId
+                required property string kind
+                required property string spaceId
+                required property string name
+                required property string avatarUrl
+                required property int unreadTotal
+                required property int highlightTotal
+                required property int level
+                required property string folderId
+                required property bool collapsed
+                required property int childCount
+                required property var memberPreview
+                required property bool pseudo
+                required property bool hierarchyChild
+                required property bool expandable
+                required property bool expanded
+                required property bool dragged
+                required property bool dropTarget
+                required property bool folderLast
+                required property bool draggable
+
+                readonly property bool isFolder: kind === "folder"
+                readonly property bool isHome: pseudo && spaceId === ""
+                readonly property bool isRealSpace:
+                    !pseudo && !isFolder && spaceId.charAt(0) === "!"
+                readonly property bool inFolder:
+                    folderId.length > 0 && !isFolder
+
                 width: list.width
                 // 48 = 40px tile + 4px on each side so the active accent
                 // outline (drawn at -4px margins) is never clipped by the
                 // list bounds — this was the Home-icon clipping defect.
                 // Home carries the handoff divider (32×2) below its tile.
-                // The inline expansion (2026-08-19) grows the row below
-                // the tile band; tileBandHeight is the original height.
                 readonly property int tileBandHeight: isHome ? 58 : 48
                 height: tileBandHeight
                         + (expansionCol.visible ? expansionCol.height + 2 : 0)
 
                 property bool isActive: app.spaces && !isFolder
-                                        && app.spaces.activeSpaceId === spaceItem.modelData.spaceId
-                // A folder is not a Space and not a pseudo row: it has its
-                // own tile, and every Space-only affordance below is gated
-                // off it.
-                property bool isPseudo: !isFolder
-                                        && (spaceItem.modelData.spaceId === ""
-                                            || spaceItem.modelData.spaceId === "@orphans")
-                property bool isHome: !isFolder
-                                      && spaceItem.modelData.spaceId === ""
-                // Captured for the expansion rows below: inside their
-                // Repeater the outer ListView's `model` is shadowed.
-                readonly property string ownSpaceId: spaceItem.modelData.spaceId || ""
-                readonly property bool isRealSpace:
-                    !isPseudo && !isFolder && ownSpaceId.charAt(0) === "!"
-                // A Space inside an open folder is indented, so the grouping
-                // reads without a box drawn around it.
-                readonly property int folderIndent: inFolder.length > 0 ? 7 : 0
-                readonly property bool beingDragged:
-                    root.draggingEntryId.length > 0
-                    && root.draggingEntryId === entryId
-                // Highlighted while a drag is hovering this folder.
-                readonly property bool dropTarget:
-                    isFolder && root.dropFolderId.length > 0
-                    && root.dropFolderId === entryId
-                readonly property int revealCount:
-                    root.expandedCount(ownSpaceId)
+                                        && app.spaces.activeSpaceId === spaceItem.spaceId
+                // How far the tile is lifted from its own slot to sit under
+                // the pointer. Zero for every row but the one being dragged,
+                // so nothing else pays for it.
+                readonly property real dragLift:
+                    spaceItem.dragged
+                    ? root.dragContentY - (spaceItem.y + spaceItem.tileBandHeight / 2)
+                    : 0
+                // Above its neighbours while it travels over them.
+                z: spaceItem.dragged ? 10 : 0
+                // Indentation: a filed Space steps in a little, a subspace
+                // steps in per level. Capped so a deep tree cannot walk the
+                // tile off a 68px rail.
+                readonly property int tileIndent:
+                    Math.min(14, (inFolder ? 7 : 0)
+                                 + (hierarchyChild ? Math.min(2, level) * 6 : 0))
+                readonly property int revealed:
+                    isRealSpace ? root.revealCount(spaceItem.spaceId) : 0
                 readonly property var revealedRooms:
-                    revealCount > 0 ? root.topRoomsInSpace(ownSpaceId) : []
+                    revealed > 0 ? root.topRoomsInSpace(spaceItem.spaceId) : []
 
                 Accessible.role: Accessible.Button
                 Accessible.name: isFolder
-                                 ? qsTr("Folder: %1").arg(spaceItem.modelData.name || "")
+                                 ? qsTr("Folder: %1").arg(spaceItem.name)
                                  : isHome ? qsTr("All rooms")
-                                 : spaceItem.modelData.spaceId === "@orphans"
-                                   ? qsTr("Other rooms") : (spaceItem.modelData.name || "")
-                opacity: beingDragged ? 0.45 : 1.0
+                                 : spaceItem.spaceId === "@orphans"
+                                   ? qsTr("Other rooms") : spaceItem.name
+
+                // ── The open folder's container ─────────────────────────────
+                // One surface behind the header and its members, which is the
+                // whole difference between a folder and several adjacent
+                // Spaces. Drawn per row and squared off between them, so the
+                // run reads as continuous however long it is.
+                Rectangle {
+                    visible: (spaceItem.isFolder && !spaceItem.collapsed)
+                             || spaceItem.inFolder
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 6
+                    anchors.rightMargin: 6
+                    y: 0
+                    height: spaceItem.isFolder
+                            ? spaceItem.tileBandHeight + list.spacing
+                            : spaceItem.height
+                              + (spaceItem.folderLast ? 0 : list.spacing)
+                    z: -2
+                    color: AppTheme.railFolderSurface
+                    radius: AppTheme.radiusMd
+                    // Square off the joins so the container is one shape.
+                    Rectangle {
+                        visible: spaceItem.isFolder
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: parent.radius
+                        color: parent.color
+                    }
+                    Rectangle {
+                        visible: spaceItem.inFolder
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        height: parent.radius
+                        color: parent.color
+                    }
+                    Rectangle {
+                        visible: spaceItem.inFolder && !spaceItem.folderLast
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: parent.radius
+                        color: parent.color
+                    }
+                }
 
                 // Active outline: 2 px accent ring offset from the tile.
                 Rectangle {
@@ -258,12 +410,10 @@ Rectangle {
                     anchors.bottomMargin: 2
                 }
 
-                // Nested sub-space: a subtle indent + connector notch so
-                // the rail mirrors the space hierarchy ("Land of the
-                // Insane" layout, 2026-08-18) — level was computed by
-                // SpaceManager all along and rendered nowhere.
+                // Connector notch for a nested subspace, so the rail mirrors
+                // the Matrix hierarchy rather than only indenting for it.
                 Rectangle {
-                    visible: !spaceItem.isPseudo && (spaceItem.modelData.level || 0) > 0
+                    visible: spaceItem.hierarchyChild
                              && !expandChevronArea.visible
                     width: 6; height: 2; radius: 1
                     color: AppTheme.border
@@ -272,142 +422,122 @@ Rectangle {
                     anchors.rightMargin: 1
                 }
 
-                // 2026-08-19 (third pass, screenshot-driven): the ONLY
-                // expansion trigger — a quiet tree-expander glyph living
-                // ENTIRELY in the gutter left of the tile, never touching
-                // the active accent outline (the disc badge floated over
-                // the ring and read as a misplaced blob; the bare glyph
-                // before it clipped INTO the ring). Right-pointing when
-                // collapsed, down when expanded — the tree convention.
-                // Hover- or expanded-only; real spaces only.
+                // The expander: a quiet tree glyph living ENTIRELY in the
+                // gutter left of the tile, never touching the active accent
+                // outline. Right-pointing when closed, down when open — the
+                // tree convention. It reveals BOTH the Space's subspaces (as
+                // real hierarchy rows, inserted by the model) and its top
+                // rooms, which is the whole of what the Space contains.
                 Item {
                     id: expandChevronArea
                     objectName: "railSpaceExpandChevron"
                     visible: spaceItem.isRealSpace
-                             && (spaceHover.hovered
-                                 || spaceItem.revealCount > 0)
+                             && (spaceHover.hovered || spaceItem.expanded)
+                             && !root.dragging
                     anchors.left: parent.left
-                    // Up to the accent ring's outer edge (tile - 4px) —
-                    // the glyph can never overlap it.
+                    // Up to the accent ring's outer edge (tile - 4px) — the
+                    // glyph can never overlap it.
                     width: Math.max(0, spaceTile.x - 4)
                     height: 40
-                    anchors.verticalCenter: spaceTile.verticalCenter
+                    y: 4
                     Icon {
                         anchors.centerIn: parent
-                        name: spaceItem.revealCount > 0 ? "expand_more"
-                                                        : "chevron_right"
+                        name: spaceItem.expanded ? "expand_more" : "chevron_right"
                         size: 10
                         color: chevronHover.hovered ? AppTheme.text
                                                     : AppTheme.textMuted
                     }
                     HoverHandler { id: chevronHover }
                     TapHandler {
-                        onTapped:
-                            root.toggleSpaceExpansion(spaceItem.ownSpaceId)
+                        onTapped: app.railLayout.toggleSpaceExpanded(
+                                      spaceItem.spaceId)
                     }
                     Accessible.role: Accessible.Button
-                    Accessible.name: spaceItem.revealCount > 0
-                                     ? qsTr("Collapse space rooms")
-                                     : qsTr("Expand space rooms")
+                    Accessible.name: spaceItem.expanded
+                                     ? qsTr("Collapse space")
+                                     : qsTr("Expand space")
                 }
+
                 Rectangle {
                     id: spaceTile
                     width: 40; height: 40
                     anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.horizontalCenterOffset:
-                        spaceItem.folderIndent > 0 ? spaceItem.folderIndent
-                        : !spaceItem.isPseudo && (spaceItem.modelData.level || 0) > 0 ? 5 : 0
-                    y: 4
+                    anchors.horizontalCenterOffset: spaceItem.tileIndent
+                    y: 4 + spaceItem.dragLift
                     radius: AppTheme.radiusLg
-                    // 2026-08-21: Home used to be a permanent solid 40x40
-                    // accent block — the single largest patch of bolt on
-                    // screen, present whether or not Home was the active
-                    // view. With the wordmark glyph, the focus ring, every
-                    // active icon chip, the selected-room edge and every
-                    // primary button also bolt, the accent was carrying five
-                    // jobs at once and therefore signalling none of them.
-                    //
-                    // ACTIVE is now ONE language for every tile in the rail:
-                    // the accent ring above, plus a soft accent WASH here
-                    // (a tint, not a block). Painting the active Home tile
-                    // solid bolt could not work either way round — the ring
-                    // is bolt, so a bolt fill four pixels inside it reads as
-                    // one yellow blob rather than as "you are here".
+                    // ACTIVE is ONE language for every tile in the rail: the
+                    // accent ring above, plus a soft accent WASH here (a tint,
+                    // not a block). A solid bolt fill four pixels inside a bolt
+                    // ring reads as one yellow blob rather than as "you are
+                    // here".
                     color: spaceItem.dropTarget ? AppTheme.accentSoft
                            : spaceItem.isActive ? AppTheme.accentSoft
                            : spaceItem.isFolder ? AppTheme.cardElevated
-                           : spaceItem.isPseudo ? AppTheme.cardElevated
-                                                : "transparent"
+                           : spaceItem.pseudo ? AppTheme.cardElevated
+                                              : "transparent"
                     border.width: spaceItem.dropTarget ? 2 : 0
                     border.color: AppTheme.accent
+                    // Full opacity, always. The tile keeps its normal image
+                    // while it is dragged; dimming it made the one thing the
+                    // user is looking at the hardest thing to see.
+                    scale: spaceItem.dragged ? 1.06 : 1.0
 
                     Behavior on color { ColorAnimation { duration: 120 } }
+                    Behavior on scale { NumberAnimation { duration: 90 } }
 
                     // Pseudo rows use monochrome icons; real Spaces show
                     // palette initials until the avatar loads.
                     Icon {
                         anchors.centerIn: parent
-                        visible: spaceItem.isPseudo && !spaceItem.isFolder
+                        visible: spaceItem.pseudo
                         name: spaceItem.isHome ? "home" : "workspaces"
                         size: spaceItem.isHome ? 22 : 20
-                        // Follows the tile: accent ink on the active wash,
-                        // the plain icon ink otherwise. accentText was the
-                        // ink for the solid fill that no longer exists, and
-                        // on a soft wash it is unreadable.
+                        // Follows the tile: accent ink on the active wash, the
+                        // plain icon ink otherwise. accentText was the ink for
+                        // a solid fill that no longer exists, and on a soft
+                        // wash it is unreadable.
                         color: spaceItem.isActive ? AppTheme.accent
                                                   : AppTheme.textSecondary
                     }
 
-                    // Real Space avatar (palette initials fallback) via the
-                    // shared Avatar element — mediaCached wiring and the
-                    // baked "|shape:" mask both live there.
-                    // Folder tile. Its NAME, not a glyph: the bundled icon
-                    // font is a fixed subset that carries no folder symbol
-                    // (regenerating it needs the network), and a folder
-                    // someone named "Work" is better identified by saying so.
-                    // The outline is what separates it from a Space avatar.
-                    Avatar {
+                    // The folder tile: a COMPOSITE of the Spaces inside it,
+                    // the way Discord's is. A generic letter tile tells the
+                    // user the one thing they already know ("this is a
+                    // folder"); the member avatars tell them which folder,
+                    // which is the only question a collapsed folder raises.
+                    Loader {
                         anchors.fill: parent
-                        visible: spaceItem.isFolder
-                        size: 40
-                        circle: false
-                        squareRadius: AppTheme.radiusMd
-                        labelSize: 13
-                        name: spaceItem.isFolder
-                              ? (spaceItem.modelData.name || "") : ""
-                        colorKey: spaceItem.entryId
-                        mxc: ""
-                    }
-                    Rectangle {
-                        anchors.fill: parent
-                        visible: spaceItem.isFolder
-                        radius: AppTheme.radiusMd
-                        color: "transparent"
-                        border.width: 2
-                        border.color: spaceItem.dropTarget
-                                      ? AppTheme.accent : AppTheme.borderStrong
+                        active: spaceItem.isFolder
+                        visible: active
+                        sourceComponent: FolderTile {
+                            members: spaceItem.memberPreview
+                            fallbackName: spaceItem.name
+                            colorKey: spaceItem.entryId
+                            highlighted: spaceItem.dropTarget
+                        }
                     }
 
                     Avatar {
                         anchors.fill: parent
-                        visible: !spaceItem.isPseudo && !spaceItem.isFolder
+                        visible: !spaceItem.pseudo && !spaceItem.isFolder
                         size: 40
                         circle: false
                         squareRadius: AppTheme.radiusLg
                         labelSize: 15
-                        name: spaceItem.isPseudo ? "" : (spaceItem.modelData.name || "")
-                        colorKey: spaceItem.isPseudo ? "" : (spaceItem.modelData.spaceId || "")
-                        mxc: spaceItem.isPseudo ? "" : (spaceItem.modelData.avatarUrl || "")
+                        name: spaceItem.name
+                        colorKey: spaceItem.spaceId
+                        mxc: spaceItem.avatarUrl
                     }
 
                     // Unread count badge (rail-coloured ring per design).
                     Rectangle {
-                        visible: spaceItem.modelData.unreadTotal > 0 && !spaceItem.isActive
+                        visible: spaceItem.unreadTotal > 0
+                                 && !spaceItem.isActive
                         width: Math.max(18, badgeLabel.implicitWidth + 6)
                         height: 18
                         radius: 9
-                        color: spaceItem.modelData.highlightTotal > 0 ? AppTheme.mentionBadge
-                                                        : AppTheme.unreadBadge
+                        color: spaceItem.highlightTotal > 0
+                               ? AppTheme.mentionBadge : AppTheme.unreadBadge
                         border.color: AppTheme.rail
                         border.width: 2
                         anchors.top: parent.top
@@ -418,66 +548,63 @@ Rectangle {
                         Label {
                             id: badgeLabel
                             anchors.centerIn: parent
-                            text: spaceItem.modelData.unreadTotal > 99
-                                  ? "99+" : spaceItem.modelData.unreadTotal.toString()
+                            text: spaceItem.unreadTotal > 99
+                                  ? "99+" : spaceItem.unreadTotal.toString()
                             font.pixelSize: AppTheme.textMicro
                             font.weight: AppTheme.weightBold
-                            color: spaceItem.modelData.highlightTotal > 0 ? AppTheme.dangerText
-                                                            : AppTheme.accentText
+                            color: spaceItem.highlightTotal > 0
+                                   ? AppTheme.dangerText : AppTheme.accentText
                         }
                     }
                 }
 
-                // Drag to rearrange. Vertical only — the rail is a column,
-                // and a sideways twitch is not a reorder. Pseudo rows are
-                // excluded: "All rooms" is a view of everything, not
-                // something that has a position among the Spaces.
+                // Drag to rearrange. Vertical only — the rail is a column, and
+                // a sideways twitch is not a reorder. Pseudo rows and subspace
+                // rows are excluded: "All rooms" is a view of everything, and a
+                // subspace's position belongs to Matrix.
                 //
-                // The gesture's state lives on the RAIL, not here: this
-                // delegate can be recycled the instant the model refreshes,
-                // which during a drag it does.
+                // The gesture's state lives in the MODEL, not here.
                 DragHandler {
                     id: tileDrag
-                    enabled: !spaceItem.isPseudo
+                    enabled: spaceItem.draggable
                     target: null
                     xAxis.enabled: false
                     onActiveChanged: {
                         if (active) {
-                            root.draggingEntryId = spaceItem.entryId
-                            root.dropFolderId = ""
-                        } else if (root.draggingEntryId === spaceItem.entryId) {
-                            root.finishDrag()
+                            root.beginTileDrag(spaceItem.entryId,
+                                               centroid.scenePosition.y)
+                        } else if (app.railEntries.draggingEntryId
+                                   === spaceItem.entryId) {
+                            dwellTimer.stop()
+                            root.dwellRow = -1
+                            app.railEntries.endDrag(true)
                         }
                     }
                     onCentroidChanged: {
-                        if (!active)
-                            return
-                        root.dragSceneX = centroid.scenePosition.x
-                        root.dragSceneY = centroid.scenePosition.y
-                        var over = root.entryAtScene(root.dragSceneX,
-                                                     root.dragSceneY)
-                        root.dropFolderId =
-                            (over && over.kind === "folder"
-                             && over.entryId !== spaceItem.entryId)
-                            ? over.entryId : ""
+                        if (active)
+                            root.updateTileDrag(centroid.scenePosition.y)
                     }
                 }
 
-                // Right-click: folders are made, renamed and unmade here.
-                // There is no other entry point — the rail has no room for a
-                // permanent button, and a folder is a rare, deliberate act.
+                // Right-click: folders are renamed and unmade here, and a
+                // Space can be filed without a drag. The primary way to MAKE
+                // one is dropping a Space onto another Space.
                 TapHandler {
                     acceptedButtons: Qt.RightButton
+                    enabled: !root.dragging
                     onTapped: (eventPoint) => {
                         railMenu.entryId = spaceItem.entryId
                         railMenu.isFolder = spaceItem.isFolder
-                        railMenu.spaceId = spaceItem.ownSpaceId
+                        railMenu.spaceId = spaceItem.spaceId
                         railMenu.inFolder = spaceItem.inFolder
-                        railMenu.collapsed =
-                            spaceItem.modelData.collapsed === true
+                                            ? spaceItem.folderId : ""
+                        railMenu.collapsed = spaceItem.collapsed
+                        railMenu.hierarchyChild = spaceItem.hierarchyChild
                         railMenu.folderName = spaceItem.isFolder
-                                              ? (spaceItem.modelData.name || "")
-                                              : ""
+                                              ? spaceItem.name : ""
+                        railMenu.spaceMuted =
+                            spaceItem.isRealSpace
+                            && app.spaceIsMuted(spaceItem.spaceId)
                         var p = spaceItem.mapToItem(Overlay.overlay,
                                                     eventPoint.position.x,
                                                     eventPoint.position.y)
@@ -492,24 +619,23 @@ Rectangle {
                     radius: spaceTile.radius + 3
                     color: AppTheme.hover
                     visible: spaceHover.hovered && !spaceItem.isActive
+                             && !root.dragging
                     z: -1
                 }
 
                 TapHandler {
-                    // 2026-08-19 (revised same day, maintainer request):
-                    // a single tap on a REAL Space opens its overview —
-                    // the unified rooms-and-spaces list REPLACES the chat
-                    // view (openSpaceHome also activates the space, so
-                    // the room-list column follows). The pseudo tiles
-                    // (Home / "Other rooms") only filter — they have no
-                    // overview to open and must not tear down the open
-                    // room. There is deliberately NO double-tap: the
-                    // chevron badge is the one expansion trigger. Scoped
-                    // to the tile band (the expansion rows below carry
-                    // their own handlers) and excluding the chevron's
-                    // disc — TapHandlers are non-exclusive across
-                    // subtrees, so without the exclusion a chevron click
-                    // would also navigate.
+                    // A single tap on a REAL Space opens its overview — the
+                    // unified rooms-and-spaces list REPLACES the chat view
+                    // (openSpaceHome also activates the space, so the
+                    // room-list column follows). The pseudo tiles only filter:
+                    // they have no overview to open and must not tear down the
+                    // open room. There is deliberately NO double-tap; the
+                    // chevron is the one expansion trigger. Scoped to the tile
+                    // band (the expansion rows below carry their own handlers)
+                    // and excluding the chevron's gutter — TapHandlers are
+                    // non-exclusive across subtrees, so without the exclusion a
+                    // chevron click would also navigate.
+                    enabled: !root.dragging
                     function pointOnChevron(eventPoint) {
                         if (!expandChevronArea.visible)
                             return false
@@ -527,32 +653,32 @@ Rectangle {
                             return
                         if (spaceItem.isFolder) {
                             app.railLayout.setFolderCollapsed(
-                                spaceItem.entryId,
-                                !(spaceItem.modelData.collapsed === true))
+                                spaceItem.entryId, !spaceItem.collapsed)
                             return
                         }
                         if (spaceItem.isRealSpace)
-                            app.openSpaceHome(spaceItem.ownSpaceId)
+                            app.openSpaceHome(spaceItem.spaceId)
                         else if (app.spaces)
-                            app.spaces.activeSpaceId = spaceItem.modelData.spaceId
+                            app.spaces.activeSpaceId = spaceItem.spaceId
                     }
                 }
 
-                // Attached, not a declared child: a declared ToolTip is a
-                // full Popup (background + Label) instantiated PER ROW, and
-                // the attached form reuses the one shared instance Main.qml
+                // Attached, not a declared child: a declared ToolTip is a full
+                // Popup (background + Label) instantiated PER ROW, and the
+                // attached form reuses the one shared instance Main.qml
                 // hardens to plain text.
-                ToolTip.visible: spaceHover.hovered
+                ToolTip.visible: spaceHover.hovered && !root.dragging
                 ToolTip.text: spaceItem.Accessible.name
                 ToolTip.delay: 500
 
-                // Inline expansion: up to revealCount of the space's top
-                // rooms as 28px tiles, then a "+N" pill revealing 5 more.
-                // Tiles indent like a nested space so the hierarchy reads.
+                // Inline expansion: up to `revealed` of the space's top rooms
+                // as 28px tiles, then a "+N" pill revealing 5 more. Tiles
+                // indent one step past the owning tile so the hierarchy reads.
                 Column {
                     id: expansionCol
-                    visible: spaceItem.revealCount > 0
+                    visible: spaceItem.revealed > 0
                              && spaceItem.revealedRooms.length > 0
+                             && !root.dragging
                     y: spaceItem.tileBandHeight
                     width: parent.width
                     spacing: 2
@@ -560,7 +686,7 @@ Rectangle {
                     Repeater {
                         model: expansionCol.visible
                                ? spaceItem.revealedRooms.slice(
-                                     0, spaceItem.revealCount)
+                                     0, spaceItem.revealed)
                                : []
                         delegate: Item {
                             id: expansionRoomRow
@@ -579,14 +705,12 @@ Rectangle {
                                 width: 28; height: 28
                                 radius: 8
                                 color: "transparent"
-                                anchors.horizontalCenter:
-                                    parent.horizontalCenter
-                                // One level deeper than the OWNING tile —
-                                // a nested space's rooms step in further,
-                                // not back to the flat +5 (audit find).
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                // One level deeper than the OWNING tile — a
+                                // nested space's rooms step in further, not
+                                // back to a flat offset.
                                 anchors.horizontalCenterOffset:
-                                    spaceTile.anchors.horizontalCenterOffset
-                                    + 5
+                                    spaceItem.tileIndent + 5
                                 anchors.verticalCenter: parent.verticalCenter
                                 Avatar {
                                     anchors.fill: parent
@@ -595,8 +719,7 @@ Rectangle {
                                                 .isDirect === true
                                     squareRadius: 8
                                     labelSize: 11
-                                    name: expansionRoomRow.modelData
-                                              .name || ""
+                                    name: expansionRoomRow.modelData.name || ""
                                     colorKey: expansionRoomRow.modelData
                                                   .identityColorKey
                                               || expansionRoomRow.modelData
@@ -622,14 +745,13 @@ Rectangle {
                             }
                             HoverHandler { id: roomHover }
                             TapHandler {
-                                // Opening from the rail also activates
-                                // the space so the room-list column
-                                // follows — openRoom itself never
-                                // touches activeSpaceId.
+                                // Opening from the rail also activates the
+                                // space so the room-list column follows —
+                                // openRoom itself never touches activeSpaceId.
                                 onTapped: {
                                     if (app.spaces)
                                         app.spaces.activeSpaceId =
-                                            spaceItem.ownSpaceId
+                                            spaceItem.spaceId
                                     app.openRoom(
                                         expansionRoomRow.modelData.roomId)
                                 }
@@ -647,7 +769,7 @@ Rectangle {
 
                     Item {
                         visible: spaceItem.revealedRooms.length
-                                 > spaceItem.revealCount
+                                 > spaceItem.revealed
                         width: expansionCol.width
                         height: 22
                         Rectangle {
@@ -660,14 +782,14 @@ Rectangle {
                             border.width: 1
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.horizontalCenterOffset:
-                                spaceTile.anchors.horizontalCenterOffset + 5
+                                spaceItem.tileIndent + 5
                             anchors.verticalCenter: parent.verticalCenter
                             Label {
                                 anchors.centerIn: parent
                                 text: "+" + Math.min(
                                           5,
                                           spaceItem.revealedRooms.length
-                                          - spaceItem.revealCount)
+                                          - spaceItem.revealed)
                                 font.pixelSize: AppTheme.textMicro
                                 font.weight: AppTheme.weightBold
                                 color: AppTheme.textSecondary
@@ -675,8 +797,7 @@ Rectangle {
                         }
                         HoverHandler { id: moreHover }
                         TapHandler {
-                            onTapped:
-                                root.showMoreRooms(spaceItem.ownSpaceId)
+                            onTapped: root.showMoreRooms(spaceItem.spaceId)
                         }
                         ToolTip.visible: moreHover.hovered
                         ToolTip.text: qsTr("Show more rooms")
@@ -687,9 +808,9 @@ Rectangle {
                 }
             }
 
-            // Add Space: part of the list CONTENT, so it sits directly
-            // below the last Space tile, scrolls with the tiles, and never
-            // overlaps the pinned Settings/account cluster.
+            // Add Space: part of the list CONTENT, so it sits directly below
+            // the last Space tile, scrolls with the tiles, and never overlaps
+            // the pinned Settings/account cluster.
             footer: Item {
                 width: list.width
                 height: railAddSpaceButton.visible ? 48 : 0
@@ -924,6 +1045,17 @@ Rectangle {
         property string folderName: ""
         property bool isFolder: false
         property bool collapsed: false
+        // A subspace is Matrix's arrangement. It can be expanded and opened;
+        // it cannot be filed or ordered, and offering to would promise
+        // something this layer cannot deliver.
+        property bool hierarchyChild: false
+        // A REAL Space (not Home, not "Other rooms", not a local folder), so
+        // the Space-only actions are offered only where they mean something.
+        readonly property bool isRealSpace:
+            !isFolder && spaceId.charAt(0) === "!"
+        // Sampled when the menu opens, not bound: spaceIsMuted() is a call
+        // over every room in the Space and carries no NOTIFY of its own.
+        property bool spaceMuted: false
 
         AppMenuItem {
             iconName: railMenu.collapsed ? "expand_more" : "expand_less"
@@ -955,10 +1087,28 @@ Rectangle {
 
         AppMenuSeparator { visible: railMenu.isFolder }
 
+        // Mute the whole Space. Matrix has no "mute a Space" primitive — a
+        // Space is a room with no timeline, so muting it silences nothing —
+        // so this does what a person would otherwise do by hand to each room
+        // inside it. Unmute restores "follow the account default", the state
+        // a room is in before anyone touched it, rather than asserting "all
+        // messages" for rooms that never asked for it.
+        AppMenuItem {
+            objectName: "railMuteSpace"
+            iconName: railMenu.spaceMuted ? "notifications" : "notifications_off"
+            text: railMenu.spaceMuted ? qsTr("Unmute space")
+                                      : qsTr("Mute space")
+            visible: railMenu.isRealSpace
+            onTriggered: app.setSpaceMuted(railMenu.spaceId,
+                                           !railMenu.spaceMuted)
+        }
+        AppMenuSeparator { visible: railMenu.isRealSpace }
+
         AppMenuItem {
             objectName: "railNewFolder"
             iconName: "add"
             text: qsTr("New folder…")
+            visible: !railMenu.hierarchyChild
             onTriggered: {
                 folderNameDialog.folderId = ""
                 folderNameDialog.pendingSpaceId =
@@ -975,7 +1125,8 @@ Rectangle {
         // One entry per existing folder, so filing a Space never requires a
         // drag — a rail with twenty Spaces is a long way to drag one.
         Repeater {
-            model: railMenu.isFolder ? [] : app.railLayout.folders
+            model: (railMenu.isFolder || railMenu.hierarchyChild)
+                   ? [] : app.railLayout.folders
             delegate: AppMenuItem {
                 required property var modelData
                 iconName: "workspaces"
@@ -1020,14 +1171,38 @@ Rectangle {
         }
         onRejected: pendingSpaceId = ""
 
-        AppTextField {
-            id: folderNameField
-            objectName: "railFolderNameField"
-            storm: true
-            width: 260
-            maximumLength: 40
-            placeholderText: qsTr("Folder name")
-            onAccepted: folderNameDialog.accept()
+        // A LAID-OUT content item, not a bare child. A raw Item dropped into
+        // a Dialog's contentData is positioned by nothing: it sat at the
+        // bottom of the panel, off-centre, with the header's space above it —
+        // reported as "the text to create a folder is not centered and sitting
+        // on the bottom of the bubble". AppDialog's own usage note says
+        // ColumnLayout for exactly this reason.
+        contentItem: ColumnLayout {
+            spacing: AppTheme.spacing8
+
+            Label {
+                Layout.fillWidth: true
+                Layout.maximumWidth: 300
+                wrapMode: Text.WordWrap
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textMeta
+                // Says the one thing a person needs to know before naming it:
+                // this is theirs, and nobody else will ever see it.
+                text: qsTr("Folders are only on this device. Other clients, "
+                           + "and everyone else, see your spaces unchanged.")
+            }
+            AppTextField {
+                id: folderNameField
+                objectName: "railFolderNameField"
+                storm: true
+                Layout.fillWidth: true
+                Layout.minimumWidth: 260
+                maximumLength: 40
+                placeholderText: qsTr("Folder name")
+                onAccepted: folderNameDialog.accept()
+            }
         }
     }
 }

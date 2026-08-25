@@ -101,17 +101,20 @@ private Q_SLOTS:
     {
         const QString rail = normalized(
             read(QStringLiteral(QML_DIR "/SpacesRail.qml")));
-        // The rail's model became a PRESENTATION list in 2026-08-22 (the
-        // user's own drag order and folders, arranged by RailLayoutStore), so
-        // the role is read off `modelData` rather than off `model`. What this
-        // case is here to hold is unchanged: the nesting LEVEL is what drives
-        // the indent, and the indent is a centre offset rather than a margin.
-        QVERIFY(rail.contains(QStringLiteral("modelData.level")));
+        // The rail's rows became a real QAbstractListModel in 2026-08-25
+        // (RailEntryModel, so a preview drag can MOVE rows rather than reset
+        // them), so the roles are required properties on the delegate rather
+        // than fields on a `modelData` map. What this case is here to hold is
+        // unchanged: the nesting LEVEL is what drives the indent, and the
+        // indent is a centre offset rather than a margin.
+        QVERIFY(rail.contains(QStringLiteral("required property int level")));
+        QVERIFY(rail.contains(QStringLiteral("hierarchyChild ?")));
         QVERIFY(rail.contains(
             QStringLiteral("anchors.horizontalCenterOffset:")));
         // And a Space inside a folder is indented by the same mechanism, so
         // the two groupings cannot render as two different kinds of nesting.
-        QVERIFY(rail.contains(QStringLiteral("folderIndent")));
+        QVERIFY(rail.contains(QStringLiteral("tileIndent")));
+        QVERIFY(rail.contains(QStringLiteral("inFolder ? 7 : 0")));
     }
 
     void roomAvatarsFallBackToInitialsNeverHash()

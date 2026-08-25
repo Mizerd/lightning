@@ -62,12 +62,17 @@ QtObject {
     // setting or platform hint can drive it without touching consumers.
     property bool reducedMotion: false
 
-    // Resolve System (0) to the flagship design pair — Moss Light or, since
-    // the 0.6.5 Storm round, Storm for dark systems. Only the UNSET/System
-    // state resolves here; an explicitly persisted theme id 1–11 is never
-    // rerouted, so introducing Storm silently changes nobody's stored choice.
+    // Resolve System (0) to the flagship design pair — Moss Light for light
+    // systems, INDIGO NIGHT for dark ones. Storm held the dark half from the
+    // 0.6.5 round until 2026-08-25, when the maintainer made Indigo Night the
+    // flagship; Storm remains the brand theme and the shell's own chrome, and
+    // stays a featured card.
+    //
+    // Only the UNSET/System state resolves here; an explicitly persisted theme
+    // id 1–11 is never rerouted, so changing which theme System means cannot
+    // touch anybody's stored choice.
     readonly property int effectiveTheme: mode === 0
-                                          ? (systemDark ? 11 : 8)
+                                          ? (systemDark ? 9 : 8)
                                           : mode
     // A palette value as a COLOR. The preset palettes hold `color`
     // properties, but the custom palette merges the user's own values in as
@@ -1025,6 +1030,20 @@ QtObject {
     /// "attention" rather than as an error.
     readonly property color channelUnreadMark:
         _p.channelUnreadMark !== undefined ? _p.channelUnreadMark : accent
+
+    // ── Spaces rail: folders and drag feedback ───────────────────────────
+    //
+    // DERIVED for the same reason the Channels tokens are: a new required key
+    // in eleven palettes is how a theme ends up with one undefined colour and
+    // a transparent row, and the only thing that catches it is the
+    // no-QML-warnings gate.
+    //
+    // The container drawn behind an OPEN folder and its Spaces. It has to read
+    // as one surface holding several tiles, which is the whole difference
+    // between a folder and four Spaces that happen to be adjacent.
+    readonly property color railFolderSurface:
+        _p.railFolderSurface !== undefined ? _p.railFolderSurface
+                                           : cardElevated
 
     readonly property color surface:             _p.surface
     readonly property color card:                surface

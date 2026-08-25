@@ -880,6 +880,11 @@ Popup {
                             id: preview
                             objectName: "themePreviewDemo"
                             pal: root.previewPalette
+                            // The user's OWN layout. Previewing the Classic
+                            // column to somebody who runs Channels shows them
+                            // where a colour lands in a column they never see.
+                            channels: app.settings
+                                      && app.settings.roomNavigationLayout === 1
                             highlightRole: root.editingRole
                             width: implicitWidth
                             height: implicitHeight

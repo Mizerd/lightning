@@ -1,186 +1,542 @@
-# Room navigation layouts: Classic and Channels
+# Room navigation: the Spaces rail, Classic, and Channels
 
-**Landed 2026-08-23.** Live GUI validation: **NOT TESTED**.
+**Landed 2026-08-23, substantially reworked 2026-08-25.** Live GUI validation:
+partial — see §11 for exactly what has been seen and what has not.
 
-The room-list column can be organised two ways, chosen per account in
-Settings → Appearance → Conversation list.
+Three things live here and they are deliberately different systems. Confusing
+any two of them is the failure mode this document exists to prevent.
 
-## Why two, rather than one better one
+| | What it is | Where it lives |
+|---|---|---|
+| **The Spaces rail** | The 68 px column: Home, your Spaces, and your own *local* folders over them | `qml/SpacesRail.qml`, `RailEntryModel`, `RailLayoutStore` |
+| **Classic** | One activity-ordered conversation list | `qml/RoomListClassicPresenter.qml` |
+| **Channels** | Every joined Space as a flat collapsible folder of rooms | `qml/RoomChannelsPresenter.qml`, `SpaceChannelModel` |
 
-They answer different questions and neither answer generalises.
+## 1. Three kinds of grouping, and none of them are the same thing
 
-**Classic** — what Lightning shipped through 0.7.6, and the default — answers
-*"what has been happening?"* One activity-ordered list: invites, then
-favourites, then DMs, then rooms, each row carrying a preview line and a
-timestamp. It works in every account, including one with no Spaces at all,
-which is why it is the default and the clamp target for an out-of-range
-stored value.
+* A **local folder** is client-side organisation the user makes by dragging one
+  Space onto another. It is device-local, it holds Space ids, and it touches no
+  Matrix state whatsoever.
+* A **Matrix subspace** is real hierarchy: `m.space.child` / `m.space.parent`.
+  Lightning renders it and never invents it.
+* A **Space folder in Channels** is a *presentation* of one Space's direct
+  child rooms. It is not a container the user can edit.
 
-**Channels** answers *"where is the thing I am looking for?"* The active
-Space's own hierarchy: its direct rooms first, then each direct child Space as
-a collapsible category with its own rooms nested under it, in the order the
-Space's admin built. Rows are 32 px, a glyph and a name, nothing else.
+`NavigationLayoutContractTest::aLocalFolderNeverTouchesMatrixState` bans
+`m.space.child`, `m.space.parent`, `addRoomToSpace`, `setSpaceChildSuggested`
+and `sendStateEvent` from both `RailLayoutStore` and `RailEntryModel`. Ordering
+and grouping the rail are view preferences, like a window width: Matrix has no
+standard for either, so anything stored on the server would be a private
+invention only Lightning could read.
 
-The trade is explicit. Classic tells you what is new and cannot tell you what
-exists; Channels tells you what exists and stays put while it does. A channel
-list whose rows move when someone speaks is not a channel list — the whole
-point is that a member learns where things are. So in Channels, unread changes
-a row's **weight**, never its position.
+## 2. The rail's drag
 
-## Design reference
+The reported problem was *"it works, but it isn't greatly polished — it's kinda
+hard to tell exactly where you are moving them"*, with Element cited for smooth
+real-time movement and Sable for a line showing the destination. Both were
+built; on testing the line was cut and the smooth movement kept (see below).
 
-Sable first, as directed: hierarchy order, categories as quiet all-caps
-headers, single-line channel rows. Cinny informed the density. Discord
-informed only the *interaction* — the chevron rotating, and a collapsed group
-still reporting the activity inside it.
+### Why the drag needed a model, not a tweak
 
-No Discord, Sable or Cinny code, asset, sound, trademark or wording is used.
-Every colour comes from AppTheme.
+The rail used to bind its `ListView` to a **JavaScript array** rebuilt on every
+change. Assigning a new array is a model **reset**: no `move` transition, no
+`displaced` transition, every delegate torn down and rebuilt. So a reorder
+could not animate at all, and during a drag the delegate holding the gesture
+was destroyed the moment anything refreshed it. Both halves of the report have
+that one cause.
 
-## Host and presenter
+`RailEntryModel` is a real `QAbstractListModel` that emits `beginMoveRows` for
+the preview position. That is what lets QML animate the neighbours out of the
+way while the pointer is still down.
 
-`RoomsPanel.qml` is now a **host**. It owns the workspace header, the search
-field with its Ctrl-K hint, the create/discover dialogs and the Voice
+### Three states, kept apart
+
+* **Durable** — `RailLayoutStore`, on disk.
+* **Transient preview** — the model's row order while a drag is live. Never
+  written anywhere.
+* **The gesture's facts** — which entry is moving, and whether releasing now
+  would REORDER or GROUP.
+
+Nothing is saved until the gesture ends, so a drag is **one** settings write
+rather than one per pointer sample. `aPreviewDragMovesRowsWithoutWritingAnything`
+asserts both halves: a real `rowsMoved` during the drag, zero `layoutChanged`
+until release.
+
+### What is on screen
+
+**The tile itself moves.** It follows the pointer at full opacity while its
+neighbours animate around it, and where it currently sits is where it will land.
+
+A first revision drew three things at once — a dimmed gap where the tile would
+land, an accent insertion line at that gap, and a floating copy of the tile
+under the pointer. All three are gone, on the maintainer's testing: *"spaces
+should always be their normal image and move freely without a line appearing
+between them"*. The tile is the feedback; a line claiming the same thing was
+noise on 68 px of chrome, and dimming the tile made the one thing being looked
+at the hardest to see.
+
+The one thing still drawn on top of the movement is the GROUP target: a ring on
+the Space or folder a release would file into.
+
+| Gesture | Feedback |
+|---|---|
+| Between two Spaces → **reorder** | the tile is there |
+| Held over a Space or folder → **group** | the target ringed |
+
+**A released tile stops rendering as dragged immediately.** `endDrag` announces
+the cleared `DraggedRole`/`DropTargetRole` explicitly, because `refresh()` is
+allowed to find the rows identical and emit nothing at all — which is right for
+the row data and catastrophic for the drag flags. Without it the tile stayed
+dimmed until some unrelated room update happened to refresh the model, reported
+as *"their icons get darkened after moved and let go and only clear up after
+entering a room"*.
+
+"Between" and "onto" are a few pixels apart and mean completely different
+things, so the group gesture needs both a **dead zone** (12 px at each edge of
+the tile band) and a **dwell** (320 ms in one tile's centre). Without the dwell,
+reordering *through* a Space would make a folder out of it on the way past.
+
+The band is measured against the **tile**, not the row: an expanded Space's row
+is much taller than its tile, and centring on that would put the group band
+over its revealed rooms.
+
+### Auto-scroll
+
+While dragging, the pointer within 44 px of either end scrolls the rail
+progressively (faster the closer to the edge), and the row under the stationary
+pointer is re-evaluated as the content moves. Nobody should have to drop, scroll
+and start a second drag.
+
+### Where a dropped Space lands
+
+Decided by the row it landed **after**, and only that:
+
+* after a folder's header, or after one of its members → **inside** that folder;
+* anywhere else → **top level**.
+
+Dropping just past a folder's last member therefore **appends** to the folder
+rather than leaving it. The rule has to choose, and appending is the choice that
+makes the end of a folder reachable at all; leaving is a drop above the header, a
+drop past whatever follows the folder, or the context menu's "Move out of
+folder".
+
+A **folder** moves as a block — header plus its open members — and may only land
+at a top-level boundary. Folders do not nest: dropping a folder onto a folder is
+refused (`aFolderIsNeverOfferedAsSomethingToDropAFolderInto`), and dropping a
+Space onto an already-filed Space joins *that* folder rather than creating a
+nested one.
+
+### What the store guarantees
+
+`applyArrangement(topLevel, folderMembers)` is one atomic write of the whole
+picture, which is what a finished drag actually produces. Its one subtlety is
+load-bearing: a folder **left out** of `folderMembers` keeps its members. The
+rail only renders an *open* folder's members, so a collapsed folder can never be
+emptied by a drag that never showed its contents
+(`aCollapsedFolderIsNotEmptiedByADragThatNeverShowedIt`).
+
+## 3. Local folders, Discord-style
+
+Dropping one Space onto another creates a folder containing both, **where the
+target was** — so the gesture reads as the two tiles merging rather than as one
+being moved somewhere. No dialog: naming is a rename in the context menu
+afterwards, exactly as Discord does it.
+
+The collapsed folder's tile is a **composite of the Spaces inside it**
+(`qml/FolderTile.qml`): up to four member avatars in a 2×2 grid, one larger
+avatar when there is only one member. This is not decoration. A collapsed folder
+raises exactly one question — *which* folder is this — and a generic letter tile
+answers the one question the user already knows the answer to. (There is also no
+folder glyph available: the bundled Material Symbols subset does not carry one,
+and regenerating it needs the network.)
+
+An **open** folder draws one container behind its header and its members, with
+the last member carrying the rounded bottom (`folderLast`). That container is the
+whole difference between a folder and several adjacent Spaces.
+
+A collapsed folder still reports the unread and mention totals of the Spaces
+inside it. Collapsing to save space must not silently mute a group.
+
+**Muting a whole Space** is on the rail's context menu. Matrix has no primitive
+for it — a Space is a room with no timeline, so muting it silences nothing — so
+`AppController::setSpaceMuted` does what a person would otherwise do by hand and
+sets each member room's notification mode, through the one per-room path so its
+writes report and retry like every other one. Unmute restores *follow the
+account default* rather than *all messages*: asserting the loud mode for rooms
+that never asked for it is a different choice from undoing a mute.
+
+**The stored format is additive.** A layout written by 0.7.6 has `folders` and
+`order` and no `expanded` key; it loads with its folders, its membership, its
+order and its collapse state intact, and nothing expanded — which is exactly
+what it meant. `anOlderStoredLayoutKeepsItsFoldersAndOrder` pins it. Losing
+someone's grouping to a format change is the one unrecoverable failure in this
+area.
+
+## 4. Matrix subspaces in the rail
+
+Only **root** Spaces sit at the top level. A subspace appears underneath its
+parent when that parent is expanded, indented by its real depth, recursively —
+which is what Element Classic's Space panel does. The expansion is **persisted**
+(`RailLayoutStore::expandedSpaceIds`), as Element persists its own: an expansion
+is how someone wants to navigate, not a glance.
+
+A subspace row is presentation of Matrix state, so it is **not draggable and not
+a group target**. Its position is the hierarchy's, and a local folder must never
+look like it can change it.
+
+### Three things Matrix permits that a tree does not
+
+`SpaceManager::resolveHierarchy` handles each explicitly:
+
+* **Several parents.** A subspace is nested under exactly ONE of them — whichever
+  the breadth-first walk reaches first — so it appears once, in a place that does
+  not move between syncs. The other parent still contains its rooms transitively;
+  only the nesting is exclusive.
+* **Cycles.** `A → B → A` is legal state. Every Space is assigned at most once, so
+  a cycle simply stops; anything the walk never reaches becomes a ROOT rather than
+  being dropped, because a Space the user has joined must stay reachable whatever
+  its state says.
+* **Parent links the account cannot see.** `parentSpaceIds` may name an unjoined
+  Space, and on some backends it is not populated at all. Parents are therefore
+  the UNION of the child's own parent list (restricted to joined Spaces) and the
+  inverse of every joined Space's own `m.space.child` list, so the hierarchy
+  resolves identically whether the backend reports edges from above, below or both.
+
+`level` used to be `parentSpaceIds.isEmpty() ? 0 : 1` — a two-level
+approximation that rendered a three-deep tree as a flat pair of indents. It is
+real depth now.
+
+### A backend defect this round fixed
+
+`RoomInfo::childRoomIds` is documented as the Space's DIRECT children in
+`m.space.child` order, and it was that on the mock and HTTP backends. The **Rust**
+backend filled it from its payload's `descendants` array — the *transitive*
+closure. So every consumer that needed the structure the Space's admin built saw
+one flat run of the whole tree: `directChildRoomsDetailed` was not direct, and the
+Channels layout listed a subspace's rooms twice with no structure visible. The
+mock's own tests could never catch it, because the mock was right.
+
+`enqueue_spaces` now reads each Space's own `m.space.child` state
+(`direct_children_of`), ordered by the spec's comparator (`order` key first,
+room id as the tiebreak, empty-`via` removals skipped), and emits it as
+`children`; `descendants` remains as a fallback for any producer that does not
+send it.
+
+## 5. Channels: Sable's model
+
+```text
+Lobby
+Message Search
+
+Invites            (only when there are any)
+Rooms       >      every joined room no Space folder will list
+Space A     v
+  room 1
+  room 2
+Space B     >
+Space C     >
+```
+
+### What the previous design got wrong, structurally
+
+Channels used to show the **active Space's** hierarchy, with its child Spaces as
+nested categories. Two problems, and neither was fixable by tuning:
+
+* **It could not exist at Home.** With no Space selected there was no hierarchy,
+  so the host silently fell back to Classic. The user chose a navigation layout
+  and got the other one, with nothing saying why.
+* **Nesting duplicated.** A subspace's rooms appeared under the subspace's
+  category and again (transitively) under the top-level Space.
+
+So the visual structure is now **flat by Space**, and the layout always exists:
+`RoomsPanel`'s `channelsUsable` is the user's choice and nothing else.
+
+**The rail's selection NARROWS it; it does not decide whether it works.** Those
+are different things and the difference is the point. Picking a Space in the rail
+sets `scopeSpaceId`, and the column becomes that Space and its subspaces — still
+flat folders, never nested — with the two account-wide groups dropped, because
+"every joined room no Space folder lists" is a statement about the whole account
+and repeating it under a Space the user just selected is what
+*"clicking a space basically does nothing"* was. Lobby clears the selection and
+the column is the whole account again; it is always the first row, so the scope
+is one click from escapable.
+
+A pseudo rail row ("" for Home, `@orphans`) is not a Space and scopes nothing. A
+scope on a Space the account no longer has falls back to everything — an empty
+column would look like the account had nothing in it.
+
+### Rows
+
+A room row is the room's **avatar** and its name. Sable's own column shows a
+picture per room, and the first revision of this layout drew a hash glyph
+instead, which made every room in a Space look identical. The glyph survives as
+a small ringed badge on the avatar's corner for the two things a picture cannot
+say: this room is a DM, or this room is encrypted (and the lock is still a
+CLAIM — only for encryption the client knows about).
+
+### Membership rules
+
+A Space folder lists that Space's **direct** child rooms. A subspace is a joined
+Space like any other and gets its own folder at the same level. Consequences,
+each one tested:
+
+* A room that is a child of **two** Spaces appears under **both** folders. That
+  is what "this Space contains it" means; a first-parent-wins rule would make one
+  of the two Spaces look incomplete.
+* A room whose only Space parents are Spaces the account has not **joined** has no
+  folder to appear in, so it is in "Rooms". Nothing joined is unreachable.
+* DMs are in "Rooms" with every other unparented room. There is **no** Favourites
+  group and **no** Direct messages group — Sable has neither, and the People
+  filter chip still reaches DMs.
+
+### Lobby and Message Search
+
+**Lobby** maps onto the shell's existing home surface: no room open and no real
+Space selected, which is exactly the condition `TimelinePane` already uses to
+show `HomePane`. `AppController::openLobby()` reuses `openSpaceHome("")`'s
+teardown ordering. No fake room, no persisted event.
+
+**Message Search** opens the existing global `MessageSearchDialog` — the same one
+`Ctrl+Shift+F` opens — by signal through the host, because the dialog is
+`MainScreen`'s. It is not a filter over the list. The row is **absent** when the
+homeserver cannot search, rather than offered as a dead entry.
+
+**Invites** are not in Sable's own column and are here anyway: this layout is now
+the whole navigation column, so leaving invites out would make an invite
+unreachable for anyone who chose it.
+
+### Ordering
+
+Deterministic and stable everywhere, because a channel list whose rows move when
+somebody speaks is not a channel list. Unread changes a row's **weight**, never
+its position.
+
+* **Spaces** follow the rail's own arrangement — `RailLayoutStore::orderedSpaceIds`,
+  which is the user's order with each local folder's members inline where the
+  folder sits, *regardless of whether it is collapsed*. `arrange()` cannot answer
+  this: that is a presentation list and legitimately hides a collapsed folder's
+  members, which for an ordering question would silently drop Spaces.
+* **Rooms inside a Space** follow that Space's `m.space.child` order.
+* **Rooms and Invites** are sorted by name, then by room id — two rooms may
+  legitimately share a name, and a tie broken by nothing is a list that reorders
+  itself between syncs.
+
+### Collapse and search
+
+Collapse is **persisted locally** (account-scoped appearance storage, never sent
+to the server) and keyed by Space id or synthetic group id. It survives the
+model's rebuilds, which happen on every arriving message. An account change drops
+the in-memory copy and re-reads, so one account's collapsed folders never
+describe another's rooms.
+
+A non-empty search **opens every folder** and lists only matching rooms, with the
+folder kept for context and empty folders dropped; Lobby and Message Search step
+aside (they match nothing). The collapse **set** is untouched, so clearing the box
+restores exactly what was collapsed before.
+
+### Rebuilds are diffed
+
+`applyRows` compares the new row list against the old: same ids and kinds → one
+`dataChanged`; otherwise a reset. A reset on every arriving message tears down and
+rebuilds every delegate — and its avatar fetch — which for a column this long is
+visible. `RailEntryModel` does the same.
+
+## 6. Host and presenter
+
+`RoomsPanel.qml` is a **host**. It owns the workspace header, the search field
+with its Ctrl-K hint, the filter chips, the create/discover dialogs and the Voice
 Connected footer. Its list body is one slot filled by whichever presenter the
-setting chooses:
-
-* `RoomListClassicPresenter.qml` — extracted verbatim from RoomsPanel.
-* `RoomChannelsPresenter.qml` — new.
+setting chooses.
 
 Three rules the contract suite enforces, each one a defect that would ship
 silently:
 
-1. **The host owns the chrome.** A presenter that grows its own header means
-   the two layouts fork and one stops getting fixes.
-2. **A presenter never reaches up into the host by id.** The extracted Classic
-   list originally called `leaveRoomConfirm.openFor(...)` and
-   `newConversationDialog.openDialog()` — resolved by scope, from inside a
-   delegate, through a parent chain. That is exactly how the reader popover's
-   click ended up silently dead in the 2026-08-19 round, and it breaks with no
-   warning the moment the component is instantiated anywhere else. Signals
-   only.
-3. **Exactly one presenter is instantiated.** `Loader.active`, not `visible`:
-   two live room lists is two sets of avatar fetches for one visible column.
+1. **The host owns the chrome.** A presenter that grows its own header means the
+   two layouts fork and one stops getting fixes.
+2. **A presenter never reaches up into the host by id.** Signals only. The
+   extracted Classic list originally called `leaveRoomConfirm.openFor(...)`,
+   resolved by scope from inside a delegate — exactly how the reader popover's
+   click ended up silently dead in the 2026-08-19 round.
+3. **Exactly one presenter is instantiated.** `Loader.active`, not `visible`: two
+   live room lists is two sets of avatar fetches for one visible column.
 
-## The model, and the trap it exists to avoid
+The same chrome drives both layouts: the filter chips and the search box are
+bound into `SpaceChannelModel` as well as into `RoomListModel`, or they would be
+visible and inert in Channels.
 
-`SpaceChannelModel` reads the **direct** hierarchy. This is deliberately not
-`RoomListModel` with a Space filter, and it is deliberately not built on the
-pre-existing `SpaceManager::childRoomsDetailed()`.
+The row **chooser** must name every kind the model can produce. It once named two
+of three, so a group label fell through to the channel-row component and rendered
+as a room row with an empty room id — clickable-looking, opening nothing, and
+carrying a room's context menu over a heading. There are five kinds now (`lobby`,
+`search`, `group`, `space`, `room`) and both the chooser and the model's closed
+set are asserted.
 
-`SpaceManager::rebuild()` flattens a subspace's rooms into **every ancestor's**
-membership — right for "show me everything in this Space", wrong for a channel
-list. Building on it showed every subspace room twice: once at the top level
-and again under its own category, with the structure invisible. So
-`directChildRoomsDetailed()` was added, reading the Space's own
-`m.space.child` order and keeping only joined non-Space children.
+## 7. Honesty rules in the rows
 
-Nine of the fifteen model tests fail if that call is swapped back to the
-transitive one.
+* **The lock glyph is a claim.** Drawn only for encryption the client *knows*
+  about (`encrypted && encryptionKnown`); "not established yet" gets the plain
+  hash.
+* **A muted channel keeps its unread weight and loses its pill.** The user asked
+  not to be counted at, not to be lied to about whether anything happened. A
+  mention keeps its colour even when muted.
+* **An invite always reads as unread**, whatever its counters say: it is an action
+  waiting on the user.
+* **`reuseItems` is on**, so the row re-queries the notification mode on every id
+  change. `roomNotificationMode` is `Q_INVOKABLE`, not a property, so it cannot be
+  bound; a recycled row would otherwise inherit the previous room's mute state.
 
-Other decisions:
+## 8. Theme tokens
 
-* **Depth stops at one.** A Space tree can nest arbitrarily and a sidebar that
-  nests arbitrarily is unreadable by about three levels. A deeper subspace is
-  offered as a category the user can open, which re-roots the model at it —
-  the same way Space Home already works.
-* **Uncategorised channels come first**, as in Element and Sable. With
-  categories first, a Space whose only uncategorised channel is at the bottom
-  looks empty until you scroll.
-* **A collapsed category still reports what it hides** — a mention count, or a
-  dot for plain unread. Collapsing to save space must not silently mute the
-  group. Expanded, the header reports nothing: the rows carry their own
-  badges, and a total on top of them would double-count what is already
-  visible.
-* **Collapse state is per Space** and session-only. Keyed by Space so
-  collapsing "General" in one workspace does not collapse a same-named
-  category in another; not persisted, because restoring a collapse from a
-  month ago hides channels the user has forgotten about.
-* **Unjoined children are absent, never placeholder rows.** Space Home is
-  where a join is offered; a row here would be a channel that cannot be
-  opened.
-* **`kind` is a string**, not the C++ enum. Exposing the enum would mean
-  registering the type with the QML engine purely so a delegate can name a
-  constant, and a bare integer comparison in QML silently stops matching when
-  a value is inserted.
+Nine derived tokens: seven for Channels (`channelCategoryText`, `channelText`,
+`channelTextUnread`, `channelSelected`, `channelSelectedText`, `channelHover`,
+`channelUnreadMark`) and two for the rail (`railFolderSurface`,
+`railInsertLine`). Every one uses the `_p.x !== undefined ? _p.x : fallback`
+idiom AppTheme already uses.
 
-## Honesty rules in the rows
+Nothing was added to the eleven palettes. A new required key in eleven palettes
+is how a theme ends up with one undefined colour and a transparent row, and the
+only thing that catches it is the no-QML-warnings gate.
 
-* **The lock glyph is a claim.** It is drawn only for encryption the client
-  *knows* about (`encrypted && encryptionKnown`); "not established yet" gets
-  the plain hash.
-* **A muted channel keeps its unread weight and loses its pill.** The user
-  asked not to be counted at, not to be lied to about whether anything
-  happened. A mention keeps its colour even when muted — somebody naming you
-  is not noise.
-* **`reuseItems` is on**, so the row re-queries the notification mode on every
-  id change. `roomNotificationMode` is `Q_INVOKABLE`, not a property, so it
-  cannot be bound; a recycled row would otherwise inherit the previous room's
-  mute state.
+`CustomThemeTest::theNewNavigationTokensFollowAnEditableRole` additionally pins
+that each token's fallback is a role the **Theme Editor** can change, so a custom
+theme genuinely moves the new surfaces rather than leaving them on a private
+literal.
 
-## What Channels cannot show
+**The editor's preview draws whichever layout the user runs.**
+`ThemePreviewDemo` takes a `channels` flag and renders the Sable shape — Lobby,
+Message Search, a group and a Space folder with rooms — instead of the Classic
+rows; the editor binds it to `roomNavigationLayout`. Previewing the Classic
+column to somebody who runs Channels shows them where a colour lands in a column
+they never see. The preview stays entirely fake: no `app.` anything, no models,
+no media, so it still renders while signed out and cannot leak a real
+conversation into a screenshot.
 
-It is one Space's hierarchy, so DMs belonging to no Space, invites and
-favourites are not in it — and at Home there is no hierarchy at all. The host
-falls back to **Classic** at Home rather than rendering an empty column:
-"this space has no channels" and "you are not in a space" are different facts,
-and only the first is this layout's to state. Settings says so plainly rather
-than leaving it to be discovered.
+**Indigo Night is the flagship** as of 2026-08-25, on the maintainer's call. It
+leads the featured cards and System-dark resolves to it; Storm remains the brand
+theme and the shell's own chrome, and stays a featured card in fourth place. An
+explicitly persisted theme id is never rerouted, so changing what System means
+cannot touch anybody's stored choice.
 
-## Theme tokens
+**The identity discs hold back the magenta wedge.** At the disc lightnesses,
+magenta and hot pink are the loudest part of the wheel, and a cool accent puts
+the arc's warm end squarely there — Indigo Night's accent sits at 239 degrees, so
+its fallback avatars came out pink. Slots landing between 290 and 350 degrees
+have their saturation damped to 0.55, which leaves every hue where it is: the
+families stay distinct per theme and the worst all-pairs separation across all
+eleven themes is unchanged at dE 19.7. Rotating or narrowing the arc instead
+either collapses several dark themes onto one identical family or drops that
+separation below the gate.
 
-Seven new tokens (`channelCategoryText`, `channelText`, `channelTextUnread`,
-`channelSelected`, `channelSelectedText`, `channelHover`,
-`channelUnreadMark`), every one **derived** with the
-`_p.x !== undefined ? _p.x : fallback` idiom AppTheme already uses.
+## 9. Tests
 
-Nothing was added to the eleven palettes. A new required key in eleven
-palettes is how a theme ends up with one undefined colour and a transparent
-row — and the only thing that catches it is the no-QML-warnings gate, which is
-where `stormSelected` (a token that does not exist; the real one is
-`stormSelection`) was caught during this round.
+* `rail-layout` — the store and the drag. The arrangement, the atomic write, the
+  older-format load, expansion persistence, folder previews; then the gesture:
+  preview reorder without writing, abandoned drag, drop-onto-Space creating a
+  folder where the target was, drop onto a filed Space joining that folder,
+  reorder inside a folder, drag back out, a folder moving with its members, a
+  folder refused as a nesting target, pseudo rows and subspaces undraggable,
+  root-only top level with real depth, a cycle keeping every Space, a two-parent
+  subspace nesting once and staying put, and a mid-drag refresh deferred.
+* `space-channels` — the Channels model. Global with no active Space, flat by
+  Space, subspaces not nested and not duplicated, unparented rooms and DMs
+  reachable, a two-parent room in both folders, an unjoined-parent room still
+  reachable, invites offered, rail-order Spaces, collapse hiding rows but not
+  activity, collapse surviving a rebuild and a reload, search opening and
+  restoring, filters not claiming an empty account, the search row gated on
+  server support, navigation rows carrying no room id, `rowForRoom` never
+  matching a header, unread arriving as `dataChanged` not a reset, known-only
+  encryption, and an account change re-reading the collapse set.
+* `navigation-layout-contract` — the separation and the bans. Host keeps the
+  chrome, no presenter reaches up by id, one presenter instantiated, Channels
+  global and never falling back, the model with no active Space left, subspaces
+  never nested, the drag living in a model with move transitions, reorder and
+  grouping visibly different, local folders never touching Matrix state, every
+  token derived, every empty-capable Label behind a Loader, the pill and the
+  folder tile shared, and the hide-image contract.
+* `channel-row-geometry-qml` — every row kind reports a real height inside a
+  width-assigned Loader, and both the channel row and the navigation rows are
+  clickable across it.
+* `media-placeholder-qml` — the hide-image geometry contract (below).
+* `custom-theme` — the new tokens follow an editable role.
 
-The Channels layout therefore works in all eleven themes on the day it ships,
-and any palette can override a single tone later without touching AppTheme's
-accessors.
+## 10. Element-style hide image
 
-## Also in this round
+A local **Hide image** control on image and sticker rows, matching Element's.
 
-`UnreadBadge.qml` was extracted from RoomDelegate's inline pill. Two
-hand-rolled pills is how one layout ends up saying "3" in danger ink and the
-other in accent ink for the same room.
+**The point of it is the geometry.** `MediaHiddenPlaceholder.qml` fills the media
+box and contributes no implicit size of its own, so the row keeps the exact
+rectangle the picture reserved: same width, same height, same reply and thread
+positions, and the timeline does not move a pixel. Replacing a 360×270 picture
+with a text row would jump every message above it, which for a
+hide-this-image control is a worse outcome than the picture.
+`hidingAnImageKeepsItsExactReservedGeometry` measures the box before and after.
 
-## Tests
+**State lives in `MediaVisibilityStore`, keyed by media identity** — not in the
+delegate. A timeline row is destroyed the moment it leaves the cache buffer, so a
+flag inside one is gone by the time the reader scrolls back;
+`aRebuiltRowComesBackHidden` pins that a freshly created row knows.
 
-* `space-channels` (15) — the model. Direct-not-transitive, hierarchy order
-  under activity, collapse hiding rows but not activity, per-Space collapse
-  scope, unjoined children absent, `rowForRoom` never matching a category,
-  known-encryption only.
-* `navigation-layout-contract` (17) — the separation. Host keeps the chrome,
-  no presenter reaches up by id, one presenter instantiated, Channels never
-  renders without a Space, Classic is the default and clamp target, the
-  setting is account-scoped and re-announced on a switch, every token derived,
-  every empty-capable Label behind a Loader, the pill shared.
+**Session-only**, deliberately, for three reasons in order of weight: there is no
+Matrix standard for it, so persisting would mean an account-data key only
+Lightning could read; a hidden image the user has forgotten about is content they
+cannot find, and there is no list of hidden media and no "unhide everything"; and
+Element's own persistence was not verified here, so inventing durable storage to
+match a guess would be worse than a clean session-local implementation that says
+so. The set is bounded at 4096 keys and the cap releases the **oldest** rather
+than refusing the newest.
 
-Two pre-existing suites were **repointed**, not weakened:
-`RoomStateModelTest`'s section-label and group-divider scans now read
-`RoomListClassicPresenter.qml`, because that is where the code moved — the
-invariants are unchanged.
+Purely local: nothing is redacted, edited, deleted or sent, and no other client
+sees anything. The store reaches no `MatrixClient`, no `SettingsManager` and no
+`QSettings`, which the contract suite asserts.
 
-`UpdatesUiContractTest` had two single-line source scans that `qmlformat`
-legitimately broke by splitting an `if` from its `return`. They now match
-against a whitespace-collapsed copy: the mapping is what matters, not how the
-formatter chose to wrap it.
+Behaviour details:
 
-The contract suite strips comments before every **ban** assertion. A comment
-that names the thing it is explaining we do not do is the documented way a ban
-regex fires on prose — it has cost this repo real time twice, and it punishes
-exactly the comments worth writing.
+* Hiding starts **no** fetch, and reveals take the ordinary cache path. Bytes
+  already cached stay cached; nothing is removed.
+* A hidden GIF actually stops animating — leaving an `AnimatedImage` playing
+  behind an opaque placeholder burns a decode per frame for something nobody can
+  see.
+* The `Image`'s source is **cleared**, not merely made invisible: an `Image` with
+  a source still holds the decoded pixmap.
+* **Hide** is on the message action bar (leading, where Element puts it) and in
+  the context menu. Once hidden, the placeholder's **Show image** is the only
+  control — the action-bar button is gone, because a second control offering to
+  hide what is already hidden is noise. The menu row flips its label instead, so
+  a keyboard user can go both ways.
+* Images and stickers only. A video card has its own poster and controls, and
+  extending this there without evidence anyone wants it would be adding a control
+  to a surface that did not ask for one.
 
-## NOT TESTED
+## 11. What has and has not been seen
 
-Nothing in this round has been seen on a real desktop. There is no live
-validation of the Channels layout against a real Space hierarchy on a
-homeserver, no check of how it looks in any of the eleven themes, and no
-confirmation that a collapse, a category open, or the Settings preview cards
-behave on screen as the offscreen suites assert.
+**Seen on a real render** (the mock backend under the screenshot-demo build,
+captured and read back): the Channels column's whole structure — Lobby, Message
+Search, an Invites group, Space folders with their rooms indented under them —
+with every room's avatar resolving, the open room's row marked and Lobby not
+marked while a room is open; the rail's composite folder tile and the container
+behind an open folder; both a light and a dark theme.
+
+**NOT TESTED**, and each of these is the interaction rather than the picture:
+
+* the drag's *feel* — the dwell, the auto-scroll, the animation timings, and
+  whether the tile moving under the pointer reads right at pointer speed. Every
+  assertion behind the drag is a MODEL assertion; nothing has driven it with a
+  real pointer.
+* creating a folder by dropping one Space on another, and the folder-name
+  dialog's layout.
+* muting a whole Space against a real homeserver's push rules.
+* the Channels column against a real Space hierarchy — the demo backend has no
+  subspaces, so nothing has confirmed a subspace appearing as its own flat
+  folder, or the rail's selection narrowing the column, outside the model tests.
+* hide/show on a real image, or the timeline genuinely not moving at a real DPI.
+* the Rust backend's new `children` payload against a real homeserver: the
+  direct-children fix is asserted only by the mock's own fixtures and by reading
+  the SDK.
+
+**One trap for whoever validates the rest.** These rows animate their
+background (`Behavior on color`), and an offscreen `--demo-capture` at the
+default 1400 ms settle grabs the frame *before* that animation has advanced —
+so a row shows its creation-time colour and the capture reads as a selection
+bug that is not there. Four rounds of probes were spent on exactly that. Use a
+long settle (`--demo-capture=path.png,6000`), and if a property probe rendered
+into a label disagrees with the pixel, believe the label.

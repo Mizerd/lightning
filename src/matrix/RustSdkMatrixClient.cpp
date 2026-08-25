@@ -4128,8 +4128,26 @@ void RustSdkMatrixClient::handleSpacesEvent(const QJsonArray &spaces)
         room.id = id; room.isSpace = true; room.membership = RoomInfo::Joined;
         room.name = object.value(QStringLiteral("name")).toString(room.name);
         room.avatarUrl = object.value(QStringLiteral("avatar_url")).toString(room.avatarUrl);
+        // DIRECT children, in the Space's own m.space.child order — never
+        // `descendants`, which is the TRANSITIVE closure. Reading the
+        // transitive list here made RoomInfo::childRoomIds mean a different
+        // thing on this backend than on the mock and HTTP ones (where it is
+        // and always was the direct list), so every consumer that needs the
+        // structure the Space's admin built — the rail's subspace nesting and
+        // the Channels layout's per-Space rooms — saw one flat run of the
+        // whole tree and listed subspace rooms twice. SpaceManager::rebuild
+        // walks these to derive the transitive membership it needs.
+        //
+        // `descendants` is still the fallback: an older/other producer that
+        // does not send `children` keeps working, degraded rather than empty.
         room.childRoomIds.clear();
-        for (const auto &child : object.value(QStringLiteral("descendants")).toArray()) {
+        const QJsonArray directChildren =
+            object.value(QStringLiteral("children")).toArray();
+        const QJsonArray childSource =
+            directChildren.isEmpty()
+                ? object.value(QStringLiteral("descendants")).toArray()
+                : directChildren;
+        for (const auto &child : childSource) {
             const QString childId = child.toString();
             if (!childId.isEmpty() && childId != id && !room.childRoomIds.contains(childId))
                 room.childRoomIds.append(childId);

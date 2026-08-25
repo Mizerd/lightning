@@ -22,6 +22,26 @@ constexpr std::array<double, kIdentitySlots> kLightness = {
 // Degrees of hue the nine slots span, centred on the theme's accent.
 constexpr double kArcDegrees = 190.0;
 
+// The magenta wedge, held back.
+//
+// At these lightnesses magenta and hot pink are the loudest part of the
+// wheel: two of them in a room list read as a lot more than two, and on a
+// cool theme they are the slots furthest from anything the shell is made of.
+// Indigo Night's accent sits at 239 degrees, so the arc's warm end lands
+// squarely here and the fallback avatars came out pink — reported in exactly
+// those words.
+//
+// Damping the SATURATION rather than moving the hue is what keeps this from
+// costing anything else: rotating or narrowing the arc either collapses
+// several dark themes onto one identical family (they all end up clamped to
+// the same span) or drops the all-pairs separation below the gate. This
+// leaves every hue where it is, so the families stay distinct and the worst
+// pair across all eleven themes is unchanged at dE 19.7 — the two affected
+// slots simply become mauve and plum instead of pink and magenta.
+constexpr double kMagentaLowDegrees = 290.0;
+constexpr double kMagentaHighDegrees = 350.0;
+constexpr double kMagentaDamping = 0.55;
+
 constexpr double kMinInkContrast = 4.5;
 
 double channelLinear(double c)
@@ -66,10 +86,12 @@ QColor slotColor(int index, const QColor &accent, double lightness)
     double hue = std::fmod(accentHue + offset, 1.0);
     if (hue < 0.0)
         hue += 1.0;
+    double saturation = saturationFor(lightness, accent.hslSaturationF());
+    const double degrees = hue * 360.0;
+    if (degrees >= kMagentaLowDegrees && degrees <= kMagentaHighDegrees)
+        saturation *= kMagentaDamping;
     QColor out;
-    out.setHslF(float(hue),
-                float(saturationFor(lightness, accent.hslSaturationF())),
-                float(lightness));
+    out.setHslF(float(hue), float(saturation), float(lightness));
     return out.toRgb();
 }
 

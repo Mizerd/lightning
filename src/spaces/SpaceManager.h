@@ -49,6 +49,15 @@ public:
         UnreadTotalRole,
         HighlightTotalRole,
         LevelRole,
+        // The one PRIMARY parent Space this one is displayed under, or empty
+        // when it is a root. Matrix permits several parents and malformed
+        // state permits cycles; see rebuild() for how one is chosen and why
+        // it is stable.
+        ParentSpaceIdRole,
+        // How many joined child SPACES this one has — the rail's expander
+        // gate. Zero means "nothing to expand", which is a different fact
+        // from "no rooms".
+        ChildSpaceCountRole,
     };
 
     // Well-known pseudo-space ids surfaced through the model as extra rows
@@ -97,6 +106,18 @@ public:
     // (unjoined subspaces come from /hierarchy via RoomDiscoveryController
     // and are rendered as join offers).
     Q_INVOKABLE QVariantList childSpacesDetailed(const QString &spaceId) const;
+    // The joined child SPACES of `spaceId`, in the Space's own
+    // `m.space.child` order, restricted to the ones whose PRIMARY parent is
+    // this Space. Restricting to the primary parent is what makes the rail's
+    // tree a tree: a subspace with two joined parents is nested under
+    // exactly one of them, deterministically, instead of appearing twice.
+    Q_INVOKABLE QStringList childSpaceIds(const QString &spaceId) const;
+    // Whether `roomId` is a DIRECT child of any joined Space. The Channels
+    // layout's "Rooms" group is the complement of this: every joined room
+    // that no Space folder will list. Direct rather than transitive because
+    // a subspace is itself a Space folder in that layout, so its own
+    // children are already reachable there.
+    Q_INVOKABLE bool roomInAnySpace(const QString &roomId) const;
     // 2026-08-23 Channels navigation layout: DIRECT child rooms only, in
     // `m.space.child` state order.
     //
@@ -144,12 +165,23 @@ private Q_SLOTS:
 private:
     struct SpaceEntry {
         RoomInfo info;              // The Space room itself.
-        QStringList childRoomIds;   // Ordered list of children.
+        QStringList childRoomIds;   // TRANSITIVE member rooms, ordered.
+        // Direct joined child SPACES whose primary parent is this one, in
+        // m.space.child order.
+        QStringList childSpaceIds;
         int unreadTotal = 0;        // Sum of children's unread counts.
         int highlightTotal = 0;
+        // Real depth in the hierarchy: 0 for a root, +1 per level. Was
+        // hardcoded to "0 or 1" — a two-level approximation that made a
+        // three-deep tree render as a flat pair of indents.
         int level = 0;
+        // The primary parent, empty for a root.
+        QString parentSpaceId;
     };
 
+    // Assigns level/parentSpaceId/childSpaceIds across `m_spaces`.
+    // Cycle-safe and deterministic; see the implementation for the rules.
+    void resolveHierarchy(const QHash<QString, RoomInfo> &byId);
     void recomputeOrphans();
 
     MatrixClient *m_client = nullptr;
@@ -157,6 +189,8 @@ private:
     QList<SpaceEntry> m_spaces;             // Rows: [All rooms] [orphans?] [space1] [space2] ...
     QHash<QString, QSet<QString>> m_membership;    // spaceId → set(roomId)
     QSet<QString> m_allRoomIds;             // Every non-space room id.
+    // Rooms that are a DIRECT child of at least one joined Space.
+    QSet<QString> m_spaceChildRoomIds;
     QSet<QString> m_orphanRoomIds;          // Rooms not in any Space.
     int m_homeUnreadTotal = 0;
     int m_homeHighlightTotal = 0;

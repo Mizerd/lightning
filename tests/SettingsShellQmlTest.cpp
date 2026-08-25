@@ -454,18 +454,26 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    void stormCardIsFirstAndMiniRowNeverDuplicatesIt()
+    void indigoNightLeadsAndTheMiniRowNeverDuplicatesAFeaturedCard()
     {
-        // Storm sorts first/primary among the featured cards, and the
-        // secondary "MORE THEMES" row must never render it a second time.
+        // Indigo Night is the flagship as of 2026-08-25 (maintainer's call),
+        // so it sorts first among the featured cards. Storm led until then;
+        // it is still featured and still the shell's own chrome, and the
+        // secondary "MORE THEMES" row must never render any featured card a
+        // second time.
         auto *flow = item("featuredThemeFlow");
         QVERIFY(flow);
-        auto *stormCard = item("featuredThemeCard_11");
+        auto *indigoCard = item("featuredThemeCard_9");
         auto *mossCard = item("featuredThemeCard_8");
-        QVERIFY(stormCard && mossCard);
-        QVERIFY2(stormCard->x() <= mossCard->x()
-                     && stormCard->y() <= mossCard->y(),
-                 "Storm must sort before Moss Light in the featured row");
+        auto *stormCard = item("featuredThemeCard_11");
+        QVERIFY(indigoCard && mossCard && stormCard);
+        QVERIFY2(indigoCard->x() <= mossCard->x()
+                     && indigoCard->y() <= mossCard->y(),
+                 "Indigo Night must sort before Moss Light in the featured row");
+        QVERIFY2(stormCard->y() > indigoCard->y()
+                     || (stormCard->y() == indigoCard->y()
+                         && stormCard->x() > indigoCard->x()),
+                 "Storm must sort after Indigo Night in the featured row");
         // "MORE THEMES" only lists the 7 non-featured presets — Storm is
         // never duplicated there. Moss (8) is the WRONG sanity check here:
         // it is itself one of the four featured cards (8/9/10/11), so the

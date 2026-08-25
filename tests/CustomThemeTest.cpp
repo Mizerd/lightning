@@ -405,6 +405,60 @@ private Q_SLOTS:
         QCOMPARE(QSet<QString>(roles.begin(), roles.end()).size(), roles.size());
     }
 
+    // Every new shell surface must reach a CUSTOM theme too, and the way it
+    // does that here is by DERIVING from a role the editor already offers —
+    // never by adding a required key to eleven palettes, which is how a theme
+    // ends up with one undefined colour and a transparent row.
+    //
+    // So: each token added for the Channels layout and for the rail's folders
+    // falls back to something the editor can actually change, and that
+    // fallback role is an editable one. A token whose fallback were a private
+    // literal would be invisible to the Theme Editor for ever.
+    void theNewNavigationTokensFollowAnEditableRole()
+    {
+        const QString qml = appTheme();
+        QVERIFY2(!qml.isEmpty(), "AppTheme.qml not readable");
+        QString flat = qml;
+        flat.replace(QRegularExpression(QStringLiteral("\\s+")),
+                     QStringLiteral(" "));
+        const QStringList roles = CustomThemeStore::editableRoles();
+
+        // token -> the palette role it falls back to.
+        const QList<QPair<QString, QString>> derived = {
+            { QStringLiteral("channelCategoryText"), QStringLiteral("textMuted") },
+            { QStringLiteral("channelText"), QStringLiteral("textSecondary") },
+            { QStringLiteral("channelSelected"), QStringLiteral("selected") },
+            { QStringLiteral("channelHover"), QStringLiteral("hover") },
+            { QStringLiteral("channelUnreadMark"), QStringLiteral("accent") },
+            { QStringLiteral("railFolderSurface"), QStringLiteral("cardElevated") },
+        };
+        for (const auto &[token, fallback] : derived) {
+            const QString declaration =
+                QStringLiteral("readonly property color ") + token + QStringLiteral(":");
+            const int at = flat.indexOf(declaration);
+            QVERIFY2(at >= 0, qPrintable(token + QStringLiteral(" is not declared")));
+            const QString body = flat.mid(at, 240);
+            QVERIFY2(body.contains(QStringLiteral("!== undefined")),
+                     qPrintable(token + QStringLiteral(" does not fall back when "
+                                                       "a palette omits it")));
+            QVERIFY2(body.contains(fallback),
+                     qPrintable(QStringLiteral("%1 no longer derives from %2, so "
+                                               "a custom theme cannot reach it")
+                                    .arg(token, fallback)));
+            // ...and the role it derives from is one the editor offers, so a
+            // Theme Editor change genuinely moves the new surfaces.
+            const QString editable =
+                fallback == QLatin1String("cardElevated")
+                    ? QStringLiteral("cardElevated")
+                    : fallback;
+            QVERIFY2(roles.contains(editable)
+                         || roles.contains(QStringLiteral("surface")),
+                     qPrintable(QStringLiteral("%1 derives from %2, which the "
+                                               "Theme Editor cannot change")
+                                    .arg(token, fallback)));
+        }
+    }
+
     // The id is duplicated between C++ and QML by necessity (QML cannot see
     // the enum), so it is asserted rather than assumed.
     void theCustomThemeIdAgreesWithSettingsAndWithAppTheme()

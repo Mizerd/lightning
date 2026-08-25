@@ -98,10 +98,23 @@ struct RoomInfo {
     // event in /sync.
     QStringList typingUserIds;
 
-    // v0.4.1: rooms that this room contains as a Space. Only populated when
-    // isSpace == true. Sourced from m.space.child state events (HTTP) or
-    // hardcoded (Mock). Rooms may appear in multiple spaces (Matrix allows
-    // it) — RoomInfo::spaceId stays as a "primary parent" hint.
+    // v0.4.1: the DIRECT children of this room as a Space — rooms AND
+    // subspaces — in the order the Space's own `m.space.child` state declares
+    // (order key first, room id as the tiebreak). Only populated when
+    // isSpace == true. Sourced from m.space.child state events on every
+    // backend: read from state (HTTP), hardcoded (Mock), or read from the
+    // SDK's state store (Rust).
+    //
+    // DIRECT, not transitive, and that distinction is load-bearing: the
+    // Rust backend used to fill this from its payload's `descendants` list
+    // (the transitive closure), which is why anything reading it as the
+    // direct list — the rail's subspace nesting, the Channels layout —
+    // listed a subspace's rooms twice and showed no structure at all.
+    // SpaceManager::rebuild() walks these to derive the transitive
+    // membership it needs; nothing else should assume transitivity.
+    //
+    // Rooms may appear in multiple Spaces (Matrix allows it) — SpaceManager
+    // assigns one deterministic PRIMARY parent per Space for display.
     QStringList childRoomIds;
     QStringList parentSpaceIds;
 

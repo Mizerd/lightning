@@ -1113,11 +1113,16 @@ Item {
                                          accent: p.accent }
                             }
                             Repeater {
+                                // Indigo Night leads: it is the flagship, on
+                                // the maintainer's call. Storm is still
+                                // featured — it is the brand theme and the
+                                // shell's own chrome is built on it — but it
+                                // is no longer the first thing offered.
                                 model: [
-                                    featuredThemeFlow.previewFor(11, qsTr("Storm")),
-                                    featuredThemeFlow.previewFor(8,  qsTr("Moss Light")),
                                     featuredThemeFlow.previewFor(9,  qsTr("Indigo Night")),
+                                    featuredThemeFlow.previewFor(8,  qsTr("Moss Light")),
                                     featuredThemeFlow.previewFor(10, qsTr("Deep Teal")),
+                                    featuredThemeFlow.previewFor(11, qsTr("Storm")),
                                 ]
                                 delegate: Rectangle {
                                     id: themeCard
@@ -1651,7 +1656,7 @@ Item {
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.textMeta
                             text: qsTr("When on, Lightning follows the system scheme: "
-                                       + "Moss Light in light mode, Storm in dark mode.")
+                                       + "Moss Light in light mode, Indigo Night in dark mode.")
                         }
 
                         SettingsGroupLabel { text: qsTr("Conversation list") }
@@ -1675,8 +1680,8 @@ Item {
                                 Layout.fillWidth: true
                                 variant: "channels"
                                 title: qsTr("Channels")
-                                subtitle: qsTr("The space's own categories and "
-                                               + "channels, in its order.")
+                                subtitle: qsTr("Every space as a collapsible "
+                                               + "folder of its rooms.")
                                 current: app.settings.roomNavigationLayout === 1
                                 onClicked: app.settings.roomNavigationLayout = 1
                             }
@@ -1689,13 +1694,15 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.textMeta
-                            // States the limit plainly rather than letting the
-                            // user discover it: Channels shows ONE space's
-                            // hierarchy, so it has nothing to show at Home, and
-                            // Home falls back to Classic instead of rendering
-                            // an empty column.
-                            text: qsTr("Channels shows the space you have open. "
-                                       + "Home and direct messages always use Classic.")
+                            // Says what the layout IS rather than what it
+                            // cannot do. It used to warn that Channels fell
+                            // back to Classic at Home; it no longer falls back
+                            // anywhere, so the warning would be untrue and the
+                            // shape is the thing worth stating instead.
+                            text: qsTr("Channels lists every space you are in as "
+                                       + "a folder, with the rooms it contains "
+                                       + "underneath. Rooms in no space, and your "
+                                       + "direct messages, stay together in Rooms.")
                         }
 
                         SettingsGroupLabel { text: qsTr("Message layout") }

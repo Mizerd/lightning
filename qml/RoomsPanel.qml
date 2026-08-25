@@ -23,6 +23,12 @@ Rectangle {
         discoverJoinDialog.openDialog(startMode)
     }
 
+    // The Channels layout's "Message Search" row. The dialog is MainScreen's
+    // (it is application-wide, and Ctrl+Shift+F opens the same one), so the
+    // host asks for it by signal rather than reaching across the shell — the
+    // same rule the presenters follow toward this host.
+    signal messageSearchRequested()
+
     // A Matrix room link from a message: resolve it in the Address tab; a
     // link to an already-joined room auto-opens (and jumps when it carries
     // an event id).
@@ -378,6 +384,35 @@ Rectangle {
             property: "filterMode"
             value: app.settings.roomFilterMode
         }
+        // The SAME chrome drives both layouts. Without these the chips and the
+        // search box were visible and inert in Channels mode — reported as "in
+        // channels mode all list doesn't show people".
+        Binding {
+            target: app.spaceChannels
+            property: "filterMode"
+            value: app.settings.roomFilterMode
+        }
+        Binding {
+            target: app.spaceChannels
+            property: "searchQuery"
+            value: roomSearch.text
+        }
+        Binding {
+            target: app.spaceChannels
+            property: "messageSearchSupported"
+            value: app.loggedIn && app.messageSearch.supported
+        }
+        // Clicking a Space in the rail NARROWS this column to it. Without this
+        // the column showed every Space whatever the user clicked, so picking
+        // one did nothing visible — reported as "clicking a space basically
+        // does nothing". Lobby clears the active Space and so returns the whole
+        // account; a pseudo rail row ("", "@orphans") is not a Space and the
+        // model refuses it, so Home scopes nothing either.
+        Binding {
+            target: app.spaceChannels
+            property: "scopeSpaceId"
+            value: app.spaces ? app.spaces.activeSpaceId : ""
+        }
 
         NewConversationDialog {
             id: newConversationDialog
@@ -555,16 +590,14 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            // Channels needs a Space to show. At Home there is no hierarchy
-            // at all, so the host falls back to Classic rather than
-            // rendering an empty column: "this space has no channels" and
-            // "you are not in a space" are different facts, and only the
-            // first one is this layout's to state.
+            // The chosen layout, and nothing else. Channels used to require an
+            // active Space and fall back to Classic without one, so a user who
+            // picked Channels got Classic at Home — the layout silently became
+            // the other layout depending on where they were. It is global now:
+            // every joined Space is a folder in it, wherever you are.
             readonly property bool channelsChosen:
                 app.settings && app.settings.roomNavigationLayout === 1
-            readonly property bool channelsUsable:
-                channelsChosen && app.spaceChannels
-                && app.spaceChannels.spaceId.length > 0
+            readonly property bool channelsUsable: channelsChosen
 
             Loader {
                 anchors.fill: parent
@@ -599,7 +632,8 @@ Rectangle {
                 sourceComponent: RoomChannelsPresenter {
                     currentRoomId: app.currentRoomId
                     onRoomActivated: (roomId) => app.openRoom(roomId)
-                    onSpaceActivated: (spaceId) => app.openSpaceHome(spaceId)
+                    onLobbyActivated: app.openLobby()
+                    onMessageSearchRequested: root.messageSearchRequested()
                     // The SAME clipboard proxy and leave-confirm dialog the
                     // Classic list uses, so a room left from either layout
                     // gets the same confirmation and the same honest failure.

@@ -805,11 +805,12 @@ void ScreenshotDemoController::setAppearance(const QString &mode)
     else if (m == QLatin1String("light"))
         setTheme(8);   // Moss Light
     else if (m == QLatin1String("dark"))
-        // v0.6.7: Storm, not Indigo Night. This now matches what the real
-        // application does — System (0) resolves to Moss Light / Storm — so
-        // "--appearance dark" in the demo shows the same theme a user with a
-        // dark desktop actually gets.
-        setTheme(kStormTheme);
+        // Indigo Night (9). This tracks what the real application does —
+        // System (0) resolves to Moss Light / Indigo Night since 2026-08-25 —
+        // so "--appearance dark" in the demo shows the same theme a user with
+        // a dark desktop actually gets. It was Storm from v0.6.7 until then,
+        // for exactly the same reason.
+        setTheme(9);
 }
 
 void ScreenshotDemoController::setWindowSize(const QString &preset)

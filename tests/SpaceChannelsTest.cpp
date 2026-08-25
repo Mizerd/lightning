@@ -1,30 +1,37 @@
-// 2026-08-23 navigation layouts: SpaceChannelModel's flattening of one
-// Space's DIRECT hierarchy.
+// The Channels navigation layout: SpaceChannelModel's flat, GLOBAL list of
+// Space folders.
 //
-// What this suite is really defending — every item is a defect that would
-// look like a working channel list:
+// What this suite defends, and why each item is a defect that would look like
+// a working channel list:
 //
-//  * DIRECT, not transitive. SpaceManager::rebuild() deliberately flattens a
-//    subspace's rooms into every ancestor's membership, so the pre-existing
-//    childRoomsDetailed() returns the whole tree. Building on it showed every
-//    room twice: once under the top-level Space and again under its own
-//    category. The model must read the Space's OWN m.space.child order.
-//  * HIERARCHY order, never activity order. A channel list whose rows move
-//    when someone speaks is not a channel list; a member learns where things
-//    are and they stay there. Unread changes a row's WEIGHT, not its place.
-//  * A collapsed category must still report the activity it is hiding.
-//    Collapsing to save space must not silently mute a group.
-//  * Unjoined children are absent, not placeholder rows. Space Home is where
-//    a join is offered.
-//  * Collapse state is per SPACE, so collapsing "General" in one workspace
-//    does not collapse a same-named category in another.
+//  * IT WORKS AT HOME. The previous design scoped everything to the active
+//    Space and produced nothing without one, so the host silently fell back to
+//    Classic — a user who chose a navigation layout got the other one. There is
+//    no `spaceId` on this model any more, and there is nothing for one to mean.
+//  * FLAT BY SPACE. A subspace is a joined Space like any other and gets its
+//    own folder; it is never a nested category under its parent, and its rooms
+//    are never listed under the parent as well. The parent's folder holds its
+//    DIRECT children and nothing else.
+//  * NOTHING JOINED IS UNREACHABLE. A room with no joined Space parent is in
+//    "Rooms" — DMs included. A room in two Spaces is in both folders, because
+//    that is what "this Space contains it" means.
+//  * ORDER IS STABLE. Spaces follow the rail's arrangement, rooms follow their
+//    Space's `m.space.child` order, and "Rooms" is sorted by name. A channel
+//    list that reorders itself when somebody speaks is not a channel list.
+//  * A COLLAPSED FOLDER STILL REPORTS WHAT IT HIDES, and collapse survives a
+//    rebuild because it is stored, not held in a delegate.
+//  * A SEARCH OPENS EVERYTHING and puts it back. Filtering must not mutate
+//    what the user collapsed.
 #include "models/SpaceChannelModel.h"
 
+#include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
-#include "models/RoomListModel.h"
+#include "spaces/RailLayoutStore.h"
 #include "spaces/SpaceManager.h"
 
+#include <QSettings>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QtTest/QtTest>
 
 namespace {
@@ -75,30 +82,9 @@ public:
     bool canPaginate(const QString &) const override { return false; }
     bool paginating(const QString &) const override { return false; }
 
-    quint64 setSpaceChildSuggested(const QString &spaceId,
-                                   const QString &roomId,
-                                   bool suggested) override
-    {
-        lastSpaceId = spaceId;
-        lastRoomId = roomId;
-        lastSuggested = suggested;
-        if (refuse)
-            return 0;
-        return ++opCounter;
-    }
-    void finishSuggested(quint64 opId, const QString &spaceId,
-                         const QString &roomId, bool suggested, bool ok)
-    {
-        Q_EMIT spaceChildSuggestedFinished(opId, spaceId, roomId, suggested,
-                                           ok);
-    }
-
-    QString lastSpaceId;
-    QString lastRoomId;
-    bool lastSuggested = false;
-    bool refuse = false;
-    quint64 opCounter = 0;
+    void announce() { Q_EMIT roomsChanged(); }
 };
+
 RoomInfo space(const QString &id, const QString &name,
                const QStringList &children,
                const QStringList &parents = {})
@@ -108,24 +94,39 @@ RoomInfo space(const QString &id, const QString &name,
     info.name = name;
     info.isSpace = true;
     info.membership = RoomInfo::Joined;
+    // DIRECT children, in the Space's own m.space.child order.
     info.childRoomIds = children;
     info.parentSpaceIds = parents;
     return info;
 }
 
-RoomInfo channel(const QString &id, const QString &name,
-                 const QStringList &parents, int unread = 0,
-                 int highlight = 0)
+RoomInfo room(const QString &id, const QString &name, int unread = 0,
+              int highlight = 0)
 {
     RoomInfo info;
     info.id = id;
     info.name = name;
     info.isSpace = false;
     info.membership = RoomInfo::Joined;
-    info.parentSpaceIds = parents;
     info.unreadCount = unread;
     info.highlightCount = highlight;
     info.hasUnreadMessages = unread > 0 || highlight > 0;
+    return info;
+}
+
+RoomInfo dm(const QString &id, const QString &name)
+{
+    RoomInfo info = room(id, name);
+    info.isDirect = true;
+    return info;
+}
+
+RoomInfo invite(const QString &id, const QString &name)
+{
+    RoomInfo info;
+    info.id = id;
+    info.name = name;
+    info.membership = RoomInfo::Invited;
     return info;
 }
 
@@ -149,6 +150,11 @@ QStringList kindsOf(const SpaceChannelModel &model)
     return out;
 }
 
+int rowOfName(const SpaceChannelModel &model, const QString &name)
+{
+    return namesOf(model).indexOf(name);
+}
+
 } // namespace
 
 class SpaceChannelsTest : public QObject
@@ -156,634 +162,571 @@ class SpaceChannelsTest : public QObject
     Q_OBJECT
 
 private:
-    /// A Space with two uncategorised channels and one subspace holding two
-    /// more. The subspace's rooms are ALSO reachable transitively from the
-    /// parent, which is exactly the trap.
+    /// Two Spaces, one of which is a SUBSPACE of the other, plus a room in no
+    /// Space at all and a DM. The subspace is the trap: its rooms must appear
+    /// under it and nowhere else, and it must not be nested.
     static QList<RoomInfo> workspace()
     {
         return {
             space(QStringLiteral("!work:x"), QStringLiteral("Work"),
                   { QStringLiteral("!general:x"), QStringLiteral("!random:x"),
                     QStringLiteral("!eng:x") }),
-            channel(QStringLiteral("!general:x"), QStringLiteral("general"),
-                    { QStringLiteral("!work:x") }),
-            channel(QStringLiteral("!random:x"), QStringLiteral("random"),
-                    { QStringLiteral("!work:x") }),
+            room(QStringLiteral("!general:x"), QStringLiteral("general")),
+            room(QStringLiteral("!random:x"), QStringLiteral("random")),
             space(QStringLiteral("!eng:x"), QStringLiteral("Engineering"),
                   { QStringLiteral("!backend:x"), QStringLiteral("!frontend:x") },
                   { QStringLiteral("!work:x") }),
-            channel(QStringLiteral("!backend:x"), QStringLiteral("backend"),
-                    { QStringLiteral("!eng:x") }, /*unread=*/4),
-            channel(QStringLiteral("!frontend:x"), QStringLiteral("frontend"),
-                    { QStringLiteral("!eng:x") }, /*unread=*/0,
-                    /*highlight=*/2),
+            room(QStringLiteral("!backend:x"), QStringLiteral("backend"),
+                 /*unread=*/4),
+            room(QStringLiteral("!frontend:x"), QStringLiteral("frontend"),
+                 /*unread=*/0, /*highlight=*/2),
+            room(QStringLiteral("!lounge:x"), QStringLiteral("lounge")),
+            dm(QStringLiteral("!dm:x"), QStringLiteral("Ada")),
         };
     }
 
-private slots:
-    void withNoSpaceTheModelIsEmpty()
-    {
-        // Home. The model shows NOTHING rather than falling back to every
-        // room: the host falls back to Classic there, and a silent fallback
-        // here would make the Channels layout look like it works at Home.
+    struct Fixture {
         FakeClient client;
-        client.roomList = workspace();
         SpaceManager spaces;
-        spaces.setClient(&client);
-
+        SettingsManager settings;
+        RailLayoutStore layout{ &settings };
         SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        QCOMPARE(model.rowCount(), 0);
-        // ...and that is NOT "this space has no channels".
-        QVERIFY(!model.emptyHierarchy());
-    }
 
-    void directChildrenOnlyNeverTheTransitiveTree()
-    {
-        // THE defect this model exists to avoid. SpaceManager's own
-        // membership is transitive, so a naive implementation lists backend
-        // and frontend at the top level AND under Engineering.
-        FakeClient client;
-        client.roomList = workspace();
-        SpaceManager spaces;
-        spaces.setClient(&client);
-
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        QCOMPARE(namesOf(model),
-                 QStringList({ QStringLiteral("general"),
-                               QStringLiteral("random"),
-                               QStringLiteral("Engineering"),
-                               QStringLiteral("backend"),
-                               QStringLiteral("frontend") }));
-        // Each subspace room appears exactly ONCE.
-        QCOMPARE(namesOf(model).count(QStringLiteral("backend")), 1);
-        QCOMPARE(namesOf(model).count(QStringLiteral("frontend")), 1);
-    }
-
-    void categoriesAreHeadersAndChannelsAreRows()
-    {
-        FakeClient client;
-        client.roomList = workspace();
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        QCOMPARE(kindsOf(model),
-                 QStringList({ QStringLiteral("channel"),
-                               QStringLiteral("channel"),
-                               QStringLiteral("category"),
-                               QStringLiteral("channel"),
-                               QStringLiteral("channel") }));
-        // Indentation: a channel inside a category sits one level in, the
-        // category itself does not.
-        QCOMPARE(model.data(model.index(0, 0),
-                            SpaceChannelModel::DepthRole).toInt(), 0);
-        QCOMPARE(model.data(model.index(2, 0),
-                            SpaceChannelModel::DepthRole).toInt(), 0);
-        QCOMPARE(model.data(model.index(3, 0),
-                            SpaceChannelModel::DepthRole).toInt(), 1);
-    }
-
-    void uncategorisedChannelsComeBeforeTheCategories()
-    {
-        // Element and Sable both do this, and the reason is concrete: with
-        // categories first, a Space whose only uncategorised channel is at
-        // the bottom looks empty until you scroll.
-        FakeClient client;
-        client.roomList = workspace();
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        const QStringList kinds = kindsOf(model);
-        const int firstCategory = kinds.indexOf(QStringLiteral("category"));
-        QVERIFY(firstCategory > 0);
-        for (int i = 0; i < firstCategory; ++i)
-            QCOMPARE(kinds.at(i), QStringLiteral("channel"));
-    }
-
-    void orderIsTheHierarchysNotActivitys()
-    {
-        // `random` has no unread and `general` none either; give `random` a
-        // pile of activity and it must NOT move. This is the property that
-        // makes a channel list learnable.
-        FakeClient client;
-        auto rooms = workspace();
-        for (RoomInfo &room : rooms) {
-            if (room.id == QStringLiteral("!random:x")) {
-                room.unreadCount = 99;
-                room.hasUnreadMessages = true;
-                room.lastActivity = QDateTime::currentDateTime();
-            }
+        void build(const QList<RoomInfo> &rooms)
+        {
+            client.roomList = rooms;
+            spaces.setClient(&client);
+            model.setSettings(&settings);
+            model.setSources(&client, &spaces, &layout);
         }
-        client.roomList = rooms;
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setSpaceId(QStringLiteral("!work:x"));
+    };
 
-        QCOMPARE(namesOf(model).first(), QStringLiteral("general"));
-        QCOMPARE(namesOf(model).at(1), QStringLiteral("random"));
-        // The activity IS reported, just not by moving the row.
-        QCOMPARE(model.data(model.index(1, 0),
-                            SpaceChannelModel::UnreadCountRole).toInt(), 99);
+private Q_SLOTS:
+    void initTestCase()
+    {
+        QVERIFY(m_configHome.isValid());
+        qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+        QCoreApplication::setOrganizationName(
+            QStringLiteral("MatrixClientTests"));
+        QCoreApplication::setApplicationName(
+            QStringLiteral("space-channels-test"));
     }
 
-    void collapsingACategoryHidesItsChannelsButNotItsActivity()
+    void init()
     {
-        FakeClient client;
-        client.roomList = workspace();
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setSpaceId(QStringLiteral("!work:x"));
-        QCOMPARE(model.rowCount(), 5);
+        QSettings settings;
+        settings.clear();
+        settings.sync();
+    }
 
-        model.toggleCategory(QStringLiteral("!eng:x"));
-        QCOMPARE(namesOf(model),
+    // The whole reason this layout was rebuilt. There is no active Space here
+    // and never was one; the column is fully populated anyway.
+    void theLayoutIsGlobalAndNeedsNoActiveSpace()
+    {
+        Fixture f;
+        f.build(workspace());
+        f.model.setMessageSearchSupported(true);
+
+        const QStringList names = namesOf(f.model);
+        QCOMPARE(names.mid(0, 2),
+                 QStringList({ QStringLiteral("Lobby"),
+                               QStringLiteral("Message Search") }));
+        QVERIFY2(names.contains(QStringLiteral("Work")),
+                 "a joined Space is missing with no Space selected");
+        QVERIFY2(names.contains(QStringLiteral("Engineering")),
+                 "a joined SUBSPACE is missing from the flat list");
+        QVERIFY(!f.model.empty());
+        // And the model has no notion of a selected Space to fall back on.
+        QCOMPARE(f.model.property("spaceId").isValid(), false);
+    }
+
+    void everyJoinedSpaceIsAFlatFolderAndSubspacesAreNotNested()
+    {
+        Fixture f;
+        f.build(workspace());
+
+        const QStringList names = namesOf(f.model);
+        const QStringList kinds = kindsOf(f.model);
+        const int work = names.indexOf(QStringLiteral("Work"));
+        const int eng = names.indexOf(QStringLiteral("Engineering"));
+        QVERIFY(work >= 0);
+        QVERIFY(eng >= 0);
+        QCOMPARE(kinds.at(work), QStringLiteral("space"));
+        QCOMPARE(kinds.at(eng), QStringLiteral("space"));
+        // Both folders sit at depth 0: the subspace is a sibling in the
+        // column, not a level inside its parent.
+        QCOMPARE(f.model.data(f.model.index(work, 0),
+                              SpaceChannelModel::DepthRole).toInt(), 0);
+        QCOMPARE(f.model.data(f.model.index(eng, 0),
+                              SpaceChannelModel::DepthRole).toInt(), 0);
+
+        // Work holds only its DIRECT rooms. backend/frontend belong to
+        // Engineering and appear exactly once, under it.
+        QCOMPARE(names.mid(work + 1, 2),
                  QStringList({ QStringLiteral("general"),
-                               QStringLiteral("random"),
-                               QStringLiteral("Engineering") }));
-        QVERIFY(model.categoryCollapsed(QStringLiteral("!eng:x")));
-
-        // The header now carries what it is hiding. Collapsing to save space
-        // must not silently mute the group.
-        const QModelIndex header = model.index(2, 0);
-        QCOMPARE(model.data(header, SpaceChannelModel::CollapsedRole).toBool(),
-                 true);
-        QCOMPARE(model.data(header,
-                            SpaceChannelModel::HiddenUnreadRole).toInt(), 4);
-        QCOMPARE(model.data(header,
-                            SpaceChannelModel::HiddenHighlightRole).toInt(), 2);
-
-        model.toggleCategory(QStringLiteral("!eng:x"));
-        QCOMPARE(model.rowCount(), 5);
-        // Expanded, the rows speak for themselves — a header total on top of
-        // visible badges would double-count what the user can already see.
-        QCOMPARE(model.data(model.index(2, 0),
-                            SpaceChannelModel::HiddenUnreadRole).toInt(), 0);
-    }
-
-    void collapseStateIsScopedToItsSpace()
-    {
-        FakeClient client;
-        auto rooms = workspace();
-        // A second workspace with a subspace of the SAME id shape but a
-        // different id, so a per-name or global collapse set would leak.
-        rooms.append(space(QStringLiteral("!home:x"), QStringLiteral("Home"),
-                           { QStringLiteral("!eng2:x") }));
-        rooms.append(space(QStringLiteral("!eng2:x"),
-                           QStringLiteral("Engineering"),
-                           { QStringLiteral("!ops:x") },
-                           { QStringLiteral("!home:x") }));
-        rooms.append(channel(QStringLiteral("!ops:x"), QStringLiteral("ops"),
-                             { QStringLiteral("!eng2:x") }));
-        client.roomList = rooms;
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-
-        model.setSpaceId(QStringLiteral("!work:x"));
-        model.toggleCategory(QStringLiteral("!eng:x"));
-        QVERIFY(model.categoryCollapsed(QStringLiteral("!eng:x")));
-
-        model.setSpaceId(QStringLiteral("!home:x"));
-        // Its own category is untouched, and coming back preserves the first
-        // Space's choice.
-        QVERIFY(!model.categoryCollapsed(QStringLiteral("!eng2:x")));
-        QCOMPARE(model.rowCount(), 2); // Engineering + ops
-        model.setSpaceId(QStringLiteral("!work:x"));
-        QVERIFY(model.categoryCollapsed(QStringLiteral("!eng:x")));
-    }
-
-    void unjoinedAndSpaceChildrenAreNotChannels()
-    {
-        FakeClient client;
-        auto rooms = workspace();
-        // An invited child and a child the account does not know about at
-        // all. Both are absent — Space Home is where a join is offered, and
-        // a placeholder row here would be a channel that cannot be opened.
-        rooms[0].childRoomIds.append(QStringLiteral("!invited:x"));
-        rooms[0].childRoomIds.append(QStringLiteral("!unknown:x"));
-        RoomInfo invited =
-            channel(QStringLiteral("!invited:x"), QStringLiteral("invited"),
-                    { QStringLiteral("!work:x") });
-        invited.membership = RoomInfo::Invited;
-        rooms.append(invited);
-        client.roomList = rooms;
-
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        QVERIFY(!namesOf(model).contains(QStringLiteral("invited")));
-        QCOMPARE(model.rowCount(), 5);
-    }
-
-    void anEmptySpaceReportsAnEmptyHierarchy()
-    {
-        // Distinct from "no Space selected": the empty states differ, and
-        // conflating them tells the user the wrong thing about what to do.
-        FakeClient client;
-        client.roomList = { space(QStringLiteral("!bare:x"),
-                                  QStringLiteral("Bare"), {}) };
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setSpaceId(QStringLiteral("!bare:x"));
-
-        QCOMPARE(model.rowCount(), 0);
-        QVERIFY(model.emptyHierarchy());
-    }
-
-    void rowForRoomFindsChannelsAndNeverCategories()
-    {
-        FakeClient client;
-        client.roomList = workspace();
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        QCOMPARE(model.rowForRoom(QStringLiteral("!backend:x")), 3);
-        // A category is a Space and never the active room in the timeline
-        // sense; highlighting it would mark a whole group as "where you are".
-        QCOMPARE(model.rowForRoom(QStringLiteral("!eng:x")), -1);
-        QCOMPARE(model.rowForRoom(QStringLiteral("!nope:x")), -1);
-        QCOMPARE(model.rowForRoom(QString()), -1);
-    }
-
-    void switchingSpaceRebuildsAndAnnounces()
-    {
-        FakeClient client;
-        client.roomList = workspace();
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-
-        QSignalSpy counts(&model, &SpaceChannelModel::countChanged);
-        QSignalSpy ids(&model, &SpaceChannelModel::spaceIdChanged);
-        model.setSpaceId(QStringLiteral("!work:x"));
-        QCOMPARE(ids.count(), 1);
-        QVERIFY(counts.count() >= 1);
-        QCOMPARE(model.rowCount(), 5);
-
-        // Re-setting the SAME id must not churn: this is bound to the rail's
-        // active Space, which re-announces on every account event.
-        const int before = ids.count();
-        model.setSpaceId(QStringLiteral("!work:x"));
-        QCOMPARE(ids.count(), before);
-    }
-
-    void aSubspaceCanBeOpenedAsItsOwnRoot()
-    {
-        // Depth stops at one, so a deeper subspace is reached by OPENING the
-        // category — which re-roots this model at it.
-        FakeClient client;
-        auto rooms = workspace();
-        rooms[3].childRoomIds.append(QStringLiteral("!deep:x"));
-        rooms.append(space(QStringLiteral("!deep:x"), QStringLiteral("Deep"),
-                           { QStringLiteral("!nested:x") },
-                           { QStringLiteral("!eng:x") }));
-        rooms.append(channel(QStringLiteral("!nested:x"),
-                             QStringLiteral("nested"),
-                             { QStringLiteral("!deep:x") }));
-        client.roomList = rooms;
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-
-        model.setSpaceId(QStringLiteral("!work:x"));
-        // `nested` is two levels down, so it is NOT flattened in.
-        QVERIFY(!namesOf(model).contains(QStringLiteral("nested")));
-
-        model.setSpaceId(QStringLiteral("!eng:x"));
-        QCOMPARE(namesOf(model),
+                               QStringLiteral("random") }));
+        QCOMPARE(names.count(QStringLiteral("backend")), 1);
+        QCOMPARE(names.count(QStringLiteral("frontend")), 1);
+        QVERIFY(eng > work);
+        QCOMPARE(names.mid(eng + 1, 2),
                  QStringList({ QStringLiteral("backend"),
-                               QStringLiteral("frontend"),
-                               QStringLiteral("Deep"),
-                               QStringLiteral("nested") }));
+                               QStringLiteral("frontend") }));
+        // Rooms inside a folder are indented one step.
+        QCOMPARE(f.model.data(f.model.index(eng + 1, 0),
+                              SpaceChannelModel::DepthRole).toInt(), 1);
     }
 
-    void favouritesAndDirectMessagesAppearAboveTheHierarchy()
+    void roomsWithNoJoinedSpaceParentAreReachableInTheRoomsGroup()
     {
-        // Reported: "in channels mode all list doesn't show people and in
-        // people list doesn't show people, also make sure favourites work in
-        // channels mode too."
-        //
-        // A Space hierarchy cannot contain a DM or a favourite — those belong
-        // to the ACCOUNT — so the Channels layout could not reach a direct
-        // message at all and the People chip had nothing to show.
-        FakeClient client;
-        auto rooms = workspace();
-        RoomInfo dm = channel(QStringLiteral("!dm:x"), QStringLiteral("alice"),
-                              {});
-        dm.isDirect = true;
-        rooms.append(dm);
-        RoomInfo fav = channel(QStringLiteral("!fav:x"),
-                               QStringLiteral("favourite room"), {});
-        fav.isFavourite = true;
-        rooms.append(fav);
-        client.roomList = rooms;
+        Fixture f;
+        f.build(workspace());
 
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        RoomListModel list;
-        list.setClient(&client);
-
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setRoomListModel(&list);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        const QStringList names = namesOf(model);
-        QVERIFY2(names.contains(QStringLiteral("alice")),
-                 qPrintable(QStringLiteral("no DM in: ")
-                                + names.join(QLatin1Char(','))));
-        QVERIFY(names.contains(QStringLiteral("favourite room")));
-        // ...and the Space's own channels are still there.
-        QVERIFY(names.contains(QStringLiteral("general")));
-        QVERIFY(names.contains(QStringLiteral("Engineering")));
-
-        // Group labels, and the account groups come FIRST — the Classic order
-        // is favourites then DMs then rooms, and switching layout must not
-        // rearrange what the user already knows.
-        const QStringList kinds = kindsOf(model);
-        QVERIFY(kinds.contains(QStringLiteral("section")));
-        QCOMPARE(names.indexOf(QStringLiteral("favourite room")) <
-                     names.indexOf(QStringLiteral("alice")), true);
-        QCOMPARE(names.indexOf(QStringLiteral("alice")) <
-                     names.indexOf(QStringLiteral("general")), true);
+        const QStringList names = namesOf(f.model);
+        const int rooms = names.indexOf(QStringLiteral("Rooms"));
+        QVERIFY2(rooms >= 0, "there is no Rooms group");
+        QCOMPARE(kindsOf(f.model).at(rooms), QStringLiteral("group"));
+        // A DM has no Space parent, so it is here — not in a group of its own.
+        // Sorted by name, so the list does not reshuffle between syncs.
+        QCOMPARE(names.mid(rooms + 1, 2),
+                 QStringList({ QStringLiteral("Ada"),
+                               QStringLiteral("lounge") }));
+        QVERIFY2(!names.contains(QStringLiteral("Direct messages")),
+                 "the DM group came back: a DM belongs in Rooms with every "
+                 "other unparented room");
+        QVERIFY2(!names.contains(QStringLiteral("Favourites")),
+                 "the Favourites group came back");
     }
 
-    void aFavouritedDmIsListedOnceNotTwice()
+    void aRoomInTwoSpacesAppearsUnderBoth()
     {
-        FakeClient client;
-        auto rooms = workspace();
-        RoomInfo dm = channel(QStringLiteral("!dm:x"), QStringLiteral("alice"),
-                              {});
-        dm.isDirect = true;
-        dm.isFavourite = true;
-        rooms.append(dm);
-        client.roomList = rooms;
-
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        RoomListModel list;
-        list.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setRoomListModel(&list);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        QCOMPARE(namesOf(model).count(QStringLiteral("alice")), 1);
+        // Matrix permits it, and both Spaces genuinely contain it. Inventing a
+        // first-parent-wins rule would make one of them look incomplete.
+        Fixture f;
+        f.build({
+            space(QStringLiteral("!a:x"), QStringLiteral("Alpha"),
+                  { QStringLiteral("!shared:x") }),
+            space(QStringLiteral("!b:x"), QStringLiteral("Beta"),
+                  { QStringLiteral("!shared:x") }),
+            room(QStringLiteral("!shared:x"), QStringLiteral("shared")),
+        });
+        const QStringList names = namesOf(f.model);
+        QCOMPARE(names.count(QStringLiteral("shared")), 2);
+        // ...and it is NOT also in Rooms, because a Space does list it.
+        QVERIFY(!names.contains(QStringLiteral("Rooms")));
     }
 
-    void theFilterChipsSelectWhichGroupsAppear()
+    void aRoomWhoseOnlySpaceParentIsUnjoinedStaysReachable()
     {
-        FakeClient client;
-        auto rooms = workspace();
-        RoomInfo dm = channel(QStringLiteral("!dm:x"), QStringLiteral("alice"),
-                              {});
-        dm.isDirect = true;
-        rooms.append(dm);
-        client.roomList = rooms;
-
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        RoomListModel list;
-        list.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setRoomListModel(&list);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        // People: DMs only. A channel list is not people, so the hierarchy is
-        // skipped entirely rather than left standing over nothing.
-        model.setFilterMode(1);
-        QVERIFY(namesOf(model).contains(QStringLiteral("alice")));
-        QVERIFY(!namesOf(model).contains(QStringLiteral("general")));
-        QVERIFY(!namesOf(model).contains(QStringLiteral("Engineering")));
-
-        // Rooms: the hierarchy only.
-        model.setFilterMode(2);
-        QVERIFY(!namesOf(model).contains(QStringLiteral("alice")));
-        QVERIFY(namesOf(model).contains(QStringLiteral("general")));
-
-        // Unreads: only rows with something unread. `backend` has 4 unread
-        // and `frontend` 2 mentions in the fixture; `general` has none.
-        model.setFilterMode(3);
-        const QStringList unread = namesOf(model);
-        QVERIFY(unread.contains(QStringLiteral("backend")));
-        QVERIFY(unread.contains(QStringLiteral("frontend")));
-        QVERIFY(!unread.contains(QStringLiteral("general")));
-
-        // All: everything back.
-        model.setFilterMode(0);
-        QVERIFY(namesOf(model).contains(QStringLiteral("alice")));
-        QVERIFY(namesOf(model).contains(QStringLiteral("general")));
-
-        // Out of range clamps to All rather than emptying the list.
-        model.setFilterMode(99);
-        QCOMPARE(model.filterMode(), 0);
+        Fixture f;
+        f.build({
+            // The parent Space is not joined, so it is not in the room list at
+            // all — only the child's own parent pointer names it.
+            [] {
+                RoomInfo info = room(QStringLiteral("!orphan:x"),
+                                     QStringLiteral("orphan"));
+                info.parentSpaceIds = { QStringLiteral("!unknown:x") };
+                return info;
+            }(),
+        });
+        const QStringList names = namesOf(f.model);
+        QVERIFY2(names.contains(QStringLiteral("orphan")),
+                 "a room whose only Space parent is unjoined has no folder to "
+                 "appear in and vanished from the column");
+        QVERIFY(names.contains(QStringLiteral("Rooms")));
     }
 
-    // Reported as "favorites disappear in All when going to Rooms, People and
-    // All". Favourites are ACCOUNT state, not a property of any filter, so the
-    // group is offered under every one of them and the filter decides its
-    // CONTENTS: a favourited room under Rooms, a favourited DM under People.
-    // Gating the whole group on the filter — which is what it used to do for
-    // Rooms — makes the user's pinned block vanish the moment they narrow the
-    // list.
-    void favouritesSurviveEveryFilter()
+    void invitesAreOfferedRatherThanLostToThisLayout()
     {
-        FakeClient client;
-        auto rooms = workspace();
-        RoomInfo favRoom = channel(QStringLiteral("!favroom:x"),
-                                   QStringLiteral("favourite room"), {});
-        favRoom.isFavourite = true;
-        favRoom.hasUnreadMessages = true;
-        rooms.append(favRoom);
-        RoomInfo favDm = channel(QStringLiteral("!favdm:x"),
-                                 QStringLiteral("favourite dm"), {});
-        favDm.isDirect = true;
-        favDm.isFavourite = true;
-        favDm.hasUnreadMessages = true;
-        rooms.append(favDm);
-        client.roomList = rooms;
+        Fixture f;
+        f.build({
+            room(QStringLiteral("!lounge:x"), QStringLiteral("lounge")),
+            invite(QStringLiteral("!invited:x"), QStringLiteral("Newcomers")),
+        });
+        const QStringList names = namesOf(f.model);
+        const int invites = names.indexOf(QStringLiteral("Invites"));
+        QVERIFY2(invites >= 0,
+                 "an invite is unreachable in this layout: Classic is not a "
+                 "fallback any more, so this column is the whole navigation");
+        QCOMPARE(names.at(invites + 1), QStringLiteral("Newcomers"));
+        const int row = rowOfName(f.model, QStringLiteral("Newcomers"));
+        QVERIFY(f.model.data(f.model.index(row, 0),
+                             SpaceChannelModel::IsInviteRole).toBool());
+        // An invite is an action waiting on the user, so it always reads as
+        // unread whatever its counters say — it has none of its own.
+        QVERIFY2(f.model.data(f.model.index(row, 0),
+                              SpaceChannelModel::HasUnreadRole).toBool(),
+                 "an invite reads as a quiet read row");
+        // Invites come before the ordinary rooms.
+        QVERIFY(invites < names.indexOf(QStringLiteral("Rooms")));
 
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        RoomListModel list;
-        list.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setRoomListModel(&list);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        // All: both, under one Favourites heading.
-        QStringList names = namesOf(model);
-        QVERIFY(names.contains(QStringLiteral("Favourites")));
-        QVERIFY(names.contains(QStringLiteral("favourite room")));
-        QVERIFY(names.contains(QStringLiteral("favourite dm")));
-
-        // Rooms: the favourited ROOM is still there. This is the case that
-        // was broken — the group was skipped outright under this filter.
-        model.setFilterMode(2);
-        names = namesOf(model);
-        QVERIFY2(names.contains(QStringLiteral("Favourites")),
-                 "the Favourites group vanished under the Rooms filter");
-        QVERIFY(names.contains(QStringLiteral("favourite room")));
-        // A DM is not a room, so it is correctly absent here.
-        QVERIFY(!names.contains(QStringLiteral("favourite dm")));
-
-        // People: the favourited DM, and not the favourited room.
-        model.setFilterMode(1);
-        names = namesOf(model);
-        QVERIFY(names.contains(QStringLiteral("Favourites")));
-        QVERIFY(names.contains(QStringLiteral("favourite dm")));
-        QVERIFY(!names.contains(QStringLiteral("favourite room")));
-
-        // Unreads: both, because both have something unread in the fixture.
-        model.setFilterMode(3);
-        names = namesOf(model);
-        QVERIFY(names.contains(QStringLiteral("favourite room")));
-        QVERIFY(names.contains(QStringLiteral("favourite dm")));
-
-        // Back to All and they are all still there — the reported symptom was
-        // that they did not come back.
-        model.setFilterMode(0);
-        names = namesOf(model);
-        QVERIFY(names.contains(QStringLiteral("favourite room")));
-        QVERIFY(names.contains(QStringLiteral("favourite dm")));
-    }
-
-    // A group label is a HEADING, and the presenter must render it as one. The
-    // model's job here is to say so: the row's kind is "section", never
-    // "channel", and it carries no room id — a label that reported a room id
-    // would be openable, which is what made "Direct messages" look like a
-    // room row you could not click.
-    void aGroupLabelIsASectionRowWithNoRoomId()
-    {
-        FakeClient client;
-        auto rooms = workspace();
-        RoomInfo dm = channel(QStringLiteral("!dm:x"), QStringLiteral("alice"),
-                              {});
-        dm.isDirect = true;
-        rooms.append(dm);
-        client.roomList = rooms;
-
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        RoomListModel list;
-        list.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setRoomListModel(&list);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        bool sawSection = false;
-        for (int i = 0; i < model.rowCount(); ++i) {
-            const QModelIndex index = model.index(i, 0);
-            const QString name =
-                model.data(index, SpaceChannelModel::NameRole).toString();
-            if (name != QStringLiteral("Direct messages"))
-                continue;
-            sawSection = true;
-            QCOMPARE(model.data(index, SpaceChannelModel::KindRole).toString(),
-                     QStringLiteral("section"));
-            QVERIFY(model.data(index, SpaceChannelModel::RoomIdRole)
-                        .toString().isEmpty());
+        // ...and it survives every filter chip, exactly as in Classic: it
+        // needs action regardless of the view, and pressing People or Rooms is
+        // not a request to hide one.
+        for (int mode = 0; mode <= 3; ++mode) {
+            f.model.setFilterMode(mode);
+            QVERIFY2(namesOf(f.model).contains(QStringLiteral("Newcomers")),
+                     qPrintable(QStringLiteral("filter %1 hid an invite")
+                                    .arg(mode)));
         }
-        QVERIFY2(sawSection, "no Direct messages group was produced at all");
+        f.model.setFilterMode(0);
+
+        // A collapsed Invites group still says something is waiting, even
+        // though an invite carries no unread count to sum.
+        f.model.toggleCollapsed(SpaceChannelModel::invitesGroupId());
+        const int header = rowOfName(f.model, QStringLiteral("Invites"));
+        QVERIFY(header >= 0);
+        QVERIFY(!namesOf(f.model).contains(QStringLiteral("Newcomers")));
+        QVERIFY2(f.model.data(f.model.index(header, 0),
+                              SpaceChannelModel::HiddenUnreadRole).toInt() > 0,
+                 "collapsing the Invites group hid the fact that an invite is "
+                 "waiting");
     }
 
-    void anEmptyGroupDropsItsOwnHeader()
+    void spaceOrderFollowsTheRailArrangement()
     {
-        // A "Favourites" label over nothing is worse than no label.
-        FakeClient client;
-        client.roomList = workspace();   // no DMs, no favourites
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        RoomListModel list;
-        list.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setRoomListModel(&list);
-        model.setSpaceId(QStringLiteral("!work:x"));
+        Fixture f;
+        f.client.roomList = {
+            space(QStringLiteral("!a:x"), QStringLiteral("Alpha"),
+                  { QStringLiteral("!ra:x") }),
+            space(QStringLiteral("!b:x"), QStringLiteral("Beta"),
+                  { QStringLiteral("!rb:x") }),
+            space(QStringLiteral("!c:x"), QStringLiteral("Gamma"),
+                  { QStringLiteral("!rc:x") }),
+            room(QStringLiteral("!ra:x"), QStringLiteral("ra")),
+            room(QStringLiteral("!rb:x"), QStringLiteral("rb")),
+            room(QStringLiteral("!rc:x"), QStringLiteral("rc")),
+        };
+        f.spaces.setClient(&f.client);
+        f.model.setSettings(&f.settings);
+        // The user's rail order, with one Space inside a folder.
+        const QString folder = f.layout.createFolder(QStringLiteral("Work"));
+        f.layout.setSpaceFolder(QStringLiteral("!c:x"), folder);
+        f.layout.setTopLevelOrder({ QStringLiteral("!b:x"), folder,
+                                    QStringLiteral("!a:x") });
+        f.model.setSources(&f.client, &f.spaces, &f.layout);
 
-        QVERIFY(!namesOf(model).contains(QStringLiteral("Favourites")));
-        QVERIFY(!namesOf(model).contains(QStringLiteral("Direct messages")));
-        // With nothing above it, the hierarchy needs no "Channels" label
-        // either — it is the whole list.
-        QVERIFY(!namesOf(model).contains(QStringLiteral("Channels")));
-        QVERIFY(!kindsOf(model).contains(QStringLiteral("section")));
-    }
-
-    void aFilterThatMatchesNothingIsNotAnEmptySpace()
-    {
-        // "This space has no channels yet" is a fact about the SPACE. A
-        // filter that matched nothing is a fact about the filter, and saying
-        // the first sends the user looking for a problem that is not there.
-        FakeClient client;
-        client.roomList = workspace();
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        RoomListModel list;
-        list.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setRoomListModel(&list);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        model.setFilterMode(1);   // People, and there are none
-        QCOMPARE(model.rowCount(), 0);
-        QVERIFY(!model.emptyHierarchy());
-    }
-
-    void encryptionIsOnlyReportedWhenItIsKnown()
-    {
-        // The channel row draws a LOCK for this. A lock on a room whose
-        // state has not resolved would claim encryption as a fact.
-        FakeClient client;
-        auto rooms = workspace();
-        for (RoomInfo &room : rooms) {
-            if (room.id == QStringLiteral("!general:x")) {
-                room.encrypted = true;
-                room.encryptionKnown = true;
-            } else if (room.id == QStringLiteral("!random:x")) {
-                room.encrypted = true;
-                room.encryptionKnown = false; // not established yet
+        QStringList spaceNames;
+        for (const QString &name : namesOf(f.model)) {
+            if (name == QLatin1String("Alpha") || name == QLatin1String("Beta")
+                || name == QLatin1String("Gamma")) {
+                spaceNames.append(name);
             }
         }
-        client.roomList = rooms;
-        SpaceManager spaces;
-        spaces.setClient(&client);
-        SpaceChannelModel model;
-        model.setSpaceManager(&spaces);
-        model.setSpaceId(QStringLiteral("!work:x"));
-
-        QCOMPARE(model.data(model.index(0, 0),
-                            SpaceChannelModel::EncryptedRole).toBool(), true);
-        QCOMPARE(model.data(model.index(1, 0),
-                            SpaceChannelModel::EncryptedRole).toBool(), false);
+        QCOMPARE(spaceNames, QStringList({ QStringLiteral("Beta"),
+                                           QStringLiteral("Gamma"),
+                                           QStringLiteral("Alpha") }));
     }
+
+    // Clicking a Space in the rail NARROWS the column to it. Without this it
+    // showed every Space whatever you clicked, so picking one did nothing
+    // visible — reported as "clicking a space basically does nothing".
+    void selectingASpaceNarrowsTheColumnToItAndItsSubspaces()
+    {
+        Fixture f;
+        f.build(workspace());
+        f.model.setMessageSearchSupported(true);
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("Rooms")));
+
+        f.model.setScopeSpaceId(QStringLiteral("!work:x"));
+        const QStringList names = namesOf(f.model);
+        // The Space and its subspace, and nothing about the rest of the
+        // account: the two account-wide groups are statements about the whole
+        // account and repeating them under a Space is the complaint.
+        QVERIFY(names.contains(QStringLiteral("Work")));
+        QVERIFY2(names.contains(QStringLiteral("Engineering")),
+                 "a subspace of the selected Space is missing");
+        QVERIFY2(!names.contains(QStringLiteral("Rooms")),
+                 "the account-wide Rooms group survived the scope");
+        QVERIFY2(!names.contains(QStringLiteral("Ada")),
+                 "a DM that belongs to no Space survived the scope");
+        QVERIFY(names.contains(QStringLiteral("general")));
+        QVERIFY(names.contains(QStringLiteral("backend")));
+        // A subspace is still a FLAT folder, not a level: this is a narrower
+        // view of the same layout, not the old nested one.
+        const int eng = names.indexOf(QStringLiteral("Engineering"));
+        QCOMPARE(f.model.data(f.model.index(eng, 0),
+                              SpaceChannelModel::DepthRole).toInt(), 0);
+        // Lobby is still one row away, which is what makes the scope escapable.
+        QCOMPARE(names.at(0), QStringLiteral("Lobby"));
+        // ...and an empty account is still not claimed.
+        QVERIFY(!f.model.empty());
+
+        // Lobby clears it.
+        f.model.setScopeSpaceId(QString());
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("Rooms")));
+    }
+
+    void aPseudoRailRowScopesNothing()
+    {
+        // "" is Home and "@orphans" is "Other rooms". Neither is a Space, and
+        // scoping to one would empty the column.
+        Fixture f;
+        f.build(workspace());
+        const int all = f.model.rowCount();
+        f.model.setScopeSpaceId(QStringLiteral("@orphans"));
+        QCOMPARE(f.model.scopeSpaceId(), QString());
+        QCOMPARE(f.model.rowCount(), all);
+        f.model.setScopeSpaceId(QString());
+        QCOMPARE(f.model.rowCount(), all);
+    }
+
+    void aScopeOnASpaceTheAccountNoLongerHasFallsBackToEverything()
+    {
+        // Left the Space while it was selected. An empty column would look
+        // like the account had nothing in it.
+        Fixture f;
+        f.build(workspace());
+        f.model.setScopeSpaceId(QStringLiteral("!gone:x"));
+        const QStringList names = namesOf(f.model);
+        QVERIFY(names.contains(QStringLiteral("Work")));
+        QVERIFY(names.contains(QStringLiteral("Rooms")));
+    }
+
+    void aCollapsedFolderHidesItsRoomsButNotItsActivity()
+    {
+        Fixture f;
+        f.build(workspace());
+
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("backend")));
+        f.model.toggleCollapsed(QStringLiteral("!eng:x"));
+        QVERIFY(f.model.isCollapsed(QStringLiteral("!eng:x")));
+
+        const QStringList names = namesOf(f.model);
+        QVERIFY2(!names.contains(QStringLiteral("backend")),
+                 "collapsing did not hide the rooms");
+        QVERIFY(names.contains(QStringLiteral("Engineering")));
+        const int eng = names.indexOf(QStringLiteral("Engineering"));
+        // 4 unread in backend, 2 mentions in frontend.
+        QCOMPARE(f.model.data(f.model.index(eng, 0),
+                              SpaceChannelModel::HiddenUnreadRole).toInt(), 4);
+        QCOMPARE(f.model.data(f.model.index(eng, 0),
+                              SpaceChannelModel::HiddenHighlightRole).toInt(),
+                 2);
+        QVERIFY(f.model.data(f.model.index(eng, 0),
+                             SpaceChannelModel::CollapsedRole).toBool());
+
+        // Expanded again, the header reports nothing: the rows carry their own
+        // badges and a total on top would double-count what is visible.
+        f.model.toggleCollapsed(QStringLiteral("!eng:x"));
+        const int engOpen = rowOfName(f.model, QStringLiteral("Engineering"));
+        QCOMPARE(f.model.data(f.model.index(engOpen, 0),
+                              SpaceChannelModel::HiddenUnreadRole).toInt(), 0);
+    }
+
+    void collapseStateSurvivesARebuildAndAReload()
+    {
+        // The old implementation kept collapse in memory keyed by the active
+        // Space. With no active Space and rows rebuilt on every arriving
+        // message, in-memory-only state is state the user loses constantly.
+        Fixture f;
+        f.build(workspace());
+        f.model.toggleCollapsed(QStringLiteral("!work:x"));
+        QVERIFY(!namesOf(f.model).contains(QStringLiteral("general")));
+
+        // A room update rebuilds the rows.
+        f.client.roomList[1].unreadCount = 3;
+        f.client.announce();
+        QVERIFY2(!namesOf(f.model).contains(QStringLiteral("general")),
+                 "the collapse was lost on a rebuild");
+
+        // And a fresh model over the same settings still knows.
+        SpaceChannelModel reopened;
+        reopened.setSettings(&f.settings);
+        reopened.setSources(&f.client, &f.spaces, &f.layout);
+        QVERIFY(reopened.isCollapsed(QStringLiteral("!work:x")));
+        QVERIFY(!namesOf(reopened).contains(QStringLiteral("general")));
+    }
+
+    void aSearchOpensEveryFolderAndPutsThemBack()
+    {
+        Fixture f;
+        f.build(workspace());
+        f.model.setMessageSearchSupported(true);
+        f.model.toggleCollapsed(QStringLiteral("!eng:x"));
+        QVERIFY(!namesOf(f.model).contains(QStringLiteral("backend")));
+
+        f.model.setSearchQuery(QStringLiteral("back"));
+        const QStringList found = namesOf(f.model);
+        QVERIFY2(found.contains(QStringLiteral("backend")),
+                 "a room inside a collapsed folder is not findable");
+        QVERIFY2(found.contains(QStringLiteral("Engineering")),
+                 "the match lost the folder that gives it context");
+        QVERIFY2(!found.contains(QStringLiteral("general")),
+                 "a non-matching room survived the search");
+        // Navigation rows step aside while searching: they match nothing and
+        // would be two dead entries above the results.
+        QVERIFY(!found.contains(QStringLiteral("Lobby")));
+        QVERIFY(!found.contains(QStringLiteral("Message Search")));
+        // A folder with no match at all is dropped entirely.
+        QVERIFY(!found.contains(QStringLiteral("Rooms")));
+
+        // Clearing restores exactly what was collapsed before: filtering must
+        // not mutate the collapse state.
+        f.model.setSearchQuery(QString());
+        QVERIFY(f.model.isCollapsed(QStringLiteral("!eng:x")));
+        QVERIFY(!namesOf(f.model).contains(QStringLiteral("backend")));
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("general")));
+    }
+
+    void theFilterChipsSelectRoomsWithoutClaimingTheAccountIsEmpty()
+    {
+        Fixture f;
+        f.build(workspace());
+
+        f.model.setFilterMode(1);   // People
+        const QStringList people = namesOf(f.model);
+        QVERIFY(people.contains(QStringLiteral("Ada")));
+        QVERIFY(!people.contains(QStringLiteral("general")));
+        // A filter that matched little is NOT an empty account, and the empty
+        // state must not claim it is.
+        QVERIFY2(!f.model.empty(),
+                 "a filter's result was reported as the account having "
+                 "nothing");
+
+        f.model.setFilterMode(2);   // Rooms
+        const QStringList rooms = namesOf(f.model);
+        QVERIFY(!rooms.contains(QStringLiteral("Ada")));
+        QVERIFY(rooms.contains(QStringLiteral("general")));
+
+        f.model.setFilterMode(3);   // Unreads
+        const QStringList unread = namesOf(f.model);
+        QVERIFY(unread.contains(QStringLiteral("backend")));
+        QVERIFY(!unread.contains(QStringLiteral("general")));
+    }
+
+    void theMessageSearchRowIsAbsentWhenTheServerCannotSearch()
+    {
+        Fixture f;
+        f.build(workspace());
+        QVERIFY2(!namesOf(f.model).contains(QStringLiteral("Message Search")),
+                 "a dead search row is offered on a server that cannot search");
+        f.model.setMessageSearchSupported(true);
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("Message Search")));
+    }
+
+    void navigationRowsCarryNoRoomIdAndCannotBeOpenedAsRooms()
+    {
+        Fixture f;
+        f.build(workspace());
+        f.model.setMessageSearchSupported(true);
+        for (int i = 0; i < 2; ++i) {
+            const QString kind =
+                f.model.data(f.model.index(i, 0),
+                             SpaceChannelModel::KindRole).toString();
+            QVERIFY(kind == QLatin1String("lobby")
+                    || kind == QLatin1String("search"));
+            QVERIFY2(f.model.data(f.model.index(i, 0),
+                                  SpaceChannelModel::RoomIdRole)
+                         .toString().isEmpty(),
+                     "a navigation row carries a room id, so something will "
+                     "eventually try to open it");
+        }
+        // A group's synthetic id can never collide with a room id.
+        QVERIFY(SpaceChannelModel::roomsGroupId().startsWith(QLatin1Char('@')));
+        QVERIFY(SpaceChannelModel::invitesGroupId()
+                    .startsWith(QLatin1Char('@')));
+    }
+
+    void rowForRoomNeverMatchesAFolderOrAGroup()
+    {
+        Fixture f;
+        f.build(workspace());
+        QVERIFY(f.model.rowForRoom(QStringLiteral("!general:x")) >= 0);
+        // Highlighting a folder as "the room you are in" would mark the whole
+        // group.
+        QCOMPARE(f.model.rowForRoom(QStringLiteral("!work:x")), -1);
+        QCOMPARE(f.model.rowForRoom(SpaceChannelModel::roomsGroupId()), -1);
+        QCOMPARE(f.model.rowForRoom(QString()), -1);
+    }
+
+    void unreadStateChangesInPlaceRatherThanResettingTheWholeColumn()
+    {
+        // A reset tears down and rebuilds every delegate — and its avatar
+        // fetch — on every arriving message, which for a column this long is
+        // visible. The rows did not move, so this must be a dataChanged.
+        Fixture f;
+        f.build(workspace());
+        QSignalSpy resets(&f.model, &QAbstractItemModel::modelReset);
+        QSignalSpy changes(&f.model, &QAbstractItemModel::dataChanged);
+
+        f.client.roomList[1].unreadCount = 7;
+        f.client.roomList[1].hasUnreadMessages = true;
+        f.client.announce();
+
+        QCOMPARE(resets.count(), 0);
+        QVERIFY(changes.count() >= 1);
+        const int row = rowOfName(f.model, QStringLiteral("general"));
+        QCOMPARE(f.model.data(f.model.index(row, 0),
+                              SpaceChannelModel::UnreadCountRole).toInt(), 7);
+    }
+
+    void anEncryptedRoomOnlyClaimsEncryptionItKnowsAbout()
+    {
+        Fixture f;
+        QList<RoomInfo> rooms = {
+            space(QStringLiteral("!s:x"), QStringLiteral("Space"),
+                  { QStringLiteral("!known:x"), QStringLiteral("!unknown:x") }),
+            room(QStringLiteral("!known:x"), QStringLiteral("known")),
+            room(QStringLiteral("!unknown:x"), QStringLiteral("unknown")),
+        };
+        rooms[1].encrypted = true;
+        rooms[1].encryptionKnown = true;
+        rooms[2].encrypted = true;
+        rooms[2].encryptionKnown = false;
+        f.build(rooms);
+
+        const int known = rowOfName(f.model, QStringLiteral("known"));
+        const int unknown = rowOfName(f.model, QStringLiteral("unknown"));
+        QVERIFY(f.model.data(f.model.index(known, 0),
+                             SpaceChannelModel::EncryptedRole).toBool());
+        QVERIFY2(!f.model.data(f.model.index(unknown, 0),
+                               SpaceChannelModel::EncryptedRole).toBool(),
+                 "the lock glyph is a claim: 'not established yet' must not "
+                 "be drawn as encrypted");
+    }
+
+    void anEmptyAccountSaysSoAndAnEmptyFilterDoesNot()
+    {
+        Fixture f;
+        f.build({});
+        QVERIFY(f.model.empty());
+        QCOMPARE(f.model.rowCount(), 1);   // Lobby only
+        QCOMPARE(kindsOf(f.model), QStringList{ QStringLiteral("lobby") });
+    }
+
+    void anAccountChangeMakesTheCollapseStateBeReReadNotKept()
+    {
+        // The collapse set is ACCOUNT-SCOPED storage (the same per-account
+        // appearance path every other Appearance choice uses), so a sign-out
+        // or a switch must drop the in-memory copy and read whoever is next —
+        // keeping it would apply one account's collapsed folders to another
+        // account's rooms.
+        //
+        // Proven by moving the STORED value out from under the model and then
+        // announcing the account change: if the cache were kept, the stale
+        // answer would survive.
+        Fixture f;
+        f.build(workspace());
+        f.model.toggleCollapsed(QStringLiteral("!work:x"));
+        QVERIFY(f.model.isCollapsed(QStringLiteral("!work:x")));
+
+        SpaceChannelModel other;
+        other.setSettings(&f.settings);
+        other.setSources(&f.client, &f.spaces, &f.layout);
+        other.toggleCollapsed(QStringLiteral("!work:x"));
+        QVERIFY(!other.isCollapsed(QStringLiteral("!work:x")));
+        // The first model has not noticed: it is still on its own cache.
+        QVERIFY(f.model.isCollapsed(QStringLiteral("!work:x")));
+
+        f.client.logout();
+        QVERIFY2(!f.model.isCollapsed(QStringLiteral("!work:x")),
+                 "the in-memory collapse set survived an account change, so "
+                 "the previous account's collapsed folders describe the next "
+                 "account's rooms");
+    }
+
+private:
+    QTemporaryDir m_configHome;
 };
 
 QTEST_MAIN(SpaceChannelsTest)

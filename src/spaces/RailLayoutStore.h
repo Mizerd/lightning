@@ -28,6 +28,12 @@ class RailLayoutStore : public QObject
 
     // [{ id, name, collapsed, spaceIds }] in rail order.
     Q_PROPERTY(QVariantList folders READ folders NOTIFY layoutChanged)
+    // The Spaces whose subspace hierarchy is expanded in the rail. Persisted,
+    // as Element persists its own Space-panel expansion: an expansion is a
+    // statement about how you want to navigate, not a transient glance, and
+    // losing it on every restart is what made the rail feel flat.
+    Q_PROPERTY(QStringList expandedSpaceIds READ expandedSpaceIds
+                   NOTIFY layoutChanged)
     // Explicit top-level order. Ids not listed sort after it, in the order the
     // model supplies them, so a newly joined Space appears at the bottom
     // rather than jumping into the middle of a hand-made arrangement.
@@ -39,9 +45,34 @@ public:
 
     QVariantList folders() const;
     QStringList order() const;
+    QStringList expandedSpaceIds() const;
+    Q_INVOKABLE bool spaceExpanded(const QString &spaceId) const;
+    Q_INVOKABLE void setSpaceExpanded(const QString &spaceId, bool expanded);
+    Q_INVOKABLE void toggleSpaceExpanded(const QString &spaceId);
+    // The members of one folder, in its own order. Empty for an unknown id —
+    // which is not the same answer as "an empty folder", so callers that need
+    // to tell them apart ask `folders()`.
+    Q_INVOKABLE QStringList folderMembers(const QString &folderId) const;
 
     // Creates a folder and returns its id, or "" when the limit is reached.
     Q_INVOKABLE QString createFolder(const QString &name);
+    // The drag gesture's folder creation: one Space dropped onto another.
+    // Atomic on purpose — a create, two files and a reposition as four
+    // separate writes is four saves, four layoutChanged signals and four
+    // chances for the rail to re-arrange under the pointer mid-gesture.
+    // The folder takes `atIndex` in the top-level order (clamped; -1 appends)
+    // and `spaceIds` become its members in the given order. Returns the new
+    // folder id, or "" when the folder limit is reached or nothing valid was
+    // supplied.
+    Q_INVOKABLE QString createFolderWithSpaces(const QStringList &spaceIds,
+                                               int atIndex,
+                                               const QString &name);
+    // Files `spaceId` into `folderId` AT a position among its members
+    // (clamped; -1 appends). setSpaceFolder always appends, which is right
+    // for the context menu and wrong for a drag that landed between two
+    // members.
+    Q_INVOKABLE void moveSpaceToFolder(const QString &spaceId,
+                                       const QString &folderId, int index);
     Q_INVOKABLE void renameFolder(const QString &folderId, const QString &name);
     // The folder goes; its Spaces return to the top level, in place.
     Q_INVOKABLE void deleteFolder(const QString &folderId);
@@ -62,6 +93,35 @@ public:
     // never been dragged are still implicit. Pseudo ids and duplicates are
     // dropped; ids belonging to a folder are ignored.
     Q_INVOKABLE void setTopLevelOrder(const QStringList &entryIds);
+
+    // ONE atomic write of the whole arrangement, which is what a finished
+    // drag actually produces: the rail knows every top-level entry it is
+    // showing and every member of every OPEN folder, so committing that
+    // picture in one call is both simpler and safer than a sequence of
+    // unfile / file / reorder writes whose intermediate states are each
+    // published to the rail.
+    //
+    // `topLevel` is the ordered list of top-level entry ids (space ids and
+    // folder ids). `folderMembers` maps folder id -> ordered member space
+    // ids, and must name ONLY folders whose members the caller actually
+    // rendered: a folder left out keeps its members (minus anything the call
+    // placed elsewhere), so a COLLAPSED folder cannot be emptied by a drag
+    // that never showed its contents.
+    //
+    // Pseudo ids, unknown folder ids and duplicates are dropped. A space
+    // named as a folder member is removed from the top level even if
+    // `topLevel` also lists it, because a Space is in at most one place.
+    Q_INVOKABLE void applyArrangement(const QStringList &topLevel,
+                                      const QVariantMap &folderMembers);
+
+    // Every Space id in rail order — the user's order, with each folder's
+    // members inline where the folder sits, whether or not it is collapsed.
+    //
+    // This is the Channels layout's Space order. `arrange()` cannot answer
+    // it: that is a PRESENTATION list and deliberately hides a collapsed
+    // folder's members, which for an ordering question would silently drop
+    // Spaces.
+    Q_INVOKABLE QStringList orderedSpaceIds(const QVariantList &spaces) const;
 
     // Presentation. Takes the model's Spaces (each a map carrying at least
     // `spaceId`) and returns the rail's rows: pseudo rows first, exactly as
@@ -87,11 +147,24 @@ private:
         QString name;
         bool collapsed = false;
         QStringList spaceIds;
+
+        // Needed so a mutation can compare the whole layout it produced
+        // against the one it loaded and decline to write when nothing moved.
+        // A no-op save is a QSettings write plus a layoutChanged the rail
+        // rebuilds itself for.
+        bool operator==(const Folder &other) const
+        {
+            return id == other.id && name == other.name
+                   && collapsed == other.collapsed
+                   && spaceIds == other.spaceIds;
+        }
+        bool operator!=(const Folder &other) const { return !(*this == other); }
     };
 
     struct Layout {
         QList<Folder> folders;
         QStringList order;   // top-level entry ids: space ids and folder ids
+        QStringList expanded;   // space ids whose subspaces are revealed
     };
 
     const Layout &load() const;

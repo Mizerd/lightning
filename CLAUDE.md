@@ -398,6 +398,60 @@ backend capability checks and honest live-test status.
 
 - Joined rooms, DM detection from `m.direct`, invites, Space hierarchy, room
   membership/actions, room information, and room creation
+- **Two navigation layouts, chosen per account** (Settings → Appearance →
+  Conversation list), plus the Spaces rail above both. Full contract in
+  `docs/navigation-layouts.md`; read it before touching any of this. The
+  load-bearing parts:
+  * **Classic** — one activity-ordered conversation list. The default and the
+    clamp target for an out-of-range stored value, because it works in an
+    account with no Spaces at all.
+  * **Channels** — Sable's model: Lobby, Message Search, an Invites group, a
+    "Rooms" group for every joined room no Space folder lists (DMs included),
+    then EVERY joined Space as a flat collapsible folder of its DIRECT child
+    rooms. It no longer falls back to Classic at Home — a layout that becomes
+    the other layout depending on where you are is not a layout. The rail's
+    selection NARROWS it (`scopeSpaceId`: that Space and its subspaces, with
+    the account-wide groups dropped) rather than deciding whether it renders;
+    Lobby clears the scope and is always the first row. Subspaces are NOT
+    nested; a subspace is a Space folder at the same level. A room in two
+    Spaces appears under both. Rows carry the room's AVATAR (the lock/DM glyph
+    is a corner badge, not a replacement). Order is the rail's arrangement for
+    Spaces and `m.space.child` for rooms — never activity.
+  * **The rail's drag** lives in `RailEntryModel`, a real QAbstractListModel
+    emitting `beginMoveRows`, so a preview reorder ANIMATES and the delegate
+    holding the gesture survives a refresh. A JS array rebuilt per change is a
+    model reset and could do neither. Nothing is written until release. THE
+    TILE ITSELF MOVES — full opacity, following the pointer, neighbours
+    animating around it; the first revision's dimmed gap, insertion line and
+    floating proxy were all cut on testing ("spaces should always be their
+    normal image and move freely without a line appearing between them").
+    `endDrag` ANNOUNCES the cleared drag flags: `refresh()` may find the rows
+    identical and emit nothing, which left a released tile dimmed until an
+    unrelated room update happened along. Held over a Space or folder = GROUP
+    (target ringed), gated on a dead zone AND a dwell so dragging through a
+    tile cannot make a folder.
+  * **A whole Space can be muted** from the rail menu. Matrix has no primitive
+    — a Space is a room with no timeline — so `setSpaceMuted` sets each member
+    room's mode through the one per-room path. Unmute restores FOLLOW THE
+    ACCOUNT DEFAULT, never "all messages".
+  * **Local Space folders** are device-local organisation and touch NO Matrix
+    state — banned by contract test, not by convention. Dropping one Space
+    onto another creates a folder where the target was; folders never nest.
+    The stored format is ADDITIVE, so a 0.7.6 layout loads with its folders,
+    membership, order and collapse intact.
+  * **Matrix subspaces** are the real hierarchy: only ROOT Spaces sit at the
+    rail's top level, a subspace nests under its expanded parent at its REAL
+    depth (was a hardcoded 0-or-1 approximation), and a subspace row is not
+    draggable because its position is Matrix's. Several parents → nested under
+    exactly one, deterministically; cycles → every Space stays reachable as a
+    root; parent links only one side reports → resolved from the union.
+- **`RoomInfo::childRoomIds` is DIRECT children in `m.space.child` order** on
+  every backend. The Rust backend used to fill it from its payload's
+  `descendants` (the TRANSITIVE closure), so everything that needed the
+  admin's structure saw one flat run of the whole tree — the mock and HTTP
+  backends were right, which is exactly why no test caught it.
+  `enqueue_spaces` now emits `children` read from each Space's own state,
+  ordered by the spec's comparator; `descendants` remains a fallback.
 - Quick switching across rooms, direct messages, Spaces, invites, threads
 - Activity ordering, unread state/navigation, first-unread and latest jumps,
   threaded receipts, and local marked-unread behavior
@@ -518,6 +572,24 @@ backend capability checks and honest live-test status.
   upload, encryption alongside the payload, the thumbnail fields on the
   `m.video` event. Nothing in C++ builds thumbnail content or encrypts
   anything. Live Element interop of sent posters: NOT TESTED
+- **Element-style Hide image / Show image**, on image and sticker rows only.
+  PURELY LOCAL: nothing is redacted, edited, deleted or sent, no other client
+  sees anything, and `MediaVisibilityStore` reaches no MatrixClient, no
+  SettingsManager and no QSettings (asserted). THE contract is GEOMETRY —
+  `MediaHiddenPlaceholder` fills the media box and contributes no implicit
+  size, so the row keeps the exact rectangle the picture reserved and the
+  timeline does not move; a text row in its place would jump every message
+  above it. State is keyed by media identity in the STORE, never in the
+  delegate (a timeline row is destroyed the moment it leaves the cache
+  buffer). **Session-only, deliberately**: no Matrix standard exists, a hidden
+  image the user has forgotten is content they cannot find, and there is no
+  hidden-media list to un-hide from — bounded at 4096 keys, and the cap
+  releases the OLDEST rather than refusing the newest. Hiding starts NO fetch
+  and removes nothing from the cache; the `Image` source is CLEARED (an Image
+  with a source still holds the decoded pixmap) and a hidden GIF stops
+  animating. Hide is on the action bar and in the menu; once hidden the
+  placeholder's Show image is the only control, because a second control
+  offering to hide what is already hidden is noise. Live validation NOT TESTED
 - Backward pagination and retry, stable navigation, loaded-timeline search,
   message links/permalinks, message details, context menus, sender profiles
 - Link previews with encrypted-room privacy controls and security validation
@@ -642,8 +714,15 @@ were never backed up or shared.
 
 - Eleven complete semantic themes (ids 1–11): Lightning Light, Lightning
   Dark, Graphite, Midnight, Nordic, Purple Dusk, Warm, the design-handoff
-  Moss Light / Indigo Night / Deep Teal, and Storm (11), the brand theme,
-  first in the picker; System (0) resolves to Moss Light / Storm.
+  Moss Light / Indigo Night / Deep Teal, and Storm (11), the brand theme.
+  **Indigo Night is the flagship** (2026-08-25, maintainer's call): it leads
+  the featured cards and System (0) resolves to Moss Light / Indigo Night.
+  Storm stays a featured card, fourth, and stays the shell's own chrome. An
+  explicitly persisted id is never rerouted, so changing what System means
+  touches nobody's stored choice. The identity discs damp the magenta wedge
+  (290-350 degrees, saturation x0.55) so a cool accent stops producing pink
+  fallback avatars; hues are unmoved, so per-theme families and the dE 19.7
+  all-pairs separation are unchanged.
   AppTheme.qml is the sole token source; the theme test enforces palette
   completeness, routing, and WCAG AA pairs. The storm* namespace (menus,
   popovers, Settings) is theme-ROUTED: Storm literals under theme 11, each
@@ -1403,6 +1482,113 @@ their index explicitly.
 
 Lessons only; features are described in §7, SHAs point into `git log`.
 
+**2026-08-25 Spaces / Channels / hide-image round.** Full contract in
+`docs/navigation-layouts.md`; read it before touching any of this lane. The
+lessons worth carrying:
+
+*A JS array bound to a ListView is a model RESET on every change, and that
+costs two things at once.* The rail's rows were `railEntries = arrange(...)`, a
+plain array reassigned whenever the model or the layout changed. So a reorder
+could not animate (no `move`, no `displaced` — a reset has neither) AND the
+delegate holding a live drag was destroyed the moment anything refreshed. Both
+halves of the report — "it works, but it's kinda hard to tell exactly where you
+are moving them" — have that one cause, and no amount of feedback drawn on top
+would have fixed either. **GENERALISE: if rows must MOVE, the model has to be
+able to say so.** `RailEntryModel` emits a real `beginMoveRows`, defers any
+refresh that arrives mid-gesture, and writes settings exactly once, on release.
+
+*Two gestures a few pixels apart need a dead zone AND a dwell.* "Between two
+Spaces" (reorder) and "onto a Space" (make a folder) are separated by about
+12 px. A dead zone alone is not enough: dragging slowly through a tile's centre
+on the way somewhere else still arms the group gesture. A 320 ms dwell in ONE
+tile's centre band is what makes an accidental folder impossible. The band is
+measured against the TILE, not the row — an expanded Space's row is much taller,
+and centring on that puts the group band over its revealed rooms.
+
+*The mock backend being RIGHT is how a backend defect survives.*
+`RoomInfo::childRoomIds` is documented as the Space's DIRECT children, and it
+was that on the mock and the HTTP backend. The Rust backend filled it from its
+payload's `descendants` — the transitive closure — so
+`directChildRoomsDetailed` was not direct, and the Channels layout listed a
+subspace's rooms twice with no structure visible. Fifteen model tests passed
+throughout, because they all ran against the mock. **GENERALISE: when a field's
+contract is enforced only by the backend that happens to be testable, the other
+backends are undefended.** Fixed by reading each Space's own `m.space.child`
+state in `enqueue_spaces` (`direct_children_of`, spec comparator: `order` key
+first, room id as the tiebreak, empty-`via` removals skipped) and emitting it as
+`children`, with `descendants` kept as a fallback.
+
+*A layout that becomes the other layout is not a layout.* Channels used to scope
+itself to the active Space, so at Home there was no hierarchy and the host
+rendered Classic instead. The user chose a navigation layout and silently got
+the other one. The fix was not a better empty state — it was removing the
+premise: `SpaceChannelModel` has no `spaceId`, the rooms come from the CLIENT
+rather than from `RoomListModel` (which is scoped to the active Space and
+filtered by the chips, so the global "Rooms" group would have vanished the
+moment a Space was picked), and `channelsUsable` is the user's choice alone.
+
+*`level = parentSpaceIds.isEmpty() ? 0 : 1` is a two-level approximation that
+looks like a hierarchy.* A three-deep tree rendered as a flat pair of indents.
+Real depth comes from a breadth-first walk with assign-once semantics, which is
+also what makes it cycle-safe and stable under multiple parents — a Space the
+walk never reaches becomes a ROOT rather than being dropped, because a Space the
+user has joined must stay reachable whatever its state says.
+
+*The hidden-image contract is GEOMETRY, not visibility.* Replacing a 360×270
+picture with a text row jumps every message above it, which for a
+hide-this-image control is a worse outcome than the picture.
+`MediaHiddenPlaceholder` fills the media box and contributes no implicit size at
+all; the suite measures the box and the row before and after. Two smaller traps
+in the same feature: an `Image` whose `visible` is false still holds its decoded
+pixmap (clear the SOURCE), and an `AnimatedImage` behind an opaque placeholder
+keeps decoding a frame at a time for something nobody can see.
+
+*An offscreen capture reads a `Behavior` animation that never advanced.* Four
+rounds of probes "proved" that the Channels column marked the wrong row —
+Lobby highlighted with a room plainly open, and the open room's own row not
+marked. Every reading came from a `--demo-capture` at the default 1400 ms
+settle. The rows' `Behavior on color` starts a 90 ms ColorAnimation when the
+delegate's state flips, and offscreen that animation had not advanced by the
+capture, so the grab held each row's CREATION-time colour. At a 6000 ms settle
+every row was correct and always had been. **Nothing was wrong with the code**;
+one speculative "fix" was made on that false reading and reverted. GENERALISE:
+a pixel from an offscreen grab is only evidence once every animation that
+touches it has had time to finish — and a property probe rendered into a LABEL
+can disagree with the pixel for exactly this reason, which is what makes the
+contradiction diagnosable.
+
+*A model that emits nothing when nothing changed will also emit nothing when
+your FLAGS changed.* `RailEntryModel::endDrag` cleared the drag state and left
+`refresh()` to announce it — and `applyRows` legitimately early-returns when
+the rows are identical, which after a drag they usually are. So a released
+tile kept rendering as dragged (dimmed, with the insertion line still under
+it) until some unrelated room update happened along: "their icons get darkened
+after moved and let go and only clear up after entering a room". Per-row
+PRESENTATION flags that live outside the row data have to be announced by
+whoever clears them.
+
+*Where the state cannot live.* Not in the delegate — a timeline row is destroyed
+the moment it leaves the cache buffer, so the flag would be gone by the time the
+reader scrolls back. `MediaVisibilityStore` is keyed by media identity, bounded
+at 4096, and the cap releases the OLDEST rather than refusing the newest:
+refusing to hide something the user just asked to hide is the worse failure.
+
+*A negated character class matches newlines, and it ate two lines of source.*
+`NavigationLayoutContractTest`'s comment stripper removed trailing comments
+with `(?m)\s//[^"']*$`. `[^"']*` happily crosses newlines, so a trailing `//`
+comment consumed every following line until one ended in a quote — the ban
+assertion that then read `setSpaceMuted`'s body simply reported the code
+absent. **Every scan in that file positioned AFTER a trailing comment was
+silently weakened by it.** The class needs `\n` in it. GENERALISE: a
+"strip comments" regex is a parser, and the cheapest way to find out whether
+yours works is to assert something you KNOW is present and watch it fail.
+
+*A collapsed folder cannot be reported on, so it must not be written over.*
+`applyArrangement` takes the whole arrangement in one write, and a folder LEFT
+OUT of the call keeps its members. The rail only renders an open folder's
+members, so without that rule a drag past a collapsed folder would silently
+empty it.
+
 **2026-08-24/25 MatrixRTC interop round — calls carry media at last.**
 Audio, camera and screen share now work in both directions against Element,
 live-validated. Sixteen separate defects; the full table, the REFUTED
@@ -1935,6 +2121,26 @@ matrix-sdk-ui 0.18 are in `docs/receipt-semantics.md`. **NOT TESTED**.
 
 Highest value first:
 
+- **DRIVE THE RAIL'S DRAG WITH A REAL POINTER.** The 2026-08-25 round rebuilt
+  the drag around a model, and every assertion behind it is a MODEL assertion:
+  the preview reorder, the group decision and what a release writes are all
+  proven, and the view's half is not. Nothing has confirmed that the pointer
+  bands map to the tiles a person aims at, that 320 ms is the right dwell,
+  that the auto-scroll is usable, or that the gap plus the insertion line plus
+  the floating proxy is the right amount of feedback rather than one thing too
+  many. The whole point of the round was the FEEL. See also the standing lesson
+  that a policy test proves nothing about whether production reaches the
+  policy.
+- **See the Channels column on a real desktop with a real Space hierarchy**,
+  including a subspace (which must NOT nest), a room in two Spaces (which must
+  appear under both), the Lobby and Message Search rows, and a collapse
+  surviving a restart. Offscreen suites are all the evidence there is.
+- **Hide an image on a real desktop and watch the timeline not move.** The
+  geometry contract is measured offscreen at one DPI on one theme.
+- **The Rust `children` payload against a real homeserver.** The
+  direct-vs-transitive fix is asserted only by the mock's fixtures and by
+  reading the SDK; nothing has confirmed a real `m.space.child` order arrives
+  in the order its admin set.
 - **LOOK AT THE 2026-08-21 UI ROUND ON A REAL DESKTOP.** It changed ~60
   QML files, every one of the 11 themes' surfaces, the type scale and the
   identity palette, and NOT ONE PIXEL of it has been seen. Offscreen
@@ -1961,7 +2167,17 @@ Highest value first:
 - Continue GIF playback, cancellation, resource, cache and
   malformed-media hardening.
 
-**NOT TESTED (live), all of it:** Element interoperability of provider
+**Partially seen (2026-08-25, mock backend, real render):** the Channels
+column's structure — Lobby, Message Search, Invites, Space folders with
+indented rooms — with avatars resolving and the open room marked, in a light
+and a dark theme; the rail's composite folder tile and its open-folder
+container.
+
+**NOT TESTED (live):** the rail's drag FEEL under a real pointer, folder
+creation by drop, the folder-name dialog, muting a Space against real push
+rules, the Channels column against a real SUBSPACE hierarchy or a scoped
+Space, hide/show on a real image, the Rust backend's direct-children
+payload; Element interoperability of provider
 GIF sends (plain and encrypted, rooms and threads), sent voice events,
 sent video posters, and formatted-body markdown rendering; notification
 coverage and routing for thread replies; thread timelines, thread

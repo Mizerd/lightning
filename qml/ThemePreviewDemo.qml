@@ -30,6 +30,12 @@ Item {
     // NOT named `palette`: QQuickItem carries a `palette` property of its own
     // in Qt 6, and shadowing it silently gives every child a broken one.
     required property var pal
+    // Which navigation layout the room-list column shows. The editor binds this
+    // to the user's own choice, because a preview of a column they do not use
+    // is a preview of the wrong thing: the Channels column has different rows,
+    // different weights and a folder header the Classic one does not, and the
+    // whole point of watching the preview is to see where a colour lands.
+    property bool channels: false
     // The role currently open in the picker; outlined here so the list and
     // the preview agree about what is being edited.
     property string highlightRole: ""
@@ -60,6 +66,18 @@ Item {
         { name: qsTr("Lightning"), preview: qsTr("Storm looks good now"),    badge: 0, state: "selected" },
         { name: qsTr("Alex"),      preview: qsTr("See you at six"),          badge: 3, state: "hovered" },
         { name: qsTr("Releases"),  preview: qsTr("v0.7.4 is out"),           badge: 0, state: "normal" }
+    ]
+
+    // The Channels shape: two navigation rows, a group, and a Space folder
+    // holding rooms. Literals like everything else here — no models, no `app.`.
+    readonly property var fakeChannelRows: [
+        { kind: "nav",    name: qsTr("Lobby"),          state: "selected" },
+        { kind: "nav",    name: qsTr("Message Search"), state: "normal" },
+        { kind: "folder", name: qsTr("Rooms"),          state: "normal" },
+        { kind: "folder", name: qsTr("Creative Studio"), state: "normal" },
+        { kind: "room",   name: qsTr("Design"),         state: "normal" },
+        { kind: "room",   name: qsTr("Lightning"),      state: "hovered" },
+        { kind: "room",   name: qsTr("Releases"),       state: "normal" }
     ]
 
     readonly property var fakeMembers: [
@@ -186,6 +204,7 @@ Item {
                 }
 
                 Text {
+                    visible: !root.channels
                     text: qsTr("Rooms")
                     color: root.c("sectionLabelColor", "textMuted")
                     font.family: AppTheme.uiFont
@@ -193,8 +212,58 @@ Item {
                     Layout.fillWidth: true
                 }
 
+                // ── The Channels shape ────────────────────────────────────
+                // Same roles, different rows. A folder header, then indented
+                // rooms with an avatar and a name — which is what the user
+                // sees if that is the layout they chose.
                 Repeater {
-                    model: root.fakeRooms
+                    model: root.channels ? root.fakeChannelRows : []
+                    delegate: Rectangle {
+                        id: fakeChannelRow
+                        required property var modelData
+                        readonly property bool isRoom: modelData.kind === "room"
+                        readonly property bool isFolder: modelData.kind === "folder"
+                        readonly property bool isSelected: modelData.state === "selected"
+                        Layout.fillWidth: true
+                        Layout.leftMargin: isRoom ? AppTheme.spacing8 : 0
+                        implicitHeight: 26
+                        radius: AppTheme.radiusSm
+                        color: isSelected ? root.c("selected", "hover") : (modelData.state === "hovered" ? root.c("hover", "surface") : "transparent")
+                        border.width: fakeChannelRow.isFolder ? 1 : 0
+                        border.color: root.c("border", "border")
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: AppTheme.spacing6
+                            anchors.rightMargin: AppTheme.spacing8
+                            spacing: AppTheme.spacing6
+
+                            // The folder's chevron, or the room's avatar.
+                            Rectangle {
+                                implicitWidth: fakeChannelRow.isFolder ? 8 : 16
+                                implicitHeight: fakeChannelRow.isFolder ? 8 : 16
+                                radius: fakeChannelRow.isFolder ? 1 : AppTheme.radiusSm
+                                color: fakeChannelRow.isFolder ? root.c("textMuted", "textSecondary") : root.c("cardElevated", "surface")
+                            }
+                            Text {
+                                text: fakeChannelRow.modelData.name
+                                color: fakeChannelRow.isSelected ? root.c("selectedText", "textPrimary") : (fakeChannelRow.isFolder ? root.c("textMuted", "textSecondary") : root.c("textSecondary", "textSecondary"))
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.textMeta
+                                font.weight: fakeChannelRow.isFolder ? AppTheme.weightStrong : AppTheme.weightBody
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        Region {
+                            role: fakeChannelRow.isSelected ? "selected" : (fakeChannelRow.modelData.state === "hovered" ? "hover" : "sidebar")
+                        }
+                    }
+                }
+
+                Repeater {
+                    model: root.channels ? [] : root.fakeRooms
                     delegate: Rectangle {
                         id: fakeRoomRow
                         required property var modelData

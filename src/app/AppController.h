@@ -10,6 +10,7 @@
 #include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
 #include "app/CustomThemeStore.h"
+#include "spaces/RailEntryModel.h"
 #include "spaces/RailLayoutStore.h"
 #include "i18n/LocalizationManager.h"
 #include "auth/AccountManager.h"
@@ -210,6 +211,8 @@ class AppController : public QObject
     // How the Spaces rail is arranged (drag order and folders).
     // Device-local; see RailLayoutStore.
     Q_PROPERTY(RailLayoutStore* railLayout READ railLayout CONSTANT)
+    // The rows the Spaces rail draws, plus live drag state; see RailEntryModel.
+    Q_PROPERTY(RailEntryModel* railEntries READ railEntries CONSTANT)
     // Profile banners (MSC4427 / MSC4133), read and written under both
     // the stable and the Commet field names.
     Q_PROPERTY(ProfileBannerManager* banners READ banners CONSTANT)
@@ -461,6 +464,7 @@ public:
     LocalizationManager *localization() const;
     CustomThemeStore *customTheme() const;
     RailLayoutStore *railLayout() const;
+    RailEntryModel *railEntries() const;
     ProfileBannerManager *banners() const;
     AuthManager *auth() const;
     AccountManager *accounts() const;
@@ -615,6 +619,11 @@ public Q_SLOTS:
     // room (user report, 2026-08-14). Reached from a rail double-click and
     // the workspace header.
     void openSpaceHome(const QString &spaceId);
+    // The Channels layout's "Lobby": back to the home / all-conversations
+    // surface. Deliberately NOT a fake room and NOT a persisted event —
+    // Lobby is navigation, and the state it names is one the shell already
+    // has ("no room open, no real Space selected").
+    Q_INVOKABLE void openLobby();
 
     // Per-room notification mode (0 = all, 1 = mentions & keywords,
     // 2 = mute) — the single UI entry point. Always writes the
@@ -630,6 +639,25 @@ public Q_SLOTS:
     // explicit server "all messages" rule (label-faithful mapping; a
     // separate "follow account default" choice is an accepted follow-up).
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
+    // Mute or unmute EVERY joined room in a Space, in one action.
+    //
+    // Matrix has no "mute a Space" primitive — a Space is a room with no
+    // timeline, and muting it would silence nothing. So this is exactly what a
+    // person would otherwise do by hand: set each member room's notification
+    // mode. `mute` false restores mode 3 (follow the account default) rather
+    // than "all messages", because that is the state a room is in before
+    // anyone touched it, and asserting "all messages" for rooms that never
+    // asked for it would be a different, louder choice than undoing the mute.
+    //
+    // Bounded by the Space's own membership and idempotent per room. Reports
+    // nothing of its own: each room's write already reports through the
+    // existing per-room notification-mode path, including the honest
+    // kept-on-this-device disclosure when the server refuses.
+    Q_INVOKABLE void setSpaceMuted(const QString &spaceId, bool mute);
+    // Whether every joined room in the Space is currently muted. False for a
+    // Space with no rooms — there is nothing muted, and offering "unmute"
+    // for it would be offering to change nothing.
+    Q_INVOKABLE bool spaceIsMuted(const QString &spaceId) const;
     // Poll-on-open refresh: re-query the server rule when a notification
     // picker opens so changes made in another client land in the cache.
     // No-op on backends without server support.
@@ -1074,6 +1102,7 @@ private:
     std::unique_ptr<LocalizationManager> m_localization;
     std::unique_ptr<CustomThemeStore> m_customTheme;
     std::unique_ptr<RailLayoutStore> m_railLayout;
+    std::unique_ptr<RailEntryModel> m_railEntries;
     std::unique_ptr<ProfileBannerManager> m_banners;
     bool m_shuttingDown = false;
     // Development-only screenshot/demo mode (never true in a release build; the

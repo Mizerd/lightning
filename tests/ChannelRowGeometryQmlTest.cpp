@@ -17,8 +17,9 @@
 //   * a channel row carries the SHARED RoomActionsMenu, the same one the
 //     Classic row uses — not a second copy that can drift, and not nothing.
 //
-// The presenter's own three-way chooser is pinned in
-// NavigationLayoutContractTest, which can read it directly.
+// The presenter's own chooser is pinned in NavigationLayoutContractTest, which
+// can read it directly — and it now has FIVE kinds to name, because the layout
+// gained Lobby and Message Search rows and lost the plain section label.
 
 #include <QtTest/QtTest>
 
@@ -145,25 +146,71 @@ private Q_SLOTS:
                             "channel row");
     }
 
-    void categoryHeaderHasRealHeightInsideAWidthAssignedLoader()
+    void spaceFolderHeaderHasRealHeightInsideAWidthAssignedLoader()
     {
         checkRowHasGeometry(QStringLiteral(R"(
         ChannelCategoryHeader {
             width: 300
-            categoryId: "!space:example.org"
-            categoryName: "Engineering"
+            headerId: "!space:example.org"
+            headerName: "Engineering"
+            showsAvatar: true
         })"),
-                            "category header");
+                            "space folder header");
     }
 
-    void sectionHeaderHasRealHeightInsideAWidthAssignedLoader()
+    void groupHeaderHasRealHeightInsideAWidthAssignedLoader()
     {
         checkRowHasGeometry(QStringLiteral(R"(
-        ChannelSectionHeader {
+        ChannelCategoryHeader {
             width: 300
-            label: "Direct messages"
+            headerId: "@rooms"
+            headerName: "Rooms"
         })"),
-                            "section header");
+                            "group header");
+    }
+
+    // Lobby and Message Search are navigation, not rooms — a different
+    // component, and it has to occupy its row like every other one.
+    void navigationRowsHaveRealHeightInsideAWidthAssignedLoader()
+    {
+        checkRowHasGeometry(QStringLiteral(R"(
+        ChannelNavRow {
+            width: 300
+            label: "Lobby"
+            iconName: "home"
+        })"),
+                            "lobby row");
+        checkRowHasGeometry(QStringLiteral(R"(
+        ChannelNavRow {
+            width: 300
+            label: "Message Search"
+            iconName: "search"
+        })"),
+                            "message search row");
+    }
+
+    // A navigation row that could not be clicked would be exactly the dead
+    // decorative row this layout was told not to have.
+    void aNavigationRowIsClickableAcrossItsHeight()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral(R"(
+        ChannelNavRow {
+            width: 300
+            label: "Message Search"
+            iconName: "search"
+            property int clicks: 0
+            onClicked: clicks += 1
+        })")));
+        QQuickItem *row = h.item();
+        QVERIFY(row);
+        QVERIFY(row->height() > 0);
+        const QPointF centre =
+            row->mapToScene(QPointF(row->width() / 2, row->height() / 2));
+        QTest::mouseClick(h.window.get(), Qt::LeftButton, Qt::NoModifier,
+                          centre.toPoint());
+        QCoreApplication::processEvents();
+        QCOMPARE(row->property("clicks").toInt(), 1);
     }
 
     // A row with no name yet is the state the delegate is CREATED in (the

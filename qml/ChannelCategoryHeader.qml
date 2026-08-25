@@ -2,39 +2,43 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// A collapsible category in the Channels layout — a direct child Space of the
-// active Space, drawn as Sable and Discord draw one: quiet, all-caps, with a
-// chevron that rotates.
+// A collapsible folder header in the Channels layout — a joined Space, or one
+// of the non-Space groups ("Invites", "Rooms").
 //
-// It is the least prominent thing in the column on purpose. A category is
-// STRUCTURE, and it repeats down the whole list; giving it full-strength ink
-// makes the channels compete with their own headers.
+// Sable-first, as directed: a chevron that rotates, the Space's own avatar,
+// and its name in the case its admin actually gave it. It used to upper-case
+// the label, which is right for a generic "CHANNELS" heading and wrong the
+// moment the heading IS a Space someone named — nobody calls their space
+// TRADEMARK TRAILWAYS.
 //
-// One thing it must never do is hide activity. A collapsed category carries
-// the unread and mention totals of the channels inside it, because otherwise
-// collapsing a category silently mutes it — and the user collapsed it to
-// save space, not to stop being told.
+// One thing it must never do is hide activity. A collapsed folder carries the
+// unread and mention totals of the rooms inside it, because otherwise
+// collapsing silently mutes them — and the user collapsed it to save space,
+// not to stop being told.
 ItemDelegate {
     id: root
 
-    property string categoryId: ""
-    property string categoryName: ""
+    property string headerId: ""
+    property string headerName: ""
+    /// Empty for a group; a Space folder shows the Space's avatar.
+    property string avatarUrl: ""
+    property string identityColorKey: ""
+    property bool showsAvatar: false
     property bool collapsed: false
     property int hiddenUnread: 0
     property int hiddenHighlight: 0
 
-    // A Loader-hosted row: the Channels presenter picks between three row
+    // A Loader-hosted row: the Channels presenter picks between five row
     // kinds, so this is loaded rather than declared inline. The Loader takes
-    // its height from this value (measured, Qt 6.11: loader implicitHeight
-    // 30 for a Control declaring height 30), which is what makes the rows lay
-    // out one below another instead of stacking at y=0.
-    height: 30
+    // its height from this value, which is what makes the rows lay out one
+    // below another instead of stacking at y=0.
+    height: 32
     padding: 0
     hoverEnabled: true
 
     Accessible.role: Accessible.Button
     Accessible.name: {
-        var base = root.categoryName;
+        var base = root.headerName;
         if (root.hiddenHighlight > 0) {
             base = qsTr("%1, %2 mentions inside").arg(base).arg(root.hiddenHighlight);
         } else if (root.hiddenUnread > 0) {
@@ -50,10 +54,15 @@ ItemDelegate {
         anchors.fill: parent
         anchors.leftMargin: 8
         anchors.rightMargin: 8
+        anchors.topMargin: 1
+        anchors.bottomMargin: 1
         radius: AppTheme.radiusSm
         color: root.hovered || root.activeFocus ? AppTheme.channelHover : "transparent"
-        border.width: root.activeFocus ? 2 : 0
-        border.color: AppTheme.focusRing
+        // An OPEN folder keeps a quiet outline, so a long column reads as a
+        // set of groups rather than as one run of rows with occasional bold
+        // text in it. Sable draws the same pill.
+        border.width: root.activeFocus ? 2 : (root.collapsed ? 0 : 1)
+        border.color: root.activeFocus ? AppTheme.focusRing : AppTheme.border
     }
 
     contentItem: Item {
@@ -77,27 +86,40 @@ ItemDelegate {
             }
         }
 
+        Loader {
+            id: avatarLoader
+            active: root.showsAvatar
+            visible: active
+            anchors.left: chevron.right
+            anchors.leftMargin: 6
+            anchors.verticalCenter: parent.verticalCenter
+            sourceComponent: Avatar {
+                size: 18
+                circle: false
+                squareRadius: 5
+                labelSize: 8
+                name: root.headerName
+                colorKey: root.identityColorKey.length > 0 ? root.identityColorKey : root.headerId
+                mxc: root.avatarUrl
+            }
+        }
+
         // Behind a Loader: a Space whose name has not resolved yet renders
         // this row with an empty string, which is the ItemObservesViewport
         // hazard.
         Loader {
-            active: root.categoryName.length > 0
-            anchors.left: chevron.right
+            active: root.headerName.length > 0
+            anchors.left: root.showsAvatar ? avatarLoader.right : chevron.right
             anchors.leftMargin: 6
             anchors.right: hiddenLoader.left
             anchors.rightMargin: 6
             anchors.verticalCenter: parent.verticalCenter
             sourceComponent: Label {
-                // Upper-cased in the VIEW, not in the model: the Space's real
-                // name is what a tooltip and a screen reader should say, and
-                // a locale-aware upper case belongs next to the font that
-                // renders it.
-                text: root.categoryName.toUpperCase()
+                text: root.headerName
                 elide: Text.ElideRight
                 maximumLineCount: 1
-                font.pixelSize: AppTheme.textMicro
+                font.pixelSize: AppTheme.textMeta
                 font.weight: AppTheme.weightBold
-                font.letterSpacing: 0.6
                 color: AppTheme.channelCategoryText
             }
         }

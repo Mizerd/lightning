@@ -4,11 +4,17 @@ import MatrixClient
 
 // One channel row in the Channels navigation layout.
 //
-// Sable-first, as directed: a hash/lock glyph, the name, and nothing else at
-// rest. No avatar, no message preview, no timestamp — the whole point of a
-// channel list is that it is scannable and stays put, and a preview line
-// triples the row height while changing on every message. Classic is where
-// previews live; the two layouts are different answers, not one with knobs.
+// Sable-first, as directed: the room's AVATAR, its name, and nothing else at
+// rest. No message preview and no timestamp — the whole point of a channel
+// list is that it is scannable and stays put, and a preview line triples the
+// row height while changing on every message. Classic is where previews live;
+// the two layouts are different answers, not one with knobs.
+//
+// The avatar is not decoration and it is not optional: Sable's own column
+// shows one per room, and the first revision of this row drew a hash glyph
+// instead, which made every room in a Space look identical. The glyph still
+// appears — as a small badge over the avatar — for the two things it genuinely
+// says that a picture cannot: this room is a DM, or this room is encrypted.
 //
 // Weight is the unread signal. A read channel sits at `channelText`, an
 // unread one at `channelTextUnread` with a medium weight, and a mention adds
@@ -24,13 +30,23 @@ ItemDelegate {
 
     property string roomId: ""
     property string channelName: ""
+    /// The room's own avatar (an mxc uri), empty until it resolves — the
+    /// shared Avatar element then renders palette initials, which is the same
+    /// fallback every other room surface uses.
+    property string avatarUrl: ""
+    /// Colour key for that fallback, matching the room list's policy.
+    property string identityColorKey: ""
     property bool isDirect: false
+    /// A room the account has been invited to but not joined. It gets its own
+    /// glyph and always reads as unread: an invite is an action waiting on the
+    /// user, and drawing it like a quiet read room is how one gets missed.
+    property bool isInvite: false
     property bool encrypted: false
     property int unreadCount: 0
     property int highlightCount: 0
     property bool hasUnread: false
     property bool active: false
-    /// Indentation level: 0 uncategorised, 1 inside a category.
+    /// Indentation level: 0 at the top of the column, 1 inside a folder.
     property int depth: 0
     /// Element-parity favourite flag, for the context menu's toggle. The row
     /// draws nothing from it — a channel list has no star column.
@@ -75,9 +91,9 @@ ItemDelegate {
     // asked not to be counted at, not to be lied to about whether anything
     // happened.
     readonly property bool showsPill: root.highlightCount > 0 && !root.muted
-    readonly property bool readsUnread: (root.hasUnread || root.unreadCount > 0 || root.highlightCount > 0)
+    readonly property bool readsUnread: (root.isInvite || root.hasUnread || root.unreadCount > 0 || root.highlightCount > 0)
 
-    // A Loader-hosted row: the Channels presenter picks between three row
+    // A Loader-hosted row: the Channels presenter picks between five row
     // kinds, so this is loaded rather than declared inline. The Loader takes
     // its height from this value (measured, Qt 6.11: loader implicitHeight
     // 32 for a Control declaring height 32), which is what makes the rows lay
@@ -89,6 +105,8 @@ ItemDelegate {
     Accessible.role: Accessible.Button
     Accessible.name: {
         var base = root.channelName;
+        if (root.isInvite)
+            return qsTr("%1, invitation").arg(base);
         if (root.muted)
             base = qsTr("%1, muted").arg(base);
         else if (root.highlightCount > 0)
@@ -134,24 +152,54 @@ ItemDelegate {
             visible: root.readsUnread && !root.active && !root.muted
         }
 
-        Icon {
-            id: kindGlyph
+        // The room's picture. A DM gets a circle and a room a rounded square,
+        // exactly as the Classic row does, so the same room does not change
+        // shape between layouts.
+        Avatar {
+            id: roomAvatar
             anchors.verticalCenter: parent.verticalCenter
-            x: 14 + root.depth * 10
-            // A DM inside a Space is rare but legal, and drawing it with a
-            // hash would be wrong. The lock is only for an encrypted room:
-            // "unknown" must not claim either way, so the plain hash is the
-            // fallback rather than an optimistic lock.
-            name: root.isDirect ? "alternate_email" : (root.encrypted ? "lock" : "tag")
-            size: 16
-            color: root.active ? AppTheme.channelSelectedText : (root.readsUnread ? AppTheme.channelTextUnread : AppTheme.channelCategoryText)
+            x: 12 + root.depth * 10
+            width: 20
+            height: 20
+            size: 20
+            circle: root.isDirect
+            squareRadius: 6
+            labelSize: 9
+            name: root.channelName
+            colorKey: root.identityColorKey.length > 0 ? root.identityColorKey : root.roomId
+            mxc: root.avatarUrl
+        }
+
+        // The two things a picture cannot say. Drawn as a small ringed badge
+        // on the avatar's corner rather than in place of it — an invite needs
+        // to be identifiable at a glance, and a lock is a CLAIM that has to be
+        // visible wherever the room appears.
+        Loader {
+            active: root.isInvite || root.encrypted
+            visible: active
+            anchors.right: roomAvatar.right
+            anchors.bottom: roomAvatar.bottom
+            anchors.rightMargin: -3
+            anchors.bottomMargin: -3
+            sourceComponent: Rectangle {
+                width: 12
+                height: 12
+                radius: 6
+                color: AppTheme.sidebar
+                Icon {
+                    anchors.centerIn: parent
+                    name: root.isInvite ? "person_add" : "lock"
+                    size: 9
+                    color: root.isInvite ? AppTheme.accent : AppTheme.channelCategoryText
+                }
+            }
         }
 
         // Behind a Loader: the name is empty for a room whose state has not
         // resolved yet, which IS the state this delegate is created in.
         Loader {
             active: root.channelName.length > 0
-            anchors.left: kindGlyph.right
+            anchors.left: roomAvatar.right
             anchors.leftMargin: 8
             anchors.right: pillLoader.left
             anchors.rightMargin: 6

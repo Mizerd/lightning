@@ -549,6 +549,8 @@ set(APP_SOURCES
     src/app/TrayIcon.cpp
     src/spaces/RailLayoutStore.h
     src/spaces/RailLayoutStore.cpp
+    src/spaces/RailEntryModel.h
+    src/spaces/RailEntryModel.cpp
     src/profile/ProfileBannerManager.h
     src/profile/ProfileBannerManager.cpp
     src/media/StagedImageStore.h
@@ -674,6 +676,7 @@ set(APP_QML_FILES
     qml/MainScreen.qml
     qml/HomePane.qml
     qml/SpacesRail.qml
+    qml/FolderTile.qml
     qml/RoomsPanel.qml
     qml/TimelinePane.qml
     qml/RoomDelegate.qml
@@ -685,7 +688,7 @@ set(APP_QML_FILES
     qml/RoomChannelsPresenter.qml
     qml/ChannelDelegate.qml
     qml/ChannelCategoryHeader.qml
-    qml/ChannelSectionHeader.qml
+    qml/ChannelNavRow.qml
     qml/UnreadBadge.qml
     qml/NavigationLayoutCard.qml
     qml/MessageDelegate.qml
@@ -1238,6 +1241,15 @@ if(BUILD_TESTING)
         tests/RailLayoutTest.cpp
         src/spaces/RailLayoutStore.h
         src/spaces/RailLayoutStore.cpp
+        # The drag lives in the MODEL, so the gesture — preview reorder,
+        # grouping, and what a release writes — is testable without a rail,
+        # a ListView or a pointer.
+        src/spaces/RailEntryModel.h
+        src/spaces/RailEntryModel.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
         src/app/SettingsManager.h
         src/app/SettingsManager.cpp
         src/storage/SecretStore.h
@@ -2643,26 +2655,33 @@ if(BUILD_TESTING)
         PRIVATE Qt6::Core Qt6::Multimedia Qt6::Test)
     add_test(NAME sfu-video-router COMMAND sfu-video-router-test)
 
-    # 2026-08-23 navigation layouts: SpaceChannelModel flattening one Space's
-    # DIRECT hierarchy. The defect it exists to prevent is subtle — the
-    # pre-existing childRoomsDetailed() is TRANSITIVE, so building on it
-    # showed every subspace room twice, once at the top level and again under
-    # its own category.
+    # Navigation layouts: SpaceChannelModel's flat, GLOBAL list of Space
+    # folders. The defects it exists to prevent are the ones the previous
+    # active-Space design shipped with — a layout that silently became the
+    # other layout at Home, and a subspace's rooms listed twice because the
+    # only available child accessor was TRANSITIVE.
     qt_add_executable(space-channels-test
         tests/SpaceChannelsTest.cpp
         src/models/SpaceChannelModel.h
         src/models/SpaceChannelModel.cpp
-        # Favourites and DMs come from here: they belong to the account, not
-        # to any Space.
-        src/models/RoomListModel.h
-        src/models/RoomListModel.cpp
+        # The rooms come from the CLIENT, not from RoomListModel: that model is
+        # scoped to the active Space and filtered by the chips, which would
+        # make this layout's global groups vanish the moment a Space was
+        # selected.
         src/spaces/SpaceManager.h
         src/spaces/SpaceManager.cpp
+        src/spaces/RailLayoutStore.h
+        src/spaces/RailLayoutStore.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )
     target_include_directories(space-channels-test PRIVATE src)
-    target_link_libraries(space-channels-test PRIVATE Qt6::Core Qt6::Test)
+    target_link_libraries(space-channels-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME space-channels COMMAND space-channels-test)
 
     # 2026-08-23: the host/presenter SEPARATION. A source-scan suite on

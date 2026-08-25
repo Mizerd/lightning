@@ -684,6 +684,11 @@ private:
     // reason: which Spaces an account has, and how someone grouped them, are
     // the same question. Same access, same rule.
     friend class RailLayoutStore;
+    // Which Space folders the Channels layout has collapsed is per-account
+    // appearance state for the same reason: it describes how one account's
+    // Spaces are arranged on screen, and applying it to the next account's
+    // rooms would be meaningless. Same access, same rule.
+    friend class SpaceChannelModel;
 
     void migratePlaintextTokenIfPresent();
     void migrateInsecureSecretsGroup();

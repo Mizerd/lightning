@@ -46,7 +46,9 @@ use matrix_sdk::{
                 tombstone::SyncRoomTombstoneEvent,
             },
             secret::send::ToDeviceSecretSendEvent,
+            space::child::SpaceChildEventContent,
             typing::SyncTypingEvent,
+            SyncStateEvent,
         },
         uint, EventId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId,
         OwnedUserId, RoomId, UInt, UserId,
@@ -55,6 +57,7 @@ use matrix_sdk::{
     store::RoomLoadSettings,
     Client, LoopCtrl, Room, SessionMeta, SessionTokens, ThreadingSupport,
 };
+use matrix_sdk::deserialized_responses::SyncOrStrippedState;
 use futures_util::StreamExt;
 use matrix_sdk_ui::{
     eyeball_im::VectorDiff,
@@ -8045,6 +8048,58 @@ async fn forward_room_list_diffs(
     }
 }
 
+/// One Space's DIRECT children, in the order its own `m.space.child` state
+/// declares.
+///
+/// This exists because the payload's `descendants` list is TRANSITIVE — a
+/// subspace's rooms are flattened into every ancestor — which is right for
+/// "everything in this Space" and wrong for anything that has to show the
+/// structure the Space's admin built. Lightning read `descendants` as though
+/// it were the direct children, so a channel list on this backend listed
+/// every room in the tree under the top-level Space and then again under its
+/// own subspace.
+///
+/// Order is the spec's: `order` keys compared lexicographically first,
+/// children without one last, the room id as the tiebreak in both cases —
+/// the same comparator matrix-sdk-ui uses for its own space room list. An
+/// empty `via` list is MSC1772 REMOVAL, not a child, and is skipped.
+///
+/// Reads the local state store (no network); a Space whose state has not
+/// synced yet returns nothing and the caller falls back to the SDK's own
+/// parent graph.
+async fn direct_children_of(room: &Room) -> Vec<String> {
+    let Ok(events) = room
+        .get_state_events_static::<SpaceChildEventContent>()
+        .await
+    else {
+        return Vec::new();
+    };
+    let mut entries: Vec<(Option<String>, String)> = Vec::new();
+    for raw in events {
+        let Ok(event) = raw.deserialize() else { continue };
+        let (state_key, content) = match event {
+            SyncOrStrippedState::Sync(SyncStateEvent::Original(original)) => {
+                (original.state_key, original.content)
+            }
+            _ => continue,
+        };
+        if content.via.is_empty() {
+            continue;
+        }
+        entries.push((
+            content.order.map(|order| order.as_str().to_owned()),
+            state_key.to_string(),
+        ));
+    }
+    entries.sort_by(|a, b| match (&a.0, &b.0) {
+        (Some(left), Some(right)) => left.cmp(right).then(a.1.cmp(&b.1)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.1.cmp(&b.1),
+    });
+    entries.into_iter().map(|(_, id)| id).collect()
+}
+
 async fn enqueue_spaces(
     events: &Arc<Mutex<VecDeque<String>>>,
     service: &SpaceService,
@@ -8056,6 +8111,11 @@ async fn enqueue_spaces(
         .map(|room| room.room_id().to_string()).collect();
     let mut parents_by_child = HashMap::<String, Vec<String>>::new();
     let mut children_by_parent = HashMap::<String, BTreeSet<String>>::new();
+    // The strictly-DIRECT half, kept separate from the map below. That one is
+    // deliberately widened with `filter.descendants`, which for a level-1
+    // filter is every descendant recursively — right for computing the
+    // transitive closure, wrong as a fallback for "this Space's own children".
+    let mut direct_by_parent = HashMap::<String, BTreeSet<String>>::new();
 
     // Ask SpaceService's cycle-pruned graph for every known joined room's
     // parents. This extends its two presentation-level filters into a full
@@ -8066,6 +8126,7 @@ async fn enqueue_spaces(
             .into_iter().map(|parent| parent.room_id.to_string()).collect();
         for parent in &parents {
             children_by_parent.entry(parent.clone()).or_default().insert(child_id.clone());
+            direct_by_parent.entry(parent.clone()).or_default().insert(child_id.clone());
         }
         parents_by_child.insert(child_id, parents);
     }
@@ -8100,8 +8161,21 @@ async fn enqueue_spaces(
                 pending.extend(nested.iter().cloned().map(|value| (value, depth + 1)));
             }
         }
-        let child_spaces: Vec<String> = children_by_parent.get(&id).into_iter()
-            .flat_map(|children| children.iter())
+        // DIRECT children, admin order first (see direct_children_of), then
+        // any link the SDK's own parent graph knows about that the state read
+        // did not produce — a child whose m.space.child event has not synced
+        // yet still belongs in the list. `direct_by_parent`, NOT
+        // `children_by_parent`: the latter is widened with the SpaceFilter's
+        // descendants, which for a level-1 filter is the whole subtree.
+        let mut children = direct_children_of(room).await;
+        if let Some(known) = direct_by_parent.get(&id) {
+            for child in known {
+                if child != &id && !children.contains(child) {
+                    children.push(child.clone());
+                }
+            }
+        }
+        let child_spaces: Vec<String> = children.iter()
             .filter(|child| space_ids.contains(*child)).cloned().collect();
         let level = filters.iter().find(|filter| filter.space_room.room_id.as_str() == id)
             .map(|filter| filter.level).unwrap_or(2);
@@ -8110,6 +8184,7 @@ async fn enqueue_spaces(
             "name": room_name(room).await,
             "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
             "parents": parents,
+            "children": children,
             "child_spaces": child_spaces,
             "descendants": descendants,
             "level": level,

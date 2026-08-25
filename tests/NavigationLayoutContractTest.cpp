@@ -19,13 +19,16 @@
 //  * Exactly one presenter is INSTANTIATED. Two visibility-gated room lists
 //    is two sets of avatar fetches for one visible column, so the host uses
 //    Loaders whose `active` is the layout choice.
-//  * Channels never renders at Home. It shows one Space's hierarchy, so with
-//    no Space there is nothing to show — and the host must fall back to
-//    Classic rather than presenting an empty column.
-//  * Classic is the DEFAULT and the clamp target. It is the layout that works
-//    in an account with no Spaces at all.
-//  * The Channels tokens are DERIVED. A new required key in eleven palettes
+//  * Channels is GLOBAL and never falls back. It used to require an active
+//    Space and become Classic without one, so a user who chose it got the
+//    other layout at Home — the layout silently depended on where you were.
+//  * Classic is still the DEFAULT and the clamp target. It is the layout that
+//    works in an account with no Spaces at all.
+//  * The new theme tokens are DERIVED. A new required key in eleven palettes
 //    is how a theme ends up with one undefined colour and a transparent row.
+//  * The rail's drag lives in a MODEL. A JS array rebuilt on every change is a
+//    model reset: no move transition, and the delegate holding the gesture
+//    destroyed under the pointer.
 #include <QFile>
 #include <QRegularExpression>
 #include <QString>
@@ -56,7 +59,15 @@ QString withoutComments(const QString &source)
     out.remove(QRegularExpression(QStringLiteral("(?m)^\\s*//.*$")));
     // Trailing comments too, but not a `//` inside a string literal — which
     // in these files only ever appears in a URL, and there are none.
-    out.remove(QRegularExpression(QStringLiteral("(?m)\\s//[^\"']*$")));
+    //
+    // The `\\n` in that class is load-bearing and was missing until
+    // 2026-08-25. A negated character class MATCHES NEWLINES, so `[^"']*`
+    // ran from a trailing comment through every following line until it
+    // found one ending in a quote — swallowing the code in between. It ate
+    // two lines out of `setSpaceMuted` and the ban assertion that read them
+    // simply reported the code absent. Every scan in this file that looks
+    // AFTER a trailing comment was silently weakened by it.
+    out.remove(QRegularExpression(QStringLiteral("(?m)\\s//[^\"'\\n]*$")));
     return out;
 }
 
@@ -161,22 +172,299 @@ private slots:
                  "the Channels presenter is not gated on the layout choice");
     }
 
-    void channelsNeverRendersWithoutASpace()
+    void channelsIsGlobalAndNeverFallsBackToClassic()
     {
-        // Channels shows ONE Space's hierarchy. At Home there is no
-        // hierarchy, so the host falls back to Classic — rendering an empty
-        // column instead would state something only this layout can state
-        // ("this space has no channels") about a situation it does not apply
-        // to ("you are not in a space").
-        const QString host = read(QStringLiteral("RoomsPanel.qml"));
+        // THE reason this layout was rebuilt. It used to show one Space's
+        // hierarchy, so at Home there was nothing to show and the host
+        // rendered Classic instead — the user chose a navigation layout and
+        // got the other one, with nothing saying why.
+        const QString host = withoutComments(read(QStringLiteral("RoomsPanel.qml")));
         QString flat = host;
         flat.replace(QRegularExpression(QStringLiteral("\\s+")),
                      QStringLiteral(" "));
-        QVERIFY2(flat.contains(QStringLiteral("spaceId.length > 0")),
-                 "the host never requires a Space before using Channels");
-        // And Settings says so, rather than leaving it to be discovered.
+        QVERIFY2(flat.contains(QStringLiteral(
+                     "readonly property bool channelsUsable: channelsChosen")),
+                 "the host gates Channels on something other than the user's "
+                 "choice, so the layout still depends on where the user is");
+        QVERIFY2(!flat.contains(QStringLiteral("spaceChannels.spaceId")),
+                 "the host still requires an active Space before using "
+                 "Channels");
+        // Settings must not promise the old fallback either.
         const QString settings = read(QStringLiteral("SettingsScreen.qml"));
-        QVERIFY(settings.contains(QStringLiteral("always use Classic")));
+        QVERIFY2(!settings.contains(QStringLiteral("always use Classic")),
+                 "Settings still tells the user Channels falls back to "
+                 "Classic");
+    }
+
+    void theChannelsColumnCarriesLobbyRoomsAndMessageSearch()
+    {
+        // Sable's model, and the three entries that make it navigable on its
+        // own now that Classic is not a fallback: somewhere to go Home, the
+        // rooms that no Space folder lists, and a real search.
+        const QString presenter =
+            read(QStringLiteral("RoomChannelsPresenter.qml"));
+        QVERIFY(!presenter.isEmpty());
+        QVERIFY2(presenter.contains(QStringLiteral("signal lobbyActivated()")),
+                 "the Lobby row does nothing");
+        QVERIFY2(presenter.contains(
+                     QStringLiteral("signal messageSearchRequested()")),
+                 "the Message Search row does nothing");
+        // Message Search opens the EXISTING global search, by signal, through
+        // the host — never a filter over this list, and never a second dialog.
+        const QString host = read(QStringLiteral("RoomsPanel.qml"));
+        QVERIFY(host.contains(QStringLiteral("signal messageSearchRequested()")));
+        const QString shell = read(QStringLiteral("MainScreen.qml"));
+        QVERIFY2(shell.contains(
+                     QStringLiteral("onMessageSearchRequested: messageSearchDialog.openDialog()")),
+                 "the Message Search row is wired to nothing that exists");
+        // Lobby is navigation, not a fabricated room.
+        const QString controller =
+            readSrc(QStringLiteral("app/AppController.cpp"));
+        QVERIFY(controller.contains(QStringLiteral("void AppController::openLobby()")));
+        const QString model =
+            readSrc(QStringLiteral("models/SpaceChannelModel.cpp"));
+        QVERIFY2(!model.contains(QStringLiteral("sendTextMessage"))
+                     && !model.contains(QStringLiteral("setAccountData")),
+                 "the Channels model writes to the account to represent its "
+                 "own navigation rows");
+    }
+
+    // The rail's selection NARROWS this layout; it does not decide whether the
+    // layout works. Those are different things and the difference is the whole
+    // point: the old design produced nothing without a Space and the host
+    // rendered Classic instead, so picking a Space could turn the layout off.
+    // Now picking one shows that Space and its subspaces, Lobby shows
+    // everything, and both states are this layout.
+    void theRailSelectionNarrowsChannelsRatherThanEnablingIt()
+    {
+        const QString header =
+            readSrc(QStringLiteral("models/SpaceChannelModel.h"));
+        QVERIFY(!header.isEmpty());
+        const QString clean = withoutComments(header);
+        QVERIFY2(clean.contains(QStringLiteral("scopeSpaceId")),
+                 "the rail's selection does nothing to the Channels column, so "
+                 "clicking a Space is a no-op there");
+        QVERIFY2(!clean.contains(QStringLiteral("emptyHierarchy")),
+                 "the Channels model still reports one Space's emptiness");
+        // The host binds it, and to the rail's OWN selection.
+        const QString host = withoutComments(read(QStringLiteral("RoomsPanel.qml")));
+        QString flat = host;
+        flat.replace(QRegularExpression(QStringLiteral("\\s+")),
+                     QStringLiteral(" "));
+        QVERIFY2(flat.contains(QStringLiteral("property: \"scopeSpaceId\"")),
+                 "the scope is never bound to anything");
+        QVERIFY2(flat.contains(QStringLiteral(
+                     "readonly property bool channelsUsable: channelsChosen")),
+                 "the scope decides whether the layout renders again");
+        // A pseudo rail row is not a Space and must scope nothing — that is
+        // what makes Home and Lobby the whole account.
+        const QString model =
+            readSrc(QStringLiteral("models/SpaceChannelModel.cpp"));
+        const int at = model.indexOf(
+            QStringLiteral("void SpaceChannelModel::setScopeSpaceId"));
+        QVERIFY(at >= 0);
+        QVERIFY2(model.mid(at, 500).contains(QStringLiteral("QLatin1Char('!')")),
+                 "a pseudo id would scope the column to nothing at all");
+        // And the rooms come from the CLIENT, not from RoomListModel — that
+        // model is scoped to the active Space and filtered by the chips, which
+        // would make the global groups vanish the moment a Space was picked.
+        QVERIFY2(!clean.contains(QStringLiteral("RoomListModel")),
+                 "the Channels model reads the Space-scoped room list");
+        QVERIFY(clean.contains(QStringLiteral("MatrixClient *client")));
+    }
+
+    // Sable's own column shows a picture per room. The first revision drew a
+    // hash glyph instead, which made every room in a Space look identical.
+    void aChannelRowShowsTheRoomsAvatar()
+    {
+        const QString row = read(QStringLiteral("ChannelDelegate.qml"));
+        QVERIFY(!row.isEmpty());
+        QVERIFY2(row.contains(QStringLiteral("Avatar {")),
+                 "a channel row draws no avatar, so every room in a Space "
+                 "looks identical");
+        QVERIFY2(row.contains(QStringLiteral("mxc: root.avatarUrl")),
+                 "the avatar is never given the room's own picture");
+        const QString presenter =
+            read(QStringLiteral("RoomChannelsPresenter.qml"));
+        QVERIFY2(presenter.contains(QStringLiteral("avatarUrl: rowLoader.model.avatarUrl")),
+                 "the presenter never passes the avatar down");
+        // The lock is still a CLAIM and still drawn — as a badge, not instead
+        // of the picture.
+        QVERIFY(row.contains(QStringLiteral("\"lock\"")));
+    }
+
+    // A Space is a room with no timeline, so muting it silences nothing:
+    // "mute this space" has to mean each room inside it, or it is a control
+    // that reports success and changes nothing.
+    void mutingASpaceMutesTheRoomsInsideIt()
+    {
+        const QString controller =
+            readSrc(QStringLiteral("app/AppController.cpp"));
+        const int at = controller.indexOf(
+            QStringLiteral("void AppController::setSpaceMuted"));
+        QVERIFY2(at >= 0, "there is no way to mute a whole Space");
+        QString body = withoutComments(controller.mid(at, 1400));
+        body.replace(QRegularExpression(QStringLiteral("\\s+")),
+                     QStringLiteral(" "));
+        QVERIFY2(body.contains(QStringLiteral("roomsInSpace(spaceId)")),
+                 "muting a Space does not reach the rooms in it");
+        QVERIFY2(body.contains(QStringLiteral("setRoomNotificationMode(roomId, mode)")),
+                 "muting a Space does not go through the one per-room path, "
+                 "so its writes cannot report or retry like every other one");
+        // Unmute restores "follow the account default", not "all messages":
+        // asserting the loud mode for rooms that never asked for it is a
+        // different choice from undoing a mute.
+        QVERIFY2(body.contains(QStringLiteral("mute ? 2 : 3")),
+                 "unmuting a Space asserts a mode rather than undoing one");
+        const QString rail = read(QStringLiteral("SpacesRail.qml"));
+        QVERIFY(rail.contains(QStringLiteral("objectName: \"railMuteSpace\"")));
+    }
+
+    // The editor's preview must show the column the user actually runs. A
+    // preview of the other layout shows them where a colour lands somewhere
+    // they never look.
+    void theThemeEditorPreviewsWhicheverLayoutIsChosen()
+    {
+        const QString preview = read(QStringLiteral("ThemePreviewDemo.qml"));
+        QVERIFY(!preview.isEmpty());
+        QVERIFY2(preview.contains(QStringLiteral("property bool channels:")),
+                 "the theme preview can only draw the Classic column");
+        QVERIFY2(preview.contains(QStringLiteral("fakeChannelRows")),
+                 "the theme preview has no Channels shape to draw");
+        const QString editor = read(QStringLiteral("ThemeEditorDialog.qml"));
+        QVERIFY2(editor.contains(QStringLiteral("roomNavigationLayout === 1")),
+                 "the editor never tells the preview which layout to draw");
+        // Still entirely fake: a theme preview must not reach a real model.
+        const QString clean = withoutComments(preview);
+        QVERIFY2(!clean.contains(QStringLiteral("app.spaceChannels")),
+                 "the theme preview binds to the real Channels model");
+        QVERIFY2(!clean.contains(QStringLiteral("app.roomList")),
+                 "the theme preview binds to the real room list");
+    }
+
+    void subspacesAreNeverNestedInTheChannelsColumn()
+    {
+        // Deliberate: a Space tree in a sidebar is unreadable by about three
+        // levels, and the old design listed a subspace's rooms twice — under
+        // the subspace's category AND transitively under the parent.
+        const QString model =
+            readSrc(QStringLiteral("models/SpaceChannelModel.cpp"));
+        QVERIFY(!model.isEmpty());
+        QString flat = withoutComments(model);
+        flat.replace(QRegularExpression(QStringLiteral("\\s+")),
+                     QStringLiteral(" "));
+        QVERIFY2(flat.contains(QStringLiteral("directChildRoomsDetailed")),
+                 "a Space folder does not list its DIRECT children");
+        QVERIFY2(!flat.contains(QStringLiteral("childRoomsDetailed(spaceId)")),
+                 "a Space folder lists the TRANSITIVE tree, so a subspace's "
+                 "rooms appear under it and under its parent");
+        QVERIFY2(!flat.contains(QStringLiteral("childSpacesDetailed")),
+                 "child Spaces are being turned into nested categories again");
+    }
+
+    void theRailDragLivesInAModelSoTheRowsCanMove()
+    {
+        // A JS array rebuilt on every change makes every change a model RESET:
+        // no move transition, every delegate torn down, and the delegate
+        // holding the gesture destroyed under the pointer. Both halves of
+        // "kinda hard to tell exactly where you are moving them".
+        const QString rail = withoutComments(read(QStringLiteral("SpacesRail.qml")));
+        QVERIFY(!rail.isEmpty());
+        QVERIFY2(rail.contains(QStringLiteral("model: app.railEntries")),
+                 "the rail still binds its list to a JavaScript array");
+        QVERIFY2(!rail.contains(QStringLiteral("app.railLayout.arrange(")),
+                 "the rail arranges its own rows in QML again");
+        // The move and displaced transitions are what the model exists for.
+        QVERIFY2(rail.contains(QStringLiteral("move: Transition")),
+                 "the rail has no move transition, so a reorder cannot animate");
+        QVERIFY2(rail.contains(QStringLiteral("displaced: Transition")),
+                 "the rows the moved one pushed past do not animate");
+        // A real beginMoveRows, not a reset dressed up as one.
+        const QString model = readSrc(QStringLiteral("spaces/RailEntryModel.cpp"));
+        QVERIFY(model.contains(QStringLiteral("beginMoveRows")));
+        // Nothing is written while the pointer is down.
+        QString flatModel = withoutComments(model);
+        flatModel.replace(QRegularExpression(QStringLiteral("\\s+")),
+                          QStringLiteral(" "));
+        QVERIFY2(flatModel.contains(QStringLiteral("if (m_dragging) {")),
+                 "a refresh during a drag is applied rather than deferred");
+    }
+
+    void theDraggedTileFollowsThePointerAtFullOpacity()
+    {
+        // "spaces should always be their normal image and move freely without
+        // a line appearing between them". The tile IS the feedback: it follows
+        // the pointer while its neighbours animate around it, and where it
+        // currently sits is where it will land — so a separate insertion line
+        // claiming the same thing was noise on 68 px of chrome, and dimming
+        // the tile made the one thing being looked at the hardest to see.
+        const QString rail = withoutComments(read(QStringLiteral("SpacesRail.qml")));
+        QVERIFY2(rail.contains(QStringLiteral("readonly property real dragLift:")),
+                 "the dragged tile does not follow the pointer");
+        QVERIFY2(rail.contains(QStringLiteral("y: 4 + spaceItem.dragLift")),
+                 "the lift is computed but never applied to the tile");
+        QVERIFY2(!rail.contains(QStringLiteral("railInsertionLine")),
+                 "the insertion line came back");
+        QVERIFY2(!rail.contains(QStringLiteral("railDragProxy")),
+                 "the floating drag copy came back, so the tile is drawn twice");
+        QVERIFY2(!rail.contains(QStringLiteral("opacity: spaceItem.dragged")),
+                 "the dragged tile is dimmed again");
+        // The GROUP target is the one thing still drawn on top of the
+        // movement, and it needs a dwell or dragging THROUGH a tile makes a
+        // folder out of it.
+        QVERIFY2(rail.contains(QStringLiteral("dwellTimer")),
+                 "grouping arms with no dwell");
+        QVERIFY2(rail.contains(QStringLiteral("dropTarget")),
+                 "a release would group with nothing saying so");
+        // And auto-scroll, so a long rail does not need drop-scroll-redrag.
+        QVERIFY2(rail.contains(QStringLiteral("autoScroll")),
+                 "a rail longer than the window cannot be dragged across");
+    }
+
+    // A released tile must stop rendering as dragged IMMEDIATELY. `refresh()`
+    // is allowed to find the rows identical and emit nothing at all, which is
+    // right for the row data and catastrophic for the drag flags: the tile
+    // stayed dimmed with its line under it until an unrelated room update
+    // happened to refresh the model. Reported in exactly those terms.
+    void releasingADragAnnouncesTheClearedFlags()
+    {
+        const QString model = readSrc(QStringLiteral("spaces/RailEntryModel.cpp"));
+        QVERIFY(!model.isEmpty());
+        const int at = model.indexOf(QStringLiteral("void RailEntryModel::endDrag"));
+        QVERIFY(at >= 0);
+        QString body = model.mid(at, 1800);
+        body.replace(QRegularExpression(QStringLiteral("\\s+")),
+                     QStringLiteral(" "));
+        QVERIFY2(body.contains(QStringLiteral("{ DraggedRole, DropTargetRole }")),
+                 "endDrag clears the drag flags without announcing them, so a "
+                 "released tile keeps rendering as dragged");
+    }
+
+    void aLocalFolderNeverTouchesMatrixState()
+    {
+        // Folders are DEVICE-LOCAL organisation. Nothing about them may emit
+        // m.space.child, m.space.parent or any other room state.
+        const QString store = readSrc(QStringLiteral("spaces/RailLayoutStore.cpp"));
+        const QString model = readSrc(QStringLiteral("spaces/RailEntryModel.cpp"));
+        QVERIFY(!store.isEmpty());
+        QVERIFY(!model.isEmpty());
+        for (const QString &source : { store, model }) {
+            const QString clean = withoutComments(source);
+            for (const QString &banned :
+                 { QStringLiteral("m.space.child"),
+                   QStringLiteral("m.space.parent"),
+                   QStringLiteral("addRoomToSpace"),
+                   QStringLiteral("setSpaceChildSuggested"),
+                   QStringLiteral("sendStateEvent") }) {
+                QVERIFY2(!clean.contains(banned),
+                         qPrintable(QStringLiteral("the rail's local layout "
+                                                   "reaches Matrix state via ")
+                                        + banned));
+            }
+        }
+        // And a subspace row is not draggable at all, so a local rearrangement
+        // cannot even look like it moves the hierarchy.
+        QVERIFY(model.contains(QStringLiteral("hierarchyChild")));
     }
 
     void classicIsTheDefaultAndTheClampTarget()
@@ -239,6 +527,8 @@ private slots:
             QStringLiteral("channelSelectedText"),
             QStringLiteral("channelHover"),
             QStringLiteral("channelUnreadMark"),
+            // The rail's folder container.
+            QStringLiteral("railFolderSurface"),
         };
         QString flat = theme;
         flat.replace(QRegularExpression(QStringLiteral("\\s+")),
@@ -280,7 +570,9 @@ private slots:
         // instantiated tree on every scroll frame — the single most
         // expensive QML mistake recorded in this repo.
         for (const QString &name : { QStringLiteral("ChannelDelegate.qml"),
-                                     QStringLiteral("ChannelCategoryHeader.qml") }) {
+                                     QStringLiteral("ChannelCategoryHeader.qml"),
+                                     QStringLiteral("ChannelNavRow.qml"),
+                                     QStringLiteral("FolderTile.qml") }) {
             const QString source = read(name);
             QVERIFY2(!source.isEmpty(), qPrintable(name));
             QString flat = source;
@@ -310,6 +602,11 @@ private slots:
                     .contains(QStringLiteral("UnreadBadge {")));
         QVERIFY(read(QStringLiteral("ChannelCategoryHeader.qml"))
                     .contains(QStringLiteral("UnreadBadge {")));
+        // The folder tile is its own component, so the composite cannot be
+        // reimplemented somewhere else and drift.
+        const QString rail = read(QStringLiteral("SpacesRail.qml"));
+        QVERIFY(!read(QStringLiteral("FolderTile.qml")).isEmpty());
+        QVERIFY(rail.contains(QStringLiteral("FolderTile {")));
         // Muting silences the count, never the mention: somebody naming you
         // is not noise.
         const QString badge = read(QStringLiteral("UnreadBadge.qml"));
@@ -357,14 +654,35 @@ private slots:
         const QString presenter =
             read(QStringLiteral("RoomChannelsPresenter.qml"));
         QVERIFY(!presenter.isEmpty());
-        // Every kind string SpaceChannelModel::data can return.
-        QVERIFY2(presenter.contains(QStringLiteral("=== \"category\"")),
-                 "the chooser does not name the category kind");
-        QVERIFY2(presenter.contains(QStringLiteral("=== \"section\"")),
-                 "the chooser does not name the section kind, so a group "
-                 "label renders as a channel row");
-        QVERIFY(presenter.contains(QStringLiteral("sectionComponent")));
-        QVERIFY(presenter.contains(QStringLiteral("ChannelSectionHeader {")));
+        // Every kind string SpaceChannelModel::data can return. It once named
+        // two of three, so a group label fell through to the channel-row
+        // component and rendered as a room row with an empty room id —
+        // clickable-looking, opening nothing, and carrying a room's context
+        // menu over a heading.
+        for (const QString &kind : { QStringLiteral("lobby"),
+                                     QStringLiteral("search"),
+                                     QStringLiteral("space"),
+                                     QStringLiteral("group") }) {
+            QVERIFY2(presenter.contains(QStringLiteral("=== \"") + kind
+                                        + QStringLiteral("\"")),
+                     qPrintable(QStringLiteral("the chooser does not name the ")
+                                + kind + QStringLiteral(" kind")));
+        }
+        QVERIFY(presenter.contains(QStringLiteral("ChannelNavRow {")));
+        QVERIFY(presenter.contains(QStringLiteral("ChannelCategoryHeader {")));
+        QVERIFY(presenter.contains(QStringLiteral("ChannelDelegate {")));
+        // The model's own closed set, so the two cannot drift.
+        const QString model =
+            readSrc(QStringLiteral("models/SpaceChannelModel.cpp"));
+        for (const QString &kind : { QStringLiteral("lobby"),
+                                     QStringLiteral("search"),
+                                     QStringLiteral("group"),
+                                     QStringLiteral("space"),
+                                     QStringLiteral("room") }) {
+            QVERIFY2(model.contains(QStringLiteral("QStringLiteral(\"") + kind
+                                    + QStringLiteral("\")")),
+                     qPrintable(kind));
+        }
     }
 
     // The Channels row offers the SAME actions the Classic row does, through

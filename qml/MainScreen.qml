@@ -196,6 +196,10 @@ Item {
             SplitView.preferredWidth: app.settings.roomListWidth
             SplitView.minimumWidth:   200
             SplitView.maximumWidth:   560
+            // The Channels layout's "Message Search" row asks for the same
+            // dialog Ctrl+Shift+F opens, by signal rather than by reaching
+            // across the shell.
+            onMessageSearchRequested: messageSearchDialog.openDialog()
             // Written back only when the user let go: SplitView reports every
             // intermediate pixel while dragging, and persisting each one would
             // be one QSettings write per mouse move.

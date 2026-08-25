@@ -175,6 +175,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_localization = std::make_unique<LocalizationManager>(m_settings.get(), this);
     m_customTheme = std::make_unique<CustomThemeStore>(m_settings.get(), this);
     m_railLayout = std::make_unique<RailLayoutStore>(m_settings.get(), this);
+    m_railEntries = std::make_unique<RailEntryModel>(this);
     m_banners = std::make_unique<ProfileBannerManager>(this);
 
     m_client       = makeClient(backend, m_settings.get(), this);
@@ -761,18 +762,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_draftStore->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
     m_roomList->setSpaceManager(m_spaces.get());
-    // The Channels layout reads the same authoritative hierarchy, DIRECTLY
-    // rather than transitively, and follows the rail's active Space.
+    // The rail's rows: the user's arrangement applied to the hierarchy, with
+    // the transient drag preview living in the model rather than in QML.
+    m_railEntries->setSources(m_spaces.get(), m_railLayout.get());
+    // The Channels layout is GLOBAL — every joined Space is a flat folder, so
+    // it needs the account's rooms and the rail's order, and nothing about
+    // which Space happens to be selected.
     m_spaceChannels = std::make_unique<SpaceChannelModel>(this);
-    m_spaceChannels->setSpaceManager(m_spaces.get());
-    // Favourites and direct messages belong to the ACCOUNT, not to any
-    // Space, so the Channels layout needs the room list to reach them at all.
-    m_spaceChannels->setRoomListModel(m_roomList.get());
-    m_spaceChannels->setSpaceId(m_spaces->activeSpaceId());
-    connect(m_spaces.get(), &SpaceManager::activeSpaceIdChanged, this,
-            [this] {
-                m_spaceChannels->setSpaceId(m_spaces->activeSpaceId());
-            });
+    m_spaceChannels->setSources(m_client.get(), m_spaces.get(),
+                                m_railLayout.get());
+    m_spaceChannels->setSettings(m_settings.get());
     m_quickSwitcher->setClient(m_client.get());
     m_quickSwitcher->setSpaceManager(m_spaces.get());
     m_timeline->setClient(m_client.get());
@@ -1789,6 +1788,9 @@ CustomThemeStore *AppController::customTheme() const
 { return m_customTheme.get(); }
 RailLayoutStore *AppController::railLayout() const
 { return m_railLayout.get(); }
+
+RailEntryModel *AppController::railEntries() const
+{ return m_railEntries.get(); }
 ProfileBannerManager *AppController::banners() const
 { return m_banners.get(); }
 AuthManager *AppController::auth() const { return m_auth.get(); }
@@ -2498,6 +2500,48 @@ void AppController::openSpaceHome(const QString &spaceId)
         m_spaces->setActiveSpaceId(spaceId);
     if (!m_currentRoomId.isEmpty())
         setCurrentRoomId(QString());
+}
+
+void AppController::setSpaceMuted(const QString &spaceId, bool mute)
+{
+    if (!m_spaces || spaceId.isEmpty() || !spaceId.startsWith(QLatin1Char('!')))
+        return;
+    // The Space's own membership, which SpaceManager already resolves
+    // transitively — muting a Space the user thinks of as one thing has to
+    // cover the rooms a subspace brought into it, or the mute is a half-mute.
+    const QStringList rooms = m_spaces->roomsInSpace(spaceId);
+    if (rooms.isEmpty())
+        return;
+    const int mode = mute ? 2 : 3;
+    for (const QString &roomId : rooms) {
+        if (m_settings->roomNotificationMode(roomId) == mode)
+            continue;   // idempotent: no write, no push-rule call
+        setRoomNotificationMode(roomId, mode);
+    }
+    qCInfo(lcApp) << "space notification mode applied rooms=" << rooms.size()
+                  << "muted=" << mute;
+}
+
+bool AppController::spaceIsMuted(const QString &spaceId) const
+{
+    if (!m_spaces || spaceId.isEmpty())
+        return false;
+    const QStringList rooms = m_spaces->roomsInSpace(spaceId);
+    if (rooms.isEmpty())
+        return false;
+    for (const QString &roomId : rooms) {
+        if (m_settings->roomNotificationMode(roomId) != 2)
+            return false;
+    }
+    return true;
+}
+
+void AppController::openLobby()
+{
+    // Exactly openSpaceHome's teardown with no Space to activate: the same
+    // ordering matters (close the timeline before the selection clears), and
+    // reusing it is what keeps the two paths from drifting.
+    openSpaceHome(QString());
 }
 
 bool AppController::trimHistoryAndJumpToLive()

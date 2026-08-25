@@ -145,20 +145,26 @@ private Q_SLOTS:
             QStringLiteral("objectName: \"railSpaceExpandChevron\"")));
         QVERIFY(rail.contains(
             QStringLiteral("objectName: \"railSpaceMoreButton\"")));
-        QVERIFY(rail.contains(QStringLiteral("toggleSpaceExpansion(")));
+        // The expander became the HIERARCHY expander in 2026-08-25: it reveals
+        // the Space's joined subspaces (as real rows, inserted by the model)
+        // as well as its top rooms, and the flag it toggles is PERSISTED in
+        // RailLayoutStore, as Element persists its own Space-panel expansion.
+        QVERIFY(rail.contains(QStringLiteral(
+            "app.railLayout.toggleSpaceExpanded( spaceItem.spaceId)")));
         QVERIFY(rail.contains(QStringLiteral("showMoreRooms(")));
         // Opening a room from the expansion activates its space first —
         // the room-list column filters by activeSpaceId, and openRoom
         // itself never touches it.
         const int open = rail.indexOf(
-            QStringLiteral("app.spaces.activeSpaceId = spaceItem.ownSpaceId"));
+            QStringLiteral("app.spaces.activeSpaceId = spaceItem.spaceId"));
         QVERIFY(open >= 0);
         QVERIFY(rail.indexOf(QStringLiteral("app.openRoom("), open) > open);
-        // Expansion state survives delegate recycling (rail root, not the
-        // delegate) and is cleared on account switch.
-        QVERIFY(rail.contains(QStringLiteral("property var railExpansion")));
+        // The reveal COUNT ("+5 more") stays session state on the rail root,
+        // not on the delegate, so ListView recycling and model resets never
+        // forget it; it is cleared on an account switch.
+        QVERIFY(rail.contains(QStringLiteral("property var railReveal")));
         QVERIFY(rail.contains(
-            QStringLiteral("root.railExpansion = ({})")));
+            QStringLiteral("root.railReveal = ({})")));
     }
 
     void railTileHandlersAreScopedToTheTileBand()
@@ -181,7 +187,10 @@ private Q_SLOTS:
         QVERIFY(!rail.contains(QStringLiteral("onDoubleTapped")));
         // A real space's tap opens the overview; pseudo tiles only filter.
         QVERIFY(rail.contains(QStringLiteral(
-            "if (spaceItem.isRealSpace) app.openSpaceHome(spaceItem.ownSpaceId)")));
+            "if (spaceItem.isRealSpace) app.openSpaceHome(spaceItem.spaceId)")));
+        // And no tile handler fires while a drag is live: a release is a drop,
+        // never also a navigation.
+        QVERIFY(rail.contains(QStringLiteral("enabled: !root.dragging")));
     }
 
     // 2026-08-19: the jump-to-live history trim is Element's

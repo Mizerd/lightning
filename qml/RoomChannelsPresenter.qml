@@ -5,55 +5,64 @@ import MatrixClient
 // The Channels navigation layout's list body.
 //
 // A PRESENTER: it owns no header, no search field and no dialogs — RoomsPanel
-// (the host) owns those and swaps this in place of the Classic list. The
-// split exists so the two layouts cannot fork the surrounding chrome; every
-// user of either layout gets the same workspace header and the same ⌘K hint.
+// (the host) owns those and swaps this in place of the Classic list. The split
+// exists so the two layouts cannot fork the surrounding chrome; every user of
+// either layout gets the same workspace header and the same ⌘K hint.
 //
-// Design reference is Sable first, as directed: hierarchy order, categories
-// as quiet all-caps headers, channels as single 32px rows with a glyph and a
-// name. Discord informed only the interaction (chevron rotation, the collapsed
-// group still reporting activity). No Discord or Sable code, asset, colour or
-// wording is used — every value comes from AppTheme.
+// Sable's model, as directed: a Lobby entry, a Message Search entry, a group
+// for the rooms that belong to no Space, then EVERY joined Space as a flat
+// collapsible folder of its rooms. No Discord, Sable or Cinny code, asset,
+// sound, trademark or wording is used; every colour comes from AppTheme.
 //
-// What this layout deliberately CANNOT show, and why the host keeps Classic
-// reachable: this is the active Space's hierarchy, so DMs that belong to no
-// Space, invites, and favourites are not in it. At Home there is no
-// hierarchy at all — the host falls back to Classic there rather than
-// rendering an empty column, because "your Space has no channels" and "you
-// are not in a Space" are different facts.
+// What changed from the first version of this layout, and why it is not a
+// tweak: it used to show the ACTIVE Space's hierarchy, with child Spaces as
+// nested categories, and the host silently fell back to Classic at Home
+// because there was nothing to show. A navigation layout that becomes the
+// other layout depending on where you are is not a navigation layout.
+//
+// So the layout always exists, and the rail's selection NARROWS it instead of
+// deciding whether it works: pick a Space and the column becomes that Space and
+// its subspaces (still flat folders, never nested); Lobby clears the selection
+// and the column is the whole account again. Both states are this layout, and
+// Lobby is always one row away from either.
 Item {
     id: root
 
-    /// The room the timeline is showing, so the active row can be marked.
+    /// The room the timeline is showing, so the open room's row can be marked.
     property string currentRoomId: ""
-
-    // The filter chips above this presenter write the SAME per-account
-    // preference the Classic list follows. Without this binding they were
-    // visible and inert in Channels mode — reported as "in channels mode all
-    // list doesn't show people and in people list doesn't show people".
-    Binding {
-        target: app.spaceChannels
-        property: "filterMode"
-        value: app.settings.roomFilterMode
-    }
+    /// True while the shell is on the home surface, which is what Lobby marks.
+    ///
+    /// The same condition TimelinePane uses to choose HomePane over a
+    /// timeline, so the two cannot disagree about where the user is. Computed
+    /// here rather than passed in because it is a fact about the shell, not
+    /// about this column, and the host would only be forwarding it.
+    readonly property bool lobbyActive:
+        app.currentRoomId === ""
+        && !(app.spaces && app.spaces.activeSpaceId.length > 0
+             && app.spaces.activeSpaceId.charAt(0) === "!")
 
     signal roomActivated(string roomId)
-    /// A category was opened as a Space in its own right (long-press / the
-    /// context action), which re-roots the model at it.
-    signal spaceActivated(string spaceId)
+    /// Lobby: the home / all-conversations surface. Navigation only — there is
+    /// no Matrix room behind it and nothing is persisted for it.
+    signal lobbyActivated()
+    /// Message Search: the existing global server-side search dialog, which
+    /// the host owns. Never a filter over this list — Sable's row opens a
+    /// search experience, and so does this one.
+    signal messageSearchRequested()
     // The host owns the clipboard proxy and the leave-confirm dialog, exactly
     // as it does for the Classic list — a presenter that reached up into the
     // host by id is how the reader popover's click ended up silently dead.
     signal roomLinkCopyRequested(string roomId)
     signal leaveRoomRequested(string roomId, string roomName)
 
-    // Empty state. Two distinct ones, because conflating them tells the user
-    // the wrong thing about what to do next.
+    // Empty state. Only when the ACCOUNT has nothing — a filter or a search
+    // that matched nothing is a fact about the filter, and saying the first
+    // when the second is true sends the user looking for a problem that is not
+    // there.
     Loader {
         anchors.centerIn: parent
         width: parent.width - AppTheme.spacing24 * 2
-        active: app.spaceChannels.emptyHierarchy
-                && app.spaceChannels.count === 0
+        active: app.spaceChannels.empty
         visible: active
         sourceComponent: Label {
             horizontalAlignment: Text.AlignHCenter
@@ -62,7 +71,7 @@ Item {
             lineHeightMode: Text.ProportionalHeight
             color: AppTheme.textMuted
             font.pixelSize: AppTheme.textBody
-            text: qsTr("This space has no channels yet. Rooms added to it " + "will show up here.")
+            text: qsTr("No conversations yet. Rooms you join, and the spaces " + "they belong to, will show up here.")
         }
     }
 
@@ -74,7 +83,7 @@ Item {
         model: app.spaceChannels
         currentIndex: -1
         spacing: 0
-        // Rows are 30-32px, so one extra screen is a much smaller number of
+        // Rows are 32px, so one extra screen is a much smaller number of
         // delegates than the Classic list needs.
         cacheBuffer: 400
         // Recycling is safe: ChannelDelegate keeps no per-instance state that
@@ -86,9 +95,9 @@ Item {
             policy: ScrollBar.AsNeeded
         }
 
-        // No section.property. The MODEL is already ordered and grouped by the
-        // hierarchy, and a ListView section header on top of the category rows
-        // would draw the same grouping twice.
+        // No section.property. The MODEL is already ordered and grouped, and a
+        // ListView section header on top of the folder rows would draw the
+        // same grouping twice.
         header: Item {
             width: channelList.width
             height: AppTheme.spacing8
@@ -104,16 +113,38 @@ Item {
             required property var model
             required property int index
 
-            // One Loader choosing between two components, rather than one
-            // delegate with everything in it behind visibility flags: a
-            // category and a channel share no geometry and no controls, and a
-            // combined delegate would instantiate both for every row.
-            // Three row kinds, and the chooser must name all three: a
-            // "section" row falling through to channelComponent rendered the
-            // group LABEL as a clickable channel row — which is exactly what
-            // "in channels mode when I click people it says direct messages
-            // at the top" was.
-            sourceComponent: rowLoader.model.kind === "category" ? categoryComponent : (rowLoader.model.kind === "section" ? sectionComponent : channelComponent)
+            // One Loader choosing between components, rather than one delegate
+            // with everything in it behind visibility flags: the row kinds
+            // share no geometry and no controls, and a combined delegate would
+            // instantiate all of them for every row.
+            //
+            // The chooser must name EVERY kind the model can produce. It once
+            // named two of three, so a group label fell through to the
+            // channel-row component and rendered as a room row with an empty
+            // room id — clickable-looking, opening nothing, and carrying a
+            // room's context menu over a heading.
+            sourceComponent: rowLoader.model.kind === "lobby" ? lobbyComponent : (rowLoader.model.kind === "search" ? searchComponent : (rowLoader.model.kind === "space" ? spaceComponent : (rowLoader.model.kind === "group" ? groupComponent : channelComponent)))
+
+            Component {
+                id: lobbyComponent
+                ChannelNavRow {
+                    width: channelList.width
+                    label: rowLoader.model.name
+                    iconName: "home"
+                    current: root.lobbyActive
+                    onClicked: root.lobbyActivated()
+                }
+            }
+
+            Component {
+                id: searchComponent
+                ChannelNavRow {
+                    width: channelList.width
+                    label: rowLoader.model.name
+                    iconName: "search"
+                    onClicked: root.messageSearchRequested()
+                }
+            }
 
             Component {
                 id: channelComponent
@@ -121,7 +152,10 @@ Item {
                     width: channelList.width
                     roomId: rowLoader.model.roomId
                     channelName: rowLoader.model.name
+                    avatarUrl: rowLoader.model.avatarUrl
+                    identityColorKey: rowLoader.model.identityColorKey
                     isDirect: rowLoader.model.isDirect
+                    isInvite: rowLoader.model.isInvite
                     encrypted: rowLoader.model.encrypted
                     unreadCount: rowLoader.model.unreadCount
                     highlightCount: rowLoader.model.highlightCount
@@ -142,31 +176,40 @@ Item {
             }
 
             Component {
-                id: sectionComponent
-                ChannelSectionHeader {
+                id: groupComponent
+                ChannelCategoryHeader {
                     width: channelList.width
-                    label: rowLoader.model.name
+                    headerId: rowLoader.model.roomId
+                    headerName: rowLoader.model.name
+                    showsAvatar: false
+                    collapsed: rowLoader.model.collapsed
+                    hiddenUnread: rowLoader.model.hiddenUnread
+                    hiddenHighlight: rowLoader.model.hiddenHighlight
+                    onClicked: app.spaceChannels.toggleCollapsed(rowLoader.model.roomId)
                 }
             }
 
             Component {
-                id: categoryComponent
+                id: spaceComponent
                 ChannelCategoryHeader {
                     width: channelList.width
-                    categoryId: rowLoader.model.roomId
-                    categoryName: rowLoader.model.name
+                    headerId: rowLoader.model.roomId
+                    headerName: rowLoader.model.name
+                    avatarUrl: rowLoader.model.avatarUrl
+                    identityColorKey: rowLoader.model.identityColorKey
+                    showsAvatar: true
                     collapsed: rowLoader.model.collapsed
                     hiddenUnread: rowLoader.model.hiddenUnread
                     hiddenHighlight: rowLoader.model.hiddenHighlight
                     // The primary action is COLLAPSE, not "open this space".
-                    // A category header that navigated on click would make
-                    // every attempt to tidy the column also change rooms.
-                    onClicked: app.spaceChannels.toggleCategory(rowLoader.model.roomId)
-                    // Opening the subspace as a Space is the secondary
-                    // action, on its own affordance.
+                    // A folder header that navigated on click would make every
+                    // attempt to tidy the column also change rooms.
+                    onClicked: app.spaceChannels.toggleCollapsed(rowLoader.model.roomId)
+                    // Opening the Space itself is the secondary action, on its
+                    // own gesture.
                     TapHandler {
                         acceptedButtons: Qt.RightButton
-                        onTapped: root.spaceActivated(rowLoader.model.roomId)
+                        onTapped: app.openSpaceHome(rowLoader.model.roomId)
                     }
                 }
             }

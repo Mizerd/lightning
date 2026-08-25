@@ -1,54 +1,83 @@
 #include "models/SpaceChannelModel.h"
 
-#include <QScopeGuard>
+#include "app/SettingsManager.h"
+#include "matrix/MatrixClient.h"
+#include "spaces/RailLayoutStore.h"
+#include "spaces/SpaceManager.h"
 
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QVariantMap>
 
-#include "models/RoomListModel.h"
-#include "spaces/SpaceManager.h"
+#include <algorithm>
+
+namespace {
+constexpr auto kCollapsedKey = "shell/channelCollapsed";
+} // namespace
+
+bool SpaceChannelModel::Row::operator==(const Row &other) const
+{
+    return id == other.id && name == other.name && kind == other.kind
+           && depth == other.depth && avatarUrl == other.avatarUrl
+           && identityColorKey == other.identityColorKey
+           && isDirect == other.isDirect && isInvite == other.isInvite
+           && encrypted == other.encrypted && unread == other.unread
+           && highlight == other.highlight && hasUnread == other.hasUnread
+           && favourite == other.favourite
+           && hiddenUnread == other.hiddenUnread
+           && hiddenHighlight == other.hiddenHighlight;
+}
 
 SpaceChannelModel::SpaceChannelModel(QObject *parent)
     : QAbstractListModel(parent)
 {
 }
 
-void SpaceChannelModel::setSpaceManager(SpaceManager *spaces)
+void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
+                                   RailLayoutStore *layout)
 {
-    if (m_spaces == spaces)
-        return;
+    if (m_client)
+        disconnect(m_client, nullptr, this, nullptr);
     if (m_spaces)
         disconnect(m_spaces, nullptr, this, nullptr);
+    if (m_layout)
+        disconnect(m_layout, nullptr, this, nullptr);
+    m_client = client;
     m_spaces = spaces;
+    m_layout = layout;
     if (m_spaces) {
-        // The hierarchy is authoritative and arrives from sync. Rebuilding on
-        // its signal rather than polling is what keeps a channel added in
-        // Element from needing a restart here.
+        // SpaceManager rebuilds on both roomsChanged and roomUpdated and
+        // always announces afterwards, so this single connection covers every
+        // room change AND guarantees the hierarchy is resolved first.
         connect(m_spaces, &SpaceManager::spacesChanged, this,
+                &SpaceChannelModel::rebuild);
+    }
+    if (m_client) {
+        // The collapse set is ACCOUNT-SCOPED storage, so a sign-out or an
+        // account switch must drop the in-memory copy and read whoever is
+        // next — keeping it would apply one account's collapsed folders to
+        // another account's rooms. detachSession() (the switch) emits this
+        // too, which makes the invalidation idempotent rather than duplicated.
+        connect(m_client, &MatrixClient::loggedOut, this, [this] {
+            m_collapsed.clear();
+            m_collapsedLoaded = false;
+            rebuild();
+        });
+    }
+    if (m_layout) {
+        connect(m_layout, &RailLayoutStore::layoutChanged, this,
                 &SpaceChannelModel::rebuild);
     }
     rebuild();
 }
 
-void SpaceChannelModel::setRoomListModel(RoomListModel *rooms)
+void SpaceChannelModel::setSettings(SettingsManager *settings)
 {
-    if (m_rooms == rooms)
+    if (m_settings == settings)
         return;
-    if (m_rooms)
-        disconnect(m_rooms, nullptr, this, nullptr);
-    m_rooms = rooms;
-    if (m_rooms) {
-        // Favourites and DMs change on their own schedule (a tag write, a new
-        // DM, an unread arriving), so this follows the room list rather than
-        // only the hierarchy.
-        connect(m_rooms, &QAbstractItemModel::modelReset, this,
-                &SpaceChannelModel::rebuild);
-        connect(m_rooms, &QAbstractItemModel::rowsInserted, this,
-                &SpaceChannelModel::rebuild);
-        connect(m_rooms, &QAbstractItemModel::rowsRemoved, this,
-                &SpaceChannelModel::rebuild);
-        connect(m_rooms, &QAbstractItemModel::dataChanged, this,
-                &SpaceChannelModel::rebuild);
-    }
+    m_settings = settings;
+    m_collapsedLoaded = false;
+    m_collapsed.clear();
     rebuild();
 }
 
@@ -60,6 +89,94 @@ void SpaceChannelModel::setFilterMode(int mode)
     m_filterMode = clamped;
     Q_EMIT filterModeChanged();
     rebuild();
+}
+
+void SpaceChannelModel::setSearchQuery(const QString &query)
+{
+    if (m_searchQuery == query)
+        return;
+    m_searchQuery = query;
+    Q_EMIT searchQueryChanged();
+    rebuild();
+}
+
+void SpaceChannelModel::setMessageSearchSupported(bool supported)
+{
+    if (m_messageSearchSupported == supported)
+        return;
+    m_messageSearchSupported = supported;
+    Q_EMIT messageSearchSupportedChanged();
+    rebuild();
+}
+
+void SpaceChannelModel::setScopeSpaceId(const QString &spaceId)
+{
+    // A pseudo id ("", "@orphans") is not a Space and scopes nothing — it is
+    // how the rail says "Home", and Home is the whole account.
+    const QString clean =
+        spaceId.startsWith(QLatin1Char('!')) ? spaceId : QString();
+    if (m_scopeSpaceId == clean)
+        return;
+    m_scopeSpaceId = clean;
+    Q_EMIT scopeSpaceIdChanged();
+    rebuild();
+}
+
+QStringList SpaceChannelModel::listedSpaceIds() const
+{
+    if (!m_spaces)
+        return {};
+    const QVariantList spaceRows = m_spaces->allSpaces();
+    QStringList ordered;
+    if (m_layout) {
+        ordered = m_layout->orderedSpaceIds(spaceRows);
+    } else {
+        for (const QVariant &value : spaceRows) {
+            const QString id =
+                value.toMap().value(QStringLiteral("spaceId")).toString();
+            if (!id.isEmpty() && !id.startsWith(QLatin1Char('@')))
+                ordered.append(id);
+        }
+    }
+    if (m_scopeSpaceId.isEmpty())
+        return ordered;
+    if (!ordered.contains(m_scopeSpaceId)) {
+        // Scoped to a Space the account no longer has. Falling back to the
+        // whole list is the honest answer: an empty column would look like the
+        // account had nothing in it.
+        return ordered;
+    }
+
+    // The scoped Space, then its subspaces — recursively, deduped, and with a
+    // visited set so a cyclic hierarchy cannot loop. FLAT, like every other
+    // folder here: a subspace is a folder at the same level, not a level.
+    QStringList out{ m_scopeSpaceId };
+    QSet<QString> seen{ m_scopeSpaceId };
+    for (int head = 0; head < out.size(); ++head) {
+        for (const QString &childId : m_spaces->childSpaceIds(out.at(head))) {
+            if (seen.contains(childId))
+                continue;
+            seen.insert(childId);
+            out.append(childId);
+        }
+    }
+    // Back into rail order, so a scoped view and the whole list agree about
+    // where a Space sits relative to its siblings.
+    QStringList ranked;
+    for (const QString &id : ordered) {
+        if (seen.contains(id))
+            ranked.append(id);
+    }
+    for (const QString &id : out) {
+        if (!ranked.contains(id))
+            ranked.append(id);
+    }
+    return ranked;
+}
+
+bool SpaceChannelModel::empty() const
+{
+    return !m_accountHasContent;
 }
 
 bool SpaceChannelModel::filterAdmits(bool isDirect, bool unread) const
@@ -76,101 +193,74 @@ bool SpaceChannelModel::filterAdmits(bool isDirect, bool unread) const
     }
 }
 
-void SpaceChannelModel::setSpaceId(const QString &spaceId)
+bool SpaceChannelModel::matchesQuery(const QString &name) const
 {
-    if (m_spaceId == spaceId)
+    if (m_searchQuery.trimmed().isEmpty())
+        return true;
+    return name.contains(m_searchQuery.trimmed(), Qt::CaseInsensitive);
+}
+
+void SpaceChannelModel::loadCollapsed() const
+{
+    if (m_collapsedLoaded)
         return;
-    m_spaceId = spaceId;
-    Q_EMIT spaceIdChanged();
-    rebuild();
-}
-
-bool SpaceChannelModel::emptyHierarchy() const
-{
-    // Only the UNFILTERED emptiness counts. "This space has no channels yet"
-    // is a fact about the Space; a filter that matched nothing is a fact
-    // about the filter, and saying the first when the second is true sends
-    // the user looking for a problem that is not there.
-    return !m_spaceId.isEmpty() && m_rows.isEmpty() && m_filterMode == 0;
-}
-
-// Placed after emptyHierarchy so the filter note sits with it.
-int SpaceChannelModel::appendRoomListGroup(const QString &label,
-                                           bool wantDirect)
-{
-    if (!m_rooms)
-        return 0;
-    // The header goes in FIRST and is removed again if nothing followed it:
-    // a "Favourites" label over an empty list is worse than no label.
-    Row header;
-    header.name = label;
-    header.kind = SectionKind;
-    m_rows.append(header);
-    const int headerIndex = m_rows.size() - 1;
-
-    int added = 0;
-    const int total = m_rooms->rowCount();
-    for (int i = 0; i < total; ++i) {
-        const QModelIndex index = m_rooms->index(i, 0);
-        // A Space is not a conversation, and an INVITE is not one either —
-        // both have their own surfaces and neither belongs in a channel list.
-        if (m_rooms->data(index, RoomListModel::IsSpaceRole).toBool())
-            continue;
-        const QString category =
-            m_rooms->data(index, RoomListModel::CategoryRole).toString();
-        if (category == QLatin1String("invite"))
-            continue;
-
-        const bool isDirect =
-            m_rooms->data(index, RoomListModel::IsDirectRole).toBool();
-        const bool favourite =
-            m_rooms->data(index, RoomListModel::IsFavouriteRole).toBool();
-        if (wantDirect ? !isDirect : !favourite)
-            continue;
-        // Favourites come first as their own group, so a favourited DM is
-        // listed ONCE — there, not again under Direct messages.
-        if (wantDirect && favourite)
-            continue;
-
-        const int unread =
-            m_rooms->data(index, RoomListModel::UnreadCountRole).toInt();
-        const int highlight =
-            m_rooms->data(index, RoomListModel::HighlightCountRole).toInt();
-        const bool hasUnread =
-            m_rooms->data(index, RoomListModel::HasUnreadRole).toBool()
-            || m_rooms->data(index, RoomListModel::MarkedUnreadRole).toBool();
-        if (!filterAdmits(isDirect, hasUnread || unread > 0 || highlight > 0))
-            continue;
-
-        Row row;
-        row.roomId = m_rooms->data(index, RoomListModel::RoomIdRole).toString();
-        row.name = m_rooms->data(index, RoomListModel::NameRole).toString();
-        row.kind = ChannelKind;
-        row.depth = 1;
-        row.avatarUrl =
-            m_rooms->data(index, RoomListModel::AvatarUrlRole).toString();
-        row.identityColorKey =
-            m_rooms->data(index, RoomListModel::IdentityColorKeyRole).toString();
-        row.isDirect = isDirect;
-        row.favourite = favourite;
-        row.encrypted =
-            m_rooms->data(index, RoomListModel::EncryptedRole).toBool();
-        row.unread = unread;
-        row.highlight = highlight;
-        row.hasUnread = hasUnread;
-        m_rows.append(row);
-        ++added;
+    m_collapsedLoaded = true;
+    m_collapsed.clear();
+    if (!m_settings)
+        return;
+    const QString json =
+        m_settings->appearanceValue(kCollapsedKey, QString()).toString();
+    if (json.isEmpty())
+        return;
+    const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+    if (!doc.isArray())
+        return;
+    for (const QJsonValue &value : doc.array()) {
+        const QString id = value.toString();
+        if (!id.isEmpty())
+            m_collapsed.insert(id);
     }
-    if (added == 0)
-        m_rows.remove(headerIndex);
-    return added;
+}
+
+void SpaceChannelModel::saveCollapsed()
+{
+    if (!m_settings)
+        return;
+    QStringList ids(m_collapsed.constBegin(), m_collapsed.constEnd());
+    // Sorted so the stored value is stable and a no-op toggle pair does not
+    // rewrite the file with a different ordering every time.
+    std::sort(ids.begin(), ids.end());
+    m_settings->setAppearanceValue(
+        kCollapsedKey,
+        QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(ids))
+                              .toJson(QJsonDocument::Compact)));
+}
+
+bool SpaceChannelModel::isCollapsed(const QString &headerId) const
+{
+    loadCollapsed();
+    return m_collapsed.contains(headerId);
+}
+
+void SpaceChannelModel::toggleCollapsed(const QString &headerId)
+{
+    if (headerId.isEmpty())
+        return;
+    loadCollapsed();
+    if (m_collapsed.contains(headerId))
+        m_collapsed.remove(headerId);
+    else
+        m_collapsed.insert(headerId);
+    saveCollapsed();
+    // A collapse changes which rows EXIST, not just how one looks.
+    rebuild();
 }
 
 int SpaceChannelModel::rowCount(const QModelIndex &parent) const
 {
     if (parent.isValid())
         return 0;
-    return static_cast<int>(m_rows.size());
+    return int(m_rows.size());
 }
 
 QHash<int, QByteArray> SpaceChannelModel::roleNames() const
@@ -183,6 +273,7 @@ QHash<int, QByteArray> SpaceChannelModel::roleNames() const
         { AvatarUrlRole, "avatarUrl" },
         { IdentityColorKeyRole, "identityColorKey" },
         { IsDirectRole, "isDirect" },
+        { IsInviteRole, "isInvite" },
         { EncryptedRole, "encrypted" },
         { UnreadCountRole, "unreadCount" },
         { HighlightCountRole, "highlightCount" },
@@ -201,17 +292,21 @@ QVariant SpaceChannelModel::data(const QModelIndex &index, int role) const
     const Row &row = m_rows.at(index.row());
     switch (role) {
     case RoomIdRole:
-        return row.roomId;
+        return row.id;
     case NameRole:
         return row.name;
     case KindRole:
         switch (row.kind) {
-        case CategoryKind:
-            return QStringLiteral("category");
-        case SectionKind:
-            return QStringLiteral("section");
+        case LobbyKind:
+            return QStringLiteral("lobby");
+        case SearchKind:
+            return QStringLiteral("search");
+        case GroupKind:
+            return QStringLiteral("group");
+        case SpaceKind:
+            return QStringLiteral("space");
         default:
-            return QStringLiteral("channel");
+            return QStringLiteral("room");
         }
     case DepthRole:
         return row.depth;
@@ -221,6 +316,8 @@ QVariant SpaceChannelModel::data(const QModelIndex &index, int role) const
         return row.identityColorKey;
     case IsDirectRole:
         return row.isDirect;
+    case IsInviteRole:
+        return row.isInvite;
     case EncryptedRole:
         return row.encrypted;
     case UnreadCountRole:
@@ -230,7 +327,8 @@ QVariant SpaceChannelModel::data(const QModelIndex &index, int role) const
     case HasUnreadRole:
         return row.hasUnread;
     case CollapsedRole:
-        return row.kind == CategoryKind && categoryCollapsed(row.roomId);
+        return (row.kind == SpaceKind || row.kind == GroupKind)
+               && isCollapsed(row.id);
     case HiddenUnreadRole:
         return row.hiddenUnread;
     case HiddenHighlightRole:
@@ -242,219 +340,246 @@ QVariant SpaceChannelModel::data(const QModelIndex &index, int role) const
     }
 }
 
-void SpaceChannelModel::toggleCategory(const QString &categoryId)
-{
-    if (categoryId.isEmpty())
-        return;
-    QSet<QString> &collapsed = m_collapsed[m_spaceId];
-    if (collapsed.contains(categoryId))
-        collapsed.remove(categoryId);
-    else
-        collapsed.insert(categoryId);
-    // A collapse changes which rows EXIST, not just how one looks, so this is
-    // a rebuild rather than a dataChanged on the header.
-    rebuild();
-}
-
-bool SpaceChannelModel::categoryCollapsed(const QString &categoryId) const
-{
-    const auto it = m_collapsed.constFind(m_spaceId);
-    return it != m_collapsed.cend() && it->contains(categoryId);
-}
-
 int SpaceChannelModel::rowForRoom(const QString &roomId) const
 {
     if (roomId.isEmpty())
         return -1;
     for (int i = 0; i < m_rows.size(); ++i) {
-        // Categories are Spaces and a Space is never the ACTIVE room in the
-        // timeline sense, so a category whose id happens to be asked for is
-        // deliberately not a match: highlighting it would mark the whole
-        // group as "the room you are in".
-        if (m_rows.at(i).kind == ChannelKind && m_rows.at(i).roomId == roomId)
+        if (m_rows.at(i).kind == RoomKind && m_rows.at(i).id == roomId)
             return i;
     }
     return -1;
 }
 
-QSet<QString> SpaceChannelModel::favouriteRoomIds() const
+int SpaceChannelModel::appendGroup(QVector<Row> &rows, Row header,
+                                   QVector<Row> rooms)
 {
-    QSet<QString> out;
-    if (!m_rooms)
-        return out;
-    const int total = m_rooms->rowCount();
-    for (int i = 0; i < total; ++i) {
-        const QModelIndex index = m_rooms->index(i, 0);
-        if (!m_rooms->data(index, RoomListModel::IsFavouriteRole).toBool())
-            continue;
-        const QString id =
-            m_rooms->data(index, RoomListModel::RoomIdRole).toString();
-        if (!id.isEmpty())
-            out.insert(id);
-    }
-    return out;
-}
+    // A search opens everything: a room has to be findable whatever the user
+    // last collapsed, and the collapse SET is untouched so clearing the box
+    // restores exactly what was collapsed before.
+    const bool searching = !m_searchQuery.trimmed().isEmpty();
+    const bool collapsed = !searching && isCollapsed(header.id);
 
-void SpaceChannelModel::appendChannels(const QString &parentId, int depth,
-                                       bool append, int *unread,
-                                       int *highlight)
-{
-    if (!m_spaces)
-        return;
-    // DIRECT children. childRoomsDetailed is transitive (see SpaceManager),
-    // which would show every room in the tree under the top-level Space and
-    // then show them AGAIN under their own category.
-    const QVariantList children =
-        m_spaces->directChildRoomsDetailed(parentId);
-    for (const QVariant &entry : children) {
-        const QVariantMap child = entry.toMap();
-        const int rowUnread =
-            child.value(QStringLiteral("unreadCount")).toInt();
-        const int rowHighlight =
-            child.value(QStringLiteral("highlightCount")).toInt();
-        if (unread)
-            *unread += rowUnread;
-        if (highlight)
-            *highlight += rowHighlight;
-        if (!append)
+    QVector<Row> kept;
+    int hiddenUnread = 0;
+    int hiddenHighlight = 0;
+    bool anyUnread = false;
+    for (Row &room : rooms) {
+        if (!matchesQuery(room.name))
             continue;
-        const bool rowHasUnread =
-            child.value(QStringLiteral("hasUnread")).toBool()
-            || rowUnread > 0 || rowHighlight > 0;
-        if (!filterAdmits(child.value(QStringLiteral("isDirect")).toBool(),
-                          rowHasUnread)) {
+        // An INVITE passes every filter, exactly as it does in Classic: it
+        // needs action regardless of which view the user chose, and a People
+        // or Rooms chip is not a request to hide one.
+        if (!room.isInvite
+            && !filterAdmits(room.isDirect, room.hasUnread || room.unread > 0
+                                                || room.highlight > 0)) {
             continue;
         }
-
-        Row row;
-        row.roomId = child.value(QStringLiteral("roomId")).toString();
-        row.name = child.value(QStringLiteral("name")).toString();
-        row.kind = ChannelKind;
-        row.depth = depth;
-        row.avatarUrl = child.value(QStringLiteral("avatarUrl")).toString();
-        row.identityColorKey =
-            child.value(QStringLiteral("identityColorKey")).toString();
-        row.isDirect = child.value(QStringLiteral("isDirect")).toBool();
-        // From the set the rebuild collected, not a per-row scan of every
-        // joined room. Only the row's MENU reads this (so its toggle offers
-        // the current state instead of a blind "Add"); a channel row draws no
-        // star, and a favourited channel is deliberately still listed in its
-        // Space — the hierarchy is the Space's structure, and hiding a room
-        // from it because the user starred it would make the Space look
-        // incomplete.
-        row.favourite = m_favouriteIds.contains(row.roomId);
-        row.encrypted = child.value(QStringLiteral("encrypted")).toBool();
-        row.unread = rowUnread;
-        row.highlight = rowHighlight;
-        row.hasUnread = child.value(QStringLiteral("hasUnread")).toBool();
-        m_rows.append(row);
+        hiddenUnread += room.unread;
+        hiddenHighlight += room.highlight;
+        anyUnread = anyUnread || room.hasUnread;
+        room.depth = 1;
+        kept.append(room);
     }
+    if (kept.isEmpty())
+        return 0;
+    if (collapsed) {
+        // The header renders hiddenUnread as a DOT, never as a number (only a
+        // mention count is shown), so a room that is unread without a count —
+        // a marked-unread room, an invite — has to make it non-zero. Otherwise
+        // collapsing a group would hide the fact that something is waiting,
+        // which is the one thing collapsing must not do.
+        header.hiddenUnread =
+            hiddenUnread > 0 ? hiddenUnread : (anyUnread ? 1 : 0);
+        header.hiddenHighlight = hiddenHighlight;
+    }
+    rows.append(header);
+    if (!collapsed)
+        rows.append(kept);
+    return kept.size();
 }
 
 void SpaceChannelModel::rebuild()
 {
-    beginResetModel();
-    m_rows.clear();
-    // One pass for the whole rebuild, then cleared: holding it between
-    // rebuilds would let a row report a tag the account no longer has.
-    m_favouriteIds = favouriteRoomIds();
-    const auto clearFavourites = qScopeGuard([this] { m_favouriteIds.clear(); });
-    if (!m_spaces || m_spaceId.isEmpty()) {
-        endResetModel();
-        Q_EMIT countChanged();
+    QVector<Row> rows;
+    m_accountHasContent = false;
+    if (!m_client || !m_spaces) {
+        applyRows(std::move(rows));
         return;
     }
 
-    // Groups a Space hierarchy cannot contain, ABOVE it. Favourites and DMs
-    // belong to the account, not to any Space, and without them this layout
-    // could not reach a direct message at all — the People filter had nothing
-    // to show and Favourites never appeared.
-    //
-    // Favourites first, matching the Classic order (invites, favourites, DMs,
-    // rooms) so switching layout does not rearrange what the user knows.
-    //
-    // Favourites are offered under EVERY filter, and the filter decides what
-    // is in the group rather than whether the group exists at all: under
-    // Rooms a favourited room, under People a favourited DM, under Unreads a
-    // favourite with something in it. Gating the whole group on the filter is
-    // what made favourites vanish the moment the user pressed Rooms — the
-    // group's own predicate (filterAdmits, applied per row inside
-    // appendRoomListGroup) already answers the question correctly, and an
-    // empty group drops its own header.
-    appendRoomListGroup(tr("Favourites"), /*wantDirect=*/false);
-    // Direct messages stay out of the Rooms view: that filter's whole
-    // meaning is "not people", so a DM group under it would contradict the
-    // chip the user just pressed. Every other filter offers it.
-    if (m_filterMode != 2)
-        appendRoomListGroup(tr("Direct messages"), /*wantDirect=*/true);
+    Row lobby;
+    lobby.kind = LobbyKind;
+    lobby.name = tr("Lobby");
+    Row search;
+    search.kind = SearchKind;
+    search.name = tr("Message Search");
 
-    // The Space's OWN direct rooms first, uncategorised. Element and Sable
-    // both put these above the categories, and putting them below would make
-    // a Space with one uncategorised channel look empty until you scroll.
-    //
-    // Under the People filter the hierarchy is skipped entirely: a channel
-    // list is not people, and leaving the categories standing over nothing
-    // would say the filter had failed.
-    const bool wantHierarchy = m_filterMode != 1;
-    if (!wantHierarchy) {
-        endResetModel();
-        Q_EMIT countChanged();
-        return;
+    const bool searching = !m_searchQuery.trimmed().isEmpty();
+    if (!searching) {
+        // Both are navigation, not content: a search over rooms should not
+        // leave two entries standing that match nothing.
+        rows.append(lobby);
+        if (m_messageSearchSupported)
+            rows.append(search);
     }
-    // A label over the Space's channels, but only when something above it
-    // needed separating — with no favourites and no DMs the hierarchy is the
-    // whole list and a header would be noise.
-    const bool needsChannelLabel = !m_rows.isEmpty();
-    const int beforeHierarchy = m_rows.size();
-    if (needsChannelLabel) {
-        Row header;
-        header.name = tr("Channels");
-        header.kind = SectionKind;
-        m_rows.append(header);
-    }
-    appendChannels(m_spaceId, /*depth=*/needsChannelLabel ? 1 : 0,
-                   /*append=*/true, nullptr, nullptr);
 
-    // Then each direct child Space as a category, with its own direct rooms
-    // nested one level under it. Deeper nesting is deliberately not
-    // flattened in: it is reachable by opening the subspace, which re-roots
-    // this model.
-    const QVariantList categories = m_spaces->childSpacesDetailed(m_spaceId);
-    // Drop the "Channels" label if the Space turned out to have neither
-    // uncategorised rooms nor categories under this filter.
-    if (needsChannelLabel && m_rows.size() == beforeHierarchy + 1
-        && categories.isEmpty()) {
-        m_rows.remove(beforeHierarchy);
-    }
-    for (const QVariant &entry : categories) {
-        const QVariantMap category = entry.toMap();
-        const QString categoryId =
-            category.value(QStringLiteral("roomId")).toString();
-        if (categoryId.isEmpty())
+    const QList<RoomInfo> allRooms = m_client->rooms();
+    QHash<QString, RoomInfo> byId;
+    byId.reserve(allRooms.size());
+    for (const RoomInfo &room : allRooms)
+        byId.insert(room.id, room);
+
+    auto roomRow = [](const RoomInfo &info) {
+        Row row;
+        row.id = info.id;
+        row.name = info.name;
+        row.kind = RoomKind;
+        row.avatarUrl = info.avatarUrl;
+        row.identityColorKey = identityColorKey(info);
+        row.isDirect = info.isDirect;
+        row.isInvite = info.membership == RoomInfo::Invited;
+        // The lock glyph is a CLAIM. It is drawn only for encryption the
+        // client knows about; "not established yet" gets the plain hash.
+        row.encrypted = info.encrypted && info.encryptionKnown;
+        row.unread = info.unreadCount;
+        row.highlight = info.highlightCount;
+        // An INVITE always reads as unread. It is an action waiting on the
+        // user, and an invite has no unread counters of its own, so keying off
+        // them alone would draw the loudest thing in the column as a quiet
+        // read row.
+        row.hasUnread = row.isInvite || info.hasUnreadMessages
+                        || info.markedUnread || info.unreadCount > 0
+                        || info.highlightCount > 0;
+        row.favourite = info.isFavourite;
+        return row;
+    };
+
+    // Invites first. They are not in Sable's own column, and they are here
+    // anyway: this layout is the whole navigation column, so leaving invites
+    // out would make an invite unreachable for anyone who chose it.
+    //
+    // Both account-wide groups are dropped while the column is SCOPED to one
+    // Space: "every joined room no Space folder lists" is a statement about
+    // the whole account, and repeating it under a Space the user just selected
+    // is the "clicking a space basically does nothing" complaint.
+    // A scope that no longer RESOLVES is not a scope: the Space was left while
+    // it was selected, listedSpaceIds() has already fallen back to everything,
+    // and dropping the account-wide groups on top of that would leave a column
+    // narrowed to nothing in particular.
+    const QStringList listed = listedSpaceIds();
+    const bool scoped = !m_scopeSpaceId.isEmpty()
+                        && listed.contains(m_scopeSpaceId);
+    QVector<Row> invites;
+    for (const RoomInfo &info : allRooms) {
+        if (scoped || info.isSpace || info.membership != RoomInfo::Invited)
             continue;
+        invites.append(roomRow(info));
+    }
 
+    // Every joined room no Space folder will list. DMs land here, which is
+    // where they belong in this model: they have no Space parent, and giving
+    // them a group of their own would be a second answer to the same question.
+    QVector<Row> unparented;
+    for (const RoomInfo &info : allRooms) {
+        if (scoped || info.isSpace || info.membership != RoomInfo::Joined)
+            continue;
+        if (m_spaces->roomInAnySpace(info.id))
+            continue;
+        unparented.append(roomRow(info));
+    }
+    auto byName = [](const Row &a, const Row &b) {
+        const int cmp = a.name.compare(b.name, Qt::CaseInsensitive);
+        // Name, then id: two rooms may legitimately share a name, and a tie
+        // broken by nothing is a list that reorders itself between syncs.
+        return cmp != 0 ? cmp < 0 : a.id < b.id;
+    };
+    std::sort(invites.begin(), invites.end(), byName);
+    std::sort(unparented.begin(), unparented.end(), byName);
+
+    // Scoped, the account-wide groups are deliberately absent, so their
+    // emptiness says nothing about the account: only the Space folders below
+    // can answer, and a scoped Space is itself content.
+    m_accountHasContent = scoped || !invites.isEmpty() || !unparented.isEmpty();
+
+    if (!invites.isEmpty()) {
         Row header;
-        header.roomId = categoryId;
-        header.name = category.value(QStringLiteral("name")).toString();
-        header.kind = CategoryKind;
-        header.depth = 0;
-        m_rows.append(header);
-        const int headerIndex = m_rows.size() - 1;
+        header.id = invitesGroupId();
+        header.kind = GroupKind;
+        header.name = tr("Invites");
+        appendGroup(rows, header, invites);
+    }
+    if (!unparented.isEmpty()) {
+        Row header;
+        header.id = roomsGroupId();
+        header.kind = GroupKind;
+        header.name = tr("Rooms");
+        appendGroup(rows, header, unparented);
+    }
 
-        const bool collapsed = categoryCollapsed(categoryId);
-        int hiddenUnread = 0;
-        int hiddenHighlight = 0;
-        appendChannels(categoryId, /*depth=*/1, /*append=*/!collapsed,
-                       &hiddenUnread, &hiddenHighlight);
-        if (collapsed) {
-            // Only meaningful while collapsed. When the rows are visible they
-            // carry their own badges, and a header total on top of them would
-            // double-count what the user can already see.
-            m_rows[headerIndex].hiddenUnread = hiddenUnread;
-            m_rows[headerIndex].hiddenHighlight = hiddenHighlight;
+    // Spaces in RAIL order — the order the user dragged them into, with each
+    // local folder's members inline where the folder sits. Using the rail's
+    // arrangement is what keeps the two layouts from disagreeing about where a
+    // Space is, and it is stable across syncs by construction. Scoped, this is
+    // the selected Space and its subspaces instead.
+    for (const QString &spaceId : listed) {
+        const auto info = byId.constFind(spaceId);
+        if (info == byId.constEnd())
+            continue;
+        m_accountHasContent = true;
+        Row header;
+        header.id = spaceId;
+        header.kind = SpaceKind;
+        header.name = info->name;
+        header.avatarUrl = info->avatarUrl;
+        header.identityColorKey = identityColorKey(*info);
+
+        // DIRECT children only. A subspace is its own folder further down the
+        // column, so listing its rooms here as well would show them twice
+        // under two headings that both claim to contain them.
+        QVector<Row> children;
+        for (const QVariant &value :
+             m_spaces->directChildRoomsDetailed(spaceId)) {
+            const QVariantMap child = value.toMap();
+            const auto childInfo =
+                byId.constFind(child.value(QStringLiteral("roomId")).toString());
+            if (childInfo == byId.constEnd())
+                continue;
+            children.append(roomRow(*childInfo));
+        }
+        appendGroup(rows, header, children);
+    }
+
+    applyRows(std::move(rows));
+}
+
+void SpaceChannelModel::applyRows(QVector<Row> rows)
+{
+    if (rows.size() == m_rows.size()) {
+        bool sameIds = true;
+        for (int i = 0; i < rows.size(); ++i) {
+            if (rows.at(i).id != m_rows.at(i).id
+                || rows.at(i).kind != m_rows.at(i).kind) {
+                sameIds = false;
+                break;
+            }
+        }
+        if (sameIds) {
+            // The rows did not move; at most their unread state changed. A
+            // reset here would tear down and rebuild every delegate on every
+            // arriving message, which for a sidebar this long is visible.
+            if (rows == m_rows) {
+                Q_EMIT countChanged();
+                return;
+            }
+            m_rows = std::move(rows);
+            Q_EMIT dataChanged(index(0, 0), index(m_rows.size() - 1, 0));
+            Q_EMIT countChanged();
+            return;
         }
     }
-
+    beginResetModel();
+    m_rows = std::move(rows);
     endResetModel();
     Q_EMIT countChanged();
 }
