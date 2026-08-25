@@ -200,7 +200,7 @@ Rectangle {
                     Layout.alignment: Qt.AlignVCenter
                     name: "bolt"
                     size: 15
-                    color: AppTheme.accent
+                    color: AppTheme.wordmarkBolt
                     // Decorative: the region should announce the workspace
                     // name text alone, not an unnamed glyph after it.
                     Accessible.ignored: true

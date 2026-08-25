@@ -1372,6 +1372,16 @@ QtObject {
     readonly property color bolt:               storm ? _stoBolt : accent
     // Ink painted ON a bolt/accent fill (primary buttons, count pills).
     readonly property color boltInk:            storm ? _stoBoltInk : accentText
+    // The wordmark's trailing bolt is a BRAND MARK, not a control. Painted in
+    // the raw accent it put a primary-action blue immediately beside plain
+    // header text, where it read as a status light rather than as part of the
+    // name — reported as "the blue lightning session status". Storm keeps its
+    // brand yellow; every other theme blends the accent most of the way to
+    // the header's own secondary ink, so the mark is still recognisably the
+    // accent and no longer competes with the primary button below it.
+    readonly property color wordmarkBolt:       storm ? _stoBolt
+                                                : Qt.tint(textSecondary,
+                                                          Qt.alpha(accent, 0.55))
     readonly property color stormText:          storm ? _stoText : textPrimary
     readonly property color stormTextSecondary: storm ? _stoTextSecondary : textSecondary
     readonly property color stormTextMuted:     storm ? _stoTextMuted : textMuted

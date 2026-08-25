@@ -1846,6 +1846,29 @@ Item {
                                              ? Math.min(720, bubble.width - 8)
                                              : 560
                         Layout.rightMargin: root.receiptRailReserve
+                        // The width a segment may grow to, derived from the
+                        // ROW and nothing below it. It cannot be read from
+                        // `bubble.width` or from a segment's own arranged
+                        // width: in Bubbles mode bubble.width IS
+                        // bubbleContent.implicitWidth, which is this column's
+                        // implicit width, which is the segments' — so a
+                        // segment sized against either one feeds its own
+                        // input and Qt reported a binding loop on
+                        // implicitWidth for every message carrying a fenced
+                        // code block. bubbleRow is fillWidth in `layout`
+                        // (whose width is the delegate's) and reports no
+                        // implicit width, so this end of the chain is inert.
+                        readonly property real segmentCap: {
+                            var avail = Math.max(
+                                1, bubbleRow.width - root.avatarGutterWidth)
+                            avail = root.bubbleMode
+                                    ? Math.max(60, avail - 40)
+                                    : Math.min(AppTheme.timelineContentMaxWidth,
+                                               avail)
+                            return Math.max(
+                                80, Math.min(720,
+                                             avail - root.bubblePad * 2 - 8))
+                        }
                         sourceComponent: ColumnLayout {
                             spacing: 4
                             // ONE accessible reading for the whole message,
@@ -1891,9 +1914,10 @@ Item {
                                         // the cap and wraps, exactly as the
                                         // single-body TextEdit does.
                                         width: item
-                                               ? Math.min(segmentRow.width,
-                                                          item.implicitWidth)
-                                               : segmentRow.width
+                                               ? Math.min(
+                                                     segmentsLoader.segmentCap,
+                                                     item.implicitWidth)
+                                               : segmentsLoader.segmentCap
                                         sourceComponent: segmentRow.isCode
                                                          ? codeSegment
                                                          : richSegment

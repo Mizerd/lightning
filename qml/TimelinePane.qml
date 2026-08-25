@@ -6552,8 +6552,20 @@ Rectangle {
                                                 ? AppTheme.weightBold
                                                 : AppTheme.weightMedium
                                             elide: Label.ElideRight
+                                            // Measured against the ROW, never
+                                            // against `parent` (this
+                                            // RowLayout): a cap read from the
+                                            // layout's own arranged width is
+                                            // an input the layout produces, so
+                                            // Qt Quick Layouts logged
+                                            // "Detected recursive rearrange"
+                                            // once per pass for every row in
+                                            // a Space's list. unifiedRow is
+                                            // fillWidth in the outer column
+                                            // and reports no implicit width of
+                                            // its own, so it cannot feed back.
                                             Layout.maximumWidth:
-                                                parent.width * 0.7
+                                                unifiedRow.width * 0.7
                                         }
                                         // Element parity: the row itself
                                         // says whether the account is in
