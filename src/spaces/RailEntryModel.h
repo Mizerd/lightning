@@ -120,21 +120,38 @@ public:
     /// Takes hold of `entryId`. False when it cannot be dragged (a pseudo row,
     /// a subspace) or is not currently shown.
     Q_INVOKABLE bool beginDrag(const QString &entryId);
-    /// The pointer moved over view row `row`. `onto` asks for the GROUP
-    /// gesture — the caller decides that from the pointer's position within
-    /// the row plus a dwell, so that merely passing through a tile on the way
-    /// somewhere else cannot create a folder.
-    Q_INVOKABLE void updateDrag(int row, bool onto);
-    /// The pointer is RESTING on a row it has not pushed through yet: clear
-    /// any armed group target and leave the preview order exactly as it is.
+    /// The pointer is ON the TILE of view row `row`: arm the GROUP gesture and
+    /// MOVE NOTHING. An ineligible target (a pseudo row, a subspace, or a
+    /// folder being dragged onto another folder) clears the target and returns
+    /// — it never degrades into a reorder.
     ///
-    /// This is the third thing a pointer can be doing and it needs its own
-    /// entry point, because `updateDrag(row, false)` also REORDERS — and
-    /// reordering into the row under the pointer is what made grouping
-    /// unreachable. The dragged block would take the slot the user was aiming
-    /// at, the tile there would step aside, and by the time the dwell elapsed
-    /// the row under the pointer was the dragged entry itself, which is never
-    /// a group target. No drop ever created a folder.
+    /// TWO VERBS, NOT A FLAG. This used to be `updateDrag(row, onto)`, one
+    /// entry point whose `onto == false` branch REORDERED INTO THE HOVERED
+    /// ROW. Every caller that wanted to say "the pointer is aiming at this
+    /// tile" had to spell it with the same call that moves the dragged block
+    /// onto that tile's slot — so the tile stepped aside, the row under the
+    /// pointer became the dragged block, and grouping was unreachable. No drop
+    /// ever created a folder, through two rounds and fifteen passing model
+    /// tests, because those tests called the grouping branch directly.
+    ///
+    /// The `onto` flag is gone rather than defaulted: leaving the
+    /// reorder-into-the-hovered-row path reachable is precisely the defect.
+    Q_INVOKABLE void hoverGroup(int row);
+    /// The pointer is in the GAP before view row `gap` (gaps run 0..rowCount):
+    /// clear any armed group target and move the dragged block so it starts
+    /// there. A gap is never a group target and a tile is never a reorder
+    /// target, so the tile the user is aiming at can never move out from under
+    /// the pointer.
+    ///
+    /// `gap` is a GAP INDEX, not a row index. The destination handed to
+    /// moveBlock() is derived from it, accounting for the block's own removal
+    /// — the conversion the row-index version never had, and the reason a
+    /// one-row hover used to park the block under the pointer and oscillate.
+    Q_INVOKABLE void hoverGap(int gap);
+    /// Clear any armed group target and leave the preview order exactly as it
+    /// is. The view calls this for the one reading neither verb covers: the
+    /// pointer sitting over the dragged block's OWN slot, where there is
+    /// nothing to group with and nowhere new to go.
     Q_INVOKABLE void clearDropTarget();
     /// Ends the gesture. `commit` false abandons it and restores the stored
     /// arrangement.
@@ -170,9 +187,10 @@ private:
     /// Applies folderOwners() to the rows' own folderId/folderLast, so the
     /// container band drawn behind an open folder follows the drag.
     void refreshFolderRuns();
-    /// Snaps a pointer row to a legal destination for the entry being
-    /// dragged: a folder may only land at a top-level boundary.
-    int legalDestination(int row) const;
+    /// Snaps a pointer GAP to a legal one for the entry being dragged: never
+    /// above a pseudo row, never strictly inside a subspace run, and — for a
+    /// folder — only at a top-level boundary. Gaps run 0..m_rows.size().
+    int legalGap(int gap) const;
     void commitGrouping(const QString &dragged, const QString &target);
     void commitReorder(const QString &dragged);
     bool rowIsFolder(int row) const;

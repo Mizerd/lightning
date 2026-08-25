@@ -229,6 +229,79 @@ private slots:
                  "own navigation rows");
     }
 
+    // "In channels mode people tab does nothing." The chip was not inert: it
+    // reached SpaceChannelModel and the model rebuilt correctly. Two things
+    // made a working control read as a dead one, and this pins both.
+    //
+    //  * A scope deleted every DM before the filter ran. Matrix gives no way
+    //    for a DM to be a Space's child, so the account-wide group was the
+    //    only place one could live and dropping that group while scoped
+    //    dropped DMs everywhere. People then had nothing to find, whatever it
+    //    was doing.
+    //  * The column had no wording for "this matched nothing", so the result
+    //    was Lobby and Message Search over blank space — indistinguishable
+    //    from a chip that had done nothing at all.
+    //
+    // The second half is the one that must not be "simplified" into `empty`:
+    // that property answers "does this account have anything?" and answering
+    // it with a fact about the filter sends the user looking for a problem
+    // that is not there.
+    void aFilterThatMatchesNothingSaysSoWithoutClaimingTheAccountIsEmpty()
+    {
+        const QString presenter = withoutComments(
+            read(QStringLiteral("RoomChannelsPresenter.qml")));
+        // SANITY FIRST, and deliberately. withoutComments() is a parser, and
+        // its trailing-comment class ran across newlines until 2026-08-25 —
+        // it swallowed the code it was meant to scan and reported it absent,
+        // which is a PASS for a ban and a false failure for everything else.
+        // A negative assertion over source this function has not proven it can
+        // still see is worth nothing, so prove it first.
+        QVERIFY2(presenter.contains(QStringLiteral("app.spaceChannels.empty")),
+                 "the comment stripper ate the presenter's empty state, so "
+                 "nothing this test asserts about that file is being read");
+
+        QVERIFY2(presenter.contains(QStringLiteral("matchCount === 0")),
+                 "the column cannot tell a filter that matched nothing from a "
+                 "filter that did nothing, so it renders silence for both");
+        QVERIFY2(presenter.contains(
+                     QStringLiteral("&& !app.spaceChannels.empty")),
+                 "the filter-miss message is not held off an empty account, so "
+                 "the two states collide");
+        // It has to NAME what matched nothing. A message that does not is the
+        // same silence with words on it.
+        QVERIFY2(presenter.contains(QStringLiteral("filterMode === 1")),
+                 "the filter-miss message never mentions the People chip");
+        QVERIFY2(presenter.contains(QStringLiteral("searchQuery")),
+                 "the filter-miss message never mentions the search box");
+
+        // The model's half. `empty` keeps answering one question, `matchCount`
+        // answers the other, and DMs get a group the scope may not delete.
+        const QString header = withoutComments(
+            readSrc(QStringLiteral("models/SpaceChannelModel.h")));
+        QVERIFY(!header.isEmpty());
+        QVERIFY2(header.contains(QStringLiteral("int matchCount")),
+                 "there is no count of what survived the filter, so the "
+                 "presenter has nothing to key its message on");
+        QVERIFY2(header.contains(QStringLiteral("directsGroupId")),
+                 "direct messages have no group of their own again, so the "
+                 "People chip files people under a heading that says Rooms");
+
+        QString rebuild = withoutComments(
+            readSrc(QStringLiteral("models/SpaceChannelModel.cpp")));
+        rebuild.replace(QRegularExpression(QStringLiteral("\\s+")),
+                        QStringLiteral(" "));
+        const int at =
+            rebuild.indexOf(QStringLiteral("void SpaceChannelModel::rebuild"));
+        QVERIFY(at >= 0);
+        const QString body = rebuild.mid(at);
+        QVERIFY2(body.contains(QStringLiteral("scoped && !info.isDirect")),
+                 "the scope decides a direct message's fate again");
+        QVERIFY2(!body.contains(QStringLiteral("if (scoped || info.isSpace")),
+                 "the blanket scope rule is back: it drops every DM along with "
+                 "the account-wide groups, and a DM hidden by a scope is a DM "
+                 "hidden everywhere");
+    }
+
     // The rail's selection NARROWS this layout; it does not decide whether the
     // layout works. Those are different things and the difference is the whole
     // point: the old design produced nothing without a Space and the host
@@ -353,7 +426,16 @@ private slots:
         QString flat = withoutComments(model);
         flat.replace(QRegularExpression(QStringLiteral("\\s+")),
                      QStringLiteral(" "));
-        QVERIFY2(flat.contains(QStringLiteral("directChildRoomsDetailed")),
+        // `directChildRoomIds` since 2026-08-26: same DIRECT-children
+        // contract and the same skip rules, resolved against the room map
+        // this rebuild already built. The old accessor materialised the
+        // WHOLE room list and a fresh hash of its own on every call, so
+        // walking every Space cost (1 + numSpaces) materialisations per
+        // rebuild — a real slice of the account switch that "takes longer
+        // now". What matters here is unchanged: DIRECT children, never the
+        // transitive tree.
+        QVERIFY2(flat.contains(QStringLiteral("directChildRoomIds"))
+                     || flat.contains(QStringLiteral("directChildRoomsDetailed")),
                  "a Space folder does not list its DIRECT children");
         QVERIFY2(!flat.contains(QStringLiteral("childRoomsDetailed(spaceId)")),
                  "a Space folder lists the TRANSITIVE tree, so a subspace's "
@@ -410,10 +492,11 @@ private slots:
         QVERIFY2(!rail.contains(QStringLiteral("opacity: spaceItem.dragged")),
                  "the dragged tile is dimmed again");
         // The GROUP target is the one thing still drawn on top of the
-        // movement, and it needs a dwell or dragging THROUGH a tile makes a
-        // folder out of it.
-        QVERIFY2(rail.contains(QStringLiteral("dwellTimer")),
-                 "grouping arms with no dwell");
+        // movement. It no longer needs a dwell: nothing moves while the
+        // pointer is on a tile, so dragging THROUGH one changes the order not
+        // at all, which is what the dwell was standing in for.
+        QVERIFY2(rail.contains(QStringLiteral("function readingAt(")),
+                 "the pointer reading is not one total function any more");
         QVERIFY2(rail.contains(QStringLiteral("dropTarget")),
                  "a release would group with nothing saying so");
         // And auto-scroll, so a long rail does not need drop-scroll-redrag.
@@ -890,50 +973,85 @@ private slots:
     }
 
     // THE DEFECT THIS EXISTS FOR: dropping a Space onto a Space never once
-    // made a folder, and the model's own tests all passed throughout.
+    // made a folder, through TWO rounds, and the model's own tests all passed
+    // the whole time.
     //
-    // They passed because they call `updateDrag(rowOf(target), true)` — they
-    // hand the model the row the pointer is aiming at. Production could not.
-    // The rail reordered as soon as the pointer crossed a row's NEAR EDGE, so
-    // the dragged block took that row, the tile being aimed at stepped aside,
-    // and by the time the 320 ms dwell elapsed the row under the pointer held
-    // the DRAGGED entry — which is never a group target. Grouping was
-    // unreachable by construction. (The same lesson as the row window: a
-    // policy test that invokes the policy directly proves nothing about
-    // whether production ever reaches it.)
+    // They passed because they hand the model the row the pointer is aiming
+    // at. Production could not produce it. Round one reordered as soon as the
+    // pointer crossed a row's NEAR EDGE; round two moved the boundary to the
+    // midpoint and then reordered anyway, because the resting branch ended in
+    // `updateDrag(row, !dwellTimer.running)` and `running` is TRUE for the
+    // whole 250 ms the dwell is being served. Either way the dragged block
+    // took the row, the tile being aimed at stepped aside, and the row under
+    // the pointer held the DRAGGED entry — which is never a group target.
+    // (The same lesson as the row window: a policy test that invokes the
+    // policy directly proves nothing about whether production reaches it.
+    // tests/RailDragQmlTest.cpp is the one that drives a real pointer.)
     //
-    // The fix is geometric: short of a row's MIDPOINT the pointer is resting
-    // on that tile and nothing moves, so the tile keeps its identity and is
-    // what a release groups with; past the midpoint the pointer has pushed
-    // through and the dragged block takes the row.
+    // The fix is that the two readings are EXCLUSIVE and neither can disturb
+    // the other's target: the TILE is the group target and NOTHING MOVES
+    // while the pointer is on one; the GAP between tiles is the reorder
+    // target. A gesture that never moves what it is aiming at cannot fail
+    // the way both earlier rules did.
     void theRailNeverReordersIntoTheTileTheDragIsAimingAt()
     {
         const QString rail = withoutComments(read(QStringLiteral("SpacesRail.qml")));
         QVERIFY(!rail.isEmpty());
-        QVERIFY2(rail.contains(QStringLiteral("function pointerPushedThrough(")),
-                 "the reorder/group split is no longer measured from the side "
-                 "the pointer arrived from");
         QVERIFY2(rail.contains(QStringLiteral("function rowIsDraggedBlock(")),
                  "the dragged block's own slot is treated as a droppable row");
+
+        // BOTH retired rules must stay retired. Each of these was the whole
+        // gesture for a round, and each made grouping unreachable.
+        QVERIFY2(!rail.contains(QStringLiteral("function pointerPushedThrough(")),
+                 "the arrival-side midpoint rule is back");
         QVERIFY2(!rail.contains(QStringLiteral("function pointerOverTileCentre(")),
                  "the centre-band rule is back; reaching that band means "
                  "crossing the near edge first, which reorders");
+        QVERIFY2(!rail.contains(QStringLiteral("dwellTimer")),
+                 "the dwell is back — it existed to compensate for a reading "
+                 "that moved things while the user was still aiming, and that "
+                 "reading is gone");
 
-        // The resting branch — the one that arms the dwell — must clear any
-        // stale target WITHOUT reordering. A `updateDrag(row, false)` there is
-        // exactly the old defect.
-        const int dwell = rail.indexOf(QStringLiteral("dwellTimer.restart()"));
-        QVERIFY2(dwell > 0, "the dwell is gone");
-        const QString branch = rail.mid(dwell, 200);
-        QVERIFY2(branch.contains(QStringLiteral("clearDropTarget()")),
-                 "arming the dwell does not clear a stale drop target");
-        QVERIFY2(!branch.contains(QStringLiteral("updateDrag(row, false)")),
-                 "arming the dwell still reorders into the row being aimed at");
+        // THE INVARIANT. There is exactly one dispatch, and the branch that
+        // reads a TILE may only arm or clear — never move. If a reorder call
+        // ever appears in it, the defect is back.
+        const int at = rail.indexOf(QStringLiteral("function applyPointerReading("));
+        QVERIFY2(at > 0, "the single pointer dispatch is gone, so the "
+                         "auto-scroll can reorder behind the pointer's back");
+        const int end = rail.indexOf(QStringLiteral("function updateTileDrag("), at);
+        QVERIFY(end > at);
+        const QString dispatch = rail.mid(at, end - at);
+        const int rowBranch = dispatch.indexOf(QStringLiteral("reading.row !== undefined"));
+        QVERIFY(rowBranch > 0);
+        const int gapCall = dispatch.indexOf(QStringLiteral("hoverGap("));
+        QVERIFY2(gapCall > rowBranch,
+                 "the tile branch reorders — that is the original defect");
+        QVERIFY2(dispatch.contains(QStringLiteral("hoverGroup(")),
+                 "the tile branch does not arm grouping at all");
+        QVERIFY2(dispatch.contains(QStringLiteral("clearDropTarget()")),
+                 "the dragged block's own slot does not disarm a stale target");
 
-        // And the model has to offer that third verb at all.
+        // The auto-scroll must go through the SAME dispatch. It used to end in
+        // its own unconditional reorder, cancelling an armed grouping every
+        // 16 ms while the pointer was near either end of the rail.
+        const int scroll = rail.indexOf(QStringLiteral("id: autoScroll"));
+        QVERIFY(scroll > 0);
+        const QString scrollBody = rail.mid(scroll, 1400);
+        QVERIFY2(scrollBody.contains(QStringLiteral("applyPointerReading(")),
+                 "the auto-scroll has its own drag dispatch again");
+
+        // And the model must offer three exclusive verbs, with no flag that
+        // can turn an aim into a move.
         const QString model = readSrc(QStringLiteral("spaces/RailEntryModel.h"));
+        QVERIFY2(model.contains(QStringLiteral("void hoverGroup(int row)")),
+                 "the model cannot be told the pointer is on a tile");
+        QVERIFY2(model.contains(QStringLiteral("void hoverGap(int gap)")),
+                 "the model cannot be told the pointer is in a gap");
         QVERIFY2(model.contains(QStringLiteral("void clearDropTarget()")),
                  "the model has no way to clear a target without reordering");
+        QVERIFY2(!model.contains(QStringLiteral("void updateDrag(")),
+                 "the one-verb-with-a-flag API is back, and its false branch "
+                 "reorders into the row the pointer is aiming at");
     }
 
     // Sable's Space menu, and the header that names which Space it belongs to

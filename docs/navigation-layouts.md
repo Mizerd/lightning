@@ -80,8 +80,8 @@ the Space or folder a release would file into.
 
 | Gesture | Feedback |
 |---|---|
-| Pushed *through* a Space → **reorder** | the tile is there |
-| Resting *on* a Space or folder → **group** | the target lights up in the accent, 3 px ring; the dragged tile parks on it at 0.56 scale |
+| Pointer in the **gap** between two tiles → **reorder** | the tile is there |
+| Pointer on a Space's or folder's **tile** → **group** | the target lights up in the accent, 3 px ring; the dragged tile parks on it at 0.56 scale |
 
 **A released tile stops rendering as dragged immediately.** `endDrag` announces
 the cleared `DraggedRole`/`DropTargetRole` explicitly, because `refresh()` is
@@ -91,42 +91,78 @@ dimmed until some unrelated room update happened to refresh the model, reported
 as *"their icons get darkened after moved and let go and only clear up after
 entering a room"*.
 
-#### The band rule, and the defect it replaced
+#### The band rule: the tile groups, the gap reorders
 
-**Dropping a Space onto a Space never once made a folder** before 2026-08-26,
-and every model test passed throughout.
+**THE TILE IS THE GROUP TARGET; THE GAP BETWEEN TILES IS THE REORDER TARGET.**
+Nothing moves while the pointer is on a tile. There is no dwell.
 
-They passed because they call `updateDrag(rowOf(target), true)` — they hand the
-model the row the pointer is aiming at. Production could not. The rule was "the
-middle 24 px of a row is the group zone", and *reaching* that middle means first
-crossing the row's near edge, which reordered: the dragged block took the row,
-the tile being aimed at stepped aside, and by the time the 320 ms dwell elapsed
-the row under the pointer held the **dragged** entry — which is never a group
-target. Grouping was unreachable by construction. (Same lesson as the row
-window: a policy test that invokes the policy directly proves nothing about
-whether production ever reaches it.)
+The bands are measured off the **tile**, not off the row band. Every tile is
+40 px drawn at y = 4 inside its row, so the group band is the middle **24 px**
+of the tile — 12 px of dead space at each end. Between two adjacent 48 px rows
+that leaves a **28 px** reorder gap (12 + 4 spacing + 12). The visual centre of
+a tile, which is where a person aims, is the middle of the group band.
 
-The rule is now measured from **the side the pointer arrived from**, which is
-the side the dragged block is *not* on:
+One total, monotone reading (`readingAt(contentY)` in `qml/SpacesRail.qml`)
+returns either `{ row: i }` — the pointer is on row *i*'s tile — or `{ gap: g }`
+— the pointer is in the gap before row *g*, with gaps running `0..count`. One
+dispatch (`applyPointerReading`) turns that into exactly one of three model
+verbs, and the auto-scroll goes through the same dispatch:
 
-* short of the row's **midpoint** the pointer is *resting* on that tile —
-  nothing moves, the tile keeps its identity, and it is what a release groups
-  with;
-* past the midpoint the pointer has *pushed through* — the dragged block takes
-  the row and the tile steps aside.
+| Reading | Verb | Effect |
+|---|---|---|
+| a tile, not the dragged block | `hoverGroup(row)` | arm grouping, **move nothing** |
+| a gap | `hoverGap(gap)` | disarm grouping, move the block so it starts there |
+| the dragged block's own slot | `clearDropTarget()` | neither |
 
-The half-band either side of the midpoint is also the hysteresis that stops a
-pointer held near a boundary from flipping between the two readings.
+`hoverGap` takes a **gap index**, not a row index, and converts it for the
+block's own removal (`g > dragRow ? g - length : g`) — the conversion the
+row-index version never had. A move therefore only ever fires from a gap and the
+block lands adjacent to that gap, so re-reading the same pointer position yields
+the same gap and is a no-op. Both gaps adjacent to the block are no-ops for the
+same reason. That is what makes the gesture stable instead of oscillating.
 
-Resting needs its own verb in the model. `updateDrag(row, false)` means "pushed
-through" and *reorders*; `clearDropTarget()` drops a stale target and touches
-the order not at all. The dwell (**250 ms**, down from 320) is now a *second*
-guard rather than the only one — the geometry already means a pointer travelling
-through a tile spends its time past the midpoint, where grouping cannot arm.
+An **ineligible** group target (a pseudo row, a subspace, a folder being dragged
+onto another folder) clears the target and **returns**. It does not fall through
+to a reorder: aiming at something that cannot be grouped with must not silently
+move the block instead.
 
 A row occupied by the dragged block is the **gap** its tile came out of (the
 tile is drawn under the pointer, not there). Nothing to group with, nowhere new
-to move: the pointer resting over it holds everything still.
+to move: the pointer over it holds everything still.
+
+#### The two rules this replaced, and why both were unreachable
+
+**Dropping a Space onto a Space had never once made a folder**, through two
+"fixes", while fifteen model tests passed the entire time. They passed because
+they call the grouping branch directly — they hand the model a state production
+could not produce.
+
+* **v1 — "the middle 24 px of a *row* is the group zone."** *Reaching* that
+  middle means first crossing the row's near edge, which **reordered**: the
+  dragged block took the row, the tile being aimed at stepped aside, and by the
+  time the 320 ms dwell elapsed the row under the pointer held the **dragged**
+  entry, which is never a group target.
+* **v2 — "short of the row's midpoint you are resting, past it you have pushed
+  through."** The geometry was right and the dispatch was not. The resting
+  branch ended in `updateDrag(row, !dwellTimer.running)`, and `running` is TRUE
+  for the whole 250 ms the dwell is being served — so the second pointer sample
+  inside the target's near half **reordered anyway**, and the branch that then
+  fired stopped the very dwell it was waiting for. Grouping needed a frozen
+  mouse to happen at all.
+
+Both had the same shape: **a reading that moves things while the user is still
+aiming.** That is the generalisable rule — when a pointer gesture has two
+readings a few pixels apart, the one that means "I am aiming at this" must not
+share a verb with the one that mutates. So `updateDrag(row, onto)` was **removed**
+rather than kept as a shim: its premise ("hover row *r* means reorder to index
+*r*") is exactly the premise being retired, and leaving it reachable invites the
+defect straight back.
+
+The dwell is gone with it, and deliberately. It existed to stop a pointer
+sweeping across a tile from making a folder; the geometry now carries that on its
+own, because a sweep through a tile changes the order not at all and a release in
+a gap is never a group. A dwell may only ever delay the **ring**; its pre-dwell
+state must be *hold*, never *reorder*.
 
 ### Auto-scroll
 
@@ -134,6 +170,11 @@ While dragging, the pointer within 44 px of either end scrolls the rail
 progressively (faster the closer to the edge), and the row under the stationary
 pointer is re-evaluated as the content moves. Nobody should have to drop, scroll
 and start a second drag.
+
+The re-evaluation goes through `applyPointerReading`, the **same** dispatch a
+pointer move uses. It used to end in its own unconditional reorder, which
+disarmed a grouping the user had just aimed — every 16 ms, for as long as the
+pointer stayed near an edge.
 
 ### Where a dropped Space lands
 
@@ -560,6 +601,25 @@ separation below the gate.
   folder refused as a nesting target, pseudo rows and subspaces undraggable,
   root-only top level with real depth, a cycle keeping every Space, a two-parent
   subspace nesting once and staying put, and a mid-drag refresh deferred.
+  These are **model** cases: they prove the outcome, never that the view reaches
+  it. That distinction is not academic — it is how the gesture stayed broken
+  through two rounds.
+* `rail-drag-qml` — the same gesture driven by a **real pointer**. The real
+  compiled `SpacesRail.qml` on a real `AppController` in a real `QQuickWindow`,
+  with `QTest::mousePress`/`mouseMove`/`mouseRelease` sent at tile centres
+  resolved from real delegate geometry, asserting on what the release WROTE to
+  `RailLayoutStore`: a Space dropped on a Space makes exactly one folder whose
+  members are target-then-dragged; the target's row index never changes while
+  the pointer is on its tile (on the old code it changed on the second sample
+  inside the near half — the maintainer's swap); grouping is still armed and
+  still aimed at the target when the button comes up; a release in the gap below
+  reorders and makes no folder even after resting on that target; sweeping
+  through a tile without stopping makes no folder (this is what replaces the
+  dwell); and a release over the dragged tile's own slot changes nothing. Only
+  the SPACES are substituted — the mock backend ships one Space and this needs
+  two, so `RailEntryModel::setSources` is handed a `SpaceManager` with three
+  root Spaces while the store it writes to stays AppController's own.
+  **A synthesized pointer proves REACHABILITY, not FEEL**; see §11.
 * `space-channels` — the Channels model. Global with no active Space, flat by
   Space, subspaces not nested and not duplicated, unparented rooms and DMs
   reachable, a two-parent room in both folders, an unjoined-parent room still
@@ -639,15 +699,26 @@ with every room's avatar resolving, the open room's row marked and Lobby not
 marked while a room is open; the rail's composite folder tile and the container
 behind an open folder; both a light and a dark theme.
 
+**Proven REACHABLE, offscreen, by a synthesized pointer** (`rail-drag-qml`):
+that a plausible sequence of `QMouseEvent`s over the real `SpacesRail.qml`
+arrives at `hoverGroup`/`hoverGap`/`clearDropTarget` and that a release writes
+the folder — including the one case the old rules could not survive, a second
+pointer sample resting on the target. That closes "is the gesture reachable at
+all", which is what had been false twice. It closes nothing below.
+
 **NOT TESTED**, and each of these is the interaction rather than the picture:
 
-* the drag's *feel* — the dwell, the auto-scroll, the animation timings, and
-  whether the tile moving under the pointer reads right at pointer speed. Every
-  assertion behind the drag is a MODEL assertion; nothing has driven it with a
-  real pointer.
-* creating a folder by dropping one Space on another under a real pointer. The
-  band rule and `clearDropTarget` are pinned at the model and in the source; what
-  the *midpoint* rule feels like at pointer speed is not.
+* the drag's *feel* — the 24 px group band, the 28 px reorder gap, the
+  auto-scroll, the animation timings, and whether the tile moving under the
+  pointer reads right at pointer speed. An offscreen synthesized pointer is not
+  a hand on a mouse, and none of these is a question it can answer.
+* whether removing the dwell entirely reads as responsive or as twitchy: the
+  ring now appears the instant the pointer is on a tile.
+* whether the dragged tile parking on its target at 0.56 scale reads as *these
+  two are about to become one thing*, which is the whole claim the feedback
+  makes.
+* creating a folder by dropping one Space on another **on a real desktop**, with
+  a real hand aiming at a real 40 px tile.
 * the folder-name dialog's layout.
 * the Space menu's own rows against a real homeserver: Mark as read over a
   Space's rooms, Invite, and every write in Space settings (name, topic, avatar,

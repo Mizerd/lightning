@@ -409,12 +409,15 @@ bool RailEntryModel::beginDrag(const QString &entryId)
     return true;
 }
 
-int RailEntryModel::legalDestination(int row) const
+int RailEntryModel::legalGap(int gap) const
 {
     const int dragRow = rowForEntry(m_dragEntryId);
     if (dragRow < 0)
         return -1;
-    const int clamped = qBound(0, row, m_rows.size() - 1);
+    // A gap is the slot BEFORE row `gap`, so gap == rowCount is the end of the
+    // rail and is always legal. Every rule below reads the row the gap sits
+    // in front of.
+    int g = qBound(0, gap, int(m_rows.size()));
     // A pseudo row keeps its place at the top of the rail, so nothing may be
     // dropped above one.
     int firstMovable = 0;
@@ -422,27 +425,26 @@ int RailEntryModel::legalDestination(int row) const
            && m_rows.at(firstMovable).value(QStringLiteral("pseudo")).toBool()) {
         ++firstMovable;
     }
-    if (clamped < firstMovable)
+    if (g < firstMovable)
         return firstMovable;
     // A hierarchy child's slot belongs to Matrix; landing inside a subspace
     // run would put a user-arranged entry between a parent and its children.
-    // Snap back to the run's owner.
-    int target = clamped;
-    while (target > firstMovable
-           && m_rows.at(target).value(QStringLiteral("hierarchyChild")).toBool()) {
-        --target;
+    // Snap back to the gap in front of the run's owner.
+    while (g > firstMovable && g < m_rows.size()
+           && m_rows.at(g).value(QStringLiteral("hierarchyChild")).toBool()) {
+        --g;
     }
     if (!rowIsFolder(dragRow))
-        return target;
+        return g;
     // Dragging a FOLDER: its destination is a top-level boundary, never inside
     // another folder's member run.
-    while (target > firstMovable
-           && !m_rows.at(target).value(QStringLiteral("folderId")).toString()
+    while (g > firstMovable && g < m_rows.size()
+           && !m_rows.at(g).value(QStringLiteral("folderId")).toString()
                    .isEmpty()
-           && !rowIsFolder(target)) {
-        --target;
+           && !rowIsFolder(g)) {
+        --g;
     }
-    return target;
+    return g;
 }
 
 void RailEntryModel::moveBlock(int from, int count, int to)
@@ -471,61 +473,85 @@ void RailEntryModel::moveBlock(int from, int count, int to)
     endMoveRows();
 }
 
-void RailEntryModel::updateDrag(int row, bool onto)
+void RailEntryModel::hoverGroup(int row)
 {
     if (!m_dragging)
         return;
     const int dragRow = rowForEntry(m_dragEntryId);
     if (dragRow < 0)
         return;
+    if (m_rows.isEmpty())
+        return;
     const int hovered = qBound(0, row, m_rows.size() - 1);
-
-    if (onto && hovered != dragRow) {
-        const QVariantMap &target = m_rows.at(hovered);
-        const bool eligible =
-            !target.value(QStringLiteral("pseudo")).toBool()
-            && !target.value(QStringLiteral("hierarchyChild")).toBool()
-            // A folder cannot go inside a folder: folders do not nest, and
-            // pretending otherwise would create an arrangement the store
-            // cannot represent.
-            && !rowIsFolder(dragRow);
-        if (eligible) {
-            const QString targetId =
-                target.value(QStringLiteral("entryId")).toString();
-            if (targetId != m_dropTargetId || !m_grouping) {
-                const int previous = rowForEntry(m_dropTargetId);
-                m_grouping = true;
-                m_dropTargetId = targetId;
-                if (previous >= 0) {
-                    Q_EMIT dataChanged(index(previous, 0), index(previous, 0),
-                                       { DropTargetRole });
-                }
-                Q_EMIT dataChanged(index(hovered, 0), index(hovered, 0),
-                                   { DropTargetRole });
-                Q_EMIT dragChanged();
-            }
-            return;
-        }
-    }
-
-    if (m_grouping) {
-        const int previous = rowForEntry(m_dropTargetId);
-        m_grouping = false;
-        m_dropTargetId.clear();
-        if (previous >= 0) {
-            Q_EMIT dataChanged(index(previous, 0), index(previous, 0),
-                               { DropTargetRole });
-        }
-        Q_EMIT dragChanged();
-    }
-
-    const int destination = legalDestination(hovered);
     const int length = blockLength(dragRow);
-    if (destination < 0
-        || (destination >= dragRow && destination < dragRow + length)) {
+    const QVariantMap &target = m_rows.at(hovered);
+    const bool eligible =
+        // Not the block in the user's own hand: a folder header's open members
+        // travel with it, so the whole run is excluded, not just the header.
+        (hovered < dragRow || hovered >= dragRow + length)
+        && !target.value(QStringLiteral("pseudo")).toBool()
+        && !target.value(QStringLiteral("hierarchyChild")).toBool()
+        // A folder cannot go inside a folder: folders do not nest, and
+        // pretending otherwise would create an arrangement the store cannot
+        // represent.
+        && !rowIsFolder(dragRow);
+    if (!eligible) {
+        // AND RETURN. The previous single-verb version fell through to the
+        // reorder below when the target was ineligible, so aiming at something
+        // that cannot be grouped with silently moved the dragged block instead
+        // — a different outcome from the one the pointer asked for.
+        clearDropTarget();
         return;
     }
-    moveBlock(dragRow, length, destination);
+    const QString targetId = target.value(QStringLiteral("entryId")).toString();
+    if (targetId == m_dropTargetId && m_grouping)
+        return;
+    const int previous = rowForEntry(m_dropTargetId);
+    m_grouping = true;
+    m_dropTargetId = targetId;
+    if (previous >= 0) {
+        Q_EMIT dataChanged(index(previous, 0), index(previous, 0),
+                           { DropTargetRole });
+    }
+    Q_EMIT dataChanged(index(hovered, 0), index(hovered, 0),
+                       { DropTargetRole });
+    Q_EMIT dragChanged();
+}
+
+void RailEntryModel::hoverGap(int gap)
+{
+    if (!m_dragging)
+        return;
+    const int dragRow = rowForEntry(m_dragEntryId);
+    if (dragRow < 0)
+        return;
+    // A gap is never a group: the two readings are exclusive, so arriving in
+    // one has to disarm the other.
+    clearDropTarget();
+
+    const int length = blockLength(dragRow);
+    const int g = legalGap(gap);
+    if (g < 0)
+        return;
+    // The block's own slot and BOTH gaps adjacent to it are no-ops — the block
+    // is already there. Without this, a gap strictly inside a multi-row block
+    // would compute a destination above the block and move it.
+    if (g >= dragRow && g <= dragRow + length)
+        return;
+    // THE CONVERSION THE ROW-INDEX VERSION NEVER HAD. moveBlock's `to` is the
+    // FINAL index the block starts at, i.e. after its own rows have been taken
+    // out, so a gap BELOW the block shifts up by the block's length. The old
+    // code passed the hovered ROW index straight through, which is why hovering
+    // the next row down always landed the block ON that row and under the
+    // pointer, and why the next pointer sample read the dragged block and
+    // oscillated.
+    //
+    // With this, a move only ever fires from a gap and the block lands adjacent
+    // to that gap — so re-reading the same pointer position yields the same gap
+    // and the guard above makes it a no-op. That is what makes the gesture
+    // stable.
+    const int to = (g > dragRow) ? g - length : g;
+    moveBlock(dragRow, length, to);
     refreshFolderRuns();
 }
 

@@ -34,9 +34,11 @@ import MatrixClient
 // the same thing was noise on 68 px of chrome.
 //
 // The one thing still drawn on top of the movement is the GROUP target: a ring
-// on the Space or folder a release would file into, armed only after a dwell,
-// so dragging THROUGH a tile on the way somewhere else can never make a
-// folder.
+// on the Space or folder a release would file into. It arms the moment the
+// pointer is on that tile and needs no dwell to be safe, because NOTHING MOVES
+// while the pointer is on a tile — dragging THROUGH one on the way somewhere
+// else changes the order not at all. See `readingAt` below for why that rule
+// replaced two earlier ones that made grouping unreachable.
 Rectangle {
     id: root
     color: AppTheme.rail
@@ -117,14 +119,9 @@ Rectangle {
                         && (first.spaceId || "") === "") ? 58 : 48
         dragViewportY = list.mapFromItem(null, 0, sceneY).y
         dragContentY = dragViewportY + list.contentY
-        dwellTimer.stop()
-        dwellRow = -1
         return true
     }
 
-    // Which row the pointer is over, and whether it is held near that row's
-    // centre (the GROUP band) rather than near its edges (the reorder bands).
-    property int dwellRow: -1
     // Home's row is taller than the rest (it carries the handoff divider).
     // Sampled once per gesture rather than per pointer move.
     property int firstRowBand: 48
@@ -139,44 +136,58 @@ Rectangle {
     // displaced transitions interpolate `y` for 140 ms, so a pointer held
     // still would map to one row, then to its neighbour, then back, and the
     // dragged entry would oscillate between two slots.
-    function rowAtContentY(contentY) {
-        var y = 0
-        for (var i = 0; i < list.count; ++i) {
-            var band = rowBand(i) + list.spacing
-            if (contentY < y + band)
-                return i
-            y += band
-        }
-        return -1
-    }
     function rowTop(index) {
         var y = 0
         for (var i = 0; i < index && i < list.count; ++i)
             y += rowBand(i) + list.spacing
         return y
     }
-    // RESTING ON a tile versus PUSHING THROUGH it. This is the whole
-    // reorder/group distinction and it has to be measured from the side the
-    // pointer arrived from, which is the side the dragged block is NOT on.
+    // THE TILE IS THE GROUP TARGET; THE GAP BETWEEN TILES IS THE REORDER
+    // TARGET. This is Discord's rule and it is the third attempt at this
+    // decision, because the first two were both structurally unreachable.
     //
-    // The previous rule ("the middle 24 px of the band is the group zone")
-    // could never fire. Reaching that middle means first crossing the row's
-    // near edge, which reordered the dragged block INTO the row — so the tile
-    // being aimed at stepped aside and the row under the pointer became the
-    // dragged entry, which is never a group target. Dropping a Space onto a
-    // Space therefore always reordered and never once made a folder.
+    //   v1: "the middle 24 px of a row is the group zone". Reaching that
+    //   middle means first crossing the row's near edge, which REORDERED —
+    //   so the tile being aimed at stepped aside and the row under the
+    //   pointer became the dragged entry, which is never a group target.
     //
-    // So: short of the row's midpoint, nothing moves and that tile is what a
-    // release would group with. Past the midpoint, the pointer has pushed
-    // through and the dragged block takes the row. The half-band on either
-    // side of the midpoint is also the hysteresis that stops a pointer held
-    // near a boundary from oscillating between the two readings.
-    function pointerPushedThrough(row, dragRow, contentY) {
-        var rel = contentY - rowTop(row)
-        var half = rowBand(row) * 0.5
-        if (dragRow < 0)
-            return true
-        return row > dragRow ? rel > half : rel < half
+    //   v2: "short of the row's midpoint you are resting, past it you have
+    //   pushed through". The geometry was right and the dispatch was not:
+    //   the resting branch ended in `updateDrag(row, !dwellTimer.running)`,
+    //   and `running` is TRUE for the whole 250 ms the dwell is being
+    //   served — so the second pointer sample inside the target's near half
+    //   reordered anyway, and the branch that then fired stopped the very
+    //   dwell it was waiting for. Grouping needed a frozen mouse to happen
+    //   at all.
+    //
+    // Both had the same shape: a reading that MOVES THINGS while the user is
+    // still aiming. So nothing moves while the pointer is on a tile, full
+    // stop. A gesture that never disturbs its own target cannot fail the way
+    // those two did, and it needs no dwell to compensate — a pointer sweeping
+    // across a tile on the way somewhere else changes the order not at all,
+    // which is what the dwell was standing in for.
+    //
+    // The bands, measured off the TILE and not off the row band: every tile
+    // is 40 px at y = 4 inside its row, so a 24 px group band centred on the
+    // tile's own centre leaves 12 px of dead space at each end. Between two
+    // adjacent 48 px rows that is a 28 px reorder gap (12 + 4 spacing + 12),
+    // which is a comfortable target, and it means the visual centre of a tile
+    // — where a person aims — is now the middle of the group band instead of
+    // sitting exactly on the old boundary.
+    readonly property int tileGroupInset: 12
+    readonly property int tileGroupBand: 24
+    // ONE total, monotone reading of the pointer. Returns either { row: i }
+    // (the pointer is on row i's tile) or { gap: g } (the pointer is in the
+    // gap before row g; gaps run 0..count, so `count` is the end of the rail).
+    function readingAt(contentY) {
+        for (var i = 0; i < list.count; ++i) {
+            var top = rowTop(i)
+            if (contentY < top + tileGroupInset)
+                return { gap: i }
+            if (contentY < top + tileGroupInset + tileGroupBand)
+                return { row: i }
+        }
+        return { gap: list.count }
     }
     // The dragged block's own slot is the GAP its tile came out of — the tile
     // is drawn under the pointer, not here. There is nothing to group with and
@@ -189,60 +200,34 @@ Rectangle {
         return entry.entryId === held
                || (entry.folderId !== undefined && entry.folderId === held)
     }
+    // ONE dispatch, called by the pointer AND by the auto-scroll. The
+    // auto-scroll used to end in its own unconditional reorder, which meant
+    // any auto-scroll step disarmed a grouping the user had just aimed —
+    // every 16 ms, for as long as the pointer was within 44 px of an edge.
+    function applyPointerReading(contentY) {
+        if (!root.dragging)
+            return
+        var reading = readingAt(contentY)
+        if (reading.row !== undefined) {
+            // A target the pointer has LEFT must stop being lit AND stop
+            // being armed: `endDrag` groups on the flag, not on where the
+            // pointer is, so a stale one would make a folder out of a
+            // release over the gap.
+            if (rowIsDraggedBlock(reading.row))
+                app.railEntries.clearDropTarget()
+            else
+                app.railEntries.hoverGroup(reading.row)
+            return
+        }
+        app.railEntries.hoverGap(reading.gap)
+    }
     function updateTileDrag(sceneY) {
         if (!root.dragging)
             return
         var local = list.mapFromItem(null, 0, sceneY)
         dragViewportY = local.y
-        var contentY = local.y + list.contentY
-        dragContentY = contentY
-        var row = rowAtContentY(contentY)
-        if (row < 0) {
-            dwellTimer.stop()
-            dwellRow = -1
-            app.railEntries.updateDrag(list.count - 1, false)
-            return
-        }
-        if (rowIsDraggedBlock(row)) {
-            dwellTimer.stop()
-            dwellRow = -1
-            // A target the pointer has LEFT must stop being lit, and must
-            // stop being armed: `endDrag` groups on the flag, not on where
-            // the pointer is, so a stale one would make a folder out of a
-            // release over the gap.
-            app.railEntries.clearDropTarget()
-            return
-        }
-        var dragRow = app.railEntries.rowForEntry(
-                          app.railEntries.draggingEntryId)
-        if (pointerPushedThrough(row, dragRow, contentY)) {
-            dwellTimer.stop()
-            dwellRow = -1
-            app.railEntries.updateDrag(row, false)
-            return
-        }
-        // The dwell is now a SECOND guard rather than the only one: the
-        // geometry above already means a pointer travelling through a tile
-        // spends its time past the midpoint, where grouping cannot arm. What
-        // the dwell still buys is that a pointer sweeping slowly across the
-        // near half of a tile on its way somewhere else does not light it up.
-        if (dwellRow !== row) {
-            dwellRow = row
-            dwellTimer.restart()
-            // NOT updateDrag(row, false): that would reorder into the row the
-            // user is aiming at. Nothing moves while the pointer is resting.
-            app.railEntries.clearDropTarget()
-            return
-        }
-        app.railEntries.updateDrag(row, !dwellTimer.running)
-    }
-    Timer {
-        id: dwellTimer
-        interval: 250
-        onTriggered: {
-            if (root.dragging && root.dwellRow >= 0)
-                app.railEntries.updateDrag(root.dwellRow, true)
-        }
+        dragContentY = local.y + list.contentY
+        applyPointerReading(dragContentY)
     }
 
     // Where the dragged tile parks once a release would GROUP: the centre of
@@ -282,12 +267,12 @@ Rectangle {
             if (next === list.contentY)
                 return
             list.contentY = next
-            // The pointer did not move, but the row under it did.
-            var contentY = root.dragViewportY + list.contentY
-            root.dragContentY = contentY
-            var row = root.rowAtContentY(contentY)
-            if (row >= 0)
-                app.railEntries.updateDrag(row, false)
+            // The pointer did not move, but the row under it did — so this
+            // goes through the SAME dispatch a pointer move does. It used to
+            // end in its own unconditional reorder, which cancelled an armed
+            // grouping every 16 ms near either edge.
+            root.dragContentY = root.dragViewportY + list.contentY
+            root.applyPointerReading(root.dragContentY)
         }
     }
 
@@ -646,8 +631,6 @@ Rectangle {
                                                centroid.scenePosition.y)
                         } else if (app.railEntries.draggingEntryId
                                    === spaceItem.entryId) {
-                            dwellTimer.stop()
-                            root.dwellRow = -1
                             app.railEntries.endDrag(true)
                         }
                     }

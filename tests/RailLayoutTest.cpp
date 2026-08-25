@@ -563,7 +563,7 @@ private Q_SLOTS:
         QSignalSpy moves(&model, &QAbstractItemModel::rowsMoved);
         QSignalSpy written(&store, &RailLayoutStore::layoutChanged);
         QVERIFY(model.beginDrag(QStringLiteral("!a:x")));
-        model.updateDrag(cRow, false);
+        model.hoverGap(cRow + 1);
         // The neighbours have ALREADY moved — that is the whole point, and it
         // is a real rowsMoved so the view can animate it.
         QVERIFY2(moves.count() >= 1, "the preview reorder was a reset, so the "
@@ -594,7 +594,7 @@ private Q_SLOTS:
 
         const QStringList before = modelIds(model);
         QVERIFY(model.beginDrag(QStringLiteral("!a:x")));
-        model.updateDrag(model.rowForEntry(QStringLiteral("!b:x")), false);
+        model.hoverGap(model.rowForEntry(QStringLiteral("!b:x")) + 1);
         QVERIFY(modelIds(model) != before);
         model.endDrag(false);
         QCOMPARE(modelIds(model), before);
@@ -615,7 +615,7 @@ private Q_SLOTS:
         model.setSources(&spaces, &store);
 
         QVERIFY(model.beginDrag(QStringLiteral("!c:x")));
-        model.updateDrag(model.rowForEntry(QStringLiteral("!a:x")), true);
+        model.hoverGroup(model.rowForEntry(QStringLiteral("!a:x")));
         QVERIFY2(model.grouping(),
                  "holding one Space over another offered a reorder, not a group");
         QCOMPARE(model.dropTargetId(), QStringLiteral("!a:x"));
@@ -647,7 +647,7 @@ private Q_SLOTS:
         model.setSources(&spaces, &store);
 
         QVERIFY(model.beginDrag(QStringLiteral("!c:x")));
-        model.updateDrag(model.rowForEntry(QStringLiteral("!a:x")), true);
+        model.hoverGroup(model.rowForEntry(QStringLiteral("!a:x")));
         model.endDrag(true);
         QCOMPARE(store.folders().size(), 1);   // no second, nested folder
         QCOMPARE(store.folderMembers(folder),
@@ -670,7 +670,7 @@ private Q_SLOTS:
         model.setSources(&spaces, &store);
 
         QVERIFY(model.beginDrag(QStringLiteral("!b:x")));
-        model.updateDrag(model.rowForEntry(folder), true);
+        model.hoverGroup(model.rowForEntry(folder));
         QCOMPARE(model.dropTargetId(), folder);
         model.endDrag(true);
         QCOMPARE(store.folderMembers(folder),
@@ -701,14 +701,14 @@ private Q_SLOTS:
 
         // Reorder INSIDE the folder: b above a.
         QVERIFY(model.beginDrag(QStringLiteral("!b:x")));
-        model.updateDrag(model.rowForEntry(QStringLiteral("!a:x")), false);
+        model.hoverGap(model.rowForEntry(QStringLiteral("!a:x")));
         model.endDrag(true);
         QCOMPARE(store.folderMembers(folder),
                  (QStringList{ QStringLiteral("!b:x"), QStringLiteral("!a:x") }));
 
         // Drag one back OUT, to the end of the rail.
         QVERIFY(model.beginDrag(QStringLiteral("!a:x")));
-        model.updateDrag(model.rowCount() - 1, false);
+        model.hoverGap(model.rowCount());
         model.endDrag(true);
         QVERIFY2(store.folderOf(QStringLiteral("!a:x")).isEmpty(),
                  "a Space dragged past everything stayed filed");
@@ -740,7 +740,7 @@ private Q_SLOTS:
 
         // Drag Work to the end. Its member has to travel with it.
         QVERIFY(model.beginDrag(work));
-        model.updateDrag(model.rowCount() - 1, false);
+        model.hoverGap(model.rowCount());
         const QStringList preview = modelIds(model).mid(1);
         const int workAt = preview.indexOf(work);
         QVERIFY(workAt >= 0);
@@ -772,7 +772,7 @@ private Q_SLOTS:
         model.setSources(&spaces, &store);
 
         QVERIFY(model.beginDrag(work));
-        model.updateDrag(model.rowForEntry(play), true);
+        model.hoverGroup(model.rowForEntry(play));
         QVERIFY2(!model.grouping(),
                  "dragging a folder onto a folder offered to nest them, which "
                  "the store cannot represent");
@@ -951,7 +951,7 @@ private Q_SLOTS:
                                QStringLiteral("!z:x") }));
 
         QVERIFY(model.beginDrag(QStringLiteral("!p:x")));
-        model.updateDrag(model.rowCount() - 1, false);
+        model.hoverGap(model.rowCount());
         const QStringList preview = modelIds(model).mid(1);
         QCOMPARE(preview,
                  (QStringList{ QStringLiteral("!z:x"), QStringLiteral("!p:x"),
@@ -1004,7 +1004,7 @@ private Q_SLOTS:
 
         // Drag b past Z: it leaves the folder, and A becomes the run's last.
         QVERIFY(model.beginDrag(QStringLiteral("!b:x")));
-        model.updateDrag(model.rowCount() - 1, false);
+        model.hoverGap(model.rowCount());
         QVERIFY2(folderIdAt(QStringLiteral("!b:x")).isEmpty(),
                  "the dragged Space still draws its old folder's container, so "
                  "the preview promises a grouping the release will not make");
@@ -1018,13 +1018,19 @@ private Q_SLOTS:
 
     // The third thing a pointer can be doing, and why it needs its own verb.
     //
-    // `updateDrag(row, false)` means "the pointer pushed through this row" and
-    // it REORDERS. There was no way to say "the pointer is resting on this row
-    // and has not pushed through it", so the rail said the only thing it
-    // could — and reordering into the row the user was aiming at is what made
-    // grouping unreachable: the tile stepped aside, the dragged block took its
-    // slot, and the row under the pointer was then the dragged entry, which is
-    // never a group target.
+    // The model used to have ONE verb, `updateDrag(row, onto)`, whose
+    // `onto == false` branch REORDERED into the hovered row. There was no way
+    // to say "the pointer is over this tile and I am not asking you to move
+    // anything", so the view said the only thing it could — and reordering
+    // into the row the user was aiming at is what made grouping unreachable:
+    // the tile stepped aside, the dragged block took its slot, and the row
+    // under the pointer was then the dragged entry, which is never a group
+    // target.
+    //
+    // Three verbs now, and they are exclusive: `hoverGroup(row)` (the pointer
+    // is on a tile — arm, move nothing), `hoverGap(gap)` (the pointer is
+    // between tiles — disarm, move), `clearDropTarget()` (the pointer is over
+    // the dragged block's own slot — do neither).
     void restingOnATileClearsTheTargetWithoutMovingAnything()
     {
         FakeClient client;
@@ -1048,7 +1054,7 @@ private Q_SLOTS:
         };
 
         QVERIFY(model.beginDrag(QStringLiteral("!c:x")));
-        model.updateDrag(model.rowForEntry(QStringLiteral("!a:x")), true);
+        model.hoverGroup(model.rowForEntry(QStringLiteral("!a:x")));
         QVERIFY(model.grouping());
         QCOMPARE(model.dropTargetId(), QStringLiteral("!a:x"));
         const QStringList armed = order();
@@ -1066,7 +1072,7 @@ private Q_SLOTS:
 
         // Still groupable afterwards: this is a hover leaving one tile, not
         // the end of anything.
-        model.updateDrag(model.rowForEntry(QStringLiteral("!b:x")), true);
+        model.hoverGroup(model.rowForEntry(QStringLiteral("!b:x")));
         QVERIFY(model.grouping());
         QCOMPARE(model.dropTargetId(), QStringLiteral("!b:x"));
         model.endDrag(true);
@@ -1088,7 +1094,7 @@ private Q_SLOTS:
         model.setSources(&spaces, &store);
 
         QVERIFY(model.beginDrag(QStringLiteral("!a:x")));
-        model.updateDrag(model.rowForEntry(QStringLiteral("!b:x")), false);
+        model.hoverGap(model.rowForEntry(QStringLiteral("!b:x")) + 1);
         QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
         // A new Space arrives mid-gesture.
         client.roomList.append(spaceRoom(QStringLiteral("!c:x"),
