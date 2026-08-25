@@ -1843,6 +1843,23 @@ if(BUILD_TESTING)
     set_tests_properties(media-placeholder-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # 2026-08-26: the link-preview CONSENT gate. It used to stack a host
+    # row, a wrapped two-line privacy sentence and a full-width button —
+    # about four message lines of timeline for one unloaded link. This
+    # suite pins the compact replacement: one band, strictly smaller than
+    # the state the consent click leads to, with the privacy fact still
+    # stated before consent and the button still the only thing that
+    # consents.
+    qt_add_executable(link-preview-qml-test
+        tests/LinkPreviewQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(link-preview-qml-test)
+    target_link_libraries(link-preview-qml-test PRIVATE Qt6::Test)
+    add_test(NAME link-preview-qml COMMAND link-preview-qml-test)
+    set_tests_properties(link-preview-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.7.2: the audio card's cover-art box keeps the artwork's aspect at
     # every size. Bounding only the height left a tall cover in a full-width
     # box at the cap, letterboxed with dead surface down both sides.

@@ -3848,6 +3848,7 @@ Item {
         id: linkPreviewComponent
         Rectangle {
             id: card
+            objectName: "linkPreviewCard"
             readonly property var p: root.preview
             readonly property string st: p.state || "none"
             readonly property string previewAnimation:
@@ -3858,12 +3859,33 @@ Item {
                 (p.imageSource || "").length > 0
                 ? app.mediaBridge.previewImageSource(p.imageSource || "",
                                                      p.imageMime || "") : ""
-            implicitWidth: Math.min(400, bubble.width - 8)
-            // Gate/loading/failed keep a monotonic reserved height so the
-            // consent click and a failure never reflow the row under the
-            // reader; only the loaded preview re-measures. The latch is
-            // per-event: pooled delegate reuse for another row must not
-            // inherit the previous event's minimum.
+            readonly property real fullW: Math.min(400, bubble.width - 8)
+            // The consent gate is ONE band, so it sizes to its own content
+            // instead of claiming the full preview width for a link nobody
+            // has agreed to load yet; every other state still fills the
+            // column. Reading a layout's implicitWidth from an ancestor is
+            // only safe when nothing under it reads the width that layout
+            // COMPUTES (CLAUDE.md 2026-08-26, the recursive-rearrange
+            // round) — everything in the gate row contributes a natural
+            // text or control implicit width, and QQuickText reports its
+            // unwrapped natural width whatever wrapMode says, so there is
+            // no path back from the assigned width into this value.
+            implicitWidth: st === "requires_action"
+                           ? Math.min(fullW,
+                                      cardCol.implicitWidth
+                                      + AppTheme.spacingM + AppTheme.spacingS)
+                           : fullW
+            // Gate/loading/failed keep a monotonic reserved height so a
+            // failure never reflows the row under the reader; only the
+            // loaded preview re-measures. The latch is per-event: pooled
+            // delegate reuse for another row must not inherit the previous
+            // event's minimum.
+            //
+            // The gate is now SHORTER than the loading skeletons, so the
+            // consent click grows the row by one step. That is deliberate
+            // and it is the user's own click: the alternative is reserving
+            // a loading-sized box under every unloaded link in the room,
+            // which is the cost readers complained about.
             property real reservedH: 0
             readonly property string _rowIdentity: root.actionKey
             on_RowIdentityChanged: reservedH = 0
@@ -3903,19 +3925,55 @@ Item {
                 spacing: 4
 
                 // Consent / privacy gate (encrypted rooms, or auto-load off).
-                ColumnLayout {
+                //
+                // 2026-08-26: this used to be a STACK — a host row, a
+                // wrapped two-line amber sentence, then a full-width
+                // button — roughly four message lines of timeline spent on
+                // one link nobody had agreed to load, and that is what the
+                // reader report was about. What the gate has to STATE is
+                // unchanged, because it is the whole reason the control
+                // exists (link previews default OFF, and an encrypted room
+                // is stricter still): the linked site is contacted
+                // DIRECTLY, and it therefore learns your IP. Both facts are
+                // still in the row; the long sentence is still readable
+                // verbatim, as the row's tooltip.
+                //
+                // The BUTTON is still the consent. The row is deliberately
+                // not clickable and the card's whole-card MouseArea stays
+                // gated on "loaded" — hovering to read the privacy sentence
+                // must never be able to agree to the fetch.
+                RowLayout {
+                    id: consentRow
+                    objectName: "linkPreviewConsentRow"
                     visible: card.st === "requires_action"
                     Layout.fillWidth: true
-                    spacing: 4
-                    RowLayout {
+                    spacing: AppTheme.spacing6
+
+                    // The ATTACHED tooltip form: one shared instance for the
+                    // whole application. A declared ToolTip child would
+                    // build a Popup, a background and a Label per timeline
+                    // row carrying a link (the reaction chips above carry
+                    // the same note and the same reason).
+                    readonly property string fullPrivacyText:
+                        qsTr("Loading this preview contacts the linked website directly and may reveal your IP address.")
+                    ToolTip.text: consentRow.fullPrivacyText
+                    ToolTip.visible: consentHover.hovered
+                    ToolTip.delay: 400
+                    HoverHandler { id: consentHover }
+
+                    Icon {
+                        name: "link"
+                        size: 14
+                        color: AppTheme.textMuted
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: AppTheme.spacing6
-                        Icon {
-                            name: "link"
-                            size: 15
-                            color: AppTheme.textMuted
-                        }
+                        spacing: 0
+
                         Label {
+                            objectName: "linkPreviewConsentHost"
                             text: card.p.host || ""
                             color: AppTheme.link
                             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
@@ -3923,22 +3981,44 @@ Item {
                             elide: Label.ElideRight
                             Layout.fillWidth: true
                         }
+                        Label {
+                            objectName: "linkPreviewConsentNotice"
+                            // Short, but it still names BOTH facts: the
+                            // request goes to the site itself, and the site
+                            // sees your address. It WRAPS rather than
+                            // elides — an elided privacy notice is a notice
+                            // the reader may never reach the end of, and on
+                            // a narrow bubble the tail is the half that
+                            // matters.
+                            text: root.roomEncrypted
+                                  ? qsTr("Contacts the site directly — it sees your IP")
+                                  : qsTr("Loads directly from the site, which sees your IP")
+                            color: root.roomEncrypted ? AppTheme.warning
+                                                      : AppTheme.textMuted
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                            wrapMode: Text.WordWrap
+                            // EXPLICIT, not left to the Label default: the
+                            // comment above claims this notice is never
+                            // truncated, and a claim a style could quietly
+                            // override is not a guarantee. Pinned by
+                            // LinkPreviewQmlTest.
+                            elide: Label.ElideNone
+                            Layout.fillWidth: true
+                        }
                     }
-                    Label {
-                        text: root.roomEncrypted
-                              ? qsTr("Loading this preview contacts the linked "
-                                     + "website directly and may reveal your IP address.")
-                              : qsTr("Previews load from the linked website.")
-                        color: root.roomEncrypted ? AppTheme.warning
-                                                  : AppTheme.textMuted
-                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
+
                     AppButton {
                         objectName: "linkPreviewLoadButton"
-                        text: qsTr("Show preview")
-                        Layout.topMargin: 2
+                        // "Show preview" as a full-height button was a
+                        // third row of its own. The label shortens; what it
+                        // DOES is unchanged, and the accessible name keeps
+                        // the long form for anyone reading the row without
+                        // seeing it.
+                        text: qsTr("Show")
+                        size: "sm"
+                        minWidth: 0
+                        Accessible.name: qsTr("Show link preview")
+                        Layout.alignment: Qt.AlignVCenter
                         onClicked: app.linkPreviews.requestPreviewForEvent(
                                        root.previewRoomId, root.actionKey)
                     }
