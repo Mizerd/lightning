@@ -2027,7 +2027,7 @@ void SfuMediaEngine::setMicrophoneMuted(bool muted)
 
 void SfuMediaEngine::setMicrophoneGain(int percent)
 {
-    const int clamped = percent < 0 ? 0 : (percent > 200 ? 200 : percent);
+    const int clamped = percent < 0 ? 0 : (percent > 1000 ? 1000 : percent);
     m_microphoneGain.store(clamped);
     if (!m_publisher.pipeline)
         return;
@@ -2127,11 +2127,13 @@ void SfuMediaEngine::setParticipantVolume(const QString &streamId,
 {
     if (!m_subscriber.pipeline || streamId.isEmpty())
         return;
-    // 0..200, not 0..100. Above unity is real amplification — the whole point
-    // of the request — and the `volume` element takes a linear factor for
-    // which 2.0 is legal. Clamping at 100 here threw away the upper half of
-    // every slider.
-    const double volume = qBound(0, percent, 200) / 100.0;
+    // 0..1000, not 0..100. Above unity is real amplification — the whole
+    // point of the request — and the `volume` element takes a linear factor
+    // whose own range is 0-10, so 1000% is its ceiling rather than ours.
+    // Clamping at 100 here threw away every boost; clamping at 200 left only
+    // +6 dB, which against a sender already running AGC reads as "barely any
+    // difference".
+    const double volume = qBound(0, percent, 1000) / 100.0;
     // Each remote audio bin's volume element is named for the STREAM it
     // carries, so one participant can be attenuated without touching anyone
     // else. LOCAL ONLY: it changes nothing for other participants and sends

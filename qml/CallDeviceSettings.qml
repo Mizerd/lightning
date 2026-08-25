@@ -184,7 +184,7 @@ ColumnLayout {
             objectName: "microphoneGainSlider"
             Layout.fillWidth: true
             from: 0
-            to: 200
+            to: 1000
             stepSize: 1
             snapMode: Slider.SnapAlways
             // A plain binding, so a change made anywhere else — another
@@ -252,7 +252,7 @@ ColumnLayout {
                 font.pixelSize: AppTheme.textMeta
                 // Always shown. A consequence disclosed only once the user is
                 // already past the line is not a disclosure.
-                text: qsTr("Above 100% amplifies and can clip.")
+                text: qsTr("Above 100% amplifies and can clip. 1000% is the maximum the audio stage can apply.")
             }
 
             Loader {

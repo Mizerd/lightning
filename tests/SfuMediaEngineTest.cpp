@@ -1109,6 +1109,59 @@ private slots:
         engine.stop();
     }
 
+    /// THE RENEGOTIATED OFFER MUST STOP ADVERTISING THE STOPPED TRACK.
+    ///
+    /// This is the assertion closest to what the far end actually reads.
+    /// Retiring the transceiver locally is necessary but not sufficient: what
+    /// makes Element drop the tile is the next OFFER no longer carrying that
+    /// track's msid. Until it does, the old share is a corpse the SFU goes on
+    /// listing — "its like the first one doesnt stop" — and the new share
+    /// arrives while the remote is still rendering the dead one, which is the
+    /// blank screen.
+    ///
+    /// Mute cannot do this job and is not a substitute: a mute removes
+    /// nothing, so the stopped track stays in the participant's track list
+    /// forever. Only renegotiating without it takes it off the wire.
+    void theOfferAfterUnpublishNoLongerAdvertisesTheTrack()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy offers(&engine, &SfuMediaEngine::localDescription);
+        engine.start();
+        engine.publishVideo(QStringLiteral("cid-share"), /*screenShare=*/false,
+                            /*nodeId=*/-1);
+        QTest::qWait(400);
+
+        // The msid webrtcbin puts on the publisher pad IS the cid, and it is
+        // how the SFU maps the media section to the track it authorised.
+        const auto offerCarrying = [&](const QString &needle) {
+            for (const QList<QVariant> &call : offers) {
+                if (call.value(1).toString() != QStringLiteral("offer"))
+                    continue;
+                if (call.value(2).toString().contains(needle))
+                    return true;
+            }
+            return false;
+        };
+        QVERIFY2(offerCarrying(QStringLiteral("cid-share")),
+                 "the publish never offered the track at all, so this case "
+                 "cannot say anything about withdrawing it");
+
+        offers.clear();
+        engine.unpublish(QStringLiteral("cid-share"));
+        // The teardown and its renegotiation are asynchronous by design.
+        for (int i = 0; i < 60 && offers.isEmpty(); ++i)
+            QTest::qWait(50);
+        QVERIFY2(!offers.isEmpty(),
+                 "stopping the track produced no renegotiation at all: the "
+                 "SFU is never told, so the far end keeps the dead track");
+        QVERIFY2(!offerCarrying(QStringLiteral("cid-share")),
+                 "the offer after unpublish still advertises the stopped "
+                 "track: the far end goes on rendering a corpse and the next "
+                 "share lands beside it");
+        engine.stop();
+    }
+
     /// STOPPING A SHARE MUST RETIRE ITS TRANSCEIVER, not just quiesce our
     /// own pipeline.
     ///

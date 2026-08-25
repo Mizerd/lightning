@@ -1988,12 +1988,22 @@ void SfuCallController::applyVideoState()
     // maintainer's own tile) what a SFU scores as a poor publisher: a live,
     // unmuted video track producing zero RTP.
     //
-    // A mute is the one removal-shaped verb available, and it is the same one
-    // the microphone has always used. `SfuMediaEngine::unpublish()`
-    // deliberately still does NOT release its webrtcbin request pad or touch
-    // the transceiver — that lands on the negotiation ordering this lane
-    // keeps off-limits without a measurement, and muting reaches the same
-    // user-visible outcome through signalling alone.
+    // A mute is the one removal-shaped verb available on the wire, and it is
+    // the same one the microphone has always used.
+    //
+    // IT IS NO LONGER THE ONLY MECHANISM, and it is no longer the load-
+    // bearing one. `SfuMediaEngine::unpublish()` now releases its webrtcbin
+    // request pad, which retires the transceiver, so the renegotiated offer
+    // genuinely stops advertising the track — pinned by
+    // theOfferAfterUnpublishNoLongerAdvertisesTheTrack. That is what actually
+    // makes the far end drop the tile, because a MUTE REMOVES NOTHING: the
+    // stopped track stays in the participant list forever, which is why a
+    // stopped share went on being rendered as a corpse and a new one landed
+    // beside it ("its like the first one doesnt stop").
+    //
+    // The mute is KEPT as belt-and-braces: it costs one signal, it converges
+    // by report, and it covers the window between the user stopping and the
+    // renegotiation landing. It must not be relied on alone again.
     // Only ever a MUTE, and only for a source the user has turned OFF: see
     // muteOwnTrackIfLive() for why the other direction is refused.
     if (!m_cameraOn)
@@ -2059,7 +2069,7 @@ int SfuCallController::participantVolume(const QString &identity) const
 void SfuCallController::setParticipantVolume(const QString &identity,
                                               int percent)
 {
-    const int clamped = qBound(0, percent, 200);
+    const int clamped = qBound(0, percent, 1000);
 #ifdef HAVE_LIGHTNING_WEBRTC
     // Local only: nothing is sent, and nobody else is affected. The ENGINE is
     // addressed by LiveKit stream id, not by SFU identity — that is the name
