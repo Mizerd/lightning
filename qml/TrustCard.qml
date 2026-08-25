@@ -3,10 +3,24 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.6.5 (SPEC 1r): the verification/trust surface. Deliberately
-// brand-fixed — navy + yellow in every theme, using ONLY AppTheme.trust*
-// tokens and the brand face (Space Grotesk), never the active theme's
-// palette. Purely presentational: every real value (steps, status text,
+// v0.6.5 (SPEC 1r): the verification/trust surface.
+//
+// 2026-08-26: this card USED to be brand-fixed — navy + yellow in every
+// theme, through ten AppTheme.trust* tokens pinned to the raw Storm
+// literals. That was deliberate ("the trust moment is the brand moment")
+// and it became wrong when its neighbourhood moved: the card sits between
+// SettingsCards painted stormCanvas/stormBorder, above a sessions list
+// painted stormTextFaint/stormLink, so on any theme but Storm it was the
+// one surface on the page that ignored the user's choice. Reported as "the
+// blue lightning session status should match the rest of the theme".
+//
+// It now reaches for the routed storm* namespace BY ROLE, like every other
+// surface, and owns no colour tokens of its own; AppTheme.qml records the
+// old-token -> role mapping where the pin used to live. The brand face
+// (Space Grotesk) on the display name STAYS — the complaint was colour, and
+// the face carries the remaining brand identity at no cost to legibility.
+//
+// Purely presentational: every real value (steps, status text,
 // whether Verify applies) is supplied by the caller through properties, so
 // this file never reaches into the application context property directly,
 // never invents trust for anyone, and never promotes local UI state to SDK
@@ -39,19 +53,26 @@ Item {
         root.displayName.length > 0 ? root.displayName : root.userId)
 
     Rectangle {
+        objectName: "trustCardSurface"
         anchors.fill: parent
         radius: AppTheme.radiusLg
-        color: AppTheme.trustNavy
+        // Deliberately the SettingsCard pair (SettingsScreen.qml's
+        // SettingsCard paints exactly these two), so the card reads as one
+        // of the page's cards rather than as something pasted onto it.
+        color: AppTheme.stormCanvas
         border.width: 1
-        border.color: AppTheme.trustChainBorder
+        border.color: AppTheme.stormBorder
     }
 
     // Oversized outline bolt watermark, top-right, cropped to the card.
+    // stormWatermark is the app's hero-card watermark treatment (the same
+    // token IdentityCard and MemberProfilePopover use) — a 12%-alpha bolt.
+    // Purely decorative: it carries no information, so it is exempt from
+    // the 3:1 non-text bar that the raw accent misses on Indigo Night.
     Icon {
         name: "bolt"
         size: 120
-        opacity: 0.10
-        color: AppTheme.trustYellow
+        color: AppTheme.stormWatermark
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.topMargin: -30
@@ -85,16 +106,19 @@ Item {
                                                        : root.userId
                     colorKey: root.userId
                 }
-                // Double ring: 2px navy gap (the card background showing
-                // through) + 2px yellow stroke — same outline idiom as
-                // SpacesRail's active-space ring.
+                // Double ring: a 2px gap of the card ground showing through
+                // + a 2px stroke — same outline idiom as SpacesRail's
+                // active-space ring. wordmarkBolt, not bolt: this ring is a
+                // brand mark around a face, not a state, and the raw accent
+                // beside plain header text reads as a status light (the same
+                // reasoning AppTheme.qml records for the wordmark's bolt).
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: -4
                     radius: 18 + 4
                     color: "transparent"
                     border.width: 2
-                    border.color: AppTheme.trustYellow
+                    border.color: AppTheme.wordmarkBolt
                 }
             }
 
@@ -105,7 +129,7 @@ Item {
                     Layout.fillWidth: true
                     text: root.displayName.length > 0 ? root.displayName
                                                        : root.userId
-                    color: AppTheme.trustInk
+                    color: AppTheme.stormText
                     font.family: AppTheme.brandFont
                     font.pixelSize: AppTheme.fontTrustName
                     font.weight: Font.Bold
@@ -114,7 +138,7 @@ Item {
                 Label {
                     Layout.fillWidth: true
                     text: root.userId
-                    color: AppTheme.trustMuted
+                    color: AppTheme.stormTextMuted
                     font.family: AppTheme.monoFont
                     font.pixelSize: AppTheme.fontMonoXS
                     elide: Label.ElideMiddle
@@ -124,12 +148,13 @@ Item {
 
         // ── Trust chain module ──────────────────────────────────────────
         Rectangle {
+            objectName: "trustChainPanel"
             Layout.fillWidth: true
             implicitHeight: chainColumn.implicitHeight + 2 * AppTheme.spacing12
             radius: AppTheme.radiusLg
-            color: AppTheme.trustChainBg
+            color: AppTheme.stormInset
             border.width: 1
-            border.color: AppTheme.trustChainBorder
+            border.color: AppTheme.stormBorder
 
             ColumnLayout {
                 id: chainColumn
@@ -141,10 +166,12 @@ Item {
 
                 RowLayout {
                     spacing: AppTheme.spacing6
-                    Icon { name: "bolt"; size: 13; color: AppTheme.trustYellow }
+                    // The glyph labels the module the caption names, so its
+                    // meaning is carried by the adjacent text either way.
+                    Icon { name: "bolt"; size: 13; color: AppTheme.bolt }
                     Label {
                         text: qsTr("TRUST CHAIN")
-                        color: AppTheme.trustCaption
+                        color: AppTheme.stormTextSecondary
                         font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.fontChip
                         font.weight: Font.Bold
@@ -192,7 +219,10 @@ Item {
                                         visible: stepItem.stepComplete
                                         anchors.fill: parent
                                         radius: 12
-                                        color: AppTheme.trustYellow
+                                        // State, not decoration: bolt is
+                                        // "active/selected/complete/primary
+                                        // ONLY" and complete is exactly this.
+                                        color: AppTheme.bolt
                                     }
                                     // Pending nodes get a dashed ring. Drawn
                                     // as eight tangential dash Rectangles —
@@ -216,7 +246,7 @@ Item {
                                                 width: 6
                                                 height: 2.5
                                                 radius: 1.25
-                                                color: AppTheme.trustPending
+                                                color: AppTheme.stormBorderStrong
                                                 x: parent.width / 2
                                                    + Math.cos(angle)
                                                      * (parent.width / 2 - 2.25)
@@ -231,22 +261,36 @@ Item {
                                         }
                                     }
                                     Icon {
+                                        objectName: "trustNodeIcon"
                                         anchors.centerIn: parent
                                         name: (modelData.iconName
                                                && modelData.iconName.length > 0)
                                               ? modelData.iconName : "check"
                                         size: stepItem.stepComplete ? 13 : 12
+                                        // COMPLETE: this glyph sits ON the
+                                        // bolt disc, so it is boltInk — never
+                                        // the card surface. It only ever
+                                        // looked right as trustNavy because
+                                        // the pinned card fill happened to be
+                                        // navy; routed, that would have put
+                                        // the page ground on a yellow disc.
+                                        // PENDING: was trustPending
+                                        // (borderStrong), which measures
+                                        // 1.76-3.50:1 on inputBackground
+                                        // across the themes — an illegible
+                                        // 12px glyph. stormTextMuted is
+                                        // AA-covered on that fill everywhere.
                                         color: stepItem.stepComplete
-                                               ? AppTheme.trustNavy
-                                               : AppTheme.trustPending
+                                               ? AppTheme.boltInk
+                                               : AppTheme.stormTextMuted
                                     }
                                 }
                                 Label {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: modelData.label || ""
                                     color: stepItem.stepComplete
-                                           ? AppTheme.trustCaption
-                                           : AppTheme.trustCaptionDim
+                                           ? AppTheme.stormTextSecondary
+                                           : AppTheme.stormTextMuted
                                     font.family: AppTheme.monoFont
                                     font.pixelSize: AppTheme.fontMicro
                                     font.capitalization: Font.AllUppercase
@@ -268,7 +312,7 @@ Item {
                                 // A segment is only fully trusted when BOTH
                                 // ends of it are complete.
                                 color: (stepItem.stepComplete && stepItem.nextComplete)
-                                       ? AppTheme.trustYellow : AppTheme.trustPending
+                                       ? AppTheme.bolt : AppTheme.stormBorderStrong
                             }
                         }
                     }
@@ -280,7 +324,7 @@ Item {
                     Layout.fillWidth: true
                     visible: root.statusText.length > 0
                     text: root.statusText
-                    color: AppTheme.trustMuted
+                    color: AppTheme.stormTextMuted
                     font.pixelSize: AppTheme.fontChip
                     wrapMode: Text.WordWrap
                 }
@@ -309,31 +353,38 @@ Item {
                     Icon {
                         name: "verified_user"
                         size: 16
-                        color: AppTheme.trustVerifyInk
+                        color: AppTheme.stormTextSecondary
                     }
                     Label {
                         text: qsTr("Verify")
-                        color: AppTheme.trustVerifyInk
+                        color: AppTheme.stormTextSecondary
                         font.pixelSize: 13
                         font.weight: Font.Bold
                     }
                 }
                 background: Rectangle {
                     radius: AppTheme.radiusTile
+                    // A straight re-point of the old treatment, deliberately
+                    // NOT accentSoft: the button is a quiet outlined control
+                    // here, and an accent-tinted hover would make it compete
+                    // with the bolt discs it sits under.
                     color: (verifyButton.hovered || verifyButton.down)
-                           ? Qt.alpha(AppTheme.trustPending, 0.25) : "transparent"
+                           ? Qt.alpha(AppTheme.stormBorderStrong, 0.25)
+                           : "transparent"
                     border.width: 1
-                    border.color: AppTheme.trustPending
+                    border.color: AppTheme.stormBorderStrong
                 }
-                // Keyboard focus indicator, same convention as every other
-                // custom button this round; brand yellow so it reads on
-                // navy.
+                // Keyboard focus indicator. It was hand-rolled brand yellow
+                // ("so it reads on navy") back when the card was always navy;
+                // with the card themed, the app-wide focusRing is both
+                // correct and the reason this control stops being the one
+                // button in Lightning with its own focus colour.
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: -3
                     radius: AppTheme.radiusTile + 3
                     color: "transparent"
-                    border.color: AppTheme.trustYellow
+                    border.color: AppTheme.focusRing
                     border.width: 2
                     visible: verifyButton.visualFocus
                 }

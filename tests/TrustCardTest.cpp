@@ -1,10 +1,30 @@
 // v0.6.5 (SPEC 1r): offscreen proof for the standalone TrustCard component.
 // TrustCard never touches `app.*` (the embedding surface owns all real
 // bindings), so this test drives it purely through property injection:
-// brand tokens (never the active theme palette), complete vs pending node
-// rendering, the both-ends-complete connector rule, the Verify-only action
-// (never Message, never QR), and that no theme mode change perturbs the
-// brand-fixed navy/yellow palette.
+// complete vs pending node rendering, the both-ends-complete connector rule,
+// the Verify-only action (never Message, never QR), and — since 2026-08-26 —
+// that the card FOLLOWS the selected theme.
+//
+// That last group replaces brandColoursStayFixedAcrossThemeChanges(), which
+// asserted the opposite (tokTrustNavy identical across theme modes 8, 9 and
+// 10) for as long as the card was pinned to the raw Storm literals. The
+// maintainer reported the consequence: "the blue lightning session status
+// should match the rest of the theme". The three replacements below each
+// FAIL on the unfixed tree, and it is worth saying how, because a test that
+// only passes after the fix is not the same as a test that fails before it:
+//   cardRetintsWhenTheThemeChanges          — every sample was one constant,
+//                                             so each QVERIFY(a != b) fails.
+//   cardPaintsTheSettingsCardPairOnEveryTheme — the card was _stoPanel /
+//                                             _stoBorder while stormCanvas /
+//                                             stormBorder route per theme, so
+//                                             it fails on all ten legacy
+//                                             themes AND on Storm (_stoPanel
+//                                             is not _stoCanvas).
+//   stormKeepsTheBrandLiterals              — under Storm the old card fill
+//                                             was #202473 and the complete
+//                                             node ink was #202473 too; the
+//                                             expected values are #121655 and
+//                                             #0A0F24.
 
 #include <QtTest/QtTest>
 
@@ -13,6 +33,7 @@
 #include <QGuiApplication>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
 
@@ -37,9 +58,18 @@ ApplicationWindow {
     property int themeMode: 9
     Binding { target: AppTheme; property: "mode"; value: win.themeMode }
 
-    Rectangle { objectName: "tokTrustYellow"; visible: false; color: AppTheme.trustYellow }
-    Rectangle { objectName: "tokTrustNavy"; visible: false; color: AppTheme.trustNavy }
-    Rectangle { objectName: "tokTrustPending"; visible: false; color: AppTheme.trustPending }
+    // The card owns no colour tokens of its own any more; these probes name
+    // the routed storm* roles it actually reads, so a mis-routed token shows
+    // up as a colour mismatch rather than as an invalid QColor.
+    Rectangle { objectName: "tokBolt"; visible: false; color: AppTheme.bolt }
+    Rectangle { objectName: "tokBoltInk"; visible: false; color: AppTheme.boltInk }
+    Rectangle { objectName: "tokPending"; visible: false; color: AppTheme.stormBorderStrong }
+    Rectangle { objectName: "tokCanvas"; visible: false; color: AppTheme.stormCanvas }
+    Rectangle { objectName: "tokBorder"; visible: false; color: AppTheme.stormBorder }
+    Rectangle { objectName: "tokInset"; visible: false; color: AppTheme.stormInset }
+    Rectangle { objectName: "tokText"; visible: false; color: AppTheme.stormText }
+    Rectangle { objectName: "tokTextSecondary"; visible: false; color: AppTheme.stormTextSecondary }
+    Rectangle { objectName: "tokTextMuted"; visible: false; color: AppTheme.stormTextMuted }
 
     TrustCard {
         id: card
@@ -83,6 +113,32 @@ private:
     {
         auto *item = find(name);
         return item ? item->property("color").value<QColor>() : QColor();
+    }
+    // Rectangle::border is a QQuickPen, so border.color has to be read
+    // through QQmlProperty rather than off the QObject directly.
+    static QColor borderColor(QObject *item)
+    {
+        return item ? QQmlProperty::read(item, QStringLiteral("border.color"))
+                          .value<QColor>()
+                    : QColor();
+    }
+    void setTheme(int mode)
+    {
+        m_root->setProperty("themeMode", mode);
+        QCoreApplication::processEvents();
+    }
+    // The complete node's icon, resolved through the repeater (delegates are
+    // not QObject-parented into the window tree).
+    QQuickItem *stepChild(int step, const QString &name) const
+    {
+        auto *repeater = find(QStringLiteral("trustChainStepRepeater"));
+        if (!repeater)
+            return nullptr;
+        QQuickItem *item = nullptr;
+        QMetaObject::invokeMethod(repeater, "itemAt",
+                                  Q_RETURN_ARG(QQuickItem *, item),
+                                  Q_ARG(int, step));
+        return item ? item->findChild<QQuickItem *>(name) : nullptr;
     }
 
 private slots:
@@ -209,7 +265,7 @@ private slots:
         auto *fill0 = step0->findChild<QQuickItem *>(QStringLiteral("trustNodeFill"));
         QVERIFY(fill0);
         QVERIFY(fill0->property("visible").toBool());
-        QCOMPARE(fill0->property("color").value<QColor>(), token("tokTrustYellow"));
+        QCOMPARE(fill0->property("color").value<QColor>(), token("tokBolt"));
         auto *dash0 = step0->findChild<QQuickItem *>(QStringLiteral("trustNodeDashRing"));
         QVERIFY(dash0);
         QVERIFY(!dash0->property("visible").toBool());
@@ -238,7 +294,7 @@ private slots:
         QVERIFY(step0);
         auto *connector0 = step0->findChild<QQuickItem *>(QStringLiteral("trustChainConnector"));
         QVERIFY(connector0);
-        QCOMPARE(connector0->property("color").value<QColor>(), token("tokTrustYellow"));
+        QCOMPARE(connector0->property("color").value<QColor>(), token("tokBolt"));
 
         // steps[1] complete, steps[2] pending -> connector 1 is pending.
         QQuickItem *step1 = nullptr;
@@ -247,7 +303,7 @@ private slots:
         QVERIFY(step1);
         auto *connector1 = step1->findChild<QQuickItem *>(QStringLiteral("trustChainConnector"));
         QVERIFY(connector1);
-        QCOMPARE(connector1->property("color").value<QColor>(), token("tokTrustPending"));
+        QCOMPARE(connector1->property("color").value<QColor>(), token("tokPending"));
     }
 
     void brandFaceIsUsedForTheDisplayName()
@@ -323,16 +379,135 @@ private slots:
                                 .arg(inkedBandPixels)));
     }
 
-    void brandColoursStayFixedAcrossThemeChanges()
+    void nodeIconInkIsTheInkForItsOwnFill()
     {
-        const QColor navyBefore = token(QStringLiteral("tokTrustNavy"));
-        m_root->setProperty("themeMode", 8); // Moss Light
-        QCoreApplication::processEvents();
-        QCOMPARE(token(QStringLiteral("tokTrustNavy")), navyBefore);
-        m_root->setProperty("themeMode", 10); // Deep Teal
-        QCoreApplication::processEvents();
-        QCOMPARE(token(QStringLiteral("tokTrustNavy")), navyBefore);
-        m_root->setProperty("themeMode", 9);
+        // The one site where a mechanical token swap would have been wrong.
+        // The complete node's glyph sits ON the bolt disc, so it must be
+        // boltInk — CLAUDE.md §7, "ink on a bolt/accent fill uses boltInk,
+        // never stormPanel". It read correctly for years only because the
+        // pinned card fill happened to be navy; routed unchanged it would
+        // have painted the PAGE GROUND onto a yellow disc.
+        //
+        // The pending glyph was borderStrong, which measures 1.76-3.50:1 on
+        // inputBackground across the eleven themes — an illegible 12px icon.
+        // stormTextMuted is AA-covered on that fill on every theme.
+        //
+        // On the unfixed tree both QCOMPAREs fail: the complete ink was
+        // trustNavy (_stoPanel) and the pending ink was trustPending
+        // (_stoBorderStrong).
+        setTheme(9);
+        auto *complete = stepChild(0, QStringLiteral("trustNodeIcon"));
+        QVERIFY(complete);
+        QCOMPARE(complete->property("color").value<QColor>(),
+                 token(QStringLiteral("tokBoltInk")));
+        auto *pending = stepChild(2, QStringLiteral("trustNodeIcon"));
+        QVERIFY(pending);
+        QCOMPARE(pending->property("color").value<QColor>(),
+                 token(QStringLiteral("tokTextMuted")));
+    }
+
+    void cardRetintsWhenTheThemeChanges()
+    {
+        // The property the maintainer reported, stated directly: switching
+        // theme must MOVE the card's colours. Sampled through the real
+        // AppTheme.mode binding and off the card's own items — not by
+        // calling a routing helper, which would prove only that the helper
+        // works and nothing about whether the card reaches it.
+        //
+        // Unfixed tree: every one of these samples was a constant, so the
+        // first QVERIFY fires.
+        auto *surface = find(QStringLiteral("trustCardSurface"));
+        auto *chain = find(QStringLiteral("trustChainPanel"));
+        QVERIFY(surface);
+        QVERIFY(chain);
+
+        setTheme(8); // Moss Light
+        const QColor fillLight = surface->property("color").value<QColor>();
+        const QColor edgeLight = borderColor(surface);
+        const QColor chainLight = chain->property("color").value<QColor>();
+        const QColor inkLight = token(QStringLiteral("tokText"));
+        const QColor boltLight = token(QStringLiteral("tokBolt"));
+
+        setTheme(10); // Deep Teal
+        QVERIFY2(surface->property("color").value<QColor>() != fillLight,
+                 "the card fill must retint with the theme");
+        QVERIFY2(borderColor(surface) != edgeLight,
+                 "the card border must retint with the theme");
+        QVERIFY2(chain->property("color").value<QColor>() != chainLight,
+                 "the trust-chain panel must retint with the theme");
+        QVERIFY2(token(QStringLiteral("tokText")) != inkLight,
+                 "the display-name ink must retint with the theme");
+        QVERIFY2(token(QStringLiteral("tokBolt")) != boltLight,
+                 "the complete-state accent must retint with the theme");
+        setTheme(9);
+    }
+
+    void cardPaintsTheSettingsCardPairOnEveryTheme()
+    {
+        // "Doesn't match the theme" is really "doesn't match its siblings":
+        // SettingsScreen.qml's SettingsCard paints stormCanvas with a
+        // stormBorder edge, and the trust card sits in the same column. So
+        // assert the same pair on all eleven modes rather than one.
+        //
+        // Unfixed tree: the card was _stoPanel/_stoBorder, so this fails on
+        // the ten legacy themes AND on Storm, where stormCanvas is _stoCanvas
+        // (#121655) and the pinned fill was _stoPanel (#202473).
+        auto *surface = find(QStringLiteral("trustCardSurface"));
+        auto *chain = find(QStringLiteral("trustChainPanel"));
+        QVERIFY(surface);
+        QVERIFY(chain);
+        for (int mode = 1; mode <= 11; ++mode) {
+            setTheme(mode);
+            QCOMPARE(surface->property("color").value<QColor>(),
+                     token(QStringLiteral("tokCanvas")));
+            QCOMPARE(borderColor(surface), token(QStringLiteral("tokBorder")));
+            // The inner module rides the input-fill rung on every theme, so
+            // it stays a distinct surface from the card ground. The
+            // inequality guards the routing, not the SIZE of the step:
+            // Graphite's two rungs are one unit apart by design.
+            QCOMPARE(chain->property("color").value<QColor>(),
+                     token(QStringLiteral("tokInset")));
+            QCOMPARE(borderColor(chain), token(QStringLiteral("tokBorder")));
+            QVERIFY2(chain->property("color").value<QColor>()
+                         != surface->property("color").value<QColor>(),
+                     qPrintable(QStringLiteral("the chain panel resolved to "
+                                               "the card ground on theme %1")
+                                    .arg(mode)));
+        }
+        setTheme(9);
+    }
+
+    void stormKeepsTheBrandLiterals()
+    {
+        // Under Storm (theme 11) every routed role the card reads must land
+        // on its SPEC §1 literal — the routing must not quietly re-colour the
+        // brand theme on its way to fixing the other ten.
+        //
+        // Two values under Storm DID move, deliberately, and are asserted at
+        // their new values rather than hidden:
+        //   * the card fill, _stoPanel #202473 -> _stoCanvas #121655, so the
+        //     card matches the SettingsCards beside it on Storm too;
+        //   * the watermark, a 10%-opacity bolt -> AppTheme.stormWatermark
+        //     (12% alpha), the token IdentityCard and MemberProfilePopover
+        //     already use for the same hero-card glyph. Not asserted here —
+        //     it is an alpha on a decorative glyph, and there is no probe
+        //     that could distinguish it from the fill behind it.
+        // Everything else below is byte-identical to the deleted pin.
+        setTheme(11);
+        auto *surface = find(QStringLiteral("trustCardSurface"));
+        auto *chain = find(QStringLiteral("trustChainPanel"));
+        QVERIFY(surface);
+        QVERIFY(chain);
+        QCOMPARE(surface->property("color").value<QColor>(), QColor("#121655"));
+        QCOMPARE(borderColor(surface), QColor("#303C80"));
+        QCOMPARE(chain->property("color").value<QColor>(), QColor("#0A112E"));
+        QCOMPARE(token(QStringLiteral("tokBolt")), QColor("#FFD447"));
+        QCOMPARE(token(QStringLiteral("tokBoltInk")), QColor("#0A0F24"));
+        QCOMPARE(token(QStringLiteral("tokPending")), QColor("#434F9D"));
+        QCOMPARE(token(QStringLiteral("tokText")), QColor("#F2F4FF"));
+        QCOMPARE(token(QStringLiteral("tokTextSecondary")), QColor("#C9D2F2"));
+        QCOMPARE(token(QStringLiteral("tokTextMuted")), QColor("#9CA3D2"));
+        setTheme(9);
     }
 };
 

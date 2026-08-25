@@ -132,10 +132,14 @@ private Q_SLOTS:
             const auto match = it.next();
             m_colors.insert(match.captured(1), match.captured(2));
         }
-        // Storm aliases: the trust tokens are re-expressed as plain
-        // references into the storm namespace (`property color trustNavy:
-        // stormPanel`) — resolve ONE level of alias so the AA pairs below
-        // keep asserting their real values.
+        // Resolve ONE level of PLAIN-IDENTIFIER alias (`property color
+        // dangerFill: _accentDanger`) so the pairs below can name a semantic
+        // role and still get a real literal. It cannot see through a ternary,
+        // which is why every routed storm* token is asserted through the
+        // per-theme literal it resolves to rather than by its role name.
+        // (This resolver was written for the trust* tokens; those were
+        // deleted on 2026-08-26 when the trust card joined the routed
+        // namespace, and it now serves dangerFill/successFill and friends.)
         const QRegularExpression aliasRe(QStringLiteral(
             "property\\s+color\\s+(\\w+)\\s*:\\s*(\\w+)\\s*(?://.*)?$"),
             QRegularExpression::MultilineOption);
@@ -540,22 +544,69 @@ private Q_SLOTS:
             { "_mosTextMuted", "_mosInputBg", 4.5 },
             { "_indTextMuted", "_indInputBg", 4.5 },
             { "_teaTextMuted", "_teaInputBg", 4.5 },
-            // v0.6.5 trust-card brand constants (SPEC 1r) — theme-invariant,
-            // so their readability is asserted once, here.
-            { "trustInk", "trustNavy", 4.5 },
-            { "trustYellow", "trustNavy", 4.5 },
-            { "trustMuted", "trustNavy", 4.5 },
-            { "trustMuted", "trustChainBg", 4.5 },
-            { "trustCaption", "trustChainBg", 4.5 },
-            { "trustCaptionDim", "trustChainBg", 4.5 },
-            { "trustNavy", "trustYellow", 4.5 },
-            { "trustVerifyInk", "trustNavy", 4.5 },
-            // Storm (selectable theme 11 + the trust card's fixed palette).
-            // The storm* tokens themselves are theme-ROUTED expressions now,
-            // so the assertions read the raw _sto* literals they resolve to
-            // under Storm. _stoTextFaint is deliberately dim decorative-scale
-            // mono (section headers, metadata) and is exempt, like
-            // trustPending before it.
+            // THE SESSIONS TRUST CARD, 2026-08-26. Eight pairs used to sit
+            // here asserting an INVARIANT brand palette once, because the
+            // card was pinned to the raw _sto* literals on every theme:
+            //   trustInk/trustNavy, trustYellow/trustNavy, trustMuted/
+            //   trustNavy, trustMuted/trustChainBg, trustCaption/trustChainBg,
+            //   trustCaptionDim/trustChainBg, trustNavy/trustYellow,
+            //   trustVerifyInk/trustNavy.
+            // The card is routed now, so "asserted once" is no longer a
+            // meaningful bar — each of those roles has to hold on all ELEVEN
+            // themes. Note how they broke: they did NOT fail on contrast,
+            // they failed on LOOKUP, because c() returns an empty string for
+            // a token whose body is a ternary the alias resolver cannot read.
+            // Anyone deleting a trust token and reading "missing palette
+            // value" as a contrast regression is chasing the wrong thing.
+            //
+            // Where the eight went. Six needed no new assertion — five were
+            // already covered per theme, and one is dropped outright:
+            //   trustInk/trustNavy      -> textPrimary/background  (all 11)
+            //   trustMuted/trustNavy    -> textMuted/background    (all 11)
+            //   trustMuted/trustChainBg -> textMuted/inputBg       (all 11)
+            //   trustCaptionDim/…       -> the same pair as above
+            //   trustNavy/trustYellow   -> accentText/accent, the
+            //       _onAccent|_teaAccentText|_stoBoltInk family below/above
+            //   trustYellow/trustNavy   -> DROPPED, not replaced: nothing
+            //       painted in bolt-on-background is text or a control
+            //       boundary any more. The watermark is stormWatermark
+            //       (decorative), the avatar ring is wordmarkBolt (a brand
+            //       mark), and the focus ring is focusRing (the app-wide
+            //       indicator, no worse here than anywhere else). Kept as a
+            //       4.5 assertion it would have been a fiction: bolt on
+            //       background measures 2.86 on Indigo Night.
+            // The remaining two needed genuinely new per-theme coverage,
+            // and it is spelled out below.
+            //
+            // Caption ink on the trust-chain panel (stormTextSecondary on
+            // inputBackground). New pairing for every legacy theme: nothing
+            // painted textSecondary on an input fill before the routing.
+            { "_textSecondaryLight", "_inputBgLight", 4.5 },
+            { "_textSecondaryDark", "_inputBgDark", 4.5 },
+            { "_dkTextSecondary", "_dkInputBg", 4.5 },
+            { "_graTextSecondary", "_graInputBg", 4.5 },
+            { "_norTextSecondary", "_norInputBg", 4.5 },
+            { "_purTextSecondary", "_purInputBg", 4.5 },
+            { "_warTextSecondary", "_warInputBg", 4.5 },
+            { "_mosTextSecondary", "_mosInputBg", 4.5 },
+            { "_indTextSecondary", "_indInputBg", 4.5 },
+            { "_teaTextSecondary", "_teaInputBg", 4.5 },
+            { "_stoTextSecondary", "_stoInset", 4.5 },
+            // Verify-button ink on the card ground (stormTextSecondary on
+            // background). Eight of the eleven were already asserted; these
+            // are the three legacy themes and Storm that were not.
+            { "_graTextSecondary", "_graBg", 4.5 },
+            { "_norTextSecondary", "_norBg", 4.5 },
+            { "_purTextSecondary", "_purBg", 4.5 },
+            { "_stoTextSecondary", "_stoCanvas", 4.5 },
+            // Storm (selectable theme 11). The storm* tokens themselves are
+            // theme-ROUTED expressions, so the assertions read the raw _sto*
+            // literals they resolve to under Storm. _stoTextFaint is
+            // deliberately dim decorative-scale mono (section headers,
+            // metadata) and is exempt; so is _stoBorderStrong, which carries
+            // the trust chain's PENDING treatment, whose state is also
+            // carried by shape (a dashed ring vs a filled disc) and by a
+            // distinct caption ink, so colour is never its sole carrier.
             //   Menu/panel inks on their real fills:
             { "_stoText", "_stoPanel", 4.5 },
             { "_stoTextSecondary", "_stoPanel", 4.5 },
@@ -1062,8 +1113,8 @@ private Q_SLOTS:
         // the same concept rendered as _stoDanger #FF8FA0 inside a menu and
         // `danger` #DC2626 outside it, in one window; the fix is only real
         // while the two literals stay equal, and they are separate literals
-        // (Storm's are part of the SPEC §1 table the trust card pins), so
-        // the equality is asserted rather than assumed.
+        // (Storm's are part of the SPEC §1 table), so the equality is
+        // asserted rather than assumed.
         QCOMPARE(m_colors.value(QStringLiteral("_stoDanger")),
                  m_colors.value(QStringLiteral("_dangerInkDark")));
         QCOMPARE(m_colors.value(QStringLiteral("_stoSuccess")),

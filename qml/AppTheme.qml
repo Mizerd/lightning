@@ -58,8 +58,14 @@ QtObject {
     property int customBase: 11
 
     // v0.7: app-wide reduced-motion hint consumed by loading skeletons and
-    // other decorative animation. False by default; a future accessibility
-    // setting or platform hint can drive it without touching consumers.
+    // other decorative animation.
+    //
+    // BOUND FROM Main.qml (2026-08-26), like `mode` and `customOverrides`.
+    // It sat at a hardcoded false from the design round until then, so every
+    // one of the ~20 branches reading it across ten files was dead code and
+    // the accessibility setting it was waiting for did not exist. It stays
+    // false HERE so a host that never binds it — a test harness loading one
+    // component — still gets motion rather than an undefined.
     property bool reducedMotion: false
 
     // Resolve System (0) to the flagship design pair — Moss Light for light
@@ -380,9 +386,10 @@ QtObject {
 
     // Storm — the 0.6.5 brand theme (selectable id 11). Deep navy surfaces,
     // bolt-yellow accent, SPEC-storm-language §1 palette. These literals are
-    // ALSO the fixed values behind the theme-invariant trust card and the
-    // storm* namespace when Storm is the effective theme; the token test
-    // parses them by name.
+    // ALSO the values the storm* namespace carries when Storm is the
+    // effective theme; the token test parses them by name. They are no
+    // longer the trust card's fixed palette — 2026-08-26 routed that surface
+    // like everything else (see the storm* block below).
     //
     // 2026-08-21 SURFACE-LADDER REBUILD. The audited defect was NOT a lack of
     // hue — Storm measured the most saturated shell in the app (Lab chroma
@@ -1350,7 +1357,6 @@ QtObject {
     readonly property color scrimInkStrong:      "#E6FFFFFF"
     readonly property color scrimInkMuted:       "#94A3B8"
 
-    // ---- Trust-card brand constants (SPEC 1r). ----
     // ---- Storm surface language (0.6.5). ----
     // The shared vocabulary of every menu, popover, picker, dialog and the
     // Settings surface. Since the Storm round made Storm a SELECTABLE
@@ -1359,8 +1365,9 @@ QtObject {
     // under every legacy theme it resolves to that theme's own semantic
     // equivalent, so menus and Settings follow the user's chosen theme
     // again. Consumers keep reaching for storm* by role and never branch on
-    // the theme themselves. The trust card is the ONE deliberate invariant
-    // exception and pins the raw _sto* literals below.
+    // the theme themselves. There is NO exception left: the Sessions trust
+    // card was the last invariant surface and 2026-08-26 routed it here too
+    // (see the trust-role note below the derived treatments).
     readonly property color stormCanvas:        storm ? _stoCanvas : background
     readonly property color stormPanel:         storm ? _stoPanel : surface
     readonly property color stormInset:         storm ? _stoInset : inputBackground
@@ -1401,28 +1408,45 @@ QtObject {
     readonly property color stormBoltGlow:      Qt.alpha(bolt, 0.12)     // input focus halo
     readonly property color stormWatermark:     Qt.alpha(bolt, 0.12)     // hero-card bolt
 
-    // The ONE deliberate theme-invariant exception: the verification/trust
-    // surface always renders in Lightning's brand navy + yellow, in every
-    // theme — the trust moment is the brand moment. ThemeTokensTest asserts
-    // AA pairs for every INK role here (trustInk, trustYellow, trustMuted,
-    // trustCaption, trustCaptionDim, trustVerifyInk); trustPending /
-    // trustChainBorder are deliberately-dim non-text pending treatments
-    // whose state is also carried by the caption ink and icon size.
-    // Pinned to the raw _sto* literals — NOT the routed storm* tokens —
-    // precisely so the trust card stays brand-navy under every theme now
-    // that the storm* namespace follows the selected theme.
-    readonly property color trustNavy:        _stoPanel
-    readonly property color trustYellow:      _stoBolt
-    readonly property color trustInk:         _stoText
-    readonly property color trustMuted:       _stoTextMuted
-    readonly property color trustChainBg:     _stoInset
-    readonly property color trustChainBorder: _stoBorder
-    readonly property color trustPending:     _stoBorderStrong
-    readonly property color trustCaption:     "#AAB5E0"
-    // Dim-but-AA pending caption (4.66:1 on trustChainBg; the mock's
-    // #5C6BA3 computed 3.57:1 and failed normal-text AA).
-    readonly property color trustCaptionDim:  "#6F7EB6"
-    readonly property color trustVerifyInk:   "#C9D2F2"
+    // ---- The trust surface has NO tokens of its own (2026-08-26). ----
+    //
+    // There used to be ten `trust*` tokens here, pinned to the raw _sto*
+    // literals — trustNavy: _stoPanel, trustYellow: _stoBolt, trustInk,
+    // trustMuted, trustChainBg, trustChainBorder, trustPending, plus three
+    // bare hex inks (trustCaption #AAB5E0, trustCaptionDim #6F7EB6,
+    // trustVerifyInk #C9D2F2). They were pinned deliberately: when Storm
+    // became a selectable theme the storm* namespace above was converted
+    // from invariant to ROUTED, and the trust card was held back so the
+    // "trust moment" stayed the brand moment in every theme.
+    //
+    // That belief was wrong once its neighbourhood moved. The card sits
+    // between SettingsCards painted stormCanvas/stormBorder, above a
+    // sessions list already painted stormTextFaint/stormLink — so on any
+    // theme but Storm the one surface that never followed the theme was the
+    // one the eye reads as foreign. Reported 2026-08-26: "the blue lightning
+    // session status should match the rest of the theme."
+    //
+    // TrustCard.qml now reaches for storm* by ROLE like every other surface:
+    //   card fill        -> stormCanvas        (was trustNavy)
+    //   card/chain edge  -> stormBorder        (was trustChainBorder)
+    //   chain panel      -> stormInset         (was trustChainBg)
+    //   display name     -> stormText          (was trustInk)
+    //   user id, status  -> stormTextMuted     (was trustMuted)
+    //   captions         -> stormTextSecondary (was trustCaption/trustVerifyInk)
+    //   pending caption  -> stormTextMuted     (was trustCaptionDim)
+    //   complete state   -> bolt / boltInk     (was trustYellow / trustNavy)
+    //   pending state    -> stormBorderStrong  (was trustPending)
+    // Under Storm every one of those lands on the SPEC §1 literal the pin
+    // used, with two deliberate exceptions worth naming rather than
+    // discovering: the card fill moves _stoPanel #202473 -> _stoCanvas
+    // #121655 (because stormCanvas is what SettingsCard paints, and matching
+    // it on Storm too is the same fix, not a separate one), and the 120px
+    // watermark moves from a 10%-opacity bolt to stormWatermark's 12% alpha
+    // (the token IdentityCard and MemberProfilePopover already use for that
+    // glyph). TrustCardTest::stormKeepsTheBrandLiterals pins all of it by
+    // value. ThemeTokensTest asserts the replacement AA pairs per theme
+    // instead of once — an invariant palette needed eight assertions, a
+    // routed one needs them on all eleven themes.
 
     // The custom-theme editor's own chrome (Settings -> Appearance -> Edit).
     //
