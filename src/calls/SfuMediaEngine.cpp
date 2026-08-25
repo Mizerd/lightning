@@ -956,7 +956,9 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                  // "0,7" as a truncated 0 in a comma-decimal locale, which
                  // would silently mute a user whose desktop is Lithuanian —
                  // and this repo's maintainer's is.
-                 QString::number(m_microphoneGain.load() / 100.0, 'f', 3),
+                 QString::number(
+                     audioFactorPercent(m_microphoneGain.load()) / 100.0,
+                     'f', 3),
                  gainStage);
 
     GError *error = nullptr;
@@ -1779,6 +1781,31 @@ void SfuMediaEngine::unpublish(const QString &cid)
     //    Without this the async teardown does not deadlock — it simply never
     //    runs, which is a leak wearing a fix's clothes.
     if (GstPad *peer = gst_pad_get_peer(srcPad)) {
+        // DIRECTION FIRST, and this is the line the far end actually obeys.
+        //
+        // Releasing the request pad drops our track and its msid from the
+        // offer, but it does NOT change the transceiver's direction — the
+        // section stays `a=sendrecv`. Measured, before and after, on the
+        // renegotiated offer:
+        //
+        //   before   m=video ... | a=sendrecv
+        //   after    m=video ... | a=sendrecv        <- msid gone, still sending
+        //
+        // So the remote is told there is still a video section we send on,
+        // with nothing behind it: a live m-line producing no RTP, which is
+        // rendered as an empty tile that never goes away ("element keep
+        // showing a grey box", "its like the first one doesnt stop"). An m=
+        // section may never be REMOVED from an SDP either — the count has to
+        // stay stable across renegotiation — so marking it inactive is not
+        // merely the tidy option, it is the only correct one.
+        if (GstWebRTCRTPTransceiver *transceiver = nullptr;
+            (g_object_get(peer, "transceiver", &transceiver, nullptr),
+             transceiver != nullptr)) {
+            g_object_set(transceiver, "direction",
+                         GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE,
+                         nullptr);
+            gst_object_unref(transceiver);
+        }
         gst_pad_unlink(srcPad, peer);
         if (GstElement *webrtc = gst_pad_get_parent_element(peer)) {
             gchar *padName = gst_pad_get_name(peer);
@@ -2027,11 +2054,14 @@ void SfuMediaEngine::setMicrophoneMuted(bool muted)
 
 void SfuMediaEngine::setMicrophoneGain(int percent)
 {
-    const int clamped = percent < 0 ? 0 : (percent > 1000 ? 1000 : percent);
+    // Stored on the USER scale; expanded to the audio factor at the two
+    // places it meets a `volume` element, here and in the publish
+    // description. See audioFactorPercent().
+    const int clamped = percent < 0 ? 0 : (percent > 200 ? 200 : percent);
     m_microphoneGain.store(clamped);
     if (!m_publisher.pipeline)
         return;
-    const gdouble factor = clamped / 100.0;
+    const gdouble factor = audioFactorPercent(clamped) / 100.0;
     // Matched by the NAME we gave it, exactly as the deafen path is, and for
     // the same reason: `autoaudiosrc` is a bin that may contain a volume
     // element of its own, so a recursive FACTORY match could reach into the
@@ -2097,6 +2127,17 @@ void SfuMediaEngine::setOutputMuted(bool muted)
     gst_iterator_free(it);
 }
 
+int SfuMediaEngine::audioFactorPercent(int userPercent)
+{
+    const int user = userPercent < 0 ? 0 : (userPercent > 200 ? 200
+                                                              : userPercent);
+    if (user <= 100)
+        return user;
+    // 100..200 -> 100..1000, straight line: 9 points of factor per point of
+    // slider above unity, so 200 lands exactly on the element's ceiling.
+    return 100 + (user - 100) * 9;
+}
+
 QString SfuMediaEngine::outputVolumeElementName(const QString &streamId)
 {
     // ONE derivation, used by the bin that creates the element and by the
@@ -2133,7 +2174,7 @@ void SfuMediaEngine::setParticipantVolume(const QString &streamId,
     // Clamping at 100 here threw away every boost; clamping at 200 left only
     // +6 dB, which against a sender already running AGC reads as "barely any
     // difference".
-    const double volume = qBound(0, percent, 1000) / 100.0;
+    const double volume = audioFactorPercent(percent) / 100.0;
     // Each remote audio bin's volume element is named for the STREAM it
     // carries, so one participant can be attenuated without touching anyone
     // else. LOCAL ONLY: it changes nothing for other participants and sends

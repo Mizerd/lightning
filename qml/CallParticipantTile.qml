@@ -790,7 +790,7 @@ Item {
                 // amplification, which is the whole reason a per-person
                 // control is worth having — a quiet participant is the case
                 // it exists for.
-                to: 1000
+                to: 200
                 stepSize: 1
                 snapMode: Slider.SnapAlways
                 Accessible.name: qsTr("Volume for %1").arg(root._label)
@@ -865,7 +865,7 @@ Item {
                     // past 100. A consequence disclosed only after the fact
                     // is not a disclosure. Stated flatly: what it does, and
                     // what it can cost.
-                    text: qsTr("Above 100% amplifies and can clip. 1000% is the maximum the audio stage can apply.")
+                    text: qsTr("Above 100% amplifies and can clip. 200% applies the maximum the audio stage can reach.")
                 }
 
                 // Only when there is something to reset. A permanently

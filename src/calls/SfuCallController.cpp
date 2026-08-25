@@ -2069,7 +2069,7 @@ int SfuCallController::participantVolume(const QString &identity) const
 void SfuCallController::setParticipantVolume(const QString &identity,
                                               int percent)
 {
-    const int clamped = qBound(0, percent, 1000);
+    const int clamped = qBound(0, percent, 200);
 #ifdef HAVE_LIGHTNING_WEBRTC
     // Local only: nothing is sent, and nobody else is affected. The ENGINE is
     // addressed by LiveKit stream id, not by SFU identity — that is the name

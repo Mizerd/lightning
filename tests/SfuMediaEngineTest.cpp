@@ -1109,6 +1109,36 @@ private slots:
         engine.stop();
     }
 
+    /// THE VOLUME CURVE: 0-100 is literal, 100-200 expands to 100-1000.
+    ///
+    /// One linear scale could not serve both jobs. Attenuation must stay 1:1
+    /// or every setting below unity means something other than it says; boost
+    /// needs to reach 1000%, because a straight 0-200 slider tops out at
+    /// +6 dB — "above 100% barely any difference" — while a straight 0-1000
+    /// slider puts every useful setting in its first tenth.
+    void theVolumeCurveIsLiteralBelowUnityAndExpandsAbove()
+    {
+        // Attenuation: untouched, including the ends. 0 must be exactly 0 —
+        // silence is the one setting a curve must never approximate.
+        QCOMPARE(SfuMediaEngine::audioFactorPercent(0), 0);
+        QCOMPARE(SfuMediaEngine::audioFactorPercent(1), 1);
+        QCOMPARE(SfuMediaEngine::audioFactorPercent(50), 50);
+        QCOMPARE(SfuMediaEngine::audioFactorPercent(99), 99);
+        // Unity is unity on both sides of the join, so the curve has no step
+        // in it at the one point the user is most likely to sit on.
+        QCOMPARE(SfuMediaEngine::audioFactorPercent(100), 100);
+        // Boost: the far end of the slider is the element's own ceiling.
+        QCOMPARE(SfuMediaEngine::audioFactorPercent(200), 1000);
+        // And monotonic in between, with the midpoint where the straight
+        // line says it is.
+        QCOMPARE(SfuMediaEngine::audioFactorPercent(150), 550);
+        QCOMPARE(SfuMediaEngine::audioFactorPercent(101), 109);
+        // Out of range saturates rather than wrapping or extrapolating past
+        // the element's range, where it would clamp silently.
+        QCOMPARE(SfuMediaEngine::audioFactorPercent(-5), 0);
+        QCOMPARE(SfuMediaEngine::audioFactorPercent(10000), 1000);
+    }
+
     /// THE RENEGOTIATED OFFER MUST STOP ADVERTISING THE STOPPED TRACK.
     ///
     /// This is the assertion closest to what the far end actually reads.
@@ -1147,6 +1177,9 @@ private slots:
                  "the publish never offered the track at all, so this case "
                  "cannot say anything about withdrawing it");
 
+        QList<QList<QVariant>> before;
+        for (const QList<QVariant> &call : offers)
+            before << call;
         offers.clear();
         engine.unpublish(QStringLiteral("cid-share"));
         // The teardown and its renegotiation are asynchronous by design.
@@ -1159,6 +1192,44 @@ private slots:
                  "the offer after unpublish still advertises the stopped "
                  "track: the far end goes on rendering a corpse and the next "
                  "share lands beside it");
+        const auto sections = [](const QString &sdp) {
+            return sdp.count(QStringLiteral("\r\nm="))
+                 + (sdp.startsWith(QStringLiteral("m=")) ? 1 : 0);
+        };
+        QString last;
+        for (const QList<QVariant> &call : offers) {
+            if (call.value(1).toString() == QStringLiteral("offer"))
+                last = call.value(2).toString();
+        }
+        QString firstOffer;
+        for (const QList<QVariant> &call : before) {
+            if (call.value(1).toString() == QStringLiteral("offer"))
+                firstOffer = call.value(2).toString();
+        }
+
+        // THE SECTION MUST SURVIVE AND GO INACTIVE — both halves matter, and
+        // this is the shape the far end actually obeys.
+        //
+        // Releasing the request pad alone drops our msid but leaves the
+        // section `a=sendrecv`: measured before the fix as
+        //   before  m=video ... | a=sendrecv
+        //   after   m=video ... | a=sendrecv     <- msid gone, still sending
+        // which tells the remote there is a video section we are sending on
+        // with nothing behind it. That is a tile that never goes away.
+        //
+        // And an m= section may never be REMOVED from an SDP: the count has
+        // to stay stable across renegotiation, so a shrinking offer would be
+        // its own protocol fault rather than a fix.
+        QCOMPARE(sections(last), sections(firstOffer));
+        QVERIFY2(firstOffer.contains(QStringLiteral("a=sendrecv"))
+                     || firstOffer.contains(QStringLiteral("a=sendonly")),
+                 "the publish offer never claimed to send, so this case "
+                 "cannot show the direction being withdrawn");
+        QVERIFY2(last.contains(QStringLiteral("a=inactive")),
+                 "the offer after unpublish leaves the section active: the "
+                 "far end is told we are still sending on a media section "
+                 "with no track behind it, and renders an empty tile that "
+                 "never clears");
         engine.stop();
     }
 

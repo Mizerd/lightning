@@ -1755,11 +1755,14 @@ Item {
         //    it silently removes the entire reason the control exists: the
         //    case it is for is a participant who is too QUIET.
         QVERIFY(tile.contains(QStringLiteral("from: 0")));
-        // 1000%, not 200: the ceiling is the GStreamer `volume` element's own
-        // factor range (0-10), and 200 was reported as "above 100% barely any
-        // difference" — 2.0 linear is only +6 dB, most of which a sender
-        // already running AGC has spent.
-        QVERIFY(tile.contains(QStringLiteral("to: 1000")));
+        // The slider is the USER scale and stops at 200. What 200 MEANS is
+        // 1000% of audio: SfuMediaEngine::audioFactorPercent() expands
+        // 100-200 onto 100-1000 and leaves 0-100 as 1:1 attenuation. A
+        // straight 0-200 slider tops out at +6 dB ("above 100% barely any
+        // difference"); a straight 0-1000 one puts every useful setting in
+        // its first tenth. The curve itself is pinned by
+        // theVolumeCurveIsLiteralBelowUnityAndExpandsAbove.
+        QVERIFY(tile.contains(QStringLiteral("to: 200")));
         // And the neutral point is MARKED. 100 is not the middle of a
         // preference, it is the one value that changes nothing.
         QVERIFY(tile.contains(QStringLiteral(
@@ -1875,7 +1878,7 @@ Item {
         // Same range and the same marked neutral point as the per-person
         // control. Two level sliders in one app that disagree about what 100
         // means is a worse outcome than either of them being wrong.
-        QVERIFY(devices.contains(QStringLiteral("to: 1000")));
+        QVERIFY(devices.contains(QStringLiteral("to: 200")));
         QVERIFY(devices.contains(QStringLiteral(
             "objectName: \"microphoneGainNeutralMark\"")));
         QVERIFY(devices.contains(

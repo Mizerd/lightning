@@ -145,6 +145,26 @@ public:
     /// that FINDS it share one derivation — they did not, and per-participant
     /// volume was a no-op for it.
     static QString outputVolumeElementName(const QString &streamId);
+
+    /// The audio factor, in percent, for a volume the USER set on a 0-200
+    /// slider.
+    ///
+    /// Two ranges, because one linear scale could not serve both jobs. 0-100
+    /// is ordinary attenuation and must stay 1:1 — that half is how someone
+    /// turns a loud person down, and a curve there would make every setting
+    /// mean something other than it says. 100-200 is BOOST, and it expands to
+    /// 100-1000: a straight 0-200 slider tops out at +6 dB, which against a
+    /// sender already running AGC reads as "above 100% barely any
+    /// difference", while 1000% is where the desired loudness actually lives.
+    ///
+    /// 1000 is not arbitrary — it is the GStreamer `volume` element's own
+    /// factor ceiling (its range is 0-10). Past it the element clamps
+    /// silently.
+    ///
+    /// Stored and displayed values are always the USER scale; this is applied
+    /// only where the number meets the audio, so nothing on disk or on screen
+    /// has to know about the curve.
+    static int audioFactorPercent(int userPercent);
     /// A distinct, non-zero SSRC for one published track. See the
     /// definition: without an explicit one the offer carries no `a=ssrc`,
     /// and then no `a=msid` either.

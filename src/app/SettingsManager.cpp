@@ -690,13 +690,12 @@ QString volumeKeyFor(const QString &userId)
             .left(16));
 }
 constexpr int kVolumeDefault = 100;
-// 1000%, which is the GStreamer `volume` element's own documented ceiling
-// (its factor range is 0-10). Raised from 200 on request: at 200 the boost
-// was "barely any difference", because 2.0 linear is only +6 dB and a sender
-// running AGC is already near full scale, so most of that headroom is spent
-// before it arrives. Going past 10 would be refused by the element itself,
-// silently, which is worse than a ceiling the UI can show.
-constexpr int kVolumeMax = 1000;
+// The USER scale, and it stops at 200 on purpose. What 200 MEANS is 1000% of
+// audio: SfuMediaEngine::audioFactorPercent() expands 100-200 onto 100-1000,
+// leaving 0-100 as ordinary 1:1 attenuation. A straight 0-200 slider tops out
+// at +6 dB, which was reported as "above 100% barely any difference"; a
+// straight 0-1000 slider puts every useful setting in its first tenth.
+constexpr int kVolumeMax = 200;
 } // namespace
 
 int SettingsManager::callParticipantVolume(const QString &userId) const
