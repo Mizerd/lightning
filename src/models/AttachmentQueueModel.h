@@ -81,6 +81,15 @@ public:
         int posterWidth = 0;
         int posterHeight = 0;
         qint64 durationMs = 0;  // 0 when the decoder never reported one
+        // The composer's typed text, when the user has asked for it to be
+        // sent as this attachment's caption. Empty otherwise, which is the
+        // previous behaviour exactly. It lives on the ENTRY rather than on
+        // the composer because dispatch is NOT in row order — a video whose
+        // poster is still being extracted is held back while the next entry
+        // goes out — so "the composer's pending caption" would land on
+        // whichever event happened to be dispatched first, and a retry of a
+        // failed entry would lose it.
+        QString caption;
     };
 
     explicit AttachmentQueueModel(QObject *parent = nullptr);

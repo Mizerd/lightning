@@ -8,9 +8,15 @@
 #include <QDateTime>
 #include <QSignalSpy>
 
+#include <QAbstractItemModel>
+
 #include "calls/CallController.h"
 #include "calls/CallMediaBackend.h"
+#include "calls/CallParticipantModel.h"
+#include "calls/CallShareModel.h"
+#include "calls/CallStageState.h"
 #include "calls/SdpStore.h"
+#include "calls/SfuCallController.h"
 #include "matrix/CallSignal.h"
 #include "matrix/MockMatrixClient.h"
 
@@ -263,6 +269,60 @@ CallSignal freshInvite(const QString &callId,
     s.sessionType = QStringLiteral("offer");
     s.hasDescription = true;
     return s;
+}
+
+// ---------------------------------------------------------------------------
+// 2026-08-26 Discord-style call stage: the DATA LAYER.
+//
+// Every assertion below drives SfuCallController through the same private
+// merge helpers the SFU slots use, via the test seams — which exist because
+// the stage could not be instantiated in a test at ALL before this round.
+// ---------------------------------------------------------------------------
+
+QVariantMap sfuTrack(const QString &source, const QString &sid, bool muted)
+{
+    QVariantMap track;
+    track.insert(QStringLiteral("source"), source);
+    track.insert(QStringLiteral("sid"), sid);
+    track.insert(QStringLiteral("muted"), muted);
+    return track;
+}
+
+QVariantMap sfuParticipant(const QString &identity, const QString &sid,
+                           const QVariantList &tracks)
+{
+    QVariantMap row;
+    row.insert(QStringLiteral("identity"), identity);
+    row.insert(QStringLiteral("sid"), sid);
+    row.insert(QStringLiteral("tracks"), tracks);
+    return row;
+}
+
+QVariantMap speakerEntry(const QString &sid, bool active)
+{
+    QVariantMap entry;
+    entry.insert(QStringLiteral("sid"), sid);
+    entry.insert(QStringLiteral("active"), active);
+    return entry;
+}
+
+QVariantMap speakerEntry(const QString &sid, bool active, double level)
+{
+    QVariantMap entry = speakerEntry(sid, active);
+    entry.insert(QStringLiteral("level"), level);
+    return entry;
+}
+
+QVariant participantRole(const CallParticipantModel *model, int row,
+                         CallParticipantModel::Roles role)
+{
+    return model->data(model->index(row, 0), role);
+}
+
+int participantRowFor(const CallParticipantModel *model,
+                      const QString &identity)
+{
+    return model->indexOfIdentity(identity);
 }
 
 } // namespace
@@ -1479,7 +1539,542 @@ private Q_SLOTS:
         client.emitSignal(freshInvite(QStringLiteral("call-1")));
         QCOMPARE(calls.state(), CallController::State::Ringing);
     }
+
+    // -----------------------------------------------------------------
+    // The call stage's data layer (2026-08-26).
+    //
+    // WHAT EACH OF THESE WOULD REPORT ON THE UNFIXED TREE is stated per
+    // test. Several would not COMPILE there, which is itself the finding:
+    // there was no participant model, no share model and no stage state,
+    // and no way to put a participant in front of the stage without a live
+    // SFU. §16 records twice what happens when policy is only ever asserted
+    // by reading the source (the row window shipped as a permanent no-op;
+    // the rail drop could never group), so the seam came first.
+    // -----------------------------------------------------------------
+
+    void speakerUpdatesNeverResetTheParticipantModel()
+    {
+        // THE defect the whole model exists for. Participants used to be a
+        // Q_INVOKABLE QVariantList re-invoked behind a hand-bumped tick and
+        // bound to views as a JS array; onSfuSpeakers emitted
+        // participantsChanged on every SpeakersChanged round, so a talking
+        // participant reset the model — and with it destroyed every tile and
+        // every VideoOutput — several times a second.
+        //
+        // UNFIXED TREE: does not compile (no participantModel). Structurally
+        // it would fail anyway: the array reassignment IS the reset.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("microphone"),
+                                      QStringLiteral("TR_a"), false) }),
+            sfuParticipant(QStringLiteral("bob"), QStringLiteral("PA_2"),
+                           { sfuTrack(QStringLiteral("microphone"),
+                                      QStringLiteral("TR_b"), false) }),
+        });
+        CallParticipantModel *model = call.participantModel();
+        QVERIFY(model);
+        QCOMPARE(model->rowCount(), 2);
+
+        QSignalSpy resets(model, &QAbstractItemModel::modelAboutToBeReset);
+        QSignalSpy removes(model, &QAbstractItemModel::rowsAboutToBeRemoved);
+        QSignalSpy inserts(model, &QAbstractItemModel::rowsAboutToBeInserted);
+        QSignalSpy changes(model, &QAbstractItemModel::dataChanged);
+
+        for (int i = 0; i < 40; ++i) {
+            const double level = (i % 2 == 0) ? 0.8 : 0.1;
+            call.ingestSpeakersForTest(
+                { speakerEntry(QStringLiteral("PA_1"), true, level) });
+        }
+
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(removes.count(), 0);
+        QCOMPARE(inserts.count(), 0);
+        // The ring has something to animate: the level really did move.
+        QVERIFY(changes.count() > 0);
+        // ...and only the speaking roles moved with it.
+        for (const QList<QVariant> &emission : changes) {
+            const QList<int> roles = emission.at(2).value<QList<int>>();
+            QVERIFY(!roles.isEmpty());
+            for (int role : roles) {
+                QVERIFY(role == CallParticipantModel::SpeakingRole
+                        || role == CallParticipantModel::SpeakingLevelRole);
+            }
+        }
+    }
+
+    void speakingLevelCrossesFromTheSfuInsteadOfBeingThrownAway()
+    {
+        // LiveKit's SpeakerInfo carries `level` (0..1) and rust/src/sfu.rs
+        // has emitted it all along; onSfuSpeakers read `active` and dropped
+        // it into a QHash<QString,bool>. One discarded field was the whole
+        // reason a volume-reactive ring was impossible.
+        //
+        // UNFIXED TREE: there is no speakingLevel to read — the value never
+        // left the JSON.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           {}),
+        });
+        call.ingestSpeakersForTest(
+            { speakerEntry(QStringLiteral("PA_1"), true, 0.62) });
+
+        CallParticipantModel *model = call.participantModel();
+        const int row = participantRowFor(model, QStringLiteral("alice"));
+        QCOMPARE(row, 0);
+        QCOMPARE(participantRole(model, row,
+                                 CallParticipantModel::SpeakingRole).toBool(),
+                 true);
+        QVERIFY(qFuzzyCompare(
+            participantRole(model, row,
+                            CallParticipantModel::SpeakingLevelRole)
+                .toDouble() + 1.0,
+            0.62 + 1.0));
+    }
+
+    void anSfuThatSendsOnlyActiveDegradesToABinaryRingNotADeadOne()
+    {
+        // The degrade path, and the refusal that goes with it: a boolean
+        // must NOT be turned into an amplitude. `speaking` is true so the
+        // ring is drawn; `speakingLevel` stays 0.0 so it is drawn at its
+        // minimum rather than at a size nobody measured.
+        //
+        // UNFIXED TREE: no level exists at all, so this case is
+        // indistinguishable from the one above — which is exactly why the
+        // distinction has to be pinned.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           {}),
+        });
+        call.ingestSpeakersForTest(
+            { speakerEntry(QStringLiteral("PA_1"), true) }); // no "level"
+
+        CallParticipantModel *model = call.participantModel();
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::SpeakingRole).toBool(),
+                 true);
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::SpeakingLevelRole)
+                     .toDouble(),
+                 0.0);
+    }
+
+    void aSpeakerAbsentFromTheRoundStopsSpeaking()
+    {
+        // LiveKit sends the ACTIVE set, so absence is the stop signal.
+        // Reading "absent" as "unchanged" leaves a ring stuck on.
+        //
+        // UNFIXED TREE: the old hash was cleared each round too, so this
+        // half was already right — it is pinned because the rewrite could
+        // easily have turned the level hash into a merge.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           {}),
+        });
+        call.ingestSpeakersForTest(
+            { speakerEntry(QStringLiteral("PA_1"), true, 0.5) });
+        call.ingestSpeakersForTest({});
+
+        CallParticipantModel *model = call.participantModel();
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::SpeakingRole).toBool(),
+                 false);
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::SpeakingLevelRole)
+                     .toDouble(),
+                 0.0);
+    }
+
+    void aMuteChangeIsOneRoleOnOneRowNotAMembershipChange()
+    {
+        // A participant update that changes a value must not look like a
+        // join. UNFIXED TREE: every update rebuilt the whole array.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("microphone"),
+                                      QStringLiteral("TR_a"), false) }),
+        });
+        CallParticipantModel *model = call.participantModel();
+        QSignalSpy resets(model, &QAbstractItemModel::modelAboutToBeReset);
+        QSignalSpy inserts(model, &QAbstractItemModel::rowsAboutToBeInserted);
+        QSignalSpy removes(model, &QAbstractItemModel::rowsAboutToBeRemoved);
+        QSignalSpy changes(model, &QAbstractItemModel::dataChanged);
+
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("microphone"),
+                                      QStringLiteral("TR_a"), true) }),
+        });
+
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(inserts.count(), 0);
+        QCOMPARE(removes.count(), 0);
+        QCOMPARE(changes.count(), 1);
+        const QList<int> roles = changes.first().at(2).value<QList<int>>();
+        QCOMPARE(roles,
+                 QList<int>{ static_cast<int>(
+                     CallParticipantModel::MicMutedRole) });
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::MicMutedRole).toBool(),
+                 true);
+    }
+
+    void aParticipantLeavingIsARemoveNotAReset()
+    {
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           {}),
+            sfuParticipant(QStringLiteral("bob"), QStringLiteral("PA_2"), {}),
+        });
+        CallParticipantModel *model = call.participantModel();
+        QSignalSpy resets(model, &QAbstractItemModel::modelAboutToBeReset);
+        QSignalSpy removes(model, &QAbstractItemModel::rowsAboutToBeRemoved);
+
+        QVariantMap gone = sfuParticipant(QStringLiteral("alice"),
+                                          QStringLiteral("PA_1"), {});
+        gone.insert(QStringLiteral("state"), QStringLiteral("disconnected"));
+        call.ingestParticipantsForTest({ gone });
+
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(removes.count(), 1);
+        QCOMPARE(model->rowCount(), 1);
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::IdentityRole)
+                     .toString(),
+                 QStringLiteral("bob"));
+    }
+
+    void twoSimultaneousScreenSharesAreTwoRows()
+    {
+        // "make sure multiple users can screen share". The stage used to ask
+        // `sharingPerson`, which looped the participants and RETURNED THE
+        // FIRST match — a second simultaneous share had no id, no tile and
+        // no affordance anywhere in the tree.
+        //
+        // UNFIXED TREE: does not compile (no shareModel), and structurally
+        // there is nothing a second share could have been.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_a"), false) }),
+            sfuParticipant(QStringLiteral("bob"), QStringLiteral("PA_2"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_b"), false) }),
+        });
+        CallShareModel *shares = call.shareModel();
+        QVERIFY(shares);
+        QCOMPARE(shares->rowCount(), 2);
+        QCOMPARE(shares->shareIds(),
+                 (QStringList{ QStringLiteral("TR_share_a"),
+                               QStringLiteral("TR_share_b") }));
+        // Distinct routing keys, so two surfaces can render at once without
+        // the one-sink-per-track-key rule blanking either.
+        QCOMPARE(shares->get(0).value(QStringLiteral("trackKey")).toString(),
+                 QStringLiteral("TR_share_a"));
+        QCOMPARE(shares->get(1).value(QStringLiteral("trackKey")).toString(),
+                 QStringLiteral("TR_share_b"));
+    }
+
+    void aDismissedShareStaysLiveAndIsAlwaysReachableAgain()
+    {
+        // THE INVARIANT, and the maintainer's report: "if share is closed no
+        // way to get it back". Dismissal applies to the SPOTLIGHT and never
+        // to the share's existence.
+        //
+        // UNFIXED TREE: "Back to grid" wrote layoutMode = "grid";
+        // effectiveLayout returned that verbatim and nothing anywhere ever
+        // wrote "auto" or "spotlight" back, so the spotlight was unreachable
+        // for the component's lifetime — and the grid's tiles never asked
+        // for a screen track, so the share was not drawn at all. The only
+        // recovery was navigating away and back, which destroys the Loader.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_a"), false) }),
+            sfuParticipant(QStringLiteral("bob"), QStringLiteral("PA_2"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_b"), false) }),
+        });
+        CallStageState *stage = call.stageState();
+        CallShareModel *shares = call.shareModel();
+        QVERIFY(stage);
+        // Newest share first: bob started last, so bob is on the spotlight.
+        QCOMPARE(stage->spotlightShareId(), QStringLiteral("TR_share_b"));
+
+        stage->dismissShare(QStringLiteral("TR_share_b"));
+        // It fell through to the OTHER share rather than to nothing.
+        QCOMPARE(stage->spotlightShareId(), QStringLiteral("TR_share_a"));
+        QCOMPARE(shares->rowCount(), 2); // still live, still a grid tile
+
+        stage->dismissShare(QStringLiteral("TR_share_a"));
+        QCOMPARE(stage->spotlightShareId(), QString());
+        // ...and even with NOTHING on the spotlight the shares are still
+        // rows, and the surface still has something to bind a "show it
+        // again" control to. This is the machine-checkable statement of
+        // "there is always a way back".
+        QCOMPARE(shares->rowCount(), 2);
+        QCOMPARE(stage->restorableShareAvailable(), true);
+        QCOMPARE(stage->dismissedShareCount(), 2);
+
+        stage->restoreAllShares();
+        QCOMPARE(stage->spotlightShareId(), QStringLiteral("TR_share_b"));
+        QCOMPARE(stage->restorableShareAvailable(), false);
+    }
+
+    void aNewShareReArmsTheSpotlightAfterTheUserChoseGrid()
+    {
+        // The layout preference must not LATCH. A share that starts after
+        // the user pressed grid is not the thing they waved away.
+        //
+        // UNFIXED TREE: "grid" was absolute and permanent.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_a"), false) }),
+        });
+        CallStageState *stage = call.stageState();
+        stage->setLayoutPreference(QStringLiteral("grid"));
+        QCOMPARE(stage->layoutPreference(), QStringLiteral("grid"));
+
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("bob"), QStringLiteral("PA_2"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_b"), false) }),
+        });
+        QCOMPARE(stage->layoutPreference(), QStringLiteral("auto"));
+        QCOMPARE(stage->spotlightShareId(), QStringLiteral("TR_share_b"));
+    }
+
+    void anUnknownLayoutPreferenceIsRefusedRatherThanStored()
+    {
+        // An unrecognised mode read back verbatim is precisely how the old
+        // latch behaved. UNFIXED TREE: layoutMode was a bare string property
+        // that accepted anything.
+        SfuCallController call;
+        CallStageState *stage = call.stageState();
+        stage->setLayoutPreference(QStringLiteral("spotlight"));
+        stage->setLayoutPreference(QStringLiteral("nonsense"));
+        QCOMPARE(stage->layoutPreference(), QStringLiteral("spotlight"));
+    }
+
+    void aRestartedShareIsOfferedAgainRatherThanInheritingADismissal()
+    {
+        // A share that stops and starts is a NEW published track and so a
+        // new sid. Inheriting the dismissal would leave the user with
+        // nothing on screen and no explanation.
+        //
+        // UNFIXED TREE: does not compile; there was no per-share identity to
+        // key anything on.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_1"), false) }),
+        });
+        CallStageState *stage = call.stageState();
+        stage->dismissShare(QStringLiteral("TR_share_1"));
+        QCOMPARE(stage->spotlightShareId(), QString());
+
+        // Alice stops sharing...
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_1"), true) }),
+        });
+        QCOMPARE(call.shareModel()->rowCount(), 0);
+        QCOMPARE(stage->dismissedShareCount(), 0); // pruned with the share
+
+        // ...and starts again. New track, new sid, offered.
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_2"), false) }),
+        });
+        QCOMPARE(call.shareModel()->rowCount(), 1);
+        QCOMPARE(stage->spotlightShareId(), QStringLiteral("TR_share_2"));
+        QCOMPARE(stage->isShareDismissed(QStringLiteral("TR_share_2")), false);
+    }
+
+    void handRaiseIsLocalOnlyAndSaysSoOnEveryOtherRow()
+    {
+        // Nothing carries a raised hand on the wire: setHandRaised writes a
+        // member and emits mediaStateChanged, and `hand` appears nowhere in
+        // the media engine or the Rust call bridge. The role is kept
+        // honestly rather than dropped, because the LOCAL badge is genuine
+        // feedback; a remote one could never light.
+        //
+        // UNFIXED TREE: CallParticipantTile declared `handRaised` and
+        // CallStage never bound it, so the badge could not light for anyone
+        // at all — including the local user who had just pressed the button.
+        SfuCallController call;
+        call.setOwnIdentityForTest(QStringLiteral("me"));
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("me"), QStringLiteral("PA_ME"), {}),
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           {}),
+        });
+        call.setHandRaised(true);
+
+        CallParticipantModel *model = call.participantModel();
+        const int mine = participantRowFor(model, QStringLiteral("me"));
+        const int theirs = participantRowFor(model, QStringLiteral("alice"));
+        QVERIFY(mine >= 0);
+        QVERIFY(theirs >= 0);
+        QCOMPARE(participantRole(model, mine,
+                                 CallParticipantModel::HandRaisedRole)
+                     .toBool(),
+                 true);
+        QCOMPARE(participantRole(model, theirs,
+                                 CallParticipantModel::HandRaisedRole)
+                     .toBool(),
+                 false);
+    }
+
+    void localVolumeIsReadableBackFromTheModel()
+    {
+        // setParticipantVolume was write-only, which is why no QML ever
+        // called it: a slider with nothing to bind to cannot show the value
+        // it just set.
+        //
+        // UNFIXED TREE: there is no getter, no property and no role.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           {}),
+        });
+        CallParticipantModel *model = call.participantModel();
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::VolumePercentRole)
+                     .toInt(),
+                 100);
+        call.setParticipantVolume(QStringLiteral("alice"), 40);
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::VolumePercentRole)
+                     .toInt(),
+                 40);
+        // Clamped, not trusted.
+        call.setParticipantVolume(QStringLiteral("alice"), 400);
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::VolumePercentRole)
+                     .toInt(),
+                 100);
+    }
+
+    void connectionQualityIsMergedAndUnknownIsNeverRendered()
+    {
+        // sfuConnectionQuality has been emitted by the bridge since the
+        // interop round and connected to NOBODY.
+        //
+        // UNFIXED TREE: the signal has no receiver, so the role would be
+        // permanently empty.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           {}),
+            sfuParticipant(QStringLiteral("bob"), QStringLiteral("PA_2"), {}),
+        });
+        QVariantMap good;
+        good.insert(QStringLiteral("sid"), QStringLiteral("PA_1"));
+        good.insert(QStringLiteral("quality"), QStringLiteral("excellent"));
+        QVariantMap unknown;
+        unknown.insert(QStringLiteral("sid"), QStringLiteral("PA_2"));
+        unknown.insert(QStringLiteral("quality"), QStringLiteral("unknown"));
+        call.ingestConnectionQualityForTest({ good, unknown });
+
+        CallParticipantModel *model = call.participantModel();
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::ConnectionQualityRole)
+                     .toString(),
+                 QStringLiteral("excellent"));
+        // "unknown" is the default, not a value to draw a badge for.
+        QCOMPARE(participantRole(model, 1,
+                                 CallParticipantModel::ConnectionQualityRole)
+                     .toString(),
+                 QString());
+
+        // A round that does not mention a sid is a DELTA: the last known
+        // value survives it.
+        call.ingestConnectionQualityForTest({ unknown });
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::ConnectionQualityRole)
+                     .toString(),
+                 QStringLiteral("excellent"));
+    }
+
+    void leavingClearsTheStageStateSoTheNextCallStartsClean()
+    {
+        // The stage's view state lives in C++ precisely so it survives the
+        // QML Loader a room switch destroys — which means nothing else
+        // clears it, so leaving must.
+        //
+        // UNFIXED TREE: the state lived in the component, and the Loader
+        // being destroyed was the ONLY thing that ever reset it. That
+        // accident was also the only escape from the dismissed-share dead
+        // end.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_a"), false) }),
+        });
+        CallStageState *stage = call.stageState();
+        stage->pin(QStringLiteral("alice"));
+        stage->dismissShare(QStringLiteral("TR_share_a"));
+        stage->setLayoutPreference(QStringLiteral("grid"));
+        QCOMPARE(call.participantModel()->rowCount(), 1);
+
+        call.leave();
+
+        QCOMPARE(call.participantModel()->rowCount(), 0);
+        QCOMPARE(call.shareModel()->rowCount(), 0);
+        QCOMPARE(call.participantCount(), 0);
+        QCOMPARE(stage->pinnedIdentity(), QString());
+        QCOMPARE(stage->layoutPreference(), QStringLiteral("auto"));
+        QCOMPARE(stage->dismissedShareCount(), 0);
+        QCOMPARE(stage->spotlightShareId(), QString());
+    }
+
+    void participantsInvokableIsReadOutOfTheModel()
+    {
+        // ONE derivation. The legacy invokable is kept for the surfaces that
+        // still read it, but it can no longer disagree with the tiles.
+        //
+        // UNFIXED TREE: participants() rebuilt its own list from the SFU
+        // payload — there was no second derivation to disagree WITH, which
+        // is the point: this pins that the new one did not create one.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("microphone"),
+                                      QStringLiteral("TR_a"), true) }),
+        });
+        const QVariantList rows = call.participants();
+        QCOMPARE(rows.size(), 1);
+        const QVariantMap row = rows.first().toMap();
+        QCOMPARE(row.value(QStringLiteral("identity")).toString(),
+                 QStringLiteral("alice"));
+        QCOMPARE(row.value(QStringLiteral("micKnown")).toBool(), true);
+        QCOMPARE(row.value(QStringLiteral("micMuted")).toBool(), true);
+        // The keys the existing surfaces read are all still there.
+        for (const char *key : { "identity", "userId", "displayName",
+                                 "avatarMxc", "local", "speaking",
+                                 "micKnown", "micMuted", "cameraKnown",
+                                 "cameraOn", "screenSharing",
+                                 "cameraTrackKey", "screenTrackKey" }) {
+            QVERIFY2(row.contains(QLatin1String(key)), key);
+        }
+        QCOMPARE(call.participantCount(), 1);
+    }
 };
+
 
 QTEST_GUILESS_MAIN(CallControllerTest)
 #include "CallControllerTest.moc"

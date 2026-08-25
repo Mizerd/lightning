@@ -117,6 +117,8 @@ private Q_SLOTS:
     void init();
     void cleanup();
 
+    void aCallIsNotARoomUpdate();
+    void aCallBreaksTheActivityRunAroundIt();
     void consecutiveStateChangesFormOneGroup();
     void exposesTypedMembershipAndRoomStateEntries();
     void dateDividerDoesNotSplitGroup();
@@ -156,6 +158,64 @@ void StateActivityGroupingTest::cleanup()
     delete m_client;
     m_model = nullptr;
     m_client = nullptr;
+}
+
+// THE REPORTED ROW. A call arrived as a state event whose kind was "m.call"
+// and whose body was the literal words "call event", so MessageDelegate hosted
+// it in RoomActivityDelegate and it drew "1 room update" expanding to "call
+// event" — reported as "also room event look bleak".
+//
+// ON THE UNFIXED TREE this whole case fails at its first line: IsCallEventRole
+// does not exist, isStateActivity is TRUE, and stateGroupEntriesFrom(0) yields
+// one entry whose description is the row's body.
+//
+// It is written against the LEGACY shape (a StateChange carrying stateKind
+// "m.call") deliberately: that is what a cached row and the mock/HTTP backends
+// still produce, so this pins that those render identically to the new typed
+// row rather than falling back into the activity group.
+void StateActivityGroupingTest::aCallIsNotARoomUpdate()
+{
+    TimelineEvent call = makeStateChange(QStringLiteral("$call"), QString{},
+                                         QStringLiteral("m.call"));
+    m_client->mirror = { call };
+    m_model->setRoomId(kRoom);
+
+    const QModelIndex idx = m_model->index(0);
+    QCOMPARE(m_model->data(idx, TimelineModel::IsCallEventRole).toBool(), true);
+    QCOMPARE(m_model->data(idx, TimelineModel::IsStateActivityRole).toBool(),
+             false);
+    QCOMPARE(m_model->data(idx, TimelineModel::IsRoutineActivityRole).toBool(),
+             false);
+    // Nothing may be left for the activity group to draw.
+    QVERIFY(m_model->data(idx, TimelineModel::StateGroupEntriesRole)
+                .toList().isEmpty());
+    // The sentence is built HERE, with the resolved display name — not in the
+    // bridge, and not as the words "call event".
+    QCOMPARE(m_model->data(idx, TimelineModel::CallEventTextRole).toString(),
+             QStringLiteral("Alice started a call."));
+}
+
+// A call is content, so annotations either side of it are TWO groups, not one
+// group with a call swallowed in the middle. ON THE UNFIXED TREE this is one
+// group of three entries whose middle row reads "call event".
+void StateActivityGroupingTest::aCallBreaksTheActivityRunAroundIt()
+{
+    m_client->mirror = {
+        makeStateChange(QStringLiteral("$s0"), QStringLiteral("Alice changed the topic.")),
+        makeStateChange(QStringLiteral("$call"), QString{},
+                        QStringLiteral("m.call")),
+        makeStateChange(QStringLiteral("$s1"), QStringLiteral("Bob changed the room name.")),
+    };
+    m_model->setRoomId(kRoom);
+
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::StateGroupEntriesRole).toList().size(),
+             1);
+    QCOMPARE(m_model->data(m_model->index(1),
+                           TimelineModel::IsCallEventRole).toBool(), true);
+    QCOMPARE(m_model->data(m_model->index(2),
+                           TimelineModel::StateGroupEntriesRole).toList().size(),
+             1);
 }
 
 void StateActivityGroupingTest::consecutiveStateChangesFormOneGroup()

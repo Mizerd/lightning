@@ -44,6 +44,16 @@ class TimelineModel : public QAbstractListModel
     // authoritative event list and QML keeps the zero-height filter.
     Q_PROPERTY(bool showRoomActivity READ showRoomActivity
                    WRITE setShowRoomActivity NOTIFY showRoomActivityChanged)
+    // 2026-08-26: the two halves of "room activity", for the same divider
+    // question. Each defaults TRUE so the split is invisible to anyone who
+    // never opens it — master on plus both halves on is exactly the previous
+    // behaviour — and each is subordinate to the master switch.
+    Q_PROPERTY(bool showMembershipEvents READ showMembershipEvents
+                   WRITE setShowMembershipEvents
+                   NOTIFY showMembershipEventsChanged)
+    Q_PROPERTY(bool showProfileChangeEvents READ showProfileChangeEvents
+                   WRITE setShowProfileChangeEvents
+                   NOTIFY showProfileChangeEventsChanged)
 
 public:
     enum Roles {
@@ -184,6 +194,30 @@ public:
         // orphan date label and must not occupy space. Always true on a
         // non-divider row, so a QML gate can read it unconditionally.
         DividerIntroducesVisibleContentRole,
+        // ── 2026-08-26: the typed call row ───────────────────────────────
+        // A call somebody started is room HISTORY, so it draws its own row
+        // (CallEventDelegate.qml) instead of becoming an entry in the
+        // collapsed "N room updates" group — which is what it was, and one
+        // call therefore read "1 room update" expanding to the literal words
+        // "call event".
+        //
+        // True on a Rust-backend `call` row AND on the legacy shape (a
+        // StateChange whose stateKind is "m.call"/"m.call.video"), so a row
+        // that predates the bridge change, or a backend that still phrases
+        // calls as state, renders the same way rather than falling back into
+        // the activity group.
+        IsCallEventRole,
+        // The finished sentence, TRANSLATED and written with the actor's
+        // resolved display name. The bridge sends an empty body for these
+        // rows on purpose: an English sentence built in Rust could be
+        // neither translated nor given a resolved name.
+        CallEventTextRole,
+        // The caller's stated VIDEO intent. False means "not known to be
+        // video", never "audio only".
+        CallIsVideoRole,
+        // How many people declined. A COUNT — the decliners' ids never
+        // cross the FFI.
+        CallDeclinedCountRole,
     };
 
     explicit TimelineModel(QObject *parent = nullptr);
@@ -207,6 +241,17 @@ public:
 
     bool showRoomActivity() const { return m_showRoomActivity; }
     void setShowRoomActivity(bool show);
+    bool showMembershipEvents() const { return m_showMembershipEvents; }
+    void setShowMembershipEvents(bool show);
+    bool showProfileChangeEvents() const { return m_showProfileChangeEvents; }
+    void setShowProfileChangeEvents(bool show);
+
+    // Whether a routine state row of this kind is drawn. PUBLIC because it
+    // is a pure query and the sentence-matrix precedent above applies: the
+    // filter matrix is worth testing without a backend. The QML zero-height
+    // row filter (qml/MessageDelegate.qml, roomActivityVisible) applies the
+    // SAME matrix to the rows themselves — keep the two in step.
+    bool activityKindVisible(const QString &stateKind) const;
 
     // Presentation-layer sentence for a typed m.room.member profile change
     // (stateKind == "member_profile"), which the bridge deliberately does
@@ -218,6 +263,19 @@ public:
     // matrix is testable without a model or a backend.
     static QString profileChangeDescription(const TimelineEvent &e,
                                             const QString &actorDisplayName);
+
+    // Whether a row is a call somebody started, in EITHER shape: the Rust
+    // backend's typed `call` row, or the legacy "state event with kind
+    // m.call" a pre-2026-08-26 bridge (and the mock/HTTP backends) produce.
+    // Static and free of model state so the whole routing decision is
+    // testable without a backend, and so every reader — grouping, roles,
+    // the divider scan — asks exactly one question.
+    static bool isCallEventRow(const TimelineEvent &e);
+    // Presentation-layer sentence for a call row. Same contract as
+    // profileChangeDescription: the bridge sends NO sentence, this builds
+    // the translated one with the actor's resolved display name.
+    static QString callEventDescription(const TimelineEvent &e,
+                                        const QString &actorDisplayName);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -355,6 +413,8 @@ Q_SIGNALS:
     void olderPrepended(int count);
     void searchChanged();
     void showRoomActivityChanged();
+    void showMembershipEventsChanged();
+    void showProfileChangeEventsChanged();
 
 private Q_SLOTS:
     void onEventAppended(const QString &roomId, const TimelineEvent &event);
@@ -435,6 +495,9 @@ private:
     // A whole-model dataChanged here made every pagination page increasingly
     // expensive as loaded history grew and destabilized TableView geometry.
     void emitPresentationGroupingChanged(int first, int last);
+    // Shared by the room-activity master switch and both of its halves, so a
+    // sub-toggle can never refresh differently from the master.
+    void refreshActivityPresentation();
     QString senderDisplayName(const TimelineEvent &event) const;
     QString senderInitials(const TimelineEvent &event) const;
     bool isVisualMessage(const TimelineEvent &event) const;
@@ -509,4 +572,9 @@ private:
     // Only DividerIntroducesVisibleContentRole reads it; nothing here
     // filters rows.
     bool m_showRoomActivity = true;
+    // The two halves of "room activity", each defaulting TRUE so the split
+    // is invisible to anyone who never opens it: master on + both halves on
+    // is exactly the previous behaviour.
+    bool m_showMembershipEvents = true;
+    bool m_showProfileChangeEvents = true;
 };

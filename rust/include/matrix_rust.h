@@ -741,6 +741,21 @@ char *mx_rust_set_member_power_level(void *client,
                                      const char *user_id,
                                      long long level,
                                      unsigned long long op_id);
+/* 2026-08-26 Space settings: set ONE threshold in m.room.power_levels.
+ * `key` must be one of the fixed allowlist in
+ * rooms::set_room_power_level_key ("ban", "invite", "kick", "redact",
+ * "events_default", "state_default", "users_default", "m.space.child",
+ * "m.room.name", "m.room.avatar", "m.room.topic", "m.room.join_rules",
+ * "m.room.canonical_alias", "m.room.power_levels", "m.room.tombstone");
+ * anything else is refused at the Rust edge, so this never becomes a
+ * generic arbitrary-event-type power writer. Result:
+ * room_power_matrix_result { op_id, room_id, key, level, ok, category }. */
+char *mx_rust_set_room_power_level_key(void *client,
+                                       const char *room_id,
+                                       const char *key,
+                                       long long level,
+                                       unsigned long long op_id);
+
 /* Join rule: "invite", "public" or "knock". Rules carrying an allow-rule
  * list (restricted / knock_restricted) are refused here on purpose.
  * Result: room_edit_result with field "join_rule". */

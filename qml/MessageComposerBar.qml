@@ -71,8 +71,20 @@ Item {
         if (app.composer.hasAttachments && app.composer.canSend)
             Qt.callLater(function () { input.forceActiveFocus() })
     }
+    // Which modifier means SEND is now a setting. Default (false): Enter
+    // sends, Shift+Enter inserts a newline. Inverted (true): Ctrl+Enter
+    // sends, plain Enter inserts a newline.
+    //
+    // ONE predicate for every Return/Enter path in this file — the staged
+    // attachment path below and the message box's own handler — or the
+    // setting would apply to one of them and not the other.
+    function _returnShouldSend(modifiers) {
+        if (app.settings.enterInsertsNewline)
+            return (modifiers & Qt.ControlModifier) !== 0
+        return (modifiers & Qt.ShiftModifier) === 0
+    }
     Keys.onReturnPressed: (event) => {
-        if ((event.modifiers & Qt.ShiftModifier)
+        if (!root._returnShouldSend(event.modifiers)
                 || !app.composer.hasAttachments
                 || !app.composer.canSend) {
             event.accepted = false
@@ -82,7 +94,7 @@ Item {
         app.composer.send()
     }
     Keys.onEnterPressed: (event) => {
-        if ((event.modifiers & Qt.ShiftModifier)
+        if (!root._returnShouldSend(event.modifiers)
                 || !app.composer.hasAttachments
                 || !app.composer.canSend) {
             event.accepted = false
@@ -95,6 +107,27 @@ Item {
         formatFlags = app.composer.formatState(input.text,
                                                input.selectionStart,
                                                input.selectionEnd)
+    }
+    // Editor-context shortcuts. Qt sends a ShortcutOverride to the FOCUS
+    // ITEM before it dispatches a shortcut; accepting it turns that shortcut
+    // back into an ordinary key press delivered here. That is what lets
+    // Ctrl+B mean Bold while this box has focus WITHOUT taking Ctrl+B away
+    // from "toggle the conversation list" everywhere else — neither existing
+    // binding had to be silently rebound. See ShortcutRegistry's header.
+    //
+    // The override must be claimed only for combinations we actually handle:
+    // accepting everything would make this box swallow Ctrl+K, Ctrl+Q and
+    // every other global shortcut while it has focus.
+    function _composerFormatFor(key, modifiers) {
+        var seq = app.shortcuts.sequenceFromKeyEvent(key, modifiers)
+        if (seq === "") return ""
+        var ids = ["composer.bold", "composer.italic", "composer.strike",
+                   "composer.code", "composer.list", "composer.quote"]
+        for (var i = 0; i < ids.length; ++i) {
+            if (app.shortcuts.sequenceFor(ids[i]) === seq)
+                return ids[i]
+        }
+        return ""
     }
     function applyFormat(format) {
         var result = app.composer.toggleFormat(format, input.text,
@@ -1294,13 +1327,18 @@ Item {
                                 event.accepted = true
                                 return
                             }
-                            if (event.modifiers & Qt.ShiftModifier) {
+                            if (!root._returnShouldSend(event.modifiers)) {
                                 event.accepted = false
                                 return
                             }
                             event.accepted = true
                             app.composer.send()
                             input.forceActiveFocus()
+                        }
+                        Keys.onShortcutOverride: (event) => {
+                            if (root._composerFormatFor(event.key,
+                                                        event.modifiers) !== "")
+                                event.accepted = true
                         }
                         Keys.onUpPressed: (event) => {
                             if (mentionPopup.visible) {
@@ -1421,6 +1459,21 @@ Item {
                                         return
                                     }
                                 }
+                            }
+                            // Formatting keys, delivered here because the
+                            // ShortcutOverride above turned them back into
+                            // ordinary presses. Registry ids map 1:1 onto
+                            // applyFormat()'s existing keys, which the
+                            // formatting toolbar already drives — the key is
+                            // the only new part. Nothing this handler does not
+                            // recognise is accepted.
+                            var formatAction =
+                                root._composerFormatFor(event.key,
+                                                        event.modifiers)
+                            if (formatAction !== "") {
+                                event.accepted = true
+                                root.applyFormat(
+                                    formatAction.substring("composer.".length))
                             }
                         }
                         // The card is the visual container: the field itself

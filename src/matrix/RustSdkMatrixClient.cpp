@@ -4311,7 +4311,13 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         // updateRoomPreviewFrom() already skipped virtual rows; this path did
         // not, and it is the one every live event takes.
         const bool countsAsActivity = !timelineEvent.isVirtual()
-            && timelineEvent.type != TimelineEvent::StateChange;
+            && timelineEvent.type != TimelineEvent::StateChange
+            // A call row carries NO body (the sentence is built in
+            // TimelineModel), so letting it raise activity would replace the
+            // room's last-message preview with an empty string. It used to be
+            // a StateChange and was excluded by the clause above, until calls
+            // got their own row kind.
+            && timelineEvent.type != TimelineEvent::CallEvent;
         if (countsAsActivity) {
             roomIt->lastMessagePreview = previewFor(timelineEvent);
             roomIt->raiseActivity(timelineEvent.timestamp);
@@ -5308,6 +5314,21 @@ quint64 RustSdkMatrixClient::setMemberPowerLevel(const QString &roomId,
     const QByteArray user = userId.toUtf8();
     const QString result = takeRustString(mx_rust_set_member_power_level(
         m_rustHandle, room.constData(), user.constData(),
+        static_cast<long long>(level), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::setRoomPowerLevelKey(const QString &roomId,
+                                                  const QString &key,
+                                                  qlonglong level)
+{
+    if (!m_rustHandle || roomId.isEmpty() || key.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray levelKey = key.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_power_level_key(
+        m_rustHandle, room.constData(), levelKey.constData(),
         static_cast<long long>(level), opId));
     return result.isEmpty() ? opId : 0;
 }
@@ -7004,6 +7025,43 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             static_cast<qlonglong>(
                 event.value(QStringLiteral("users_default_power_level"))
                     .toDouble()));
+        // 2026-08-26 Space settings: the room's REAL m.room.power_levels
+        // thresholds. Copied key-for-key from a FIXED set the Rust side
+        // chose — the `events` map's own keys are event types written by
+        // whoever last sent the state event, i.e. unbounded sender-chosen
+        // strings, and none of them crosses.
+        //
+        // AN ABSENT KEY IS UNKNOWN, NEVER 0. A threshold of 0 is a real and
+        // common configuration, so a defaulted insert would claim the room
+        // requires nothing; the map is left without the key instead and
+        // RoomInfoController::powerLevelKnown() is what asks.
+        {
+            static const char *const kPowerKeys[] = {
+                "ban", "invite", "kick", "redact",
+                "events_default", "state_default", "users_default",
+                "m.space.child", "m.room.name", "m.room.avatar",
+                "m.room.topic", "m.room.join_rules",
+                "m.room.canonical_alias", "m.room.power_levels",
+                "m.room.tombstone",
+            };
+            const QJsonObject levels =
+                event.value(QStringLiteral("power_levels")).toObject();
+            QVariantMap powerLevels;
+            for (const char *const name : kPowerKeys) {
+                const QString key = QString::fromLatin1(name);
+                const QJsonValue value = levels.value(key);
+                if (value.isUndefined() || value.isNull())
+                    continue;
+                powerLevels.insert(
+                    key, static_cast<qlonglong>(value.toDouble()));
+            }
+            snapshot.insert(QStringLiteral("powerLevels"), powerLevels);
+        }
+        snapshot.insert(QStringLiteral("roomVersion"),
+                        event.value(QStringLiteral("room_version")).toString());
+        snapshot.insert(
+            QStringLiteral("canUpgradeRoom"),
+            event.value(QStringLiteral("own_can_upgrade")).toBool());
         snapshot.insert(QStringLiteral("joinRule"),
                         event.value(QStringLiteral("join_rule")).toString());
         snapshot.insert(
@@ -7115,6 +7173,21 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             // no toLongLong(). Via toDouble(), matching own_power_level
             // above; real Matrix power levels are far inside the exactly
             // representable range.
+            static_cast<qlonglong>(
+                event.value(QStringLiteral("level")).toDouble()),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_power_matrix_result")) {
+        Q_EMIT roomPowerMatrixFinished(
+            opId(),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("key")).toString(),
+            // QJsonValue has no toLongLong(); via toDouble() like every
+            // other power level on this bridge. Real Matrix levels sit far
+            // inside the exactly representable range.
             static_cast<qlonglong>(
                 event.value(QStringLiteral("level")).toDouble()),
             event.value(QStringLiteral("ok")).toBool(),

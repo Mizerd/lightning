@@ -86,7 +86,11 @@ Item {
         var d = latestTimestamp
         if (isNaN(d.getTime && d.getTime()))
             return ""
-        return Qt.formatDateTime(d, "hh:mm")
+        // ONE clock format for the whole application (Settings ->
+        // Appearance). The literal "hh:mm" here was 24-hour regardless of
+        // locale while the room list and Home used the locale's short
+        // format, so a 12-hour locale already saw both.
+        return Qt.formatDateTime(d, app.settings.clockTimeFormat)
     }
 
     Accessible.role: Accessible.Button

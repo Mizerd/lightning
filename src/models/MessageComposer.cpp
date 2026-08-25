@@ -245,6 +245,46 @@ bool MessageComposer::pasteFromClipboard()
     return false;
 }
 
+void MessageComposer::setSendTextAsCaption(bool on)
+{
+    if (m_sendTextAsCaption == on) return;
+    m_sendTextAsCaption = on;
+    Q_EMIT sendTextAsCaptionChanged();
+}
+
+// Attach the typed text to ONE queued attachment as its caption, and report
+// whether an attachment took it. A caption belongs to a single event — the
+// setting promises "one event instead of two", not one caption per file — so
+// the FIRST queued entry that can carry one takes it.
+//
+// Four cases deliberately fall back to the separate text message rather than
+// dropping the text on the floor:
+//   * the setting is off;
+//   * nothing queued can carry a caption. A pasted image goes out through
+//     sendAttachmentBytes, which has no caption parameter at any layer;
+//   * the text carries @-mentions. A caption is a plain body: the m.mentions
+//     list has nowhere to go and the expanded matrix.to markdown would be
+//     shown literally, so mentions keep working by staying a real message;
+//   * the composer is in thread-reply mode. The attachment dispatch targets
+//     the ROOM, so a caption would move a thread reply into the main timeline
+//     (CLAUDE.md §8) — the one failure here that is not merely cosmetic.
+bool MessageComposer::takeTextAsCaption(const QString &body,
+                                        const QStringList &mentionIds)
+{
+    if (!m_sendTextAsCaption || body.isEmpty() || !mentionIds.isEmpty()
+        || !m_threadRootId.isEmpty() || !m_attachments)
+        return false;
+    auto &entries = m_attachments->entries();
+    for (int row = 0; row < entries.size(); ++row) {
+        auto &entry = entries[row];
+        if (entry.state != QLatin1String("queued") || entry.localPath.isEmpty())
+            continue;
+        entry.caption = body;
+        return true;
+    }
+    return false;
+}
+
 void MessageComposer::dispatchAttachments()
 {
     if (!m_client || m_roomId.isEmpty())
@@ -273,6 +313,18 @@ void MessageComposer::dispatchAttachment(int row)
     if (entry.state != QLatin1String("queued") || !entry.sendRequested
         || entry.posterPending)
         return;
+    // The typed text rides along as the attachment's CAPTION when the user
+    // has asked for that (Settings → Appearance → Message box). One event
+    // instead of two. Empty when the setting is off, which is the previous
+    // behaviour exactly — the argument was a literal QString() before.
+    //
+    // TAKEN, NOT COPIED: send() attaches the text to exactly one queued entry
+    // and skips the separate text message under exactly the same condition,
+    // or a subsequent plain send would repeat it and the user would see their
+    // caption twice. A clipboard image never carries one: sendAttachmentBytes
+    // has no caption parameter at any layer, which is why takeTextAsCaption
+    // refuses an entry with no local path.
+    const QString caption = entry.caption;
     quint64 opId = 0;
     if (entry.localPath.isEmpty()) {
         opId = m_client->sendAttachmentBytes(m_roomId, entry.data,
@@ -280,12 +332,12 @@ void MessageComposer::dispatchAttachment(int row)
                                              entry.width, entry.height);
     } else if (entry.isVideo) {
         opId = m_client->sendVideo(m_roomId, entry.localPath, entry.mime,
-                                   QString(), entry.width, entry.height,
+                                   caption, entry.width, entry.height,
                                    entry.durationMs, entry.poster,
                                    entry.posterWidth, entry.posterHeight);
     } else {
         opId = m_client->sendAttachment(m_roomId, entry.localPath,
-                                        entry.mime, QString(), entry.width,
+                                        entry.mime, caption, entry.width,
                                         entry.height, entry.animated);
     }
     if (opId == 0) {
@@ -460,8 +512,15 @@ void MessageComposer::send()
         // v0.5.9: attachments go first (each becomes its own SDK local
         // echo), then the text as a separate message — matching how other
         // Matrix clients compose "files + comment".
+        //
+        // …unless the user asked for the text to ride along as the first
+        // attachment's caption, in which case there is no second message.
+        // The caption is attached BEFORE dispatch: an entry held back for
+        // its poster is dispatched later, and the caption has to be waiting
+        // on it when it goes.
+        const bool captioned = takeTextAsCaption(body, mentionIds);
         dispatchAttachments();
-        if (!body.isEmpty()) {
+        if (!body.isEmpty() && !captioned) {
             if (!m_threadRootId.isEmpty()) {
                 // v0.4.1: thread replies. Mock preserves thread grouping;
                 // HTTP falls back to sendReply via the interface default.

@@ -106,9 +106,18 @@ private Q_SLOTS:
         const QString main = read(QStringLiteral("Main.qml"));
         QVERIFY(!main.isEmpty());
         // The shortcut announces the intent before asking Qt to quit...
+        //
+        // 2026-08-26: the sequence itself now comes from ShortcutRegistry
+        // (Settings → Keyboard shortcuts), so the anchor is the ACTION ID
+        // rather than the literal key — rebinding quit must not be able to
+        // retire this contract by moving the string it was pinned to.
+        const int quitAction =
+            main.indexOf(QStringLiteral("sequenceFor(\"app.quit\")"));
+        QVERIFY2(quitAction > 0,
+                 "the quit Shortcut must take its sequence from the registry");
         const QString shortcut = bracedBody(
-            main, main.indexOf(QStringLiteral("sequences: [\"Ctrl+Q\"]")));
-        QVERIFY2(!shortcut.isEmpty(), "the Ctrl+Q Shortcut must still exist");
+            main, main.lastIndexOf(QStringLiteral("Shortcut {"), quitAction));
+        QVERIFY2(!shortcut.isEmpty(), "the quit Shortcut must still exist");
         QVERIFY(shortcut.contains(QStringLiteral("quitRequested = true")));
         QVERIFY(shortcut.contains(QStringLiteral("Qt.quit()")));
         // ...and the close handler stands aside when it sees it. Without the
@@ -606,7 +615,16 @@ private Q_SLOTS:
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         const QString settings = read(QStringLiteral("SettingsScreen.qml"));
         QVERIFY(delegate.contains(QStringLiteral(
-            "!isRoutineActivity || app.settings.showRoomActivity")));
+            "if (!isRoutineActivity) return true")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "if (!app.settings.showRoomActivity) return false")));
+        // 2026-08-26: the master switch gained two halves (membership vs
+        // profile changes) and both are read in the SAME presentation-only
+        // expression — the split must not acquire a second mechanism.
+        QVERIFY(delegate.contains(
+            QStringLiteral("app.settings.showMembershipEvents")));
+        QVERIFY(delegate.contains(
+            QStringLiteral("app.settings.showProfileChangeEvents")));
         // v0.6.0: the zero-height presentation filter also covers the
         // thread panel's pinned-root suppression — same mechanism, still
         // presentation-only.

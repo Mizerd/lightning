@@ -5886,6 +5886,28 @@ pub unsafe extern "C" fn mx_rust_set_member_power_level(
     })
 }
 
+/// 2026-08-26 Space settings: set ONE threshold in the room's
+/// `m.room.power_levels`. `key` must be one of the fixed allowlist in
+/// `rooms::set_room_power_level_key` — anything else is refused here, so this
+/// never becomes a generic arbitrary-event-type power writer. Result event:
+/// room_power_matrix_result { op_id, room_id, key, level, ok, category }.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_power_level_key(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    key: *const c_char,
+    level: i64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let key = unsafe { cstr_arg(key) }?;
+        rooms::set_room_power_level_key(bridge, room_id, key, level, op_id)
+            .map(|_| String::new())
+    })
+}
+
 /// v0.7.x room administration: set the room's join rule ("invite",
 /// "public" or "knock"). Result event: room_edit_result, field "join_rule".
 #[no_mangle]

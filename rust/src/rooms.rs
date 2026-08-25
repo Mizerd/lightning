@@ -31,7 +31,7 @@ use matrix_sdk::{
             room::encryption::RoomEncryptionEventContent,
             room::power_levels::{NotificationPowerLevelType, PowerLevelAction},
             space::child::SpaceChildEventContent,
-            InitialStateEvent, StateEventType, SyncStateEvent,
+            InitialStateEvent, StateEventType, SyncStateEvent, TimelineEventType,
         },
         room::RoomType,
         serde::Raw,
@@ -1515,17 +1515,85 @@ async fn members_snapshot_json(
         let can_manage_space_children = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::SpaceChild));
+        // 2026-08-26: the room's REAL m.room.power_levels thresholds, read
+        // ONCE (this used to be a `power_levels_or_default()` call solely
+        // for `users_default`).
+        //
+        // Until now only the derived `own_can_*` booleans crossed, so a
+        // Permissions surface could say whether YOU may do a thing and never
+        // what the room REQUIRES for it — every row of a power-level matrix
+        // had no source of truth on the C++ side, read OR write.
+        //
+        // ONLY INTEGERS UNDER A FIXED SET OF KEYS CROSS. The `events` map is
+        // keyed by event TYPE, written by whoever last sent the state event,
+        // i.e. an unbounded sender-chosen string: it must never reach the
+        // bridge. Each row is therefore looked up by a TYPED
+        // `StateEventType` and emitted under a key chosen here.
+        //
+        // Each per-event row is the EFFECTIVE level — the explicit entry
+        // when the room has one, otherwise `state_default`, which is what
+        // the server actually enforces. A row that merely inherits the
+        // default is indistinguishable from an explicit one here, on
+        // purpose: the number a person needs is the one that applies.
+        let power_levels = room.power_levels_or_default().await;
+        let state_level = |ty: StateEventType| -> i64 {
+            power_levels
+                .events
+                .get(&TimelineEventType::from(ty))
+                .map(|value| i64::from(*value))
+                .unwrap_or_else(|| i64::from(power_levels.state_default))
+        };
         // The room's default user level: without it the UI cannot tell a
         // member sitting AT the default from one explicitly pinned to the
         // same number, and `update_power_levels` treats a set-to-default as
         // a removal from the users map. Rooms may set it to any value.
-        let users_default: i64 =
-            i64::from(room.power_levels_or_default().await.users_default);
+        let users_default: i64 = i64::from(power_levels.users_default);
+        // The room version, for the Advanced / Upgrade disclosure. Read from
+        // the SDK (`Room::version()`), never parsed out of m.room.create by
+        // hand; empty when the room state has not settled yet, which the UI
+        // must render as nothing rather than as a fabricated "1".
+        let room_version = room
+            .version()
+            .map(|version| version.to_string())
+            .unwrap_or_default();
+        // Whether this account may send m.room.tombstone — the level that
+        // governs an UPGRADE. It is not among the flags computed above, and
+        // an upgrade is irreversible, so it is reported separately and
+        // deliberately gates nothing but a disclosure today.
+        let can_upgrade = own_member
+            .as_ref()
+            .is_some_and(|m| m.can_send_state(StateEventType::RoomTombstone));
         let join_rule = join_rule_str(room.join_rule().as_ref());
         let canonical_alias = room
             .canonical_alias()
             .map(|a| a.to_string())
             .unwrap_or_default();
+
+        // Built BEFORE the snapshot rather than inline in it. `json!` expands
+        // recursively, and this object pushed the already-large snapshot past
+        // serde_json's macro recursion limit ("recursion limit reached while
+        // expanding `$crate::json_internal!`") — a compile error, not a
+        // runtime one, and one that says nothing about which key caused it.
+        // Hoisting any nested object out of that macro is the fix.
+        let power_levels_json = json!({
+            "ban": i64::from(power_levels.ban),
+            "invite": i64::from(power_levels.invite),
+            "kick": i64::from(power_levels.kick),
+            "redact": i64::from(power_levels.redact),
+            "events_default": i64::from(power_levels.events_default),
+            "state_default": i64::from(power_levels.state_default),
+            "users_default": users_default,
+            "m.space.child": state_level(StateEventType::SpaceChild),
+            "m.room.name": state_level(StateEventType::RoomName),
+            "m.room.avatar": state_level(StateEventType::RoomAvatar),
+            "m.room.topic": state_level(StateEventType::RoomTopic),
+            "m.room.join_rules": state_level(StateEventType::RoomJoinRules),
+            "m.room.canonical_alias":
+                state_level(StateEventType::RoomCanonicalAlias),
+            "m.room.power_levels":
+                state_level(StateEventType::RoomPowerLevels),
+            "m.room.tombstone": state_level(StateEventType::RoomTombstone),
+        });
 
         json!({
             "type": "room_members",
@@ -1555,6 +1623,11 @@ async fn members_snapshot_json(
             "own_can_manage_space_children": can_manage_space_children,
             "own_power_level": own_power_level,
             "users_default_power_level": users_default,
+            "own_can_upgrade": can_upgrade,
+            "room_version": room_version,
+            // Every key here is one this file chose; see the comment above.
+            // The C++ side mirrors them verbatim into the Permissions matrix.
+            "power_levels": power_levels_json,
             "join_rule": join_rule,
             "canonical_alias": canonical_alias,
             "members": rows,
@@ -1718,6 +1791,128 @@ pub(crate) fn set_member_power_level(
                 .err()
                 .map(|err| classify_room_error(&err.to_string()))
                 .unwrap_or(""),
+        }));
+    });
+    Ok(())
+}
+
+/// 2026-08-26: set ONE threshold in the room's `m.room.power_levels` — the
+/// Permissions matrix (Sable parity). `key` is one of a FIXED allowlist;
+/// anything else is refused at this edge, so no caller can turn this into a
+/// generic "write an arbitrary event type's level" primitive.
+///
+/// Two write paths, both a read-modify-send of the WHOLE content, which is
+/// what Matrix requires (the event has no partial update):
+///   * the seven scalar thresholds plus name/avatar/topic/space_child go
+///     through the SDK's own `apply_power_level_changes`, which leaves every
+///     field it was not given untouched — including per-event entries that
+///     happen to equal the new default, deliberately (matrix-sdk
+///     room/power_levels.rs:141: removing them would grant unintended
+///     privileges when the default is changed in isolation);
+///   * the remaining rows are per-event-type levels that
+///     `RoomPowerLevelChanges` cannot express, so they take the same
+///     read-modify-send by hand into `events`.
+///
+/// The event type is always a TYPED `StateEventType`, never `key` reinterpreted
+/// as a wire string: ruma's event-type enums carry ALIASES (a string that
+/// parses as one identifier and serializes back as another), so a hand-built
+/// type could silently govern an event nobody sends.
+///
+/// `m.call.member` is NOT in the allowlist. The identifier Lightning actually
+/// sends today is the MSC3401 unstable one (`rust/src/rtc.rs`), ruma aliases
+/// the stable name onto it, and a Space has no timeline to hold a call — a row
+/// that governs neither string honestly is worse than a missing row.
+///
+/// Permission remains the SERVER'S to enforce; the client only avoids
+/// offering a write that must fail. Result event: room_power_matrix_result.
+pub(crate) fn set_room_power_level_key(
+    bridge: &RustClient,
+    room_id: String,
+    key: String,
+    level: i64,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::room::power_levels::RoomPowerLevelChanges;
+    use matrix_sdk::ruma::events::room::power_levels::RoomPowerLevelsEventContent;
+    use matrix_sdk::ruma::Int;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    // Refuse out-of-range before spawning: `Int` is the JSON-safe integer
+    // range, and a value outside it cannot be a real Matrix power level.
+    let target_level =
+        Int::try_from(level).map_err(|_| "power level out of range".to_owned())?;
+
+    let mut changes = RoomPowerLevelChanges::new();
+    let mut event_type: Option<StateEventType> = None;
+    match key.as_str() {
+        "ban" => changes.ban = Some(level),
+        "invite" => changes.invite = Some(level),
+        "kick" => changes.kick = Some(level),
+        "redact" => changes.redact = Some(level),
+        "events_default" => changes.events_default = Some(level),
+        "state_default" => changes.state_default = Some(level),
+        "users_default" => changes.users_default = Some(level),
+        "m.room.name" => changes.room_name = Some(level),
+        "m.room.avatar" => changes.room_avatar = Some(level),
+        "m.room.topic" => changes.room_topic = Some(level),
+        "m.space.child" => changes.space_child = Some(level),
+        "m.room.join_rules" => event_type = Some(StateEventType::RoomJoinRules),
+        "m.room.canonical_alias" => {
+            event_type = Some(StateEventType::RoomCanonicalAlias)
+        }
+        "m.room.power_levels" => event_type = Some(StateEventType::RoomPowerLevels),
+        "m.room.tombstone" => event_type = Some(StateEventType::RoomTombstone),
+        _ => return Err("unsupported power level key".to_owned()),
+    }
+
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    let key_for_event = key.clone();
+    bridge.spawn_room_action(async move {
+        let result = async {
+            match event_type {
+                Some(state_type) => {
+                    let mut levels = room
+                        .power_levels()
+                        .await
+                        .map_err(|err| {
+                            classify_room_error(&err.to_string()).to_owned()
+                        })?;
+                    levels
+                        .events
+                        .insert(TimelineEventType::from(state_type), target_level);
+                    let content = RoomPowerLevelsEventContent::try_from(levels)
+                        .map_err(|err| {
+                            classify_room_error(&err.to_string()).to_owned()
+                        })?;
+                    room.send_state_event(content)
+                        .await
+                        .map(|_| ())
+                        .map_err(|err| {
+                            classify_room_error(&err.to_string()).to_owned()
+                        })
+                }
+                None => room
+                    .apply_power_level_changes(changes)
+                    .await
+                    .map_err(|err| classify_room_error(&err.to_string()).to_owned()),
+            }
+        }
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, json!({
+            "type": "room_power_matrix_result",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "key": key_for_event,
+            "level": level,
+            "ok": result.is_ok(),
+            "category": result.err().unwrap_or_default(),
         }));
     });
     Ok(())

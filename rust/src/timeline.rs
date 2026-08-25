@@ -36,6 +36,7 @@ use matrix_sdk::{
                 },
             },
             receipt::Receipt,
+            rtc::notification::CallIntent,
             room::{
                 message::{
                     FormattedBody, MessageFormat, MessageType,
@@ -2743,6 +2744,17 @@ fn state_row_text(kind: &str, actor: &str) -> String {
         "m.room.avatar" => format!("{actor} changed the room avatar."),
         "m.room.encryption" => "Encryption was enabled.".to_owned(),
         "m.room.tombstone" => format!("{actor} upgraded this room."),
+        // Calls are not a room SETTING, so they must not fall through to the
+        // catch-all: "started a call" is the whole reason the row exists.
+        //
+        // The real call rows no longer come through here at all — CallInvite
+        // and RtcNotification emit `msgtype: "call"` with typed fields and an
+        // EMPTY body, and C++ phrases them with the actor's resolved display
+        // name. These two arms remain only for a genuinely state-typed
+        // `m.call*` event arriving through OtherState, so that one cannot
+        // regress to "updated room settings."
+        "m.call" => format!("{actor} started a call."),
+        "m.call.video" => format!("{actor} started a video call."),
         _ => format!("{actor} updated room settings."),
     }
 }
@@ -3130,15 +3142,49 @@ fn event_item_to_json(
             out["msgtype"] = "unsupported".into();
             out["body"] = "[unsupported event]".into();
         }
-        TimelineItemContent::CallInvite | TimelineItemContent::RtcNotification { .. } => {
-            // "call event" told the reader nothing — not who, not whether it
-            // was answered, not whether it is still going. Given a
-            // `state_kind` it becomes routine activity, so the existing
-            // room-activity preference governs it like any other annotation
-            // instead of it being permanently visible.
-            out["msgtype"] = "state".into();
-            out["state_kind"] = "m.call".into();
-            out["body"] = "call event".into();
+        // ── Call rows are room HISTORY, not a room setting ───────────────
+        //
+        // Both arms used to emit `msgtype: "state"` with `state_kind
+        // "m.call"`, and that is precisely what made the reported row read
+        // "1 room update" expanding to the literal words "call event": a
+        // non-empty `state_kind` is what TimelineModel calls ROUTINE
+        // ACTIVITY, so the row was folded into the collapsed state group and
+        // governed by the room-activity preference. A call someone started
+        // is not a room setting somebody changed. It now has its own msgtype
+        // end to end (`call` -> TimelineEvent::CallEvent ->
+        // CallEventDelegate.qml), which also means it BREAKS a state-group
+        // run instead of joining one.
+        //
+        // Everything below is TYPED and presentation-safe. No free text
+        // chosen by a sender crosses: the sentence is built in C++, where
+        // the actor's resolved display name and the translations live, and
+        // where nothing a remote user wrote can reach a control the reader
+        // is invited to click (the rule the tombstone banner established).
+        TimelineItemContent::CallInvite => {
+            out["msgtype"] = "call".into();
+            out["call_kind"] = "invite".into();
+            // A legacy `m.call.invite` states no intent the SDK surfaces
+            // here, so this row must not CLAIM video. False means "not known
+            // to be video" and the sentence stays "started a call", which is
+            // true of a video call as well.
+            out["call_video"] = false.into();
+            // EMPTY BY CONTRACT, exactly like a typed profile change: a
+            // sentence built here could be neither translated nor written
+            // with the actor's resolved display name (the old one addressed
+            // the caller by raw MXID).
+            out["body"] = "".into();
+        }
+        TimelineItemContent::RtcNotification { call_intent, declined_by } => {
+            out["msgtype"] = "call".into();
+            out["call_kind"] = "notification".into();
+            out["call_video"] = matches!(call_intent, Some(CallIntent::Video)).into();
+            out["body"] = "".into();
+            // A COUNT, never the ids: who declined a call is not something
+            // the timeline row needs and every id crossing the FFI is one
+            // more thing a row can leak.
+            if !declined_by.is_empty() {
+                out["call_declined_count"] = declined_by.len().into();
+            }
         }
     }
 

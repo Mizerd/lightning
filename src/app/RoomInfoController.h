@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -80,6 +81,28 @@ class RoomInfoController : public QObject
     // settable (see setJoinRule).
     Q_PROPERTY(QString joinRule READ joinRule NOTIFY membersChanged)
     Q_PROPERTY(QString canonicalAlias READ canonicalAlias NOTIFY membersChanged)
+    // 2026-08-26 Space settings — the room's REAL m.room.power_levels
+    // thresholds, one integer per FIXED key (see powerLevelKeys()). Before
+    // this, only the derived `can*` booleans existed: the UI could say
+    // whether YOU may do a thing and never what the room REQUIRES for it, so
+    // a permissions matrix had no source of truth at all.
+    //
+    // Empty until the roster arrives. An ABSENT key is UNKNOWN, never 0 —
+    // a level of 0 is a real, common configuration, so a missing entry must
+    // render as nothing rather than as "anyone may".
+    Q_PROPERTY(QVariantMap powerLevels READ powerLevels NOTIFY membersChanged)
+    // The room version as the SDK reports it ("6", "10", "org.matrix.msc…"),
+    // or empty when the room state has not settled. Display only: Lightning
+    // implements no upgrade, so this never gates a control.
+    Q_PROPERTY(QString roomVersion READ roomVersion NOTIFY membersChanged)
+    // Whether this account may send m.room.tombstone, i.e. whether an
+    // upgrade would be permitted. Reported honestly next to the version;
+    // it enables nothing, because no upgrade path exists here.
+    Q_PROPERTY(bool canUpgradeRoom READ canUpgradeRoom NOTIFY membersChanged)
+    Q_PROPERTY(bool powerMatrixPending READ powerMatrixPending
+                   NOTIFY powerMatrixStateChanged)
+    Q_PROPERTY(QString powerMatrixError READ powerMatrixError
+                   NOTIFY powerMatrixStateChanged)
     Q_PROPERTY(bool powerLevelPending READ powerLevelPending
                    NOTIFY powerLevelStateChanged)
     Q_PROPERTY(bool moderationPending READ moderationPending
@@ -120,6 +143,11 @@ public:
     qlonglong usersDefaultPowerLevel() const { return m_usersDefaultPowerLevel; }
     QString joinRule() const { return m_joinRule; }
     QString canonicalAlias() const { return m_canonicalAlias; }
+    QVariantMap powerLevels() const { return m_powerLevels; }
+    QString roomVersion() const { return m_roomVersion; }
+    bool canUpgradeRoom() const { return m_canUpgradeRoom; }
+    bool powerMatrixPending() const { return m_powerMatrixOp != 0; }
+    QString powerMatrixError() const { return m_powerMatrixError; }
     bool powerLevelPending() const { return m_powerLevelOp != 0; }
     bool moderationPending() const { return m_moderationOp != 0; }
     bool editPending() const { return m_editOp != 0; }
@@ -143,6 +171,33 @@ public:
     // Case-insensitive member filter over the loaded snapshot; returns the
     // same map shape as `members`.
     Q_INVOKABLE QVariantList filterMembers(const QString &needle) const;
+    // 2026-08-26 Space settings: the same filter plus a membership facet and
+    // an A-to-Z option. A SEPARATE overload rather than defaulted arguments,
+    // because a defaulted parameter QML must pass fails SILENTLY (the
+    // 2026-08-21 setMentionStyle lesson) — two arities cannot be confused.
+    //
+    // `membership` is "" (all), "joined", "invited" or "banned"; anything
+    // else matches nothing rather than quietly meaning "all".
+    //
+    // HONEST LIMIT, and it is a real one: the Rust snapshot sorts joined →
+    // invited → banned, then power level DESCENDING, and only THEN caps at
+    // MEMBER_SNAPSHOT_CAP. So an alphabetical re-sort here re-orders the
+    // rows that survived a power-level truncation — on a space past the cap
+    // the A-to-Z list is missing names from the MIDDLE of the alphabet, not
+    // from its tail. `truncated` is what says so, and the dialog renders it.
+    Q_INVOKABLE QVariantList filterMembers(const QString &needle,
+                                           const QString &membership,
+                                           bool alphabetical) const;
+    // The same rows, bucketed by EXACT power level, highest first, each
+    // group labelled with roleLabelForLevel. A room using 42 therefore gets
+    // its own "Custom (42)" group — never folded into Moderator, which would
+    // misdescribe the room's own configuration in the one place a person
+    // consults to understand it.
+    //
+    // Shape: [{ "level": qlonglong, "label": QString, "members": [row…] }].
+    Q_INVOKABLE QVariantList memberRoleGroups(const QString &needle,
+                                              const QString &membership,
+                                              bool alphabetical) const;
     // Moderation (kick / ban / unban) against the panel's room. `reason`
     // may be empty. One in-flight action at a time. The offer/dispatch
     // policy lives HERE, not in QML (architecture §5): canModerate(op)
@@ -207,6 +262,51 @@ public:
     // type "#name:server" by hand.
     Q_INVOKABLE void setCanonicalAlias(const QString &alias);
 
+    // ---- 2026-08-26: the m.room.power_levels matrix ----
+    //
+    // The keys this surface may read and write, in one place so the QML
+    // cannot invent a key the Rust edge would refuse. Seven scalar
+    // thresholds plus four state-event types; `m.call.member` is
+    // deliberately absent (see rooms.rs — the identifier Lightning sends is
+    // the MSC3401 unstable one and ruma aliases the stable name onto it, so
+    // no honest row exists yet).
+    // Not Q_INVOKABLE: QML never enumerates the keys — the dialog names its
+    // own rows — and this is here so the contract test can prove that every
+    // row it names is a key the backend actually accepts.
+    static QStringList powerLevelKeys();
+    // The room's current requirement for `key`, or -1 when it is not known
+    // (roster not loaded, or an unrecognised key). Callers must treat the
+    // UNKNOWN case as "render nothing": a real level of 0 is common, so no
+    // in-band number can mean "unknown", which is why this returns a
+    // sentinel AND `powerLevelKnown` exists to ask the question directly.
+    Q_INVOKABLE qlonglong powerLevelForKey(const QString &key) const;
+    Q_INVOKABLE bool powerLevelKnown(const QString &key) const;
+    // Whether changing `key`'s threshold to `level` should be OFFERED.
+    //
+    //   * the viewer must be permitted to send m.room.power_levels at all;
+    //   * the new level may not exceed the viewer's OWN level. This is the
+    //     one-way door: a person who raises `m.room.power_levels` above
+    //     themselves can never lower it again and no server will undo it,
+    //     and the same clause stops `users_default` being raised above the
+    //     person setting it;
+    //   * the room's CURRENT value for the key must be known — an unknown
+    //     threshold FAILS CLOSED, exactly as an unknown member does;
+    //   * a no-op is not offered;
+    //   * the level must be inside kMinSettableLevel..kMaxSettableLevel.
+    //     DISPLAY is unbounded (a room using 4000 renders as 4000 and is
+    //     never saved rounded); only what this client will WRITE is bounded,
+    //     which also keeps the MSC4289 room-creator sentinel — a level no
+    //     real room configures — from ever being sent as a threshold.
+    // The server remains the authority in every case.
+    Q_INVOKABLE bool canSetPowerLevelKey(const QString &key,
+                                         qlonglong level) const;
+    Q_INVOKABLE void setPowerLevelKey(const QString &key, qlonglong level);
+
+    // The bounds on what this client will WRITE as a threshold. Element's
+    // "Restricted" is -1, so negatives are legal and must stay reachable.
+    static constexpr qlonglong kMinSettableLevel = -100;
+    static constexpr qlonglong kMaxSettableLevel = 100;
+
 Q_SIGNALS:
     void roomIdChanged();
     void membersChanged();
@@ -234,6 +334,14 @@ Q_SIGNALS:
     void powerLevelActionFinished(const QString &roomId, const QString &userId,
                                   qlonglong level, bool ok,
                                   const QString &message);
+    void powerMatrixStateChanged();
+    // A threshold write finished. `message` is empty on success. The
+    // authoritative value arrives with the roster refresh that follows,
+    // never from this signal — nothing is applied optimistically, so a
+    // rejection snaps the control back to what the room actually holds.
+    void powerMatrixActionFinished(const QString &roomId, const QString &key,
+                                   qlonglong level, bool ok,
+                                   const QString &message);
 
 private Q_SLOTS:
     void onRoomMembersReceived(quint64 opId, const QString &roomId,
@@ -241,6 +349,9 @@ private Q_SLOTS:
     void onPowerLevelChangeFinished(quint64 opId, const QString &roomId,
                                     const QString &userId, qlonglong level,
                                     bool ok, const QString &category);
+    void onPowerMatrixFinished(quint64 opId, const QString &roomId,
+                               const QString &key, qlonglong level, bool ok,
+                               const QString &category);
     void onRoomEditFinished(quint64 opId, const QString &roomId,
                             const QString &field, bool ok,
                             const QString &category);
@@ -259,6 +370,11 @@ private:
     void clearSnapshot();
     void moderate(const QString &userId, const QString &reason,
                   const QString &op);
+    // Shared by filterMembers() and memberRoleGroups() so the two can never
+    // disagree about what the visible roster is.
+    QVariantList visibleMembers(const QString &needle,
+                                const QString &membership,
+                                bool alphabetical) const;
 
     MatrixClient *m_client = nullptr;
     QString m_roomId;
@@ -289,6 +405,11 @@ private:
     qlonglong m_usersDefaultPowerLevel = 0;
     QString m_joinRule;
     QString m_canonicalAlias;
+    QVariantMap m_powerLevels;
+    QString m_roomVersion;
+    bool m_canUpgradeRoom = false;
+    quint64 m_powerMatrixOp = 0;
+    QString m_powerMatrixError;
     quint64 m_powerLevelOp = 0;
     QString m_powerLevelUserId;
     quint64 m_moderationOp = 0;

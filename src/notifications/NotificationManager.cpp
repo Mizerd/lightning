@@ -226,7 +226,13 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
     // server applies the ignore and stops delivering their events.
     if (context.senderIsIgnored)
         return decision;
-    if (event.isVirtual() || event.type == TimelineEvent::StateChange)
+    // A call row is not a message. It carries no body at all (the sentence
+    // is built in TimelineModel), and the call itself already notifies
+    // through the ring lane — notifying again here would post an EMPTY
+    // desktop notification for every call. It used to be suppressed by the
+    // StateChange test above, until calls got their own row kind.
+    if (event.isVirtual() || event.type == TimelineEvent::StateChange
+        || event.type == TimelineEvent::CallEvent)
         return decision;
     if (event.isLocalEcho || event.status != TimelineEvent::Sent)
         return decision;

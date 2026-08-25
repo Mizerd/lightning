@@ -14,6 +14,9 @@
 #include <unistd.h>
 #endif
 
+#include "calls/CallParticipantModel.h"
+#include "calls/CallShareModel.h"
+#include "calls/CallStageState.h"
 #include "calls/RtcController.h"
 #include "calls/ScreenCastPortal.h"
 #include "matrix/MatrixClient.h"
@@ -42,6 +45,21 @@ SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
 #ifdef HAVE_LIGHTNING_WEBRTC
     m_videoRouter = new SfuVideoRouter(this);
 #endif
+    // Created once, for the controller's whole life. A view binds to these
+    // pointers and must never see them change: replacing the object per call
+    // would be a rebind, which is the reset this whole layer exists to
+    // avoid. Leaving empties them instead.
+    m_participantModel = new CallParticipantModel(this);
+    m_shareModel = new CallShareModel(this);
+    m_stageState = new CallStageState(this);
+    m_stageState->setShareModel(m_shareModel);
+    // OUR OWN media state is part of the local row and of the local share
+    // row, and it changes from a dozen places (mute, deafen, camera, share
+    // start/stop, teardown). Hooking the one signal they all already emit is
+    // why none of them can forget: adding a rebuildModels() call to each
+    // mutator would work until the next mutator is written.
+    connect(this, &SfuCallController::mediaStateChanged, this,
+            [this] { rebuildModels(); });
     m_refreshTimer.setInterval(kRefreshIntervalMs);
     connect(&m_refreshTimer, &QTimer::timeout, this,
             &SfuCallController::refreshMembership);
@@ -74,6 +92,12 @@ void SfuCallController::setClient(MatrixClient *client)
             &SfuCallController::onSfuParticipants);
     connect(m_client, &MatrixClient::sfuSpeakersChanged, this,
             &SfuCallController::onSfuSpeakers);
+    // The bridge has emitted this since the interop round and NOBODY was
+    // listening, so `connectionQuality` could only ever have been unknown.
+    // It is a closed enum ("poor"/"good"/"excellent"/"unknown"), not
+    // content, and it is the honest source for a per-tile quality badge.
+    connect(m_client, &MatrixClient::sfuConnectionQuality, this,
+            &SfuCallController::onSfuConnectionQuality);
     connect(m_client, &MatrixClient::sfuRemoteDescription, this,
             &SfuCallController::onSfuRemoteDescription);
     connect(m_client, &MatrixClient::sfuRemoteCandidate, this,
@@ -350,6 +374,16 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_handRaised = false;
     m_participants.clear();
     m_speaking.clear();
+    m_speakingLevel.clear();
+    m_connectionQuality.clear();
+    // A new call starts with an empty stage. The models are emptied rather
+    // than replaced so a view bound to them stays bound.
+    if (m_participantModel)
+        m_participantModel->clear();
+    if (m_shareModel)
+        m_shareModel->clear();
+    if (m_stageState)
+        m_stageState->clear();
     m_publishedTrackIds.clear();
     m_audioCid.clear();
     m_cameraCid.clear();
@@ -481,6 +515,7 @@ void SfuCallController::onSfuJoined(const QString &identity,
     m_ownIdentity = identity;
     m_participants = participants.mid(0, kMaxParticipants);
     noteParticipantIdentities();
+    rebuildModels();
     if (!m_engine.isNull()) {
         m_engine->start();
         m_engine->setIceServers(iceServers);
@@ -543,6 +578,28 @@ void SfuCallController::onSfuParticipants(const QVariantList &updates)
 {
     if (!active())
         return;
+    const bool setChanged = mergeParticipants(updates);
+    // A LEAVER must stop being able to decrypt, so any change in the set
+    // rotates the key. Rotating on joins too is the simple, safe choice:
+    // the alternative is tracking who is new, and being wrong about that
+    // means someone keeps a key they should not have.
+    if (setChanged)
+        rotateAndDistributeKey();
+    // The track sid arrives with this update, so a mute the user made before
+    // the SFU announced the track is applied here — and a state that drifted
+    // for any other reason is corrected on the next update rather than
+    // staying wrong for the rest of the call.
+    syncMicMuteToSfu();
+    // Ask for the room's membership. A participant the SFU has announced but
+    // whose membership we have not read cannot be sent a key, and without
+    // this the read happens only when the user opens the room or the server
+    // happens to poke us.
+    if (m_rtc && !m_roomId.isEmpty())
+        m_rtc->refresh(m_roomId);
+}
+
+bool SfuCallController::mergeParticipants(const QVariantList &updates)
+{
     // The identity SET, not the count. An update can legitimately carry a
     // join and a disconnect at once, which leaves the size unchanged — and
     // keying the key rotation on the size then lets a participant who LEFT
@@ -591,29 +648,15 @@ void SfuCallController::onSfuParticipants(const QVariantList &updates)
             m_participants.append(row);
     }
     noteParticipantIdentities();
+    rebuildModels();
     Q_EMIT participantsChanged();
-    // A LEAVER must stop being able to decrypt, so any change in the set
-    // rotates the key. Rotating on joins too is the simple, safe choice:
-    // the alternative is tracking who is new, and being wrong about that
-    // means someone keeps a key they should not have.
+
     QSet<QString> after;
     for (const QVariant &row : std::as_const(m_participants)) {
         after.insert(
             row.toMap().value(QStringLiteral("identity")).toString());
     }
-    if (after != before)
-        rotateAndDistributeKey();
-    // The track sid arrives with this update, so a mute the user made before
-    // the SFU announced the track is applied here — and a state that drifted
-    // for any other reason is corrected on the next update rather than
-    // staying wrong for the rest of the call.
-    syncMicMuteToSfu();
-    // Ask for the room's membership. A participant the SFU has announced but
-    // whose membership we have not read cannot be sent a key, and without
-    // this the read happens only when the user opens the room or the server
-    // happens to poke us.
-    if (m_rtc && !m_roomId.isEmpty())
-        m_rtc->refresh(m_roomId);
+    return after != before;
 }
 
 void SfuCallController::onSfuSpeakers(const QVariantList &speakers)
@@ -621,13 +664,55 @@ void SfuCallController::onSfuSpeakers(const QVariantList &speakers)
     if (!active())
         return;
     m_speaking.clear();
+    m_speakingLevel.clear();
     for (const QVariant &value : speakers) {
         const QVariantMap entry = value.toMap();
         const QString sid = entry.value(QStringLiteral("sid")).toString();
-        if (!sid.isEmpty())
-            m_speaking.insert(sid, entry.value(QStringLiteral("active")).toBool());
+        if (sid.isEmpty())
+            continue;
+        m_speaking.insert(sid,
+                          entry.value(QStringLiteral("active")).toBool());
+        // LiveKit's SpeakerInfo carries `level` (0..1, 1 is loudest) and
+        // rust/src/sfu.rs has forwarded it all along; this used to read
+        // `active` and throw the amplitude away, which is the single reason
+        // a volume-reactive ring was impossible. ABSENT stays absent — the
+        // model treats a missing level as 0.0 and draws its minimum ring
+        // rather than inventing an amplitude from the boolean.
+        if (entry.contains(QStringLiteral("level"))) {
+            m_speakingLevel.insert(
+                sid, entry.value(QStringLiteral("level")).toDouble());
+        }
     }
-    Q_EMIT participantsChanged();
+    // PER-ROW dataChanged on the speaking roles only — never
+    // participantsChanged(), which QML answered by rebuilding the whole
+    // participant array. That rebuild was a model reset, and it destroyed
+    // every tile and every VideoOutput in it on every syllable.
+    if (m_participantModel)
+        m_participantModel->applySpeakers(m_speaking, m_speakingLevel);
+}
+
+void SfuCallController::onSfuConnectionQuality(const QVariantList &updates)
+{
+    if (!active())
+        return;
+    QHash<QString, QString> quality;
+    for (const QVariant &value : updates) {
+        const QVariantMap entry = value.toMap();
+        const QString sid = entry.value(QStringLiteral("sid")).toString();
+        const QString level =
+            entry.value(QStringLiteral("quality")).toString();
+        if (sid.isEmpty() || level.isEmpty()
+            || level == QLatin1String("unknown")) {
+            continue; // unknown is not a value to render; it is the default
+        }
+        quality.insert(sid, level);
+    }
+    if (quality.isEmpty())
+        return;
+    for (auto it = quality.cbegin(); it != quality.cend(); ++it)
+        m_connectionQuality.insert(it.key(), it.value());
+    if (m_participantModel)
+        m_participantModel->applyConnectionQuality(quality);
 }
 
 void SfuCallController::onSfuRemoteDescription(const QString &kind,
@@ -1196,6 +1281,18 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_ownIdentity.clear();
     m_participants.clear();
     m_speaking.clear();
+    m_speakingLevel.clear();
+    m_connectionQuality.clear();
+    // Emptied, never replaced: a bound view keeps the same model object and
+    // sees a removeRows, not a rebind. The stage's view state goes with the
+    // call it belonged to — a pin or a dismissed share from the last call
+    // must not greet the user in the next one.
+    if (m_participantModel)
+        m_participantModel->clear();
+    if (m_shareModel)
+        m_shareModel->clear();
+    if (m_stageState)
+        m_stageState->clear();
     m_publishedTrackIds.clear();
     m_audioCid.clear();
     m_cameraCid.clear();
@@ -1321,6 +1418,11 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd)
     m_screenCid = cid;
     m_publishedTrackIds.append(cid);
     m_screenSharing = true;
+    // A NEW share is a new identity for the stage. See m_localShareEpoch:
+    // without this, stopping and restarting our own share would reuse one
+    // share id, and a viewer who had dismissed the first from their
+    // spotlight would silently never be offered the second.
+    ++m_localShareEpoch;
     Q_EMIT mediaStateChanged();
     return true;
 #else
@@ -1406,6 +1508,14 @@ void SfuCallController::setHandRaised(bool raised)
     if (m_handRaised == raised)
         return;
     m_handRaised = raised;
+    // LOCAL ONLY, and honestly so: nothing here reaches the SFU, the
+    // MatrixRTC membership or a to-device message, so no peer can see it.
+    // The badge on OUR row is real feedback that the toggle took; a badge on
+    // anyone else's could never light, and inventing a wire representation
+    // for it is a protocol decision to be checked against a real
+    // element-call client, not guessed at here.
+    if (m_participantModel && !m_ownIdentity.isEmpty())
+        m_participantModel->setHandRaised(m_ownIdentity, m_handRaised);
     Q_EMIT mediaStateChanged();
 }
 
@@ -1415,19 +1525,37 @@ void SfuCallController::setParticipantVolume(const QString &identity,
                                               int percent)
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
-    if (m_engine.isNull())
-        return;
     // Local only: nothing is sent, and nobody else is affected.
-    m_engine->setParticipantVolume(identity, percent);
+    if (!m_engine.isNull())
+        m_engine->setParticipantVolume(identity, percent);
 #else
-    Q_UNUSED(identity); Q_UNUSED(percent);
+    Q_UNUSED(percent);
 #endif
+    // Recorded so the control that sets it can READ IT BACK. This was
+    // write-only, which is why no QML ever called it: a slider with nothing
+    // to bind to cannot show the value it just set.
+    if (m_participantModel)
+        m_participantModel->setVolumePercent(identity, percent);
 }
 
-QVariantList SfuCallController::participants() const
+// ONE derivation of the participant rows, feeding the model; the model then
+// feeds everything else, including participants().
+//
+// It used to be the other way round: participants() rebuilt a QVariantList
+// from scratch every time QML asked, and QML asked whenever a hand-bumped
+// tick changed. A JS array reassigned into a view is a MODEL RESET, so a
+// speaker update destroyed every tile and every VideoOutput in it. Building
+// rows here and DIFFING them into the model turns the same information into
+// insert/remove/move plus per-role dataChanged.
+void SfuCallController::rebuildModels()
 {
-    QVariantList out;
-    for (const QVariant &value : m_participants) {
+    if (!m_participantModel)
+        return;
+    QVector<CallParticipantRow> rows;
+    rows.reserve(m_participants.size() + 1);
+    bool sawLocal = false;
+
+    for (const QVariant &value : std::as_const(m_participants)) {
         const QVariantMap entry = value.toMap();
         const QString identity =
             entry.value(QStringLiteral("identity")).toString();
@@ -1444,65 +1572,209 @@ QVariantList SfuCallController::participants() const
         const QVariantMap person = m_rtc
             ? m_rtc->participantForIdentity(m_roomId, identity)
             : QVariantMap{};
-        QVariantMap row;
-        row.insert(QStringLiteral("identity"), identity);
-        row.insert(QStringLiteral("userId"),
-                   person.value(QStringLiteral("userId")).toString());
+        CallParticipantRow row;
+        row.identity = identity;
+        row.sid = entry.value(QStringLiteral("sid")).toString();
+        row.userId = person.value(QStringLiteral("userId")).toString();
         // Room-resolved profile, so a tile draws a real name and avatar.
         // Empty means "not known here" and the tile falls back to initials
         // rather than inventing anything.
-        row.insert(QStringLiteral("displayName"),
-                   person.value(QStringLiteral("displayName")).toString());
-        row.insert(QStringLiteral("avatarMxc"),
-                   person.value(QStringLiteral("avatarMxc")).toString());
+        row.displayName =
+            person.value(QStringLiteral("displayName")).toString();
+        row.avatarMxc = person.value(QStringLiteral("avatarMxc")).toString();
         // "local" is this DEVICE. The membership knows; identity equality is
         // kept as the fallback for a session whose membership has not landed
         // yet, so the local tile is never mislabelled as someone else.
         const bool ownDevice =
             person.value(QStringLiteral("ownDevice")).toBool();
-        row.insert(QStringLiteral("local"),
-                   ownDevice || identity == m_ownIdentity);
-        row.insert(QStringLiteral("speaking"),
-                   m_speaking.value(
-                       entry.value(QStringLiteral("sid")).toString(), false));
+        row.local = ownDevice
+            || (!m_ownIdentity.isEmpty() && identity == m_ownIdentity);
+
         // Track state as the SFU reports it. Absent means UNKNOWN, and the
         // UI must render nothing rather than a confident "not muted".
-        bool micKnown = false;
-        bool micMuted = false;
-        bool cameraKnown = false;
-        bool cameraOn = false;
-        bool sharing = false;
-        for (const QVariant &t : entry.value(QStringLiteral("tracks")).toList()) {
+        for (const QVariant &t :
+             entry.value(QStringLiteral("tracks")).toList()) {
             const QVariantMap track = t.toMap();
             const QString source =
                 track.value(QStringLiteral("source")).toString();
             const bool muted = track.value(QStringLiteral("muted")).toBool();
             if (source == QLatin1String("microphone")) {
-                micKnown = true;
-                micMuted = muted;
+                row.micKnown = true;
+                row.micMuted = muted;
             } else if (source == QLatin1String("camera")) {
-                cameraKnown = true;
-                cameraOn = !muted;
+                row.cameraKnown = true;
+                row.cameraOn = !muted;
             } else if (source == QLatin1String("screen_share")) {
-                sharing = !muted;
+                row.screenSharing = !muted;
             }
         }
-        row.insert(QStringLiteral("micKnown"), micKnown);
-        row.insert(QStringLiteral("micMuted"), micMuted);
-        row.insert(QStringLiteral("cameraKnown"), cameraKnown);
-        row.insert(QStringLiteral("cameraOn"), cameraOn);
-        row.insert(QStringLiteral("screenSharing"), sharing);
         // The routing keys, so a tile can RE-ATTACH when they change. The SFU
-        // can announce a participant before it announces which section their
-        // tracks landed on, and an attach that happened while the key was
+        // can announce a participant before it announces which track their
+        // media landed on, and an attach that happened while the key was
         // still empty is a surface that never receives a frame. QML watches
         // these two values; it does not interpret them.
-        row.insert(QStringLiteral("cameraTrackKey"),
-                   trackKeyForSource(identity, QStringLiteral("camera")));
-        row.insert(QStringLiteral("screenTrackKey"),
-                   trackKeyForSource(identity,
-                                     QStringLiteral("screen_share")));
-        out.append(row);
+        row.cameraTrackKey =
+            trackKeyForSource(identity, QStringLiteral("camera"));
+        row.screenTrackKey =
+            trackKeyForSource(identity, QStringLiteral("screen_share"));
+
+        if (row.local) {
+            sawLocal = true;
+            // OUR OWN state is authoritative HERE, not at the SFU.
+            //
+            // The server learns our camera and share only once the track is
+            // published and announced, so between the user pressing the
+            // button and that round trip the local tile said "camera off"
+            // while the capture light was on — and the local screen-share
+            // surface, which gates on this flag, drew nothing at all. We
+            // know what we asked for; OR it in. The mute state is likewise
+            // ours: syncMicMuteToSfu() converges the server towards it, so
+            // reading it back from the server was reading our own intent
+            // through a delay.
+            row.micKnown = true;
+            row.micMuted = m_micMuted;
+            row.cameraKnown = true;
+            row.cameraOn = row.cameraOn || m_cameraOn;
+            row.screenSharing = row.screenSharing || m_screenSharing;
+        }
+        rows.append(row);
     }
-    return out;
+
+    // The SFU's join payload lists the OTHERS; our own row arrives with the
+    // first update about us, which can be a moment later. A call surface
+    // that cannot show the local user until the server mentions them is the
+    // "1 person in call" shape from the other direction, so a placeholder
+    // stands in — keyed on the same identity, so the real row REPLACES it
+    // rather than duplicating it.
+    if (!sawLocal && !m_ownIdentity.isEmpty()) {
+        CallParticipantRow row;
+        row.identity = m_ownIdentity;
+        row.local = true;
+        const QVariantMap person = m_rtc
+            ? m_rtc->participantForIdentity(m_roomId, m_ownIdentity)
+            : QVariantMap{};
+        row.userId = person.value(QStringLiteral("userId")).toString();
+        row.displayName =
+            person.value(QStringLiteral("displayName")).toString();
+        row.avatarMxc = person.value(QStringLiteral("avatarMxc")).toString();
+        row.micKnown = true;
+        row.micMuted = m_micMuted;
+        row.cameraKnown = true;
+        row.cameraOn = m_cameraOn;
+        row.screenSharing = m_screenSharing;
+        rows.append(row);
+    }
+
+    m_participantModel->applyParticipants(rows);
+    // A row that has only just appeared has never seen a speakers round, and
+    // the next one may be seconds away. Re-apply what we last heard so a
+    // tile is not born silent for someone who is mid-sentence.
+    m_participantModel->applySpeakers(m_speaking, m_speakingLevel);
+    m_participantModel->applyConnectionQuality(m_connectionQuality);
+    // Hand raise has no wire representation (see CallParticipantModel), so
+    // the only row it can be true for is ours.
+    if (!m_ownIdentity.isEmpty())
+        m_participantModel->setHandRaised(m_ownIdentity, m_handRaised);
+    rebuildShareModel();
+}
+
+void SfuCallController::rebuildShareModel()
+{
+    if (!m_shareModel || !m_participantModel)
+        return;
+    QVector<CallShareRow> shares;
+    const int count = m_participantModel->rowCount();
+    for (int i = 0; i < count; ++i) {
+        const QVariantMap person = m_participantModel->get(i);
+        if (!person.value(QStringLiteral("screenSharing")).toBool())
+            continue;
+        CallShareRow share;
+        share.ownerIdentity =
+            person.value(QStringLiteral("identity")).toString();
+        share.ownerDisplayName =
+            person.value(QStringLiteral("displayName")).toString();
+        share.trackKey =
+            person.value(QStringLiteral("screenTrackKey")).toString();
+        share.local = person.value(QStringLiteral("local")).toBool();
+        if (share.local) {
+            // See m_localShareEpoch: our own share exists before the SFU has
+            // named a track for it, so it cannot be keyed on the sid — and
+            // reusing one id across a stop/start would let a dismissal from
+            // the first share suppress the second.
+            share.shareId = QStringLiteral("local:%1").arg(m_localShareEpoch);
+        } else {
+            // The TRACK sid. A share that stops and restarts is a new
+            // published track and therefore a new id, which is exactly what
+            // keeps a stale dismissal from suppressing it.
+            share.shareId = share.trackKey;
+        }
+        if (share.shareId.isEmpty())
+            continue; // a remote share with no track stated yet is not
+                      // addressable, and a row nothing can attach to is
+                      // worse than no row
+        shares.append(share);
+    }
+    m_shareModel->applyShares(shares);
+}
+
+int SfuCallController::participantCount() const
+{
+    return m_participantModel ? m_participantModel->rowCount() : 0;
+}
+
+QVariantList SfuCallController::participants() const
+{
+    return m_participantModel ? m_participantModel->toVariantList()
+                              : QVariantList{};
+}
+
+void SfuCallController::ingestParticipantsForTest(const QVariantList &updates)
+{
+    mergeParticipants(updates);
+}
+
+void SfuCallController::ingestSpeakersForTest(const QVariantList &speakers)
+{
+    m_speaking.clear();
+    m_speakingLevel.clear();
+    for (const QVariant &value : speakers) {
+        const QVariantMap entry = value.toMap();
+        const QString sid = entry.value(QStringLiteral("sid")).toString();
+        if (sid.isEmpty())
+            continue;
+        m_speaking.insert(sid,
+                          entry.value(QStringLiteral("active")).toBool());
+        if (entry.contains(QStringLiteral("level"))) {
+            m_speakingLevel.insert(
+                sid, entry.value(QStringLiteral("level")).toDouble());
+        }
+    }
+    if (m_participantModel)
+        m_participantModel->applySpeakers(m_speaking, m_speakingLevel);
+}
+
+void SfuCallController::ingestConnectionQualityForTest(
+    const QVariantList &updates)
+{
+    QHash<QString, QString> quality;
+    for (const QVariant &value : updates) {
+        const QVariantMap entry = value.toMap();
+        const QString sid = entry.value(QStringLiteral("sid")).toString();
+        const QString level =
+            entry.value(QStringLiteral("quality")).toString();
+        if (sid.isEmpty() || level.isEmpty()
+            || level == QLatin1String("unknown")) {
+            continue;
+        }
+        quality.insert(sid, level);
+        m_connectionQuality.insert(sid, level);
+    }
+    if (m_participantModel)
+        m_participantModel->applyConnectionQuality(quality);
+}
+
+void SfuCallController::setOwnIdentityForTest(const QString &identity)
+{
+    m_ownIdentity = identity;
+    rebuildModels();
 }

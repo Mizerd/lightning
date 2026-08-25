@@ -7,6 +7,8 @@
 #include <QLoggingCategory>
 #include <QTimeZone>
 
+#include <algorithm>
+
 // Bounded, sanitized receipt-movement diagnostics (off by default). A live
 // "receipts disappeared" report needs to distinguish a Set that legitimately
 // moved a receipt from one the SDK never delivered; this logs COUNTS only —
@@ -70,6 +72,10 @@ TimelineEvent::Type messageType(const QString &msgtype)
         return TimelineEvent::Poll;
     if (msgtype == QLatin1String("state"))
         return TimelineEvent::StateChange;
+    // 2026-08-26: its own row kind. It used to arrive as "state", which is
+    // what folded a call into the "N room updates" group.
+    if (msgtype == QLatin1String("call"))
+        return TimelineEvent::CallEvent;
     if (msgtype == QLatin1String("text"))
         return TimelineEvent::TextMessage;
     if (msgtype == QLatin1String("encrypted") || msgtype == QLatin1String("redacted"))
@@ -131,6 +137,20 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         item.value(QStringLiteral("profile_name_new")).toString());
     e.profileAvatarChanged =
         item.value(QStringLiteral("profile_avatar_changed")).toBool(false);
+    // Typed call row. `call_kind` is a CLOSED SET at the bridge; anything
+    // else is dropped rather than forwarded, because this string decides
+    // which sentence a row carrying a Join button prints. An unknown kind
+    // still renders (the sentence falls back to the generic call wording) —
+    // it simply cannot introduce a spelling this side never agreed to.
+    const QString callKind = item.value(QStringLiteral("call_kind")).toString();
+    if (callKind == QLatin1String("invite")
+        || callKind == QLatin1String("notification"))
+        e.callEventKind = callKind;
+    e.callIsVideo = item.value(QStringLiteral("call_video")).toBool(false);
+    // Clamped at 0: a negative count is not a thing, and this number is
+    // rendered as "N declined".
+    e.callDeclinedCount = std::max(
+        0, item.value(QStringLiteral("call_declined_count")).toInt(0));
     e.timestamp = timestampFromMs(static_cast<qint64>(
         item.value(QStringLiteral("timestamp_ms")).toDouble(0)));
     if (!e.timestamp.isValid())

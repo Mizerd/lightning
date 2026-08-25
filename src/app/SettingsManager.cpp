@@ -5,6 +5,7 @@
 
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QLocale>
 #include <QLoggingCategory>
 
 #include <algorithm>
@@ -55,6 +56,14 @@ constexpr auto kGifProvider         = "gif/provider";       // "giphy"/"klipy"
 // Presentation-only timeline preference. The underlying SDK/model retains
 // every state event so changing this never requires a resync.
 constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
+constexpr auto kShowMembership      = "timeline/showMembershipEvents";
+constexpr auto kShowProfileChanges  = "timeline/showProfileChangeEvents";
+constexpr auto kReducedMotion       = "ui/reducedMotion";
+constexpr auto kClockFormat         = "ui/clockFormat";
+constexpr auto kEnterNewline        = "composer/enterInsertsNewline";
+constexpr auto kTextAsCaption       = "composer/textAsCaption";
+// Shortcut overrides live in their own group, one key per action id.
+constexpr auto kShortcutsGroup      = "shortcuts";
 // v0.5.19: 0=Standard, 1=Fast, 2=Very fast (see TimelineScrollController).
 constexpr auto kTimelineWheelSpeed  = "timeline/wheelSpeed";
 // GLOBAL (device-wide, never per-account): it becomes QT_SCALE_FACTOR in
@@ -1654,6 +1663,186 @@ void SettingsManager::setShowRoomActivity(bool v)
         return;
     m_store->setValue(kShowRoomActivity, v);
     Q_EMIT showRoomActivityChanged();
+}
+
+bool SettingsManager::showMembershipEvents() const
+{
+    // Defaults TRUE so the split is invisible to anyone who never opens it:
+    // master on + both halves on is exactly the old behaviour.
+    return m_store->value(kShowMembership, true).toBool();
+}
+
+void SettingsManager::setShowMembershipEvents(bool v)
+{
+    if (showMembershipEvents() == v)
+        return;
+    m_store->setValue(kShowMembership, v);
+    Q_EMIT showMembershipEventsChanged();
+}
+
+bool SettingsManager::showProfileChangeEvents() const
+{
+    return m_store->value(kShowProfileChanges, true).toBool();
+}
+
+void SettingsManager::setShowProfileChangeEvents(bool v)
+{
+    if (showProfileChangeEvents() == v)
+        return;
+    m_store->setValue(kShowProfileChanges, v);
+    Q_EMIT showProfileChangeEventsChanged();
+}
+
+bool SettingsManager::reducedMotion() const
+{
+    return appearanceValue(kReducedMotion, false).toBool();
+}
+
+void SettingsManager::setReducedMotion(bool v)
+{
+    if (reducedMotion() == v)
+        return;
+    setAppearanceValue(kReducedMotion, v);
+    Q_EMIT reducedMotionChanged();
+}
+
+int SettingsManager::clockFormat() const
+{
+    const int stored = appearanceValue(kClockFormat, kClockFormatSystem).toInt();
+    // Out of range reads back as "follow the system", which is the previous
+    // behaviour — never an undefined format string.
+    if (stored < kClockFormatSystem || stored > kClockFormat24Hour)
+        return kClockFormatSystem;
+    return stored;
+}
+
+void SettingsManager::setClockFormat(int mode)
+{
+    if (mode < kClockFormatSystem || mode > kClockFormat24Hour)
+        mode = kClockFormatSystem;
+    if (clockFormat() == mode)
+        return;
+    setAppearanceValue(kClockFormat, mode);
+    Q_EMIT clockFormatChanged();
+}
+
+QString SettingsManager::clockTimeFormat() const
+{
+    switch (clockFormat()) {
+    case kClockFormat12Hour:
+        // AP, not ap: Qt renders the locale's own upper-case designators.
+        return QStringLiteral("h:mm AP");
+    case kClockFormat24Hour:
+        return QStringLiteral("HH:mm");
+    default:
+        break;
+    }
+    // "Follow the system" means the LOCALE's short time format, which is
+    // what the room list, thread panel and Home already used. It is queried
+    // fresh rather than cached: a locale change without a restart should be
+    // followed, and this is not a hot path (one read per timestamp binding).
+    return QLocale().timeFormat(QLocale::ShortFormat);
+}
+
+bool SettingsManager::enterInsertsNewline() const
+{
+    return m_store->value(kEnterNewline, false).toBool();
+}
+
+void SettingsManager::setEnterInsertsNewline(bool v)
+{
+    if (enterInsertsNewline() == v)
+        return;
+    m_store->setValue(kEnterNewline, v);
+    Q_EMIT enterInsertsNewlineChanged();
+}
+
+bool SettingsManager::sendTextAsCaption() const
+{
+    return m_store->value(kTextAsCaption, false).toBool();
+}
+
+void SettingsManager::setSendTextAsCaption(bool v)
+{
+    if (sendTextAsCaption() == v)
+        return;
+    m_store->setValue(kTextAsCaption, v);
+    Q_EMIT sendTextAsCaptionChanged();
+}
+
+namespace {
+// An action id becomes part of a QSettings key path. Anything outside this
+// set — a slash above all — could address a key in a DIFFERENT group, so an
+// unsafe id is refused rather than sanitised: the registry owns every id
+// Lightning uses, so a refusal here means a programming mistake, and quietly
+// rewriting it would hide it.
+bool shortcutIdIsSafe(const QString &actionId)
+{
+    if (actionId.isEmpty() || actionId.size() > 64)
+        return false;
+    for (const QChar c : actionId) {
+        if (c.isLetterOrNumber() && c.unicode() < 128)
+            continue;
+        if (c == QLatin1Char('.') || c == QLatin1Char('_')
+            || c == QLatin1Char('-'))
+            continue;
+        return false;
+    }
+    return true;
+}
+} // namespace
+
+QString SettingsManager::shortcutSequence(const QString &actionId) const
+{
+    if (!shortcutIdIsSafe(actionId))
+        return {};
+    const QString leaf =
+        QLatin1String(kShortcutsGroup) + QLatin1Char('/') + actionId;
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (!slug.isEmpty()) {
+        const QString key =
+            QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+            + QLatin1Char('/') + leaf;
+        if (m_store->contains(key))
+            return m_store->value(key).toString();
+    }
+    return m_store->value(leaf).toString();
+}
+
+void SettingsManager::setShortcutSequence(const QString &actionId,
+                                          const QString &portable)
+{
+    if (!shortcutIdIsSafe(actionId))
+        return;
+    const QString leaf =
+        QLatin1String(kShortcutsGroup) + QLatin1Char('/') + actionId;
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (!slug.isEmpty()) {
+        m_store->setValue(QLatin1String(kAccountsGroup) + QLatin1Char('/')
+                              + slug + QLatin1Char('/') + leaf,
+                          portable);
+    }
+    // The global copy doubles as the logged-out default and as the seed for
+    // the next account added on this machine, exactly like appearanceValue.
+    m_store->setValue(leaf, portable);
+}
+
+void SettingsManager::clearShortcutSequence(const QString &actionId)
+{
+    if (!shortcutIdIsSafe(actionId))
+        return;
+    const QString leaf =
+        QLatin1String(kShortcutsGroup) + QLatin1Char('/') + actionId;
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (!slug.isEmpty()) {
+        // BOTH copies. Removing only the account's would leave the global
+        // override in place, so "Reset" would appear to work and then the
+        // old key would come back on the next launch of a logged-out shell —
+        // or for the next account added on this machine.
+        m_store->remove(QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+                        + QLatin1Char('/') + leaf);
+    }
+    m_store->remove(leaf);
 }
 
 int SettingsManager::interfaceZoom() const

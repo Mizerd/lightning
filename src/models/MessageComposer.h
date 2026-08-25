@@ -35,6 +35,13 @@ class MessageComposer : public QObject
     Q_PROPERTY(AttachmentQueueModel* attachments READ attachments CONSTANT)
     Q_PROPERTY(bool hasAttachments READ hasAttachments NOTIFY attachmentsChanged)
     Q_PROPERTY(bool attachmentsSupported READ attachmentsSupported NOTIFY roomIdChanged)
+    // Composer policy, pushed in from QML (qml/Main.qml) the same way the
+    // theme settings are pushed into AppTheme: text typed alongside an
+    // attachment is sent as that attachment's CAPTION — one event instead of
+    // two — rather than as a separate message. Default false, which is the
+    // behaviour every release so far has had.
+    Q_PROPERTY(bool sendTextAsCaption READ sendTextAsCaption
+                   WRITE setSendTextAsCaption NOTIFY sendTextAsCaptionChanged)
     // Current mention ranges as [{start, length}] for the composer's chip
     // highlighter and atomic-delete key handling. Derived from the semantic
     // refs; re-announced on every text change (the refs re-anchor there).
@@ -67,6 +74,9 @@ public:
     bool inThread()   const { return !m_threadRootId.isEmpty(); }
 
     bool canSend() const;
+
+    bool sendTextAsCaption() const { return m_sendTextAsCaption; }
+    void setSendTextAsCaption(bool on);
 
     QVariantList mentionRanges() const
     {
@@ -178,6 +188,7 @@ Q_SIGNALS:
     void editStateChanged();
     void threadStateChanged();
     void attachmentsChanged();
+    void sendTextAsCaptionChanged();
     // Result of removeEdits(), for the room it was issued in. Counts only.
     void editsRemoved(const QString &eventId, bool ok, int removed,
                       int failed, bool truncated);
@@ -194,9 +205,14 @@ private:
     void dispatchAttachments();
     // One entry, once it is dispatchable (a video waits for its poster).
     void dispatchAttachment(int row);
+    // Attaches `body` to ONE queued attachment as its caption and reports
+    // whether an attachment took it. False means the text still has to be
+    // sent as its own message.
+    bool takeTextAsCaption(const QString &body, const QStringList &mentionIds);
 
     MatrixClient *m_client = nullptr;
     AttachmentQueueModel *m_attachments = nullptr;
+    bool m_sendTextAsCaption = false;
     QString m_text;
     QString m_roomId;
     QString m_replyingToEventId;

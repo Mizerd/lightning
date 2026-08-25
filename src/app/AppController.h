@@ -14,6 +14,7 @@
 #include "spaces/RailEntryModel.h"
 #include "spaces/RailLayoutStore.h"
 #include "i18n/LocalizationManager.h"
+#include "app/ShortcutRegistry.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
 #include "crypto/CryptoBootstrapModel.h"
@@ -203,6 +204,10 @@ class AppController : public QObject
     Q_PROPERTY(bool verificationQrConfirming READ verificationQrConfirming NOTIFY verificationStateChanged)
 
     Q_PROPERTY(SettingsManager* settings READ settings CONSTANT)
+    // Rebindable keyboard shortcuts. CONSTANT like the other controllers —
+    // the OBJECT never changes; its rows announce their own changes, and
+    // `bindingRevision` is what a QML Shortcut binding depends on.
+    Q_PROPERTY(ShortcutRegistry* shortcuts READ shortcuts CONSTANT)
     // UI language. Application-wide, not per-account: the translators are
     // installed on QCoreApplication and the layout direction is process-wide.
     Q_PROPERTY(LocalizationManager* localization READ localization CONSTANT)
@@ -465,6 +470,7 @@ public:
     bool accountSwitching() const { return m_accountSwitching; }
 
     SettingsManager *settings() const;
+    ShortcutRegistry *shortcuts() const;
     LocalizationManager *localization() const;
     CustomThemeStore *customTheme() const;
     RailLayoutStore *railLayout() const;
@@ -1118,6 +1124,7 @@ private:
     std::unique_ptr<SecretStore> m_secretStore;
     std::unique_ptr<SettingsManager> m_settings;
     std::unique_ptr<LocalizationManager> m_localization;
+    std::unique_ptr<ShortcutRegistry> m_shortcuts;
     std::unique_ptr<CustomThemeStore> m_customTheme;
     std::unique_ptr<RailLayoutStore> m_railLayout;
     std::unique_ptr<RailEntryModel> m_railEntries;

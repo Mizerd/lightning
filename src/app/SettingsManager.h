@@ -132,6 +132,17 @@ class SettingsManager : public QObject
                    WRITE setRoomListWidth NOTIFY roomListWidthChanged)
     Q_PROPERTY(int sidePanelWidth READ sidePanelWidth
                    WRITE setSidePanelWidth NOTIFY sidePanelWidthChanged)
+    // The clamps, exposed so a slider cannot invent its own bounds. Written
+    // because the first version of the Appearance sliders guessed 220–480
+    // and 240–520 against real clamps of 200–560 and 240–640: a slider whose
+    // range is NARROWER than the setter's does not snap back visibly, it
+    // silently forbids widths the app supports, and a stored 560 renders the
+    // handle pinned at a position that is not the stored value. CONSTANT —
+    // these are compile-time bounds, not settings.
+    Q_PROPERTY(int roomListMinWidth READ roomListMinWidth CONSTANT)
+    Q_PROPERTY(int roomListMaxWidth READ roomListMaxWidth CONSTANT)
+    Q_PROPERTY(int sidePanelMinWidth READ sidePanelMinWidth CONSTANT)
+    Q_PROPERTY(int sidePanelMaxWidth READ sidePanelMaxWidth CONSTANT)
     // Closing the window puts Lightning in the system tray instead of
     // quitting. OFF by default and gated on the platform actually having a
     // tray: closing a window into a tray that does not exist is closing it
@@ -195,6 +206,75 @@ class SettingsManager : public QObject
                    WRITE setGifPreferredProvider NOTIFY gifPreferredProviderChanged)
     Q_PROPERTY(bool showRoomActivity READ showRoomActivity
                    WRITE setShowRoomActivity NOTIFY showRoomActivityChanged)
+    // showRoomActivity SPLIT INTO ITS TWO HALVES (2026-08-26). The single
+    // coarse toggle above already described itself as "joins, leaves,
+    // profile changes, and room setting updates" — four different things
+    // behind one switch, and the two people who ask for this ask for
+    // opposite halves of it: one wants the join/leave churn of a big room
+    // gone, the other wants to stop seeing "X changed their avatar" fifty
+    // times a day. The Rust bridge has distinguished them all along
+    // (rust/src/timeline.rs emits state_kind "membership" and
+    // "member_profile"); only the FILTER conflated them, by testing that
+    // the kind was non-empty rather than testing its value.
+    //
+    // showRoomActivity stays the master switch, so an existing user's stored
+    // choice keeps meaning exactly what it meant. These two only narrow it —
+    // with the master off, nothing is shown regardless.
+    Q_PROPERTY(bool showMembershipEvents READ showMembershipEvents
+                   WRITE setShowMembershipEvents
+                   NOTIFY showMembershipEventsChanged)
+    Q_PROPERTY(bool showProfileChangeEvents READ showProfileChangeEvents
+                   WRITE setShowProfileChangeEvents
+                   NOTIFY showProfileChangeEventsChanged)
+    // Reduced motion. AppTheme has declared `reducedMotion` since the design
+    // round and roughly twenty animation sites across ten QML files already
+    // read it — and NOTHING ever assigned it, so every one of those branches
+    // was dead. This is the assignment. Per account with a global fallback
+    // like the rest of Appearance; vestibular sensitivity belongs to the
+    // person, and the global value is what the logged-out shell uses.
+    Q_PROPERTY(bool reducedMotion READ reducedMotion WRITE setReducedMotion
+                   NOTIFY reducedMotionChanged)
+    // Clock format for every timestamp Lightning renders: 0 = follow the
+    // system locale (the previous, fixed behaviour), 1 = 12-hour, 2 =
+    // 24-hour. Per account with a global fallback.
+    //
+    // WHY A THREE-WAY AND NOT A BOOL: "24-hour" as a bool has no state that
+    // means "whatever this machine is set to", so a user in a 24-hour locale
+    // would have to tick a box to keep what they already had, and a locale
+    // change would stop being followed. 0 is the default and is the old
+    // behaviour exactly.
+    Q_PROPERTY(int clockFormat READ clockFormat WRITE setClockFormat
+                   NOTIFY clockFormatChanged)
+    // The Qt time-format STRING the clock setting resolves to, so every
+    // timestamp in QML reads one property instead of branching on the mode.
+    //
+    // WHY A PROPERTY AND NOT AN INVOKABLE HELPER: a function call creates no
+    // binding dependency Qt can track, so `text: app.settings.formatClock(t)`
+    // would keep rendering the OLD format until the item was next created —
+    // the same trap the media-cache handlers hit by assigning Image.source
+    // imperatively. A property read is a real dependency, so changing the
+    // setting re-renders every timestamp on screen.
+    //
+    // Fixes a pre-existing inconsistency at the same time: message rows
+    // formatted with a literal "hh:mm" (always 24-hour, whatever the locale)
+    // while the room list, threads and Home used the locale's short format.
+    // Both now resolve here.
+    Q_PROPERTY(QString clockTimeFormat READ clockTimeFormat
+                   NOTIFY clockFormatChanged)
+    // Composer: Enter inserts a newline and Ctrl+Enter sends, instead of the
+    // default (Enter sends, Shift+Enter inserts a newline). Device-global —
+    // it describes how a keyboard is used, not who is logged in.
+    Q_PROPERTY(bool enterInsertsNewline READ enterInsertsNewline
+                   WRITE setEnterInsertsNewline
+                   NOTIFY enterInsertsNewlineChanged)
+    // Composer: text typed alongside an attachment is sent as that
+    // attachment's CAPTION (one event) rather than as a separate message.
+    // The caption parameter has been plumbed to the SDK the whole time and
+    // the composer passed an empty string; this is the switch that fills it.
+    // Device-global for the same reason as the Enter behaviour.
+    Q_PROPERTY(bool sendTextAsCaption READ sendTextAsCaption
+                   WRITE setSendTextAsCaption
+                   NOTIFY sendTextAsCaptionChanged)
     // v0.5.19: discrete mouse-wheel scroll speed for the timeline. Stored as a
     // stable integer matching TimelineScrollController::WheelSpeed
     // (0=Standard, 1=Fast, 2=Very fast). Default and safe fallback: Fast.
@@ -417,6 +497,10 @@ public:
     static constexpr int kRoomListMaxWidth = 560;
     static constexpr int kSidePanelMinWidth = 240;
     static constexpr int kSidePanelMaxWidth = 640;
+    static constexpr int roomListMinWidth() { return kRoomListMinWidth; }
+    static constexpr int roomListMaxWidth() { return kRoomListMaxWidth; }
+    static constexpr int sidePanelMinWidth() { return kSidePanelMinWidth; }
+    static constexpr int sidePanelMaxWidth() { return kSidePanelMaxWidth; }
     bool verificationWarningDismissed() const;
     void setVerificationWarningDismissed(bool v);
     void setSharePresence(bool v);
@@ -431,6 +515,39 @@ public:
     void setGifPreferredProvider(const QString &id);
     bool showRoomActivity() const;
     void setShowRoomActivity(bool v);
+    bool showMembershipEvents() const;
+    void setShowMembershipEvents(bool v);
+    bool showProfileChangeEvents() const;
+    void setShowProfileChangeEvents(bool v);
+    bool reducedMotion() const;
+    void setReducedMotion(bool v);
+
+    // Clock format ids. Kept as named constants so the QML combo, the
+    // formatter and the clamp cannot drift apart.
+    static constexpr int kClockFormatSystem = 0;
+    static constexpr int kClockFormat12Hour = 1;
+    static constexpr int kClockFormat24Hour = 2;
+    int clockFormat() const;
+    void setClockFormat(int mode);
+    QString clockTimeFormat() const;
+
+    bool enterInsertsNewline() const;
+    void setEnterInsertsNewline(bool v);
+    bool sendTextAsCaption() const;
+    void setSendTextAsCaption(bool v);
+
+    // ── Rebindable keyboard shortcuts ────────────────────────────────────
+    // Stored per action id as QKeySequence::PortableText, per account with a
+    // global fallback (the same rule theme/layout/text-scale use). An EMPTY
+    // return means "no override, use the default" — which is also what an
+    // id containing anything outside [A-Za-z0-9._-] returns, because such an
+    // id could otherwise walk out of its own QSettings group. ShortcutRegistry
+    // owns every default and every validation rule; this is storage only and
+    // deliberately validates nothing about the SEQUENCE, so a future registry
+    // can widen what it accepts without a migration.
+    QString shortcutSequence(const QString &actionId) const;
+    void setShortcutSequence(const QString &actionId, const QString &portable);
+    void clearShortcutSequence(const QString &actionId);
 
     // v0.5.19: timeline discrete-wheel speed. 0=Standard, 1=Fast, 2=Very fast.
     // An out-of-range or legacy value reads back as Fast (1).
@@ -664,6 +781,12 @@ Q_SIGNALS:
     void storeRecentGifsChanged();
     void gifPreferredProviderChanged();
     void showRoomActivityChanged();
+    void showMembershipEventsChanged();
+    void showProfileChangeEventsChanged();
+    void reducedMotionChanged();
+    void clockFormatChanged();
+    void enterInsertsNewlineChanged();
+    void sendTextAsCaptionChanged();
     void timelineWheelSpeedChanged();
     void mediaVolumeChanged();
     void mediaPlaybackRateChanged();

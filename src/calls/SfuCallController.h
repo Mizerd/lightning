@@ -41,6 +41,16 @@
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
 
+// INCLUDED, not forward-declared. These three are Q_PROPERTY types, and
+// moc compiles moc_SfuCallController.cpp as its own translation unit that
+// sees this header and nothing else — a pointer property whose type is
+// incomplete there needs a complete QMetaType and fails in ways that depend
+// on the Qt version (§16's QPointer-of-incomplete-type trap is the same
+// family, and it cost a release pipeline).
+#include "calls/CallParticipantModel.h"
+#include "calls/CallShareModel.h"
+#include "calls/CallStageState.h"
+
 class MatrixClient;
 class RtcController;
 class ScreenCastPortal;
@@ -66,6 +76,18 @@ class SfuCallController : public QObject
     Q_PROPERTY(bool mediaEncrypted READ mediaEncrypted NOTIFY mediaStateChanged)
     Q_PROPERTY(int participantCount READ participantCount
                    NOTIFY participantsChanged)
+    /// THE call's people. CONSTANT because the object lives as long as the
+    /// controller does — it is emptied on leave, never replaced, so a view
+    /// bound to it is never re-bound and never reset.
+    Q_PROPERTY(CallParticipantModel *participantModel READ participantModel
+                   CONSTANT)
+    /// ONE ROW PER ACTIVE SCREEN SHARE. N simultaneous sharers are N rows;
+    /// nothing about the wire changes to support that.
+    Q_PROPERTY(CallShareModel *shareModel READ shareModel CONSTANT)
+    /// Call-scoped VIEW state (pin, dismissed shares, layout preference).
+    /// Here rather than in the QML component because a room switch destroys
+    /// the component and this belongs to the call.
+    Q_PROPERTY(CallStageState *stageState READ stageState CONSTANT)
 
 public:
     /// The call lifecycle, as the UI needs to distinguish it.
@@ -151,7 +173,15 @@ public:
     bool handRaised() const { return m_handRaised; }
     /// True only when every frame we publish is encrypted. Never optimistic.
     bool mediaEncrypted() const { return m_mediaEncrypted; }
-    int participantCount() const { return m_participants.size(); }
+    /// Read from the MODEL, not from the raw SFU list, so the count and the
+    /// tiles can never disagree — the model is the one derivation.
+    int participantCount() const;
+    CallParticipantModel *participantModel() const
+    {
+        return m_participantModel;
+    }
+    CallShareModel *shareModel() const { return m_shareModel; }
+    CallStageState *stageState() const { return m_stageState; }
 
     /// Join the room's call. Refuses (and says why through `lastError`) when
     /// the room is encrypted and media E2EE is unavailable, when no focus is
@@ -188,9 +218,33 @@ public:
     Q_INVOKABLE void setParticipantVolume(const QString &identity,
                                           int percent);
 
-    /// Participants for the call stage: {identity, userId, deviceId,
-    /// speaking, muted, cameraOn, screenSharing, local}.
+    /// Participants for the call stage, in the shape callers already expect.
+    ///
+    /// KEPT because other surfaces (the speaker bubbles, the banner facepile)
+    /// still read it — but it is now READ OUT OF THE MODEL rather than
+    /// rebuilt from the SFU list, so there is exactly one derivation and the
+    /// two can never drift. New surfaces should bind `participantModel`.
     Q_INVOKABLE QVariantList participants() const;
+
+    // --- TEST SEAMS -------------------------------------------------------
+    //
+    // The stage could not be instantiated in a test at all: every existing
+    // CallStage assertion is a source scan, because driving the real surface
+    // needs participants and participants needed a live SFU. These inject
+    // exactly the payloads the SFU slots receive, through exactly the same
+    // private merge helpers, WITHOUT the `active()` gate the slots keep — so
+    // production behaviour is unchanged and a test does not have to fake a
+    // call lifecycle to get a populated model.
+
+    /// Inject a LiveKit ParticipantUpdate payload (a DELTA, merged by
+    /// identity, `state: "disconnected"` removes).
+    void ingestParticipantsForTest(const QVariantList &updates);
+    /// Inject a SpeakersChanged payload: [{sid, active, level}].
+    void ingestSpeakersForTest(const QVariantList &speakers);
+    /// Inject a ConnectionQuality payload: [{sid, quality}].
+    void ingestConnectionQualityForTest(const QVariantList &updates);
+    /// Name the local device's SFU identity, as onSfuJoined would.
+    void setOwnIdentityForTest(const QString &identity);
 
 Q_SIGNALS:
     void stateChanged();
@@ -209,6 +263,7 @@ private Q_SLOTS:
                      const QVariantList &iceServers);
     void onSfuParticipants(const QVariantList &updates);
     void onSfuSpeakers(const QVariantList &speakers);
+    void onSfuConnectionQuality(const QVariantList &updates);
     void onSfuRemoteDescription(const QString &kind, const QString &target,
                                 const QString &sdp);
     void onSfuRemoteCandidate(const QString &target,
@@ -246,12 +301,27 @@ private:
     /// be long after that participant's key arrived.
     void noteParticipantIdentities();
     /// The routing key for one participant's track of `source`
-    /// ("camera" / "screen_share"): the track's `mid` when the SFU stated
-    /// one, else empty. Never the participant sid — that is the caller's
-    /// fallback to apply deliberately, not a silent substitution that could
-    /// point a screen-share surface at a camera.
+    /// ("camera" / "screen_share"): the TRACK's sid when the SFU stated one,
+    /// else empty. Never the PARTICIPANT sid — that is where the camera
+    /// lands, so substituting it would point a screen-share surface at a
+    /// camera. (This comment used to say `mid`; it has been the track sid
+    /// since the interop round, because a `mid` belongs to the publisher's
+    /// connection and our subscriber transceiver is numbered independently.)
     QString trackKeyForSource(const QString &identity,
                               const QString &source) const;
+
+    /// Merge one LiveKit ParticipantUpdate delta into `m_participants` and
+    /// rebuild the models. Returns true when the identity SET changed, which
+    /// is what must rotate the media key. Carries NO `active()` gate: the
+    /// slot owns that, and the test seam deliberately bypasses it.
+    bool mergeParticipants(const QVariantList &updates);
+    /// Push the current SFU list through to `m_participantModel` and
+    /// `m_shareModel` as a DIFF. The single derivation of both.
+    void rebuildModels();
+    /// The share rows implied by the current participants plus our own live
+    /// share. Separated out so it is readable and so the local-share rule is
+    /// in one place.
+    void rebuildShareModel();
 
     /// Redistribute the media key IF the set of devices we can address has
     /// grown since the last distribution.
@@ -312,7 +382,32 @@ private:
     quint64 m_publishOp = 0;
 
     QVariantList m_participants;
+    /// The LAST SpeakersChanged round, kept so a participant update can
+    /// re-apply it to a row that has only just appeared.
+    ///
+    /// Both halves are kept. `level` (LiveKit's SpeakerInfo carries it,
+    /// 0..1, loudest first) is what makes a volume-reactive ring possible at
+    /// all — Discord's own protocol has no such field, its speaking payload
+    /// being a bitmask. `active` is kept alongside it so an SFU that reports
+    /// only the flag still lights a binary ring instead of a dead one. What
+    /// is NOT done is inventing a level from the flag.
     QHash<QString, bool> m_speaking;
+    QHash<QString, qreal> m_speakingLevel;
+    QHash<QString, QString> m_connectionQuality;
+
+    /// Owned. Created once and emptied on leave — never replaced, so a bound
+    /// view is never re-bound.
+    CallParticipantModel *m_participantModel = nullptr;
+    CallShareModel *m_shareModel = nullptr;
+    CallStageState *m_stageState = nullptr;
+
+    /// Bumped every time WE start sharing, so each local share gets a
+    /// distinct id (`local:<n>`). Our own share exists the moment the portal
+    /// grants it, before the SFU has stated a track sid for it, so it cannot
+    /// be keyed on the sid the way a remote share is — and reusing one id
+    /// across a stop/start would let a dismissal from the first share
+    /// silently suppress the second.
+    quint64 m_localShareEpoch = 0;
 
     /// Membership must be refreshed before it expires, and the delayed
     /// retraction restarted, or the server cleans us out mid-call.

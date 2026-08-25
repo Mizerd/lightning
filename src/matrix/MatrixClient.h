@@ -610,6 +610,16 @@ public:
                                         const QString &userId,
                                         qlonglong level)
     { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(level); return 0; }
+    // 2026-08-26 Space settings: set ONE threshold in the room's
+    // m.room.power_levels. `key` is one of RoomInfoController's
+    // powerLevelKeys(); the Rust edge refuses anything else, so this is
+    // never a generic "write any event type's level" primitive. Answers on
+    // roomPowerMatrixFinished. The SERVER enforces permission — the client
+    // only avoids offering a write that must fail.
+    virtual quint64 setRoomPowerLevelKey(const QString &roomId,
+                                         const QString &key, qlonglong level)
+    { Q_UNUSED(roomId); Q_UNUSED(key); Q_UNUSED(level); return 0; }
+
     // "invite" | "public" | "knock". Rules that carry an allow-rule list
     // (restricted) are deliberately not settable. Answers on
     // roomEditFinished with field "join_rule".
@@ -1260,6 +1270,13 @@ Q_SIGNALS:
     void powerLevelChangeFinished(quint64 opId, const QString &roomId,
                                   const QString &userId, qlonglong level,
                                   bool ok, const QString &category);
+    // 2026-08-26 Space settings: one m.room.power_levels THRESHOLD write
+    // completed. `level` echoes what was REQUESTED, never what the room now
+    // holds — the authoritative value comes from the roster refresh that
+    // follows, exactly as for powerLevelChangeFinished.
+    void roomPowerMatrixFinished(quint64 opId, const QString &roomId,
+                                 const QString &key, qlonglong level,
+                                 bool ok, const QString &category);
     // v0.7.x pinned messages: one resolved snapshot. `snapshot` carries
     // ok, canPin, total, truncated and entries (a QVariantList of maps —
     // eventId, available, and when available sender, senderDisplayName,

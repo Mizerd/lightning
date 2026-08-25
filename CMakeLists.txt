@@ -384,6 +384,8 @@ set(APP_SOURCES
     src/app/SessionDiagnostics.cpp
     src/app/GuiStallTracer.h
     src/app/GuiStallTracer.cpp
+    src/app/ShortcutRegistry.h
+    src/app/ShortcutRegistry.cpp
     src/app/SyncLatencyTracer.h
     src/app/SyncLatencyTracer.cpp
 
@@ -394,6 +396,12 @@ set(APP_SOURCES
     src/calls/RtcController.cpp
     src/calls/SfuCallController.h
     src/calls/SfuCallController.cpp
+    src/calls/CallParticipantModel.h
+    src/calls/CallParticipantModel.cpp
+    src/calls/CallShareModel.h
+    src/calls/CallShareModel.cpp
+    src/calls/CallStageState.h
+    src/calls/CallStageState.cpp
     src/calls/CallDeviceController.h
     src/calls/CallDeviceController.cpp
     src/calls/ScreenCastPortal.h
@@ -702,6 +710,7 @@ set(APP_QML_FILES
     # Element-style local image hiding: keeps the media box's exact geometry.
     qml/MediaHiddenPlaceholder.qml
     qml/RoomActivityDelegate.qml
+    qml/ShortcutRow.qml
     qml/MessageComposerBar.qml
     qml/MentionPopup.qml
     qml/AnchoredPopup.qml
@@ -753,13 +762,15 @@ set(APP_QML_FILES
     qml/CallDeviceMenu.qml
     qml/CallDeviceSettings.qml
     qml/CallHeaderBar.qml
-    qml/CallControlBar.qml
     qml/CallTileBadge.qml
     qml/CallParticipantTile.qml
     qml/CallSpeakerBubbles.qml
     qml/CallStage.qml
+    qml/CallTileGrid.qml
+    qml/CallShareTile.qml
     qml/VoiceConnectedBar.qml
     qml/RoomCallBanner.qml
+    qml/CallEventDelegate.qml
     qml/VerifySessionPrompt.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
@@ -1771,6 +1782,22 @@ if(BUILD_TESTING)
     set_tests_properties(timeline-pane-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # 2026-08-26: the rail's drop-to-make-a-folder gesture, driven by a REAL
+    # POINTER. RailLayoutTest covers the model and passed happily through two
+    # rounds in which the gesture was structurally unreachable, because it
+    # hands the model the row production could never produce. This one presses,
+    # moves and releases on the real SpacesRail item tree and asserts on the
+    # STORE — the only kind of test that could have caught either defect.
+    qt_add_executable(rail-drag-qml-test
+        tests/RailDragQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(rail-drag-qml-test)
+    target_link_libraries(rail-drag-qml-test PRIVATE Qt6::Test)
+    add_test(NAME rail-drag-qml COMMAND rail-drag-qml-test)
+    set_tests_properties(rail-drag-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.7 timeline-stability suite: the initial-hydration presentation gate,
     # bottom-pinned stability under asynchronous row growth, scrolled-up
     # anchor preservation, and row-scoped Set-diff model updates — the live
@@ -2282,8 +2309,19 @@ if(BUILD_TESTING)
     # gated on that state event's own required level. The avatar controls
     # were missing entirely — a Space could be renamed but never given a
     # picture from inside Lightning.
+    # 2026-08-26: this was a pure source scan. It now also instantiates
+    # RoomInfoController against a fake client to prove what the Permissions
+    # matrix will and will not DISPATCH, so it needs the controller and the
+    # client base the way room-info-moderation-test does — a scan alone cannot
+    # tell an offered write from a refused one.
     qt_add_executable(space-settings-contract-test
-        tests/SpaceSettingsContractTest.cpp)
+        tests/SpaceSettingsContractTest.cpp
+        src/app/RoomInfoController.h
+        src/app/RoomInfoController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(space-settings-contract-test PRIVATE src)
     target_compile_definitions(space-settings-contract-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(space-settings-contract-test PRIVATE
@@ -2593,6 +2631,12 @@ if(BUILD_TESTING)
         src/calls/RtcController.cpp
         src/calls/SfuCallController.h
         src/calls/SfuCallController.cpp
+        src/calls/CallParticipantModel.h
+        src/calls/CallParticipantModel.cpp
+        src/calls/CallShareModel.h
+        src/calls/CallShareModel.cpp
+        src/calls/CallStageState.h
+        src/calls/CallStageState.cpp
         src/calls/ScreenCastPortal.h
         src/calls/ScreenCastPortal.cpp
         src/calls/CallMediaBackend.h

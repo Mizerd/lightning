@@ -64,7 +64,17 @@ Rectangle {
         var now = new Date()
         var days = Math.floor((now - when) / 86400000)
         if (when.toDateString() === now.toDateString())
-            return Qt.formatTime(when, Qt.locale().timeFormat(Locale.ShortFormat))
+            // ONE clock format for the whole application (Settings ->
+            // Appearance): 24-hour, 12-hour, or the system's. The setting
+            // resolves to a Qt format string on the C++ side, so nothing
+            // here has to know what "12-hour" spells. Read as a PROPERTY —
+            // a settings HELPER call would create no dependency anywhere.
+            //
+            // Honest limitation: this label is produced by a function, so
+            // it re-renders when its caller's binding next does rather than
+            // the instant the format changes. That is exactly what the
+            // locale read it replaces already did.
+            return Qt.formatTime(when, app.settings.clockTimeFormat)
         if (days < 2) return qsTr("Yesterday")
         if (days < 7) return Qt.formatDate(when, "ddd")
         if (when.getFullYear() === now.getFullYear())

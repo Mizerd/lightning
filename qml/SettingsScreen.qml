@@ -69,6 +69,52 @@ Item {
         { title: qsTr("Mouse-wheel speed"),
           keywords: qsTr("wheel speed scroll timeline"), section: "appearance",
           breadcrumb: qsTr("Appearance · Timeline") },
+        { title: qsTr("Joins, leaves and invites"),
+          keywords: qsTr("membership join leave invite kick ban activity hide"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          control: "showMembershipEvents" },
+        { title: qsTr("Display name and avatar changes"),
+          keywords: qsTr("profile change display name avatar activity hide"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          control: "showProfileChangeEvents" },
+        { title: qsTr("Reduce motion"),
+          keywords: qsTr("reduced motion animation accessibility vestibular"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Motion and time"),
+          control: "reducedMotion" },
+        { title: qsTr("Clock"),
+          keywords: qsTr("clock 24 hour time format am pm timestamp"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Motion and time") },
+        { title: qsTr("Show Space banners"),
+          keywords: qsTr("space banner header image hide show"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
+          control: "spaceBannersVisible" },
+        { title: qsTr("Conversation list width"),
+          keywords: qsTr("room list width panel size sidebar"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Panels") },
+        { title: qsTr("Side panel width"),
+          keywords: qsTr("side panel width members threads size"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Panels") },
+        { title: qsTr("Enter starts a new line"),
+          keywords: qsTr("enter newline send composer message box return"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          control: "enterInsertsNewline" },
+        { title: qsTr("Send text with an attachment as its caption"),
+          keywords: qsTr("caption attachment upload text description"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          control: "sendTextAsCaption" },
+
+        { title: qsTr("Keyboard shortcuts"),
+          keywords: qsTr("keyboard shortcut shortcuts key keys binding rebind hotkey"),
+          section: "shortcuts", breadcrumb: qsTr("Keyboard shortcuts") },
+        { title: qsTr("Reset all shortcuts"),
+          keywords: qsTr("reset shortcuts default keys"),
+          section: "shortcuts", breadcrumb: qsTr("Keyboard shortcuts") },
+        { title: qsTr("Bold, italic and code keys"),
+          keywords: qsTr("bold italic strikethrough code quote list formatting keys"),
+          section: "shortcuts",
+          breadcrumb: qsTr("Keyboard shortcuts · Message formatting") },
 
         { title: qsTr("Microphone"),
           keywords: qsTr("microphone mic input device voice call audio"),
@@ -348,6 +394,51 @@ Item {
         }
     }
 
+    // The Storm-skinned slider, extracted so a new one cannot arrive wearing
+    // the Basic style's default groove next to three that do not. The
+    // geometry and the white thumb are lifted verbatim from textScaleSlider
+    // (including the 2026-08-15 note about why the thumb never takes boltInk:
+    // it rides the fill BOUNDARY, so a dark disc reads as disabled past half
+    // range). Existing sliders are deliberately NOT converted in this round —
+    // that is a diff across four controls in another agent's reading path.
+    component SettingsSlider: Slider {
+        id: styledSlider
+        snapMode: Slider.SnapAlways
+        background: Rectangle {
+            x: styledSlider.leftPadding
+            y: styledSlider.topPadding + styledSlider.availableHeight / 2 - 2
+            width: styledSlider.availableWidth
+            height: 4
+            radius: AppTheme.radiusPill
+            color: AppTheme.stormInset
+            Rectangle {
+                width: styledSlider.visualPosition * parent.width
+                height: parent.height
+                radius: AppTheme.radiusPill
+                color: AppTheme.bolt
+            }
+        }
+        handle: Rectangle {
+            x: styledSlider.leftPadding
+               + styledSlider.visualPosition * (styledSlider.availableWidth - width)
+            y: styledSlider.topPadding + styledSlider.availableHeight / 2 - height / 2
+            width: 16
+            height: 16
+            radius: 8
+            color: "#FFFFFF"
+            Rectangle {
+                anchors.fill: parent
+                anchors.topMargin: 1
+                anchors.bottomMargin: -1
+                radius: 8
+                z: -1
+                color: "#40000000"
+            }
+            border.width: styledSlider.visualFocus ? 2 : 0
+            border.color: AppTheme.bolt
+        }
+    }
+
     // Storm §4 2f nav row: 32px, radiusTile; the active row fills
     // stormSelection, brightens icon (bolt) and label (stormText), and
     // carries the signature edge-bolt caret overhanging its left edge.
@@ -455,14 +546,15 @@ Item {
         }
     }
 
-    // Design-1d sections: "account" | "appearance" | "notifications"
-    // | "privacy" | "sessions" | "labs" | "about". The design opens on
-    // Appearance; deep links still land on their own section.
+    // Design-1d sections: "account" | "appearance" | "shortcuts"
+    // | "notifications" | "privacy" | "sessions" | "labs" | "about". The
+    // design opens on Appearance; deep links still land on their own section.
     property string section: "appearance"
 
     function sectionTitle(key) {
         if (key === "account") return qsTr("Account")
         if (key === "appearance") return qsTr("Appearance")
+        if (key === "shortcuts") return qsTr("Keyboard shortcuts")
         if (key === "notifications") return qsTr("Notifications")
         if (key === "privacy") return qsTr("Privacy & security")
         if (key === "sessions") return qsTr("Sessions")
@@ -474,6 +566,11 @@ Item {
     function sectionIcon(key) {
         if (key === "account") return "account_circle"
         if (key === "appearance") return "palette"
+        // The bundled Material Symbols font is a SUBSET and there is no
+        // plain "keyboard" glyph in it — an unmapped name renders as tofu
+        // and IconChromeTest fails on it. keyboard_return is the closest
+        // mapped key-shaped glyph.
+        if (key === "shortcuts") return "keyboard_return"
         if (key === "notifications") return "notifications"
         if (key === "privacy") return "verified_user"
         if (key === "sessions") return "devices"
@@ -515,6 +612,25 @@ Item {
     function goBack() {
         app.loggedIn ? app.showMain() : app.showLogin()
     }
+
+    // Clipboard access with no new C++ surface: an off-screen TextEdit is
+    // the same mechanism qml/MessageDelegate.qml uses for Copy, kept
+    // deliberately identical rather than reinvented. It is cleared straight
+    // after the copy so nothing lingers in a live item's text.
+    function copyToClipboard(value) {
+        if (!value || value.length === 0) return
+        settingsClipboardHelper.text = value
+        settingsClipboardHelper.selectAll()
+        settingsClipboardHelper.copy()
+        settingsClipboardHelper.text = ""
+    }
+    TextEdit {
+        id: settingsClipboardHelper
+        objectName: "settingsClipboardHelper"
+        visible: false
+        width: 0
+        height: 0
+    }
     Shortcut {
         sequence: "Escape"
         // Qt dispatches QEvent::Shortcut BEFORE the key ever reaches the
@@ -530,11 +646,22 @@ Item {
         enabled: !accountIdentityCard.editingDisplayName
         onActivated: root.goBack()
     }
-    // SPEC 1v: Ctrl+, focuses the settings search field. Scoped to this Item
+    // SPEC 1v: focuses the settings search field. Scoped to this Item
     // (a Loader-hosted view — see settingsViewLoader), so it only exists
     // while Settings is actually open.
+    //
+    // The sequence comes from ShortcutRegistry now (default still Ctrl+,).
+    // `bindingRevision` is read INSIDE the binding ON PURPOSE: sequenceFor()
+    // is a plain function call and therefore creates no dependency Qt can
+    // track, so without that read a rebind would not take effect until this
+    // component was next created — the same trap the media-cache handlers
+    // hit when an imperative assignment destroyed a binding, solved the same
+    // way, with a counter the binding reads.
     Shortcut {
-        sequence: "Ctrl+,"
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("app.settingsSearch")]
+        }
         onActivated: settingsSearchField.forceActiveFocus()
     }
 
@@ -877,6 +1004,66 @@ Item {
                                         onToggled: app.settings.notificationsEnabled =
                                             !app.settings.notificationsEnabled
                                     }
+                                    // A search entry naming a `control` that
+                                    // no switch here answers renders as a
+                                    // plain row — the entry would advertise
+                                    // an inline control it does not have. So
+                                    // every named control gets one.
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineShowMembership_" + resultRow.index
+                                        visible: resultRow.modelData.control === "showMembershipEvents"
+                                        // Follows the master switch, exactly
+                                        // like the real control in the pane:
+                                        // with room activity off this cannot
+                                        // change what is shown.
+                                        enabled: app.settings.showRoomActivity
+                                        checked: app.settings.showMembershipEvents
+                                        Accessible.name: qsTr("Joins, leaves and invites")
+                                        onToggled: app.settings.showMembershipEvents =
+                                            !app.settings.showMembershipEvents
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineShowProfileChanges_" + resultRow.index
+                                        visible: resultRow.modelData.control === "showProfileChangeEvents"
+                                        enabled: app.settings.showRoomActivity
+                                        checked: app.settings.showProfileChangeEvents
+                                        Accessible.name: qsTr("Display name and avatar changes")
+                                        onToggled: app.settings.showProfileChangeEvents =
+                                            !app.settings.showProfileChangeEvents
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineReducedMotion_" + resultRow.index
+                                        visible: resultRow.modelData.control === "reducedMotion"
+                                        checked: app.settings.reducedMotion
+                                        Accessible.name: qsTr("Reduce motion")
+                                        onToggled: app.settings.reducedMotion =
+                                            !app.settings.reducedMotion
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineSpaceBanners_" + resultRow.index
+                                        visible: resultRow.modelData.control === "spaceBannersVisible"
+                                        checked: app.settings.spaceBannersVisible
+                                        Accessible.name: qsTr("Show Space banners")
+                                        onToggled: app.settings.spaceBannersVisible =
+                                            !app.settings.spaceBannersVisible
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineEnterNewline_" + resultRow.index
+                                        visible: resultRow.modelData.control === "enterInsertsNewline"
+                                        checked: app.settings.enterInsertsNewline
+                                        Accessible.name: qsTr("Enter starts a new line")
+                                        onToggled: app.settings.enterInsertsNewline =
+                                            !app.settings.enterInsertsNewline
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineTextAsCaption_" + resultRow.index
+                                        visible: resultRow.modelData.control === "sendTextAsCaption"
+                                        checked: app.settings.sendTextAsCaption
+                                        Accessible.name: qsTr(
+                                            "Send text with an attachment as its caption")
+                                        onToggled: app.settings.sendTextAsCaption =
+                                            !app.settings.sendTextAsCaption
+                                    }
                                 }
                                 HoverHandler { id: resultHover }
                                 Accessible.role: Accessible.Button
@@ -941,6 +1128,11 @@ Item {
                         sectionKey: "appearance"
                         iconName: "palette"
                         navLabel: qsTr("Appearance")
+                    }
+                    SettingsNavRow {
+                        sectionKey: "shortcuts"
+                        iconName: "keyboard_return"
+                        navLabel: qsTr("Keyboard shortcuts")
                     }
                     SettingsNavRow {
                         sectionKey: "notifications"
@@ -2122,6 +2314,33 @@ Item {
                                                + "and room setting updates. Messages and "
                                                + "decryption warnings remain visible.")
                                 }
+                                // The two halves of "room activity".
+                                // Indented under the master and disabled
+                                // with it, because a sub-choice that stays
+                                // live under a switch that overrules it is
+                                // a control that lies about its own effect.
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showMembershipEventsCheck"
+                                    Layout.leftMargin: AppTheme.spacing16
+                                    enabled: app.settings.showRoomActivity
+                                    text: qsTr("Joins, leaves and invites")
+                                    checked: app.settings.showMembershipEvents
+                                    onToggled: app.settings.showMembershipEvents = checked
+                                    Accessible.description: qsTr(
+                                        "Show membership changes in timelines")
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showProfileChangeEventsCheck"
+                                    Layout.leftMargin: AppTheme.spacing16
+                                    enabled: app.settings.showRoomActivity
+                                    text: qsTr("Display name and avatar changes")
+                                    checked: app.settings.showProfileChangeEvents
+                                    onToggled: app.settings.showProfileChangeEvents = checked
+                                    Accessible.description: qsTr(
+                                        "Show profile changes in timelines")
+                                }
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8
                                     text: qsTr("Mouse-wheel speed")
@@ -2332,6 +2551,379 @@ Item {
                             }
                         }
 
+                    }
+
+                    // ════════════ Appearance (continued: motion, time,
+                    //              panels, composer) ════════════
+                    ColumnLayout {
+                        visible: root.section === "appearance"
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing12
+
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    text: qsTr("Motion and time")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "reducedMotionCheck"
+                                    text: qsTr("Reduce motion")
+                                    checked: app.settings.reducedMotion
+                                    onToggled: app.settings.reducedMotion = checked
+                                    Accessible.description: qsTr(
+                                        "Shorten or remove interface animations")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    // Deliberately does NOT claim "no
+                                    // animation anywhere": the setting
+                                    // reaches every site that reads
+                                    // AppTheme.reducedMotion, and a video
+                                    // playing in the timeline is content,
+                                    // not an interface animation.
+                                    text: qsTr("Shortens or removes interface "
+                                               + "animations — panel slides, "
+                                               + "fades and list reorders. "
+                                               + "Media you play still plays.")
+                                }
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Clock")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                }
+                                AppComboBox {
+                                    id: clockFormatCombo
+                                    objectName: "clockFormatCombo"
+                                    storm: true
+                                    Layout.fillWidth: true
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    // Values match SettingsManager's
+                                    // kClockFormat* constants.
+                                    model: [
+                                        { label: qsTr("Follow the system"), value: 0 },
+                                        { label: qsTr("12-hour (1:05 PM)"),  value: 1 },
+                                        { label: qsTr("24-hour (13:05)"),    value: 2 }
+                                    ]
+                                    // indexOfValue() is -1 at creation time
+                                    // (the model and valueRole have not
+                                    // settled), so the index is synced
+                                    // explicitly — never in a one-shot
+                                    // binding.
+                                    function syncFromSetting() {
+                                        syncToValue(app.settings.clockFormat)
+                                    }
+                                    Component.onCompleted: syncFromSetting()
+                                    Connections {
+                                        target: app.settings
+                                        function onClockFormatChanged() {
+                                            clockFormatCombo.syncFromSetting()
+                                        }
+                                    }
+                                    onActivated: app.settings.clockFormat = currentValue
+                                    Accessible.name: qsTr("Clock format")
+                                }
+                            }
+                        }
+
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    text: qsTr("Panels")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                // Both of these already existed as stored
+                                // settings and could only be changed FROM
+                                // THE BANNER ITSELF — so someone who hid a
+                                // Space banner had to find a small restore
+                                // control in the Space header to get it
+                                // back. The properties are unchanged; this
+                                // is only the place they can be reached.
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "spaceBannersVisibleCheck"
+                                    text: qsTr("Show Space banners")
+                                    checked: app.settings.spaceBannersVisible
+                                    onToggled: app.settings.spaceBannersVisible = checked
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "spaceBannerExpandedCheck"
+                                    Layout.leftMargin: AppTheme.spacing16
+                                    enabled: app.settings.spaceBannersVisible
+                                    text: qsTr("Show the whole banner instead of a strip")
+                                    checked: app.settings.spaceBannerExpanded
+                                    onToggled: app.settings.spaceBannerExpanded = checked
+                                }
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Conversation list width: %1 px")
+                                        .arg(app.settings.roomListWidth)
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                }
+                                SettingsSlider {
+                                    objectName: "roomListWidthSlider"
+                                    Layout.fillWidth: true
+                                    // Bounds come FROM SettingsManager, never
+                                    // retyped here. A slider whose range is
+                                    // narrower than the setter's clamp does
+                                    // not snap back visibly — it silently
+                                    // forbids widths the app supports, and a
+                                    // stored value outside the range renders
+                                    // the handle at a position that is not
+                                    // the stored value.
+                                    from: app.settings.roomListMinWidth
+                                    to: app.settings.roomListMaxWidth
+                                    stepSize: 10
+                                    value: app.settings.roomListWidth
+                                    onMoved: app.settings.roomListWidth = Math.round(value)
+                                    Accessible.name: qsTr("Conversation list width")
+                                }
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Side panel width: %1 px")
+                                        .arg(app.settings.sidePanelWidth)
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                }
+                                SettingsSlider {
+                                    objectName: "sidePanelWidthSlider"
+                                    Layout.fillWidth: true
+                                    from: app.settings.sidePanelMinWidth
+                                    to: app.settings.sidePanelMaxWidth
+                                    stepSize: 10
+                                    value: app.settings.sidePanelWidth
+                                    onMoved: app.settings.sidePanelWidth = Math.round(value)
+                                    Accessible.name: qsTr("Side panel width")
+                                }
+                            }
+                        }
+
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    text: qsTr("Message box")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "enterInsertsNewlineCheck"
+                                    text: qsTr("Enter starts a new line")
+                                    checked: app.settings.enterInsertsNewline
+                                    onToggled: app.settings.enterInsertsNewline = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    // States BOTH keys in both states, so
+                                    // the setting can be read without
+                                    // toggling it to find out.
+                                    text: app.settings.enterInsertsNewline
+                                        ? qsTr("Enter starts a new line; Ctrl+Enter sends.")
+                                        : qsTr("Enter sends; Shift+Enter starts a new line.")
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "sendTextAsCaptionCheck"
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Send text with an attachment as its caption")
+                                    checked: app.settings.sendTextAsCaption
+                                    onToggled: app.settings.sendTextAsCaption = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    // Honest about the interop cost: a
+                                    // caption is a field on the attachment
+                                    // event, and a client that ignores it
+                                    // shows the file with no text at all.
+                                    text: qsTr("One event instead of two. Clients "
+                                               + "that do not understand captions "
+                                               + "show the attachment without the "
+                                               + "text.")
+                                }
+                            }
+                        }
+                    }
+
+                    // ════════════ Keyboard shortcuts ════════════
+                    // Every rebindable action, grouped by category, sourced
+                    // from ShortcutRegistry. The rows are a Repeater over
+                    // the model rather than a hand-written list, so an
+                    // action added in C++ appears here without a QML change
+                    // — the failure mode this replaces is a settings page
+                    // that silently stops listing half the shortcuts.
+                    ColumnLayout {
+                        visible: root.section === "shortcuts"
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing12
+
+                        Label {
+                            text: qsTr("Keyboard shortcuts")
+                            color: AppTheme.stormText
+                            font.pixelSize: AppTheme.textTitle
+                            font.weight: AppTheme.weightBold
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.topMargin: -AppTheme.spacing8
+                            wrapMode: Text.WordWrap
+                            text: qsTr("Per account, like your theme. Press Change "
+                                       + "and then the combination you want.")
+                            color: AppTheme.stormTextMuted
+                            font.pixelSize: AppTheme.textMeta
+                        }
+
+                        // Only rendered when something is actually wrong.
+                        // setBinding refuses to CREATE a conflict, so a
+                        // non-zero count here means a settings file written
+                        // by hand or by a newer build — worth saying out
+                        // loud, because the symptom (two shortcuts both
+                        // doing nothing) points nowhere near the cause.
+                        Loader {
+                            Layout.fillWidth: true
+                            active: app.shortcuts.conflictCount > 0
+                            visible: active
+                            sourceComponent: Rectangle {
+                                objectName: "shortcutConflictBanner"
+                                implicitHeight: conflictBannerLabel.implicitHeight
+                                                + AppTheme.spacing12 * 2
+                                radius: AppTheme.radiusMd
+                                // stormDangerSoft / stormDangerBorder, not a
+                                // hand-mixed alpha: SettingsScreen speaks only
+                                // the storm vocabulary (ThemeTokensTest bans
+                                // AppTheme.danger and Qt.rgba in this file),
+                                // and those two tokens ARE the pre-mixed
+                                // 10%/30% danger tint the Danger Zone uses.
+                                color: AppTheme.stormDangerSoft
+                                border.width: 1
+                                border.color: AppTheme.stormDangerBorder
+                                Label {
+                                    id: conflictBannerLabel
+                                    anchors.fill: parent
+                                    anchors.margins: AppTheme.spacing12
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Some shortcuts share a key. Qt fires "
+                                               + "neither of two shortcuts on the same "
+                                               + "combination, so both actions are "
+                                               + "currently doing nothing. Change one "
+                                               + "of each pair, or reset everything.")
+                                }
+                            }
+                        }
+
+                        Repeater {
+                            model: app.shortcuts.categories()
+                            delegate: SettingsCard {
+                                id: shortcutCategoryCard
+                                required property string modelData
+                                ColumnLayout {
+                                    width: parent.width
+                                    spacing: AppTheme.spacing8
+                                    Label {
+                                        text: shortcutCategoryCard.modelData
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightStrong
+                                    }
+                                    Repeater {
+                                        model: app.shortcuts
+                                        delegate: ShortcutRow {
+                                            // Role names are prefixed in
+                                            // ShortcutRegistry::roleNames
+                                            // precisely so they can be
+                                            // assigned onto this component's
+                                            // own like-named properties
+                                            // without colliding with them.
+                                            actionId: model.shortcutId
+                                            description: model.shortcutDescription
+                                            currentSequence: model.shortcutCurrent
+                                            defaultSequence: model.shortcutDefault
+                                            isDefault: model.shortcutIsDefault
+                                            conflictsWith: model.shortcutConflict
+                                            shadowNote: model.shortcutShadow
+                                            // Each category card renders the
+                                            // WHOLE model and hides the rows
+                                            // that are not its own. A filter
+                                            // proxy per category would be
+                                            // five more QObjects for a list
+                                            // of eighteen rows, and Qt Quick
+                                            // Layouts skip an invisible item
+                                            // entirely, so the card does not
+                                            // grow around the hidden ones.
+                                            visible: model.shortcutCategory
+                                                     === shortcutCategoryCard.modelData
+                                            Layout.fillWidth: true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    // The two things a user will otherwise
+                                    // discover by being confused: why a
+                                    // bare letter is refused, and why
+                                    // Ctrl+B does two different things.
+                                    text: qsTr("A shortcut needs Ctrl, Alt or Super: "
+                                               + "Lightning takes the key before any "
+                                               + "text box sees it, so a plain letter "
+                                               + "would stop you typing that letter "
+                                               + "anywhere.\n\n"
+                                               + "Message formatting keys apply only "
+                                               + "while the message box has focus. "
+                                               + "Everywhere else, the same key still "
+                                               + "does its usual job.\n\n"
+                                               + "Escape, and the single letters the "
+                                               + "message menu uses while it is open, "
+                                               + "are reserved and cannot be assigned.")
+                                }
+                                AppButton {
+                                    storm: true
+                                    size: "sm"
+                                    objectName: "shortcutResetAllButton"
+                                    text: qsTr("Reset all shortcuts")
+                                    enabled: app.shortcuts.anyCustomised
+                                    onClicked: app.shortcuts.resetAll()
+                                }
+                            }
+                        }
                     }
 
                     // ════════════ Privacy & security (design 1d) ════════════
@@ -3062,13 +3654,55 @@ Item {
                                             }
                                             Item { Layout.fillWidth: true }
                                         }
-                                        Label {
+                                        // The Matrix ID was displayed and
+                                        // could not be COPIED — it is
+                                        // elided, so on a long localpart it
+                                        // could not even be read in full,
+                                        // and it is the one string a person
+                                        // has to hand to someone else to be
+                                        // found at all.
+                                        RowLayout {
                                             Layout.fillWidth: true
-                                            text: app.accounts ? (app.accounts.activeUserId || "") : ""
-                                            color: AppTheme.stormTextMuted
-                                            font.family: AppTheme.monoFont
-                                            font.pixelSize: AppTheme.textMeta
-                                            elide: Label.ElideMiddle
+                                            spacing: AppTheme.spacing4
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: app.accounts ? (app.accounts.activeUserId || "") : ""
+                                                color: AppTheme.stormTextMuted
+                                                font.family: AppTheme.monoFont
+                                                font.pixelSize: AppTheme.textMeta
+                                                elide: Label.ElideMiddle
+                                            }
+                                            IconButton {
+                                                objectName: "copyMatrixIdButton"
+                                                implicitWidth: 24
+                                                implicitHeight: 24
+                                                radius: AppTheme.radiusControl
+                                                iconName: "content_copy"
+                                                iconSize: 14
+                                                visible: app.accounts
+                                                         && app.accounts.activeUserId !== ""
+                                                Accessible.name: qsTr("Copy Matrix ID")
+                                                ToolTip.text: matrixIdCopied.running
+                                                    ? qsTr("Copied") : qsTr("Copy Matrix ID")
+                                                ToolTip.visible: hovered
+                                                ToolTip.delay: 500
+                                                onClicked: {
+                                                    root.copyToClipboard(
+                                                        app.accounts
+                                                        ? app.accounts.activeUserId : "")
+                                                    matrixIdCopied.restart()
+                                                }
+                                                // Feedback lives in the
+                                                // tooltip rather than in a
+                                                // swapped glyph: the icon
+                                                // font is a SUBSET and has
+                                                // no "check" that reads as a
+                                                // copy confirmation at 14px.
+                                                Timer {
+                                                    id: matrixIdCopied
+                                                    interval: 1500
+                                                }
+                                            }
                                         }
                                         Label {
                                             visible: app.backendName === "rust" && app.sessionDeviceId !== ""

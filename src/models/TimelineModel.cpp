@@ -72,9 +72,45 @@ QString TimelineModel::senderInitials(const TimelineEvent &event) const
     return initials.toUpper();
 }
 
+namespace {
+/// Whether a call row states VIDEO intent, in either shape.
+///
+/// The typed field is authoritative; the legacy state-kind spelling
+/// ("m.call.video") is the only thing a pre-2026-08-26 row carries, so both
+/// are read. False means "not known to be video", NEVER "audio only".
+bool callRowIsVideo(const TimelineEvent &e)
+{
+    return e.callIsVideo || e.stateKind == QLatin1String("m.call.video");
+}
+} // namespace
+
+// A call somebody started, in EITHER shape.
+//
+// The Rust bridge emits `msgtype: "call"` (TimelineEvent::CallEvent) since
+// 2026-08-26. Before that it emitted a state event with `state_kind
+// "m.call"`, and the mock/HTTP backends still can — those rows must render
+// as calls too, or a cached timeline (and every test written against the
+// mock's state-event helper) falls back into the "N room updates" group this
+// exists to get calls out of.
+bool TimelineModel::isCallEventRow(const TimelineEvent &e)
+{
+    if (e.type == TimelineEvent::CallEvent)
+        return true;
+    return e.type == TimelineEvent::StateChange
+        && (e.stateKind == QLatin1String("m.call")
+            || e.stateKind == QLatin1String("m.call.video"));
+}
+
 bool TimelineModel::isVisualMessage(const TimelineEvent &event) const
 {
-    return !event.isVirtual() && event.type != TimelineEvent::StateChange;
+    // A call row is NOT a visual message for grouping purposes, for the same
+    // reason a state row is not: it carries no sender identity header and it
+    // must BREAK a sender group rather than continue one. Counting it as a
+    // message would let two messages from the same person either side of a
+    // call keep one grouped block, hiding the call between two continuation
+    // lines.
+    return !event.isVirtual() && event.type != TimelineEvent::StateChange
+        && !isCallEventRow(event);
 }
 
 int TimelineModel::previousMessageRowForGrouping(int row) const
@@ -451,14 +487,20 @@ bool isRtcMembershipKind(const QString &kind)
 int TimelineModel::stateGroupLeaderRow(int row) const
 {
     if (row < 0 || row >= m_events.size()
-        || m_events.at(row).type != TimelineEvent::StateChange)
+        || m_events.at(row).type != TimelineEvent::StateChange
+        || isCallEventRow(m_events.at(row)))
         return -1;
 
     int leader = row;
     int probe = row - 1;
     while (probe >= 0) {
         const auto &e = m_events.at(probe);
-        if (e.type == TimelineEvent::StateChange) {
+        // A LEGACY-shaped call row (state event, kind "m.call") is content,
+        // not activity: it draws its own tile, so it ends the run exactly
+        // like a message does. Without this it would join the run — and, as
+        // the run's first row, LEAD it, drawing the group summary on top of
+        // its own call tile.
+        if (e.type == TimelineEvent::StateChange && !isCallEventRow(e)) {
             leader = probe;
             --probe;
             continue;
@@ -467,7 +509,7 @@ int TimelineModel::stateGroupLeaderRow(int row) const
             --probe;
             continue;
         }
-        break; // a visible message/media event ends the group here.
+        break; // a visible message/media/call event ends the group here.
     }
     return leader;
 }
@@ -521,7 +563,7 @@ int TimelineModel::stateActivityRowCount() const
 {
     int count = 0;
     for (const auto &event : m_events) {
-        if (event.type == TimelineEvent::StateChange)
+        if (event.type == TimelineEvent::StateChange && !isCallEventRow(event))
             ++count;
     }
     return count;
@@ -537,6 +579,8 @@ int TimelineModel::stateGroupCount() const
     for (int row = 0; row < m_events.size(); ++row) {
         if (m_events.at(row).type != TimelineEvent::StateChange)
             continue;
+        if (isCallEventRow(m_events.at(row)))
+            continue;
         if (stateGroupLeaderRow(row) == row)
             ++groups;
     }
@@ -548,6 +592,13 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
     QVariantList entries;
     for (int i = leaderRow; i < m_events.size();) {
         const auto &e = m_events.at(i);
+        // A call ENDS the run rather than being skipped inside it: it draws
+        // its own row, so the state rows before and after it are two
+        // separate annotations with a piece of room history between them.
+        // This is also the whole fix for the reported "1 room update"
+        // expanding to "call event".
+        if (isCallEventRow(e))
+            break;
         if (e.type == TimelineEvent::StateChange) {
             // Call membership is skipped but does NOT end the run: the rows
             // stay in place (they hold their position in the SDK's index
@@ -629,6 +680,27 @@ QString TimelineModel::profileChangeDescription(const TimelineEvent &e,
     return tr("%1 updated their profile.").arg(actor);
 }
 
+QString TimelineModel::callEventDescription(const TimelineEvent &e,
+                                           const QString &actorDisplayName)
+{
+    const QString actor = actorDisplayName.isEmpty()
+        ? matrix::user_lookup::localpartOrUserId(e.sender)
+        : actorDisplayName;
+    // ONLY the actor is substituted, and it is a resolved display name — the
+    // same string every other row shows for this person. Nothing the caller
+    // WROTE appears anywhere in this sentence: the row carries a Join
+    // control, and free text chosen by a remote sender must never label a
+    // control the reader is invited to click (the rule the tombstone banner
+    // established). The declined COUNT is a separate role, not part of the
+    // sentence, so a translator never has to phrase a plural inside it.
+    //
+    // "started a call" covers a video call too. A legacy m.call.invite
+    // states no intent at all, so `callIsVideo` false means "not known to be
+    // video" and the generic wording is the only honest one for it.
+    return callRowIsVideo(e) ? tr("%1 started a video call.").arg(actor)
+                             : tr("%1 started a call.").arg(actor);
+}
+
 QString TimelineModel::visibleBodyFor(const TimelineEvent &e) const
 {
     if (e.redacted)
@@ -644,6 +716,13 @@ QString TimelineModel::visibleBodyFor(const TimelineEvent &e) const
         && (!e.profileNameChange.isEmpty() || e.profileAvatarChanged
             || e.body.isEmpty()))
         return profileChangeDescription(e, senderDisplayName(e));
+    // Same contract as the profile change above, and for the same reason:
+    // the Rust bridge sends an EMPTY body for a call row on purpose. A
+    // backend that phrased the row itself (mock, HTTP, a row restored from
+    // an older cache) keeps its own sentence — replacing a body we did not
+    // produce would DISCARD what that backend knew.
+    if (isCallEventRow(e) && e.body.isEmpty())
+        return callEventDescription(e, senderDisplayName(e));
     return e.body;
 }
 
@@ -665,10 +744,15 @@ bool TimelineModel::dividerIntroducesVisibleContent(int dividerRow) const
             return false;   // the next day answers for its own run
         if (e.isVirtual())
             continue;       // read markers / timeline-start draw no content
+        // A call draws its own row unconditionally, so a divider that
+        // introduces one keeps its date even when every other row in the run
+        // is hidden activity.
+        if (isCallEventRow(e))
+            return true;
         if (e.type != TimelineEvent::StateChange)
             return true;
         const bool routine = !e.stateKind.isEmpty();
-        if (routine && !m_showRoomActivity)
+        if (routine && !activityKindVisible(e.stateKind))
             continue;
         // State groups are transparent through virtual rows, so a run that
         // began BEFORE this divider keeps its leader up there and this
@@ -687,16 +771,59 @@ bool TimelineModel::dividerIntroducesVisibleContent(int dividerRow) const
     return false;
 }
 
+// Which routine state rows are shown. The Rust bridge has distinguished
+// these all along — rust/src/timeline.rs emits state_kind "membership" and
+// "member_profile" — and only this filter conflated them, by testing that
+// the kind was NON-EMPTY rather than testing its value. Anything that is
+// neither (room settings, topic, name…) follows the master switch alone,
+// because there is no third toggle and inventing one silently would be
+// worse than the coarse behaviour it replaced.
+bool TimelineModel::activityKindVisible(const QString &stateKind) const
+{
+    if (!m_showRoomActivity)
+        return false;
+    if (stateKind == QLatin1String("membership"))
+        return m_showMembershipEvents;
+    if (stateKind == QLatin1String("member_profile"))
+        return m_showProfileChangeEvents;
+    return true;
+}
+
 void TimelineModel::setShowRoomActivity(bool show)
 {
     if (m_showRoomActivity == show)
         return;
     m_showRoomActivity = show;
     Q_EMIT showRoomActivityChanged();
-    // Every divider's answer depends on this preference, so the whole
+    refreshActivityPresentation();
+}
+
+void TimelineModel::setShowMembershipEvents(bool show)
+{
+    if (m_showMembershipEvents == show)
+        return;
+    m_showMembershipEvents = show;
+    Q_EMIT showMembershipEventsChanged();
+    refreshActivityPresentation();
+}
+
+void TimelineModel::setShowProfileChangeEvents(bool show)
+{
+    if (m_showProfileChangeEvents == show)
+        return;
+    m_showProfileChangeEvents = show;
+    Q_EMIT showProfileChangeEventsChanged();
+    refreshActivityPresentation();
+}
+
+void TimelineModel::refreshActivityPresentation()
+{
+    // Every divider's answer depends on these preferences, so the whole
     // loaded range is re-announced — through the ONE existing presentation
     // refresh, not a second invalidation path. This runs once per user
-    // toggle, never per frame and never per scroll position.
+    // toggle, never per frame and never per scroll position. Shared by all
+    // three setters so a sub-toggle can never refresh differently from the
+    // master.
     const int exposed = rowCount();
     if (exposed > 0)
         emitPresentationGroupingChanged(0, exposed - 1);
@@ -1022,12 +1149,26 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     }
     case SenderInitialsRole: return senderInitials(e);
     case StableEventIdRole: return e.itemId.isEmpty() ? e.eventId : e.itemId;
-    case IsStateActivityRole: return e.type == TimelineEvent::StateChange;
+    // A call row answers FALSE to both, in either shape. That is the whole
+    // routing decision: `isStateActivity` is what puts a row inside the
+    // collapsed group, and `isRoutineActivity` is what lets the
+    // room-activity preference hide it. A call is room history — it draws
+    // its own tile and it is never hidden by a preference about room
+    // settings.
+    case IsStateActivityRole:
+        return e.type == TimelineEvent::StateChange && !isCallEventRow(e);
     // Typed membership/profile/room-state events are routine annotations.
-    // StateChange rows without a kind include call/RTC notifications and
+    // StateChange rows without a kind include untyped notifications and
     // remain visible because they are not proven routine activity.
     case IsRoutineActivityRole:
-        return e.type == TimelineEvent::StateChange && !e.stateKind.isEmpty();
+        return e.type == TimelineEvent::StateChange && !e.stateKind.isEmpty()
+            && !isCallEventRow(e);
+    case IsCallEventRole: return isCallEventRow(e);
+    case CallEventTextRole:
+        return isCallEventRow(e) ? visibleBodyFor(e) : QString{};
+    case CallIsVideoRole: return isCallEventRow(e) && callRowIsVideo(e);
+    case CallDeclinedCountRole:
+        return isCallEventRow(e) ? e.callDeclinedCount : 0;
     case StateKindRole: return e.stateKind;
     case StateGroupIdRole: {
         const int leader = stateGroupLeaderRow(raw);
@@ -1117,6 +1258,10 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { SameSenderAsPreviousRole, "sameSenderAsPrevious" },
         { IsStateActivityRole,      "isStateActivity" },
         { IsRoutineActivityRole,    "isRoutineActivity" },
+        { IsCallEventRole,          "isCallEvent" },
+        { CallEventTextRole,        "callEventText" },
+        { CallIsVideoRole,          "callIsVideo" },
+        { CallDeclinedCountRole,    "callDeclinedCount" },
         { StateKindRole,            "stateKind" },
         { StateGroupIdRole,         "stateGroupId" },
         { StateGroupLeaderRole,     "stateGroupLeader" },
@@ -1755,7 +1900,14 @@ QVariantMap TimelineModel::layoutMetadataAt(int row) const
     case TimelineEvent::File: rowKind = QStringLiteral("file"); break;
     case TimelineEvent::Audio: rowKind = QStringLiteral("audio"); break;
     case TimelineEvent::Poll: rowKind = QStringLiteral("poll"); break;
-    case TimelineEvent::StateChange: rowKind = QStringLiteral("state"); break;
+    case TimelineEvent::StateChange:
+        // The legacy call shape is a state event, so ask the predicate
+        // rather than the type — otherwise one call row reports "state" and
+        // an identical one reports "call".
+        rowKind = isCallEventRow(e) ? QStringLiteral("call")
+                                    : QStringLiteral("state");
+        break;
+    case TimelineEvent::CallEvent: rowKind = QStringLiteral("call"); break;
     case TimelineEvent::DateDivider:
     case TimelineEvent::ReadMarker:
     case TimelineEvent::TimelineStart:
@@ -1796,11 +1948,16 @@ QVariantMap TimelineModel::layoutMetadataAt(int row) const
     metadata.insert(QStringLiteral("hasThreadSummary"), e.isThreadRoot);
     metadata.insert(QStringLiteral("hasReactions"),
                     !e.redacted && !e.reactions.isEmpty());
+    // Kept in step with IsRoutineActivityRole / StateGroupLeaderRole by
+    // reading the SAME call predicate: this metadata drives the height seed,
+    // and a seed that thinks a call row is a collapsed activity line would
+    // reserve one text line for a tile.
     metadata.insert(QStringLiteral("isRoutineActivity"),
                     e.type == TimelineEvent::StateChange
-                    && !e.stateKind.isEmpty());
+                    && !e.stateKind.isEmpty() && !isCallEventRow(e));
     metadata.insert(QStringLiteral("stateGroupLeader"),
                     e.type == TimelineEvent::StateChange
+                    && !isCallEventRow(e)
                     && stateGroupLeaderRow(row) == row);
     metadata.insert(QStringLiteral("pollAnswerCount"), e.pollAnswers.size());
     return metadata;

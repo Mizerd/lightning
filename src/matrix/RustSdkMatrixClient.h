@@ -372,6 +372,8 @@ public:
     // v0.7.x room administration + pinned messages.
     quint64 setMemberPowerLevel(const QString &roomId, const QString &userId,
                                 qlonglong level) override;
+    quint64 setRoomPowerLevelKey(const QString &roomId, const QString &key,
+                                 qlonglong level) override;
     quint64 setRoomJoinRule(const QString &roomId,
                             const QString &rule) override;
     quint64 setRoomCanonicalAlias(const QString &roomId,

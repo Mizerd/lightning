@@ -10,28 +10,44 @@ import MatrixClient
 // E2EE / SAS / recovery / backend behaviour is unchanged.
 Item {
     // Panel visibility. Ctrl+B for the room list and Ctrl+Shift+B for the
-    // spaces rail — the editor convention, and both are mirrored as switches
-    // in Settings -> Appearance so neither can be turned off and then be
-    // impossible to find again.
+    // spaces rail by default — the editor convention, and both are mirrored
+    // as switches in Settings -> Appearance so neither can be turned off and
+    // then be impossible to find again.
+    // Sequences come from ShortcutRegistry (Settings -> Keyboard shortcuts).
+    // bindingRevision is read INSIDE each binding on purpose: sequenceFor()
+    // is a function call and creates no dependency Qt can track, so without
+    // it a rebind would not apply until this component was next created.
     Shortcut {
-        sequences: ["Ctrl+B"]
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("shell.toggleRoomList")]
+        }
         onActivated: app.settings.roomListVisible = !app.settings.roomListVisible
     }
     Shortcut {
-        sequences: ["Ctrl+Shift+B"]
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("shell.toggleSpacesRail")]
+        }
         onActivated:
             app.settings.spacesRailVisible = !app.settings.spacesRailVisible
     }
     // v0.6.1: Ctrl+K quick switcher over rooms / DMs / Spaces / invites.
     Shortcut {
-        sequences: ["Ctrl+K"]
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.quickSwitcher")]
+        }
         onActivated: quickSwitcher.open()
     }
     // v0.6.5 (SPEC 1k): Ctrl+Shift+K opens the switcher straight into command
     // mode (the declarative action list) instead of requiring the user to
     // type ">" first.
     Shortcut {
-        sequences: ["Ctrl+Shift+K"]
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.commandMode")]
+        }
         onActivated: quickSwitcher.openCommandMode()
     }
     QuickSwitcher {
@@ -42,9 +58,37 @@ Item {
 
     // v0.7.x: global server-side message search (Ctrl+Shift+F).
     Shortcut {
-        sequences: ["Ctrl+Shift+F"]
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.messageSearch")]
+        }
         enabled: app.loggedIn && app.messageSearch.supported
         onActivated: messageSearchDialog.openDialog()
+    }
+    // NEW (registry: nav.newConversation). The dialog already exists and is
+    // reached from HomePane's Create room / Create Space buttons; nothing
+    // opened it from the keyboard. It opens on the Room tab because that is
+    // what the registry row describes ("Create a room or Space") - the DM and
+    // Space tabs are one click away inside the same dialog.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.newConversation")]
+        }
+        enabled: app.loggedIn
+        onActivated: roomsPanel.startConversation("room")
+    }
+    // NEW (registry: room.markRead). markRoomRead is already the ONE path
+    // that sends both the public receipt and m.fully_read (it takes its
+    // target from Room::latest_event on the Rust backend), so this adds a
+    // key and no new semantics.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("room.markRead")]
+        }
+        enabled: app.loggedIn && app.currentRoomId !== ""
+        onActivated: app.roomList.markRoomRead(app.currentRoomId)
     }
     MessageSearchDialog {
         id: messageSearchDialog

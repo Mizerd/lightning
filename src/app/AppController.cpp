@@ -174,6 +174,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // loads, so the first frame is already in the user's language.
     m_localization = std::make_unique<LocalizationManager>(m_settings.get(), this);
     m_customTheme = std::make_unique<CustomThemeStore>(m_settings.get(), this);
+    // Constructed with the settings, before any QML exists: the first frame
+    // must already carry the user's bindings, not the defaults followed by
+    // a correction the eye can catch.
+    m_shortcuts = std::make_unique<ShortcutRegistry>(m_settings.get(), this);
     m_railLayout = std::make_unique<RailLayoutStore>(m_settings.get(), this);
     m_railEntries = std::make_unique<RailEntryModel>(this);
     m_mediaVisibility = std::make_unique<MediaVisibilityStore>(this);
@@ -804,11 +808,28 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     const auto applyRoomActivityVisibility = [this]() {
         const bool shown = m_settings->showRoomActivity();
         m_timeline->setShowRoomActivity(shown);
-        if (m_thread)
+        // The master switch has two sub-toggles since 2026-08-26: membership
+        // changes and profile changes are separate annotations and Sable lets
+        // them be hidden independently. Both halves have to be PUSHED — the
+        // model mirrors default to true, so without this only the QML row
+        // filter would honour them and the date dividers would keep counting
+        // rows nobody can see.
+        const bool members = m_settings->showMembershipEvents();
+        const bool profiles = m_settings->showProfileChangeEvents();
+        m_timeline->setShowMembershipEvents(members);
+        m_timeline->setShowProfileChangeEvents(profiles);
+        if (m_thread) {
             m_thread->model()->setShowRoomActivity(shown);
+            m_thread->model()->setShowMembershipEvents(members);
+            m_thread->model()->setShowProfileChangeEvents(profiles);
+        }
     };
     applyRoomActivityVisibility();
     connect(m_settings.get(), &SettingsManager::showRoomActivityChanged,
+            this, applyRoomActivityVisibility);
+    connect(m_settings.get(), &SettingsManager::showMembershipEventsChanged,
+            this, applyRoomActivityVisibility);
+    connect(m_settings.get(), &SettingsManager::showProfileChangeEventsChanged,
             this, applyRoomActivityVisibility);
     m_linkPreviews->setClient(m_client.get());
     m_gifTransport->setClient(m_client.get());
@@ -1790,6 +1811,8 @@ void AppController::cancelVoiceRecording()
 }
 
 SettingsManager *AppController::settings() const { return m_settings.get(); }
+ShortcutRegistry *AppController::shortcuts() const
+{ return m_shortcuts.get(); }
 LocalizationManager *AppController::localization() const
 { return m_localization.get(); }
 CustomThemeStore *AppController::customTheme() const
@@ -3621,6 +3644,12 @@ void AppController::switchToAccount(const QString &userId)
 
     m_settings->setActiveAccountUserId(target);
     clearCrossAccountCaches();
+    // Shortcut bindings are per account. The registry caches the resolved
+    // sequences (data() runs once per role per row per repaint, so a
+    // QSettings read per miss would be a real cost), so the switch has to
+    // be ANNOUNCED — it cannot be discovered.
+    if (m_shortcuts)
+        m_shortcuts->reload();
     if (!m_client->restoreSession()) {
         qCWarning(lcApp) << "account switch restore failed"
                          << "slug=" << matrix::app_data::safeUserSlug(target);

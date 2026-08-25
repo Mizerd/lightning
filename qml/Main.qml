@@ -266,7 +266,15 @@ ApplicationWindow {
     // the window is hidden in the tray — a hidden window has no focus — which
     // is why restoring from the tray comes first.
     Shortcut {
-        sequences: ["Ctrl+Q"]
+        // Sequence from ShortcutRegistry (Settings -> Keyboard shortcuts).
+        // bindingRevision is read INSIDE the binding on purpose: sequenceFor()
+        // is a function call and creates no dependency Qt can track, so
+        // without it a rebind would not apply until this component was next
+        // created.
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("app.quit")]
+        }
         context: Qt.ApplicationShortcut
         onActivated: {
             window.quitRequested = true
@@ -377,6 +385,30 @@ ApplicationWindow {
         target: AppTheme
         property: "systemDark"
         value: app.systemDarkMode
+    }
+    // Reduced motion, assigned at last. AppTheme has DECLARED `reducedMotion`
+    // since the design round and ~20 branches across ten QML files consume it
+    // — and nothing ever wrote it, so every one of those branches was dead.
+    //
+    // PUSHED IN from here rather than read inside the singleton, exactly like
+    // `mode` and `customOverrides` above: AppTheme is a `pragma Singleton`
+    // that may be created before the `app` context property exists, and an
+    // `app.` dereference inside it would be resolved at whatever moment the
+    // singleton happens to be built.
+    Binding {
+        target: AppTheme
+        property: "reducedMotion"
+        value: app.settings ? app.settings.reducedMotion : false
+    }
+    // Composer policy, pushed into the C++ composer the same way the theme
+    // settings are pushed into AppTheme. MessageComposer holds no
+    // SettingsManager (its collaborators are injected), and a setting nothing
+    // ever writes is the dead-branch failure `reducedMotion` just cost us —
+    // so the one place that owns both objects does the assignment.
+    Binding {
+        target: app.composer
+        property: "sendTextAsCaption"
+        value: app.settings ? app.settings.sendTextAsCaption : false
     }
     // The user-authored palette (Settings → Appearance → Custom theme).
     // Pushed in the same way as the theme id, so selecting Custom and editing
@@ -567,15 +599,29 @@ ApplicationWindow {
         zoomNotice.show()
     }
     Shortcut {
-        sequences: ["Ctrl+=", "Ctrl++"]
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            // Ctrl++ stays a hard-coded ALTERNATE. Keyboards differ on
+            // whether Ctrl+= or Ctrl++ is reachable, and the registry stores
+            // ONE sequence per action — dropping the alternate would silently
+            // remove zoom-in on some layouts. It is deliberately not a
+            // registry row: it is the same action, not a second one.
+            return [app.shortcuts.sequenceFor("view.zoomIn"), "Ctrl++"]
+        }
         onActivated: window._adjustZoom(5)
     }
     Shortcut {
-        sequences: ["Ctrl+-"]
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("view.zoomOut")]
+        }
         onActivated: window._adjustZoom(-5)
     }
     Shortcut {
-        sequences: ["Ctrl+0"]
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("view.zoomReset")]
+        }
         onActivated: window._adjustZoom(0)
     }
 

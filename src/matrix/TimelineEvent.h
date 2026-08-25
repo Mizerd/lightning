@@ -68,6 +68,13 @@ struct TimelineEvent {
         // v0.7: MSC3381 polls (Rust backend only). Appended last so
         // persisted integer values stay stable.
         Poll,
+        // 2026-08-26: a call somebody started (SDK CallInvite /
+        // RtcNotification). Its own row kind, NOT a StateChange: riding
+        // `state` put it inside the collapsed room-activity group, where one
+        // call rendered as "1 room update" expanding to the literal words
+        // "call event". Appended last so every persisted integer value above
+        // stays stable.
+        CallEvent,
     };
 
     enum Status {
@@ -98,6 +105,28 @@ struct TimelineEvent {
     QString profileNameOld;
     QString profileNameNew;
     bool profileAvatarChanged = false;
+
+    // 2026-08-26: typed call row (type == CallEvent). Every field is
+    // PRESENTATION-SAFE and closed-set — no free text chosen by a sender
+    // reaches this row, because the row carries a Join control and the
+    // tombstone rule applies: what a remote user wrote must never label a
+    // control the reader is invited to click.
+    //   callEventKind: "invite" (legacy m.call.invite) | "notification"
+    //                  (MatrixRTC m.rtc.notification). Empty on a backend
+    //                  that states no kind. Carried but NOT branched on
+    //                  today: both read "started a call", and the row's Join
+    //                  control is gated on the room having a LIVE MatrixRTC
+    //                  session rather than on which row you clicked — that
+    //                  is the honest gate for either kind, and it is the
+    //                  same one RoomCallBanner uses.
+    //   callIsVideo:   the caller's stated VIDEO intent. False means "not
+    //                  known to be video", never "audio only" — the legacy
+    //                  invite states no intent at all, and the sentence
+    //                  ("started a call") is true either way.
+    //   callDeclinedCount: how many people declined. A COUNT, never the ids.
+    QString callEventKind;
+    bool callIsVideo = false;
+    int callDeclinedCount = 0;
     QString formattedBody;
     QDateTime timestamp;
     Type type = TextMessage;
