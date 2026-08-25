@@ -2323,91 +2323,94 @@ only — launchers keep the packaged hicolor icon. SDK-internal
 receipt-loss mechanisms Lightning cannot fix without patching
 matrix-sdk-ui 0.18 are in `docs/receipt-semantics.md`. **NOT TESTED**.
 
+### Live validation: what Rokas has actually confirmed
+
+**2026-08-26 — the largest live-validation event this project has had.** Rokas
+tested and confirmed WORKING, on a real desktop against real homeservers:
+
+1. **The rail's drag, including drop-to-make-a-folder.** This is the headline:
+   the gesture was structurally unreachable through THREE rules and two rounds
+   that each believed they had fixed it. It works. Also confirmed: the
+   folder-name dialog, the auto-scroll near the rail's ends, and a drop
+   BETWEEN tiles reordering rather than grouping.
+2. **Space settings and the rail's Space menu — every write.** Name, topic,
+   avatar, join rule, canonical alias, the full power-level matrix, Publish to
+   Directory, Local Addresses, Mark as read, Mute, Invite, Copy/Share link.
+   Every one of those is a real state event and none had ever been sent.
+3. **Keyboard shortcuts**, including the design's load-bearing case: Ctrl+B is
+   Bold inside the message box and still toggles the room list everywhere
+   else, rebinding, and the conflict refusal.
+4. **Multi-account against real homeservers** — switching, encrypted-room
+   decryption after a switch, notification routing, restart restoration,
+   scoped removal. (The switch's 3-5 s FREEZE is a separate open defect below;
+   the behaviour is correct, the latency is not.)
+5. **Element interoperability** per `docs/element-interop-checklist.md`:
+   encrypted both directions, threads, voice messages, video posters,
+   reactions, pins, edits, redactions, the key-recovery cycle, and QR and SAS
+   verification against Element.
+6. **Notifications** — thread replies, server push-rule modes including
+   "follow account default", and the retry after reconnect.
+7. **The Channels column, the 2026-08-21 UI round across all 11 themes,** and
+   the smaller items: hide/show an image without moving the timeline, read
+   receipts, presence dots, saving GIFs, the compact link-preview consent box,
+   reduced motion, the 24-hour clock, attachment captions.
+
+WHAT THAT CONFIRMATION IS AND IS NOT. It is Rokas exercising each feature and
+reporting it works — the only evidence that has ever counted here. It is not a
+claim that every FAILURE branch was reached: a write that the server REFUSES,
+a power level a homeserver rejects, and a reconnect retry all need a server
+that says no, and those paths remain unexercised. Do not re-list the seven
+areas above as untested; do not upgrade their failure branches to tested
+either.
+
 ### Open items and NOT TESTED inventory
 
-Highest value first:
+OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 
-- **DRIVE THE RAIL'S DRAG WITH A REAL POINTER.** Still the top item, and
-  2026-08-26 is why: the band rule had made grouping UNREACHABLE — no drop ever
-  created a folder — and fifteen model assertions did not notice, because they
-  hand the model the row production could never produce. The midpoint rule that
-  replaced it is pinned exactly the same way, in the model and in the source, so
-  what is unproven is again the half only a pointer can prove: that resting
-  short of a tile's midpoint lands on the tile a person is aiming at, that
-  250 ms is the right dwell, that the dragged tile parking on its target reads
-  as a merge, and that the auto-scroll is usable. The whole point of this lane
-  is the FEEL, and a policy test proves nothing about whether production reaches
-  the policy.
-- **Exercise the rail's Space menu against a real homeserver.** Mark as read
-  over a Space's rooms, Invite, Copy/Share link, and every write in
-  `SpaceSettingsDialog` (name, topic, avatar, join rule, canonical alias, power
-  levels). Each one is a real state event and none has been sent.
-- **See the Channels column on a real desktop with a real Space hierarchy**,
-  including a subspace (which must NOT nest), a room in two Spaces (which must
-  appear under both), the Lobby and Message Search rows, and a collapse
-  surviving a restart. Offscreen suites are all the evidence there is.
-- **Hide an image on a real desktop and watch the timeline not move.** The
-  geometry contract is measured offscreen at one DPI on one theme.
-- **The Rust `children` payload against a real homeserver.** The
-  direct-vs-transitive fix is asserted only by the mock's fixtures and by
-  reading the SDK; nothing has confirmed a real `m.space.child` order arrives
-  in the order its admin set.
-- **LOOK AT THE 2026-08-21 UI ROUND ON A REAL DESKTOP.** It changed ~60
-  QML files, every one of the 11 themes' surfaces, the type scale and the
-  identity palette, and NOT ONE PIXEL of it has been seen. Offscreen
-  suites and computed contrast are all the evidence there is. Highest
-  value here: the emoji picker actually taking a right-click, the reply
-  quote, the room list, the mention chip, and Storm's widened surface
-  ladder. Anything that looks wrong is cheap to fix now and expensive
-  after it ships.
-- **Run `docs/element-interop-checklist.md` live** (encrypted both
-  directions, threads, voice, video+poster, reactions incl. the D3
-  hammer test, pins, edit, redaction, key-recovery cycle).
-- **A fresh `QSG_RENDER_TIMING` capture** proving the row window does
-  anything in production (`winApplies` > 0, `rows` ≪ `srcRows`).
-- **The still-unreproduced tester freeze after hammering reactions** —
-  hand the tester a build with `LIGHTNING_GUI_STALL_TRACE` enabled. One
-  capture beats three theories.
-- **GIF-favorite reopen crash** — still only `1502e6b`'s commit message
-  as evidence; seven headless scenario families including an ASan build
-  found nothing. Needs a real `coredumpctl`/`gdb` backtrace.
+- **The camera does not work at all**, and the control lags when pressed. It
+  survived one fix (the video router's detach-by-key becoming sink ownership,
+  `91acd25`), so the route was not the cause or not the only one. Screen share
+  works on the same publish path, which makes DIFFING THE TWO BRANCHES the
+  highest-value comparison available.
+- **An account switch FREEZES the UI for 3-5 seconds**, reproducibly, on the
+  SECOND switch (A→B→A) and not the first. Distinct from the unbounded
+  profile-fetch loop (`be195f7`) and from the double-polled JoinHandle
+  (`e50eff6`); this is a synchronous block, and `shutdown_managed_tasks`
+  does `block_on` on the GUI thread with a 15 s budget over a pool that
+  includes ~170 avatar fetches.
+- **Stopping a screen share leaves it stuck**: the self-view keeps painting
+  its last frame, a red warning badge appears on the local tile, and only
+  rejoining the call clears it.
+- **The screen share's startup delay is 1-10 s and VARIABLE.** That variance
+  is itself the evidence for the `videorate` first-buffer hold — the gap is
+  "how long until something on the screen changes". Two properties have been
+  shipped blind against it and both killed the capture (`min-buffers=8`,
+  `keepalive-time=100`); a third guess is not acceptable.
+- **The incoming-call prompt's Accept does nothing.**
+- **Raise hand is invisible to Element** — it is local-only, and either the
+  wire representation gets established from element-call or the control goes.
+- **Full screen opens on the primary monitor**, not the one the app is on.
+
+STILL UNPROVEN, not reported broken:
+
+- **A fresh `QSG_RENDER_TIMING` capture** proving the row window does anything
+  in production (`winApplies` > 0, `rows` ≪ `srcRows`). No production frame-cost
+  improvement has ever been observed from it.
+- **The still-unreproduced freeze after hammering reactions** — hand over a
+  build with `LIGHTNING_GUI_STALL_TRACE` enabled. One capture beats three
+  theories.
+- **GIF-favorite reopen crash** — still only `1502e6b`'s commit message as
+  evidence; seven headless scenario families including an ASan build found
+  nothing. Needs a real `coredumpctl`/`gdb` backtrace.
+- **The Rust `children` payload against a real homeserver** — that a real
+  `m.space.child` order arrives in the order its admin set. Adjacent to item 2
+  above but not the same claim.
 - **`app.` dereferences in creation-time bindings of other `Repeater`
-  delegates** (`qml/EmojiPicker.qml`, `qml/SettingsScreen.qml` theme
-  cards) — structurally exposed to the poisoned-context-lookup defect
-  fixed in `30ee39b`, not observed failing.
-- Continue GIF playback, cancellation, resource, cache and
-  malformed-media hardening.
-
-**Partially seen (2026-08-25, mock backend, real render):** the Channels
-column's structure — Lobby, Message Search, Invites, Space folders with
-indented rooms — with avatars resolving and the open room marked, in a light
-and a dark theme; the rail's composite folder tile and its open-folder
-container.
-
-**NOT TESTED (live):** the rail's drag FEEL under a real pointer, folder
-creation by drop (the midpoint band rule that finally makes it REACHABLE is
-pinned only in the model and the source), the folder-name dialog, the rail's
-Space menu (Mark as read, Invite, Copy/Share link) and every write in
-`SpaceSettingsDialog` — name, topic, avatar, join rule, canonical alias, power
-levels — muting a Space against real push rules, Lobby opening a scoped Space's
-overview, the Channels column against a real SUBSPACE hierarchy or a scoped
-Space, DM faces in the Channels column, hide/show on a real image, the Rust
-backend's direct-children payload; Element interoperability of provider
-GIF sends (plain and encrypted, rooms and threads), sent voice events,
-sent video posters, and formatted-body markdown rendering; notification
-coverage and routing for thread replies; thread timelines, thread
-sending and attachments, late E2EE recovery, backup recovery, QR and SAS
-verification against Element / Element X; physical scrolling and
-touchpad feel; multi-account switching on real homeservers (same and
-different servers), encrypted-room decryption after a switch,
-notification routing, restart restoration, scoped removal; room-list
-latest-event previews and avatar readiness; the design shell on a real
-desktop incl. KDE Wayland taskbar icon association; the redesigned
-Settings screen and baked-mask avatar rendering; read receipts; server
-push-rule notification modes incl. "follow account default" deletion and
-the reconnect retry; saving GIFs; facepile rendering and real
-`/relations` cost; microphone capture; presence dots and the
-presence-disabled latch; everything from the call rounds.
+  delegates** (`qml/EmojiPicker.qml`, `qml/SettingsScreen.qml` theme cards) —
+  structurally exposed to the poisoned-context-lookup defect fixed in
+  `30ee39b`, not observed failing.
+- Continue GIF playback, cancellation, resource, cache and malformed-media
+  hardening.
 
 **Accepted follow-ups, none blocking:** decide whether a client-side
 sanity ceiling should apply when the server advertises no upload limit
