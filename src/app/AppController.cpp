@@ -176,6 +176,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_customTheme = std::make_unique<CustomThemeStore>(m_settings.get(), this);
     m_railLayout = std::make_unique<RailLayoutStore>(m_settings.get(), this);
     m_railEntries = std::make_unique<RailEntryModel>(this);
+    m_mediaVisibility = std::make_unique<MediaVisibilityStore>(this);
     m_banners = std::make_unique<ProfileBannerManager>(this);
 
     m_client       = makeClient(backend, m_settings.get(), this);
@@ -1036,6 +1037,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // than duplicated.
     connect(m_client.get(), &MatrixClient::loggedOut, this,
             &AppController::retireOwnDisplayNameWrite);
+    // Hidden-image state is per SESSION and per ACCOUNT: what one account's
+    // reader hid says nothing about the next account's rooms, and
+    // detachSession() (the account switch) emits this too, which makes the
+    // clear idempotent rather than duplicated.
+    connect(m_client.get(), &MatrixClient::loggedOut, this, [this] {
+        m_mediaVisibility->clear();
+    });
     connect(m_client.get(), &MatrixClient::errorOccurred,
             this, &AppController::errorReported);
     auto refreshConnectionStatus = [this]() {

@@ -172,6 +172,59 @@ Item {
     readonly property string actionKey: (model.itemId && model.itemId.length > 0)
                                         ? model.itemId
                                         : (model.eventId || "")
+    // ── Element-style hide image ─────────────────────────────────────────
+    //
+    // PURELY LOCAL. Hiding sends nothing, edits nothing and redacts nothing;
+    // it stops this client painting a bitmap. See MediaVisibilityStore for
+    // why the flag is session-scoped and why it lives there rather than in
+    // this delegate (a timeline row is destroyed the moment it leaves the
+    // cache buffer, so a flag inside one is gone by the time the reader
+    // scrolls back).
+    //
+    // Images and stickers only. Both draw a bitmap the reader may not want on
+    // screen; a video card has its own poster and controls, and extending
+    // this to it without evidence that anyone wants it there would be adding
+    // a control to a surface that did not ask for one.
+    readonly property bool mediaHideable:
+        (model.isImage === true || model.isSticker === true)
+        && model.redacted !== true
+        && root.mediaVisibilityKey.length > 0
+    // The row's media identity. `mediaKey` IS the event id once the event is
+    // remote (see the Rust bridge), so this is per-event in practice; the
+    // eventId fallback covers a backend that reports no key.
+    readonly property string mediaVisibilityKey:
+        (model.mediaKey && model.mediaKey.length > 0)
+            ? model.mediaKey : (model.eventId || "")
+    // A plain tracked property, not a binding on the Q_INVOKABLE: isHidden()
+    // carries no per-key NOTIFY for QML to bind to. Refreshed on the two
+    // events that can change the answer for THIS row — the identity changing
+    // under delegate reuse, and the store announcing a write.
+    property bool mediaHidden: false
+    function refreshMediaHidden() {
+        if (typeof app === "undefined" || !app || !app.mediaVisibility) {
+            mediaHidden = false
+            return
+        }
+        mediaHidden = root.mediaVisibilityKey.length > 0
+                      && app.mediaVisibility.isHidden(root.mediaVisibilityKey)
+    }
+    function setMediaHidden(hidden) {
+        if (typeof app === "undefined" || !app || !app.mediaVisibility)
+            return
+        if (root.mediaVisibilityKey.length === 0)
+            return
+        app.mediaVisibility.setHidden(root.mediaVisibilityKey, hidden)
+    }
+    onMediaVisibilityKeyChanged: root.refreshMediaHidden()
+    Connections {
+        target: (typeof app !== "undefined" && app) ? app.mediaVisibility : null
+        function onHiddenChanged(key, hidden) {
+            // Keyed, so one reveal somewhere else in the timeline cannot
+            // re-resolve every image row in the app.
+            if (key === root.mediaVisibilityKey)
+                root.mediaHidden = hidden
+        }
+    }
     // ── Find-in-timeline highlighting ────────────────────────────────────
     // The active query, or "" when the reader is not searching. Reads the
     // delegate's OWN model, so a thread panel search never lights up the room
@@ -731,6 +784,7 @@ Item {
     Component.onCompleted: {
         refreshHeightSeed()
         refreshPreview()
+        refreshMediaHidden()
     }
     onActionKeyChanged: {
         refreshHeightSeed()
@@ -2348,6 +2402,32 @@ Item {
                     id: threadActionRow
                     anchors.centerIn: parent
                     spacing: 2
+                    // Element's own bar leads with this on an image row, and
+                    // leading is right: it is the only action here that is
+                    // about the picture rather than about the message.
+                    //
+                    // Gone once the image IS hidden — the placeholder's "Show
+                    // image" is then the primary action, and a second control
+                    // offering to hide what is already hidden is noise.
+                    IconButton {
+                        id: threadHideMediaButton
+                        objectName: "messageHideMediaButton"
+                        visible: root.mediaHideable && !root.mediaHidden
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: AppTheme.radiusControl
+                        iconName: "visibility_off"
+                        iconSize: 18
+                        Accessible.name: qsTr("Hide image")
+                        ToolTip {
+                            visible: threadHideMediaButton.hovered
+                            delay: 500
+                            text: qsTr("Hide")
+                            y: messageActionBar.tooltipsBelow
+                               ? threadHideMediaButton.height + AppTheme.spacingXS
+                               : -implicitHeight - AppTheme.spacingXS
+                        }
+                        onClicked: root.setMediaHidden(true)
+                    }
                     IconButton {
                         id: threadReactButton
                         implicitWidth: 28; implicitHeight: 28
@@ -3339,6 +3419,19 @@ Item {
             // "Sopy asnage" in the 2026-08-21 screenshot. A Menu lays out its
             // own AppMenuItem children; one nested in another is not in that
             // list and gets no row of its own.
+            // The same local hide, from the menu. Not duplication for its own
+            // sake: the action bar appears on hover, and a keyboard user
+            // reaches the menu instead. One state, two entry points, and the
+            // label says which way it goes.
+            AppMenuItem {
+                objectName: "hideMediaMenuItem"
+                iconName: root.mediaHidden ? "visibility" : "visibility_off"
+                text: root.mediaHidden ? qsTr("Show image")
+                                       : qsTr("Hide image")
+                visible: root.mediaHideable
+                enabled: visible
+                onTriggered: root.setMediaHidden(!root.mediaHidden)
+            }
             AppMenuItem {
                 objectName: "copyImageMenuItem"
                 iconName: "content_copy"
@@ -4002,6 +4095,10 @@ Item {
                 isGif && gifMode !== 2
                 && (gifMode === 0 || gifHovered)
                 && !pendingMedia && animatedSource.length > 0
+                // A hidden animation must actually STOP. Leaving an
+                // AnimatedImage playing behind an opaque placeholder burns a
+                // decode per frame for something nobody can see.
+                && !root.mediaHidden
 
             // v0.5.9: prefer the media bridge (works for encrypted rooms —
             // the SDK decrypts inside Rust); HTTP-backend URLs remain the
@@ -4017,6 +4114,11 @@ Item {
 
             function refreshBridgeSource() {
                 if (!usesBridge || !model.mediaKey) return
+                // Hiding must never START a fetch. It is a rendering
+                // preference, so a hidden row asks the network for nothing;
+                // bytes already cached stay cached, and revealing takes the
+                // ordinary cache path.
+                if (root.mediaHidden) return
                 // Fetch the animated bytes whenever autoplay is not Never, so
                 // OnHover playback starts instantly on hover.
                 if (isGif && app.settings.gifAutoplay !== 2 && !pendingMedia) {
@@ -4104,6 +4206,15 @@ Item {
             // than staying stuck showing an outline star for a row that just
             // became eligible.
             onStarEligibleChanged: refreshStarredState()
+            // Revealing takes the ordinary path: whatever is cached is used,
+            // and a row hidden before its bytes ever arrived fetches now.
+            Connections {
+                target: root
+                function onMediaHiddenChanged() {
+                    if (!root.mediaHidden)
+                        imageBox.refreshBridgeSource()
+                }
+            }
             Connections {
                 target: app.mediaBridge
                 enabled: imageBox.usesBridge
@@ -4202,7 +4313,8 @@ Item {
                 objectName: "imageSkeleton"
                 anchors.fill: parent
                 radius: AppTheme.radiusSm
-                visible: img.status !== Image.Ready
+                visible: !root.mediaHidden
+                         && img.status !== Image.Ready
                          && animatedImg.status !== AnimatedImage.Ready
                 active: root.rowOnScreen && !imageBox.bridgeFailed
                         && img.status !== Image.Error
@@ -4210,7 +4322,7 @@ Item {
             // GIFs announce themselves on the placeholder too, so the
             // reserved box reads as "an animation is coming".
             Rectangle {
-                visible: imageBox.isGif
+                visible: imageBox.isGif && !root.mediaHidden
                          && img.status !== Image.Ready
                          && animatedImg.status !== AnimatedImage.Ready
                          && !imageBox.bridgeFailed
@@ -4235,9 +4347,13 @@ Item {
             Image {
                 id: img
                 anchors.fill: parent
-                visible: !imageBox.animateGif
+                visible: !imageBox.animateGif && !root.mediaHidden
                 fillMode: Image.PreserveAspectFit
-                source: imageBox.animateGif ? "" : imageBox.roundedSource
+                // Cleared while hidden rather than merely made invisible: an
+                // Image with a source still holds the decoded pixmap, and the
+                // point of hiding is that it is not painted or decoded.
+                source: (imageBox.animateGif || root.mediaHidden)
+                        ? "" : imageBox.roundedSource
                 sourceSize.width: 640
                 asynchronous: true
                 cache: true
@@ -4257,8 +4373,16 @@ Item {
                 playing: imageBox.animateGif && root.rowOnScreen
             }
 
+            MediaHiddenPlaceholder {
+                anchors.fill: parent
+                hidden: root.mediaHidden
+                onRevealRequested: root.setMediaHidden(false)
+            }
+
             MouseArea {
                 anchors.fill: parent
+                enabled: !root.mediaHidden
+                visible: enabled
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
                     if (imageBox.bridgeFailed) {
@@ -4282,7 +4406,7 @@ Item {
             Loader {
                 id: gifStarLoader
                 anchors.fill: parent
-                active: imageBox.starEligible
+                active: imageBox.starEligible && !root.mediaHidden
                 sourceComponent: Component {
                     Item {
                         id: starLayer
@@ -4458,7 +4582,9 @@ Item {
                       : qsTr("(image unavailable)")
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                visible: img.status === Image.Error || imageBox.bridgeFailed
+                visible: !root.mediaHidden
+                         && (img.status === Image.Error
+                             || imageBox.bridgeFailed)
             }
         }
     }
@@ -4494,6 +4620,9 @@ Item {
             property bool bridgeFailed: false
             function refreshBridgeSource() {
                 if (!usesBridge || !model.mediaKey) return
+                // Hiding never starts a fetch; see the note in
+                // imageComponent's own refreshBridgeSource.
+                if (root.mediaHidden) return
                 if (bridgeFailed)
                     app.mediaBridge.retry(bridgeCacheKey)
                 bridgeFailed = false
@@ -4502,6 +4631,13 @@ Item {
                     model.mediaThumbAvailable ? "thumb" : "full")
             }
             Component.onCompleted: refreshBridgeSource()
+            Connections {
+                target: root
+                function onMediaHiddenChanged() {
+                    if (!root.mediaHidden)
+                        stickerBox.refreshBridgeSource()
+                }
+            }
             Connections {
                 target: app.mediaBridge
                 enabled: stickerBox.usesBridge
@@ -4524,24 +4660,32 @@ Item {
 
             Skeleton {
                 anchors.fill: parent
-                visible: stickerImg.status !== Image.Ready
+                visible: !root.mediaHidden
+                         && stickerImg.status !== Image.Ready
                 active: root.rowOnScreen && !stickerBox.bridgeFailed
                         && stickerImg.status !== Image.Error
             }
             Image {
                 id: stickerImg
                 anchors.fill: parent
+                visible: !root.mediaHidden
                 fillMode: Image.PreserveAspectFit
-                source: stickerBox.resolvedSource
+                source: root.mediaHidden ? "" : stickerBox.resolvedSource
                 sourceSize.width: 360
                 asynchronous: true
                 cache: true
             }
-            HoverHandler { id: stickerHover }
+            MediaHiddenPlaceholder {
+                anchors.fill: parent
+                hidden: root.mediaHidden
+                onRevealRequested: root.setMediaHidden(false)
+            }
+            HoverHandler { id: stickerHover; enabled: !root.mediaHidden }
             ToolTip.text: model.body || ""
             ToolTip.visible: stickerHover.hovered && (model.body || "").length > 0
             ToolTip.delay: 400
             TapHandler {
+                enabled: !root.mediaHidden
                 onTapped: {
                     if (stickerBox.bridgeFailed) {
                         stickerBox.refreshBridgeSource()
@@ -4560,8 +4704,9 @@ Item {
                 text: qsTr("Sticker failed to load — click to retry")
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                visible: stickerImg.status === Image.Error
-                         || stickerBox.bridgeFailed
+                visible: !root.mediaHidden
+                         && (stickerImg.status === Image.Error
+                             || stickerBox.bridgeFailed)
             }
         }
     }

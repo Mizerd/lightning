@@ -22,6 +22,7 @@
 #include <QSignalSpy>
 
 #include "app/AppController.h"
+#include "media/MediaVisibilityStore.h"
 #include "models/TimelineModel.h"
 
 namespace {
@@ -542,6 +543,206 @@ private Q_SLOTS:
         skeleton->setProperty("circle", true);
         QCOMPARE(skeleton->property("radius").toReal(), 20.0);
         QCOMPARE(warnings, QStringList{});
+    }
+
+    // ── Element-style hide image ─────────────────────────────────────────
+    //
+    // THE contract: hiding does not move the timeline. The media box keeps its
+    // exact reserved rectangle, so every message above and below stays where
+    // it was. Replacing a 360×270 picture with a text row would jump the whole
+    // column, which for a hide-this-image control is worse than the picture.
+    void hidingAnImageKeepsItsExactReservedGeometry()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isImage"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 800);
+        fixture.insert(QStringLiteral("mediaHeight"), 600);
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("photo.jpg"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("photo.jpg"));
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"), QStringLiteral("$fixture"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *skeleton =
+            d.root->findChild<QQuickItem *>(QStringLiteral("imageSkeleton"));
+        QVERIFY(skeleton != nullptr);
+        // 800×600 bounded to the 360px media width → 360×270.
+        const qreal boxWidth = skeleton->width();
+        const qreal boxHeight = skeleton->height();
+        QVERIFY(qAbs(boxWidth - 360.0) < 1.0);
+        QVERIFY(qAbs(boxHeight - 270.0) < 1.0);
+        const qreal rowHeight = d.root->height();
+        QVERIFY(rowHeight > 0);
+        QVERIFY(d.root->findChild<QQuickItem *>(
+                    QStringLiteral("mediaHiddenPlaceholder")) == nullptr);
+
+        controller.mediaVisibility()->hide(QStringLiteral("$fixture"));
+        QCoreApplication::processEvents();
+        d.root->polish();
+        QCoreApplication::processEvents();
+
+        QCOMPARE(d.root->property("mediaHidden").toBool(), true);
+        auto *placeholder = d.root->findChild<QQuickItem *>(
+            QStringLiteral("mediaHiddenPlaceholder"));
+        QVERIFY2(placeholder != nullptr,
+                 "hiding produced no placeholder, so the media box is empty");
+        QVERIFY(placeholder->isVisible());
+        // THE assertion. Same box, same row.
+        QVERIFY2(qAbs(placeholder->width() - boxWidth) < 1.0,
+                 qPrintable(QStringLiteral("placeholder is %1 wide, box was %2")
+                                .arg(placeholder->width()).arg(boxWidth)));
+        QVERIFY2(qAbs(placeholder->height() - boxHeight) < 1.0,
+                 qPrintable(QStringLiteral("placeholder is %1 tall, box was %2")
+                                .arg(placeholder->height()).arg(boxHeight)));
+        QVERIFY2(qAbs(d.root->height() - rowHeight) < 1.0,
+                 qPrintable(QStringLiteral("the row changed height from %1 to "
+                                           "%2, so the timeline jumped")
+                                .arg(rowHeight).arg(d.root->height())));
+        // The skeleton stands down: a shimmer behind an opaque placeholder is
+        // an animation nobody can see.
+        QVERIFY(!skeleton->isVisible());
+        // And the placeholder says how to get the picture back.
+        auto *label = d.root->findChild<QQuickItem *>(
+            QStringLiteral("mediaShowImageLabel"));
+        QVERIFY(label != nullptr);
+        QCOMPARE(label->property("text").toString(), QStringLiteral("Show image"));
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
+    void revealingAnImageRestoresTheNormalMediaPath()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isImage"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 640);
+        fixture.insert(QStringLiteral("mediaHeight"), 480);
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"), QStringLiteral("$fixture"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        controller.mediaVisibility()->hide(QStringLiteral("$fixture"));
+        QCoreApplication::processEvents();
+        QCOMPARE(d.root->property("mediaHidden").toBool(), true);
+
+        controller.mediaVisibility()->show(QStringLiteral("$fixture"));
+        QCoreApplication::processEvents();
+        d.root->polish();
+        QCoreApplication::processEvents();
+        QCOMPARE(d.root->property("mediaHidden").toBool(), false);
+        // Gone, or at least not painted: a Loader's item is destroyed on its
+        // own schedule, and what matters to the reader is that nothing covers
+        // the picture.
+        auto *stale = d.root->findChild<QQuickItem *>(
+            QStringLiteral("mediaHiddenPlaceholder"));
+        QVERIFY2(stale == nullptr || !stale->isVisible(),
+                 "the placeholder outlived the reveal and still covers the "
+                 "image");
+        auto *skeleton =
+            d.root->findChild<QQuickItem *>(QStringLiteral("imageSkeleton"));
+        QVERIFY(skeleton != nullptr);
+        QVERIFY2(skeleton->isVisible(),
+                 "revealing did not put the row back on the ordinary media "
+                 "path");
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
+    // The state is keyed by media identity in a store, NOT held in the
+    // delegate — so a row rebuilt from scratch (which is what recycling and a
+    // room re-entry both amount to) comes back hidden.
+    void aRebuiltRowComesBackHidden()
+    {
+        AppController controller(AppController::MockBackend);
+        controller.mediaVisibility()->hide(QStringLiteral("$fixture"));
+
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isImage"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 400);
+        fixture.insert(QStringLiteral("mediaHeight"), 400);
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"), QStringLiteral("$fixture"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        QVERIFY2(d.root->property("mediaHidden").toBool(),
+                 "a freshly created row does not know the image was hidden, so "
+                 "the state is lost to delegate recycling");
+        QVERIFY(d.root->findChild<QQuickItem *>(
+                    QStringLiteral("mediaHiddenPlaceholder")) != nullptr);
+
+        // A DIFFERENT image is unaffected: the flag is keyed, not global.
+        QVariantMap other = baseFixture(controller);
+        other.insert(QStringLiteral("isImage"), true);
+        other.insert(QStringLiteral("mediaWidth"), 400);
+        other.insert(QStringLiteral("mediaHeight"), 400);
+        other.insert(QStringLiteral("mediaSourceAvailable"), true);
+        other.insert(QStringLiteral("mediaKey"), QStringLiteral("$another"));
+        other.insert(QStringLiteral("eventId"), QStringLiteral("$another"));
+        Delegate e;
+        QVERIFY(createDelegate(controller, other, e));
+        QVERIFY(!e.root->property("mediaHidden").toBool());
+    }
+
+    // A sticker draws a bitmap too, so it gets the same control. A VIDEO does
+    // not: its card has its own poster and controls, and extending this there
+    // without evidence anyone wants it would be adding a control to a surface
+    // that did not ask for one.
+    void stickersAreHideableAndVideosAreNot()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap sticker = baseFixture(controller);
+        sticker.insert(QStringLiteral("isSticker"), true);
+        sticker.insert(QStringLiteral("mediaWidth"), 160);
+        sticker.insert(QStringLiteral("mediaHeight"), 160);
+        sticker.insert(QStringLiteral("mediaSourceAvailable"), true);
+        sticker.insert(QStringLiteral("mediaKey"), QStringLiteral("$sticker"));
+        Delegate s;
+        QVERIFY(createDelegate(controller, sticker, s));
+        QVERIFY(s.root->property("mediaHideable").toBool());
+        const qreal before = s.root->height();
+        controller.mediaVisibility()->hide(QStringLiteral("$sticker"));
+        QCoreApplication::processEvents();
+        QVERIFY(s.root->findChild<QQuickItem *>(
+                    QStringLiteral("mediaHiddenPlaceholder")) != nullptr);
+        QVERIFY2(qAbs(s.root->height() - before) < 1.0,
+                 "hiding a sticker moved the timeline");
+
+        QVariantMap video = baseFixture(controller);
+        video.insert(QStringLiteral("isVideo"), true);
+        video.insert(QStringLiteral("mediaWidth"), 1280);
+        video.insert(QStringLiteral("mediaHeight"), 720);
+        video.insert(QStringLiteral("mediaSourceAvailable"), true);
+        video.insert(QStringLiteral("mediaKey"), QStringLiteral("$video"));
+        Delegate v;
+        QVERIFY(createDelegate(controller, video, v));
+        QVERIFY2(!v.root->property("mediaHideable").toBool(),
+                 "a video row offers a control that was deliberately scoped to "
+                 "images and stickers");
+    }
+
+    // Bounded, and the cap reveals the OLDEST rather than refusing the newest:
+    // refusing to hide something the user just asked to hide is the worse
+    // failure.
+    void theHiddenSetIsBoundedAndEvictsTheOldest()
+    {
+        MediaVisibilityStore store;
+        for (int i = 0; i < MediaVisibilityStore::kMaxHidden + 10; ++i)
+            store.hide(QStringLiteral("$k%1").arg(i));
+        QCOMPARE(store.hiddenCount(), MediaVisibilityStore::kMaxHidden);
+        QVERIFY2(!store.isHidden(QStringLiteral("$k0")),
+                 "the cap refused the newest hide instead of releasing the "
+                 "oldest");
+        QVERIFY(store.isHidden(
+            QStringLiteral("$k%1").arg(MediaVisibilityStore::kMaxHidden + 9)));
+        store.clear();
+        QCOMPARE(store.hiddenCount(), 0);
+        // An empty key is not an identity and must never be stored.
+        store.hide(QString());
+        QCOMPARE(store.hiddenCount(), 0);
+        QVERIFY(!store.isHidden(QString()));
     }
 };
 

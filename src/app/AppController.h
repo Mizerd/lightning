@@ -10,6 +10,7 @@
 #include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
 #include "app/CustomThemeStore.h"
+#include "media/MediaVisibilityStore.h"
 #include "spaces/RailEntryModel.h"
 #include "spaces/RailLayoutStore.h"
 #include "i18n/LocalizationManager.h"
@@ -304,6 +305,9 @@ class AppController : public QObject
     Q_PROPERTY(ForwardController* forward READ forward CONSTANT)
     Q_PROPERTY(RoomInfoController* roomInfo READ roomInfo CONSTANT)
     Q_PROPERTY(MediaBridge* mediaBridge READ mediaBridge CONSTANT)
+    // Which images the reader has hidden locally; see MediaVisibilityStore.
+    Q_PROPERTY(MediaVisibilityStore* mediaVisibility READ mediaVisibility
+                   CONSTANT)
     // v0.7 voice round: microphone capture for MSC3245 voice messages.
     // Created LAZILY on first access (the composer only touches it on the
     // first mic press), so the audio backend never spins up for a session
@@ -551,6 +555,8 @@ public:
     }
     RoomInfoController *roomInfo() const { return m_roomInfo.get(); }
     MediaBridge *mediaBridge() const { return m_mediaBridge.get(); }
+    MediaVisibilityStore *mediaVisibility() const
+    { return m_mediaVisibility.get(); }
     VoiceRecorder *voiceRecorder()
     {
         if (!m_voiceRecorder)
@@ -1177,6 +1183,7 @@ private:
     QSet<QString> m_pendingCopyKeys;
     std::unique_ptr<RoomInfoController> m_roomInfo;
     std::unique_ptr<MediaBridge> m_mediaBridge;
+    std::unique_ptr<MediaVisibilityStore> m_mediaVisibility;
     std::unique_ptr<VoiceRecorder> m_voiceRecorder; // lazy — see getter
     QString m_voiceOwner;                           // "", "room", "thread"
     // Re-issue push-rule writes that failed offline, once per genuine

@@ -545,6 +545,8 @@ set(APP_SOURCES
     src/media/PlayableFileWriter.cpp
     src/media/MediaImageProvider.h
     src/media/MediaImageProvider.cpp
+    src/media/MediaVisibilityStore.h
+    src/media/MediaVisibilityStore.cpp
     src/app/TrayIcon.h
     src/app/TrayIcon.cpp
     src/spaces/RailLayoutStore.h
@@ -692,6 +694,8 @@ set(APP_QML_FILES
     qml/UnreadBadge.qml
     qml/NavigationLayoutCard.qml
     qml/MessageDelegate.qml
+    # Element-style local image hiding: keeps the media box's exact geometry.
+    qml/MediaHiddenPlaceholder.qml
     qml/RoomActivityDelegate.qml
     qml/MessageComposerBar.qml
     qml/MentionPopup.qml

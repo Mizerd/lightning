@@ -408,8 +408,15 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(delegate.contains(QStringLiteral("objectName: \"imageSkeleton\"")));
+        // The static renderer hides while the animated one is playing AND
+        // while the image is locally hidden (a hidden bitmap must not be
+        // painted at all — see MediaVisibilityStore); the invariant this case
+        // is really about is that BOTH renderers' status drives the skeleton,
+        // so a ready GIF frame can never sit behind a lingering placeholder.
         QVERIFY(delegate.contains(QStringLiteral(
-            "visible: img.status !== Image.Ready")));
+            "visible: !imageBox.animateGif && !root.mediaHidden")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "img.status !== Image.Ready")));
         QVERIFY(delegate.contains(QStringLiteral(
             "animatedImg.status !== AnimatedImage.Ready")));
         QVERIFY(delegate.contains(QStringLiteral(

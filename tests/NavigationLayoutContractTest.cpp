@@ -816,6 +816,63 @@ private slots:
                  "the Channels list adds a second grouping mechanism");
     }
 
+    // Element-style local image hiding: the geometry contract is what makes it
+    // usable, and the honesty contract is what makes it safe.
+    void hidingAnImageIsLocalAndKeepsTheRowsGeometry()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!delegate.isEmpty());
+        const QString clean = withoutComments(delegate);
+        // The state is not a delegate-local boolean: a timeline row is
+        // destroyed the moment it leaves the cache buffer.
+        QVERIFY2(clean.contains(QStringLiteral("app.mediaVisibility")),
+                 "the hidden flag is not keyed through the store, so it is "
+                 "lost the moment the row is recycled");
+        QVERIFY2(clean.contains(QStringLiteral("MediaHiddenPlaceholder {")),
+                 "there is no geometry-preserving placeholder");
+        // The placeholder fills the media box and contributes no size of its
+        // own — that is what keeps the timeline from moving.
+        const QString placeholder = withoutComments(
+            read(QStringLiteral("MediaHiddenPlaceholder.qml")));
+        QVERIFY(!placeholder.isEmpty());
+        QVERIFY2(!placeholder.contains(QStringLiteral("implicitWidth:"))
+                     && !placeholder.contains(QStringLiteral("implicitHeight:")),
+                 "the placeholder contributes its own implicit size, so the "
+                 "row resizes when an image is hidden");
+        // Purely local: no redaction, no edit, nothing sent.
+        for (const QString &banned : { QStringLiteral("composer.redact"),
+                                       QStringLiteral("beginEdit"),
+                                       QStringLiteral("setAccountData") }) {
+            const int at = clean.indexOf(QStringLiteral("setMediaHidden"));
+            QVERIFY(at >= 0);
+            QVERIFY2(!clean.mid(at, 400).contains(banned), qPrintable(banned));
+        }
+        const QString store =
+            readSrc(QStringLiteral("media/MediaVisibilityStore.cpp"));
+        QVERIFY(!store.isEmpty());
+        for (const QString &banned : { QStringLiteral("MatrixClient"),
+                                       QStringLiteral("SettingsManager"),
+                                       QStringLiteral("QSettings") }) {
+            QVERIFY2(!store.contains(banned),
+                     qPrintable(QStringLiteral("the hidden-image store reaches ")
+                                + banned + QStringLiteral(", so it is not the "
+                                                          "local session state "
+                                                          "it claims to be")));
+        }
+        // Hide is offered while visible, Show is the placeholder's action, and
+        // the already-hidden row is not offered a second Hide control.
+        QVERIFY(clean.contains(QStringLiteral(
+            "visible: root.mediaHideable && !root.mediaHidden")));
+        QVERIFY(placeholder.contains(QStringLiteral("Show image")));
+        // The placeholder's Label is not merely behind a Loader — the whole
+        // body is gated on `hidden`, so a row that is never hidden creates no
+        // Text at all. (A never-laid-out empty Text keeps
+        // ItemObservesViewport for the delegate's life, and this is a per-row
+        // delegate.)
+        QVERIFY2(placeholder.contains(QStringLiteral("active: root.hidden")),
+                 "the placeholder's contents are built for every media row");
+    }
+
     void settingsOffersBothLayoutsAsPreviews()
     {
         const QString settings = read(QStringLiteral("SettingsScreen.qml"));
