@@ -80,5 +80,14 @@ private:
     /// it is what re-creates the loop by another route, and `avatarFor()`
     /// consults the room's own member snapshot BEFORE this cache, so a face
     /// arriving on a member event still wins.
+    ///
+    /// ONLY A FAILURE THIS RESOLVER INCURRED. `userProfileFinished` is a
+    /// shared client signal and this class deliberately reads answers to ops
+    /// it did not start (the self-DM case). "The profile says there is no
+    /// avatar" is a fact about the user and is recorded whoever asked; "the
+    /// request failed" is a fact about one request, and recording a stranger's
+    /// meant one bad round trip anywhere in the app wedged an unrelated DM on
+    /// initials until restart, because resolveMissing() then skipped a peer
+    /// nobody had ever actually asked about.
     QSet<QString> m_noAvatar;
 };

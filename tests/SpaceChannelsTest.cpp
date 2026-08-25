@@ -1062,6 +1062,192 @@ private Q_SLOTS:
                  QStringLiteral("mxc://example.org/room"));
     }
 
+    // THE COALESCING TIMER MUST NOT OUTLIVE THE STATE THAT ARMED IT.
+    //
+    // Coalescing bought a real cost reduction and brought a hazard with it:
+    // rebuild() no longer runs where the signal was received, it runs on the
+    // next event-loop turn — and the account switch happens in between. The
+    // sequence is ordinary, not exotic: the outgoing account's last sync arms
+    // a rebuild, the user clicks the switcher, detachSession() invalidates the
+    // session and emits loggedOut, and only THEN does the queued rebuild run,
+    // against a client that has been detached and caches that have been
+    // cleared.
+    //
+    // It survives that today because every dereference in rebuild() happens to
+    // be guarded — which is a property of the current guards, not a contract
+    // anybody wrote down, and the next field added to that pass inherits no
+    // protection at all. The invariant is the fix: after rebuild() returns,
+    // nothing is queued.
+    //
+    // ON THE UNFIXED TREE both halves below count one EXTRA rebuild after the
+    // state changed, because the timer armed beforehand still fires.
+    void aQueuedRebuildNeverOutlivesTheStateThatArmedIt()
+    {
+        // The sources are replaced outright: the queued rebuild belongs to
+        // ones that are gone, and would run against whatever is wired up
+        // instead. It early-returns harmlessly TODAY; the point is that it
+        // does not run at all, which is the only version of that guarantee
+        // the next field added to rebuild() inherits.
+        Fixture f;
+        f.build(workspace());
+        // qWait, not processEvents: the coalescer is a ZERO-interval QTimer,
+        // and processEvents() alone is not a reliable way to make one fire.
+        // A test that silently fails to deliver the queued work would pass on
+        // the broken tree, which is the one outcome that would make this
+        // decoration.
+        QTest::qWait(50);
+        f.client.announce();
+        f.model.setSources(nullptr, nullptr, nullptr);
+        int settled = f.model.rebuildCountForTest();
+        QTest::qWait(50);
+        QCOMPARE(f.model.rebuildCountForTest(), settled);
+
+        // The sign-out / account-switch shape, wired by hand for one reason:
+        // SpaceManager also rebuilds on loggedOut and announces afterwards, so
+        // with it attached to the client a rebuild is LEGITIMATELY re-armed
+        // after the detach and no count can distinguish that from the stale
+        // one. Leaving the manager clientless removes the second arming, and
+        // what is left is exactly the question — a rebuild armed by the
+        // outgoing account's last update, delivered after the session ended.
+        Fixture g;
+        RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
+        peer.directUserId = QStringLiteral("@sam:example.org");
+        peer.directUserIds = { QStringLiteral("@sam:example.org") };
+        g.client.roomList = { peer };
+        g.model.setSettings(&g.settings);
+        g.model.setSources(&g.client, &g.spaces, &g.layout);
+        QTest::qWait(50);
+        // Arms one: a late profile is announced, and this model rebuilds to
+        // get the face into the row's snapshot.
+        Q_EMIT g.client.userProfileFinished(
+            g.client.nextOp, true, QStringLiteral("@sam:example.org"),
+            QStringLiteral("Sam"), QStringLiteral("mxc://example.org/sam"),
+            QString());
+        g.client.logout();
+        settled = g.model.rebuildCountForTest();
+        QTest::qWait(50);
+        QCOMPARE(g.model.rebuildCountForTest(), settled);
+    }
+
+    // The other half of the same hazard, and the one that is not merely
+    // wasteful. AppController declares `m_spaces` AFTER `m_spaceChannels`, so
+    // members are destroyed in reverse declaration order and the SpaceManager
+    // this model reads dies FIRST — leaving a non-null pointer to freed memory
+    // that rebuild()'s `!m_spaces` guard cannot see. Nothing spins an event
+    // loop in that window today, which is what makes it safe, and nothing
+    // states that.
+    //
+    // HONEST ABOUT WHAT THIS PROVES: on the unfixed tree this is a
+    // use-after-free, which is undefined — it will usually pass, and fails
+    // deterministically only under ASan. It is here to pin the CLEARED
+    // POINTER, not to reproduce a crash.
+    void aDestroyedSourceLeavesANullRatherThanADanglingPointer()
+    {
+        FakeClient client;
+        SettingsManager settings;
+        RailLayoutStore layout{ &settings };
+        auto *spaces = new SpaceManager;
+        client.roomList = workspace();
+        spaces->setClient(&client);
+
+        SpaceChannelModel model;
+        model.setSettings(&settings);
+        model.setSources(&client, spaces, &layout);
+        QVERIFY(model.rowCount() > 0);
+
+        delete spaces;
+        // Any rebuild at all now: a filter chip is the cheapest one that is
+        // not a source signal.
+        model.setFilterMode(1);
+        QCOMPARE(model.rowCount(), 0);
+        QTest::qWait(50);
+        QCOMPARE(model.rowCount(), 0);
+    }
+
+    // `userProfileFinished` is ONE signal shared by every consumer of the
+    // client — the account switcher, member lists, the profile popover, this
+    // resolver. The resolver reads answers to ops it did not start on purpose
+    // (that is what lets a self-DM adopt the signed-in account's own face),
+    // and the negative cache added this round did the same thing with
+    // FAILURES. It should not: "the profile says there is no avatar" is a fact
+    // about the user, but "the request failed" is a fact about one request.
+    //
+    // ON THE UNFIXED TREE a single failed lookup anywhere in the application
+    // permanently marks that user as pictureless here, so a DM with them
+    // renders initials for the rest of the session and nothing ever retries —
+    // resolveMissing() skips a cached negative, and no code path clears one
+    // short of sign-out.
+    void aFailedLookupSomebodyElseStartedNeverWedgesADm()
+    {
+        RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
+        peer.directUserId = QStringLiteral("@sam:example.org");
+        peer.directUserIds = { QStringLiteral("@sam:example.org") };
+
+        Fixture f;
+        f.build({});
+        // An op this model never issued — note the id is not one the fake
+        // client ever handed out — reporting a failure for that same user.
+        Q_EMIT f.client.userProfileFinished(
+            9999, false, QStringLiteral("@sam:example.org"), QString(),
+            QString(), QStringLiteral("timeout"));
+        QTest::qWait(50);
+        QCOMPARE(f.client.profileFetches.count(QStringLiteral("@sam:example.org")), 0);
+
+        // The DM now arrives. Its peer has to be looked up: nothing here ever
+        // asked about them.
+        f.client.roomList = { peer };
+        f.client.announce();
+        QTRY_COMPARE_WITH_TIMEOUT(
+            f.client.profileFetches.count(QStringLiteral("@sam:example.org")), 1,
+            2000);
+
+        // And the answer still reaches the row.
+        Q_EMIT f.client.userProfileFinished(
+            f.client.nextOp, true, QStringLiteral("@sam:example.org"),
+            QStringLiteral("Sam"), QStringLiteral("mxc://example.org/sam"),
+            QString());
+        const int row = f.model.rowForRoom(QStringLiteral("!dm:x"));
+        QVERIFY(row >= 0);
+        QTRY_COMPARE(f.model.data(f.model.index(row, 0),
+                                  SpaceChannelModel::AvatarUrlRole).toString(),
+                     QStringLiteral("mxc://example.org/sam"));
+
+        // The loop guard is untouched: OUR OWN failure is still remembered, so
+        // a peer whose lookup we incurred and lost is not re-asked on every
+        // rebuild. (anAvatarlessPeerIsAskedForExactlyOnce is the full case.)
+    }
+
+    // The answer may not come back under the id we asked with — the id is
+    // normalised by the SDK. The pending release already takes BOTH keys
+    // because getting that wrong once left a peer stuck pending forever; the
+    // CACHE did not, so a face could be learned and filed under a key nobody
+    // queries: both owners look an avatar up by the room's `directUserId`,
+    // which is the id we asked with.
+    //
+    // Structural, not observed — no capture of a real normalisation exists.
+    // It is here because the failure mode is silent and indistinguishable from
+    // "the server has no picture for them".
+    void aFaceReturnedUnderANormalisedIdStillReachesItsRow()
+    {
+        RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
+        peer.directUserId = QStringLiteral("@Sam:example.org");
+        peer.directUserIds = { QStringLiteral("@Sam:example.org") };
+
+        Fixture f;
+        f.build({ peer });
+        QCOMPARE(f.client.profileFetches.count(QStringLiteral("@Sam:example.org")), 1);
+
+        Q_EMIT f.client.userProfileFinished(
+            f.client.nextOp, true, QStringLiteral("@sam:example.org"),
+            QStringLiteral("Sam"), QStringLiteral("mxc://example.org/sam"),
+            QString());
+        const int row = f.model.rowForRoom(QStringLiteral("!dm:x"));
+        QVERIFY(row >= 0);
+        QTRY_COMPARE(f.model.data(f.model.index(row, 0),
+                                  SpaceChannelModel::AvatarUrlRole).toString(),
+                     QStringLiteral("mxc://example.org/sam"));
+    }
+
 private:
     QTemporaryDir m_configHome;
 };

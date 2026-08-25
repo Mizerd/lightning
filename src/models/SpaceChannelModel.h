@@ -242,6 +242,9 @@ private:
         bool operator!=(const Row &other) const { return !(*this == other); }
     };
 
+    /// Cancels any queued rebuild before running, so that after this returns
+    /// nothing armed under the previous state is still on its way. Every
+    /// source change ends here, which is what makes that invariant reach them.
     void rebuild();
     /// Coalesces a burst of source signals into ONE rebuild per event-loop
     /// turn. Every caller that fires from a signal uses this; the direct

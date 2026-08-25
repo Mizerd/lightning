@@ -69,6 +69,14 @@ void SpaceChannelModel::scheduleRebuild()
 void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
                                    RailLayoutStore *layout)
 {
+    // A QUEUED REBUILD BELONGS TO THE SOURCES THAT ARMED IT.
+    //
+    // scheduleRebuild() defers to the next event-loop turn, so a burst that
+    // arrived just before this call is still sitting in the queue — and it
+    // would be delivered against whatever is wired up below instead. rebuild()
+    // at the end of this function supersedes it anyway; cancelling it HERE is
+    // what makes that true even if this function ever grows an early return.
+    m_rebuildCoalesce.stop();
     if (m_client)
         disconnect(m_client, nullptr, this, nullptr);
     if (m_spaces)
@@ -79,7 +87,26 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
     m_directAvatars.setClient(client);
     m_spaces = spaces;
     m_layout = layout;
+    // A SOURCE THAT IS DESTROYED MUST LEAVE A NULL, NOT A DANGLING POINTER.
+    //
+    // rebuild() guards on `!m_client || !m_spaces`, which defends nothing once
+    // the object behind the pointer is gone: the pointer is still non-null and
+    // the deref is undefined. That is not hypothetical ordering pedantry —
+    // AppController declares `m_spaces` AFTER `m_spaceChannels`, so on teardown
+    // the SpaceManager this model reads is destroyed FIRST, and any event-loop
+    // turn between the two (a deleteLater drain, a nested exec) delivers a
+    // queued rebuild into a dead SpaceManager. Today nothing spins a loop in
+    // that window, which makes this safe BY ACCIDENT.
+    //
+    // Deliberately no rebuild() from these handlers: a destroyed source means
+    // the application is coming down, and a model reset emitted into views
+    // that may themselves be half-destroyed buys nothing. Nulling the pointer
+    // and cancelling the queued work is the whole job.
     if (m_spaces) {
+        connect(m_spaces, &QObject::destroyed, this, [this] {
+            m_spaces = nullptr;
+            m_rebuildCoalesce.stop();
+        });
         // SpaceManager rebuilds on both roomsChanged and roomUpdated and
         // always announces afterwards, so this single connection covers every
         // room change AND guarantees the hierarchy is resolved first.
@@ -87,6 +114,10 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
                 &SpaceChannelModel::scheduleRebuild);
     }
     if (m_client) {
+        connect(m_client, &QObject::destroyed, this, [this] {
+            m_client = nullptr;
+            m_rebuildCoalesce.stop();
+        });
         // The collapse set is ACCOUNT-SCOPED storage, so a sign-out or an
         // account switch must drop the in-memory copy and read whoever is
         // next — keeping it would apply one account's collapsed folders to
@@ -99,6 +130,10 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
         });
     }
     if (m_layout) {
+        connect(m_layout, &QObject::destroyed, this, [this] {
+            m_layout = nullptr;
+            m_rebuildCoalesce.stop();
+        });
         connect(m_layout, &RailLayoutStore::layoutChanged, this,
                 &SpaceChannelModel::scheduleRebuild);
     }
@@ -109,7 +144,22 @@ void SpaceChannelModel::setSettings(SettingsManager *settings)
 {
     if (m_settings == settings)
         return;
+    if (m_settings)
+        disconnect(m_settings, nullptr, this, nullptr);
     m_settings = settings;
+    // Same rule as the sources above: no raw pointer held here may outlive
+    // what it points at. This one happens to be safe on the current teardown
+    // order (AppController destroys its SettingsManager last), which is not a
+    // reason to be the one member that depends on a declaration order nobody
+    // is asked to preserve. A null reads as "nothing to persist to", which
+    // loadCollapsed()/saveCollapsed() already handle.
+    if (m_settings) {
+        connect(m_settings, &QObject::destroyed, this, [this] {
+            m_settings = nullptr;
+            m_collapsedLoaded = false;
+            m_collapsed.clear();
+        });
+    }
     m_collapsedLoaded = false;
     m_collapsed.clear();
     rebuild();
@@ -435,6 +485,21 @@ int SpaceChannelModel::appendGroup(QVector<Row> &rows, Row header,
 
 void SpaceChannelModel::rebuild()
 {
+    // INVARIANT: once a rebuild has run, none is queued.
+    //
+    // Two things depend on it. A direct setter (a filter chip, a search
+    // keystroke, the collapse toggle) rebuilds synchronously for its caller,
+    // and a coalesced rebuild armed a moment earlier would then run the whole
+    // pass a second time for no new information. More importantly, every
+    // source change ends in a direct rebuild() — so cancelling here is what
+    // guarantees that work armed under the OLD sources is never delivered
+    // under the new ones, rather than relying on rebuild() happening to
+    // survive being called in that state. It does survive it today; that is a
+    // property of the current guards, not a contract anybody wrote down.
+    //
+    // Calling stop() on the single-shot timer whose timeout brought us here is
+    // a no-op: it is already inactive by the time the slot runs.
+    m_rebuildCoalesce.stop();
     ++m_rebuildCount;
     QVector<Row> rows;
     m_accountHasContent = false;

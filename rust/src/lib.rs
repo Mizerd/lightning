@@ -386,7 +386,73 @@ impl RustClient {
     /// never abandoned mid-write — the crypto store must not be deleted
     /// under it), then the sync loop. A bounded timeout remains only as a
     /// last-resort error boundary after the deterministic join.
-    fn shutdown_managed_tasks(&self) -> (bool, bool) {
+    /// Join every handle under ONE budget, then abort and briefly drain
+    /// whatever missed it. Returns how many missed.
+    ///
+    /// WHY THIS IS A FUNCTION AND NOT TWO COPIES OF FOUR LINES. The two
+    /// copies it replaces each built a SECOND `join_all` over the SAME
+    /// handles after the budget elapsed. `JoinHandle::poll` CONSUMES the
+    /// task's output (tokio's `Core::take_output` swaps `Stage::Finished`
+    /// for `Stage::Consumed`), and the first `JoinAll` — the only record of
+    /// which handles had already completed — was dropped by the `timeout`.
+    /// So every task that finished inside the budget was polled a second
+    /// time and hit `panic!("JoinHandle polled after completion")`. With
+    /// `panic = "abort"` in both profiles that is an immediate SIGABRT of
+    /// the whole process: no unwind, nothing for `ffi_string`'s
+    /// `catch_unwind` to catch, and no line in any log. A coredump of
+    /// exactly this (2026-08-25) has the account switch in its stack.
+    ///
+    /// It needed TWO conditions in one batch, which is why it fired once
+    /// and not reliably: something had to MISS the budget, or round two
+    /// never ran at all; and something else had to have FINISHED inside it,
+    /// or round two polled only pending handles and was harmless.
+    ///
+    /// The fix is to keep ONE `JoinAll` that OWNS the handles and poll that
+    /// SAME future in both rounds — its `MaybeDone` entries remember what is
+    /// done, so round two re-polls only what is still pending. A `JoinSet`
+    /// would make the bug unwritable (`join_next` REMOVES each task as it is
+    /// joined); that is the better long-term shape and a larger change,
+    /// because `spawn_media_fetch` must keep its own `AbortHandle` registry
+    /// for `mx_rust_media_cancel`.
+    async fn join_or_abort(
+        handles: Vec<tokio::task::JoinHandle<()>>,
+        budget_secs: u64,
+    ) -> usize {
+        if handles.is_empty() {
+            return 0;
+        }
+        // Collected BEFORE the vec moves into join_all: the old
+        // `for handle in &handles { handle.abort(); }` has nothing left to
+        // borrow once the handles are owned by the future.
+        let aborts: Vec<tokio::task::AbortHandle> = handles
+            .iter()
+            .map(tokio::task::JoinHandle::abort_handle)
+            .collect();
+        let mut all = std::pin::pin!(futures_util::future::join_all(handles));
+        if tokio::time::timeout(
+            std::time::Duration::from_secs(budget_secs),
+            all.as_mut(),
+        )
+        .await
+        .is_ok()
+        {
+            return 0;
+        }
+        let missed = aborts.iter().filter(|a| !a.is_finished()).count();
+        for a in &aborts {
+            a.abort();
+        }
+        // The SAME future, so a handle joined in round one is never polled
+        // again. This is the entire fix.
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            all.as_mut(),
+        )
+        .await;
+        missed
+    }
+
+    fn shutdown_managed_tasks(&self) -> (bool, bool, usize, usize) {
         // The token-persistence watcher holds a strong Client purely to read
         // rotated tokens, and its broadcast sender lives INSIDE that same
         // Client — so recv() can never return Closed on its own and the task
@@ -411,28 +477,10 @@ impl RustClient {
             .ok()
             .map(|mut guard| std::mem::take(&mut *guard))
             .unwrap_or_default();
-        if !verifications.is_empty() {
-            self.runtime.block_on(async {
-                let mut handles = verifications;
-                let all = futures_util::future::join_all(handles.iter_mut());
-                if tokio::time::timeout(
-                    std::time::Duration::from_secs(timeline::SHUTDOWN_JOIN_TIMEOUT_SECS),
-                    all,
-                )
-                .await
-                .is_err()
-                {
-                    for handle in &handles {
-                        handle.abort();
-                    }
-                    let _ = tokio::time::timeout(
-                        std::time::Duration::from_secs(2),
-                        futures_util::future::join_all(handles.iter_mut()),
-                    )
-                    .await;
-                }
-            });
-        }
+        let verifications_missed = self.runtime.block_on(Self::join_or_abort(
+            verifications,
+            timeline::SHUTDOWN_JOIN_TIMEOUT_SECS,
+        ));
         // Every driver has stopped, so whatever is still parked in the slots
         // has nobody left to cancel it. That includes the case with no driver
         // at all: an incoming request the user never answered sits here from
@@ -475,26 +523,10 @@ impl RustClient {
         // room-action task (previously 15s EACH, sequentially — a handful
         // of hung media fetches could block an account switch for minutes).
         // Whatever misses the budget is aborted and briefly drained.
-        self.runtime.block_on(async {
-            let mut handles = actions;
-            let all = futures_util::future::join_all(handles.iter_mut());
-            if tokio::time::timeout(
-                std::time::Duration::from_secs(timeline::SHUTDOWN_JOIN_TIMEOUT_SECS),
-                all,
-            )
-            .await
-            .is_err()
-            {
-                for handle in &handles {
-                    handle.abort();
-                }
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_secs(2),
-                    futures_util::future::join_all(handles.iter_mut()),
-                )
-                .await;
-            }
-        });
+        let actions_missed = self.runtime.block_on(Self::join_or_abort(
+            actions,
+            timeline::SHUTDOWN_JOIN_TIMEOUT_SECS,
+        ));
 
         let import = self.import_task.lock().ok().and_then(|mut guard| guard.take());
         let mut import_joined = true;
@@ -538,7 +570,7 @@ impl RustClient {
         if let Ok(mut guard) = self.notification_mode_targets.lock() {
             guard.clear();
         }
-        (import_joined, sync_stopped)
+        (import_joined, sync_stopped, actions_missed, verifications_missed)
     }
 
     fn reap_finished_sync(&self) {
@@ -7144,9 +7176,15 @@ pub unsafe extern "C" fn mx_rust_fetch_upload_limit(ptr: *mut c_void) -> *mut c_
 pub unsafe extern "C" fn mx_rust_shutdown_tasks(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
-        let (import_joined, sync_stopped) = bridge.shutdown_managed_tasks();
+        // The MISS COUNTS are the necessary condition for the double-poll
+        // SIGABRT this function used to be able to take (see join_or_abort),
+        // and nothing anywhere recorded that the budget had been exceeded.
+        // Counts only — no task identity, no room id, nothing content-derived.
+        let (import_joined, sync_stopped, actions_missed, verifications_missed) =
+            bridge.shutdown_managed_tasks();
         Ok(format!(
-            "import_joined={import_joined} sync_stopped={sync_stopped}"
+            "import_joined={import_joined} sync_stopped={sync_stopped} \
+             actions_missed={actions_missed} verifications_missed={verifications_missed}"
         ))
     })
 }
@@ -8707,6 +8745,165 @@ fn classify_import_error(message: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::classify_import_error;
+
+    // ── The account-switch SIGABRT (2026-08-25) ──────────────────────────
+    //
+    // `shutdown_managed_tasks` used to join its task handles under a budget
+    // and, if the budget elapsed, build a SECOND `join_all` over the SAME
+    // handles. `JoinHandle::poll` CONSUMES the task's output — tokio's
+    // `Core::take_output` swaps `Stage::Finished` for `Stage::Consumed` — and
+    // the first `JoinAll`, the only record of which handles had already
+    // completed, was dropped by the `timeout`. So every task that finished
+    // inside the budget was polled again and hit
+    // `panic!("JoinHandle polled after completion")`. `rust/Cargo.toml` sets
+    // `panic = "abort"` in BOTH profiles, so that is an immediate SIGABRT of
+    // the whole process: no unwind, nothing for `ffi_string`'s `catch_unwind`
+    // to catch, and no line in any log.
+    //
+    // Cargo deliberately IGNORES the `panic` setting for the test profile, so
+    // `#[should_panic]` still works here. `panicIsCatchableInTheTestProfile`
+    // asserts exactly that, because every case below rests on it.
+    //
+    // Reported as "lighting crashed once when switching accounts", and ONCE is
+    // the whole shape of it: it needs something to MISS the budget (or round
+    // two never runs) AND something else to have FINISHED inside it (or round
+    // two polls only pending handles and is harmless).
+
+    #[test]
+    #[should_panic(expected = "deliberate")]
+    fn panic_is_catchable_in_the_test_profile() {
+        // If this ever fails, every should_panic case below is silently
+        // vacuous and the crash coverage is decoration.
+        panic!("deliberate");
+    }
+
+    /// The retired two-round shape, reproduced exactly so the test can fail
+    /// on it. Nothing in production calls this.
+    async fn join_or_abort_the_old_broken_way(
+        mut handles: Vec<tokio::task::JoinHandle<()>>,
+        budget_ms: u64,
+    ) {
+        let all = futures_util::future::join_all(handles.iter_mut());
+        if tokio::time::timeout(std::time::Duration::from_millis(budget_ms), all)
+            .await
+            .is_err()
+        {
+            for handle in &handles {
+                handle.abort();
+            }
+            // The second join_all over the SAME handles. This is the defect.
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_millis(200),
+                futures_util::future::join_all(handles.iter_mut()),
+            )
+            .await;
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "polled after completion")]
+    fn the_old_two_round_join_panics_when_one_task_beat_the_budget() {
+        // ONE task finishes immediately, ONE outlives the budget. That is the
+        // exact mix an account switch produces: `room_action_tasks` is a
+        // single pool fed by dozens of spawn sites, so what is in flight
+        // differs every time.
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("runtime");
+        rt.block_on(async {
+            let quick = tokio::spawn(async {});
+            let slow = tokio::spawn(async {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            });
+            join_or_abort_the_old_broken_way(vec![quick, slow], 200).await;
+        });
+    }
+
+    #[test]
+    fn join_or_abort_survives_the_same_mix_and_reports_the_miss() {
+        // ON THE UNFIXED TREE this scenario aborts the process rather than
+        // failing, which is why the case above exists to name the panic.
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let missed = rt.block_on(async {
+            let quick = tokio::spawn(async {});
+            let slow = tokio::spawn(async {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            });
+            // 0 seconds so the budget is already spent: the slow task cannot
+            // possibly make it, and the quick one has.
+            super::RustClient::join_or_abort(vec![quick, slow], 0).await
+        });
+        assert_eq!(missed, 1, "the task that outlived the budget was not counted");
+    }
+
+    #[test]
+    fn join_or_abort_reports_no_miss_when_everything_finishes() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let missed = rt.block_on(async {
+            let a = tokio::spawn(async {});
+            let b = tokio::spawn(async {});
+            super::RustClient::join_or_abort(vec![a, b], 30).await
+        });
+        assert_eq!(missed, 0);
+    }
+
+    #[test]
+    fn join_or_abort_is_a_no_op_with_no_handles() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        assert_eq!(rt.block_on(super::RustClient::join_or_abort(vec![], 0)), 0);
+    }
+
+    // THE TWO ORDERINGS THAT NEVER PANICKED, and why the crash was rare.
+    // BOTH OF THESE PASS ON THE BROKEN CODE — they are documentation of the
+    // window, not coverage of the defect. Do not read a green run of these as
+    // evidence that the two-round shape is safe.
+    #[test]
+    fn the_old_shape_is_harmless_when_nothing_misses_the_budget() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("runtime");
+        rt.block_on(async {
+            let a = tokio::spawn(async {});
+            let b = tokio::spawn(async {});
+            // Round two never runs, so nothing is re-polled.
+            join_or_abort_the_old_broken_way(vec![a, b], 5_000).await;
+        });
+    }
+
+    #[test]
+    fn the_old_shape_is_harmless_when_nothing_finishes_inside_the_budget() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("runtime");
+        rt.block_on(async {
+            let a = tokio::spawn(async {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            });
+            let b = tokio::spawn(async {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            });
+            // Round two polls only handles that were still pending, which is
+            // legal.
+            join_or_abort_the_old_broken_way(vec![a, b], 50).await;
+        });
+    }
 
     // The HTTP user agent is the one string third parties see. It must be a
     // well-formed `Lightning/X.Y.Z` derived from the crate version, never a
