@@ -185,6 +185,14 @@ public:
     /// Stop publishing one track and renegotiate.
     void unpublish(const QString &cid);
 
+    /// How many sink pads the PUBLISHER webrtcbin currently holds — one per
+    /// live outgoing track, and therefore one per m= section it will offer.
+    /// Test-only observation point: unpublish() retires a transceiver
+    /// asynchronously, and without a way to see the count come back down a
+    /// leak here is invisible until it reaches another client's screen.
+    /// Returns -1 when there is no publisher at all.
+    int publisherTrackSlotsForTest() const;
+
     /// The tail of unpublish(), run once the deferred teardown has actually
     /// put the bin at NULL. Public only because that teardown is driven by
     /// GStreamer callbacks that are not members of this class; it is not a

@@ -1109,6 +1109,62 @@ private slots:
         engine.stop();
     }
 
+    /// STOPPING A SHARE MUST RETIRE ITS TRANSCEIVER, not just quiesce our
+    /// own pipeline.
+    ///
+    /// Quiescing is invisible to everyone else. The m= section stays in the
+    /// SDP, so the far end keeps rendering the last frame it received — a
+    /// frozen picture that only leaving the call clears — and the next share
+    /// is offered as an ADDITIONAL section rather than reusing the one just
+    /// vacated. A live capture of three shares in one session showed the
+    /// answer growing 2 -> 3 -> 4 sections with nothing ever removed, which
+    /// is the whole of "stopping doesnt stop the stream ... in element a
+    /// blank screen remains and starting to share again doesnt work".
+    ///
+    /// One sink pad on the publisher webrtcbin is one outgoing track and so
+    /// one m= section. The count must come back DOWN, and a re-publish must
+    /// not stack on top of the old one.
+    void stoppingAPublishRetiresItsTransceiver()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        // -1, not 0: the publisher webrtcbin is built lazily on the first
+        // publish, so before one there is no peer connection to count at all.
+        QCOMPARE(engine.publisherTrackSlotsForTest(), -1);
+
+        engine.publishVideo(QStringLiteral("cid-share"), /*screenShare=*/false,
+                            /*nodeId=*/-1);
+        QTest::qWait(400);
+        QCOMPARE(engine.publisherTrackSlotsForTest(), 1);
+
+        // The teardown is deliberately asynchronous (see the deadlock case
+        // below), so the count falls a moment later rather than on return.
+        engine.unpublish(QStringLiteral("cid-share"));
+        int slotCount = -1;
+        for (int i = 0; i < 60; ++i) {
+            slotCount = engine.publisherTrackSlotsForTest();
+            if (slotCount == 0)
+                break;
+            QTest::qWait(50);
+        }
+        QVERIFY2(slotCount == 0,
+                 qPrintable(QStringLiteral(
+                     "the publisher still holds %1 track slot(s) after "
+                     "unpublish: the far end will keep the dead m= section "
+                     "and go on showing a frozen frame")
+                                .arg(slotCount)));
+
+        // AND THE NEXT SHARE MUST NOT STACK. Two slotCount here is the reported
+        // growth, with the new share landing on a section the far end is not
+        // rendering.
+        engine.publishVideo(QStringLiteral("cid-share-2"),
+                            /*screenShare=*/false, /*nodeId=*/-1);
+        QTest::qWait(400);
+        QCOMPARE(engine.publisherTrackSlotsForTest(), 1);
+        engine.stop();
+    }
+
     /// UNPUBLISHING A LIVE VIDEO BIN MUST NOT DEADLOCK.
     ///
     /// It did, and this case hung for the full 120 s CTest timeout before the

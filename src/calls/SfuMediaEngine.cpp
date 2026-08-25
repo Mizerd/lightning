@@ -1602,12 +1602,22 @@ namespace {
 struct PublishTeardown {
     SfuMediaEngine *engine = nullptr;
     GstElement *pipeline = nullptr;
+    /// The webrtcbin whose request pad this bin was publishing through, and
+    /// that pad. Both refs are owned here and released in the async step —
+    /// the pad has to OUTLIVE the unlink so the transceiver can be retired,
+    /// which is what tells the far end the track is over.
+    GstElement *webrtc = nullptr;
+    GstPad *peer = nullptr;
     QString cid;
 };
 
 void publishTeardownFree(gpointer data)
 {
     auto *ctx = static_cast<PublishTeardown *>(data);
+    if (ctx->peer)
+        gst_object_unref(ctx->peer);
+    if (ctx->webrtc)
+        gst_object_unref(ctx->webrtc);
     if (ctx->pipeline)
         gst_object_unref(ctx->pipeline);
     delete ctx;
@@ -1622,6 +1632,26 @@ void publishTeardownAsync(GstElement *bin, gpointer data)
     // with no parent still running to coordinate against.
     gst_bin_remove(GST_BIN(ctx->pipeline), bin);
     gst_element_set_state(bin, GST_STATE_NULL);
+
+    // RETIRE THE TRANSCEIVER, or the far end never learns the track ended.
+    //
+    // Quiescing our own pipeline is invisible to everyone else: the m= section
+    // stays in the SDP, so Element keeps rendering the last frame it got —
+    // a frozen picture that only leaving the call clears — and the NEXT share
+    // is offered as an ADDITIONAL m-line rather than reusing this one. A live
+    // capture of three shares in one session shows exactly that, the answer
+    // growing 2 -> 3 -> 4 sections while nothing is ever removed.
+    //
+    // Releasing the request pad is what marks the transceiver inactive, so
+    // the renegotiated offer says the track is gone and webrtcbin can reuse
+    // the section for the next publish instead of appending another.
+    //
+    // The previous commit deliberately did NOT do this, on the reasoning that
+    // it would "change the m-line layout" of an offer that took a day to make
+    // interoperate. That reasoning was backwards: leaving the section behind
+    // is itself the layout change, one that accumulates.
+    // The transceiver was already retired synchronously in unpublish() — see
+    // the comment there for why it cannot wait for this callback.
     // Back to the GUI thread for anything that touches engine state. marshal()
     // drops it if the engine has since been destroyed.
     // Back to the GUI thread for anything that touches engine state.
@@ -1649,10 +1679,6 @@ GstPadProbeReturn publishTeardownProbe(GstPad *pad, GstPadProbeInfo *,
         // destroy notify (see below), which makes this branch the only owner.
         publishTeardownFree(ctx);
         return GST_PAD_PROBE_REMOVE;
-    }
-    if (GstPad *peer = gst_pad_get_peer(pad)) {
-        gst_pad_unlink(pad, peer);
-        gst_object_unref(peer);
     }
     // OWNERSHIP OF ctx MOVES HERE. gst_pad_add_probe was given no destroy
     // notify on purpose: a probe's notify runs the moment the probe is
@@ -1731,12 +1757,79 @@ void SfuMediaEngine::unpublish(const QString &cid)
     }
 
     auto *ctx = new PublishTeardown{
-        this, GST_ELEMENT(gst_object_ref(m_publisher.pipeline)), cid};
+        this, GST_ELEMENT(gst_object_ref(m_publisher.pipeline)),
+        /*webrtc=*/nullptr, /*peer=*/nullptr, cid};
+    // RETIRE THE TRANSCEIVER NOW, ON THIS THREAD. Two reasons, and the
+    // second is why it cannot ride the deferred teardown below.
+    //
+    // 1. It is what the far end actually sees. Quiescing our own pipeline is
+    //    invisible to everyone else: the m= section stays in the SDP, so the
+    //    remote keeps rendering the last frame it got — a frozen picture that
+    //    only leaving the call clears — and the NEXT share is offered as an
+    //    ADDITIONAL section rather than reusing this one. A live capture of
+    //    three shares in one session shows the answer growing 2 -> 3 -> 4
+    //    with nothing ever removed.
+    //
+    // 2. It UNBLOCKS the deferred teardown. The IDLE probe below fires only
+    //    when no push is in flight, and a pad pushing into a webrtcbin that
+    //    is not draining never becomes idle — measured: the probe did not
+    //    fire for the whole three seconds a test waited, then fired during
+    //    engine teardown. Unlinking here makes the in-flight push return
+    //    NOT_LINKED, the streaming thread unwinds, and the pad goes idle.
+    //    Without this the async teardown does not deadlock — it simply never
+    //    runs, which is a leak wearing a fix's clothes.
+    if (GstPad *peer = gst_pad_get_peer(srcPad)) {
+        gst_pad_unlink(srcPad, peer);
+        if (GstElement *webrtc = gst_pad_get_parent_element(peer)) {
+            gchar *padName = gst_pad_get_name(peer);
+            gst_element_release_request_pad(webrtc, peer);
+            // Element and pad names only — never a participant, a track or
+            // anything captured. This line is how a future run says whether
+            // the far end was told.
+            qCInfo(lcSfuMedia) << "publish transceiver retired pad="
+                               << (padName ? padName : "?");
+            g_free(padName);
+            gst_object_unref(webrtc);
+        }
+        gst_object_unref(peer);
+    }
+
     // No destroy notify — publishTeardownProbe hands ctx to
     // gst_element_call_async, which owns it from then on.
     gst_pad_add_probe(srcPad, GST_PAD_PROBE_TYPE_IDLE, publishTeardownProbe,
                       ctx, nullptr);
     gst_object_unref(srcPad);
+}
+
+int SfuMediaEngine::publisherTrackSlotsForTest() const
+{
+    if (!m_publisher.webrtc)
+        return -1;
+    int slotCount = 0;
+    GstIterator *it = gst_element_iterate_sink_pads(m_publisher.webrtc);
+    if (!it)
+        return 0;
+    GValue item = G_VALUE_INIT;
+    bool done = false;
+    while (!done) {
+        switch (gst_iterator_next(it, &item)) {
+        case GST_ITERATOR_OK:
+            ++slotCount;
+            g_value_reset(&item);
+            break;
+        case GST_ITERATOR_RESYNC:
+            slotCount = 0;
+            gst_iterator_resync(it);
+            break;
+        case GST_ITERATOR_ERROR:
+        case GST_ITERATOR_DONE:
+            done = true;
+            break;
+        }
+    }
+    g_value_unset(&item);
+    gst_iterator_free(it);
+    return slotCount;
 }
 
 void SfuMediaEngine::noteTeardownComplete(const QString &cid)
@@ -2051,7 +2144,68 @@ void SfuMediaEngine::setParticipantVolume(const QString &streamId,
             GST_BIN(m_subscriber.pipeline), target.toUtf8().constData())) {
         g_object_set(element, "volume", volume, nullptr);
         gst_object_unref(element);
+        return;
     }
+
+    // A MISS HERE IS A CONTROL THAT SILENTLY DOES NOTHING, so it says so.
+    //
+    // Per-participant volume was reported twice as "does nothing, but does
+    // remember the set %" — the value reaching settings while never reaching
+    // the audio. Every link in that chain reads correctly on paper, so this
+    // reports which one actually broke rather than inviting a fourth guess:
+    // the name we looked for, and how many receive volume elements exist at
+    // all. Zero means no remote audio bin has been built (nothing to turn
+    // down); a non-zero count with no match means the two ends derived the
+    // stream's name differently, which is the failure this code has had
+    // before.
+    //
+    // Names only. A LiveKit stream sid is the same class of identifier this
+    // file already logs as `trackKey=`, and no participant, track content or
+    // capture is named.
+    int volumeElements = 0;
+    QStringList known;
+    if (GstIterator *it =
+            gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline))) {
+        GValue item = G_VALUE_INIT;
+        bool done = false;
+        int resyncsLeft = 8;
+        while (!done) {
+            switch (gst_iterator_next(it, &item)) {
+            case GST_ITERATOR_OK: {
+                if (auto *element = GST_ELEMENT(g_value_get_object(&item))) {
+                    gchar *name = gst_element_get_name(element);
+                    if (name && g_str_has_prefix(name, "outvol")) {
+                        ++volumeElements;
+                        if (known.size() < 8)
+                            known << QString::fromUtf8(name);
+                    }
+                    g_free(name);
+                }
+                g_value_reset(&item);
+                break;
+            }
+            case GST_ITERATOR_RESYNC:
+                volumeElements = 0;
+                known.clear();
+                if (resyncsLeft-- <= 0) {
+                    done = true;
+                    break;
+                }
+                gst_iterator_resync(it);
+                break;
+            case GST_ITERATOR_ERROR:
+            case GST_ITERATOR_DONE:
+                done = true;
+                break;
+            }
+        }
+        g_value_unset(&item);
+        gst_iterator_free(it);
+    }
+    qCWarning(lcSfuMedia)
+        << "participant volume had nowhere to land: wanted=" << target
+        << "receive volume elements=" << volumeElements
+        << "named=" << known.join(QLatin1Char(','));
 }
 
 void SfuMediaEngine::setVideoRouter(SfuVideoRouter *router)

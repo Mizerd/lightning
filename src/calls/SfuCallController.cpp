@@ -2066,8 +2066,18 @@ void SfuCallController::setParticipantVolume(const QString &identity,
     // the receive bin's volume element carries, and the two are different
     // strings.
     const QString streamId = streamIdForIdentity(identity);
-    if (!m_engine.isNull() && !streamId.isEmpty())
+    if (!m_engine.isNull() && !streamId.isEmpty()) {
         m_engine->setParticipantVolume(streamId, clamped);
+    } else {
+        // Reported twice as a control that "does nothing, but does remember
+        // the set %": the value lands in settings below whatever happens
+        // here, so a silent miss at this line looks exactly like success.
+        // Booleans and a sid, no user content.
+        qCWarning(lcSfuCall)
+            << "participant volume not applied: engine="
+            << !m_engine.isNull() << "streamId=" << streamId
+            << "participants=" << m_participants.size();
+    }
 #endif
     // Recorded so the control that sets it can READ IT BACK. This was
     // write-only, which is why no QML ever called it: a slider with nothing
