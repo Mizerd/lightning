@@ -55,6 +55,7 @@
 #include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QVector>
 
 #include "models/DirectAvatarResolver.h"
@@ -101,6 +102,13 @@ class SpaceChannelModel : public QAbstractListModel
     /// rooms. Distinct from "the filter matched nothing", which is a fact
     /// about the filter and must not be reported as a fact about the account.
     Q_PROPERTY(bool empty READ empty NOTIFY countChanged)
+    /// How many ROOM rows survived the current filter and search. This is the
+    /// other half of the distinction `empty` refuses to make: zero here with
+    /// `empty` false means the chip or the search box matched nothing, and the
+    /// column can say so instead of rendering its two navigation rows over
+    /// blank space — which is what made a filter that produced no rooms look
+    /// like a filter that did nothing.
+    Q_PROPERTY(int matchCount READ matchCount NOTIFY matchCountChanged)
 
 public:
     enum Kind {
@@ -172,6 +180,11 @@ public:
     QString scopeSpaceId() const { return m_scopeSpaceId; }
     void setScopeSpaceId(const QString &spaceId);
     bool empty() const;
+    int matchCount() const { return m_matchCount; }
+    /// How many times rebuild() has run. A test seam, and the only honest way
+    /// to measure the coalescing: counting the CLIENT's rooms() calls also
+    /// counts SpaceManager's own rebuilds, which are not this model's cost.
+    int rebuildCountForTest() const { return m_rebuildCount; }
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -192,6 +205,11 @@ public:
     /// Synthetic header ids. Not room ids and never sent anywhere; the '@'
     /// prefix is what keeps them from colliding with one.
     static QString invitesGroupId() { return QStringLiteral("@invites"); }
+    /// Direct messages have a group of their OWN, and it is the one group a
+    /// scoped Space never removes: Matrix has no way for a DM to be a Space's
+    /// child, so a scope that hid DMs hid them everywhere — and the People
+    /// chip, whose whole result set is DMs, then produced nothing at all.
+    static QString directsGroupId() { return QStringLiteral("@directs"); }
     static QString roomsGroupId() { return QStringLiteral("@rooms"); }
 
 Q_SIGNALS:
@@ -200,6 +218,7 @@ Q_SIGNALS:
     void searchQueryChanged();
     void messageSearchSupportedChanged();
     void scopeSpaceIdChanged();
+    void matchCountChanged();
 
 private:
     struct Row {
@@ -224,6 +243,11 @@ private:
     };
 
     void rebuild();
+    /// Coalesces a burst of source signals into ONE rebuild per event-loop
+    /// turn. Every caller that fires from a signal uses this; the direct
+    /// setters keep calling rebuild() so a property write is still
+    /// synchronous for its caller.
+    void scheduleRebuild();
     void applyRows(QVector<Row> rows);
     void loadCollapsed() const;
     void saveCollapsed();
@@ -254,8 +278,12 @@ private:
     bool m_messageSearchSupported = false;
     QString m_scopeSpaceId;
     QVector<Row> m_rows;
+    QTimer m_rebuildCoalesce;
     /// Whether anything at all exists to list, independent of the filter.
     bool m_accountHasContent = false;
+    /// Room rows that survived the filter and the search.
+    int m_matchCount = 0;
+    int m_rebuildCount = 0;
 
     mutable QSet<QString> m_collapsed;
     mutable bool m_collapsedLoaded = false;

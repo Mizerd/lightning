@@ -478,6 +478,24 @@ private:
 
     // v0.7.1: watchdog + sanitized diagnostics.
     QTimer m_watchdog;
+    // The default log used to carry three or more lines per media request —
+    // "cache=miss dispatching", then "queue" or "fetch opId=", then "ready" —
+    // plus one "already-pending" line PER DUPLICATE CALLER, which in a list is
+    // unbounded: one account switch produced several hundred lines and the
+    // maintainer reported the log as unreadable. Those are per-REQUEST and
+    // per-CALLER lines, so they moved to lightning.media.trace; what lands in
+    // the default category instead is ONE line once a burst goes quiet.
+    //
+    // Counts, bytes and a peak queue depth only. No cache keys, no mxc URIs,
+    // no paths — the summary must stay safe to paste into a bug report, which
+    // per-key lines are not.
+    QTimer m_burstSummary;
+    qint64 m_burstCompleted = 0;
+    qint64 m_burstFailed = 0;
+    qint64 m_burstBytes = 0;
+    qint64 m_burstPeakQueued = 0;
+    /// Restarts the quiet-period timer and tracks the peak queue depth.
+    void noteMediaActivity();
     // Class timeouts. Thumbnails/avatars/full images are small; a genuine
     // fetch resolves in well under this. Only a truly stuck op reaches it.
     qint64 m_inflightTimeoutMs = 45 * 1000;

@@ -239,15 +239,66 @@ private Q_SLOTS:
         qInstallMessageHandler(prev);
 
         QVERIFY(hit.startsWith(QStringLiteral("image://lightning-media/")));
-        bool sawMiss = false;
+        // NOTHING per-request reaches the default category any more, and that
+        // is the point. A "cache=miss dispatching" line fires once per key, a
+        // "queue" or "fetch opId=" line follows it, a "ready" line follows
+        // that, and "already-pending" fires once per DUPLICATE CALLER — which
+        // in a list is unbounded. One account switch produced several hundred
+        // lines and the maintainer reported the log as unreadable. All of them
+        // moved to lightning.media.trace; what lands here instead is ONE
+        // counts-only burst summary once the activity goes quiet, plus every
+        // FAILURE, which is rare and names a category the user can act on.
         for (const QString &line : captured) {
             QVERIFY2(!line.contains(QStringLiteral("cache=hit")),
                      qUtf8Printable("unexpected cache=hit storm line: " + line));
-            if (line.contains(QStringLiteral("cache=miss")))
-                sawMiss = true;
+            QVERIFY2(!line.contains(QStringLiteral("cache=miss")),
+                     qUtf8Printable("a per-request line is back on the default "
+                                    "category: " + line));
+            QVERIFY2(!line.contains(QStringLiteral("already-pending")),
+                     qUtf8Printable("the per-CALLER line is back, and it is "
+                                    "unbounded in a list: " + line));
         }
-        QVERIFY2(sawMiss,
-                 "media cache=miss diagnostic must remain on lightning.media");
+    }
+
+    // The other half of the same decision: quieting the per-request lines must
+    // not make a burst of media work invisible. One line, counts and bytes
+    // only — no cache keys, no mxc URIs, no paths — so it stays safe to paste
+    // into a bug report, which the per-key lines never were.
+    void aBurstOfMediaWorkIsSummarisedOnceItGoesQuiet()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+
+        bridge.avatarSource(kMxc, 64);
+        bridge.avatarSource(QStringLiteral("mxc://mock.local/second"), 64);
+
+        auto &captured = capturedLines();
+        captured.clear();
+        QtMessageHandler prev = qInstallMessageHandler(&captureHandler);
+        for (const auto &fetch : client.fetches)
+            client.succeed(fetch.opId, QByteArray("pixels"));
+        // The summary is deliberately deferred until the activity stops, so
+        // it describes the whole burst rather than each request.
+        bool sawSummary = false;
+        QTRY_VERIFY_WITH_TIMEOUT(([&] {
+            for (const QString &line : captured) {
+                if (line.contains(QStringLiteral("media burst:")))
+                    sawSummary = true;
+            }
+            return sawSummary;
+        }()), 5000);
+        qInstallMessageHandler(prev);
+
+        for (const QString &line : captured) {
+            if (!line.contains(QStringLiteral("media burst:")))
+                continue;
+            QVERIFY2(!line.contains(QStringLiteral("mxc://")),
+                     qUtf8Printable("the summary names a media URI: " + line));
+            QVERIFY2(line.contains(QStringLiteral("fetched")),
+                     qUtf8Printable("the summary carries no count: " + line));
+        }
+        QVERIFY(sawSummary);
     }
 
     void evictionIsBoundedLru()

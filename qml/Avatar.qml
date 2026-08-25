@@ -161,19 +161,31 @@ Rectangle {
         if (s === "" && bridge.avatarFailureCategory(mxc) !== "")
             fetchFailed = true
     }
-    onMxcChanged: {
+    // ONE trigger for "what this avatar is asking the bridge for".
+    //
+    // There used to be three, and two of them could not change the answer:
+    //   * `onSizeChanged` was pure dead work — MediaBridge::avatarSource
+    //     opens with Q_UNUSED(size) and keys every avatar on one canonical
+    //     server-side edge, so a size change cannot alter the request. Any
+    //     delegate that sets a non-default size (the 16px read-receipt chips)
+    //     paid an extra QML->C++ call for nothing.
+    //   * `hasImage` is DERIVED from `mxc`, so an empty -> non-empty identity
+    //     fired onMxcChanged AND onHasImageChanged for one logical change.
+    // Three to four bridge calls per avatar, times every surface sharing a
+    // face, is what filled the log with `already-pending` lines.
+    //
+    // This still covers the case onHasImageChanged existed for — a late
+    // `bridge.supported` flip after setClient on session restore or an
+    // account switch — because a supported flip changes `hasImage` and
+    // therefore changes this key.
+    readonly property string _requestKey: hasImage ? mxc : ""
+    on_RequestKeyChanged: {
         // A new identity is a new load attempt; the old failure (and any
         // stale bitmap via the source change below) must not leak across
         // delegate reuse.
         fetchFailed = false
         refresh()
     }
-    onSizeChanged: refresh()
-    // Covers bridge.supported flipping after a late setClient (session
-    // restore/account switch): the avatar re-resolves the moment the
-    // bridge becomes usable instead of staying empty until an unrelated
-    // poke.
-    onHasImageChanged: refresh()
     Component.onCompleted: {
         // The completion half of the defensive bridge resolution (see the
         // `bridge` property): by completion the scope was observed wired

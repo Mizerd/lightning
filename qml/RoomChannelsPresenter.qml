@@ -77,6 +77,55 @@ Item {
         }
     }
 
+    // Filter-miss state: the account HAS conversations and this view has no
+    // rooms in it. The other half of the distinction the state above refuses
+    // to make, and it has to be a separate message rather than a broader
+    // `empty` — reporting a fact about the filter as a fact about the account
+    // is the thing SpaceChannelModel::empty exists to prevent.
+    //
+    // Until this existed the column simply rendered Lobby and Message Search
+    // over blank space whenever a chip matched nothing, with no wording at
+    // all. That silence is what made the People chip read as a dead control:
+    // the chip was reaching the model and rebuilding correctly, the scope had
+    // deleted every DM before it got there, and the column had no way to say
+    // "this matched nothing" as opposed to "this did nothing". A message that
+    // does not NAME what matched nothing would be the same silence with words
+    // on it, so each case says which one it is.
+    Loader {
+        anchors.centerIn: parent
+        width: parent.width - AppTheme.spacing24 * 2
+        active: app.spaceChannels.matchCount === 0 && !app.spaceChannels.empty
+        visible: active
+        sourceComponent: Label {
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
+            color: AppTheme.textMuted
+            font.pixelSize: AppTheme.textBody
+            text: {
+                // The search box wins: it is the most recent thing the user
+                // typed, and a chip's wording under an active search would
+                // blame the chip for the search's result.
+                if (app.spaceChannels.searchQuery.trim().length > 0)
+                    return qsTr("Nothing in this list matches \"%1\".").arg(app.spaceChannels.searchQuery);
+                // The same words Classic uses, including the second sentence:
+                // "whichever Space is selected" is the actual contract, and it
+                // is the one this layout broke.
+                if (app.spaceChannels.filterMode === 1)
+                    return qsTr("No direct messages. They appear here whichever space is selected.");
+                if (app.spaceChannels.filterMode === 2)
+                    return qsTr("No rooms in this view. Direct messages are under the People filter.");
+                if (app.spaceChannels.filterMode === 3)
+                    return qsTr("Nothing unread. Everything in this view has been read.");
+                // No filter and no search, so this is a genuinely empty view —
+                // a selected space with nothing in it yet. Still not an empty
+                // ACCOUNT, and it must not claim to be one.
+                return qsTr("Nothing to show here yet.");
+            }
+        }
+    }
+
     ListView {
         id: channelList
         objectName: "channelList"

@@ -259,6 +259,34 @@ QVariantList SpaceManager::childRoomsDetailed(const QString &spaceId) const
     return out;
 }
 
+QStringList SpaceManager::directChildRoomIds(
+    const QString &spaceId, const QHash<QString, RoomInfo> &byId) const
+{
+    QStringList out;
+    if (spaceId.isEmpty())
+        return out;
+    const auto parent = byId.constFind(spaceId);
+    if (parent == byId.constEnd() || !parent->isSpace)
+        return out;
+    // The Space's own state order. Children the account has not joined, and
+    // child SPACES (which are categories, not channels), are simply absent —
+    // never fabricated placeholder rows. Identical rules to
+    // directChildRoomsDetailed; only the room lookup differs.
+    QSet<QString> seen;
+    for (const QString &childId : parent->childRoomIds) {
+        if (seen.contains(childId))
+            continue;
+        seen.insert(childId);
+        const auto it = byId.constFind(childId);
+        if (it == byId.constEnd() || it->isSpace
+            || it->membership != RoomInfo::Joined) {
+            continue;
+        }
+        out.append(it->id);
+    }
+    return out;
+}
+
 QVariantList SpaceManager::directChildRoomsDetailed(
     const QString &spaceId) const
 {

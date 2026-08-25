@@ -30,6 +30,7 @@ void DirectAvatarResolver::clear()
     m_avatars.clear();
     m_ops.clear();
     m_pending.clear();
+    m_noAvatar.clear();
 }
 
 QString DirectAvatarResolver::directPeer(const RoomInfo &room) const
@@ -86,7 +87,8 @@ void DirectAvatarResolver::resolveMissing(const QList<RoomInfo> &rooms)
     for (const RoomInfo &room : rooms) {
         const QString peer = directPeer(room);
         if (peer.isEmpty() || !avatarFor(room).isEmpty()
-            || m_avatars.contains(peer) || m_pending.contains(peer))
+            || m_avatars.contains(peer) || m_pending.contains(peer)
+            || m_noAvatar.contains(peer))
             continue;
         const quint64 opId = m_client->fetchUserProfile(peer);
         if (opId != 0) {
@@ -121,9 +123,23 @@ void DirectAvatarResolver::onUserProfileFinished(quint64 opId, bool ok,
     // That is what lets a self-DM row, whose direct target is our OWN user id,
     // adopt the signed-in account's own avatar (fetched for the account
     // switcher) instead of resolving to an initial forever.
-    if (ok && !userId.isEmpty() && !avatarUrl.isEmpty())
-        m_avatars.insert(userId, avatarUrl);
     if (userId.isEmpty())
         return;
-    Q_EMIT avatarResolved(userId);
+    if (ok && !avatarUrl.isEmpty()) {
+        m_avatars.insert(userId, avatarUrl);
+        m_noAvatar.remove(userId);
+        // ONLY a learned face is announced. Announcing every answer is what
+        // closed the loop: an owner that rebuilds on this signal re-entered
+        // resolveMissing(), which found the peer neither cached nor pending
+        // and asked again, forever. "Nothing was learned" changes no row, so
+        // there is nothing for a consumer to repaint either.
+        Q_EMIT avatarResolved(userId);
+        return;
+    }
+    // A profile that answered with no avatar, or a lookup that failed. Both
+    // are recorded so the next rebuild does not ask again; neither is
+    // announced, because neither changed what any row renders.
+    m_noAvatar.insert(userId);
+    if (!requestedUser.isEmpty())
+        m_noAvatar.insert(requestedUser);
 }

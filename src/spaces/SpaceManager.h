@@ -131,6 +131,19 @@ public:
     // non-Space children.
     Q_INVOKABLE QVariantList directChildRoomsDetailed(
         const QString &spaceId) const;
+    /// The same DIRECT children, as ids only, resolved against a room map the
+    /// caller already has.
+    ///
+    /// directChildRoomsDetailed() materialises the ENTIRE room list and builds
+    /// a fresh QHash on every call, so a caller that walks every Space paid
+    /// (1 + numSpaces) full room-list materialisations per pass — which is a
+    /// real cost on an account switch, where the model rebuilds repeatedly
+    /// against a room list the caller has already built once. Same order, same
+    /// skip rules (deduped, unknown / Space / non-Joined children dropped);
+    /// only the lookup is borrowed.
+    QStringList directChildRoomIds(
+        const QString &spaceId,
+        const QHash<QString, RoomInfo> &byId) const;
     Q_INVOKABLE QVariantList addableRooms(const QString &spaceId,
                                           const QString &filter) const;
     // Sends the real m.space.child state event through the backend. The

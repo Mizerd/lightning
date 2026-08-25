@@ -66,4 +66,19 @@ private:
     QHash<QString, QString> m_avatars;
     QHash<quint64, QString> m_ops;
     QSet<QString> m_pending;
+    /// Peers we have ASKED about and learned no picture for — a profile that
+    /// answered with no avatar set, or a lookup that failed.
+    ///
+    /// Without this the resolver could not tell "never asked" from "asked,
+    /// there is nothing", so every rebuild re-dispatched the same fetch. With
+    /// an owner that rebuilds when a peer resolves, that is an unbounded loop
+    /// of one /profile request per network round trip, per avatarless peer,
+    /// for the whole session — the account switch that "takes longer now".
+    ///
+    /// Session-scoped and cleared with the rest on sign-out, so it can never
+    /// describe the next account's peers. A failure is cached too: retrying
+    /// it is what re-creates the loop by another route, and `avatarFor()`
+    /// consults the room's own member snapshot BEFORE this cache, so a face
+    /// arriving on a member event still wins.
+    QSet<QString> m_noAvatar;
 };

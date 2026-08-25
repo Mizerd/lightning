@@ -31,14 +31,39 @@ bool SpaceChannelModel::Row::operator==(const Row &other) const
 SpaceChannelModel::SpaceChannelModel(QObject *parent)
     : QAbstractListModel(parent)
 {
+    // One rebuild per event-loop turn, not one per incoming signal.
+    //
+    // Every source this model follows is bursty: a sync delivers many room
+    // updates at once, a fresh account resolves many DM faces at once, and
+    // each rebuild materialises the whole room list. Coalescing is the same
+    // idiom RoomListModel already uses for its reconcile, and it is what
+    // keeps an account switch's backlog from costing one full rebuild per
+    // event.
+    m_rebuildCoalesce.setSingleShot(true);
+    m_rebuildCoalesce.setInterval(0);
+    connect(&m_rebuildCoalesce, &QTimer::timeout, this,
+            &SpaceChannelModel::rebuild);
+
     // A late-arriving DM face has to reach the ROW, and the rows hold a
     // snapshot: data() reads Row::avatarUrl, so a bare dataChanged would
     // repaint the same initials. rebuild() re-reads and applyRows diffs — the
     // ids and order are identical, so it is a dataChanged over the existing
-    // rows, never a reset, and nothing moves. resolveMissing() is guarded by
-    // its own cache, so this cannot feed itself.
+    // rows, never a reset, and nothing moves.
+    //
+    // This comment used to claim "resolveMissing() is guarded by its own
+    // cache, so this cannot feed itself." That was FALSE for the two
+    // commonest answers — a peer with no avatar set, and a profile that 404s
+    // — because the resolver cached neither yet announced both, so the
+    // rebuild asked again and the pair ran forever. The resolver now caches
+    // the negative and announces only a face it actually learned; the
+    // coalescing above is the second guard.
     connect(&m_directAvatars, &DirectAvatarResolver::avatarResolved, this,
-            &SpaceChannelModel::rebuild);
+            &SpaceChannelModel::scheduleRebuild);
+}
+
+void SpaceChannelModel::scheduleRebuild()
+{
+    m_rebuildCoalesce.start();
 }
 
 void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
@@ -59,7 +84,7 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
         // always announces afterwards, so this single connection covers every
         // room change AND guarantees the hierarchy is resolved first.
         connect(m_spaces, &SpaceManager::spacesChanged, this,
-                &SpaceChannelModel::rebuild);
+                &SpaceChannelModel::scheduleRebuild);
     }
     if (m_client) {
         // The collapse set is ACCOUNT-SCOPED storage, so a sign-out or an
@@ -75,7 +100,7 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
     }
     if (m_layout) {
         connect(m_layout, &RailLayoutStore::layoutChanged, this,
-                &SpaceChannelModel::rebuild);
+                &SpaceChannelModel::scheduleRebuild);
     }
     rebuild();
 }
@@ -410,6 +435,7 @@ int SpaceChannelModel::appendGroup(QVector<Row> &rows, Row header,
 
 void SpaceChannelModel::rebuild()
 {
+    ++m_rebuildCount;
     QVector<Row> rows;
     m_accountHasContent = false;
     if (!m_client || !m_spaces) {
@@ -483,21 +509,40 @@ void SpaceChannelModel::rebuild()
     const QStringList listed = listedSpaceIds();
     const bool scoped = !m_scopeSpaceId.isEmpty()
                         && listed.contains(m_scopeSpaceId);
+    //
+    // A DIRECT MESSAGE IS THE ONE EXCEPTION, in every filter. Matrix gives no
+    // way for a DM to be a Space's child, so a DM excluded by a scope is a DM
+    // excluded EVERYWHERE — and the People chip, whose entire result set is
+    // DMs, then produced a column of two navigation rows over blank space.
+    // Reported as "in channels mode people tab does nothing". Classic already
+    // reached the same conclusion and states it in RoomListModel; this is that
+    // rule, not a new one.
     QVector<Row> invites;
     for (const RoomInfo &info : allRooms) {
-        if (scoped || info.isSpace || info.membership != RoomInfo::Invited)
+        if (info.isSpace || info.membership != RoomInfo::Invited)
+            continue;
+        if (scoped && !info.isDirect)
             continue;
         invites.append(roomRow(info));
     }
 
-    // Every joined room no Space folder will list. DMs land here, which is
-    // where they belong in this model: they have no Space parent, and giving
-    // them a group of their own would be a second answer to the same question.
+    // Every joined room no Space folder will list, split in two.
+    //
+    // They used to share one group labelled "Rooms", on the reasoning that a
+    // DM has no Space parent so it belongs with the other unparented rooms.
+    // That reads as a mislabel the moment the People chip is the reason a row
+    // is on screen: a column of nothing but people, under a heading that says
+    // "Rooms", looks like the filter did not take.
+    QVector<Row> directs;
     QVector<Row> unparented;
     for (const RoomInfo &info : allRooms) {
-        if (scoped || info.isSpace || info.membership != RoomInfo::Joined)
+        if (info.isSpace || info.membership != RoomInfo::Joined)
             continue;
-        if (m_spaces->roomInAnySpace(info.id))
+        if (info.isDirect) {
+            directs.append(roomRow(info));
+            continue;
+        }
+        if (scoped || m_spaces->roomInAnySpace(info.id))
             continue;
         unparented.append(roomRow(info));
     }
@@ -508,26 +553,36 @@ void SpaceChannelModel::rebuild()
         return cmp != 0 ? cmp < 0 : a.id < b.id;
     };
     std::sort(invites.begin(), invites.end(), byName);
+    std::sort(directs.begin(), directs.end(), byName);
     std::sort(unparented.begin(), unparented.end(), byName);
 
-    // Scoped, the account-wide groups are deliberately absent, so their
+    // Scoped, the account-wide ROOM group is deliberately absent, so its
     // emptiness says nothing about the account: only the Space folders below
     // can answer, and a scoped Space is itself content.
-    m_accountHasContent = scoped || !invites.isEmpty() || !unparented.isEmpty();
+    m_accountHasContent = scoped || !invites.isEmpty() || !directs.isEmpty()
+                          || !unparented.isEmpty();
 
+    int roomsShown = 0;
     if (!invites.isEmpty()) {
         Row header;
         header.id = invitesGroupId();
         header.kind = GroupKind;
         header.name = tr("Invites");
-        appendGroup(rows, header, invites);
+        roomsShown += appendGroup(rows, header, invites);
+    }
+    if (!directs.isEmpty()) {
+        Row header;
+        header.id = directsGroupId();
+        header.kind = GroupKind;
+        header.name = tr("Direct messages");
+        roomsShown += appendGroup(rows, header, directs);
     }
     if (!unparented.isEmpty()) {
         Row header;
         header.id = roomsGroupId();
         header.kind = GroupKind;
         header.name = tr("Rooms");
-        appendGroup(rows, header, unparented);
+        roomsShown += appendGroup(rows, header, unparented);
     }
 
     // Spaces in RAIL order — the order the user dragged them into, with each
@@ -550,17 +605,31 @@ void SpaceChannelModel::rebuild()
         // DIRECT children only. A subspace is its own folder further down the
         // column, so listing its rooms here as well would show them twice
         // under two headings that both claim to contain them.
+        // Resolved through the room map this rebuild ALREADY built, not
+        // through directChildRoomsDetailed — that materialises the whole room
+        // list and a fresh hash of its own on every call, so walking every
+        // Space cost (1 + numSpaces) full materialisations per rebuild. The
+        // nine fields it packs into a QVariantMap were thrown away here
+        // anyway: the Row below is rebuilt from `byId` either way.
         QVector<Row> children;
-        for (const QVariant &value :
-             m_spaces->directChildRoomsDetailed(spaceId)) {
-            const QVariantMap child = value.toMap();
-            const auto childInfo =
-                byId.constFind(child.value(QStringLiteral("roomId")).toString());
+        for (const QString &childId :
+             m_spaces->directChildRoomIds(spaceId, byId)) {
+            const auto childInfo = byId.constFind(childId);
             if (childInfo == byId.constEnd())
                 continue;
             children.append(roomRow(*childInfo));
         }
-        appendGroup(rows, header, children);
+        roomsShown += appendGroup(rows, header, children);
+    }
+
+    // A filter that matched nothing is a fact about the FILTER, never about
+    // the account (`empty` must keep answering the second question only). The
+    // column needs both to tell "you have no conversations" from "the People
+    // chip found none", which is what made the broken People chip read as a
+    // dead control rather than as an empty result.
+    if (m_matchCount != roomsShown) {
+        m_matchCount = roomsShown;
+        Q_EMIT matchCountChanged();
     }
 
     applyRows(std::move(rows));

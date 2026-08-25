@@ -111,6 +111,36 @@ MediaBridge::MediaBridge(QObject *parent)
     connect(&m_watchdog, &QTimer::timeout,
             this, &MediaBridge::checkInflightTimeouts);
     m_watchdog.start();
+
+    // One line per BURST rather than three per request. 900ms of quiet is
+    // well past the tail of a room's avatar fan-out and short enough that the
+    // summary still reads as belonging to what just happened.
+    m_burstSummary.setSingleShot(true);
+    m_burstSummary.setInterval(900);
+    m_burstSummary.setTimerType(Qt::CoarseTimer);
+    connect(&m_burstSummary, &QTimer::timeout, this, [this] {
+        if (m_burstCompleted == 0 && m_burstFailed == 0)
+            return;
+        qCDebug(lcMedia,
+                "media burst: %lld fetched (%lld KiB), %lld failed, "
+                "peak queue %lld — per-request detail is in "
+                "lightning.media.trace",
+                static_cast<long long>(m_burstCompleted),
+                static_cast<long long>(m_burstBytes / 1024),
+                static_cast<long long>(m_burstFailed),
+                static_cast<long long>(m_burstPeakQueued));
+        m_burstCompleted = 0;
+        m_burstFailed = 0;
+        m_burstBytes = 0;
+        m_burstPeakQueued = 0;
+    });
+}
+
+void MediaBridge::noteMediaActivity()
+{
+    m_burstPeakQueued = qMax(m_burstPeakQueued,
+                             static_cast<qint64>(m_queue.size()));
+    m_burstSummary.start();
 }
 
 void MediaBridge::setClient(MatrixClient *client)
@@ -392,7 +422,7 @@ void MediaBridge::sweepExpiredFailureMarks()
         }
     }
     for (const QString &cacheKey : std::as_const(retryable)) {
-        qCDebug(lcMedia, "retryable %s (transient mark expired)",
+        qCDebug(lcMediaTrace, "retryable %s (transient mark expired)",
                 qUtf8Printable(keyTag(cacheKey)));
         Q_EMIT mediaRetryable(cacheKey);
     }
@@ -456,7 +486,7 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
     // failureBlocks) — QML repolling a broken source must not turn into a
     // request loop.
     if (failureBlocks(cacheKey)) {
-        qCDebug(lcMedia, "media %s suppressed=failure-mark(%s)",
+        qCDebug(lcMediaTrace, "media %s suppressed=failure-mark(%s)",
                 qUtf8Printable(keyTag(cacheKey)),
                 qUtf8Printable(failureCategory(cacheKey)));
         return {};
@@ -470,7 +500,7 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
         // Thumbnails are visible chrome; a full static payload is heavier
         // and can wait behind them.
         request.priority = kindValue != 0 ? 1 : 2;
-        qCDebug(lcMedia, "media %s cache=miss dispatching",
+        qCDebug(lcMediaTrace, "media %s cache=miss dispatching",
                 qUtf8Printable(keyTag(cacheKey)));
         dispatch(request);
     } else {
@@ -613,7 +643,7 @@ void MediaBridge::prefetchPlayable(const QString &mediaKey, double sizeBytes)
     request.kind = 0;
     request.timeoutClass = 1; // playable-class bound fits the payload size
     request.priority = 3;     // speculative — never crowds explicit intent
-    qCDebug(lcMedia, "prefetch %s (declared %lld bytes)",
+    qCDebug(lcMediaTrace, "prefetch %s (declared %lld bytes)",
             qUtf8Printable(keyTag(cacheKey)),
             static_cast<long long>(declared));
     dispatch(request);
@@ -697,7 +727,7 @@ void MediaBridge::cancelPlayable(const QString &mediaKey)
             const quint64 opId = it.key();
             m_inflight.erase(it);
             ++m_statCancelled;
-            qCDebug(lcMedia, "cancel %s opId=%llu",
+            qCDebug(lcMediaTrace, "cancel %s opId=%llu",
                     qUtf8Printable(keyTag(cacheKey)),
                     static_cast<unsigned long long>(opId));
             if (m_client)
@@ -774,7 +804,7 @@ void MediaBridge::onPosterReady(const QString &mediaKey,
         return;
     }
     insertCache(posterKey, jpeg);
-    qCDebug(lcMedia, "poster %s bytes=%lld",
+    qCDebug(lcMediaTrace, "poster %s bytes=%lld",
             qUtf8Printable(keyTag(posterKey)),
             static_cast<long long>(jpeg.size()));
     // Header-only decode: the poster's dimensions carry the video's true
@@ -903,7 +933,7 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
         return cached;
     }
     if (failureBlocks(cacheKey)) {
-        qCDebug(lcMedia, "avatar %s edge=%d suppressed=failure-mark(%s)",
+        qCDebug(lcMediaTrace, "avatar %s edge=%d suppressed=failure-mark(%s)",
                 qUtf8Printable(keyTag(cacheKey)), edge,
                 qUtf8Printable(failureCategory(cacheKey)));
         return {};
@@ -917,12 +947,12 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
         request.kind = 2;
         request.size = edge;
         request.priority = 1; // interactive chrome
-        qCDebug(lcMedia, "avatar %s edge=%d cache=miss dispatching",
+        qCDebug(lcMediaTrace, "avatar %s edge=%d cache=miss dispatching",
                 qUtf8Printable(keyTag(cacheKey)), edge);
         dispatch(request);
     } else {
         promoteQueuedRequest(cacheKey, 1, 0);
-        qCDebug(lcMedia, "avatar %s edge=%d cache=miss already-pending",
+        qCDebug(lcMediaTrace, "avatar %s edge=%d cache=miss already-pending",
                 qUtf8Printable(keyTag(cacheKey)), edge);
     }
     return {};
@@ -1034,10 +1064,15 @@ void MediaBridge::dispatch(const Pending &request)
         Pending queued = request;
         queued.enqueuedAtMs = m_failureClock.elapsed();
         m_queue.enqueue(queued);
-        qCDebug(lcMedia, "queue %s prio=%d (inflight=%lld queued=%lld)",
+        qCDebug(lcMediaTrace, "queue %s prio=%d (inflight=%lld queued=%lld)",
                 qUtf8Printable(keyTag(request.cacheKey)), request.priority,
                 static_cast<long long>(m_inflight.size()),
                 static_cast<long long>(m_queue.size()));
+        // Sampled where the queue GROWS. Sampling only on completion misses
+        // the peak entirely — by the time a fetch finishes the queue has
+        // already drained past its high-water mark, and the peak is the one
+        // number the removed per-request "queued=N" line was worth keeping.
+        noteMediaActivity();
         return;
     }
     Pending tracked = request;
@@ -1080,7 +1115,7 @@ void MediaBridge::dispatch(const Pending &request)
         }
         return;
     }
-    qCDebug(lcMedia, "fetch %s opId=%llu inflight=%lld",
+    qCDebug(lcMediaTrace, "fetch %s opId=%llu inflight=%lld",
             qUtf8Printable(keyTag(tracked.cacheKey)),
             static_cast<unsigned long long>(opId),
             static_cast<long long>(m_inflight.size() + 1));
@@ -1282,11 +1317,14 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     if (!((playableWanted || prefetchWanted)
           && bytes.size() > kLargeCacheSkipBytes))
         insertCache(request.cacheKey, bytes);
-    qCDebug(lcMedia, "ready %s bytes=%lld mime=%s in=%lldms -> mediaCached",
+    qCDebug(lcMediaTrace, "ready %s bytes=%lld mime=%s in=%lldms -> mediaCached",
             qUtf8Printable(keyTag(request.cacheKey)),
             static_cast<long long>(bytes.size()),
             qUtf8Printable(mimetype.section(QLatin1Char(';'), 0, 0)),
             static_cast<long long>(elapsedMs));
+    ++m_burstCompleted;
+    m_burstBytes += static_cast<qint64>(bytes.size());
+    noteMediaActivity();
     if (m_animatedWanted.remove(request.cacheKey)) {
         if (!writeAnimatedFile(request.cacheKey, bytes, mimetype).isEmpty())
             Q_EMIT animatedMediaReady(request.cacheKey);
@@ -1604,6 +1642,11 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
         return;
     }
     ++m_statFailed;
+    ++m_burstFailed;
+    noteMediaActivity();
+    // A failure keeps its own line in the default category: it is rare, it
+    // names a category the user can act on, and burying it in a count would
+    // make a broken avatar indistinguishable from a slow one.
     qCWarning(lcMedia, "failed %s category=%s",
               qUtf8Printable(keyTag(request.cacheKey)),
               qUtf8Printable(category));

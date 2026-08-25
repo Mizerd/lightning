@@ -13,8 +13,17 @@
 //    are never listed under the parent as well. The parent's folder holds its
 //    DIRECT children and nothing else.
 //  * NOTHING JOINED IS UNREACHABLE. A room with no joined Space parent is in
-//    "Rooms" — DMs included. A room in two Spaces is in both folders, because
-//    that is what "this Space contains it" means.
+//    "Rooms". A room in two Spaces is in both folders, because that is what
+//    "this Space contains it" means.
+//  * A DIRECT MESSAGE IS NEVER SCOPED BY A SPACE, and it has a group of its
+//    own. Matrix gives no way for a DM to be a Space's child, so a scope that
+//    dropped DMs dropped them everywhere — and the People chip, whose entire
+//    result set is DMs, then produced a column of two navigation rows over
+//    blank space. Reported as "in channels mode people tab does nothing".
+//    Classic reached the same conclusion first (RoomListModel).
+//  * A FILTER MISS IS NOT AN EMPTY ACCOUNT. `empty` answers one question only;
+//    `matchCount` answers the other, so the column can say which of the two it
+//    is instead of rendering silence.
 //  * ORDER IS STABLE. Spaces follow the rail's arrangement, rooms follow their
 //    Space's `m.space.child` order, and "Rooms" is sorted by name. A channel
 //    list that reorders itself when somebody speaks is not a channel list.
@@ -53,8 +62,26 @@ public:
     void startSync() override {}
     void stopSync() override {}
     ConnectionState connectionState() const override { return Syncing; }
-    QList<RoomInfo> rooms() const override { return roomList; }
+    QList<RoomInfo> rooms() const override
+    {
+        ++roomsCalls;
+        return roomList;
+    }
     QList<RoomInfo> roomList;
+    mutable int roomsCalls = 0;
+
+    // The base class returns 0 here, which DirectAvatarResolver reads as "the
+    // backend refused" — it then skips its own pending bookkeeping entirely,
+    // so the resolver's most important failure mode was structurally
+    // unreachable in this harness. Returning a real op id is what lets a test
+    // see the profile fan-out at all.
+    quint64 fetchUserProfile(const QString &userId) override
+    {
+        profileFetches.append(userId);
+        return ++nextOp;
+    }
+    QStringList profileFetches;
+    quint64 nextOp = 0;
     QList<TimelineEvent> timeline(const QString &) const override
     { return {}; }
     QString displayNameFor(const QString &, const QString &id) const override
@@ -285,16 +312,43 @@ private Q_SLOTS:
         const int rooms = names.indexOf(QStringLiteral("Rooms"));
         QVERIFY2(rooms >= 0, "there is no Rooms group");
         QCOMPARE(kindsOf(f.model).at(rooms), QStringLiteral("group"));
-        // A DM has no Space parent, so it is here — not in a group of its own.
         // Sorted by name, so the list does not reshuffle between syncs.
-        QCOMPARE(names.mid(rooms + 1, 2),
-                 QStringList({ QStringLiteral("Ada"),
-                               QStringLiteral("lounge") }));
-        QVERIFY2(!names.contains(QStringLiteral("Direct messages")),
-                 "the DM group came back: a DM belongs in Rooms with every "
-                 "other unparented room");
+        QCOMPARE(names.mid(rooms + 1, 1), QStringList{ QStringLiteral("lounge") });
         QVERIFY2(!names.contains(QStringLiteral("Favourites")),
                  "the Favourites group came back");
+    }
+
+    // A DM used to live in "Rooms" with every other unparented room, on the
+    // reasoning that a DM has no Space parent so it belongs there. It reads as
+    // a mislabel the moment the People chip is the reason a row is on screen:
+    // a column of nothing but people, under a heading that says "Rooms", looks
+    // like the chip did not take. On the unfixed tree the DM group does not
+    // exist, so both halves of this fail: "Direct messages" is absent and
+    // "Ada" is found under "Rooms".
+    void directMessagesAreTheirOwnGroupRatherThanRowsUnderRooms()
+    {
+        Fixture f;
+        f.build(workspace());
+
+        const QStringList names = namesOf(f.model);
+        const int directs = names.indexOf(QStringLiteral("Direct messages"));
+        QVERIFY2(directs >= 0,
+                 "there is no Direct messages group, so a DM is filed under a "
+                 "heading that says Rooms");
+        QCOMPARE(kindsOf(f.model).at(directs), QStringLiteral("group"));
+        QCOMPARE(names.mid(directs + 1, 1), QStringList{ QStringLiteral("Ada") });
+        // The synthetic id keeps the '@' prefix rule, so it can never collide
+        // with a room id.
+        QVERIFY(SpaceChannelModel::directsGroupId()
+                    .startsWith(QLatin1Char('@')));
+        QCOMPARE(f.model.data(f.model.index(directs, 0),
+                              SpaceChannelModel::RoomIdRole).toString(),
+                 SpaceChannelModel::directsGroupId());
+        // ...and it sits ABOVE Rooms, which still holds the non-DM unparented
+        // rooms and only those.
+        const int rooms = names.indexOf(QStringLiteral("Rooms"));
+        QVERIFY(rooms > directs);
+        QCOMPARE(names.mid(rooms + 1, 1), QStringList{ QStringLiteral("lounge") });
     }
 
     void aRoomInTwoSpacesAppearsUnderBoth()
@@ -437,8 +491,20 @@ private Q_SLOTS:
                  "a subspace of the selected Space is missing");
         QVERIFY2(!names.contains(QStringLiteral("Rooms")),
                  "the account-wide Rooms group survived the scope");
-        QVERIFY2(!names.contains(QStringLiteral("Ada")),
-                 "a DM that belongs to no Space survived the scope");
+        QVERIFY2(!names.contains(QStringLiteral("lounge")),
+                 "an unparented room that is not a DM survived the scope");
+        // NARROWED, not dropped. This used to assert that "Ada" was gone too,
+        // which pinned the defect as intended behaviour and is why no test
+        // caught it: Matrix gives no way for a DM to be a Space's child, so a
+        // DM hidden by a scope is a DM hidden EVERYWHERE — and the People chip
+        // then had nothing left to find. The account-wide ROOM group is still
+        // a statement about the whole account and still goes; the people the
+        // user talks to are not.
+        QVERIFY2(names.contains(QStringLiteral("Ada")),
+                 "a DM was deleted by a Space scope, so it is reachable from "
+                 "nowhere while that Space is selected");
+        QVERIFY2(names.contains(QStringLiteral("Direct messages")),
+                 "the surviving DM has no heading of its own");
         QVERIFY(names.contains(QStringLiteral("general")));
         QVERIFY(names.contains(QStringLiteral("backend")));
         // A subspace is still a FLAT folder, not a level: this is a narrower
@@ -594,6 +660,94 @@ private Q_SLOTS:
         QVERIFY(!unread.contains(QStringLiteral("general")));
     }
 
+    // THE reported defect: "in channels mode people tab does nothing".
+    //
+    // The test above proves nothing about it, because it never sets a scope —
+    // the same "a policy test that never reaches production" shape as the row
+    // window and the rail drop. In production the rail almost always has a
+    // Space selected, and while scoped the only group a DM could live in was
+    // deleted wholesale, so People produced literally [Lobby, Message Search].
+    // On the unfixed tree every assertion here fails.
+    void thePeopleChipStillFindsPeopleWhileASpaceIsScoped()
+    {
+        Fixture f;
+        f.build(workspace());
+        f.model.setMessageSearchSupported(true);
+        f.model.setScopeSpaceId(QStringLiteral("!work:x"));
+        f.model.setFilterMode(1);   // People
+
+        const QStringList names = namesOf(f.model);
+        QVERIFY2(names.contains(QStringLiteral("Ada")),
+                 "the People chip found no people while a Space was scoped");
+        QVERIFY2(kindsOf(f.model).contains(QStringLiteral("room")),
+                 "People produced a column with no rooms in it — two "
+                 "navigation rows over blank space");
+        // The chip did match something, so the column must not be told to
+        // draw a filter-miss message over a row that is right there.
+        QVERIFY(f.model.matchCount() > 0);
+        QVERIFY(!f.model.empty());
+        // A Space's own child rooms are not DMs, so its folder is gone — the
+        // chip narrowed the column rather than merely relabelling it.
+        QVERIFY(!names.contains(QStringLiteral("general")));
+        QVERIFY(!names.contains(QStringLiteral("backend")));
+        // And the scope is still escapable: Lobby is the head of the column.
+        QCOMPARE(names.at(0), QStringLiteral("Lobby"));
+    }
+
+    // `empty` and `matchCount` answer two different questions, and the column
+    // needs both: "you have no conversations" and "the People chip found none"
+    // look identical when the only thing rendered is silence, which is exactly
+    // how a working chip read as a dead control.
+    //
+    // On the unfixed tree matchCount does not exist, so this does not compile
+    // — which is the strongest form of "fails on the old code" available for a
+    // property that had to be added.
+    void aFilterThatMatchedNothingIsCountedWithoutClaimingTheAccountIsEmpty()
+    {
+        Fixture f;
+        // Rooms, one Space, no DM anywhere in the account.
+        f.build({
+            space(QStringLiteral("!work:x"), QStringLiteral("Work"),
+                  { QStringLiteral("!general:x") }),
+            room(QStringLiteral("!general:x"), QStringLiteral("general")),
+        });
+        QVERIFY(!f.model.empty());
+        QVERIFY(f.model.matchCount() > 0);
+
+        f.model.setFilterMode(1);   // People, and there are none
+        QCOMPARE(f.model.matchCount(), 0);
+        QVERIFY2(!f.model.empty(),
+                 "a filter's result was reported as the account having "
+                 "nothing");
+
+        // A search that matches nothing is the same shape and must report the
+        // same way.
+        f.model.setFilterMode(0);
+        f.model.setSearchQuery(QStringLiteral("zzzz"));
+        QCOMPARE(f.model.matchCount(), 0);
+        QVERIFY(!f.model.empty());
+
+        // ...and it goes back up when something matches again, or the message
+        // would be permanent once shown.
+        f.model.setSearchQuery(QStringLiteral("gen"));
+        QVERIFY(f.model.matchCount() > 0);
+    }
+
+    // The count has to be a NOTIFYING property or the message it drives never
+    // appears: `matchCount` changes without the row count changing (a group
+    // header leaving with its only room keeps neither), so a QML binding that
+    // only woke on countChanged would miss it.
+    void theMatchCountAnnouncesItselfWhenTheFilterChanges()
+    {
+        Fixture f;
+        f.build(workspace());
+        QSignalSpy matches(&f.model, &SpaceChannelModel::matchCountChanged);
+        f.model.setFilterMode(1);   // People: one DM out of eight rooms
+        QVERIFY2(matches.count() >= 1,
+                 "the match count changed silently, so nothing in QML can "
+                 "react to a filter that matched nothing");
+    }
+
     void theMessageSearchRowIsAbsentWhenTheServerCannotSearch()
     {
         Fixture f;
@@ -653,8 +807,14 @@ private Q_SLOTS:
         f.client.roomList[1].hasUnreadMessages = true;
         f.client.announce();
 
+        // The rebuild is COALESCED to one per event-loop turn (a burst of
+        // synced room updates used to cost one full rebuild each, and each
+        // rebuild materialises the whole room list), so the answer arrives on
+        // the next turn rather than inside announce(). QTRY_ is the honest
+        // spelling of that; a synchronous QCOMPARE here would be asserting the
+        // absence of the coalescing rather than the presence of the update.
+        QTRY_VERIFY(changes.count() >= 1);
         QCOMPARE(resets.count(), 0);
-        QVERIFY(changes.count() >= 1);
         const int row = rowOfName(f.model, QStringLiteral("general"));
         QCOMPARE(f.model.data(f.model.index(row, 0),
                               SpaceChannelModel::UnreadCountRole).toInt(), 7);
@@ -755,6 +915,81 @@ private Q_SLOTS:
     // so the ONLY route to a DM's face there is the peer's profile. It arrives
     // late, and it has to reach the row: this model's rows hold a SNAPSHOT, so
     // a bare dataChanged would repaint the same initials.
+    // THE ACCOUNT SWITCH THAT "TAKES LONGER NOW", stated as a number.
+    //
+    // rebuild() asks the resolver to look up every DM peer it cannot answer
+    // for; the resolver announced EVERY answer; this model rebuilds when a
+    // peer resolves. For a peer with no avatar set — or one whose profile
+    // 404s — nothing was cached, so the rebuild asked again, forever: one
+    // /profile request and one full model rebuild per network round trip, per
+    // such peer, for the entire session. An account switch clears the
+    // resolver's caches, which is exactly what re-armed it every time.
+    //
+    // ON THE UNFIXED TREE the count below climbs monotonically with every
+    // answer fed in. The fix is that the resolver REMEMBERS a negative answer
+    // and announces only a face it actually learned.
+    void anAvatarlessPeerIsAskedForExactlyOnce()
+    {
+        RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
+        peer.directUserId = QStringLiteral("@sam:example.org");
+        peer.directUserIds = { QStringLiteral("@sam:example.org") };
+
+        Fixture f;
+        f.build({ peer });
+        QCOMPARE(f.client.profileFetches.count(QStringLiteral("@sam:example.org")), 1);
+
+        // How a real homeserver answers a user who has never set an avatar:
+        // ok, a display name, and an EMPTY avatar url.
+        for (int i = 0; i < 4; ++i) {
+            Q_EMIT f.client.userProfileFinished(
+                f.client.nextOp, true, QStringLiteral("@sam:example.org"),
+                QStringLiteral("Sam"), QString(), QString());
+            QCoreApplication::processEvents();
+        }
+        QCOMPARE(f.client.profileFetches.count(QStringLiteral("@sam:example.org")), 1);
+
+        // And the same for a lookup that FAILED. Retrying that on every
+        // rebuild is the same loop reached by another route.
+        RoomInfo other = dm(QStringLiteral("!dm2:x"), QStringLiteral("Kit"));
+        other.directUserId = QStringLiteral("@kit:example.org");
+        other.directUserIds = { QStringLiteral("@kit:example.org") };
+        f.client.roomList.append(other);
+        f.client.announce();
+        QTRY_COMPARE(f.client.profileFetches.count(QStringLiteral("@kit:example.org")), 1);
+        for (int i = 0; i < 4; ++i) {
+            Q_EMIT f.client.userProfileFinished(
+                f.client.nextOp, false, QStringLiteral("@kit:example.org"),
+                QString(), QString(), QStringLiteral("not_found"));
+            QCoreApplication::processEvents();
+        }
+        QCOMPARE(f.client.profileFetches.count(QStringLiteral("@kit:example.org")), 1);
+    }
+
+    // The second guard, and the one that bounds the cost of a sync BURST: a
+    // run of room updates in one event-loop turn must cost ONE rebuild, not
+    // one each. Asserted as a DELTA because the fixture's own setup
+    // legitimately materialises the room list several times.
+    void aBurstOfRoomUpdatesCostsOneRebuild()
+    {
+        Fixture f;
+        f.build(workspace());
+        QCoreApplication::processEvents();
+        // Counted on the MODEL, not on the client: the client's rooms() is
+        // also called by SpaceManager's own per-update rebuild, which is not
+        // this model's cost and would drown the signal.
+        const int before = f.model.rebuildCountForTest();
+        for (int i = 0; i < 10; ++i)
+            f.client.announce();
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(f.model.rebuildCountForTest() > before);
+        const int rebuilds = f.model.rebuildCountForTest() - before;
+        QVERIFY2(rebuilds == 1,
+                 qPrintable(QStringLiteral("ten room updates in one turn cost "
+                                           "%1 rebuilds; they are not "
+                                           "coalesced")
+                                .arg(rebuilds)));
+    }
+
     void aLateProfileReachesTheRowRatherThanJustRepaintingIt()
     {
         RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
@@ -776,7 +1011,8 @@ private Q_SLOTS:
             0, true, QStringLiteral("@sam:example.org"),
             QStringLiteral("Sam"), QStringLiteral("mxc://example.org/sam"),
             QString());
-        QCOMPARE(avatar(), QStringLiteral("mxc://example.org/sam"));
+        // Coalesced, as above.
+        QTRY_COMPARE(avatar(), QStringLiteral("mxc://example.org/sam"));
         // And the column did not move: this layout's whole point is that rows
         // hold still, so a profile landing mid-scroll must not be the
         // exception.

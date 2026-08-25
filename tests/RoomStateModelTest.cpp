@@ -379,9 +379,21 @@ void RoomStateModelTest::selfDirectMessageAdoptsOwnAvatar()
 }
 
 // A profile result whose returned user id differs from the requested string
-// (SDK id normalization) must still release the pending marker, so the next
-// reconcile re-fetches. Previously the early return on the mismatch wedged the
-// target permanently pending and the DM avatar could never resolve.
+// (SDK id normalization) must release the pending marker for BOTH ids.
+//
+// The original defect was an early return on the mismatch, which wedged the
+// target permanently pending so the DM avatar could never resolve. The fix
+// released pending and let the next reconcile re-fetch — and THAT became the
+// account-switch defect of 2026-08-26: an answer carrying no avatar was
+// released but never remembered, so every rebuild asked again, forever, once
+// something rebuilt on the answer. One /profile request and one full model
+// rebuild per network round trip, per avatarless peer, for the whole session.
+//
+// So the rule now has two halves and this pins both: the target is not
+// WEDGED (a definite answer is recorded), and it is not RE-ASKED (an
+// avatarless answer is a fact, not a gap). A face arriving later on a member
+// event still wins — avatarFor() consults the room's own member snapshot
+// before the resolver cache — and a sign-out clears the lot.
 void RoomStateModelTest::mismatchedProfileResultDoesNotWedgePending()
 {
     FakeClient client;
@@ -394,16 +406,29 @@ void RoomStateModelTest::mismatchedProfileResultDoesNotWedgePending()
     QCOMPARE(client.profileUser, dm.directUserId);
     const quint64 firstOp = client.profileOp;
 
-    // Mismatched id, no avatar: releases pending without caching.
+    // Mismatched id, no avatar. Both ids are released from pending AND both
+    // are recorded as "asked, no picture".
     Q_EMIT client.userProfileFinished(firstOp, true,
                                       QStringLiteral("@BOB:example.org"),
                                       QStringLiteral("Bob"), {}, {});
-    // The still-avatarless target must be re-fetched on the next reconcile.
+    // NOT re-asked. On the pre-2026-08-26 tree this line fails: the reconcile
+    // re-dispatched, and with an owner that rebuilds on the answer it did so
+    // without end.
     client.profileUser.clear();
     Q_EMIT client.roomUpdated(dm.id);
     QCoreApplication::processEvents();
-    QCOMPARE(client.profileUser, dm.directUserId);
-    QVERIFY(client.profileOp > firstOp);
+    QVERIFY2(client.profileUser.isEmpty(),
+             "an avatarless answer was re-asked on the next reconcile — that "
+             "is the unbounded loop, not a recovery");
+
+    // And not WEDGED either: a face that turns up later still lands. This is
+    // the half the original defect broke, and it must keep working.
+    Q_EMIT client.userProfileFinished(firstOp + 1, true, dm.directUserId,
+                                      QStringLiteral("Bob"),
+                                      QStringLiteral("mxc://example.org/bob"),
+                                      {});
+    QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
+             QStringLiteral("mxc://example.org/bob"));
 }
 
 // A room m.direct maps against more than one target user is a group DM (or
