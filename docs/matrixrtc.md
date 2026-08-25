@@ -1001,6 +1001,82 @@ from-scratch RFC 5869 HKDF, not against itself.
 * Federation, TURN traversal, reconnection, and every platform other than
   Linux: untested.
 
+## Stopping a published track: `a=inactive`, not a mute, not a pad release
+
+Live-confirmed 2026-08-26. Getting here took four rounds, and each of the
+first three fixed something real without fixing the report — so all four are
+recorded, because the near-misses are the reusable part.
+
+**There is no unpublish verb on this wire.** Checked in
+livekit-protocol 0.7.12 rather than assumed: `SignalRequest` carries
+`AddTrack`, `Mute`, and an `UnpublishDataTrackRequest` for DATA tracks only.
+A media track is withdrawn by RENEGOTIATION — the publisher offers without
+it — which is what makes the SDP shape the entire problem.
+
+| Round | What was wrong | What it actually cost |
+|---|---|---|
+| 1 | `unpublish()` set a bin to NULL while it sat in the PLAYING pipeline mid-push | Deadlocked the GUI thread. Core dump: this thread in `gst_pad_set_active` wanting the pad's stream lock, `queue1:src` holding it parked in `do_probe_callbacks` → `g_cond_wait` |
+| 2 | Fixed with a `GST_PAD_PROBE_TYPE_IDLE` probe — which never fired | A pad pushing into a webrtcbin that is not draining never becomes idle. Instrumented: "probe installed", nothing for 3 s, "probe fired" during teardown. Not a deadlock any more; simply never ran |
+| 3 | Released the webrtcbin request pad synchronously (which also unblocks the pusher, so round 2's probe now fires) | Dropped our msid and left the section `a=sendrecv`. The far end is told we are still sending on a section with nothing behind it |
+| 4 | Set the transceiver `direction` to INACTIVE before releasing | Works |
+
+Measured, on the renegotiated offer:
+
+```
+before unpublish   m=video ... | a=sendrecv
+after  (round 3)   m=video ... | a=sendrecv     <- msid gone, still sending
+after  (round 4)   m=video ... | a=inactive
+```
+
+Two invariants, both asserted by
+`SfuMediaEngineTest::theOfferAfterUnpublishNoLongerAdvertisesTheTrack`:
+
+* the section goes **inactive**, and
+* the section **COUNT does not change**. An m= section may never be removed
+  from an SDP; a shrinking offer is its own protocol fault, not a fix.
+
+**A MUTE CANNOT DO THIS AND NEVER COULD.** `applyVideoState()` expressed a
+stop as `sfuMuteTrack` because it was the only removal-shaped verb available,
+and a mute removes nothing — the stopped track stays in the participant's
+list for the rest of the session, which is precisely the grey tile that never
+cleared. The mute is retained as belt-and-braces (one signal, covers the
+window before renegotiation lands) and must never again be the only mechanism.
+
+**The self-view is not evidence.** It is tee'd off the CAPTURE, upstream of
+encryption and of the SFU entirely, so it looked perfectly correct through all
+four rounds while nothing usable reached anyone else. When a share is reported
+broken remotely and fine locally, that gap is the diagnosis, not a puzzle.
+
+## Microphone loudness: `webrtcdsp`, probed and optional
+
+Lightning was audibly quieter than Element on the same microphone because
+element-call captures through the browser's WebRTC audio path, which runs
+automatic gain control, and Lightning ran none. `webrtcdsp` is that same
+processing module. Measured through the real chain shape on a -29 dBFS sine,
+sampled after convergence:
+
+```
+without   rms 1158.0   -29.0 dBFS
+with      rms 3935.2   -18.4 dBFS      (+10.6 dB, ~3.4x)
+```
+
+It is **probed at runtime and optional**: it lives in gst-plugins-bad, and a
+`gst_parse` description naming an element that does not exist fails to PARSE —
+which would remove the microphone entirely rather than leave it quiet. With it
+absent the chain is byte-identical to the pre-existing one, which is also why
+it is deliberately NOT in the engine's required-element list.
+`echo-cancel=false`: real echo cancellation needs a `webrtcechoprobe` in the
+PLAYBACK path, and claiming it without one cancels against nothing.
+
+**The volume curve.** Sliders read 0-200; 200 MEANS 1000% of audio.
+`SfuMediaEngine::audioFactorPercent()` keeps 0-100 literal — a curve there
+would make every setting below unity mean something other than it says, and 0
+must be exactly silence — and expands 100-200 onto 100-1000. A straight 0-200
+slider tops out at +6 dB, reported as "above 100% barely any difference"; a
+straight 0-1000 slider puts every useful setting in its first tenth. 1000 is
+the GStreamer `volume` element's own factor ceiling (range 0-10), not a number
+chosen here. Stored and displayed values are always the user scale.
+
 ## Remaining work, stated plainly
 
 The first three items on this list were **DONE** by the 2026-08-24/25 interop
@@ -1025,5 +1101,20 @@ What is actually left:
 2. **Raise hand and reactions on the wire**, using whatever MatrixRTC
    defines rather than a Lightning-only event. Today the hand is LOCAL ONLY
    and no peer sees it.
-3. Live interoperability with Element, which is the only thing that turns any
-   of the above from "implemented" into "works".
+3. **The screen-share startup hold.** Live-confirmed 2026-08-26 as
+   near-instant on a first share and 1-2 s on a restart — much better than the
+   5-10 s previously reported, and still not fixed. `videorate` emits nothing
+   until a SECOND input buffer arrives and a desktop capture delivers ON
+   DAMAGE, so the wait is "how long until something on screen changes".
+   THREE properties have been shipped against this without measurement and
+   all three made it worse: `min-buffers=8` and `keepalive-time=100` each
+   killed the capture, and `compositor` as the rate stage cropped a 4K
+   desktop to its top-left quarter. The open lead, measured but NOT shipped:
+   putting the SIZE ceiling BEFORE the rate stage makes `compositor` usable
+   without the crop (`sink 1920 / src 1920` against a 4K input, where
+   caps-after gave `sink 3840 / src 1920`). The unmeasured half is whether it
+   keeps the instant first frame, and that has to go through
+   `framesFromASingleCaptureBuffer` before anything ships.
+4. Live interoperability with Element, which is the only thing that turns any
+   of the above from "implemented" into "works". Screen share publish, stop
+   and restart ARE now confirmed; the camera is not.

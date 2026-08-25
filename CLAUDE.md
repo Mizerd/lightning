@@ -2325,6 +2325,44 @@ matrix-sdk-ui 0.18 are in `docs/receipt-semantics.md`. **NOT TESTED**.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-08-26 (later) — screen share STOP and RESTART, against Element.**
+Confirmed working on a real desktop: stopping a share genuinely stops it —
+the far end's tile clears instead of freezing on a grey box — and starting a
+new share afterwards works, replacing rather than landing beside the old one.
+First share near-instant, restart 1-2 s. Microphone loudness (the `webrtcdsp`
+AGC) and the per-participant volume curve were confirmed in the same session.
+
+This lane took FOUR rounds and the first three each fixed something real
+without fixing the report, which is the lesson worth keeping:
+
+1. `unpublish()` deadlocked the GUI thread against its own streaming thread
+   (core dump: `gst_pad_set_active` wanting the stream lock, the encoder
+   thread holding it in `do_probe_callbacks`). Fixed with an IDLE pad probe
+   plus `gst_element_call_async`.
+2. That probe then never fired, because a pad pushing into a webrtcbin that
+   is not draining never becomes idle — so the teardown did not deadlock, it
+   simply never ran. A leak wearing a fix's clothes. Instrumented: "probe
+   installed", silence for three seconds, "probe fired" during teardown.
+3. Releasing the request pad dropped the msid and left the section
+   `a=sendrecv` — the far end still told it was being sent to, with nothing
+   behind it. THAT was the grey box.
+4. Setting the transceiver direction to INACTIVE is what the far end obeys.
+   Section count must stay stable across renegotiation (an m= section may
+   never be removed), so `a=inactive` is the only correct shape, not merely
+   the tidy one.
+
+Checked rather than assumed at step 4: livekit-protocol 0.7.12 has NO
+unpublish verb for media tracks — SignalRequest carries AddTrack, Mute and an
+UnpublishDataTrackRequest for DATA only. Renegotiation is the mechanism, which
+is why a MUTE could never do the job: a mute removes nothing, so the stopped
+track stayed in the participant list and was rendered forever.
+
+GENERALISE: Lightning's own self-view is tee'd off the CAPTURE, upstream of
+encryption and of the SFU entirely. It looking correct says nothing whatever
+about what any other client receives, and it looked correct through all four
+rounds. When a share is reported broken remotely and fine locally, the
+preview is not evidence.
+
 **2026-08-26 — the largest live-validation event this project has had.** Rokas
 tested and confirmed WORKING, on a real desktop against real homeservers:
 
@@ -2378,14 +2416,23 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   (`e50eff6`); this is a synchronous block, and `shutdown_managed_tasks`
   does `block_on` on the GUI thread with a 15 s budget over a pool that
   includes ~170 avatar fetches.
-- **Stopping a screen share leaves it stuck**: the self-view keeps painting
-  its last frame, a red warning badge appears on the local tile, and only
-  rejoining the call clears it.
-- **The screen share's startup delay is 1-10 s and VARIABLE.** That variance
-  is itself the evidence for the `videorate` first-buffer hold — the gap is
-  "how long until something on the screen changes". Two properties have been
-  shipped blind against it and both killed the capture (`min-buffers=8`,
-  `keepalive-time=100`); a third guess is not acceptable.
+- **The screen share's startup is still VARIABLE**, though far less so:
+  live-confirmed 2026-08-26 as near-instant on the first share and 1-2 s on a
+  restart, against the 5-10 s previously reported. The cause is unchanged and
+  unfixed — `videorate` emits nothing until a SECOND input buffer arrives and
+  a desktop capture delivers ON DAMAGE, so the wait is "how long until
+  something on the screen changes". THREE properties have now been shipped
+  against it without measurement and all three made it worse: `min-buffers=8`
+  and `keepalive-time=100` each killed the capture outright, and `compositor`
+  as the rate stage cropped a 3840x2160 desktop to its top-left quarter
+  (compositor is NOT a scaler — it paints each input at native size on its
+  output canvas). A fourth guess is not acceptable.
+  **The open lead, measured but NOT shipped:** putting the SIZE ceiling
+  BEFORE the rate stage makes `compositor` usable without the crop —
+  `sink 1920 / src 1920` against a 4K input, where caps-after gave
+  `sink 3840 / src 1920`. What is still unmeasured is the other half, that it
+  keeps the instant first frame, and that must go through the suite's own
+  `framesFromASingleCaptureBuffer` harness before anything ships.
 - **The incoming-call prompt's Accept does nothing.**
 - **Raise hand is invisible to Element** — it is local-only, and either the
   wire representation gets established from element-call or the control goes.
