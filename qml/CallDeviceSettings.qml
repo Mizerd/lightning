@@ -26,8 +26,12 @@ ColumnLayout {
     property int refreshTick: 0
     Connections {
         target: app.callDevices
-        function onDevicesChanged() { root.refreshTick++ }
-        function onSelectionChanged() { root.refreshTick++ }
+        function onDevicesChanged() {
+            root.refreshTick++;
+        }
+        function onSelectionChanged() {
+            root.refreshTick++;
+        }
     }
 
     component DevicePicker: ColumnLayout {
@@ -56,32 +60,31 @@ ColumnLayout {
             // following the system default as it changes, rather than
             // pinning whichever device happens to be default today.
             model: {
-                var names = [qsTr("System default")]
+                var names = [qsTr("System default")];
                 for (var i = 0; i < picker.entries.length; ++i) {
-                    var e = picker.entries[i]
-                    names.push(e.description
-                               + (e.isDefault ? " " + qsTr("(default)") : ""))
+                    var e = picker.entries[i];
+                    names.push(e.description + (e.isDefault ? " " + qsTr("(default)") : ""));
                 }
-                return names
+                return names;
             }
             currentIndex: {
-                var _ = root.refreshTick
+                var _ = root.refreshTick;
                 if (picker.activeId === "")
-                    return 0
+                    return 0;
                 for (var i = 0; i < picker.entries.length; ++i) {
                     if (picker.entries[i].id === picker.activeId)
-                        return i + 1
+                        return i + 1;
                 }
-                return 0
+                return 0;
             }
-            onActivated: (index) => {
-                var id = index === 0 ? "" : picker.entries[index - 1].id
+            onActivated: index => {
+                var id = index === 0 ? "" : picker.entries[index - 1].id;
                 if (picker.kind === "speaker")
-                    app.callDevices.selectSpeaker(id)
+                    app.callDevices.selectSpeaker(id);
                 else if (picker.kind === "camera")
-                    app.callDevices.selectCamera(id)
+                    app.callDevices.selectCamera(id);
                 else
-                    app.callDevices.selectMicrophone(id)
+                    app.callDevices.selectMicrophone(id);
             }
         }
 
@@ -104,15 +107,14 @@ ColumnLayout {
         label: qsTr("Microphone")
         kind: "microphone"
         entries: {
-            var _ = root.refreshTick
-            return root.activated ? app.callDevices.microphones : []
+            var _ = root.refreshTick;
+            return root.activated ? app.callDevices.microphones : [];
         }
         activeId: {
-            var _ = root.refreshTick
-            return app.callDevices.activeMicrophoneId
+            var _ = root.refreshTick;
+            return app.callDevices.activeMicrophoneId;
         }
-        emptyText: qsTr("No microphone was found. You can still join a call "
-                        + "and listen.")
+        emptyText: qsTr("No microphone was found. You can still join a call " + "and listen.")
     }
 
     // Shown only when the chosen device is genuinely absent — the choice is
@@ -126,8 +128,7 @@ ColumnLayout {
             wrapMode: Text.WordWrap
             color: AppTheme.warning
             font.pixelSize: AppTheme.textMeta
-            text: qsTr("Your chosen microphone isn't connected. Calls use the "
-                       + "system default until it's back.")
+            text: qsTr("Your chosen microphone isn't connected. Calls use the " + "system default until it's back.")
         }
     }
 
@@ -151,6 +152,17 @@ ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
 
+            Icon {
+                // `graphic_eq` reads as LEVEL, which is what this control
+                // changes. `mic`/`mic_off` are the mute button's icons and
+                // reusing one here would say "microphone", not "how loud".
+                // The bundled Material Symbols font is a SUBSET — only names
+                // mapped in Icon.qml render, anything else is tofu — and of
+                // what is mapped this is the only amplitude glyph.
+                name: micGainSlider.value > 100 ? "graphic_eq" : "mic"
+                size: 18
+                color: micGainSlider.value > 100 ? AppTheme.accent : AppTheme.stormTextSecondary
+            }
             Label {
                 Layout.fillWidth: true
                 text: qsTr("Microphone volume")
@@ -189,8 +201,7 @@ ColumnLayout {
 
             background: Rectangle {
                 x: micGainSlider.leftPadding
-                y: micGainSlider.topPadding
-                   + micGainSlider.availableHeight / 2 - 2
+                y: micGainSlider.topPadding + micGainSlider.availableHeight / 2 - 2
                 width: micGainSlider.availableWidth
                 height: 4
                 radius: AppTheme.radiusPill
@@ -217,11 +228,8 @@ ColumnLayout {
                 }
             }
             handle: Rectangle {
-                x: micGainSlider.leftPadding
-                   + micGainSlider.visualPosition
-                     * (micGainSlider.availableWidth - width)
-                y: micGainSlider.topPadding
-                   + micGainSlider.availableHeight / 2 - height / 2
+                x: micGainSlider.leftPadding + micGainSlider.visualPosition * (micGainSlider.availableWidth - width)
+                y: micGainSlider.topPadding + micGainSlider.availableHeight / 2 - height / 2
                 width: 16
                 height: 16
                 radius: 8
@@ -268,12 +276,12 @@ ColumnLayout {
         label: qsTr("Output device")
         kind: "speaker"
         entries: {
-            var _ = root.refreshTick
-            return root.activated ? app.callDevices.speakers : []
+            var _ = root.refreshTick;
+            return root.activated ? app.callDevices.speakers : [];
         }
         activeId: {
-            var _ = root.refreshTick
-            return app.callDevices.activeSpeakerId
+            var _ = root.refreshTick;
+            return app.callDevices.activeSpeakerId;
         }
     }
 
@@ -281,12 +289,12 @@ ColumnLayout {
         label: qsTr("Camera")
         kind: "camera"
         entries: {
-            var _ = root.refreshTick
-            return root.activated ? app.callDevices.cameras : []
+            var _ = root.refreshTick;
+            return root.activated ? app.callDevices.cameras : [];
         }
         activeId: {
-            var _ = root.refreshTick
-            return app.callDevices.activeCameraId
+            var _ = root.refreshTick;
+            return app.callDevices.activeCameraId;
         }
         emptyText: qsTr("No camera was found.")
     }
@@ -300,9 +308,6 @@ ColumnLayout {
         font.pixelSize: AppTheme.textMeta
         // Honest about when a change takes effect, rather than letting the
         // user wonder why a mid-call switch did nothing.
-        text: qsTr("These devices belong to this computer, not to your "
-                   + "account. A change applies to your next call; during a "
-                   + "call you can switch from the controls at the top of the "
-                   + "conversation.")
+        text: qsTr("These devices belong to this computer, not to your " + "account. A change applies to your next call; during a " + "call you can switch from the controls at the top of the " + "conversation.")
     }
 }

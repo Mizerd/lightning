@@ -484,13 +484,10 @@ bool SfuMediaEngine::runtimeAvailable(QString *whyNot)
         // Video publish/receive.
         "vp8enc",        "vp8dec",        "rtpvp8pay",    "rtpvp8depay",
         "videoconvert",  "videoscale",    "videotestsrc", "videorate",
-        // `compositor` is the SCREEN SHARE's rate stage (videoRateStage()):
-        // videorate cannot emit a first frame until a SECOND input buffer
-        // arrives, and a desktop capture delivers on damage. Same
-        // gst-plugins-base package that already provides videorate, so this
-        // adds no packaging dependency — but probing it means a build without
-        // it refuses honestly rather than at the moment a user presses Share.
-        "compositor",
+        // NOT `compositor`: it was the screen share's rate stage for one
+        // commit and is gone again (see videoRateStage()). Requiring an
+        // element nothing builds a pipeline from would refuse a call on a
+        // capability the engine never exercises.
         // Ours. Absent means encrypted video could not be sent at all, which
         // is a refusal to make honestly rather than at the first frame.
         lightning::rtp::vp8PayloaderName(),
@@ -860,9 +857,56 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     // The valve is the real mute (drop=true stops buffers before the
     // encoder, so no RTP is produced at all). Opus 111 is the ecosystem
     // convention and what LiveKit expects for audio.
+    // WHY LIGHTNING WAS QUIETER THAN ELEMENT ON THE SAME MICROPHONE.
+    //
+    // element-call captures through the browser's WebRTC audio path, which
+    // runs automatic gain control by default. Lightning ran none, so the raw
+    // capture went out at whatever level the device produced: same PC, same
+    // mic, audibly quieter. Reported as "in element app my microphone volume
+    // good, but in ligthing qiuet".
+    //
+    // `webrtcdsp` IS that processor — the same libwebrtc audio processing
+    // module, in GStreamer form. Measured through this chain shape, on a
+    // deliberately quiet -29 dBFS sine, sampled after the AGC converges:
+    //
+    //   without dsp   rms 1158.0   -29.0 dBFS
+    //   with dsp      rms 3935.2   -18.4 dBFS      (+10.6 dB, ~3.4x)
+    //
+    // OPTIONAL, and absence must be free. It lives in gst-plugins-bad, which
+    // a packaged build need not carry, and a description naming an element
+    // that does not exist fails to PARSE — which would take the microphone
+    // out entirely rather than making it quiet. So it is probed here and the
+    // chain is byte-identical to the pre-existing one when it is missing;
+    // it is deliberately NOT in kRequired for the same reason.
+    //
+    // `echo-cancel=false`: real echo cancellation needs a `webrtcechoprobe`
+    // in the PLAYBACK path to tell the canceller what we are playing, and
+    // wiring that is a change to the receive side. Claiming echo-cancel
+    // without the probe cancels against nothing. Left off deliberately, and
+    // the probe remains a follow-up.
+    //
+    // Explicit caps because webrtcdsp processes fixed 10 ms chunks of S16 —
+    // and they are added ONLY on this branch, so the no-dsp chain keeps the
+    // negotiation it has always had.
+    static const bool dspAvailable = [] {
+        GstElementFactory *factory = gst_element_factory_find("webrtcdsp");
+        if (!factory)
+            return false;
+        gst_object_unref(factory);
+        return true;
+    }();
+    const QString gainStage =
+        dspAvailable
+            ? QStringLiteral(
+                  "! audio/x-raw,format=S16LE,rate=48000 "
+                  "! webrtcdsp echo-cancel=false gain-control=true "
+                  "noise-suppression=true ! audioconvert ")
+            : QString();
+
     const QString description =
         QStringLiteral("%1 ! queue ! audioconvert ! audioresample "
                        "! valve name=micvalve drop=%2 "
+                       "%5 "
                        // OWN MICROPHONE GAIN, in the RAW AUDIO DOMAIN and
                        // BEFORE the encoder — which is the only place it can
                        // go. After opusenc the samples are an encoded frame,
@@ -912,7 +956,8 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                  // "0,7" as a truncated 0 in a comma-decimal locale, which
                  // would silently mute a user whose desktop is Lithuanian —
                  // and this repo's maintainer's is.
-                 QString::number(m_microphoneGain.load() / 100.0, 'f', 3));
+                 QString::number(m_microphoneGain.load() / 100.0, 'f', 3),
+                 gainStage);
 
     GError *error = nullptr;
     GstElement *bin =
@@ -1018,64 +1063,43 @@ void SfuMediaEngine::applyPublisherMsid(GstPad *sinkPad, const QString &cid)
 
 QString SfuMediaEngine::videoRateStage(bool screenShare)
 {
-    if (!screenShare) {
-        // A CAMERA is already a clocked source: v4l2src negotiates a real
-        // 30 fps mode and delivers on it, so videorate has an input buffer
-        // waiting whenever it needs one and its one-buffer latency is one
-        // frame — 33 ms, invisible. Leave it alone.
-        return QStringLiteral("videorate");
-    }
-    // A DESKTOP CAPTURE IS NOT CLOCKED, and `videorate` cannot start one.
+    Q_UNUSED(screenShare);
+    // ONE STAGE FOR BOTH, AND `compositor` MUST NOT COME BACK HERE.
     //
-    // videorate decides, for each output timestamp, which of the previous and
-    // NEXT input buffers is nearer — so it emits nothing at all until a
-    // SECOND input buffer arrives, then back-fills the whole gap in one
-    // sub-millisecond burst of duplicates whose timestamps span it. PipeWire
-    // delivers a desktop buffer ON DAMAGE, so that gap is "how long until
-    // something on the screen changes": ~1 s on a busy desktop and 5-10 s on
-    // a still one, which is exactly the variance reported ("it freezes for
-    // 5-10 seconds and then works perfect, tho next time it started to work
-    // in about 1 second"). A libwebrtc receiver renders on the frame
-    // timeline, so the far end paints the opening picture and sits on it for
-    // precisely that long — and so does our own self-view, which is tee'd
-    // after this stage.
+    // 2026-08-25 shipped `compositor background=black` for the screen share
+    // to kill videorate's first-buffer hold (measured: first encoded buffer
+    // 5.515 s -> 0.015 s). It worked, and it broke the share, because
+    // COMPOSITOR IS NOT A SCALER. It paints each input at its native size at
+    // xpos/ypos on an output canvas — so a 3840x2160 desktop on the 1920x1080
+    // canvas the size ceiling negotiates showed the TOP-LEFT QUARTER of the
+    // screen and nothing else. Reported as "shares only 1/4 of my screen",
+    // and measured directly afterwards:
     //
-    // `compositor` is a GstAggregator: on a live pipeline it emits on its OWN
-    // output deadline and repeats the last input it was given, so it never
-    // needs a second buffer to produce a first frame. Measured through this
-    // exact pipeline shape (queue/videoconvert/videoscale/<rate>/caps/tee/
-    // valve/vp8enc) against a live source carrying genuine
-    // `framerate=(fraction)0/1` caps and a scripted damage schedule of "one
-    // frame, four seconds still, then 30 fps":
-    //   videorate  -> first ENCODED buffer at t = 5.515 s, 358 encoded
-    //   compositor -> first ENCODED buffer at t = 0.015 s, 358 encoded
-    // Same rate, same negotiated caps (BGRA 1920x1080 30/1 from a 4K source),
-    // +2.5% CPU and +52 MB RSS on a 4K->1080p encode. `background=black`
-    // because compositor's default background is a CHECKER pattern.
+    //   videotestsrc 3840x2160 ! videoconvert ! videoscale
+    //     ! compositor background=black
+    //     ! video/x-raw,width=[1,1920],height=[1,1080],framerate=30/1
+    //   -> compositor SINK negotiated 3840x2160, SRC 1920x1080
     //
-    // Nothing else moves: the framerate stays PINNED at 30/1 (that pin is
-    // what made Element render at all), the size caps stay ranges, and the
-    // single capsfilter stays AFTER this stage — splitting it so the size
-    // ceiling sits before the rate stage was measured to produce 2580x1080,
-    // violating the 1920 ceiling.
+    // videoscale upstream does NOT rescue it: compositor's sink pad accepts
+    // the full 4K, so nothing ever asks videoscale to scale. Fixing it would
+    // mean driving the sink pad's `sizing-policy`/width/height per capture,
+    // which hardcodes an aspect this code does not know.
     //
-    // Refuted before this, so they are not tried again: a `queue
-    // min-threshold-buffers=0` or an `identity` in front of videorate (no
-    // effect — neither can manufacture the second buffer videorate is waiting
-    // for); relabelling the rate with `capssetter` (a
-    // `gst_util_fraction_multiply` CRITICAL and zero frames out);
-    // `videorate skip-to-first` and `max-duplication-time` (recorded in
-    // docs/matrixrtc.md). And two SOURCE-level properties — `min-buffers=8`
-    // and `keepalive-time=100` — each killed the capture outright, which is
-    // why the repeat now happens DOWNSTREAM of pipewiresrc, touching no
-    // PipeWire pool and no PipeWire thread loop.
+    // So the hold is back, and it is the lesser fault: a share that takes
+    // ~1 s (busy desktop) to 10 s (still desktop) to appear is annoying; a
+    // share that shows a quarter of the screen is broken. The hold is real
+    // and still open — videorate emits nothing until a SECOND input buffer
+    // arrives, and PipeWire delivers on damage, so the wait IS "how long
+    // until something on screen changes". Whatever fixes it must be measured
+    // on a REAL 4K capture and must assert the negotiated output size.
     //
-    // What this does NOT change: compositor repeats the last picture exactly
-    // as videorate did, so it masks a dead capture just as well. That is why
-    // `capture delivered frames count=` is probed on `capsrc`, UPSTREAM of
-    // here, and why that counter against `frames encrypted` remains the only
-    // honest pair.
-    return QStringLiteral("compositor background=black");
+    // Refuted and not to be retried: `queue min-threshold-buffers=0` and
+    // `identity` in front of videorate (neither can manufacture the second
+    // buffer); `capssetter` (gst_util_fraction_multiply CRITICAL, zero frames
+    // out); `videorate skip-to-first` and `max-duplication-time`; and the two
+    // SOURCE-level properties `min-buffers=8` and `keepalive-time=100`, each
+    // of which killed the capture outright.
+    return QStringLiteral("videorate");
 }
 
 QString SfuMediaEngine::videoPipelineDescription(const QString &source,
@@ -1228,13 +1252,13 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd)
     // Reverted. This is the SECOND property tried here on reasoning alone and
     // the second to kill the capture; the first was `min-buffers` below.
     //
-    // The hold is now addressed DOWNSTREAM instead — videoRateStage() uses
-    // `compositor` rather than `videorate` for the screen share, so nothing
-    // about pipewiresrc, its pool, its thread loop or its negotiation is
-    // touched. That is the whole point: both properties above failed because
-    // they reached INTO the source. Anything that still wants to change this
-    // function needs a live measurement first, and `publish first encoded
-    // frame ... rateStageHoldMs=` (publishVideo) is now that measurement.
+    // The hold remains OPEN. A downstream `compositor` was tried as the rate
+    // stage and had to be reverted for cropping the capture to a quarter of
+    // the screen (videoRateStage()), so nothing has yet fixed it without
+    // breaking something else. What stands: a fix must NOT reach into the
+    // source — both properties above failed exactly because they did — and it
+    // needs a live measurement, which `publish first encoded frame ...
+    // rateStageHoldMs=` (publishVideo) provides.
     if (pipewireFd >= 0) {
         return QStringLiteral("pipewiresrc fd=%1 path=%2 do-timestamp=true")
             .arg(pipewireFd).arg(nodeId);
@@ -1570,6 +1594,79 @@ void SfuMediaEngine::releasePublishedFd(const QString &cid)
         ::close(fd);
 }
 
+namespace {
+
+/// One deferred publish-bin teardown. Owns a ref on the pipeline it must
+/// remove the bin from; the bin itself is kept alive by
+/// gst_element_call_async, which refs its element for the call.
+struct PublishTeardown {
+    SfuMediaEngine *engine = nullptr;
+    GstElement *pipeline = nullptr;
+    QString cid;
+};
+
+void publishTeardownFree(gpointer data)
+{
+    auto *ctx = static_cast<PublishTeardown *>(data);
+    if (ctx->pipeline)
+        gst_object_unref(ctx->pipeline);
+    delete ctx;
+}
+
+/// Runs on a GStreamer thread pool thread, NOT on a streaming thread — which
+/// is the entire reason it exists. Safe to change state here.
+void publishTeardownAsync(GstElement *bin, gpointer data)
+{
+    auto *ctx = static_cast<PublishTeardown *>(data);
+    // Unparent first so the state change is a standalone element quiescing,
+    // with no parent still running to coordinate against.
+    gst_bin_remove(GST_BIN(ctx->pipeline), bin);
+    gst_element_set_state(bin, GST_STATE_NULL);
+    // Back to the GUI thread for anything that touches engine state. marshal()
+    // drops it if the engine has since been destroyed.
+    // Back to the GUI thread for anything that touches engine state.
+    // marshal() drops it if the engine has since been destroyed, and the
+    // invocation is tied to the engine as receiver so it dies with the
+    // QObject either way.
+    SfuMediaEngine *engine = ctx->engine;
+    const QString cid = ctx->cid;
+    marshal(engine, [engine, cid] {
+        // Only once the element is at NULL: the descriptor is what its
+        // PipeWire connection rides on.
+        engine->noteTeardownComplete(cid);
+    });
+}
+
+/// The pad is IDLE here: no buffer is in flight through it, so nothing holds
+/// the stream lock the state change needs.
+GstPadProbeReturn publishTeardownProbe(GstPad *pad, GstPadProbeInfo *,
+                                       gpointer data)
+{
+    auto *ctx = static_cast<PublishTeardown *>(data);
+    GstElement *bin = gst_pad_get_parent_element(pad);
+    if (!bin) {
+        // Nothing to hand ownership to, so free it here. The probe carries NO
+        // destroy notify (see below), which makes this branch the only owner.
+        publishTeardownFree(ctx);
+        return GST_PAD_PROBE_REMOVE;
+    }
+    if (GstPad *peer = gst_pad_get_peer(pad)) {
+        gst_pad_unlink(pad, peer);
+        gst_object_unref(peer);
+    }
+    // OWNERSHIP OF ctx MOVES HERE. gst_pad_add_probe was given no destroy
+    // notify on purpose: a probe's notify runs the moment the probe is
+    // REMOVED, which is immediately below — it would free the context out
+    // from under publishTeardownAsync, which runs later on another thread.
+    gst_element_call_async(bin, publishTeardownAsync, ctx,
+                           publishTeardownFree);
+    gst_object_unref(bin);
+    // REMOVE, not OK: a teardown must fire exactly once.
+    return GST_PAD_PROBE_REMOVE;
+}
+
+} // namespace
+
 void SfuMediaEngine::unpublish(const QString &cid)
 {
     // The TAKE comes first, and handlePublishError() depends on that ordering:
@@ -1582,13 +1679,71 @@ void SfuMediaEngine::unpublish(const QString &cid)
         releasePublishedFd(cid);
         return;
     }
-    gst_element_set_state(bin, GST_STATE_NULL);
-    gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
-    // Only after the element is at NULL: the descriptor is what its PipeWire
-    // connection rides on.
-    releasePublishedFd(cid);
+    // The accounting is SYNCHRONOUS even though the teardown below is not.
+    // The caller has been told this cid is unpublished and must be able to
+    // publish a new one immediately; only the GStreamer wind-down is deferred.
     if (m_publishedMedia.load() > 0)
         --m_publishedMedia;
+
+    // TEARING THIS DOWN SYNCHRONOUSLY DEADLOCKS, and did.
+    //
+    // `gst_element_set_state(bin, GST_STATE_NULL)` on a bin still inside the
+    // PLAYING publisher pipeline, with its streaming thread mid-push, is a
+    // lock cycle. Captured from a core dump of exactly this call:
+    //
+    //   this thread   set_state -> gst_bin_change_state_func
+    //                 -> gst_bin_src_pads_activate -> gst_pad_set_active
+    //                 -> activate_mode_internal
+    //                 -> __pthread_mutex_lock            [wants stream lock]
+    //   queue1:src    gst_queue_loop -> vp8enc -> our payloader
+    //                 -> gst_pad_chain_data_unchecked
+    //                 -> do_probe_callbacks -> g_cond_wait  [holds it]
+    //
+    // On the GUI thread. That is "stop screen share and my feed stays frozen
+    // ... the only way to clear it is rejoin the call", and the proof from
+    // the other side was Element playing its share-start jingle the FIRST
+    // time and never again: the track was never withdrawn, so re-sharing was
+    // not a new share.
+    //
+    // Two reorderings were tried and BOTH stall at the identical point —
+    // unlinking from webrtcbin first, and unparenting first — because
+    // neither stops a push already in flight. Do not re-propose them.
+    //
+    // So: block the pad, then get off this thread.
+    //   * GST_PAD_PROBE_TYPE_IDLE fires only when no push is in flight, by
+    //     construction. That is what breaks the cycle. It runs inline on THIS
+    //     thread if the pad is already idle, otherwise on the streaming
+    //     thread once it finishes its buffer.
+    //   * The state change then goes through gst_element_call_async, so it
+    //     never runs on a streaming thread either — changing an element's
+    //     state from within its own streaming thread is its own deadlock.
+    // Whole-pipeline teardown (stop()) is untouched and was never affected:
+    // setting the PIPELINE to NULL flushes properly.
+    GstPad *srcPad = gst_element_get_static_pad(bin, "src");
+    if (!srcPad) {
+        // No src pad means nothing can be mid-push through it, so the direct
+        // path is safe — and is the only one available.
+        gst_element_set_state(bin, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
+        releasePublishedFd(cid);
+        renegotiatePublisher();
+        return;
+    }
+
+    auto *ctx = new PublishTeardown{
+        this, GST_ELEMENT(gst_object_ref(m_publisher.pipeline)), cid};
+    // No destroy notify — publishTeardownProbe hands ctx to
+    // gst_element_call_async, which owns it from then on.
+    gst_pad_add_probe(srcPad, GST_PAD_PROBE_TYPE_IDLE, publishTeardownProbe,
+                      ctx, nullptr);
+    gst_object_unref(srcPad);
+}
+
+void SfuMediaEngine::noteTeardownComplete(const QString &cid)
+{
+    releasePublishedFd(cid);
+    // Renegotiated only now. Offering while the bin was still attached would
+    // describe a track that is on its way out.
     renegotiatePublisher();
 }
 

@@ -185,6 +185,13 @@ public:
     /// Stop publishing one track and renegotiate.
     void unpublish(const QString &cid);
 
+    /// The tail of unpublish(), run once the deferred teardown has actually
+    /// put the bin at NULL. Public only because that teardown is driven by
+    /// GStreamer callbacks that are not members of this class; it is not a
+    /// control surface and nothing outside SfuMediaEngine.cpp should call it.
+    /// Always arrives on the GUI thread, via marshal().
+    void noteTeardownComplete(const QString &cid);
+
     /// A remote description from the SFU for one peer connection.
     void applyRemoteDescription(Target target, const QString &kind,
                                 const QString &sdp);

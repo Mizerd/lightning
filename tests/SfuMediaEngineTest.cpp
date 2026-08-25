@@ -1109,72 +1109,54 @@ private slots:
         engine.stop();
     }
 
-    /// A STANDING, REPRODUCIBLE DEFECT — opt-in because it HANGS, and a
-    /// hanging case times out the whole binary rather than failing one case.
+    /// UNPUBLISHING A LIVE VIDEO BIN MUST NOT DEADLOCK.
     ///
-    ///   LIGHTNING_SFU_UNPUBLISH_DEADLOCK=1 ./sfu-media-engine-test \
-    ///       theUnpublishOfALiveVideoBinDeadlocks
-    ///
-    /// `unpublish()` calls `gst_element_set_state(bin, GST_STATE_NULL)` on a
-    /// bin that is still inside the PLAYING publisher pipeline with its
-    /// streaming thread mid-push. Captured from a core dump of this exact
-    /// case (SIGABRT after 28 s, GStreamer 1.26.11):
+    /// It did, and this case hung for the full 120 s CTest timeout before the
+    /// fix — which times out the whole binary rather than failing one case,
+    /// so it ran behind an env opt-in until it was green. From the core dump:
     ///
     ///   main thread   unpublish -> gst_element_set_state_func
     ///                 -> gst_bin_change_state_func
-    ///                 -> gst_bin_src_pads_activate -> activate_pads
-    ///                 -> gst_pad_set_active -> activate_mode_internal
-    ///                 -> gst_ghost_pad_activate_push_default
+    ///                 -> gst_bin_src_pads_activate -> gst_pad_set_active
     ///                 -> activate_mode_internal
-    ///                 -> __pthread_mutex_lock        [BLOCKED]
+    ///                 -> __pthread_mutex_lock          [wants stream lock]
+    ///   queue1:src    gst_queue_loop -> vp8enc -> our RtpVp8Payloader
+    ///                 -> gst_pad_chain_data_unchecked
+    ///                 -> do_probe_callbacks -> g_cond_wait   [holds it]
     ///
-    ///   queue1:src    gst_queue_loop -> gst_valve_chain -> vp8enc
-    ///                 -> gst_video_encoder_finish_frame
-    ///                 -> handleBuffer (our RtpVp8Payloader)
-    ///                 -> gst_pad_push_list -> gst_pad_chain_data_unchecked
-    ///                 -> do_probe_callbacks -> g_cond_wait   [BLOCKED]
+    /// On the GUI thread in production: "stop screen share and my feed stays
+    /// frozen ... the only way to clear it is rejoin the call", corroborated
+    /// from the far side by Element playing its share-start jingle the FIRST
+    /// time and never again — the track was never withdrawn.
     ///
-    /// A textbook dynamic-removal lock cycle: the deactivating thread wants
-    /// the pad's stream lock, the streaming thread holds it and is parked in
-    /// a probe wait. It is on the GUI THREAD in production, and it is the
-    /// most likely mechanism behind the reported "stop screen share and my
-    /// feed stays frozen ... the only way to clear it is rejoin the call".
+    /// Fixed by blocking the pad with a GST_PAD_PROBE_TYPE_IDLE probe (which
+    /// by construction fires only when no push is in flight) and doing the
+    /// state change from gst_element_call_async, off any streaming thread.
     ///
-    /// Whole-pipeline teardown is NOT affected and must not be confused with
-    /// it: `stop()` sets the PIPELINE to NULL, which flushes properly, and
-    /// several cases here do exactly that after publishing video and pass.
-    /// Only removing ONE bin from a still-live pipeline deadlocks.
+    /// THE 400 ms WAIT IS THE TEST. Unpublishing before the bin streams does
+    /// not reproduce it — publishingTwiceUnderOneIdIsIgnored() does exactly
+    /// that and passed throughout. Do not shorten it.
     ///
-    /// TWO REORDERINGS WERE TRIED AND NEITHER HELPED — do not re-propose
-    /// them without reading the stack above:
-    ///   * unlink the bin's src pad from webrtcbin before set_state(NULL)
-    ///   * gst_bin_remove() (unparent) before set_state(NULL), bin reffed
-    ///     across the call
-    /// Both stall at the identical GST_STATES line, "changing state of
-    /// children from PAUSED to READY", because neither stops a push already
-    /// in flight.
-    ///
-    /// The remedy is the canonical recipe and is real work, not a reorder:
-    /// block the bin's src pad with a GST_PAD_PROBE_TYPE_IDLE probe — which
-    /// by construction only fires when no push is in flight — and do the
-    /// unlink/remove/NULL from `gst_element_call_async` so the state change
-    /// never runs on a streaming thread. That makes the fd release, the
-    /// m_publishedMedia counter and renegotiatePublisher() all asynchronous,
-    /// which is why it is not a drive-by fix on this lane.
-    void theUnpublishOfALiveVideoBinDeadlocks()
+    /// Two reorderings do NOT fix it and were each built, run and reverted:
+    /// unlinking from webrtcbin before set_state(NULL), and unparenting
+    /// before set_state(NULL). Both stall at the identical GST_STATES line,
+    /// because neither stops a push already in flight.
+    void unpublishingALiveVideoBinDoesNotDeadlock()
     {
-        if (qEnvironmentVariableIsEmpty("LIGHTNING_SFU_UNPUBLISH_DEADLOCK"))
-            QSKIP("opt-in: this case HANGS (see the comment above it)");
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
         engine.start();
         engine.publishVideo(QStringLiteral("cid-video"), /*screenShare=*/false,
                             /*nodeId=*/-1);
-        // Long enough that the bin is PLAYING and its streaming thread is
-        // actually pushing encoded buffers. Unpublishing before that (as
-        // publishingTwiceUnderOneIdIsIgnored does) does NOT deadlock.
         QTest::qWait(400);
         engine.unpublish(QStringLiteral("cid-video"));
+        // Reaching here at all is the assertion — the unfixed tree never
+        // returned from the line above. The republish proves the teardown
+        // left nothing behind that blocks the cid being used again, which is
+        // the reported "turn it off and on again ... doesnt work again".
+        engine.publishVideo(QStringLiteral("cid-video"), /*screenShare=*/false,
+                            /*nodeId=*/-1);
+        QTest::qWait(200);
         engine.stop();
     }
 
@@ -1222,70 +1204,125 @@ private slots:
         engine.stop();
     }
 
-    // THE OPENING FREEZE, reproduced in under a second with no display
-    // server, no portal and no network.
+    // THE RATE STAGE MUST NOT CHANGE THE PICTURE'S GEOMETRY.
     //
-    // Reported as "i start screenshare from lightning it freezes for 5-10
-    // seconds and then works perfect, tho next time i testeed it started to
-    // work in about 1 second, so idk" — and that variance IS the diagnosis:
-    // the wait is "how long until something on the screen changes", because
-    // `videorate` emits nothing until a SECOND capture buffer arrives and a
-    // PipeWire desktop capture delivers on damage, not on a clock.
+    // This is the regression that shipped and had to be reverted. A
+    // `compositor` was put here to kill videorate's first-buffer hold, and it
+    // did — but COMPOSITOR IS NOT A SCALER. It paints each input at its
+    // native size at xpos/ypos on an output canvas, so a 3840x2160 desktop
+    // against the 1920x1080 canvas the size ceiling negotiates arrived as the
+    // TOP-LEFT QUARTER of the screen. Reported as "shares only 1/4 of my
+    // screen".
     //
-    // ON THE BROKEN TREE this fails on the second assertion: the shipped
-    // screen-share rate stage WAS `videorate`, so it produced zero frames
-    // from a single capture buffer, exactly like the control.
+    // The mechanical signature is exact and is what this asserts: a stage
+    // that only re-times leaves the frame size alone, so videoscale upstream
+    // has already met the ceiling and SINK width == SRC width. A stage that
+    // composites accepts the full 4K on its sink and emits 1920 — sink != src
+    // — and the difference IS the cropping.
     //
-    // Note what this does NOT prove: it is a synthetic live source with the
-    // portal's caps SHAPE, not a real xdg-desktop-portal ScreenCast node. The
-    // gate for that is one live share and the `rateStageHoldMs=` line the
-    // engine now logs.
-    void theScreenShareRateStageStartsWithoutASecondCaptureBuffer()
+    //   measured on the reverted-to tree:  sink 1920  src 1920   (ok)
+    //   measured on the compositor tree:   sink 3840  src 1920   (crop)
+    void theRateStageNeverCropsTheCapture()
     {
-        // The control: what the tree used to ship, and what it does.
-        const int withVideorate =
-            framesFromASingleCaptureBuffer(QStringLiteral("videorate"), 800);
-        QVERIFY2(withVideorate >= 0, "the videorate harness did not run");
-        QVERIFY2(withVideorate == 0,
-                 qPrintable(QStringLiteral(
-                     "videorate emitted %1 frames from a single buffer: the "
-                     "premise of the screen-share rate stage has moved and "
-                     "the choice must be re-measured")
-                                .arg(withVideorate)));
+        for (bool screenShare : {false, true}) {
+            const QString stage =
+                SfuMediaEngine::videoRateStage(screenShare);
+            const QString desc =
+                QStringLiteral(
+                    "videotestsrc num-buffers=2 "
+                    "! video/x-raw,width=3840,height=2160,framerate=30/1 "
+                    "! videoconvert ! videoscale ! %1 name=ratestage "
+                    "! video/x-raw,width=[1,1920],height=[1,1080],"
+                    "framerate=30/1 ! fakesink name=out")
+                    .arg(stage);
+            GError *error = nullptr;
+            GstElement *pipeline =
+                gst_parse_launch(desc.toUtf8().constData(), &error);
+            if (error) {
+                const QString message = QString::fromUtf8(error->message);
+                g_error_free(error);
+                if (pipeline)
+                    gst_object_unref(pipeline);
+                QFAIL(qPrintable(QStringLiteral("rate stage %1 will not "
+                                                "parse: %2")
+                                     .arg(stage, message)));
+            }
+            gst_element_set_state(pipeline, GST_STATE_PLAYING);
+            gst_element_get_state(pipeline, nullptr, nullptr,
+                                  5 * GST_SECOND);
 
-        // What ships. Anything at all here is the fix; a real one produces
-        // ~24 frames in 800 ms, and the floor is low so a loaded machine
-        // cannot flake it.
-        const int withShipped = framesFromASingleCaptureBuffer(
-            SfuMediaEngine::videoRateStage(/*screenShare=*/true), 800);
-        QVERIFY2(withShipped >= 3,
-                 qPrintable(QStringLiteral(
-                     "the screen-share rate stage produced %1 frames from a "
-                     "single capture buffer; it holds the opening picture "
-                     "until the screen moves")
-                                .arg(withShipped)));
+            GstElement *rate = gst_bin_get_by_name(GST_BIN(pipeline),
+                                                   "ratestage");
+            QVERIFY(rate);
+            // ITERATE the pads; do NOT ask for a static "sink". compositor's
+            // sink pads are REQUEST pads named sink_%u, so
+            // gst_element_get_static_pad(rate, "sink") returns null for
+            // exactly the element this test exists to catch — which made an
+            // earlier revision of it SKIP on the broken tree and pass. That
+            // is the whole failure mode this file keeps rediscovering.
+            const auto widthOf = [](GstIterator *it) {
+                int width = 0;
+                GValue item = G_VALUE_INIT;
+                while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+                    auto *pad = GST_PAD(g_value_get_object(&item));
+                    if (GstCaps *caps = gst_pad_get_current_caps(pad)) {
+                        gst_structure_get_int(gst_caps_get_structure(caps, 0),
+                                              "width", &width);
+                        gst_caps_unref(caps);
+                    }
+                    g_value_reset(&item);
+                    if (width > 0)
+                        break;
+                }
+                g_value_unset(&item);
+                gst_iterator_free(it);
+                return width;
+            };
+            const int sinkWidth = widthOf(gst_element_iterate_sink_pads(rate));
+            const int srcWidth = widthOf(gst_element_iterate_src_pads(rate));
+            gst_object_unref(rate);
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+            gst_object_unref(pipeline);
+
+            // NOT a skip. The pipeline reached PLAYING, so both sides have
+            // negotiated; a zero here means this test could not read what it
+            // claims to measure, and a test that cannot measure must fail
+            // rather than quietly report success.
+            QVERIFY2(sinkWidth > 0 && srcWidth > 0,
+                     qPrintable(QStringLiteral(
+                         "could not read negotiated caps for rate stage %1 "
+                         "(sink %2, src %3)")
+                                    .arg(stage)
+                                    .arg(sinkWidth)
+                                    .arg(srcWidth)));
+            QVERIFY2(sinkWidth == srcWidth,
+                     qPrintable(
+                         QStringLiteral(
+                             "rate stage %1 (screenShare=%2) negotiated sink "
+                             "width %3 against src width %4 — it is cropping "
+                             "the capture, not re-timing it")
+                             .arg(stage)
+                             .arg(screenShare)
+                             .arg(sinkWidth)
+                             .arg(srcWidth)));
+            QVERIFY2(srcWidth <= 1920,
+                     "the rate stage broke the 1920 size ceiling");
+        }
     }
 
-    // The two sources do NOT get the same rate stage, and the difference is
-    // measured rather than stylistic. A camera is already clocked — v4l2src
-    // negotiates a real 30 fps mode — so videorate always has an input buffer
-    // waiting and its one-buffer latency is one frame. Changing the camera
-    // here would be an unmeasured change to the one video path that was just
-    // fixed.
-    void theCameraKeepsVideorateAndOnlyTheShareChanges()
+    // The opening hold is a KNOWN, OPEN defect, not a shipped property, and
+    // this pins the fact rather than a wished-for fix: videorate emits
+    // nothing from a single capture buffer, which is why a share can take
+    // ~1 s (busy desktop) to 10 s (still one) to appear. If this ever starts
+    // failing, the hold has been fixed and this case should be inverted —
+    // but only alongside theRateStageNeverCropsTheCapture(), because the last
+    // attempt to fix the hold is what caused the crop.
+    void theOpeningHoldIsStillPresentAndUnfixed()
     {
-        QCOMPARE(SfuMediaEngine::videoRateStage(/*screenShare=*/false),
-                 QStringLiteral("videorate"));
-        const QString share =
-            SfuMediaEngine::videoRateStage(/*screenShare=*/true);
-        QVERIFY2(share != QStringLiteral("videorate"),
-                 "the screen share still uses videorate");
-        // compositor's DEFAULT background is a checker pattern, which would
-        // reach the far end as the opening frame.
-        if (share.startsWith(QStringLiteral("compositor"))) {
-            QVERIFY2(share.contains(QStringLiteral("background=black")),
-                     "compositor would publish its checker background");
-        }
+        const int frames =
+            framesFromASingleCaptureBuffer(QStringLiteral("videorate"), 800);
+        QVERIFY2(frames >= 0, "the videorate harness did not run");
+        QCOMPARE(frames, 0);
     }
 
     // THE SIZE CEILING MUST STAY BEHIND THE RATE STAGE.

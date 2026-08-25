@@ -114,6 +114,36 @@ private:
     }
 
 private Q_SLOTS:
+    /// THE VOLUME FEATURE IS INERT WITHOUT THIS ONE LINE, and silently so.
+    ///
+    /// SfuCallController reads the stored microphone gain and every stored
+    /// per-participant level through its SettingsManager, and subscribes to
+    /// their change signals through it. AppController built the controller
+    /// and handed it a client and an RTC controller but never handed it
+    /// settings — so the pointer stayed null, every connect() in setSettings
+    /// was never made, applyStoredVolumes() returned at its first guard, and
+    /// applyAudioState() fell back to unity on every join.
+    ///
+    /// Nothing failed. The sliders moved, the values persisted into
+    /// QSettings, and none of it reached the engine. Reported as three
+    /// separate faults at once: "sound amplifier does nothing", "i cant make
+    /// myself louder and i cant make other louder", and "it doesnt remeber my
+    /// volumnes set on user".
+    ///
+    /// A source scan rather than a behavioural check because m_settings is
+    /// private with no getter, and adding one purely to observe the wiring
+    /// would be a worse trade than reading the line that must exist.
+    void theGroupCallIsHandedItsSettings()
+    {
+        const QString app = normalized(
+            read(QStringLiteral(QML_DIR "/../src/app/AppController.cpp")));
+        QVERIFY2(!app.isEmpty(), "AppController.cpp did not read");
+        QVERIFY2(app.contains(QStringLiteral("m_groupCall->setSettings(")),
+                 "AppController never hands SfuCallController a "
+                 "SettingsManager: microphone gain and every per-participant "
+                 "volume are inert and nothing is remembered");
+    }
+
     void inCallControlsLiveAtTheTopOfTheConversation()
     {
         // 2026-08-23 (maintainer request, with a reference screenshot): the

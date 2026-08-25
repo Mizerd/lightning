@@ -603,6 +603,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_rtc->setClient(m_client.get());
     m_groupCall->setClient(m_client.get());
     m_groupCall->setRtcController(m_rtc.get());
+    // WITHOUT THIS THE WHOLE VOLUME FEATURE IS INERT, and silently so.
+    // SfuCallController reads the stored microphone gain and every stored
+    // per-participant level through m_settings, and subscribes to their
+    // change signals through it too. It was never handed one — so the
+    // pointer stayed null, the connections were never made, applyAudioState()
+    // fell back to unity on every join, and nothing was ever persisted or
+    // restored. Reported as all three at once: "sound amplifier does
+    // nothing", "i cant make myself louder and i cant make other louder",
+    // "it doesnt remeber my volumnes set on user". One missing wire.
+    m_groupCall->setSettings(m_settings.get());
     // ONE conversation, two doors. A ring arrives on the notification lane
     // (CallController); the user can answer it by pressing Accept on the
     // ring card, or by opening the room and pressing Join — which goes to
