@@ -2,6 +2,7 @@
 
 #include <QLoggingCategory>
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -19,9 +20,11 @@
 #include "calls/CallStageState.h"
 #include "calls/RtcController.h"
 #include "calls/ScreenCastPortal.h"
+#include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
 
 #ifdef HAVE_LIGHTNING_WEBRTC
+#include <QVideoFrame>
 #include <QVideoSink>
 
 #include "calls/CallFrameCryptor.h"
@@ -55,10 +58,29 @@ void closePortalFd(int fd)
 #endif
 }
 
-/// Membership claims four hours of validity; refresh well inside that, and
-/// often enough that the MSC4140 delayed retraction (8 s) keeps being
-/// restarted. This is the heartbeat that says "still here".
+/// The heartbeat that says "still here". It restarts the MSC4140 delayed
+/// retraction (8 s), so it has to be comfortably inside that.
 constexpr int kRefreshIntervalMs = 5000;
+/// How often the membership STATE EVENT itself is re-published when — and
+/// only when — no delayed retraction is armed.
+///
+/// This exists because nothing re-published it at all. The class comment
+/// claimed a refresh "well inside" the four-hour expiry and there was no such
+/// code: `refreshMembership()` was guarded on a delay id and its only action
+/// was restarting the delayed event, so on a homeserver without MSC4140 the
+/// entire heartbeat was a no-op and a dead client sat in the call for FOUR
+/// HOURS. That is the maintainer's report.
+///
+/// 60 s against the 5 min expiry Rust publishes in that case: five
+/// consecutive failures are survivable. It must stay well under that expiry —
+/// see MEMBERSHIP_EXPIRY_NO_DELAYED_MS in rust/src/rtc.rs, and change the two
+/// together or a live participant starts vanishing mid-sentence.
+constexpr qint64 kMembershipRepublishIntervalMs = 60 * 1000;
+/// A retraction the server did not accept is retried this many times, with
+/// the delay doubling. Bounded: leaving must not turn into an unbounded
+/// background sender, and a server that keeps refusing will not start.
+constexpr int kMaxRetractAttempts = 4;
+constexpr int kRetractRetryDelayMs = 2000;
 /// Presentation bound on the participant list.
 constexpr int kMaxParticipants = 64;
 } // namespace
@@ -93,11 +115,32 @@ SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
     m_refreshTimer.setInterval(kRefreshIntervalMs);
     connect(&m_refreshTimer, &QTimer::timeout, this,
             &SfuCallController::refreshMembership);
+    m_retractRetryTimer.setSingleShot(true);
+    connect(&m_retractRetryTimer, &QTimer::timeout, this,
+            &SfuCallController::retryRetraction);
 }
 
 SfuCallController::~SfuCallController()
 {
-    // Never leave a microphone live because an object went away.
+    // Never leave a microphone live because an object went away, and never
+    // leave a membership behind because one did.
+    //
+    // WHAT THIS CAN AND CANNOT DO, plainly, because the difference is the
+    // whole of the maintainer's report:
+    //
+    //  * A GRACEFUL exit reaches this and the retraction is dispatched. It can
+    //    still complete after this object is gone, because the Rust bridge
+    //    joins its room-action task pool with a budget during its own
+    //    shutdown. That is a real dependency on another component's teardown
+    //    order, and it is why AppController::prepareForShutdown() should call
+    //    leave() explicitly rather than relying on member destruction order.
+    //  * A KILLED process — SIGKILL, a segfault, an OOM kill, power loss, a
+    //    lost network — runs NONE of this and sends nothing. No amount of
+    //    code here can change that. The MSC4140 delayed retraction is the
+    //    ONLY mechanism that survives it, which is exactly why the publish
+    //    path treats "no delayed event armed" as a condition to be reported
+    //    and compensated for (a short `expires` plus a re-publish cadence)
+    //    rather than as a detail.
     teardown(State::Ended);
 }
 
@@ -109,11 +152,40 @@ void SfuCallController::setClient(MatrixClient *client)
         disconnect(m_client, nullptr, this, nullptr);
     // A client change is an account change: any call belonged to the old one.
     teardown(State::Idle);
+    // AND SO DID ANY OUTSTANDING RETRACTION. We were disconnected from the
+    // old client above, so its answer can never arrive — but op ids come from
+    // each client's OWN counter, so leaving the id set would let an unrelated
+    // op from the NEW client be mistaken for the old retraction's answer. The
+    // membership the old account left behind is now the old account's server
+    // to clean up; nothing here can reach it any more, and pretending
+    // otherwise is worse than saying so.
+    // Warned only when a retry was ALREADY ARMED, i.e. an attempt had failed.
+    // The retraction teardown just dispatched is still on its way through the
+    // old client's bridge and will probably land; a warning there would cry
+    // wolf on every account switch made during a call.
+    if (m_retractRetryTimer.isActive()) {
+        qCWarning(lcSfuCall)
+            << "a FAILED call retraction is being abandoned because the "
+               "account changed; that membership is now the server's to "
+               "expire";
+    }
+    m_retractRetryTimer.stop();
+    m_retractOp = 0;
+    m_retractRoomId.clear();
+    m_retractDelayId.clear();
+    m_retractAttempts = 0;
     m_client = client;
     if (!m_client)
         return;
     connect(m_client, &MatrixClient::rtcMembershipPublished, this,
             &SfuCallController::onMembershipPublished);
+    // NOTHING was connected to this before. `grep -rn rtcMembershipRetracted
+    // src/` returned the declaration and the emit and nothing else — so a
+    // retraction that failed (offline at hang-up, a 5xx, a rate limit) was
+    // silent, unlogged and never retried, and the membership it failed to
+    // remove sat in the room poisoning the call for every other client.
+    connect(m_client, &MatrixClient::rtcMembershipRetracted, this,
+            &SfuCallController::onMembershipRetracted);
     connect(m_client, &MatrixClient::sfuStateChanged, this,
             &SfuCallController::onSfuState);
     connect(m_client, &MatrixClient::sfuJoined, this,
@@ -225,9 +297,31 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
             &SfuCallController::onEngineLocalCandidate);
     connect(m_engine, &SfuMediaEngine::failed, this,
             &SfuCallController::onEngineFailed);
+    // NOT the same signal and NOT the same consequence: onEngineFailed ends
+    // the call, and one broken capture device must not do that.
+    connect(m_engine, &SfuMediaEngine::publishFailed, this,
+            &SfuCallController::onEnginePublishFailed);
 #else
     Q_UNUSED(engine);
 #endif
+}
+
+void SfuCallController::setSettings(SettingsManager *settings)
+{
+    if (m_settings == settings)
+        return;
+    if (m_settings)
+        disconnect(m_settings, nullptr, this, nullptr);
+    m_settings = settings;
+    if (!m_settings)
+        return;
+    // A volume can be changed from somewhere that is not this controller —
+    // another surface, another window, a settings page — and the engine has
+    // to hear about it or the slider and the sound disagree.
+    connect(m_settings, &SettingsManager::callParticipantVolumeChanged, this,
+            [this](const QString &, int) { applyStoredVolumes(); });
+    connect(m_settings, &SettingsManager::microphoneGainChanged, this,
+            [this] { applyAudioState(); });
 }
 
 void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
@@ -424,6 +518,22 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_keyIndex = 0;
     m_candidatesSent = 0;
     m_lastKeyTargets.clear();
+    m_lastPublishMs = 0;
+    m_refreshOp = 0;
+    m_delayedRestartOp = 0;
+    // A retraction still being retried for THIS room is now moot — we are
+    // re-joining it, and the publish below is what the room should end up
+    // with. Letting the retry keep firing would remove the membership we are
+    // about to create. (An attempt already IN FLIGHT cannot be recalled; its
+    // answer is ignored because m_retractOp is cleared, but a reply race
+    // remains possible and is why the refresh cadence exists.)
+    if (m_retractRoomId == roomId) {
+        m_retractRetryTimer.stop();
+        m_retractRoomId.clear();
+        m_retractDelayId.clear();
+        m_retractAttempts = 0;
+        m_retractOp = 0;
+    }
 
     // Captured once for the call, so a room-state change mid-call cannot
     // quietly relax what we already promised the user. Unknown is true.
@@ -463,7 +573,30 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
                                               const QString &eventId,
                                               const QString &delayId)
 {
-    if (opId == 0 || opId != m_publishOp)
+    if (opId == 0)
+        return;
+    // A REFRESH re-publish, not the join's first one. It must not re-run the
+    // join sequence — but it MUST adopt the delay id, because a re-publish
+    // arms a brand new delayed retraction and the old id is dead.
+    if (m_refreshOp != 0 && opId == m_refreshOp) {
+        m_refreshOp = 0;
+        if (!active())
+            return;
+        if (!ok) {
+            // Not fatal and not repaired here: the next heartbeat tick tries
+            // again, and the published `expires` is sized to survive several
+            // consecutive failures. Logged because a membership that stops
+            // refreshing is how a live participant silently disappears.
+            qCWarning(lcSfuCall)
+                << "membership refresh FAILED category=" << category;
+            return;
+        }
+        m_delayId = delayId;
+        qCInfo(lcSfuCall) << "membership refreshed delayed="
+                          << !delayId.isEmpty();
+        return;
+    }
+    if (opId != m_publishOp)
         return;
     m_publishOp = 0;
     qCInfo(lcSfuCall) << "membership published ok=" << ok
@@ -477,9 +610,18 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
         return;
     }
     m_membershipEventId = eventId;
-    // Empty means the server has no MSC4140: cleanup then relies on the
-    // membership's own `expires`, which is honest but slower.
+    // Empty means the server has no MSC4140. Cleanup then relies ENTIRELY on
+    // the membership's own `expires`, which the Rust side shortens to minutes
+    // for exactly that case — and which only works because refreshMembership()
+    // now re-publishes on a cadence. Both halves are required; either one
+    // alone is worse than what was here before.
     m_delayId = delayId;
+    if (delayId.isEmpty()) {
+        qCWarning(lcSfuCall)
+            << "no MSC4140 delayed retraction armed — an unclean exit will "
+               "leave this membership until it expires";
+    }
+    m_lastPublishMs = QDateTime::currentMSecsSinceEpoch();
     m_refreshTimer.start();
 
     if (m_focusUrl.isEmpty()) {
@@ -618,7 +760,14 @@ void SfuCallController::onSfuParticipants(const QVariantList &updates)
     // the SFU announced the track is applied here — and a state that drifted
     // for any other reason is corrected on the next update rather than
     // staying wrong for the rest of the call.
+    //
+    // ALL THREE sources, not just the microphone. A camera or a share that
+    // was stopped before the SFU had named its track would otherwise never be
+    // reconciled at all, and this is the retry that makes a stop that raced
+    // the announcement converge instead of leaving a phantom track live for
+    // the rest of the call.
     syncMicMuteToSfu();
+    applyVideoState();
     // Ask for the room's membership. A participant the SFU has announced but
     // whose membership we have not read cannot be sent a key, and without
     // this the read happens only when the user opens the room or the server
@@ -832,6 +981,47 @@ void SfuCallController::onEngineFailed(const QString &category)
     Q_EMIT callFailed(m_lastError);
 }
 
+void SfuCallController::onEnginePublishFailed(const QString &cid,
+                                              const QString &category)
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    qCWarning(lcSfuCall) << "publish failed category=" << category
+                         << "camera=" << (cid == m_cameraCid)
+                         << "screen=" << (cid == m_screenCid);
+    if (!active() || cid.isEmpty())
+        return;
+    // TURN THE BUTTON BACK OFF. This is the whole point: the engine's bus
+    // errors were logged and never raised, so a camera that could not
+    // negotiate left `cameraOn` true, the control lit, and the far end with a
+    // declared track carrying nothing — for the rest of the call, with the
+    // reason only in a log. The call itself is fine and stays up.
+    if (cid == m_cameraCid) {
+        m_cameraOn = false;
+        unpublishTrack(m_cameraCid);
+        clearLocalVideoSurface(SfuMediaEngine::localCameraStreamId());
+    } else if (cid == m_screenCid) {
+        m_screenSharing = false;
+        unpublishTrack(m_screenCid);
+        if (m_portal)
+            m_portal->cancel();
+        clearLocalVideoSurface(SfuMediaEngine::localScreenStreamId());
+    } else {
+        // A track we no longer own. Nothing to correct, and nothing to say:
+        // the user has already moved on from it.
+        return;
+    }
+    applyVideoState();
+    Q_EMIT mediaStateChanged();
+    // Reuses the existing user-facing notice, exactly as the portal-failure
+    // path does — `callFailed` is "a failure, in plain wording", not "the
+    // call ended"; the state is untouched here and `active()` stays true.
+    Q_EMIT callFailed(userFacingError(category));
+#else
+    Q_UNUSED(cid);
+    Q_UNUSED(category);
+#endif
+}
+
 void SfuCallController::onMediaKeyReceived(const QString &roomId,
                                             const QString &sender,
                                             const QString &claimedDeviceId,
@@ -1009,6 +1199,7 @@ QString SfuCallController::trackKeyForSource(const QString &identity,
 {
     if (identity.isEmpty() || source.isEmpty())
         return {};
+    QString fallback;
     for (const QVariant &row : m_participants) {
         const QVariantMap participant = row.toMap();
         if (participant.value(QStringLiteral("identity")).toString()
@@ -1027,10 +1218,25 @@ QString SfuCallController::trackKeyForSource(const QString &identity,
             // independently assigned — so keying on it meant a remote screen
             // share arrived, decrypted, and had no surface waiting for it.
             const QString sid = track.value(QStringLiteral("sid")).toString();
-            if (!sid.isEmpty())
+            if (sid.isEmpty())
+                continue;
+            // PREFER A LIVE TRACK OVER A MUTED ONE.
+            //
+            // A stop is now expressed to the SFU as a mute rather than a
+            // removal (applyVideoState), because this wire has no unpublish
+            // verb — so one participant's row can carry the muted corpse of a
+            // finished share AND the live one that replaced it. Returning the
+            // first match would name the dead track, and the surface would
+            // render nothing for a share that is plainly running. First
+            // unmuted wins; the first match is kept as the fallback so a
+            // participant whose only track is muted still resolves to
+            // something addressable.
+            if (!track.value(QStringLiteral("muted")).toBool())
                 return sid;
+            if (fallback.isEmpty())
+                fallback = sid;
         }
-        return {};
+        return fallback;
     }
     return {};
 }
@@ -1240,10 +1446,144 @@ void SfuCallController::refreshMembership()
 {
     if (!active() || !m_client || m_roomId.isEmpty())
         return;
-    // Restart the delayed retraction so the server keeps not firing it, and
-    // refresh the membership itself so `expires` stays ahead of now.
-    if (!m_delayId.isEmpty())
-        m_client->rtcRestartDelayedLeave(m_delayId);
+    if (!m_delayId.isEmpty()) {
+        // MSC4140 is doing the work: keep the server's own retraction from
+        // firing. The membership state event does NOT need re-publishing on
+        // this path — its `expires` is the ecosystem's four hours precisely
+        // because the delayed retraction is what cleans up after a crash, and
+        // re-writing a state event while a delayed event is armed for the
+        // same state key is behaviour nobody here has measured.
+        //
+        // The op id is REMEMBERED so a failure is actionable: a 404 means the
+        // server already fired the retraction and we are gone from every
+        // other client's list while still publishing media.
+        m_delayedRestartOp = m_client->rtcRestartDelayedLeave(m_delayId);
+        return;
+    }
+    // NO SERVER-SIDE CLEANUP EXISTS. The membership's own `expires` is the
+    // only thing that will ever remove us, Rust has therefore published a
+    // short one, and this is what keeps a LIVE participant from ageing out of
+    // it. Re-publishing also re-arms a delayed retraction if the server has
+    // meanwhile gained one.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    // A clock that jumped BACKWARDS must not park the cadence: treat any
+    // negative elapsed time as "due now".
+    const qint64 elapsed = now - m_lastPublishMs;
+    if (m_lastPublishMs != 0 && elapsed >= 0
+        && elapsed < kMembershipRepublishIntervalMs) {
+        return;
+    }
+    republishMembership();
+}
+
+void SfuCallController::republishMembership()
+{
+    if (!active() || !m_client || m_roomId.isEmpty())
+        return;
+    m_lastPublishMs = QDateTime::currentMSecsSinceEpoch();
+    // Deliberately NOT guarded on an outstanding m_refreshOp. An answer that
+    // never arrives must not disarm the heartbeat for the rest of the call;
+    // the cadence above is what bounds the rate, and only the newest op id is
+    // tracked because only the newest answer carries the live delay id.
+    m_refreshOp = m_client->rtcPublishMembership(
+        m_roomId, m_focusUrl,
+        m_withVideo ? QStringLiteral("video") : QStringLiteral("audio"));
+    if (m_refreshOp == 0) {
+        qCWarning(lcSfuCall)
+            << "membership refresh could not be dispatched — this device may "
+               "expire out of the call while still connected";
+    }
+}
+
+void SfuCallController::onMembershipRetracted(quint64 opId, bool ok,
+                                              const QString &category)
+{
+    if (opId == 0)
+        return;
+    // ONE SIGNAL, TWO EVENTS. The bridge routes `rtc_membership_retracted`
+    // and `rtc_delayed_updated` onto this one signal, and the op id is the
+    // only thing that distinguishes them — so both are matched explicitly and
+    // anything unrecognised is ignored rather than guessed at.
+    if (m_delayedRestartOp != 0 && opId == m_delayedRestartOp) {
+        m_delayedRestartOp = 0;
+        if (ok)
+            return;
+        qCWarning(lcSfuCall)
+            << "delayed leave restart FAILED category=" << category;
+        // The delay id may have been CONSUMED — the server fired the
+        // retraction because a restart arrived too late (an 8 s timeout
+        // restarted every 5 s is a 3 s margin against an HTTP call whose own
+        // timeout is 15 s). Our membership is then already gone from every
+        // other client while we keep publishing media, and every later
+        // restart of the same id 404s forever.
+        //
+        // Re-PUBLISHING is the repair, not another restart: it re-creates the
+        // membership AND arms a fresh delayed retraction with a new id. The
+        // id is cleared first so nothing keeps restarting a dead one.
+        m_delayId.clear();
+        republishMembership();
+        return;
+    }
+    if (m_retractOp == 0 || opId != m_retractOp)
+        return;
+    m_retractOp = 0;
+    if (ok) {
+        qCInfo(lcSfuCall) << "membership retracted attempts="
+                          << m_retractAttempts;
+        m_retractRoomId.clear();
+        m_retractDelayId.clear();
+        m_retractAttempts = 0;
+        m_retractRetryTimer.stop();
+        return;
+    }
+    qCWarning(lcSfuCall) << "membership retraction FAILED category="
+                         << category << "attempt=" << m_retractAttempts;
+    // Retry only what a retry can fix. A `forbidden` or a `not_found` will
+    // not become true by asking again, and re-asking would only hide the
+    // failure behind a longer silence.
+    const bool transient = category == QLatin1String("network")
+        || category == QLatin1String("rate_limited");
+    if (!transient || m_retractAttempts >= kMaxRetractAttempts
+        || m_retractRoomId.isEmpty()) {
+        qCWarning(lcSfuCall)
+            << "giving up on the retraction. This device stays in the room's "
+               "call membership until the server's delayed retraction fires, "
+               "or until the membership expires. Nothing further is sent.";
+        m_retractRoomId.clear();
+        m_retractDelayId.clear();
+        m_retractAttempts = 0;
+        return;
+    }
+    m_retractRetryTimer.start(kRetractRetryDelayMs
+                              * (1 << (m_retractAttempts - 1)));
+}
+
+void SfuCallController::retryRetraction()
+{
+    if (m_retractRoomId.isEmpty())
+        return;
+    dispatchRetraction(m_retractRoomId, m_retractDelayId);
+}
+
+void SfuCallController::dispatchRetraction(const QString &roomId,
+                                           const QString &delayId)
+{
+    if (!m_client || roomId.isEmpty())
+        return;
+    m_retractRoomId = roomId;
+    m_retractDelayId = delayId;
+    ++m_retractAttempts;
+    m_retractOp = m_client->rtcRetractMembership(roomId, delayId);
+    if (m_retractOp != 0)
+        return;
+    // The bridge refused to dispatch at all, so no answer will ever arrive
+    // and the retry machinery would wait forever on it.
+    qCWarning(lcSfuCall)
+        << "retraction could not be dispatched — this device will remain in "
+           "the room's call membership until it expires";
+    m_retractRoomId.clear();
+    m_retractDelayId.clear();
+    m_retractAttempts = 0;
 }
 
 void SfuCallController::leave()
@@ -1261,6 +1601,9 @@ void SfuCallController::teardown(State finalState, const QString &error)
     ++m_generation;
     m_refreshTimer.stop();
     m_publishOp = 0;
+    m_refreshOp = 0;
+    m_delayedRestartOp = 0;
+    m_lastPublishMs = 0;
 
 #ifdef HAVE_LIGHTNING_WEBRTC
     // Media FIRST: release the microphone and camera before anything that
@@ -1276,7 +1619,19 @@ void SfuCallController::teardown(State finalState, const QString &error)
             // Retract our membership and cancel the delayed retraction. Safe
             // to issue even if we never got as far as publishing: the Rust
             // side treats an empty delay id as "nothing to cancel".
-            m_client->rtcRetractMembership(m_roomId, m_delayId);
+            //
+            // This USED TO BE FIRE-AND-FORGET, with nothing listening to the
+            // answer. A retraction is an ordinary network request issued at
+            // the exact moment a user is often walking away from a flaky
+            // connection, and a failed one left a membership in the room that
+            // no later code ever removed. It is now a tracked, bounded,
+            // retried attempt whose failure is at least reported.
+            //
+            // A retry in flight from a PREVIOUS leave is superseded: whatever
+            // room this teardown is for, that is the one being left now.
+            m_retractRetryTimer.stop();
+            m_retractAttempts = 0;
+            dispatchRetraction(m_roomId, m_delayId);
         }
     }
 
@@ -1335,13 +1690,31 @@ void SfuCallController::applyAudioState()
         return;
     m_engine->setMicrophoneMuted(m_micMuted);
     m_engine->setOutputMuted(m_deafened);
+    // THE MIC GAIN IS PART OF THE AUDIO STATE, so it rides the one path that
+    // every mute, deafen and session start already goes through rather than
+    // needing its own call site nobody will remember to add. Applied at
+    // session start (publishTracks -> applyAudioState) rather than on
+    // `connected`, for the same reason mute is: `connected` arrives through a
+    // queued marshal, at least one event-loop turn after RTP is flowing, so
+    // applying it there publishes the opening window at the wrong level.
+    m_engine->setMicrophoneGain(m_settings ? m_settings->microphoneGain()
+                                           : 100);
+#endif
+    // OUTSIDE both guards, and that is deliberate. Telling the SFU our mute
+    // state is pure SIGNALLING: it needs a client, not a GStreamer pipeline.
+    // Inside the guard the entire mute lane was unreachable in
+    // `call-controller-test`, which is not built with HAVE_LIGHTNING_WEBRTC,
+    // so none of it could be exercised at any layer. Production behaviour is
+    // unchanged — syncMicMuteToSfu() gates on `active()`, and a build or a
+    // controller with no engine refuses to join at all, so this cannot send
+    // anything a call did not ask for.
+    //
     // Local muting stops packets; it does not tell anyone. Other clients read
     // the mute state off the TRACK, so without this the mic icon in Element
     // never moved — and a mute the SFU inferred from silence stayed set after
     // we started sending again, which is the reported "I unmute and remain
     // muted in Element".
     syncMicMuteToSfu();
-#endif
 }
 
 void SfuCallController::setMicrophoneMuted(bool muted)
@@ -1405,7 +1778,14 @@ void SfuCallController::setCameraOn(bool on)
         // share instead, and the camera stayed live. The camera must
         // actually go off: the LED is the user's only unambiguous indicator.
         unpublishTrack(m_cameraCid);
+        // The self-view's sink is not told anything by a bin that simply
+        // stopped existing, so it keeps painting its last frame. See
+        // clearLocalVideoSurface().
+        clearLocalVideoSurface(SfuMediaEngine::localCameraStreamId());
     }
+    // The SFU has to hear about it too, or every other client keeps seeing a
+    // camera we turned off — and our own row reads back as still on.
+    applyVideoState();
     Q_EMIT mediaStateChanged();
 #else
     Q_UNUSED(on);
@@ -1443,6 +1823,7 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd)
     // share id, and a viewer who had dismissed the first from their
     // spotlight would silently never be offered the second.
     ++m_localShareEpoch;
+    applyVideoState();
     Q_EMIT mediaStateChanged();
     return true;
 #else
@@ -1462,7 +1843,39 @@ void SfuCallController::stopScreenShare()
     // capturing a surface nothing is reading.
     if (m_portal)
         m_portal->cancel();
+    // The local share surface holds the last frame it was handed unless it is
+    // told otherwise, and the tile that owns it may not be destroyed for
+    // another frame or two. See clearLocalVideoSurface().
+    clearLocalVideoSurface(SfuMediaEngine::localScreenStreamId());
+    applyVideoState();
     Q_EMIT mediaStateChanged();
+#endif
+}
+
+void SfuCallController::clearLocalVideoSurface(const QString &streamId)
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_videoRouter || streamId.isEmpty())
+        return;
+    // A QVideoSink KEEPS ITS LAST FRAME until it is given another one. Our
+    // self-view is tee'd off the capture, so tearing the publishing bin down
+    // ends the frames without ending the picture: the tile goes on showing a
+    // still image of whatever was last shared, which reads as a share that
+    // refused to stop. Reported exactly that way — "my video feed remains
+    // frozen and doesnt seem to turn off and leaves a blank frame".
+    //
+    // A NULL QVideoFrame is how a sink is told "there is nothing here now":
+    // `videoSize` goes invalid, so QML's `hasFrame` test goes false and the
+    // placeholder comes back.
+    //
+    // Belt and braces with the row removal in rebuildModels(). That one
+    // destroys the tile, which detaches its sink — but only once QML gets
+    // round to it, and only if a tile is what owns the sink. This is
+    // unconditional, costs a hash lookup, and cannot clear anyone else's
+    // surface: the two local stream ids are ours by construction.
+    m_videoRouter->deliverFrame(streamId, QVideoFrame());
+#else
+    Q_UNUSED(streamId);
 #endif
 }
 
@@ -1480,7 +1893,12 @@ QVariantMap SfuCallController::ownParticipantRow() const
 
 void SfuCallController::syncMicMuteToSfu()
 {
-#ifdef HAVE_LIGHTNING_WEBRTC
+    // THE MICROPHONE GOES BOTH WAYS, and it is the only source that can.
+    //
+    // It is published exactly once per call and never republished, so our own
+    // row carries at most one `microphone` track and the first match is
+    // unambiguously it. Video cannot say that any more — see
+    // muteOwnTrackIfLive().
     if (!m_client || !active())
         return;
     // The SERVER's track sid, never our client-chosen cid: MuteTrackRequest
@@ -1496,18 +1914,92 @@ void SfuCallController::syncMicMuteToSfu()
         }
         const QString sid = track.value(QStringLiteral("sid")).toString();
         if (sid.isEmpty())
-            return;
+            return; // declared but not yet named; the next ParticipantUpdate
+                    // re-runs this, which is why it is called from
+                    // onSfuParticipants at all
         // Only when the server's answer differs from ours. Reconciling
         // against the REPORTED state rather than remembering what we last
-        // sent is what makes this idempotent: it converges from whatever the
-        // server currently believes, including a mute it inferred itself,
-        // and it cannot loop because the request changes the reported value.
+        // sent is what makes this converge: it starts from whatever the
+        // server currently believes, including a mute it inferred itself, and
+        // it cannot loop because the request changes the reported value.
         if (track.value(QStringLiteral("muted")).toBool() == m_micMuted)
             return;
         m_client->sfuMuteTrack(sid, m_micMuted);
         return;
     }
-#endif
+}
+
+void SfuCallController::muteOwnTrackIfLive(const QString &source)
+{
+    if (!m_client || !active() || source.isEmpty())
+        return;
+    const QVariantMap own = ownParticipantRow();
+    if (own.isEmpty())
+        return;
+    // MUTE ONLY. THIS DIRECTION IS THE ONLY SAFE ONE FOR VIDEO, and the
+    // asymmetry is the whole subtlety of expressing a stop as a mute.
+    //
+    // Muting is safe because the target is self-identifying: a track the
+    // server still reports as LIVE is one that ought not to be, and it
+    // converges by report — once the server agrees there is no live track of
+    // this source left and nothing more is sent.
+    //
+    // UNMUTING IS NOT SAFE AND IS NOT DONE. A stop leaves the muted corpse of
+    // the old track listed (a mute removes nothing), so when the user starts a
+    // new share the server may still be reporting ONLY the corpse — its sid is
+    // server-assigned and nothing maps it back to the cid we published, so
+    // "the screen_share track is muted and we want it live, unmute it" would
+    // name the DEAD one and put a track producing no RTP back on the wire.
+    // That is exactly the state this whole path exists to end.
+    //
+    // Nothing is lost by refusing. A video track is published FRESH every
+    // time — setCameraOn and startScreenShare mint a new cid, and there is no
+    // mute-in-place for video anywhere in this class — and the SFU reports a
+    // freshly published track as unmuted, so an unmute is never needed here.
+    // The microphone, which genuinely does mute in place, has its own path
+    // above.
+    for (const QVariant &t : own.value(QStringLiteral("tracks")).toList()) {
+        const QVariantMap track = t.toMap();
+        if (track.value(QStringLiteral("source")).toString() != source)
+            continue;
+        if (track.value(QStringLiteral("muted")).toBool())
+            continue;
+        const QString sid = track.value(QStringLiteral("sid")).toString();
+        if (sid.isEmpty())
+            continue; // declared but not yet named; the next
+                      // ParticipantUpdate re-runs this
+        // No `return`: if the server somehow lists two live tracks of one
+        // source, the user stopped BOTH and both must be silenced.
+        m_client->sfuMuteTrack(sid, true);
+    }
+}
+
+void SfuCallController::applyVideoState()
+{
+    // TELL THE SFU THE VIDEO TRACK STOPPED. Nothing else does.
+    //
+    // There is no unpublish verb on this wire at all: the client seam offers
+    // exactly `sfuAddTrack` and `sfuMuteTrack`, and rust/src/sfu.rs sends
+    // only Ping/PingReq/Offer/Answer/Trickle/AddTrack/Mute/Leave. Stopping a
+    // share therefore tore down the LOCAL GStreamer bin and told the server
+    // nothing, so the SFU went on listing an unmuted `screen_share` track for
+    // us — which is what every other client in the call was still being
+    // offered, and (the hypothesis for the red warning triangle on the
+    // maintainer's own tile) what a SFU scores as a poor publisher: a live,
+    // unmuted video track producing zero RTP.
+    //
+    // A mute is the one removal-shaped verb available, and it is the same one
+    // the microphone has always used. `SfuMediaEngine::unpublish()`
+    // deliberately still does NOT release its webrtcbin request pad or touch
+    // the transceiver — that lands on the negotiation ordering this lane
+    // keeps off-limits without a measurement, and muting reaches the same
+    // user-visible outcome through signalling alone.
+    // Only ever a MUTE, and only for a source the user has turned OFF: see
+    // muteOwnTrackIfLive() for why the other direction is refused.
+    if (!m_cameraOn)
+        muteOwnTrackIfLive(QStringLiteral("camera"));
+    if (!m_screenSharing)
+        muteOwnTrackIfLive(QStringLiteral("screen_share"));
 }
 
 void SfuCallController::unpublishTrack(QString &cid)
@@ -1541,21 +2033,83 @@ void SfuCallController::setHandRaised(bool raised)
 
 void SfuCallController::toggleHandRaised() { setHandRaised(!m_handRaised); }
 
+QString SfuCallController::userIdForIdentity(const QString &identity) const
+{
+    if (identity.isEmpty() || !m_rtc)
+        return {};
+    // THE MEMBERSHIP RESOLVES THIS, never string surgery on the identity.
+    // `@user:server:DEVICE` splits on ':' by luck in the legacy format and
+    // not at all in the sticky one, whose identity is a base64 sha256 — and
+    // §16 records that trap costing a round already. Empty is UNKNOWN.
+    return m_rtc->participantForIdentity(m_roomId, identity)
+        .value(QStringLiteral("userId"))
+        .toString();
+}
+
+int SfuCallController::participantVolume(const QString &identity) const
+{
+    if (!m_settings)
+        return 100;
+    const QString userId = userIdForIdentity(identity);
+    if (userId.isEmpty())
+        return 100;
+    return m_settings->callParticipantVolume(userId);
+}
+
 void SfuCallController::setParticipantVolume(const QString &identity,
                                               int percent)
 {
+    const int clamped = qBound(0, percent, 200);
 #ifdef HAVE_LIGHTNING_WEBRTC
-    // Local only: nothing is sent, and nobody else is affected.
-    if (!m_engine.isNull())
-        m_engine->setParticipantVolume(identity, percent);
-#else
-    Q_UNUSED(percent);
+    // Local only: nothing is sent, and nobody else is affected. The ENGINE is
+    // addressed by LiveKit stream id, not by SFU identity — that is the name
+    // the receive bin's volume element carries, and the two are different
+    // strings.
+    const QString streamId = streamIdForIdentity(identity);
+    if (!m_engine.isNull() && !streamId.isEmpty())
+        m_engine->setParticipantVolume(streamId, clamped);
 #endif
     // Recorded so the control that sets it can READ IT BACK. This was
     // write-only, which is why no QML ever called it: a slider with nothing
     // to bind to cannot show the value it just set.
     if (m_participantModel)
-        m_participantModel->setVolumePercent(identity, percent);
+        m_participantModel->setVolumePercent(identity, clamped);
+    // PERSISTED under the person, not under the session. The user id comes
+    // from the membership; if it is not known yet the value still applies to
+    // this call and is simply not remembered, which is better than storing it
+    // under a device-scoped key that will never be looked up again.
+    const QString userId = userIdForIdentity(identity);
+    if (m_settings && !userId.isEmpty())
+        m_settings->setCallParticipantVolume(userId, clamped);
+}
+
+void SfuCallController::applyStoredVolumes()
+{
+    if (!m_settings || !m_participantModel)
+        return;
+    const int count = m_participantModel->rowCount();
+    for (int i = 0; i < count; ++i) {
+        const QVariantMap person = m_participantModel->get(i);
+        // NEVER the local row. This is a PLAYBACK volume on a receive chain,
+        // and we do not receive ourselves — there is nothing to turn down,
+        // and offering it would be a control that does nothing.
+        if (person.value(QStringLiteral("local")).toBool())
+            continue;
+        const QString identity =
+            person.value(QStringLiteral("identity")).toString();
+        const QString userId = userIdForIdentity(identity);
+        if (identity.isEmpty() || userId.isEmpty())
+            continue; // unknown person: unity, and nothing invented
+        const int stored = m_settings->callParticipantVolume(userId);
+        if (person.value(QStringLiteral("volumePercent")).toInt() == stored)
+            continue;
+        m_participantModel->setVolumePercent(identity, stored);
+#ifdef HAVE_LIGHTNING_WEBRTC
+        const QString streamId = streamIdForIdentity(identity);
+        if (!m_engine.isNull() && !streamId.isEmpty())
+            m_engine->setParticipantVolume(streamId, stored);
+#endif
+    }
 }
 
 // ONE derivation of the participant rows, feeding the model; the model then
@@ -1623,9 +2177,16 @@ void SfuCallController::rebuildModels()
                 row.micMuted = muted;
             } else if (source == QLatin1String("camera")) {
                 row.cameraKnown = true;
-                row.cameraOn = !muted;
+                // OR, not assignment: a participant can now legitimately
+                // carry two tracks of one source, because a stop is a MUTE on
+                // this wire and the muted one is not removed. Letting the
+                // last entry decide would report a live camera as off
+                // whenever the dead track happened to be listed second — and
+                // it would then disagree with trackKeyForSource(), which
+                // prefers the live sid.
+                row.cameraOn = row.cameraOn || !muted;
             } else if (source == QLatin1String("screen_share")) {
-                row.screenSharing = !muted;
+                row.screenSharing = row.screenSharing || !muted;
             }
         }
         // The routing keys, so a tile can RE-ATTACH when they change. The SFU
@@ -1646,16 +2207,31 @@ void SfuCallController::rebuildModels()
             // published and announced, so between the user pressing the
             // button and that round trip the local tile said "camera off"
             // while the capture light was on — and the local screen-share
-            // surface, which gates on this flag, drew nothing at all. We
-            // know what we asked for; OR it in. The mute state is likewise
-            // ours: syncMicMuteToSfu() converges the server towards it, so
-            // reading it back from the server was reading our own intent
-            // through a delay.
+            // surface, which gates on this flag, drew nothing at all. We know
+            // what we asked for, in BOTH directions. applyAudioState() and
+            // applyVideoState() converge the server towards our intent, so
+            // reading any of it back from the server was reading our own
+            // intent through a delay — and, on the way down, never getting
+            // there at all.
             row.micKnown = true;
             row.micMuted = m_micMuted;
             row.cameraKnown = true;
-            row.cameraOn = row.cameraOn || m_cameraOn;
-            row.screenSharing = row.screenSharing || m_screenSharing;
+            // ASSIGNMENT, NOT `||`. This used to OR our intent into whatever
+            // the SFU last reported, which only ever repaired the LEADING
+            // edge — and turning something OFF is the other edge.
+            //
+            // Nothing tells the SFU a track ENDED (there is no unpublish verb
+            // on the wire; applyVideoState() now mutes instead), so after a
+            // stop the server keeps reporting `{source: screen_share,
+            // muted: false}` for us. The OR then discarded our authoritative
+            // `false`, the local share row survived, `CallShareTile` was
+            // never destroyed, its `Component.onDestruction: detach()` never
+            // ran, and the self-view kept painting its last frame — reported
+            // as "when i stop screen share my video feed remains frozen and
+            // doesnt seem to turn off". The mic already had this rule (one
+            // line up) and was already right.
+            row.cameraOn = m_cameraOn;
+            row.screenSharing = m_screenSharing;
         }
         rows.append(row);
     }
@@ -1691,6 +2267,10 @@ void SfuCallController::rebuildModels()
     // tile is not born silent for someone who is mid-sentence.
     m_participantModel->applySpeakers(m_speaking, m_speakingLevel);
     m_participantModel->applyConnectionQuality(m_connectionQuality);
+    // A row that has only just appeared is born at unity. Somebody the user
+    // turned down in a previous call — possibly in a different room — must
+    // come back at the volume they chose, which is the whole of the request.
+    applyStoredVolumes();
     // Hand raise has no wire representation (see CallParticipantModel), so
     // the only row it can be true for is ours.
     if (!m_ownIdentity.isEmpty())
@@ -1751,6 +2331,40 @@ QVariantList SfuCallController::participants() const
 void SfuCallController::ingestParticipantsForTest(const QVariantList &updates)
 {
     mergeParticipants(updates);
+}
+
+void SfuCallController::setMembershipForTest(const QString &roomId,
+                                             const QString &delayId)
+{
+    m_roomId = roomId;
+    m_delayId = delayId;
+    m_lastPublishMs = 0;
+}
+
+void SfuCallController::setCallStateForTest(State state)
+{
+    // Only the STATE, so the `active()` gates that guard every wire-touching
+    // path behave as they do in a real call. Nothing else about a join is
+    // simulated, and nothing here is reachable from QML.
+    m_state = state;
+}
+
+void SfuCallController::setLocalMediaStateForTest(bool cameraOn,
+                                                  bool screenSharing)
+{
+    // The half of setCameraOn()/startScreenShare()/stopScreenShare() that
+    // does not need a media engine: record the intent, tell the SFU, rebuild.
+    // It goes through the SAME applyVideoState() production uses, because the
+    // thing worth testing is that a local stop reaches both the model and the
+    // wire — and §16 records twice what a test that invokes a policy
+    // function production never reaches is worth.
+    if (screenSharing && !m_screenSharing)
+        ++m_localShareEpoch;
+    m_cameraOn = cameraOn;
+    m_screenSharing = screenSharing;
+    applyVideoState();
+    rebuildModels();
+    Q_EMIT mediaStateChanged();
 }
 
 void SfuCallController::ingestSpeakersForTest(const QVariantList &speakers)

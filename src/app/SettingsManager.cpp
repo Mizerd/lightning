@@ -672,6 +672,79 @@ void SettingsManager::setLoginHomeserverPrefill(const QString &url)
     Q_EMIT homeserverUrlChanged();
 }
 
+namespace {
+/// A QSettings-safe key for one Matrix user id.
+///
+/// Hashed rather than escaped, following DraftStore's precedent: a user id
+/// carries `@` and `:` and an arbitrary localpart, and QSettings treats `/`
+/// as a group separator, so an escaping scheme is one unusual localpart away
+/// from writing into the wrong group. Truncated to 16 hex characters — this
+/// is a local preference store, not a security boundary, and a collision
+/// would at worst give two people one volume.
+QString volumeKeyFor(const QString &userId)
+{
+    return QString::fromLatin1(
+        QCryptographicHash::hash(userId.trimmed().toUtf8(),
+                                 QCryptographicHash::Sha256)
+            .toHex()
+            .left(16));
+}
+constexpr int kVolumeDefault = 100;
+constexpr int kVolumeMax = 200;
+} // namespace
+
+int SettingsManager::callParticipantVolume(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty() || userId.trimmed().isEmpty())
+        return kVolumeDefault;
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/callVolumes/") + volumeKeyFor(userId);
+    if (!m_store->contains(key))
+        return kVolumeDefault;
+    // Clamped on READ as well as on write: the store is a plain INI a user
+    // can edit, and a factor of 50 handed to the volume element would be a
+    // genuinely painful accident.
+    return qBound(0, m_store->value(key, kVolumeDefault).toInt(), kVolumeMax);
+}
+
+void SettingsManager::setCallParticipantVolume(const QString &userId,
+                                               int percent)
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty() || userId.trimmed().isEmpty())
+        return;
+    const int clamped = qBound(0, percent, kVolumeMax);
+    if (callParticipantVolume(userId) == clamped)
+        return;
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/callVolumes/") + volumeKeyFor(userId);
+    if (clamped == kVolumeDefault) {
+        // The DEFAULT is not stored. "Reset to 100" then genuinely forgets
+        // rather than remembering 100, and the store does not grow a row per
+        // person ever seen in a call.
+        m_store->remove(key);
+    } else {
+        m_store->setValue(key, clamped);
+    }
+    Q_EMIT callParticipantVolumeChanged(userId, clamped);
+}
+
+int SettingsManager::microphoneGain() const
+{
+    return qBound(0, appearanceValue("call/microphoneGain",
+                                     kVolumeDefault).toInt(), kVolumeMax);
+}
+
+void SettingsManager::setMicrophoneGain(int percent)
+{
+    const int clamped = qBound(0, percent, kVolumeMax);
+    if (microphoneGain() == clamped)
+        return;
+    setAppearanceValue("call/microphoneGain", clamped);
+    Q_EMIT microphoneGainChanged();
+}
+
 QVariant SettingsManager::appearanceValue(const char *globalKey,
                                           const QVariant &fallback) const
 {

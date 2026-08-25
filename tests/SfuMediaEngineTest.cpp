@@ -23,15 +23,106 @@
 
 #include <QFile>
 
+#include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
 #include <gst/rtp/gstrtpbuffer.h>
 #include <gst/video/video-event.h>
 
+#include <atomic>
 #include <cerrno>
 #include <fcntl.h>
 #include <unistd.h>
 
 namespace {
+
+/// How many frames reach a sink when exactly ONE buffer is ever pushed into a
+/// LIVE pipeline whose input caps say `framerate=(fraction)0/1`.
+///
+/// That is the desktop-capture shape, and the whole of the reported freeze.
+/// PipeWire delivers a buffer when the screen CHANGES, so its caps carry 0/1
+/// and on a still screen there simply IS no second buffer. `videorate`
+/// decides for each output timestamp which of the previous and NEXT inputs is
+/// nearer, so it cannot emit anything until a second one arrives — it returns
+/// 0 here, however long the wait. An aggregator that emits on its own output
+/// deadline returns a steady stream from the first buffer.
+///
+/// -1 means the harness itself did not run.
+int framesFromASingleCaptureBuffer(const QString &rateStage, int waitMs)
+{
+    // The production shape, minus the tee and the encoder: what is under test
+    // is the rate stage's ability to START, and everything downstream of it
+    // only ever sees what it produced.
+    const QString description =
+        QStringLiteral("appsrc name=src is-live=true format=time "
+                       "do-timestamp=true ! videoconvert ! videoscale ! %1 "
+                       "! video/x-raw,width=(int)[1,1920],"
+                       "height=(int)[1,1080],framerate=(fraction)30/1 "
+                       "! fakesink name=sink sync=false async=false")
+            .arg(rateStage);
+    GError *error = nullptr;
+    GstElement *pipeline =
+        gst_parse_launch(description.toUtf8().constData(), &error);
+    if (error) {
+        qWarning() << "rate-stage harness did not parse:" << error->message;
+        g_error_free(error);
+        if (pipeline)
+            gst_object_unref(pipeline);
+        return -1;
+    }
+    if (!pipeline)
+        return -1;
+    GstElement *src = gst_bin_get_by_name(GST_BIN(pipeline), "src");
+    GstElement *sink = gst_bin_get_by_name(GST_BIN(pipeline), "sink");
+    GstPad *sinkPad =
+        sink ? gst_element_get_static_pad(sink, "sink") : nullptr;
+    if (!src || !sink || !sinkPad) {
+        if (sinkPad)
+            gst_object_unref(sinkPad);
+        if (src)
+            gst_object_unref(src);
+        if (sink)
+            gst_object_unref(sink);
+        gst_object_unref(pipeline);
+        return -1;
+    }
+
+    // The portal's own caps shape (BGRA, framerate 0/1), at a size small
+    // enough that the scaling and conversion cost nothing.
+    constexpr int kW = 64;
+    constexpr int kH = 48;
+    GstCaps *caps = gst_caps_from_string(
+        "video/x-raw,format=(string)BGRA,width=(int)64,height=(int)48,"
+        "framerate=(fraction)0/1");
+    gst_app_src_set_caps(GST_APP_SRC(src), caps);
+    gst_caps_unref(caps);
+
+    auto *seen = new std::atomic<int>(0);
+    gst_pad_add_probe(
+        sinkPad, GST_PAD_PROBE_TYPE_BUFFER,
+        [](GstPad *, GstPadProbeInfo *, gpointer data) {
+            static_cast<std::atomic<int> *>(data)->fetch_add(1);
+            return GST_PAD_PROBE_OK;
+        },
+        seen,
+        [](gpointer data) { delete static_cast<std::atomic<int> *>(data); });
+
+    gst_element_set_state(pipeline, GST_STATE_PLAYING);
+    GstBuffer *buffer =
+        gst_buffer_new_allocate(nullptr, kW * kH * 4, nullptr);
+    gst_buffer_memset(buffer, 0, 0x40, kW * kH * 4);
+    gst_app_src_push_buffer(GST_APP_SRC(src), buffer); // takes ownership
+    // ...and NOTHING ELSE is ever pushed. That is the still desktop.
+    QTest::qWait(waitMs);
+    const int frames = seen->load();
+
+    gst_element_set_state(pipeline, GST_STATE_NULL);
+    gst_object_unref(sinkPad);
+    gst_object_unref(src);
+    gst_object_unref(sink);
+    gst_object_unref(pipeline);
+    return frames;
+}
+
 /// The engine's own source, read once. Some invariants here are about HOW the
 /// engine talks to GStreamer — which pad property it trusts — and a behaviour
 /// test cannot see that: two Lightning engines agree on the wrong answer.
@@ -273,6 +364,16 @@ private slots:
         QVERIFY2(!withFd.contains(QStringLiteral("min-buffers=")),
                  "min-buffers was reintroduced; it was measured to make the "
                  "capture stall completely");
+        // The SECOND property shipped here on reasoning alone, and the second
+        // to kill the capture: `keepalive-time` made the share freeze on its
+        // FIRST frame and never recover, and the local self-view — tee'd off
+        // the capture, so it indicts the capture and not the network — sat on
+        // "Waiting for the picture". The opening hold is fixed DOWNSTREAM
+        // instead (videoRateStage), where no PipeWire pool and no PipeWire
+        // thread loop is touched.
+        QVERIFY2(!withFd.contains(QStringLiteral("keepalive-time")),
+                 "keepalive-time is back; it was measured to freeze the "
+                 "capture on its first frame");
     }
 
     // The engine takes ownership of the descriptor, so a refusal must close
@@ -956,13 +1057,265 @@ private slots:
                                  "height=(int)[1,720],"
                                  "framerate=(fraction)30/1");
             const QString desc = SfuMediaEngine::videoPipelineDescription(
-                QStringLiteral("videotestsrc"), limits,
+                QStringLiteral("videotestsrc"),
+                SfuMediaEngine::videoRateStage(screenShare), limits,
                 QStringLiteral("vp8enc"), QString(), 1u);
             QVERIFY2(desc.contains(QStringLiteral("framerate=(fraction)30/1")),
                      "the encoder is not given a fixed framerate");
             QVERIFY2(!desc.contains(QStringLiteral("framerate=(fraction)[0/1")),
                      "a framerate range including 0/1 reached the encoder: a "
                      "desktop capture negotiates 0/1 and it would propagate");
+        }
+    }
+
+    // A LIVE CAPTURE'S BUS ERROR IS STILL NOT A FAILURE.
+    //
+    // `onBusMessage` logs and never raises, and that has to stay true: a
+    // pipeline posts errors during ordinary teardown, and under load this
+    // suite once saw three of them on a healthy key install. Turning those
+    // into failures tore down working calls, which is why the general version
+    // was reverted within the hour. What is new is a NARROW escalation, and
+    // every clause of it is asserted here from the other side.
+    //
+    // UNFIXED TREE: does not compile — there was no publishFailed at all, and
+    // that IS the defect: a camera that could not negotiate left the button
+    // lit for the rest of the call with the reason only in a log.
+    void aBusErrorFromALiveOrUnknownBinIsNotAPublishFailure()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy publish(&engine, &SfuMediaEngine::publishFailed);
+        engine.start();
+        // Not a published bin at all (this is webrtcbin's own name, and it
+        // sits directly under the pipeline exactly as a publish bin does).
+        engine.handlePublishError(QStringLiteral("wb-pub"));
+        engine.handlePublishError(QStringLiteral("never-published"));
+        QCOMPARE(publish.count(), 0);
+
+        engine.publishVideo(QStringLiteral("cid-video"), /*screenShare=*/false,
+                            /*nodeId=*/-1);
+        // Test-source mode publishes a videotestsrc, which really does
+        // deliver buffers — so this bin's capture is ALIVE and an error from
+        // it is a transient in something else.
+        QTest::qWait(400);
+        engine.handlePublishError(QStringLiteral("cid-video"));
+        QCOMPARE(publish.count(), 0);
+
+        // The "once unpublished, the cid is not reportable" clause USED to be
+        // asserted here and had to be lifted out: unpublishing this bin
+        // deadlocks. See theUnpublishOfALiveVideoBinDeadlocks() below, which
+        // reproduces it on demand. The rule itself is still covered, against
+        // an audio bin, by publishingTwiceUnderOneIdIsIgnored().
+        engine.stop();
+    }
+
+    /// A STANDING, REPRODUCIBLE DEFECT — opt-in because it HANGS, and a
+    /// hanging case times out the whole binary rather than failing one case.
+    ///
+    ///   LIGHTNING_SFU_UNPUBLISH_DEADLOCK=1 ./sfu-media-engine-test \
+    ///       theUnpublishOfALiveVideoBinDeadlocks
+    ///
+    /// `unpublish()` calls `gst_element_set_state(bin, GST_STATE_NULL)` on a
+    /// bin that is still inside the PLAYING publisher pipeline with its
+    /// streaming thread mid-push. Captured from a core dump of this exact
+    /// case (SIGABRT after 28 s, GStreamer 1.26.11):
+    ///
+    ///   main thread   unpublish -> gst_element_set_state_func
+    ///                 -> gst_bin_change_state_func
+    ///                 -> gst_bin_src_pads_activate -> activate_pads
+    ///                 -> gst_pad_set_active -> activate_mode_internal
+    ///                 -> gst_ghost_pad_activate_push_default
+    ///                 -> activate_mode_internal
+    ///                 -> __pthread_mutex_lock        [BLOCKED]
+    ///
+    ///   queue1:src    gst_queue_loop -> gst_valve_chain -> vp8enc
+    ///                 -> gst_video_encoder_finish_frame
+    ///                 -> handleBuffer (our RtpVp8Payloader)
+    ///                 -> gst_pad_push_list -> gst_pad_chain_data_unchecked
+    ///                 -> do_probe_callbacks -> g_cond_wait   [BLOCKED]
+    ///
+    /// A textbook dynamic-removal lock cycle: the deactivating thread wants
+    /// the pad's stream lock, the streaming thread holds it and is parked in
+    /// a probe wait. It is on the GUI THREAD in production, and it is the
+    /// most likely mechanism behind the reported "stop screen share and my
+    /// feed stays frozen ... the only way to clear it is rejoin the call".
+    ///
+    /// Whole-pipeline teardown is NOT affected and must not be confused with
+    /// it: `stop()` sets the PIPELINE to NULL, which flushes properly, and
+    /// several cases here do exactly that after publishing video and pass.
+    /// Only removing ONE bin from a still-live pipeline deadlocks.
+    ///
+    /// TWO REORDERINGS WERE TRIED AND NEITHER HELPED — do not re-propose
+    /// them without reading the stack above:
+    ///   * unlink the bin's src pad from webrtcbin before set_state(NULL)
+    ///   * gst_bin_remove() (unparent) before set_state(NULL), bin reffed
+    ///     across the call
+    /// Both stall at the identical GST_STATES line, "changing state of
+    /// children from PAUSED to READY", because neither stops a push already
+    /// in flight.
+    ///
+    /// The remedy is the canonical recipe and is real work, not a reorder:
+    /// block the bin's src pad with a GST_PAD_PROBE_TYPE_IDLE probe — which
+    /// by construction only fires when no push is in flight — and do the
+    /// unlink/remove/NULL from `gst_element_call_async` so the state change
+    /// never runs on a streaming thread. That makes the fd release, the
+    /// m_publishedMedia counter and renegotiatePublisher() all asynchronous,
+    /// which is why it is not a drive-by fix on this lane.
+    void theUnpublishOfALiveVideoBinDeadlocks()
+    {
+        if (qEnvironmentVariableIsEmpty("LIGHTNING_SFU_UNPUBLISH_DEADLOCK"))
+            QSKIP("opt-in: this case HANGS (see the comment above it)");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        engine.publishVideo(QStringLiteral("cid-video"), /*screenShare=*/false,
+                            /*nodeId=*/-1);
+        // Long enough that the bin is PLAYING and its streaming thread is
+        // actually pushing encoded buffers. Unpublishing before that (as
+        // publishingTwiceUnderOneIdIsIgnored does) does NOT deadlock.
+        QTest::qWait(400);
+        engine.unpublish(QStringLiteral("cid-video"));
+        engine.stop();
+    }
+
+    // ...and a publish that genuinely never prerolls IS reported — without
+    // ending the call, which is the whole reason this is not `failed()`.
+    //
+    // Staged with a PipeWire node id nothing can resolve and no portal
+    // remote, which is the exact shape the camera was in before 7f5cd06: the
+    // source cannot negotiate, the bin never reaches PLAYING, the capture
+    // delivers zero buffers, and nothing is ever encoded or sent while the
+    // control stays lit.
+    void aCaptureThatNeverStartsIsReportedAndTheCallSurvives()
+    {
+        GstElementFactory *factory = gst_element_factory_find("pipewiresrc");
+        if (!factory)
+            QSKIP("no pipewiresrc: this failure cannot be staged here");
+        gst_object_unref(factory);
+
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(false);
+        QSignalSpy fatal(&engine, &SfuMediaEngine::failed);
+        QSignalSpy publish(&engine, &SfuMediaEngine::publishFailed);
+        engine.start();
+        engine.publishVideo(QStringLiteral("cid-doomed"),
+                            /*screenShare=*/true, /*nodeId=*/2147483,
+                            /*pipewireFd=*/-1);
+        for (int i = 0; i < 100 && publish.count() == 0; ++i)
+            QTest::qWait(100);
+        // A CALL IS NEVER ENDED BY A CAPTURE DEVICE. True whichever way the
+        // environment went, so it is asserted before anything is skipped.
+        QCOMPARE(fatal.count(), 0);
+        if (publish.count() == 0) {
+            engine.stop();
+            QSKIP("pipewiresrc neither errored nor started here; the "
+                  "environment cannot stage a dead capture");
+        }
+        QCOMPARE(publish.at(0).at(0).toString(),
+                 QStringLiteral("cid-doomed"));
+        QCOMPARE(publish.at(0).at(1).toString(),
+                 QStringLiteral("screen_share_failed"));
+        // ONE report, not a storm: a failed pipeline posts errors repeatedly
+        // and the user needs one message.
+        QTest::qWait(600);
+        QCOMPARE(publish.count(), 1);
+        engine.stop();
+    }
+
+    // THE OPENING FREEZE, reproduced in under a second with no display
+    // server, no portal and no network.
+    //
+    // Reported as "i start screenshare from lightning it freezes for 5-10
+    // seconds and then works perfect, tho next time i testeed it started to
+    // work in about 1 second, so idk" — and that variance IS the diagnosis:
+    // the wait is "how long until something on the screen changes", because
+    // `videorate` emits nothing until a SECOND capture buffer arrives and a
+    // PipeWire desktop capture delivers on damage, not on a clock.
+    //
+    // ON THE BROKEN TREE this fails on the second assertion: the shipped
+    // screen-share rate stage WAS `videorate`, so it produced zero frames
+    // from a single capture buffer, exactly like the control.
+    //
+    // Note what this does NOT prove: it is a synthetic live source with the
+    // portal's caps SHAPE, not a real xdg-desktop-portal ScreenCast node. The
+    // gate for that is one live share and the `rateStageHoldMs=` line the
+    // engine now logs.
+    void theScreenShareRateStageStartsWithoutASecondCaptureBuffer()
+    {
+        // The control: what the tree used to ship, and what it does.
+        const int withVideorate =
+            framesFromASingleCaptureBuffer(QStringLiteral("videorate"), 800);
+        QVERIFY2(withVideorate >= 0, "the videorate harness did not run");
+        QVERIFY2(withVideorate == 0,
+                 qPrintable(QStringLiteral(
+                     "videorate emitted %1 frames from a single buffer: the "
+                     "premise of the screen-share rate stage has moved and "
+                     "the choice must be re-measured")
+                                .arg(withVideorate)));
+
+        // What ships. Anything at all here is the fix; a real one produces
+        // ~24 frames in 800 ms, and the floor is low so a loaded machine
+        // cannot flake it.
+        const int withShipped = framesFromASingleCaptureBuffer(
+            SfuMediaEngine::videoRateStage(/*screenShare=*/true), 800);
+        QVERIFY2(withShipped >= 3,
+                 qPrintable(QStringLiteral(
+                     "the screen-share rate stage produced %1 frames from a "
+                     "single capture buffer; it holds the opening picture "
+                     "until the screen moves")
+                                .arg(withShipped)));
+    }
+
+    // The two sources do NOT get the same rate stage, and the difference is
+    // measured rather than stylistic. A camera is already clocked — v4l2src
+    // negotiates a real 30 fps mode — so videorate always has an input buffer
+    // waiting and its one-buffer latency is one frame. Changing the camera
+    // here would be an unmeasured change to the one video path that was just
+    // fixed.
+    void theCameraKeepsVideorateAndOnlyTheShareChanges()
+    {
+        QCOMPARE(SfuMediaEngine::videoRateStage(/*screenShare=*/false),
+                 QStringLiteral("videorate"));
+        const QString share =
+            SfuMediaEngine::videoRateStage(/*screenShare=*/true);
+        QVERIFY2(share != QStringLiteral("videorate"),
+                 "the screen share still uses videorate");
+        // compositor's DEFAULT background is a checker pattern, which would
+        // reach the far end as the opening frame.
+        if (share.startsWith(QStringLiteral("compositor"))) {
+            QVERIFY2(share.contains(QStringLiteral("background=black")),
+                     "compositor would publish its checker background");
+        }
+    }
+
+    // THE SIZE CEILING MUST STAY BEHIND THE RATE STAGE.
+    //
+    // Splitting the capsfilter so the size range sits BEFORE the rate stage
+    // was measured to negotiate 2580x1080 from a 3440x1440 source — the 1920
+    // ceiling simply violated, and a 4K share then encoded far larger than
+    // the declared track. One capsfilter, after the rate stage, in both
+    // branches.
+    void theSingleCapsfilterFollowsTheRateStage()
+    {
+        for (const bool screenShare : { true, false }) {
+            const QString limits =
+                QStringLiteral("video/x-raw,width=(int)[1,1920],"
+                               "height=(int)[1,1080],"
+                               "framerate=(fraction)30/1");
+            const QString desc = SfuMediaEngine::videoPipelineDescription(
+                QStringLiteral("videotestsrc"),
+                SfuMediaEngine::videoRateStage(screenShare), limits,
+                QStringLiteral("vp8enc"), QString(), 1u);
+            const int rateAt = desc.indexOf(
+                SfuMediaEngine::videoRateStage(screenShare));
+            const int capsAt = desc.indexOf(limits);
+            QVERIFY2(rateAt >= 0 && capsAt >= 0,
+                     "the rate stage or the limits are missing entirely");
+            QVERIFY2(rateAt < capsAt,
+                     "the size ceiling is applied before the rate stage");
+            // And exactly ONE occurrence of that capsfilter, or the ceiling
+            // is being negotiated twice.
+            QCOMPARE(desc.count(limits), 1);
         }
     }
 
@@ -1007,6 +1360,7 @@ private slots:
             "sync=false max-buffers=1 drop=true ");
         const QString description = SfuMediaEngine::videoPipelineDescription(
             QStringLiteral("videotestsrc is-live=true"),
+            SfuMediaEngine::videoRateStage(/*screenShare=*/true),
             QStringLiteral("video/x-raw,width=(int)[1,1920],"
                            "height=(int)[1,1080],"
                            "framerate=(fraction)[0/1,30/1]"),

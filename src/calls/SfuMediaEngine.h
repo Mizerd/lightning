@@ -125,10 +125,26 @@ public:
     /// parsed by a test. A typo there is a screen share that dies on its first
     /// frame, which is exactly the class of failure this file has already had.
     static QString videoPipelineDescription(const QString &source,
+                                            const QString &rateStage,
                                             const QString &limits,
                                             const QString &encoder,
                                             const QString &selfView,
                                             quint32 ssrc);
+    /// The element that turns the capture's own cadence into the pinned
+    /// 30 fps the encoder and every WebRTC receiver expect.
+    ///
+    /// NOT the same element for both sources, and the difference is measured
+    /// rather than stylistic — see the definition. A camera already produces
+    /// on a clock; a desktop capture produces ON DAMAGE, and `videorate`
+    /// cannot emit its first output frame until a SECOND input buffer has
+    /// arrived — which, on a screen nobody is touching, is however long the
+    /// user waits.
+    static QString videoRateStage(bool screenShare);
+    /// The name of the `volume` element in the receive bin carrying one
+    /// stream. Public and static so the bin that CREATES it and the lookup
+    /// that FINDS it share one derivation — they did not, and per-participant
+    /// volume was a no-op for it.
+    static QString outputVolumeElementName(const QString &streamId);
     /// A distinct, non-zero SSRC for one published track. See the
     /// definition: without an explicit one the offer carries no `a=ssrc`,
     /// and then no `a=msid` either.
@@ -177,11 +193,31 @@ public:
 
     /// Real mute: stops publishing, never attenuates (see the 1:1 engine).
     void setMicrophoneMuted(bool muted);
+    /// Own microphone gain, 0..200, applied to WHAT OTHERS HEAR.
+    ///
+    /// A `volume` element in the SEND chain, before the encoder, in the raw
+    /// audio domain — never after the frame cryptor, which sees only
+    /// ciphertext. 200 is a linear factor of 2.0, which the element accepts;
+    /// clipping past unity is the user's own choice, exactly as it is in
+    /// Discord, and it is theirs to hear.
+    ///
+    /// This is NOT mute and must never be used as one. Attenuating to zero
+    /// still publishes RTP; `setMicrophoneMuted` stops buffers at the valve
+    /// so nothing is produced at all. The two are independent and both apply.
+    void setMicrophoneGain(int percent);
     /// Local playback mute for every remote track.
     void setOutputMuted(bool muted);
-    /// Local volume for ONE remote participant, 0..100. Local-only: it
-    /// changes nothing for anyone else and sends no event.
-    void setParticipantVolume(const QString &identity, int percent);
+    /// Local volume for ONE remote participant, 0..200, keyed by that
+    /// participant's LiveKit STREAM ID (their `PA_…` sid), which is the name
+    /// the receive bin's volume element carries.
+    ///
+    /// It used to take the SFU `identity` and look up `outvol_<identity>`,
+    /// while every receive bin named its element plainly `outvol` — so the
+    /// lookup matched nothing and the whole function was a PERMANENT NO-OP.
+    /// Nothing noticed because no surface called it.
+    ///
+    /// Local-only: it changes nothing for anyone else and sends no event.
+    void setParticipantVolume(const QString &streamId, int percent);
 
     // ── Media encryption ──
     //
@@ -269,6 +305,20 @@ Q_SIGNALS:
     void connectionStateChanged(const QString &state);
     /// Terminal failure. `category` is safe to log; SDP never is.
     void failed(const QString &category);
+    /// ONE published track could not carry media, and the CALL IS FINE.
+    ///
+    /// Deliberately not `failed()`: that ends the call (see
+    /// SfuCallController::onEngineFailed), and a camera that cannot negotiate
+    /// must not take an otherwise healthy conversation down with it.
+    ///
+    /// This exists because the failure was previously invisible. `onBusMessage`
+    /// logs bus errors and never raises them — for a good reason, since a
+    /// pipeline posts errors during ordinary teardown and turning those into
+    /// call failures tore down working calls — so a camera whose source could
+    /// not negotiate left `cameraOn` true and the button lit for the rest of
+    /// the session, with the reason readable only in a log. The narrow rule
+    /// that makes this safe is in handlePublishError().
+    void publishFailed(const QString &cid, const QString &category);
 
 private:
     struct Peer {
@@ -316,6 +366,23 @@ public Q_SLOTS:
     void handleLocalCandidate(quintptr token, int mlineIndex,
                               const QString &candidate);
     void handleFailure(quintptr token, const QString &category);
+    /// A GStreamer bus ERROR was posted from inside the publishing bin named
+    /// `cid`. Runs on the GUI thread; every discriminator lives here.
+    ///
+    /// A bus error is NOT by itself a failure — see onBusMessage — so this
+    /// reports only the one shape that cannot be anything else:
+    ///
+    ///   * the bin is STILL REGISTERED as published. unpublish() takes the cid
+    ///     out of m_publishedBins before it sets the bin to NULL, and stop()
+    ///     clears the bus sync handler before tearing the pipelines down, so
+    ///     an ordinary teardown error can never satisfy this;
+    ///   * the CAPTURE ITSELF has delivered zero buffers. Everything
+    ///     downstream of the rate stage manufactures frames, so this is the
+    ///     only counter that separates "never prerolled" from "produced media
+    ///     and then hit a transient";
+    ///   * and it has not been reported yet, because a failed pipeline posts
+    ///     many errors and the user needs one message.
+    void handlePublishError(const QString &cid);
 
 private:
     bool tokenIsLive(quintptr token, Target *target = nullptr) const;
@@ -345,11 +412,45 @@ private:
     /// and marshalling first would let it be briefly audible.
     std::atomic<bool> m_outputMuted{false};
     bool m_microphoneMuted = false;
+    /// Own microphone gain as a PERCENTAGE, 0..200. Atomic because the send
+    /// chain is built on the GStreamer streaming thread on renegotiation and
+    /// must come up already at the user's level — the same reason
+    /// m_outputMuted is atomic, and the same hazard: a track that is briefly
+    /// at the wrong volume is a track the user hears wrong.
+    std::atomic<int> m_microphoneGain{100};
     /// Published tracks by client-chosen id, so unpublish can find them.
     QHash<QString, GstElement *> m_publishedBins;
     /// PipeWire remote descriptors owned by a publishing bin (screen shares
     /// only), closed when that bin is torn down. See publishVideo.
     QHash<QString, int> m_publishedFds;
+
+    /// What one publishing bin's own capture has actually produced, shared
+    /// with the GStreamer pad probes that write it.
+    ///
+    /// Two questions need this and nothing else can answer either. Whether a
+    /// publish is DEAD (`captured == 0` — everything past the rate stage
+    /// manufactures frames, so no downstream counter can tell), and how long
+    /// the rate stage HELD the opening picture (`firstEncodedMs -
+    /// firstCaptureMs`, which is the measurement docs/matrixrtc.md asks for
+    /// before anything on this publish path is changed again).
+    struct PublishProbeState {
+        std::atomic<quint64> captured{0};
+        /// Monotonic ms since the publish was dispatched; -1 means "not yet".
+        std::atomic<qint64> firstCaptureMs{-1};
+        std::atomic<qint64> firstEncodedMs{-1};
+        /// Written once, before the bin is set playing, and only read after.
+        qint64 startedMs = 0;
+        bool screenShare = false;
+    };
+    struct PublishWatch {
+        std::shared_ptr<PublishProbeState> state;
+        /// One report per publish: a pipeline that has failed posts errors
+        /// repeatedly and the user needs one message, not a storm.
+        bool reported = false;
+    };
+    /// GUI thread only. The probes hold their own shared_ptr to the state, so
+    /// a probe outliving this map cannot dereference anything freed.
+    QHash<QString, PublishWatch> m_publishWatch;
     /// One cryptor for what we send.
     std::unique_ptr<CallFrameCryptor> m_sendCryptor;
     /// One cryptor PER SENDER for what we receive, keyed by LiveKit stream

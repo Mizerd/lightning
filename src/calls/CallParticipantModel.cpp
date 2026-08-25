@@ -12,9 +12,15 @@ namespace {
 /// across every row. The bool flipping always emits regardless of the band.
 constexpr qreal kLevelDeadband = 0.02;
 
+/// 0..200, not 0..100. Above 100 is real amplification, which is what was
+/// asked for ("make it overclockable so i can do 200% volume like in
+/// discord") and what the GStreamer `volume` element does with a linear
+/// factor above 1.0. Clamping at 100 here silently discarded the entire
+/// upper half of every slider — the store keeps 0..200 and the engine accepts
+/// 0..200, so this was the one layer that would have thrown it away.
 int clampVolume(int percent)
 {
-    return percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    return percent < 0 ? 0 : (percent > 200 ? 200 : percent);
 }
 } // namespace
 

@@ -66,6 +66,7 @@
 //! * Nothing here logs a sender-chosen string, a URL, or a member id.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1208,16 +1209,50 @@ pub(crate) fn send_notification(
 // Publishing our own membership
 // ---------------------------------------------------------------------------
 
-/// How long a published membership claims to be valid.
+/// How long a published membership claims to be valid WHEN THE SERVER CAN
+/// RETRACT IT FOR US.
 ///
-/// Deliberately SHORT relative to the 4 h parse fallback: this is the window
-/// in which a crashed client still shows as present, and the refresh below
-/// runs at a third of it so two missed refreshes are survivable.
+/// 4 h is the reference implementation's `DEFAULT_EXPIRE_DURATION`, and it is
+/// only defensible while an MSC4140 delayed retraction is armed: that is what
+/// actually cleans up after a crash, and `expires` is then a distant backstop
+/// nobody is expected to reach. The comment that used to sit here called this
+/// "deliberately SHORT ... the refresh below runs at a third of it", which was
+/// never true of any code — nothing refreshed the state event at all, so on a
+/// server without delayed events a dead client sat in the call for FOUR HOURS.
+/// That is the maintainer's "multiple same users sit in the call".
 const MEMBERSHIP_EXPIRY_MS: u64 = 4 * 60 * 60 * 1000;
+
+/// How long a published membership claims to be valid WHEN NOTHING SERVER-SIDE
+/// WILL RETRACT IT.
+///
+/// On a homeserver without MSC4140 (Synapse gates it behind
+/// `experimental_features.msc4140_enabled`, OFF by default) the client is the
+/// only cleanup there is, and a client that is dead cannot send anything. The
+/// only remaining mechanism is `expires` running out — so it must run out in
+/// minutes, not hours, and the client must re-publish often enough that a live
+/// participant never ages out.
+///
+/// 5 minutes against `SfuCallController`'s 60 s re-publish cadence: FIVE
+/// consecutive failed refreshes are survivable before a live participant
+/// disappears from anyone's list. Shortening this without that re-publish
+/// cadence would be strictly WORSE than four hours — it would start removing
+/// people who are still talking.
+const MEMBERSHIP_EXPIRY_NO_DELAYED_MS: u64 = 5 * 60 * 1000;
+
 /// Delayed-event (MSC4140) timeout — the server retracts our membership for
 /// us if we stop restarting it. This is the ONLY cleanup that survives a
 /// crash, a kill, or a lost network.
 const DELAYED_LEAVE_TIMEOUT_MS: u64 = 8_000;
+
+/// Has this process seen a homeserver REFUSE to arm a delayed retraction?
+///
+/// Purely an optimisation, and deliberately one-directional in effect: it
+/// decides only which `expires` the FIRST write of a publish carries, so that
+/// a server known to lack MSC4140 does not cost two state events on every
+/// single refresh. Every publish still verifies the assumption against what
+/// the server actually does and corrects it, so a wrong value here costs one
+/// extra request, never a wrong membership.
+static DELAYED_EVENTS_REFUSED: AtomicBool = AtomicBool::new(false);
 
 /// Build the state key Element writes.
 ///
@@ -1254,6 +1289,7 @@ fn own_membership_content(
     focus: Option<&LivekitTransport>,
     intent: &str,
     created_ts: Option<u64>,
+    expires_ms: u64,
 ) -> serde_json::Value {
     let mut content = json!({
         "application": APPLICATION_CALL,
@@ -1265,7 +1301,10 @@ fn own_membership_content(
         // exactly this, so it must match or our media cannot be attributed
         // to our membership.
         "membershipID": format!("{user_id}:{device_id}"),
-        "expires": MEMBERSHIP_EXPIRY_MS,
+        // NOT a constant. How long this membership claims to live depends on
+        // whether anything but us will ever retract it — see
+        // MEMBERSHIP_EXPIRY_NO_DELAYED_MS.
+        "expires": expires_ms,
         "m.call.intent": intent,
         "focus_active": {
             "type": "livekit",
@@ -1359,8 +1398,19 @@ pub(crate) fn publish_membership(
                 .or_else(|| Some(room.room_id().to_string())),
         });
 
+        // The expiry we ASSUME is right, from what this process has already
+        // learned about the server. Assumption, not fact — it is checked
+        // against what the server does with the delayed retraction below, and
+        // corrected there.
+        let assumed_no_delayed = DELAYED_EVENTS_REFUSED.load(Ordering::Relaxed);
+        let expires_ms = if assumed_no_delayed {
+            MEMBERSHIP_EXPIRY_NO_DELAYED_MS
+        } else {
+            MEMBERSHIP_EXPIRY_MS
+        };
         let content = own_membership_content(
-            &device_id, &user_id, focus.as_ref(), intent, created_ts);
+            &device_id, &user_id, focus.as_ref(), intent, created_ts,
+            expires_ms);
 
         let result = tokio::time::timeout(
             DISCOVERY_TIMEOUT,
@@ -1373,7 +1423,7 @@ pub(crate) fn publish_membership(
             return;
         }
 
-        let (ok, category, event_id) = match result {
+        let (mut ok, mut category, mut event_id) = match result {
             Ok(Ok(response)) => (true, String::new(), response.event_id.to_string()),
             Ok(Err(err)) => (
                 false,
@@ -1397,6 +1447,62 @@ pub(crate) fn publish_membership(
             }
         }
 
+        // RECONCILE THE ASSUMPTION WITH WHAT THE SERVER ACTUALLY DID.
+        //
+        // Only ONE of the two corrections rewrites the state event, and that
+        // is deliberate. Rewriting a state event while a delayed retraction is
+        // armed is a question nobody here has measured — MSC4140 may or may
+        // not cancel delayed events for the same (room, type, state key) when
+        // a new one is sent, and getting it wrong either strands an armed
+        // retraction that fires mid-call or leaves us with none. So:
+        //
+        //   * assumed delayed events work, they do NOT  -> re-publish SHORT.
+        //     There is provably no armed event to disturb (arming is what
+        //     just failed), and without this the membership would claim four
+        //     hours of validity that nothing will ever cut short.
+        //   * assumed they do NOT work, they DO -> CANCEL the delayed event we
+        //     just armed and report no delay id. This publish then behaves
+        //     exactly like the no-MSC4140 case it was written for (short
+        //     expiry, client re-publishes), which is correct if slower, and
+        //     the NEXT publish carries the long expiry and a real delayed
+        //     retraction. No state event is rewritten under an armed event.
+        if ok && assumed_no_delayed && !delay_id.is_empty() {
+            DELAYED_EVENTS_REFUSED.store(false, Ordering::Relaxed);
+            cancel_delayed_leave(&client, &delay_id).await;
+            delay_id.clear();
+            delayed_category = "delayed_resynced".to_owned();
+        } else if ok && !assumed_no_delayed && delay_id.is_empty() {
+            DELAYED_EVENTS_REFUSED.store(true, Ordering::Relaxed);
+            // A SECOND write, with the short expiry. It replaces our own
+            // previous state event under the same state key, so the room sees
+            // one membership, not two — and created_ts is unchanged, so
+            // oldest-membership focus selection does not move.
+            let short = own_membership_content(
+                &device_id, &user_id, focus.as_ref(), intent, created_ts,
+                MEMBERSHIP_EXPIRY_NO_DELAYED_MS);
+            let retry = tokio::time::timeout(
+                DISCOVERY_TIMEOUT,
+                room.send_state_event_raw(EV_MEMBER_LEGACY, &state_key, short),
+            )
+            .await;
+            match retry {
+                Ok(Ok(response)) => event_id = response.event_id.to_string(),
+                // The FIRST write landed, so we are in the call — but with a
+                // four-hour expiry and no server-side cleanup, which is the
+                // exact ghost this whole path exists to prevent. Report the
+                // publish as failed so the caller does not proceed into a call
+                // it cannot clean up after.
+                Ok(Err(err)) => {
+                    ok = false;
+                    category = classify_room_error(&err.to_string()).to_owned();
+                }
+                Err(_) => {
+                    ok = false;
+                    category = "network".to_owned();
+                }
+            }
+        }
+
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
@@ -1417,7 +1523,19 @@ pub(crate) fn publish_membership(
     Ok(())
 }
 
-/// Read the `created_ts` of our own existing membership, if any.
+/// Read the `created_ts` of our own existing membership, if it is STILL LIVE.
+///
+/// `created_ts` is preserved across a refresh because it orders
+/// oldest-membership focus selection, and resetting it would reshuffle
+/// everyone's chosen SFU. But every reader computes validity as
+/// `created_ts + expires`, so inheriting the timestamp of a membership that
+/// has ALREADY EXPIRED publishes a membership that is born expired: every
+/// other client drops it before it renders, and the person shows up as a
+/// member with no media — element-call's "waiting for media". A ghost left by
+/// a previous session is exactly the case that produces one.
+///
+/// So the timestamp is inherited only while the membership it came from is
+/// still live. A fresh join after an expired ghost starts its own clock.
 async fn read_own_created_ts(room: &Room, state_key: &str) -> Option<u64> {
     let raw = room
         .get_state_event(StateEventType::from(EV_MEMBER_LEGACY), state_key)
@@ -1425,15 +1543,57 @@ async fn read_own_created_ts(room: &Room, state_key: &str) -> Option<u64> {
         .ok()
         .flatten()?;
     let value = raw_state_json(&raw)?;
-    let content = value.get("content")?;
+    inheritable_created_ts(
+        value.get("content")?,
+        value.get("origin_server_ts").and_then(|v| v.as_u64()),
+        now_ms(),
+    )
+}
+
+/// The pure half of read_own_created_ts, so the rule is testable offline.
+/// Reading a Room needs a live SDK; deciding whether a timestamp may be
+/// inherited does not, and it is the part that was wrong.
+fn inheritable_created_ts(
+    content: &serde_json::Value,
+    origin_server_ts: Option<u64>,
+    now_ms: u64,
+) -> Option<u64> {
     // An empty content is a retracted membership: this is a fresh join.
     if content.as_object().is_some_and(|o| o.is_empty()) {
         return None;
     }
-    content
+    let created = content
         .get("created_ts")
         .and_then(|v| v.as_u64())
-        .or_else(|| value.get("origin_server_ts").and_then(|v| v.as_u64()))
+        .or(origin_server_ts)?;
+    let expires = content
+        .get("expires")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(DEFAULT_EXPIRE_MS);
+    // Saturating for the same reason the parser is: a hostile `expires` of
+    // u64::MAX must not wrap into the past and make a live membership look
+    // dead. A timestamp in the FUTURE is also "still live" and is inherited —
+    // clock skew is a real condition and is not this function's to police.
+    if created.saturating_add(expires) <= now_ms {
+        return None;
+    }
+    Some(created)
+}
+
+/// Cancel one delayed event. Best effort and result-free on purpose: every
+/// caller is already committed to whatever it is doing, and a delayed event
+/// that cannot be cancelled fires a retraction of a membership we are about
+/// to rewrite anyway.
+async fn cancel_delayed_leave(client: &Client, delay_id: &str) {
+    use matrix_sdk::ruma::api::client::delayed_events::update_delayed_event;
+    if delay_id.is_empty() {
+        return;
+    }
+    let request = update_delayed_event::unstable::Request::new(
+        delay_id.to_owned(),
+        update_delayed_event::unstable::UpdateAction::Cancel,
+    );
+    let _ = tokio::time::timeout(DISCOVERY_TIMEOUT, client.send(request)).await;
 }
 
 /// Schedule the server-side retraction of our membership.
@@ -1519,14 +1679,7 @@ pub(crate) fn retract_membership(
         )
         .await;
 
-        if !delay_id.is_empty() {
-            use matrix_sdk::ruma::api::client::delayed_events::update_delayed_event;
-            let request = update_delayed_event::unstable::Request::new(
-                delay_id.clone(),
-                update_delayed_event::unstable::UpdateAction::Cancel);
-            let _ = tokio::time::timeout(
-                DISCOVERY_TIMEOUT, client.send(request)).await;
-        }
+        cancel_delayed_leave(&client, &delay_id).await;
 
         if !timelines.lifecycle_current(lifecycle) {
             return;
@@ -2368,7 +2521,8 @@ mod tests {
             alias: None,
         };
         let content = own_membership_content(
-            "DEVICE", "@a:x", Some(&focus), "video", None);
+            "DEVICE", "@a:x", Some(&focus), "video", None,
+            MEMBERSHIP_EXPIRY_MS);
         let member = parse_session_membership(&content, "@a:x", 5_000)
             .expect("our own membership must parse");
         assert_eq!(member.device_id, "DEVICE");
@@ -2387,7 +2541,8 @@ mod tests {
         // refresh reset it, everyone's chosen SFU would reshuffle every few
         // minutes and participants would drift onto different servers.
         let content =
-            own_membership_content("DEVICE", "@a:x", None, "audio", Some(111));
+            own_membership_content("DEVICE", "@a:x", None, "audio", Some(111),
+                                   MEMBERSHIP_EXPIRY_MS);
         let member = parse_session_membership(&content, "@a:x", 999_000)
             .expect("valid");
         assert_eq!(member.created_ts, 111);
@@ -2395,11 +2550,81 @@ mod tests {
     }
 
     #[test]
+    fn a_membership_with_no_server_side_cleanup_expires_in_minutes() {
+        // THE FOUR-HOUR GHOST. `expires` is the ONLY cleanup a homeserver
+        // without MSC4140 has, because a client that was killed cannot send a
+        // retraction. Publishing four hours there is what left "multiple same
+        // users sit in the call".
+        //
+        // FAILS ON THE OLD CODE: `expires` was the MEMBERSHIP_EXPIRY_MS
+        // constant unconditionally and this function took no expiry at all.
+        let content = own_membership_content(
+            "DEVICE", "@a:x", None, "audio", None,
+            MEMBERSHIP_EXPIRY_NO_DELAYED_MS);
+        let member = parse_session_membership(&content, "@a:x", 5_000)
+            .expect("valid");
+        assert_eq!(
+            member.expires_at_ms,
+            5_000 + MEMBERSHIP_EXPIRY_NO_DELAYED_MS
+        );
+        // And it must be survivable: SfuCallController re-publishes every
+        // 60 s, so the window has to absorb several consecutive failures.
+        // If this ever drops below ~3 refresh intervals it starts removing
+        // people who are still talking, which is worse than the ghost.
+        assert!(MEMBERSHIP_EXPIRY_NO_DELAYED_MS >= 3 * 60 * 1000);
+        assert!(MEMBERSHIP_EXPIRY_NO_DELAYED_MS < MEMBERSHIP_EXPIRY_MS);
+    }
+
+    #[test]
+    fn an_expired_ghosts_join_time_is_not_inherited() {
+        // A membership left behind by a previous session is EXPIRED. Reusing
+        // its created_ts makes the next join's expires_at land in the past —
+        // the membership is born dead, every other client drops it, and the
+        // person appears in the call with no media ("waiting for media").
+        //
+        // FAILS ON THE OLD CODE: read_own_created_ts returned created_ts for
+        // any non-empty content, with no liveness check at all.
+        let ghost = json!({
+            "created_ts": 1_000u64,
+            "expires": 5 * 60 * 1000u64,
+            "device_id": "DEVICE",
+        });
+        // now is well past created_ts + expires.
+        assert_eq!(inheritable_created_ts(&ghost, None, 9_000_000), None);
+        // Still inside its window: inherited, because focus ordering depends
+        // on it and a refresh must not reshuffle everyone's SFU.
+        assert_eq!(
+            inheritable_created_ts(&ghost, None, 200_000),
+            Some(1_000)
+        );
+    }
+
+    #[test]
+    fn inheritable_created_ts_falls_back_and_saturates() {
+        // No created_ts: the event's own timestamp is the join time.
+        let content = json!({ "expires": 600_000u64 });
+        assert_eq!(
+            inheritable_created_ts(&content, Some(2_000), 3_000),
+            Some(2_000)
+        );
+        // A retracted membership is empty content: a fresh join.
+        assert_eq!(inheritable_created_ts(&json!({}), Some(2_000), 3_000), None);
+        // A hostile expires must not wrap into the past and make a live
+        // membership look dead.
+        let hostile = json!({ "created_ts": 10u64, "expires": u64::MAX });
+        assert_eq!(
+            inheritable_created_ts(&hostile, None, u64::MAX - 1),
+            Some(10)
+        );
+    }
+
+    #[test]
     fn a_membership_without_a_focus_is_still_valid() {
         // Joining a call whose focus came from the server endpoint (rather
         // than from a peer) publishes no foci_preferred of its own.
         let content =
-            own_membership_content("DEVICE", "@a:x", None, "audio", None);
+            own_membership_content("DEVICE", "@a:x", None, "audio", None,
+                                   MEMBERSHIP_EXPIRY_MS);
         assert_eq!(content["foci_preferred"], json!([]));
         assert!(parse_session_membership(&content, "@a:x", 1).is_some());
     }

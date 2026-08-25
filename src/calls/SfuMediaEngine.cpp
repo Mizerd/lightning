@@ -8,6 +8,7 @@
 
 #include <mutex>
 
+#include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLoggingCategory>
@@ -44,6 +45,21 @@ void marshal(SfuMediaEngine *engine, Fn &&fn)
         return;
     QMetaObject::invokeMethod(engine, std::forward<Fn>(fn),
                               Qt::QueuedConnection);
+}
+
+/// A monotonic millisecond clock shared by every publish probe.
+///
+/// Deliberately not the wall clock: these values are DIFFERENCES measured
+/// across seconds of a live call, and a wall clock that steps (NTP, a
+/// suspend/resume) would report a negative hold or an invented one.
+qint64 monotonicMs()
+{
+    static QElapsedTimer timer = [] {
+        QElapsedTimer t;
+        t.start();
+        return t;
+    }();
+    return timer.elapsed();
 }
 
 /// Context for a promise callback: pins the webrtcbin until the promise
@@ -468,6 +484,13 @@ bool SfuMediaEngine::runtimeAvailable(QString *whyNot)
         // Video publish/receive.
         "vp8enc",        "vp8dec",        "rtpvp8pay",    "rtpvp8depay",
         "videoconvert",  "videoscale",    "videotestsrc", "videorate",
+        // `compositor` is the SCREEN SHARE's rate stage (videoRateStage()):
+        // videorate cannot emit a first frame until a SECOND input buffer
+        // arrives, and a desktop capture delivers on damage. Same
+        // gst-plugins-base package that already provides videorate, so this
+        // adds no packaging dependency — but probing it means a build without
+        // it refuses honestly rather than at the moment a user presses Share.
+        "compositor",
         // Ours. Absent means encrypted video could not be sent at all, which
         // is a refusal to make honestly rather than at the first frame.
         lightning::rtp::vp8PayloaderName(),
@@ -527,6 +550,7 @@ void SfuMediaEngine::stop()
     m_generation.fetch_add(1);
     m_active = false;
     m_publishedBins.clear();
+    m_publishWatch.clear();
     // destroyPeer tears the pipelines down; the descriptors those bins were
     // using are ours to close and would otherwise leak one per screen share
     // per call.
@@ -613,14 +637,53 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
         g_error_free(error);
     if (debug)
         g_free(debug);
-    // LOGGED ONLY, deliberately. Turning a bus ERROR into failed() was tried
-    // and reverted the same hour: a pipeline posts errors during ordinary
-    // teardown ("Internal data stream error" from a source whose downstream
-    // has already gone), and under load the engine's own suite saw three of
-    // them on a healthy key install. Reporting those as a call failure would
-    // tear down working calls. The purpose here is that the reason a capture
-    // produced nothing is READABLE — which it was not, because this handler
-    // did not exist and the one place that touched the bus only CLEARED it.
+    // STILL NOT failed(), and that is deliberate and unchanged. Turning a bus
+    // ERROR into failed() was tried and reverted the same hour: a pipeline
+    // posts errors during ordinary teardown ("Internal data stream error"
+    // from a source whose downstream has already gone), and under load the
+    // engine's own suite saw three of them on a healthy key install.
+    // failed() ENDS THE CALL (SfuCallController::onEngineFailed tears down),
+    // so reporting those would tear working calls down.
+    //
+    // What IS raised, on one narrow shape, is publishFailed() — which ends
+    // nothing. All of the discrimination happens on the GUI thread in
+    // handlePublishError(); this side only answers "which publishing bin, if
+    // any, does this error come from?", which needs no engine state at all.
+    //
+    // WHY THE PARENT WALK. GST_MESSAGE_SRC is the element that actually
+    // failed — a `pipewiresrc` or a `v4l2src` deep inside the bin, whose own
+    // name says nothing about the track. The bin we NAMED with the track's
+    // cid is the ancestor sitting directly under the pipeline, so walking up
+    // to it is the only way to attribute the error. m_publishedBins is NOT
+    // consulted here: it is a plain QHash owned by the GUI thread.
+    if (type == GST_MESSAGE_ERROR && engine) {
+        QString publishCid;
+        GstObject *walk = GST_MESSAGE_SRC(message);
+        if (walk)
+            gst_object_ref(walk);
+        while (walk) {
+            GstObject *parent = gst_object_get_parent(walk);
+            if (!parent) {
+                gst_object_unref(walk);
+                break;
+            }
+            if (GST_IS_PIPELINE(parent)) {
+                gchar *name = gst_object_get_name(walk);
+                publishCid = QString::fromUtf8(name ? name : "");
+                g_free(name);
+                gst_object_unref(parent);
+                gst_object_unref(walk);
+                break;
+            }
+            gst_object_unref(walk);
+            walk = parent;
+        }
+        if (!publishCid.isEmpty()) {
+            marshal(engine, [engine, publishCid] {
+                engine->handlePublishError(publishCid);
+            });
+        }
+    }
     Q_UNUSED(engine);
     return GST_BUS_PASS;
 }
@@ -800,6 +863,20 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     const QString description =
         QStringLiteral("%1 ! queue ! audioconvert ! audioresample "
                        "! valve name=micvalve drop=%2 "
+                       // OWN MICROPHONE GAIN, in the RAW AUDIO DOMAIN and
+                       // BEFORE the encoder — which is the only place it can
+                       // go. After opusenc the samples are an encoded frame,
+                       // and after the payloader they are an ENCRYPTED one;
+                       // a volume element there would be scaling ciphertext.
+                       //
+                       // Placed after the valve rather than before it purely
+                       // for readability: the valve is a hard stop, so the
+                       // order between the two cannot matter. `volume` above
+                       // 1.0 amplifies, which is what "200% like in discord"
+                       // asks for; the initial value is stated here so a bin
+                       // rebuilt on renegotiation comes up at the user's
+                       // level rather than at unity for a moment.
+                       "! volume name=micvol volume=%4 "
                        "! opusenc name=audioenc "
                        // ssrc=%3: see nextPublishSsrc(). Without an EXPLICIT
                        // ssrc the payloader has not chosen one when the offer
@@ -830,7 +907,12 @@ void SfuMediaEngine::publishAudio(const QString &cid)
             .arg(source,
                  m_microphoneMuted ? QStringLiteral("true")
                                    : QStringLiteral("false"),
-                 QString::number(nextPublishSsrc()));
+                 QString::number(nextPublishSsrc()),
+                 // Locale-INDEPENDENT. gst_parse_bin_from_description reads
+                 // "0,7" as a truncated 0 in a comma-decimal locale, which
+                 // would silently mute a user whose desktop is Lithuanian —
+                 // and this repo's maintainer's is.
+                 QString::number(m_microphoneGain.load() / 100.0, 'f', 3));
 
     GError *error = nullptr;
     GstElement *bin =
@@ -934,7 +1016,70 @@ void SfuMediaEngine::applyPublisherMsid(GstPad *sinkPad, const QString &cid)
     g_object_set(sinkPad, "msid", cid.toUtf8().constData(), nullptr);
 }
 
+QString SfuMediaEngine::videoRateStage(bool screenShare)
+{
+    if (!screenShare) {
+        // A CAMERA is already a clocked source: v4l2src negotiates a real
+        // 30 fps mode and delivers on it, so videorate has an input buffer
+        // waiting whenever it needs one and its one-buffer latency is one
+        // frame — 33 ms, invisible. Leave it alone.
+        return QStringLiteral("videorate");
+    }
+    // A DESKTOP CAPTURE IS NOT CLOCKED, and `videorate` cannot start one.
+    //
+    // videorate decides, for each output timestamp, which of the previous and
+    // NEXT input buffers is nearer — so it emits nothing at all until a
+    // SECOND input buffer arrives, then back-fills the whole gap in one
+    // sub-millisecond burst of duplicates whose timestamps span it. PipeWire
+    // delivers a desktop buffer ON DAMAGE, so that gap is "how long until
+    // something on the screen changes": ~1 s on a busy desktop and 5-10 s on
+    // a still one, which is exactly the variance reported ("it freezes for
+    // 5-10 seconds and then works perfect, tho next time it started to work
+    // in about 1 second"). A libwebrtc receiver renders on the frame
+    // timeline, so the far end paints the opening picture and sits on it for
+    // precisely that long — and so does our own self-view, which is tee'd
+    // after this stage.
+    //
+    // `compositor` is a GstAggregator: on a live pipeline it emits on its OWN
+    // output deadline and repeats the last input it was given, so it never
+    // needs a second buffer to produce a first frame. Measured through this
+    // exact pipeline shape (queue/videoconvert/videoscale/<rate>/caps/tee/
+    // valve/vp8enc) against a live source carrying genuine
+    // `framerate=(fraction)0/1` caps and a scripted damage schedule of "one
+    // frame, four seconds still, then 30 fps":
+    //   videorate  -> first ENCODED buffer at t = 5.515 s, 358 encoded
+    //   compositor -> first ENCODED buffer at t = 0.015 s, 358 encoded
+    // Same rate, same negotiated caps (BGRA 1920x1080 30/1 from a 4K source),
+    // +2.5% CPU and +52 MB RSS on a 4K->1080p encode. `background=black`
+    // because compositor's default background is a CHECKER pattern.
+    //
+    // Nothing else moves: the framerate stays PINNED at 30/1 (that pin is
+    // what made Element render at all), the size caps stay ranges, and the
+    // single capsfilter stays AFTER this stage — splitting it so the size
+    // ceiling sits before the rate stage was measured to produce 2580x1080,
+    // violating the 1920 ceiling.
+    //
+    // Refuted before this, so they are not tried again: a `queue
+    // min-threshold-buffers=0` or an `identity` in front of videorate (no
+    // effect — neither can manufacture the second buffer videorate is waiting
+    // for); relabelling the rate with `capssetter` (a
+    // `gst_util_fraction_multiply` CRITICAL and zero frames out);
+    // `videorate skip-to-first` and `max-duplication-time` (recorded in
+    // docs/matrixrtc.md). And two SOURCE-level properties — `min-buffers=8`
+    // and `keepalive-time=100` — each killed the capture outright, which is
+    // why the repeat now happens DOWNSTREAM of pipewiresrc, touching no
+    // PipeWire pool and no PipeWire thread loop.
+    //
+    // What this does NOT change: compositor repeats the last picture exactly
+    // as videorate did, so it masks a dead capture just as well. That is why
+    // `capture delivered frames count=` is probed on `capsrc`, UPSTREAM of
+    // here, and why that counter against `frames encrypted` remains the only
+    // honest pair.
+    return QStringLiteral("compositor background=black");
+}
+
 QString SfuMediaEngine::videoPipelineDescription(const QString &source,
+                                                const QString &rateStage,
                                                 const QString &limits,
                                                 const QString &encoder,
                                                 const QString &selfView,
@@ -943,10 +1088,12 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
     return QStringLiteral(
                // `capsrc` is named so a probe can count what the CAPTURE
                // actually delivers, separately from what the encoder emits.
-               // `videorate` sits between them and DUPLICATES the last frame
-               // to hold the rate, so a capture that stalls still produces a
-               // full-rate stream of identical pictures — which looks like
-               // healthy send counters and a frozen image at both ends.
+               // The RATE STAGE (%7 — videoRateStage()) sits between them and
+               // DUPLICATES the last frame to hold the rate, so a capture
+               // that stalls still produces a full-rate stream of identical
+               // pictures — which looks like healthy send counters and a
+               // frozen image at both ends. That is true of BOTH rate
+               // elements, which is why the capture is counted on its own.
                // `leaky=downstream` on the CAPTURE queue, bounded small.
                //
                // Realtime video must drop a late frame, never stall the thing
@@ -954,9 +1101,9 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                // software VP8 encoder that falls behind at 1080p reaches back
                // and stalls the PipeWire source — and a stalled screen capture
                // is indistinguishable from a working one downstream, because
-               // `videorate` then repeats the last picture at full rate.
+               // the rate stage then repeats the last picture at full rate.
                "%1 name=capsrc ! queue max-size-buffers=4 leaky=downstream "
-               "! videoconvert ! videoscale ! videorate "
+               "! videoconvert ! videoscale ! %7 "
                "! %2 "
                "! tee name=t %4"
                "t. ! queue "
@@ -972,7 +1119,7 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                "encoding-name=VP8,payload=96,clock-rate=(int)90000,"
                "ssrc=(uint)%5\"")
         .arg(source, limits, encoder, selfView, QString::number(ssrc),
-             QLatin1String(lightning::rtp::vp8PayloaderName()));
+             QLatin1String(lightning::rtp::vp8PayloaderName()), rateStage);
 }
 
 QString SfuMediaEngine::trackSidFromMsid(const QString &msid)
@@ -1081,9 +1228,13 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd)
     // Reverted. This is the SECOND property tried here on reasoning alone and
     // the second to kill the capture; the first was `min-buffers` below.
     //
-    // So the 1s hold is ACCEPTED for now. Anything further needs a real
-    // measurement first: the timestamps of `capture delivered frames count= 1`
-    // and the first `frames encrypted video=` from one live share.
+    // The hold is now addressed DOWNSTREAM instead — videoRateStage() uses
+    // `compositor` rather than `videorate` for the screen share, so nothing
+    // about pipewiresrc, its pool, its thread loop or its negotiation is
+    // touched. That is the whole point: both properties above failed because
+    // they reached INTO the source. Anything that still wants to change this
+    // function needs a live measurement first, and `publish first encoded
+    // frame ... rateStageHoldMs=` (publishVideo) is now that measurement.
     if (pipewireFd >= 0) {
         return QStringLiteral("pipewiresrc fd=%1 path=%2 do-timestamp=true")
             .arg(pipewireFd).arg(nodeId);
@@ -1247,7 +1398,8 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                          "sync=false max-buffers=1 drop=true ")
         : QString();
     const QString description = videoPipelineDescription(
-        source, limits, encoder, selfView, nextPublishSsrc());
+        source, videoRateStage(screenShare), limits, encoder, selfView,
+        nextPublishSsrc());
 
     GError *error = nullptr;
     GstElement *bin =
@@ -1271,20 +1423,33 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     m_publishedBins.insert(cid, bin);
     if (pipewireFd >= 0)
         m_publishedFds.insert(cid, pipewireFd);
+    // The shared record the two probes below write and handlePublishError()
+    // reads. Created BEFORE the bin can play, so nothing can be missed.
+    auto probeState = std::make_shared<PublishProbeState>();
+    probeState->startedMs = monotonicMs();
+    probeState->screenShare = screenShare;
+    m_publishWatch.insert(cid, PublishWatch{probeState, false});
     // COUNT WHAT THE CAPTURE ITSELF PRODUCES.
     //
-    // Every counter we had was downstream of `videorate`, which manufactures
-    // frames, so "the encoder is busy" could never distinguish a live capture
-    // from a dead one repeating a single picture.
+    // Every counter we had was downstream of the rate stage, which
+    // manufactures frames, so "the encoder is busy" could never distinguish a
+    // live capture from a dead one repeating a single picture. It is also the
+    // fact handlePublishError() keys on: zero here plus a bus error is a
+    // publish that never prerolled, which is a real failure the user is
+    // entitled to be told about.
     if (GstElement *capture = gst_bin_get_by_name(GST_BIN(bin), "capsrc")) {
         if (GstPad *srcPad = gst_element_get_static_pad(capture, "src")) {
-            auto *counter = new std::atomic<quint64>(0);
+            auto *held = new std::shared_ptr<PublishProbeState>(probeState);
             gst_pad_add_probe(
                 srcPad, GST_PAD_PROBE_TYPE_BUFFER,
                 [](GstPad *pad, GstPadProbeInfo *, gpointer data) {
-                    auto *seen = static_cast<std::atomic<quint64> *>(data);
-                    const quint64 n = seen->fetch_add(1) + 1;
+                    auto &state =
+                        *static_cast<std::shared_ptr<PublishProbeState> *>(
+                            data);
+                    const quint64 n = state->captured.fetch_add(1) + 1;
                     if (n == 1) {
+                        state->firstCaptureMs.store(monotonicMs()
+                                                    - state->startedMs);
                         // WHAT THE CAPTURE ACTUALLY NEGOTIATED, once.
                         //
                         // A `memory:DMABuf` feature here is the other classic
@@ -1307,9 +1472,10 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                     }
                     return GST_PAD_PROBE_OK;
                 },
-                counter,
+                held,
                 [](gpointer data) {
-                    delete static_cast<std::atomic<quint64> *>(data);
+                    delete static_cast<std::shared_ptr<PublishProbeState> *>(
+                        data);
                 });
             gst_object_unref(srcPad);
         }
@@ -1327,6 +1493,40 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     }
     if (GstElement *encoder = gst_bin_get_by_name(GST_BIN(bin), "videoenc")) {
         if (GstPad *encoded = gst_element_get_static_pad(encoder, "src")) {
+            // THE ONE MEASUREMENT THAT SETTLES THE OPENING FREEZE.
+            //
+            // docs/matrixrtc.md asks for exactly this pair before anything on
+            // this publish path is changed again: the moment the CAPTURE
+            // delivered its first buffer against the moment the first frame
+            // was actually ENCODED. The difference is what the rate stage
+            // held, and it is the whole of the reported "start a share and it
+            // freezes for 5-10 seconds". It could previously only be
+            // recovered by eyeballing two log timestamps from different
+            // lines, which is why nobody ever did.
+            //
+            // One shot: it removes itself, so a long share costs nothing.
+            auto *held = new std::shared_ptr<PublishProbeState>(probeState);
+            gst_pad_add_probe(
+                encoded, GST_PAD_PROBE_TYPE_BUFFER,
+                [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                    auto &state =
+                        *static_cast<std::shared_ptr<PublishProbeState> *>(
+                            data);
+                    const qint64 at = monotonicMs() - state->startedMs;
+                    state->firstEncodedMs.store(at);
+                    const qint64 captured = state->firstCaptureMs.load();
+                    qCInfo(lcSfuMedia)
+                        << "publish first encoded frame screenShare="
+                        << state->screenShare << "afterPublishMs=" << at
+                        << "firstCaptureMs=" << captured << "rateStageHoldMs="
+                        << (captured >= 0 ? at - captured : qint64(-1));
+                    return GST_PAD_PROBE_REMOVE;
+                },
+                held,
+                [](gpointer data) {
+                    delete static_cast<std::shared_ptr<PublishProbeState> *>(
+                        data);
+                });
             installEncryptProbe(encoded, /*video=*/true);
             gst_object_unref(encoded);
         }
@@ -1349,6 +1549,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     if (linked != GST_PAD_LINK_OK) {
         qCWarning(lcSfuMedia) << "publisher link failed code=" << linked;
         m_publishedBins.remove(cid);
+        m_publishWatch.remove(cid);
         releasePublishedFd(cid);
         gst_element_set_state(bin, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
@@ -1371,7 +1572,12 @@ void SfuMediaEngine::releasePublishedFd(const QString &cid)
 
 void SfuMediaEngine::unpublish(const QString &cid)
 {
+    // The TAKE comes first, and handlePublishError() depends on that ordering:
+    // the errors this bin is about to post as it goes to NULL must not be
+    // reportable as a publish failure. Same reason stop() clears the bus sync
+    // handler before it destroys the pipelines.
     GstElement *bin = m_publishedBins.take(cid);
+    m_publishWatch.remove(cid);
     if (!bin || !m_publisher.pipeline) {
         releasePublishedFd(cid);
         return;
@@ -1571,6 +1777,31 @@ void SfuMediaEngine::setMicrophoneMuted(bool muted)
     }
 }
 
+void SfuMediaEngine::setMicrophoneGain(int percent)
+{
+    const int clamped = percent < 0 ? 0 : (percent > 200 ? 200 : percent);
+    m_microphoneGain.store(clamped);
+    if (!m_publisher.pipeline)
+        return;
+    const gdouble factor = clamped / 100.0;
+    // Matched by the NAME we gave it, exactly as the deafen path is, and for
+    // the same reason: `autoaudiosrc` is a bin that may contain a volume
+    // element of its own, so a recursive FACTORY match could reach into the
+    // capture device instead of our own stage.
+    //
+    // Every published bin is walked rather than only the audio one, because
+    // the engine does not index bins by kind — a video bin simply has no
+    // element with this name, so the loop is a no-op there.
+    for (auto it = m_publishedBins.cbegin(); it != m_publishedBins.cend();
+         ++it) {
+        if (GstElement *gain =
+                gst_bin_get_by_name(GST_BIN(it.value()), "micvol")) {
+            g_object_set(gain, "volume", factor, nullptr);
+            gst_object_unref(gain);
+        }
+    }
+}
+
 void SfuMediaEngine::setOutputMuted(bool muted)
 {
     m_outputMuted.store(muted);
@@ -1618,17 +1849,49 @@ void SfuMediaEngine::setOutputMuted(bool muted)
     gst_iterator_free(it);
 }
 
-void SfuMediaEngine::setParticipantVolume(const QString &identity,
+QString SfuMediaEngine::outputVolumeElementName(const QString &streamId)
+{
+    // ONE derivation, used by the bin that creates the element and by the
+    // lookup that finds it again. They used to disagree — the bin named its
+    // element `outvol` and the lookup asked for `outvol_<identity>` — which
+    // made per-participant volume a permanent no-op, so the two names now
+    // come from the same function and cannot drift.
+    //
+    // The prefix is load-bearing: deafen matches `outvol` by PREFIX across
+    // every receive bin, so a per-stream suffix must not break it.
+    //
+    // Non-alphanumerics are folded to '_'. A stream id is normally `PA_…`,
+    // but the receive path falls back to a `mline:N` synthetic name, and a
+    // ':' in an element name inside a gst_parse description is a parse
+    // hazard for no benefit.
+    QString safe;
+    safe.reserve(streamId.size());
+    for (const QChar c : streamId) {
+        safe.append((c.isLetterOrNumber() || c == QLatin1Char('_'))
+                        ? c
+                        : QChar(QLatin1Char('_')));
+    }
+    return QStringLiteral("outvol_%1").arg(safe);
+}
+
+void SfuMediaEngine::setParticipantVolume(const QString &streamId,
                                           int percent)
 {
-    if (!m_subscriber.pipeline || identity.isEmpty())
+    if (!m_subscriber.pipeline || streamId.isEmpty())
         return;
-    const double volume = qBound(0, percent, 100) / 100.0;
-    // Each remote audio bin's volume element is named outvol_<identity>, so
-    // one participant can be attenuated without touching anyone else. This
-    // is LOCAL ONLY: it changes nothing for other participants and sends no
-    // event of any kind.
-    const QString target = QStringLiteral("outvol_%1").arg(identity);
+    // 0..200, not 0..100. Above unity is real amplification — the whole point
+    // of the request — and the `volume` element takes a linear factor for
+    // which 2.0 is legal. Clamping at 100 here threw away the upper half of
+    // every slider.
+    const double volume = qBound(0, percent, 200) / 100.0;
+    // Each remote audio bin's volume element is named for the STREAM it
+    // carries, so one participant can be attenuated without touching anyone
+    // else. LOCAL ONLY: it changes nothing for other participants and sends
+    // no event of any kind.
+    //
+    // Recursive, because the element lives inside the per-track bin rather
+    // than directly in the pipeline; gst_bin_get_by_name already recurses.
+    const QString target = outputVolumeElementName(streamId);
     if (GstElement *element = gst_bin_get_by_name(
             GST_BIN(m_subscriber.pipeline), target.toUtf8().constData())) {
         g_object_set(element, "volume", volume, nullptr);
@@ -1872,6 +2135,41 @@ void SfuMediaEngine::handleFailure(quintptr token, const QString &category)
     Q_EMIT failed(category);
 }
 
+void SfuMediaEngine::handlePublishError(const QString &cid)
+{
+    // Every discriminator, on the GUI thread, where the state is safe to read.
+    if (!m_active)
+        return;
+    // STILL PUBLISHED? unpublish() takes the cid out of m_publishedBins
+    // BEFORE it sets the bin to NULL, and stop() clears the bus sync handler
+    // before destroyPeer() tears the pipelines down — so an error posted by
+    // an ordinary teardown cannot get this far. That is what makes this safe
+    // without a timer, and it is why the two cleanup paths must keep that
+    // order.
+    if (!m_publishedBins.contains(cid))
+        return;
+    const auto watch = m_publishWatch.constFind(cid);
+    if (watch == m_publishWatch.cend() || !watch->state || watch->reported)
+        return;
+    // DID THE CAPTURE EVER PRODUCE ANYTHING? A bus error from a bin that has
+    // been delivering frames is a transient in something else — a decoder
+    // hiccup, a renegotiation — and this engine has no business ending a
+    // working track over it. Zero capture buffers is the one shape that
+    // cannot be anything but "this publish never started": the bin did not
+    // preroll, nothing was encoded, nothing was encrypted, and the far end
+    // has a declared track carrying nothing.
+    if (watch->state->captured.load() > 0)
+        return;
+    const bool screenShare = watch->state->screenShare;
+    m_publishWatch[cid].reported = true;
+    qCWarning(lcSfuMedia)
+        << "publish produced no capture buffers and errored; reporting it"
+        << "screenShare=" << screenShare;
+    Q_EMIT publishFailed(cid, screenShare
+                                  ? QStringLiteral("screen_share_failed")
+                                  : QStringLiteral("camera_failed"));
+}
+
 // ── GStreamer-thread callbacks ──────────────────────────────────────────
 
 void SfuMediaEngine::onPeerStateNotify(GstElement *webrtc, void *paramSpec,
@@ -2086,8 +2384,11 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         mediaKind = QStringLiteral("audio");
 
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
-    // The volume element keeps the "outvol" name so deafen reaches every
-    // received track regardless of who sent it.
+    // The volume element keeps the "outvol" PREFIX so deafen reaches every
+    // received track regardless of who sent it, and carries the stream id as
+    // a suffix so ONE participant can be turned down without touching anyone
+    // else. Before this it was plainly "outvol" in every bin, and
+    // setParticipantVolume looked for a name nothing had.
     // Received video goes to an appsink whose samples become QVideoFrames on
     // a QML VideoOutput. RGBA because that maps 1:1 onto
     // QVideoFrameFormat::Format_RGBA8888 with a plain row copy — a planar
@@ -2113,12 +2414,14 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         : (engine->testSourceMode()
                ? QStringLiteral("queue ! rtpopusdepay name=recvdepay "
                                 "! opusdec ! audioconvert "
-                                "! audioresample ! volume name=outvol "
+                                "! audioresample ! volume name=%1 "
                                 "! fakesink sync=false")
+                     .arg(outputVolumeElementName(streamId))
                : QStringLiteral("queue ! rtpopusdepay name=recvdepay "
                                 "! opusdec ! audioconvert "
-                                "! audioresample ! volume name=outvol "
-                                "! autoaudiosink"));
+                                "! audioresample ! volume name=%1 "
+                                "! autoaudiosink")
+                     .arg(outputVolumeElementName(streamId)));
 
     GError *error = nullptr;
     GstElement *bin = gst_parse_bin_from_description(
@@ -2164,9 +2467,18 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     }
     // Apply the CURRENT deafen state before the bin plays: a track arriving
     // after the user deafened must not be audible even briefly.
-    if (GstElement *volume = gst_bin_get_by_name(GST_BIN(bin), "outvol")) {
+    if (GstElement *volume = gst_bin_get_by_name(
+            GST_BIN(bin),
+            outputVolumeElementName(streamId).toUtf8().constData())) {
         g_object_set(volume, "mute",
                      engine->m_outputMuted.load() ? TRUE : FALSE, nullptr);
+        // The per-person LEVEL is deliberately NOT applied here. This code
+        // runs on the GStreamer streaming thread and has no access to the
+        // settings store; SfuCallController re-applies every stored volume
+        // whenever the participant set changes, which is the same event that
+        // brings this track into existence. Deafen is different and must be
+        // here: it is a hard silence the user has already asked for, and a
+        // track that is briefly audible after deafening is a real leak.
         gst_object_unref(volume);
     }
     gst_element_sync_state_with_parent(bin);

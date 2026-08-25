@@ -113,6 +113,61 @@ public:
         lastTurnOp = ++opCounter;
         return lastTurnOp;
     }
+    // The SFU's only removal-shaped verb. There is no unpublish message on
+    // this wire at all, so stopping a camera or a share has to arrive here or
+    // the server goes on forwarding a track that produces nothing.
+    void sfuMuteTrack(const QString &sid, bool muted) override
+    {
+        muteRequests.append(qMakePair(sid, muted));
+    }
+    QList<QPair<QString, bool>> muteRequests;
+
+    // ── MatrixRTC MEMBERSHIP. Everything the leave path depends on. ───────
+    //
+    // None of these was recorded by any test double before, which is a large
+    // part of why nothing noticed that a retraction's ANSWER had no listener
+    // anywhere in the application.
+    quint64 rtcPublishMembership(const QString &roomId,
+                                 const QString &focusUrl,
+                                 const QString &intent) override
+    {
+        Q_UNUSED(focusUrl); Q_UNUSED(intent);
+        publishes.append(roomId);
+        lastPublishOp = ++opCounter;
+        return lastPublishOp;
+    }
+    quint64 rtcRestartDelayedLeave(const QString &delayId) override
+    {
+        delayedRestarts.append(delayId);
+        lastRestartOp = ++opCounter;
+        return lastRestartOp;
+    }
+    quint64 rtcRetractMembership(const QString &roomId,
+                                 const QString &delayId) override
+    {
+        retractions.append(qMakePair(roomId, delayId));
+        lastRetractOp = ++opCounter;
+        return lastRetractOp;
+    }
+    QStringList publishes;
+    QStringList delayedRestarts;
+    QList<QPair<QString, QString>> retractions;
+    quint64 lastPublishOp = 0;
+    quint64 lastRestartOp = 0;
+    quint64 lastRetractOp = 0;
+    /// The bridge routes `rtc_membership_retracted` AND `rtc_delayed_updated`
+    /// onto this ONE signal, and the op id is the only thing that tells them
+    /// apart. The double emits it exactly as RustSdkMatrixClient does, so a
+    /// test cannot accidentally prove something the real bridge cannot.
+    void answerMembershipOp(quint64 opId, bool ok, const QString &category)
+    {
+        Q_EMIT rtcMembershipRetracted(opId, ok, category);
+    }
+    void answerPublish(quint64 opId, bool ok, const QString &delayId)
+    {
+        Q_EMIT rtcMembershipPublished(opId, ok, QString(),
+                                      QStringLiteral("$event"), delayId);
+    }
     void emitCandidates(const QString &roomId, const QString &callId,
                         bool own, const QVariantList &candidates)
     {
@@ -1904,6 +1959,225 @@ private Q_SLOTS:
         QCOMPARE(stage->isShareDismissed(QStringLiteral("TR_share_2")), false);
     }
 
+    // STOPPING A SHARE MUST STOP IT, even though the server has not caught up.
+    //
+    // Nothing tells the SFU a video track ended — the client seam has only
+    // sfuAddTrack and sfuMuteTrack, and the Rust bridge sends no unpublish
+    // message of any kind — so straight after a local stop the server is
+    // still reporting `{screen_share, muted: false}` for us. rebuildModels()
+    // used to OR our intent into that (`row.screenSharing || m_screenSharing`),
+    // which repairs only the LEADING edge, so the stale server `true` won,
+    // the local share row survived, CallShareTile was never destroyed, its
+    // `Component.onDestruction: detach()` never ran, and the self-view kept
+    // painting its last frame. Reported as "when i stop screen share my video
+    // feed remains frozen and doesnt seem to turn off and leaves a blank
+    // frame ... the only way to clear stuck stream is rejoin call".
+    //
+    // ON THE BROKEN TREE: the final rowCount() is 1, not 0.
+    void aLocalStopClearsTheShareRowWhileTheServerStillReportsItLive()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("me"));
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("me"), QStringLiteral("PA_ME"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_mine"), false) }),
+        });
+        call.setLocalMediaStateForTest(/*cameraOn=*/false,
+                                       /*screenSharing=*/true);
+        QCOMPARE(call.shareModel()->rowCount(), 1);
+
+        // The user presses stop. The SERVER SAYS NOTHING NEW — that is the
+        // whole point of the case, and it is what really happens, because the
+        // mute we send has to make a round trip before it comes back.
+        call.setLocalMediaStateForTest(/*cameraOn=*/false,
+                                       /*screenSharing=*/false);
+        QCOMPARE(call.shareModel()->rowCount(), 0);
+    }
+
+    // ...and it must reach the SFU, or every other client in the call keeps
+    // being offered a track that produces nothing. (The red warning triangle
+    // on the maintainer's own tile is a genuine LiveKit ConnectionQuality
+    // report; a live, unmuted video track carrying zero RTP is the most
+    // likely thing it is scoring. That last link is a HYPOTHESIS — this test
+    // pins only that the stop is now announced at all.)
+    //
+    // ON THE BROKEN TREE: zero mute requests are recorded; there was no
+    // caller for anything but the microphone.
+    void aLocalStopTellsTheSfuTheScreenTrackIsMuted()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("me"));
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("me"), QStringLiteral("PA_ME"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_mine"), false) }),
+        });
+        // Starting changes nothing: the server already reports it unmuted,
+        // and this reconciles against the REPORTED state.
+        call.setLocalMediaStateForTest(false, true);
+        QCOMPARE(client.muteRequests.size(), 0);
+
+        call.setLocalMediaStateForTest(false, false);
+        QCOMPARE(client.muteRequests.size(), 1);
+        QCOMPARE(client.muteRequests.at(0).first, QStringLiteral("TR_mine"));
+        QCOMPARE(client.muteRequests.at(0).second, true);
+
+        // IT CONVERGES, it does not fire once. Until the server's report
+        // catches up, our intent and its report still differ, so a later
+        // reconciliation legitimately re-sends the SAME request — which is
+        // exactly what the microphone's sync has always done, and is what
+        // makes a stop that raced the announcement recover instead of being
+        // lost. What must never happen is the request flipping direction.
+        call.setLocalMediaStateForTest(false, false);
+        QCOMPARE(client.muteRequests.size(), 2);
+        QCOMPARE(client.muteRequests.at(1).first, QStringLiteral("TR_mine"));
+        QCOMPARE(client.muteRequests.at(1).second, true);
+
+        // ...and it STOPS the moment the server agrees. Nothing here
+        // remembers what was sent; the server's own report is the state this
+        // converges from, so it cannot loop.
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("me"), QStringLiteral("PA_ME"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_mine"), true) }),
+        });
+        client.muteRequests.clear();
+        call.setLocalMediaStateForTest(false, false);
+        QCOMPARE(client.muteRequests.size(), 0);
+    }
+
+    // The camera has the identical shape, and it is the other half of the
+    // maintainer's report ("camera doesnt work at all"): the capture defect
+    // was fixed in the engine, but turning the camera OFF still left a
+    // phantom unmuted camera track at the SFU and a local row that could not
+    // go back to "off".
+    //
+    // ON THE BROKEN TREE: cameraOn reads true after the stop, and no mute is
+    // sent.
+    void aLocalCameraStopHasTheSameShape()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("me"));
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("me"), QStringLiteral("PA_ME"),
+                           { sfuTrack(QStringLiteral("camera"),
+                                      QStringLiteral("TR_cam"), false) }),
+        });
+        call.setLocalMediaStateForTest(/*cameraOn=*/true, false);
+        CallParticipantModel *model = call.participantModel();
+        const int mine = participantRowFor(model, QStringLiteral("me"));
+        QVERIFY(mine >= 0);
+        QCOMPARE(participantRole(model, mine,
+                                 CallParticipantModel::CameraOnRole).toBool(),
+                 true);
+
+        call.setLocalMediaStateForTest(/*cameraOn=*/false, false);
+        QCOMPARE(participantRole(model, mine,
+                                 CallParticipantModel::CameraOnRole).toBool(),
+                 false);
+        QCOMPARE(client.muteRequests.size(), 1);
+        QCOMPARE(client.muteRequests.at(0).first, QStringLiteral("TR_cam"));
+        QCOMPARE(client.muteRequests.at(0).second, true);
+    }
+
+    // A RESTART MUST NOT UNMUTE THE TRACK IT JUST STOPPED.
+    //
+    // The trap inside the fix, and it is not obvious. Expressing a stop as a
+    // MUTE means our own participant row keeps listing the stopped track, so
+    // when the user starts a new share the naive reconciliation ("we want
+    // screen_share unmuted; the server says it is muted; send an unmute")
+    // names the CORPSE — putting a track that produces no RTP back on the
+    // wire, which is the precise state the whole change exists to end. The
+    // sid is server-assigned and nothing maps it back to the cid we
+    // published, so there is no way to tell the two apart at all: the video
+    // path therefore only ever MUTES. Nothing is lost, because video is
+    // published fresh every time and a fresh track is reported unmuted.
+    //
+    // This is a GUARD, not a regression test for the maintainer's report: on
+    // the tree before this round nothing was ever sent for a screen share at
+    // all, so it passes there vacuously. It fails on the first version of
+    // this fix, which is why it exists.
+    void aRestartedLocalShareNeverUnmutesTheTrackItJustStopped()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("me"));
+        // The stopped share, still listed because a mute removes nothing.
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("me"), QStringLiteral("PA_ME"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_dead"), true) }),
+        });
+        // The user starts a NEW share. Its track has not been announced yet —
+        // which is the whole window this case lives in.
+        call.setLocalMediaStateForTest(/*cameraOn=*/false,
+                                       /*screenSharing=*/true);
+        QCOMPARE(client.muteRequests.size(), 0);
+
+        // The microphone is the case that genuinely needs an unmute, and it
+        // never accumulates tracks — so it must still work.
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("me"), QStringLiteral("PA_ME"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_dead"), true),
+                             sfuTrack(QStringLiteral("microphone"),
+                                      QStringLiteral("TR_mic"), true) }),
+        });
+        call.setMicrophoneMuted(true);
+        client.muteRequests.clear();
+        call.setMicrophoneMuted(false);
+        QCOMPARE(client.muteRequests.size(), 1);
+        QCOMPARE(client.muteRequests.at(0).first, QStringLiteral("TR_mic"));
+        QCOMPARE(client.muteRequests.at(0).second, false);
+    }
+
+    // A RESTART MUST ROUTE TO THE LIVE TRACK, not to the muted corpse.
+    //
+    // The consequence of expressing a stop as a mute: our own participant row
+    // can now carry two tracks of one source. trackKeyForSource() returned the
+    // FIRST match, so a restarted share would have been routed to the sid of
+    // the share that already ended and the surface would have rendered
+    // nothing — a regression introduced BY the fix, which is why it is pinned
+    // here rather than left to be discovered live.
+    //
+    // ON THE BROKEN TREE (first-match): the key is TR_dead and screenSharing
+    // is false.
+    void aRestartedShareRoutesToTheLiveTrackNotTheMutedOne()
+    {
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_dead"), true),
+                             sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_live"), false) }),
+        });
+        CallParticipantModel *model = call.participantModel();
+        const int row = participantRowFor(model, QStringLiteral("alice"));
+        QVERIFY(row >= 0);
+        QCOMPARE(participantRole(model, row,
+                                 CallParticipantModel::ScreenSharingRole)
+                     .toBool(),
+                 true);
+        QCOMPARE(participantRole(model, row,
+                                 CallParticipantModel::ScreenTrackKeyRole)
+                     .toString(),
+                 QStringLiteral("TR_live"));
+        QCOMPARE(call.shareModel()->rowCount(), 1);
+    }
+
     void handRaiseIsLocalOnlyAndSaysSoOnEveryOtherRow()
     {
         // Nothing carries a raised hand on the wire: setHandRaised writes a
@@ -1961,12 +2235,29 @@ private Q_SLOTS:
                                  CallParticipantModel::VolumePercentRole)
                      .toInt(),
                  40);
-        // Clamped, not trusted.
+        // Clamped, not trusted — and clamped to the REAL ceiling. 200 is a
+        // deliberate boost range ("overclockable ... so i can do 200% like in
+        // discord"), so an over-range value must saturate AT the ceiling, not
+        // snap back to unity: snapping to 100 would silently undo a boost the
+        // user had asked for.
         call.setParticipantVolume(QStringLiteral("alice"), 400);
         QCOMPARE(participantRole(model, 0,
                                  CallParticipantModel::VolumePercentRole)
                      .toInt(),
-                 100);
+                 200);
+        // The top of the range is REACHABLE, not just approached — an
+        // off-by-one clamp at 199 would pass every other assertion here.
+        call.setParticipantVolume(QStringLiteral("alice"), 200);
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::VolumePercentRole)
+                     .toInt(),
+                 200);
+        // And the floor: negative is silence, never a wrap or a reset.
+        call.setParticipantVolume(QStringLiteral("alice"), -25);
+        QCOMPARE(participantRole(model, 0,
+                                 CallParticipantModel::VolumePercentRole)
+                     .toInt(),
+                 0);
     }
 
     void connectionQualityIsMergedAndUnknownIsNeverRendered()
@@ -2195,6 +2486,306 @@ private Q_SLOTS:
         QCOMPARE(stage->fullScreen(), true);
         call.leave();
         QCOMPARE(stage->fullScreen(), false);
+    }
+
+    // =====================================================================
+    // LEAVING THE CALL. "when i leave call or close client my client doesnt
+    // leave, and it gets bugged so multiple same users sit in the call."
+    //
+    // There was NO test file for SfuCallController's lifecycle at all before
+    // this, and nothing anywhere in src/ was connected to the signal that
+    // reports whether a retraction worked.
+    // =====================================================================
+
+    // The retraction has to be ISSUED, and it has to name the room and the
+    // delay id the membership was published with.
+    //
+    // ON THE BROKEN TREE this passed — teardown() did call
+    // rtcRetractMembership. It is here as the floor the cases below build on,
+    // and because nothing pinned it.
+    void leavingRetractsTheMembershipItPublished()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QStringLiteral("delay-1"));
+
+        call.leave();
+
+        QCOMPARE(client.retractions.size(), 1);
+        QCOMPARE(client.retractions.first().first,
+                 QStringLiteral("!room:example.org"));
+        QCOMPARE(client.retractions.first().second,
+                 QStringLiteral("delay-1"));
+    }
+
+    // A RETRACTION THAT FAILS IS RETRIED. Hanging up is exactly when a user
+    // is likely to be on a failing connection, and a retraction that fails is
+    // a membership left in the room that no later code ever removes.
+    //
+    // ON THE BROKEN TREE: `rtcMembershipRetracted` had no connection anywhere
+    // in src/ (only the declaration and the emit), so the answer was
+    // discarded, there was exactly one attempt ever, and the failure was not
+    // even logged. This case sees retractions.size() stay at 1 forever.
+    void aFailedRetractionIsRetriedAndThenGivenUpOnLoudly()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QStringLiteral("delay-1"));
+        call.leave();
+        QCOMPARE(client.retractions.size(), 1);
+
+        // Offline at the moment of hang-up: the ordinary case, not an exotic
+        // one. The retry is backed off, so the wait has to cover it.
+        client.answerMembershipOp(client.lastRetractOp, false,
+                                  QStringLiteral("network"));
+        QTRY_COMPARE_WITH_TIMEOUT(client.retractions.size(), 2, 5000);
+        QCOMPARE(client.retractions.at(1).first,
+                 QStringLiteral("!room:example.org"));
+        QCOMPARE(client.retractions.at(1).second, QStringLiteral("delay-1"));
+
+        // BOUNDED. A server that keeps refusing will not start, and leaving
+        // must not turn into an unbounded background sender.
+        for (int i = 0; i < 8; ++i) {
+            client.answerMembershipOp(client.lastRetractOp, false,
+                                      QStringLiteral("network"));
+            QTest::qWait(120);
+        }
+        QVERIFY2(client.retractions.size() <= 4,
+                 "the retry must be bounded, not a permanent sender");
+    }
+
+    // A PERMANENT REFUSAL IS NOT RETRIED. `forbidden` will not become true by
+    // asking again, and re-asking only hides the failure behind a longer
+    // silence.
+    void aRetractionRefusedOnPolicyGroundsIsNotRetried()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QStringLiteral("delay-1"));
+        call.leave();
+        client.answerMembershipOp(client.lastRetractOp, false,
+                                  QStringLiteral("forbidden"));
+        // Longer than the first retry delay, so this really proves no retry
+        // was armed rather than merely finishing before one could fire.
+        QTest::qWait(2600);
+        QCOMPARE(client.retractions.size(), 1);
+    }
+
+    // A SUCCESSFUL RETRACTION STOPS THE MACHINERY. Otherwise a call that left
+    // cleanly would keep a retry armed against a room it has already left.
+    void anAcknowledgedRetractionIsNotRepeated()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QStringLiteral("delay-1"));
+        call.leave();
+        client.answerMembershipOp(client.lastRetractOp, true, QString());
+        QTest::qWait(2600);
+        QCOMPARE(client.retractions.size(), 1);
+    }
+
+    // THE DESTRUCTOR RETRACTS TOO. Application quit reaches this path (today
+    // only through member destruction order, which is why AppController
+    // should call leave() explicitly), and a client that exits without
+    // retracting is the reported defect.
+    void destroyingTheControllerRetracts()
+    {
+        RecordingCallClient client;
+        {
+            SfuCallController call;
+            call.setClient(&client);
+            call.setCallStateForTest(SfuCallController::State::Connected);
+            call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                      QStringLiteral("delay-1"));
+        }
+        QCOMPARE(client.retractions.size(), 1);
+        QCOMPARE(client.retractions.first().first,
+                 QStringLiteral("!room:example.org"));
+    }
+
+    // WITH NO MSC4140 DELAYED EVENT, THE HEARTBEAT MUST RE-PUBLISH.
+    //
+    // Synapse gates delayed events behind `experimental_features.
+    // msc4140_enabled`, which is OFF by default, so this is the ordinary
+    // deployment rather than the exception. In it the membership's own
+    // `expires` is the ONLY thing that will ever remove a dead client — so
+    // Rust publishes a short one, and this is what stops a LIVE participant
+    // ageing out of it.
+    //
+    // ON THE BROKEN TREE: refreshMembership() was `if (!m_delayId.isEmpty())
+    // restart;` and nothing else, so with no delay id the entire 5 s
+    // heartbeat was a no-op and the membership was written exactly once per
+    // call. publishes stays EMPTY here.
+    void withoutADelayedRetractionTheHeartbeatRePublishesTheMembership()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QString());
+
+        // The heartbeat's own slot, reached the way the timer reaches it. A
+        // private slot is invokable through the meta-object, which is what
+        // lets this drive PRODUCTION's path rather than a policy function —
+        // §16 records twice what a test that never reaches production proves.
+        QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
+                                          Qt::DirectConnection));
+        QCOMPARE(client.publishes.size(), 1);
+        QCOMPARE(client.publishes.first(), QStringLiteral("!room:example.org"));
+        // And nothing is asked of a delayed event that does not exist.
+        QCOMPARE(client.delayedRestarts.size(), 0);
+
+        // CADENCE, not per tick. A state event per 5 s per participant would
+        // be real room spam; the re-publish interval is a minute.
+        QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
+                                          Qt::DirectConnection));
+        QCOMPARE(client.publishes.size(), 1);
+    }
+
+    // WITH a delayed event the heartbeat restarts it and does NOT rewrite the
+    // state event. Rewriting one while a delayed event is armed for the same
+    // state key is behaviour nobody here has measured, and the four-hour
+    // `expires` on that path is the ecosystem's own number.
+    void withADelayedRetractionTheHeartbeatOnlyRestartsIt()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QStringLiteral("delay-1"));
+
+        QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
+                                          Qt::DirectConnection));
+        QCOMPARE(client.delayedRestarts.size(), 1);
+        QCOMPARE(client.delayedRestarts.first(), QStringLiteral("delay-1"));
+        QCOMPARE(client.publishes.size(), 0);
+    }
+
+    // A RESTART THAT FAILS MEANS THE DELAY ID MAY BE CONSUMED — the server
+    // already fired the retraction, we are gone from every other client's
+    // list, and every later restart of that id 404s forever while we keep
+    // publishing media. The repair is to RE-PUBLISH (which arms a fresh
+    // delayed retraction), never to restart the dead id again.
+    //
+    // ON THE BROKEN TREE: the restart's answer went to a signal with no
+    // connection at all, so this was invisible and unrepaired. publishes
+    // stays empty.
+    void aFailedDelayedRestartRePublishesInsteadOfRestartingADeadId()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QStringLiteral("delay-1"));
+
+        QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
+                                          Qt::DirectConnection));
+        QCOMPARE(client.delayedRestarts.size(), 1);
+        client.answerMembershipOp(client.lastRestartOp, false,
+                                  QStringLiteral("not_found"));
+        QCOMPARE(client.publishes.size(), 1);
+
+        // The re-publish's answer carries a NEW delay id, and that is the one
+        // the heartbeat must use from then on. Restarting the old one would
+        // 404 for the rest of the call.
+        client.answerPublish(client.lastPublishOp, true,
+                             QStringLiteral("delay-2"));
+        QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
+                                          Qt::DirectConnection));
+        QCOMPARE(client.delayedRestarts.size(), 2);
+        QCOMPARE(client.delayedRestarts.at(1), QStringLiteral("delay-2"));
+    }
+
+    // A REFRESH ANSWER MUST NOT RE-RUN THE JOIN SEQUENCE. Both the first
+    // publish and every refresh answer on `rtcMembershipPublished`, and they
+    // are told apart by op id alone.
+    void aRefreshAnswerDoesNotRestartTheJoin()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QString());
+        QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
+                                          Qt::DirectConnection));
+        client.answerPublish(client.lastPublishOp, true, QString());
+        // Still in the call, still the same room, and no SFU connect was
+        // dispatched a second time.
+        QCOMPARE(static_cast<int>(call.state()),
+                 static_cast<int>(SfuCallController::State::Connected));
+        QCOMPARE(call.roomId(), QStringLiteral("!room:example.org"));
+    }
+
+    // PER-PERSON VOLUME GOES TO 200, NOT 100.
+    //
+    // "make it overclockable so i can do 200% volume like in discord ... and
+    // control other poeple in call volume". The store accepts 0..200 and the
+    // GStreamer `volume` element takes a linear factor for which 2.0 is
+    // legal; CallParticipantModel::clampVolume capped at 100, which silently
+    // threw away the entire upper half of every slider.
+    //
+    // ON THE BROKEN TREE: the row reads back 100.
+    void aParticipantVolumeCanBeAmplifiedPastUnity()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("me"));
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("microphone"),
+                                      QStringLiteral("TR_1"), false) }),
+        });
+        const int row = participantRowFor(call.participantModel(),
+                                          QStringLiteral("alice"));
+        QVERIFY(row >= 0);
+
+        call.setParticipantVolume(QStringLiteral("alice"), 200);
+        QCOMPARE(participantRole(call.participantModel(), row,
+                                 CallParticipantModel::VolumePercentRole)
+                     .toInt(),
+                 200);
+
+        // Still a CLOSED range. A hand-edited store or a runaway control must
+        // not reach the audio path with an arbitrary factor.
+        call.setParticipantVolume(QStringLiteral("alice"), 5000);
+        QCOMPARE(participantRole(call.participantModel(), row,
+                                 CallParticipantModel::VolumePercentRole)
+                     .toInt(),
+                 200);
+        call.setParticipantVolume(QStringLiteral("alice"), -40);
+        QCOMPARE(participantRole(call.participantModel(), row,
+                                 CallParticipantModel::VolumePercentRole)
+                     .toInt(),
+                 0);
+    }
+
+    // With no settings seam wired, a volume still WORKS for the call and is
+    // simply not remembered — an honest degradation, not a dead control, and
+    // never a fabricated stored value.
+    void aParticipantVolumeReadsUnityWithNowhereToStoreIt()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        QCOMPARE(call.participantVolume(QStringLiteral("alice")), 100);
     }
 };
 

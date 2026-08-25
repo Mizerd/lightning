@@ -1638,6 +1638,29 @@ void AppController::prepareForShutdown()
     if (m_playback)
         m_playback->stopAll();
 
+    // LEAVE THE CALL BEFORE ANYTHING THAT CARRIES THE LEAVE IS TORN DOWN.
+    //
+    // This lane was missing entirely, and the cost was visible to everyone
+    // else in the room: closing Lightning left our `m.call.member` state
+    // event published and our SFU participant connected, so we sat in the
+    // call as a ghost — and every later join added another copy, each one
+    // labelled waiting for media because a stale publisher has no tracks.
+    //
+    // It must run BEFORE `stopSync()` below: the retraction is a state event
+    // and a Leave is an SFU command, and both need the client that stopSync()
+    // is about to quiesce. Relying on ~SfuCallController instead is not good
+    // enough — member destruction order would decide whether the send still
+    // had a client to reach, which is exactly the kind of dependency that
+    // silently inverts when a member is added.
+    //
+    // `leave()` is documented safe in any state including mid-join, so this
+    // is unconditional rather than gated on `active()`: a join still in
+    // flight is precisely the case that would otherwise strand a membership
+    // published moments earlier. The bounded Rust task join in the client's
+    // destructor is what gives the dispatched sends their window to land.
+    if (m_groupCall)
+        m_groupCall->leave();
+
     // Stop the sync loop / poll timer so no further backend callback is
     // scheduled onto the main loop during teardown. The client's own
     // destructor still performs the bounded Rust task join.

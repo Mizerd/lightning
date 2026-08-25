@@ -47,6 +47,17 @@ class CallController : public QObject
     QML_UNCREATABLE("CallController is exposed via app.calls")
     Q_PROPERTY(int state READ stateInt NOTIFY stateChanged)
     Q_PROPERTY(bool ringing READ ringing NOTIFY stateChanged)
+    /// True while the live ring came in over the MatrixRTC lane rather than
+    /// the legacy `m.call.*` one.
+    ///
+    /// Exposed because the two lanes are answered by DIFFERENT code: the
+    /// legacy ring by `answer()` here, an RTC ring by JOINING the room's SFU
+    /// session (`app.groupCall.join`) — the same action the room banner and
+    /// the timeline's call row already offer. Without this the card could not
+    /// tell them apart, so it gated Accept on `mediaBackendAvailable` (the
+    /// LEGACY engine) and offered a button that `answer()` structurally
+    /// refuses. Reported as "this accept does nothing".
+    Q_PROPERTY(bool rtcRing READ rtcRing NOTIFY stateChanged)
     Q_PROPERTY(QString activeRoomId READ activeRoomId NOTIFY stateChanged)
     Q_PROPERTY(QString callerUserId READ activeSenderId NOTIFY stateChanged)
     Q_PROPERTY(QString activeCallId READ activeCallId NOTIFY stateChanged)
@@ -94,6 +105,14 @@ public:
     State state() const { return m_state; }
     int stateInt() const { return static_cast<int>(m_state); }
     bool ringing() const { return m_state == State::Ringing; }
+    /// See the Q_PROPERTY note. Deliberately false unless we are actually
+    /// RINGING: `m_session.rtc` outlives the ring inside the session record,
+    /// and a stale true would send the card down the join branch for a call
+    /// that is over.
+    bool rtcRing() const
+    {
+        return m_state == State::Ringing && m_session.rtc;
+    }
     EndReason endReason() const { return m_endReason; }
     QString activeRoomId() const;
     QString activeCallId() const;
@@ -135,7 +154,14 @@ public:
 
     Q_INVOKABLE bool placeCall(const QString &roomId);
     Q_INVOKABLE bool answer();
-    QString lastRefusal() const { return m_lastRefusal; }
+    /// Why the last placeCall()/answer() refused, as a closed-set token.
+    ///
+    /// Q_INVOKABLE since 2026-08-26: `answer()` returns a bool into a QML
+    /// call site that discarded it, and this getter was plain C++, so a
+    /// refusal was structurally unreportable — the button simply did
+    /// nothing. Reading it is now possible; the CARD maps the token to
+    /// wording and never renders the token itself.
+    Q_INVOKABLE QString lastRefusal() const { return m_lastRefusal; }
 
     // The complete outbound pipe, fed by a future media backend (tests feed
     // it a synthetic SDP). Sends a real m.call.invite.

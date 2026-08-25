@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
@@ -166,6 +167,75 @@ Item {
                                           ? root.displayName
                                           : root.userId
 
+    // ── Per-person playback volume ───────────────────────────────────────
+    //
+    // "if a user A sets user B volume to 70% it stays the same in next call
+    // or other room." Discord's model exactly: the person, not the call.
+    //
+    // WHY IT IS NOT OFFERED ON THE LOCAL TILE. This is a PLAYBACK volume —
+    // how loud this device renders that person. Nobody hears their own
+    // published audio, so a slider on your own tile would move a number with
+    // no audible effect and read as broken. What the local device controls is
+    // the GAIN on what it SENDS, which lives with the other device settings
+    // (CallDeviceSettings) because it is a property of this computer's
+    // microphone, not of a call.
+    //
+    // WHERE THE VALUE COMES FROM. `SfuCallController` — both directions,
+    // and never QSettings from here. The controller owns the mapping from the
+    // SFU identity this tile holds to the Matrix user id the store is keyed
+    // by, which is the whole reason the setting survives a rejoin: an
+    // identity is per DEVICE (and, in the sticky membership format, an opaque
+    // hash), so keying a stored preference by it would forget the choice the
+    // moment the person came back.
+    //
+    // READ ON OPEN, not bound. A binding would need a tick to observe a C++
+    // call, and there is nothing to observe: no remote party can change this
+    // value, so the only writer while the popup is up is the slider itself.
+    // Re-reading on every open is what makes it show 70 rather than always
+    // 100 — the defect this replaces was a control with no read path at all.
+    readonly property bool _volumeOffered:
+        !root.local && root.identity.length > 0
+        && typeof app !== "undefined" && app && app.groupCall
+
+    /// This person's stored volume, or the 100% neutral point when nothing
+    /// is known.
+    ///
+    /// `participantVolume()` and not the model's `volumePercent` role,
+    /// deliberately: the invokable answers from the STORE, so it is right
+    /// from the first frame a tile exists, whereas the role is only correct
+    /// once the controller has seeded the row. Those two are the same number
+    /// in the steady state and different exactly at the moment a call opens —
+    /// which is when a person is most likely to reach for this.
+    function currentVolumePercent() {
+        if (!root._volumeOffered)
+            return 100;
+        var value = app.groupCall.participantVolume(root.identity);
+        return (value === undefined || value === null) ? 100 : value;
+    }
+
+    /// Bumped by every write. Any binding that CALLS `currentVolumePercent()`
+    /// must read this, because Qt cannot observe a C++ function call as a
+    /// dependency — a binding without it evaluates once and then describes a
+    /// value that has since changed. The repo has shipped that mistake often
+    /// enough to have a name for the fix.
+    property int volumeRevision: 0
+
+    /// Apply a level. ONE writer, the controller — it drives the engine AND
+    /// records the preference, so a surface cannot persist a value the audio
+    /// path never received, or the reverse.
+    function applyVolumePercent(percent) {
+        if (!root._volumeOffered)
+            return;
+        app.groupCall.setParticipantVolume(root.identity, Math.round(percent));
+        root.volumeRevision = root.volumeRevision + 1;
+    }
+
+    function openVolumeControl() {
+        if (!root._volumeOffered)
+            return;
+        volumePopup.open();
+    }
+
     Accessible.role: Accessible.Button
     Accessible.name: root._label.length > 0 ? root._label : qsTr("Participant")
     // Carries the same facts the badges show, so a screen-reader user learns
@@ -194,6 +264,15 @@ Item {
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
                 || event.key === Qt.Key_Space) {
             root.activated()
+            event.accepted = true
+        }
+        // The context key reaches the volume control without a pointer. The
+        // hover button is genuinely unreachable by keyboard — it is revealed
+        // by hover — so without this the setting would be pointer-only, which
+        // for a preference that persists is a worse gap than a missing hover
+        // affordance.
+        if (event.key === Qt.Key_Menu && root._volumeOffered) {
+            root.openVolumeControl()
             event.accepted = true
         }
     }
@@ -545,6 +624,272 @@ Item {
             // presses meant for the stage beneath.
             acceptedButtons: Qt.LeftButton
             onTapped: root.activated()
+        }
+
+        // The volume gesture. RIGHT button, and it must be its own handler
+        // with its own accepted button: TapHandlers are non-exclusive across
+        // subtrees, so a single handler taking every button here would also
+        // swallow right presses meant for the stage, and this repo has shipped
+        // that collision three separate times.
+        TapHandler {
+            enabled: root._volumeOffered
+            acceptedButtons: Qt.RightButton
+            onTapped: root.openVolumeControl()
+        }
+
+        // ── The visible way in ───────────────────────────────────────────
+        //
+        // A right-click-only control is a control most people never find, so
+        // the same action gets a button. HOVER-REVEALED and in the TOP-LEFT,
+        // which is the one corner of this tile that is free: the state badges
+        // own the top-right and the nameplate owns the bottom-left, and a
+        // control that covers either would hide a fact to offer a preference.
+        //
+        // Behind a Loader, and the Loader is inactive when the button is not
+        // wanted, so a grid of tiles nobody is pointing at builds no buttons.
+        Loader {
+            id: volumeAffordance
+            active: root._volumeOffered
+                    && (tileHover.hovered || volumePopup.visible
+                        || root.activeFocus)
+            visible: active
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.margins: root.compact ? 4 : 6
+            sourceComponent: IconButton {
+                objectName: "callParticipantVolumeButton"
+                size: root.compact ? "sm" : "md"
+                storm: true
+                // `volume_off` at zero is the honest glyph: a person turned
+                // all the way down is muted FOR THIS DEVICE, and drawing a
+                // speaker with waves would say the opposite. Both names are in
+                // Icon.qml's map — the bundled Material Symbols font is a
+                // SUBSET, and an unmapped name renders as tofu.
+                iconName: {
+                    var _ = root.volumeRevision;
+                    return root.currentVolumePercent() > 0 ? "volume_up"
+                                                           : "volume_off";
+                }
+                Accessible.name: qsTr("Volume for %1").arg(root._label)
+                ToolTip.text: Accessible.name
+                ToolTip.visible: hovered && !volumePopup.visible
+                ToolTip.delay: 600
+                onClicked: root.openVolumeControl()
+            }
+        }
+
+        HoverHandler { id: tileHover }
+    }
+
+    // ── The volume popup ─────────────────────────────────────────────────
+    //
+    // A child of the TILE, deliberately, and this is the one place the
+    // message-action-bar precedent does NOT apply. That crash came from a
+    // per-row Loader's loaded Rectangle reparenting itself to
+    // `Overlay.overlay` while the Loader stayed its destruction owner. A
+    // Popup is not that: it owns its own overlay lifetime, exactly as the
+    // timeline's details Dialog does, so a participant leaving mid-adjust
+    // takes the popup down with the tile instead of leaving a dangling item
+    // on the overlay.
+    Popup {
+        id: volumePopup
+        objectName: "callParticipantVolumePopup"
+        // Centred over the tile it belongs to, clamped into the window by
+        // Popup's own margins so a tile at the edge of the grid does not put
+        // its slider off screen.
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        width: 268
+        margins: 8
+        padding: AppTheme.spacing12
+        modal: false
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        // Read here rather than in a binding: see currentVolumePercent(). An
+        // `onOpened` read also means a popup reopened after the controller
+        // clamped or reset a value shows what the controller actually has,
+        // not what this surface last sent.
+        onOpened: volumeSlider.value = root.currentVolumePercent()
+
+        background: Rectangle {
+            radius: AppTheme.radiusMd
+            color: AppTheme.stormPanel
+            border.width: 1
+            border.color: AppTheme.stormBorder
+
+            // A POPUP DOES NOT CONSUME A PRESS THAT LANDS ON IT.
+            //
+            // `QQuickPopup::mousePressEvent` sets `accepted = blockInput()`,
+            // and `blockInput()` returns FALSE when the item IS the popup
+            // item — so delivery keeps walking down to whatever is behind the
+            // overlay. `modal: true` would not help: it blocks presses
+            // OUTSIDE a popup only, and this repo has already shipped one fix
+            // resting on the opposite premise, which was inert.
+            //
+            // Behind this popup sit the tile's two TapHandlers. Without this
+            // sink, a left press on the popup's padding reaches
+            // `root.activated()` and re-spotlights the stage while the user is
+            // reading a slider, and a right press reaches the volume handler
+            // and re-opens the popup under itself. The Slider consumes its own
+            // presses, which is exactly what makes the hole easy to miss:
+            // dragging works, and only the surrounding chrome misbehaves.
+            //
+            // The sink belongs in `background:` — the bottom-most
+            // hit-testable item, below `contentItem`, so it catches what the
+            // content did not want and steals nothing the content did. NOT
+            // fixed with `z`.
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.AllButtons
+                // Hover too: without it the tile beneath keeps reporting
+                // hover through the popup.
+                hoverEnabled: true
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: AppTheme.spacing8
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing8
+                Icon {
+                    name: volumeSlider.value > 0 ? "volume_up" : "volume_off"
+                    size: 18
+                    color: AppTheme.stormTextSecondary
+                }
+                Text {
+                    Layout.fillWidth: true
+                    // No Loader: this label is never empty. `_label` falls
+                    // back to the user id, and the popup cannot be opened on
+                    // a tile with neither, because `_volumeOffered` requires
+                    // an identity.
+                    text: root._label
+                    color: AppTheme.stormText
+                    font.pixelSize: AppTheme.textBody
+                    font.weight: AppTheme.weightMedium
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                }
+                Text {
+                    objectName: "callParticipantVolumeReadout"
+                    text: Math.round(volumeSlider.value) + "%"
+                    color: AppTheme.stormText
+                    font.pixelSize: AppTheme.textBody
+                    font.weight: AppTheme.weightMedium
+                }
+            }
+
+            Slider {
+                id: volumeSlider
+                objectName: "callParticipantVolumeSlider"
+                Layout.fillWidth: true
+                from: 0
+                // 200, not 100: above the neutral point is real
+                // amplification, which is the whole reason a per-person
+                // control is worth having — a quiet participant is the case
+                // it exists for.
+                to: 200
+                stepSize: 1
+                snapMode: Slider.SnapAlways
+                Accessible.name: qsTr("Volume for %1").arg(root._label)
+
+                // `onMoved`, NEVER `onValueChanged`. `onMoved` fires only for
+                // a USER gesture; `onValueChanged` also fires for the
+                // programmatic read in `onOpened`, which would write the
+                // value straight back to the controller on every open — a
+                // pointless store write per open, and one that would defeat
+                // the store's own "the default is not recorded" rule by
+                // re-recording whatever was read.
+                onMoved: root.applyVolumePercent(value)
+
+                background: Rectangle {
+                    x: volumeSlider.leftPadding
+                    y: volumeSlider.topPadding
+                       + volumeSlider.availableHeight / 2 - 2
+                    width: volumeSlider.availableWidth
+                    height: 4
+                    radius: AppTheme.radiusPill
+                    color: AppTheme.stormInset
+
+                    Rectangle {
+                        width: volumeSlider.visualPosition * parent.width
+                        height: parent.height
+                        radius: AppTheme.radiusPill
+                        color: AppTheme.bolt
+                    }
+
+                    // The neutral point, drawn ON the track. 100 is not the
+                    // middle of a preference, it is the ONE value that
+                    // changes nothing, and a slider whose default sits
+                    // unmarked half way along reads as a range with no home.
+                    Rectangle {
+                        objectName: "callParticipantVolumeNeutralMark"
+                        x: Math.round(parent.width / 2) - 1
+                        y: -3
+                        width: 2
+                        height: parent.height + 6
+                        radius: 1
+                        color: AppTheme.stormTextMuted
+                    }
+                }
+                handle: Rectangle {
+                    x: volumeSlider.leftPadding
+                       + volumeSlider.visualPosition
+                         * (volumeSlider.availableWidth - width)
+                    y: volumeSlider.topPadding
+                       + volumeSlider.availableHeight / 2 - height / 2
+                    width: 16
+                    height: 16
+                    radius: 8
+                    // White, not boltInk: the thumb rides the fill BOUNDARY,
+                    // so a dark disc reads as disabled past half range. Same
+                    // reasoning as the Settings sliders.
+                    color: "#FFFFFF"
+                    border.width: volumeSlider.visualFocus ? 2 : 0
+                    border.color: AppTheme.bolt
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing8
+
+                Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: AppTheme.stormTextMuted
+                    font.pixelSize: AppTheme.textMeta
+                    // ALWAYS shown, not revealed once the user is already
+                    // past 100. A consequence disclosed only after the fact
+                    // is not a disclosure. Stated flatly: what it does, and
+                    // what it can cost.
+                    text: qsTr("Above 100% amplifies and can clip.")
+                }
+
+                // Only when there is something to reset. A permanently
+                // present Reset next to a control already at its default is
+                // furniture.
+                Loader {
+                    active: Math.round(volumeSlider.value) !== 100
+                    visible: active
+                    sourceComponent: AppButton {
+                        objectName: "callParticipantVolumeReset"
+                        storm: true
+                        kind: "ghost"
+                        text: qsTr("Reset")
+                        onClicked: {
+                            volumeSlider.value = 100;
+                            // Set explicitly: assigning `value` is not a
+                            // user gesture, so `onMoved` does not fire and
+                            // the reset would otherwise change the picture
+                            // and nothing else.
+                            root.applyVolumePercent(100);
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -234,10 +234,79 @@ Rectangle {
         if (!fullScreenWindow)
             return;
         if (root.fullScreenActive) {
+            root.placeOnThisApplicationsScreen();
             fullScreenWindow.showFullScreen();
             fullScreenSurface.forceActiveFocus();
+            if (root.stageState && root.stageState.traceEnabled) {
+                // The second half of the measurement: where it ACTUALLY
+                // landed. Equal to the line above means the request was
+                // honoured; different means the compositor chose.
+                console.info("call-fullscreen landed on="
+                             + (fullScreenWindow.screen
+                                ? fullScreenWindow.screen.name : "?"));
+            }
         } else if (fullScreenWindow.visible) {
             fullScreenWindow.hide();
+        }
+    }
+
+    /// Put the full-screen window on the monitor the APPLICATION is on.
+    ///
+    /// "the full screen feature always starts in the same monitor and not the
+    /// one the client is in, it should full screen in same monitor as the app
+    /// is." It did that by construction: a top-level QWindow with no target
+    /// screen is connected to `QGuiApplication::primaryScreen()` in
+    /// `QWindowPrivate::init()`, a QML Window does NOT inherit its transient
+    /// parent's screen, and `showFullScreen()` selects no screen of its own —
+    /// it is only setWindowStates + setVisible + requestActivate.
+    ///
+    /// TWO things are needed, and the second is the one that decides.
+    ///
+    /// 1. `screen`, for the window's own bookkeeping and DPI. On its own it
+    ///    is NOT enough: `QWindowPrivate::create()` re-derives the screen from
+    ///    the window's GEOMETRY (`screenForGeometry()`) just before the
+    ///    platform window is made, so a default-positioned rectangle lands
+    ///    back on the primary monitor. And assigning `screen` LATER does not
+    ///    move an existing window: when the two screens are virtual siblings
+    ///    — the ordinary single-desktop case — `windowRecreationRequired()`
+    ///    is false and the setter is bookkeeping plus a signal.
+    /// 2. The GEOMETRY, in virtual-desktop coordinates. That is what
+    ///    `screenForGeometry()` reads, and what the window manager then
+    ///    fullscreens onto.
+    ///
+    /// `Screen` attached to THIS item, not `Window.window.screen`: the
+    /// attached object tracks the item's window and follows the app when the
+    /// user drags it to another monitor, which is precisely the question
+    /// being asked. Re-applied on every entry for the same reason.
+    ///
+    /// HONESTY: this is derived from the Qt sources and is expected to hold
+    /// on X11. On Wayland there is no client-side global positioning, and Qt
+    /// passes no `wl_output` to `xdg_toplevel.set_fullscreen` (QTBUG-54883,
+    /// closed as out of scope), so the compositor chooses. Live-validated:
+    /// NOT TESTED on either. `LIGHTNING_CALL_TRACE=1` prints the one line
+    /// that tells the two cases apart.
+    function placeOnThisApplicationsScreen() {
+        var target = root.Screen;
+        if (!target)
+            return;
+        // Assigned before the FIRST show, because create() reads the
+        // geometry — see (1) above.
+        fullScreenWindow.screen = target;
+        fullScreenWindow.x = target.virtualX;
+        fullScreenWindow.y = target.virtualY;
+        fullScreenWindow.width = target.width;
+        fullScreenWindow.height = target.height;
+        if (root.stageState && root.stageState.traceEnabled) {
+            // The measurement this lane's own rule asks for: it distinguishes
+            // "we asked for the wrong monitor" from "the compositor overrode
+            // us", which no amount of source reading can settle. Names and
+            // numbers only — never a room, a user or a track.
+            console.info("call-fullscreen"
+                         + " platform=" + Qt.platform.pluginName
+                         + " appScreen=" + target.name
+                         + " virtualX=" + target.virtualX
+                         + " virtualY=" + target.virtualY
+                         + " size=" + target.width + "x" + target.height);
         }
     }
     onFullScreenActiveChanged: root.syncFullScreenWindow()
@@ -756,6 +825,13 @@ Rectangle {
         objectName: "callFullScreenWindow"
         title: qsTr("Lightning — full screen")
         color: "#000000"
+        // A FALLBACK size only. placeOnThisApplicationsScreen() overwrites
+        // both, plus x/y, before every show — and it is the GEOMETRY, not the
+        // `screen` assignment, that decides which monitor the window is born
+        // on (QWindowPrivate::create() → screenForGeometry()). These literals
+        // are what remains if the Screen attached object is unavailable.
+        // They are constants, not bindings, so the imperative write destroys
+        // nothing.
         width: 1280
         height: 720
 

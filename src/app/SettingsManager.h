@@ -520,6 +520,43 @@ public:
     bool showProfileChangeEvents() const;
     void setShowProfileChangeEvents(bool v);
     bool reducedMotion() const;
+
+    // ── Call volumes ──────────────────────────────────────────────────
+    //
+    // KEYED BY MATRIX USER ID, never by the SFU participant identity. An
+    // identity is `@user:server:DEVICE` in the legacy format and an unpadded
+    // base64 sha256 in the sticky one — per DEVICE and, for the sticky form,
+    // effectively per session. Keying by it would forget the setting the
+    // moment the same person rejoined, which is the opposite of what was
+    // asked for: "if a user A sets user B volume to 70% it stays the same in
+    // next call or other room".
+    //
+    // STRICTLY account-scoped, with NO global fallback — unlike
+    // appearanceValue, which deliberately mirrors into one. What you think a
+    // person's voice should sound like is your opinion from your account; it
+    // is not a fact about them, and it must not leak into another account's
+    // view of the same person.
+    //
+    // 0..200. Above 100 is real amplification, as Discord allows: the
+    // GStreamer `volume` element takes a linear factor and 2.0 is legal.
+    // Clipping above 100 is the user's own choice and is theirs to hear.
+    /// This account's playback volume for one person, 0..200. 100 when unset.
+    Q_INVOKABLE int callParticipantVolume(const QString &userId) const;
+    /// Persists it. Setting exactly 100 REMOVES the key rather than storing
+    /// the default, so "reset" is a real reset and the store does not grow a
+    /// row per person ever seen in a call.
+    Q_INVOKABLE void setCallParticipantVolume(const QString &userId,
+                                              int percent);
+
+    /// Own microphone gain, 0..200, applied to what OTHERS hear. Account
+    /// scoped WITH the global fallback, because unlike a per-person volume
+    /// this is a fact about your own hardware and is the same on every
+    /// account you sign into on this machine.
+    Q_PROPERTY(int microphoneGain READ microphoneGain WRITE setMicrophoneGain
+                   NOTIFY microphoneGainChanged)
+    int microphoneGain() const;
+    void setMicrophoneGain(int percent);
+
     void setReducedMotion(bool v);
 
     // Clock format ids. Kept as named constants so the QML combo, the
@@ -784,6 +821,9 @@ Q_SIGNALS:
     void showMembershipEventsChanged();
     void showProfileChangeEventsChanged();
     void reducedMotionChanged();
+    void microphoneGainChanged();
+    /// One person's stored volume changed. Carries the USER ID.
+    void callParticipantVolumeChanged(const QString &userId, int percent);
     void clockFormatChanged();
     void enterInsertsNewlineChanged();
     void sendTextAsCaptionChanged();

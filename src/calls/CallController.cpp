@@ -468,8 +468,25 @@ bool CallController::answer()
         return false;
     }
     if (m_session.rtc) {
-        // A MatrixRTC ring needs SFU membership we deliberately do not
-        // publish (see docs/voice-calls.md).
+        // WRONG LANE — and the reason this refusal exists has CHANGED.
+        //
+        // What it used to believe: "a MatrixRTC ring needs SFU membership we
+        // deliberately do not publish". That premise died with the 2026-08-24
+        // interop round. Lightning publishes membership, joins the SFU, and
+        // carries audio and screen share against Element.
+        //
+        // The refusal is still correct, because this method IS the legacy
+        // `m.call.*` lane: it takes a remote SDP offer out of the single-shot
+        // store and drives CallMediaBackend. An RTC ring has no offer and no
+        // party to answer — it announces a SESSION, which is answered by
+        // JOINING it (SfuCallController::join, the same action the room
+        // banner and the timeline's call row already offer).
+        //
+        // So this must never "fall back" to the legacy path: an m.call.invite
+        // sent in reply to an RTC ring would ring every member of the room.
+        // Lane selection belongs to the surface (IncomingCallPrompt reads
+        // `rtcRing` and routes), not to a fallback here. The token is kept
+        // as-is because CallControllerTest pins it.
         m_lastRefusal = QStringLiteral("rtc_unsupported");
         return false;
     }

@@ -1,5 +1,7 @@
 #include "calls/CallStageState.h"
 
+#include <QtGlobal>
+
 #include "calls/CallShareModel.h"
 
 namespace {
@@ -9,7 +11,16 @@ namespace {
 constexpr int kMaxDismissedShareIds = 128;
 } // namespace
 
-CallStageState::CallStageState(QObject *parent) : QObject(parent) {}
+CallStageState::CallStageState(QObject *parent) : QObject(parent)
+{
+    // Read ONCE. A debug flag a process gains halfway through is a flag that
+    // describes two different runs, and the property is CONSTANT so QML can
+    // read it in a binding without a notify that would never fire.
+    //
+    // Any non-empty value enables it, matching the repo's other opt-in
+    // traces (LIGHTNING_SCROLL_TRACE, LIGHTNING_GUI_STALL_TRACE).
+    m_traceEnabled = !qEnvironmentVariableIsEmpty("LIGHTNING_CALL_TRACE");
+}
 
 void CallStageState::setShareModel(CallShareModel *shares)
 {

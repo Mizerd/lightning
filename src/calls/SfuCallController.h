@@ -20,6 +20,33 @@
 // path is also the failure path: anything that goes wrong mid-join has to be
 // able to unwind from wherever it got to.
 //
+// LEAVING IS THE HARD HALF, and it is the half this class got wrong for a
+// long time. Three separate mechanisms have to agree, and each covers a
+// failure the others cannot:
+//
+//   * The RETRACTION we send on a clean leave. It is a network request like
+//     any other and it can fail — being offline at the moment of hang-up is
+//     the ordinary case, not an exotic one. Its answer is now observed and a
+//     transient failure is retried, bounded; before that it was
+//     fire-and-forget with literally nothing connected to the result signal.
+//   * The MSC4140 DELAYED RETRACTION the server holds on our behalf. This is
+//     the only cleanup that survives a kill, a crash or a lost network,
+//     because those run no code of ours. It is restarted on a heartbeat, and
+//     a restart that FAILS is repaired by re-publishing (which arms a fresh
+//     one) rather than by restarting an id the server may already have
+//     consumed.
+//   * The membership's own `expires`. On a homeserver without MSC4140 — which
+//     is the default Synapse configuration — this is the ONLY cleanup that
+//     exists at all. Rust therefore publishes a short one in that case, and
+//     this class re-publishes the state event on a cadence so a LIVE
+//     participant never ages out of it. Neither half is optional: a short
+//     expiry without the re-publish would start removing people mid-sentence.
+//
+// A membership that never retracts does not merely look untidy. It poisons
+// the room for every other client: element-call addresses its media keys per
+// device, so a ghost device is sent keys nobody can use, and a member with a
+// membership and no media is what "waiting for media" means.
+//
 // SAFETY, and the reason this class refuses more than it accepts:
 //
 //   * An ENCRYPTED room whose call media cannot be encrypted is refused.
@@ -54,6 +81,7 @@
 class MatrixClient;
 class RtcController;
 class ScreenCastPortal;
+class SettingsManager;
 class SfuVideoRouter;
 class SfuMediaEngine;
 
@@ -127,6 +155,16 @@ public:
     void setMediaEngine(SfuMediaEngine *engine);
     /// Not owned. Absent means screen sharing refuses honestly.
     void setScreenCastPortal(ScreenCastPortal *portal);
+    /// Not owned. WHERE THE VOLUMES LIVE.
+    ///
+    /// Absent means volumes still WORK for the duration of a call — the
+    /// engine and the model are told, the slider moves — but nothing is
+    /// remembered, which is an honest degradation rather than a dead control.
+    /// The maintainer asked for the opposite of that ("make the value saved so
+    /// if a user A sets user B volume to 70% it stays the same in next call or
+    /// other room"), so a build without this seam wired is a wiring bug, not a
+    /// supported mode.
+    void setSettings(SettingsManager *settings);
 
     /// Attach a QML `VideoOutput`'s sink to one participant's video.
     ///
@@ -246,9 +284,22 @@ public:
     Q_INVOKABLE void stopScreenShare();
     Q_INVOKABLE void setHandRaised(bool raised);
     Q_INVOKABLE void toggleHandRaised();
-    /// Local-only playback volume for one participant, 0..100.
+    /// Local-only playback volume for one participant, 0..200.
+    ///
+    /// 200 rather than 100 because amplification was the request. Nothing is
+    /// sent to anyone: it changes one `volume` element in OUR receive chain.
+    ///
+    /// The value is PERSISTED against the person's MATRIX USER ID, which is
+    /// resolved from the identity through the membership — never by splitting
+    /// the identity on ':'. An identity is per-device in the legacy format and
+    /// an unpadded-base64 sha256 in the sticky one, so keying storage on it
+    /// would forget the setting the moment the same person rejoined.
     Q_INVOKABLE void setParticipantVolume(const QString &identity,
                                           int percent);
+    /// The stored volume for one participant, 0..200, or 100 when nothing is
+    /// stored (or nothing can be resolved). Exists so a slider can be BORN at
+    /// the right value rather than jumping there after the first write.
+    Q_INVOKABLE int participantVolume(const QString &identity) const;
 
     /// Participants for the call stage, in the shape callers already expect.
     ///
@@ -277,6 +328,29 @@ public:
     void ingestConnectionQualityForTest(const QVariantList &updates);
     /// Name the local device's SFU identity, as onSfuJoined would.
     void setOwnIdentityForTest(const QString &identity);
+    /// Put the controller in a call STATE, so the `active()` gates that guard
+    /// every wire-touching path behave as they do in a real call.
+    void setCallStateForTest(State state);
+    /// Name the room this call is in and the MSC4140 delay id the server gave
+    /// us, as a successful `rtcPublishMembership` answer would.
+    ///
+    /// An EMPTY delay id is the important case, not a degenerate one: it is
+    /// what a homeserver without MSC4140 produces — Synapse's default — and
+    /// it is the whole of the maintainer's report. Without this seam neither
+    /// the leave path nor the refresh heartbeat could be reached at all,
+    /// which is exactly why neither had ever been tested.
+    void setMembershipForTest(const QString &roomId, const QString &delayId);
+    /// Drive the local device's camera / screen-share INTENT the way the
+    /// buttons do, minus the media engine.
+    ///
+    /// A CONSCIOUS extension of the seam, not a convenience: `setCameraOn`
+    /// and `startScreenShare`/`stopScreenShare` publish through
+    /// SfuMediaEngine, which needs a real GStreamer pipeline — so the one
+    /// behaviour that matters here (a local STOP must clear the local row and
+    /// must reach the SFU, even while the server still reports the track
+    /// live) had no way to be exercised at any layer. This routes through the
+    /// same private applyVideoState() production does.
+    void setLocalMediaStateForTest(bool cameraOn, bool screenSharing);
 
 Q_SIGNALS:
     void stateChanged();
@@ -306,14 +380,35 @@ private Q_SLOTS:
                                   const QString &sdp);
     void onEngineLocalCandidate(int target, const QString &candidateInit);
     void onEngineFailed(const QString &category);
+    /// ONE track could not carry media. Turns that control back off and says
+    /// so; the call is NOT ended. See SfuMediaEngine::publishFailed.
+    void onEnginePublishFailed(const QString &cid, const QString &category);
     void onMediaKeyReceived(const QString &roomId, const QString &sender,
                             const QString &claimedDeviceId, int keyIndex,
                             const QString &keyBase64);
+    /// The one answer for BOTH `rtc_membership_retracted` and
+    /// `rtc_delayed_updated` — the bridge routes them onto one signal, and
+    /// they are told apart by OP ID, which is the only thing that can tell
+    /// them apart. Until this existed nothing in the whole application was
+    /// connected to it: a retraction that failed failed SILENTLY, and a
+    /// delayed-leave restart that 404'd was equally invisible.
+    void onMembershipRetracted(quint64 opId, bool ok, const QString &category);
     void refreshMembership();
+    /// Re-issue a retraction that failed transiently. Separate from the
+    /// timer's slot so the retry is a real, bounded, observable path.
+    void retryRetraction();
 
 private:
     void setState(State state, const QString &error = QString());
     void teardown(State finalState, const QString &error = QString());
+    /// Ask the server to remove our membership, and REMEMBER the attempt so
+    /// its answer can be judged and retried. `teardown()` clears m_roomId, so
+    /// the target is captured here rather than re-read later.
+    void dispatchRetraction(const QString &roomId, const QString &delayId);
+    /// Re-send the membership state event, which also arms a fresh delayed
+    /// retraction. This is the ONLY refresh mechanism on a homeserver without
+    /// MSC4140, and it is the repair for a delayed-leave restart that failed.
+    void republishMembership();
     void publishTracks();
     void applyAudioState();
     /// The LiveKit stream id (participant sid) for one SFU identity.
@@ -375,9 +470,44 @@ private:
     /// Our own row in the SFU participant list, or an empty map.
     QVariantMap ownParticipantRow() const;
     /// Tell the SFU whether our microphone track is muted, so every other
-    /// client's mic indicator matches ours. Idempotent: it compares against
-    /// the state the server currently reports and sends only on a difference.
+    /// client's mic indicator matches ours. Goes BOTH ways, which only the
+    /// microphone can: it is published once per call and never republished,
+    /// so our row carries at most one of them. It compares against the state
+    /// the server currently reports and sends only on a difference, so it
+    /// converges and cannot loop.
     void syncMicMuteToSfu();
+    /// The Matrix user id behind one SFU identity, or empty when the
+    /// membership has not been read yet. Empty means UNKNOWN: nothing is
+    /// stored under a guess, and nothing is read back under one either.
+    QString userIdForIdentity(const QString &identity) const;
+    /// Push every stored per-person volume into the engine and the model.
+    /// Called whenever the participant set changes, because a row that has
+    /// just appeared is born at unity and a person the user turned down two
+    /// calls ago must not come back loud.
+    void applyStoredVolumes();
+    /// Mute every track of `source` ("camera" / "screen_share") that the SFU
+    /// still reports as LIVE. MUTE ONLY — it never unmutes, deliberately.
+    ///
+    /// A stop is a mute on this wire rather than a removal, so the corpse of a
+    /// stopped track stays listed; its sid is server-assigned and nothing maps
+    /// it back to the cid we published, so an unmute could name the dead one
+    /// and put a track producing no RTP back on the wire. Nothing is lost:
+    /// video is published fresh every time and a fresh track is reported
+    /// unmuted. See the definition.
+    void muteOwnTrackIfLive(const QString &source);
+    /// The video mirror of applyAudioState(): push our camera / screen-share
+    /// intent to the SFU.
+    ///
+    /// This exists because NOTHING ELSE tells the server a video track ended.
+    /// The client seam has only `sfuAddTrack` and `sfuMuteTrack`, and the
+    /// Rust bridge sends no unpublish message of any kind, so stopping a
+    /// share used to tear down the local pipeline and leave the SFU still
+    /// listing an unmuted screen_share track for us — forwarded to everyone
+    /// else, and read back by rebuildModels() as "still sharing".
+    void applyVideoState();
+    /// Hand one LOCAL self-view surface an empty frame, so it stops painting
+    /// the last picture the capture gave it. See the definition.
+    void clearLocalVideoSurface(const QString &streamId);
     QString userFacingError(const QString &category) const;
 
     QPointer<MatrixClient> m_client;
@@ -388,6 +518,7 @@ private:
     SfuVideoRouter *m_videoRouter = nullptr;
     QPointer<SfuMediaEngine> m_engine;
     QPointer<ScreenCastPortal> m_portal;
+    QPointer<SettingsManager> m_settings;
 
     State m_state = State::Idle;
     QString m_roomId;
@@ -414,6 +545,21 @@ private:
     /// it was dispatched under; a mismatch is dropped.
     quint64 m_generation = 0;
     quint64 m_publishOp = 0;
+    /// A membership RE-publish issued by the refresh heartbeat. Distinct from
+    /// m_publishOp because its answer must not re-run the join sequence.
+    quint64 m_refreshOp = 0;
+    /// The in-flight delayed-leave restart, so its failure is actionable.
+    quint64 m_delayedRestartOp = 0;
+    /// The in-flight retraction, and everything needed to re-issue it. These
+    /// deliberately OUTLIVE the call: teardown() clears m_roomId, and a
+    /// retraction that has not been acknowledged is still owed to the room.
+    quint64 m_retractOp = 0;
+    QString m_retractRoomId;
+    QString m_retractDelayId;
+    int m_retractAttempts = 0;
+    /// When the membership state event was last (re-)published, so the
+    /// re-publish cadence is independent of the 5 s delayed-restart tick.
+    qint64 m_lastPublishMs = 0;
 
     QVariantList m_participants;
     /// The LAST SpeakersChanged round, kept so a participant update can
@@ -446,6 +592,10 @@ private:
     /// Membership must be refreshed before it expires, and the delayed
     /// retraction restarted, or the server cleans us out mid-call.
     QTimer m_refreshTimer;
+    /// Bounded retry for a retraction the server did not accept. Leaving a
+    /// call over a flaky connection is the ordinary case, and until this
+    /// existed the only attempt was fire-and-forget.
+    QTimer m_retractRetryTimer;
     /// Track ids we published, so leave can unpublish them.
     QStringList m_publishedTrackIds;
     /// The published track id PER KIND. One list plus "unpublish the last

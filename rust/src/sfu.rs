@@ -256,6 +256,15 @@ async fn fetch_sfu_credentials(
 // Live session
 // ---------------------------------------------------------------------------
 
+/// How long `disconnect` lets the session task drain its queued Leave and
+/// close the websocket before the abort backstop fires.
+///
+/// Comfortably inside `timeline::SHUTDOWN_JOIN_TIMEOUT_SECS` (15 s), which is
+/// the budget that joins this task on quit: the graceful close must finish
+/// well before the budget it rides, or quitting would abort it anyway and we
+/// would be back to leaking a participant.
+const LEAVE_FLUSH_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// Commands the C++ side sends into a running signalling session.
 #[derive(Debug)]
 pub(crate) enum SfuCommand {
@@ -914,10 +923,41 @@ pub(crate) fn disconnect(bridge: &RustClient) {
     bridge.sfu_generation.fetch_add(1, Ordering::SeqCst);
     let session = bridge.sfu.session.lock().ok().and_then(|mut g| g.take());
     if let Some(session) = session {
-        let _ = session.commands.send(SfuCommand::Leave);
-        // The task closes its socket on the Leave and exits; abort is the
-        // backstop for a task already blocked on a dead connection.
-        session.task.abort();
+        let SfuSession { commands, task, .. } = session;
+        let _ = commands.send(SfuCommand::Leave);
+
+        // THE LEAVE HAS TO REACH THE WIRE, AND ABORTING HERE GUARANTEED IT
+        // NEVER DID.
+        //
+        // `commands.send` only queues onto an unbounded channel — it schedules
+        // nothing. The session task was still parked on its `select!` and had
+        // not been polled since, so the immediate `task.abort()` that used to
+        // stand here cancelled it at that await point with the Leave still
+        // sitting unread in the channel. The LiveKit SFU therefore never
+        // learned we had gone, held the participant open until its own peer
+        // timeout, and every rejoin added ANOTHER copy of us: the maintainer's
+        // "multiple same users sit in the call", each labelled waiting for
+        // media because a stale publisher has no tracks.
+        //
+        // So give the task a bounded window to drain the Leave and close its
+        // socket, and keep abort as what it always claimed to be — the backstop
+        // for a task blocked on a dead connection.
+        //
+        // Two details this depends on:
+        //  * `abort_handle()` is taken BEFORE the JoinHandle moves into the
+        //    timeout. A timed-out `timeout(d, handle)` DROPS the handle, and
+        //    dropping a JoinHandle DETACHES the task rather than cancelling it
+        //    — the backstop would be silently gone.
+        //  * `commands` is held alive for the window. Dropping the sender is a
+        //    second end-of-stream signal; the queued Leave would still be
+        //    delivered first, but there is no reason to run that race.
+        let abort = task.abort_handle();
+        bridge.spawn_room_action(async move {
+            let _commands = commands;
+            if tokio::time::timeout(LEAVE_FLUSH_TIMEOUT, task).await.is_err() {
+                abort.abort();
+            }
+        });
     }
 }
 

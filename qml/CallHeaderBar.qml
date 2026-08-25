@@ -244,6 +244,19 @@ Rectangle {
         // media controls moved up here that left two orphan buttons floating
         // under the call UI — reported exactly that way. One control surface,
         // at the top, which is what was asked for.
+        //
+        // STILL LOCAL ONLY, AND THE TOOLTIP SAYS SO. "raise hand does nothing
+        // in element" — correct: `SfuCallController::setHandRaised()` reaches
+        // no SFU, no MatrixRTC membership and no to-device message, so the
+        // hand shows on this device's own tile and nowhere else. element-call
+        // raises a hand with an ordinary room `m.reaction` annotating the
+        // sender's OWN membership state event (key U+1F590 U+FE0F), lowered
+        // by redacting it — established by reading element-call @b51a33c, and
+        // written up for the round that lands it. Until that ships the
+        // control tells the truth rather than implying a peer can see it:
+        // this repo's own "kept on this device" pattern, and the reason it is
+        // not merely disabled (a disabled Qt Quick control gets no hover and
+        // so cannot explain itself).
         Loader {
             active: root.richMedia && !root.compact
             visible: active
@@ -256,8 +269,11 @@ Rectangle {
                 role: app.groupCall.handRaised ? "active" : "neutral"
                 diameter: root.controlDiameter
                 glyphSize: root.controlGlyph
-                tooltip: app.groupCall.handRaised ? qsTr("Lower your hand")
-                                                  : qsTr("Raise your hand")
+                tooltip: app.groupCall.handRaised
+                         ? qsTr("Lower your hand — only shown on this device "
+                                + "for now")
+                         : qsTr("Raise your hand — only shown on this device "
+                                + "for now")
                 onClicked: app.groupCall.toggleHandRaised()
             }
         }

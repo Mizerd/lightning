@@ -142,7 +142,8 @@ public:
     /// `HandRaisedRole` in the .cpp.
     void setHandRaised(const QString &identity, bool raised);
 
-    /// Local playback volume, 0..100. Local-only: it reaches the audio
+    /// Local playback volume, 0..200 (100 is unity; above it is real
+    /// amplification, as Discord allows). Local-only: it reaches the audio
     /// pipeline and nothing else. Held here so the control that sets it can
     /// also READ it back — `SfuCallController::setParticipantVolume` was
     /// write-only, so a volume slider had nothing to bind to.

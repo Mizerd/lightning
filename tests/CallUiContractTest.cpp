@@ -21,6 +21,7 @@
 #include "app/AppController.h"
 #include "auth/AuthManager.h"
 #include "calls/CallController.h"
+#include "calls/CallMediaBackend.h"
 #include "calls/CallShareModel.h"
 #include "calls/CallStageState.h"
 #include "calls/SfuCallController.h"
@@ -32,6 +33,32 @@
 
 #include "calls/SfuVideoRouter.h"
 #endif
+
+/// The smallest thing that makes `mediaBackendAvailable` true.
+///
+/// It exists for ONE assertion: with no engine registered the legacy Accept
+/// is hidden for BOTH lanes, so a test that only checks "Accept is absent on
+/// an RTC ring" would pass on the broken tree and prove nothing. Registering
+/// this is what makes the two lanes tell each other apart. It answers
+/// nothing — no offer is ever produced — which is all these cases need.
+class StubMediaBackend : public CallMediaBackend
+{
+public:
+    using CallMediaBackend::CallMediaBackend;
+    void createOffer(const QString &callId) override { Q_UNUSED(callId); }
+    void createAnswer(const QString &callId, const QString &sdp) override
+    { Q_UNUSED(callId); Q_UNUSED(sdp); }
+    void setRemoteAnswer(const QString &callId, const QString &sdp) override
+    { Q_UNUSED(callId); Q_UNUSED(sdp); }
+    void addRemoteCandidate(const QString &callId, const QString &candidate,
+                            const QString &sdpMid, int sdpMLineIndex) override
+    { Q_UNUSED(callId); Q_UNUSED(candidate); Q_UNUSED(sdpMid);
+      Q_UNUSED(sdpMLineIndex); }
+    void setIceServers(const QStringList &uris, const QString &username,
+                       const QString &password) override
+    { Q_UNUSED(uris); Q_UNUSED(username); Q_UNUSED(password); }
+    void close(const QString &callId) override { Q_UNUSED(callId); }
+};
 
 class CallUiContractTest : public QObject
 {
@@ -171,12 +198,16 @@ private Q_SLOTS:
             QStringLiteral("objectName: \"incomingCallPromptHangup\"")));
         QVERIFY(norm.contains(
             QStringLiteral("onClicked: app.calls.hangup()")));
-        // Accept exists ONLY behind the media-engine gate (round 3), and
-        // the no-engine honesty line survives for engineless builds.
+        // Accept exists ONLY behind the media-engine gate (round 3) AND only
+        // on the lane it can actually answer (2026-08-26), and the no-engine
+        // honesty line survives for engineless builds.
         QVERIFY(norm.contains(QStringLiteral(
-            "visible: root.ringing && app.calls.mediaBackendAvailable")));
+            "readonly property bool legacyAcceptOffered: root.ringing && "
+            "!root.rtcRing && app.calls.mediaBackendAvailable")));
         QVERIFY(norm.contains(
-            QStringLiteral("onClicked: app.calls.answer()")));
+            QStringLiteral("visible: root.legacyAcceptOffered")));
+        QVERIFY(norm.contains(
+            QStringLiteral("if (!app.calls.answer())")));
         QVERIFY(norm.contains(QStringLiteral("isn't supported yet")));
         // And nothing SDP-shaped belongs anywhere near QML.
         QVERIFY(!norm.contains(QStringLiteral("sdp"),
@@ -503,6 +534,237 @@ Item {
         QVERIFY(controller.calls()->rejectIncoming());
         QTRY_COMPARE_WITH_TIMEOUT(root->property("shouldShow").toBool(),
                                   false, 3000);
+    }
+
+    void anRtcRingOffersJoinInsteadOfAnAnswerThatCannotWork()
+    {
+        // "this [Incoming voice call] accept does nothing."
+        //
+        // It could not. The card's ONLY gate was
+        // `app.calls.mediaBackendAvailable` — a property of the LEGACY
+        // GStreamer engine, which says nothing about which lane rang — so an
+        // Element call (announced over MatrixRTC) showed an Accept that
+        // CallController::answer() refuses at its third guard, returning
+        // false into a call site that discarded the result.
+        //
+        // UNFIXED TREE: FAILS. `rtcRing` and `legacyAcceptOffered` do not
+        // exist, so both read false and the RTC case asserts a true.
+
+        // The engine is declared BEFORE the controller so it OUTLIVES it:
+        // CallController holds a QPointer to the engine and closes a live
+        // session on teardown, and this case deliberately ends with a ring
+        // still up.
+        //
+        // See StubMediaBackend for why an engine is registered at all:
+        // without one BOTH lanes hide Accept and this test would be
+        // decoration.
+        StubMediaBackend media;
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(),
+                            &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        controller.calls()->setMediaBackend(&media);
+        QVERIFY(controller.calls()->mediaBackendAvailable());
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine,
+                              &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("IncomingCallPrompt"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(3000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        // 1. The LEGACY lane. Accept is the affordance, and always was.
+        CallSignal invite;
+        invite.kind = CallSignal::Kind::Invite;
+        invite.roomId = QStringLiteral("!general:mock.local");
+        invite.eventId = QStringLiteral("$invite-lane");
+        invite.sender = QStringLiteral("@peer:mock.local");
+        invite.callId = QStringLiteral("lane-call");
+        invite.partyId = QStringLiteral("peer-party");
+        invite.lifetimeMs = 60000;
+        invite.originServerTs = QDateTime::currentMSecsSinceEpoch();
+        mock->emitCallSignalForTest(invite);
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        QVERIFY(!controller.calls()->rtcRing());
+        settle();
+        QCOMPARE(root->property("rtcRing").toBool(), false);
+        QCOMPARE(root->property("legacyAcceptOffered").toBool(), true);
+        QCOMPARE(root->property("canJoinRtc").toBool(), false);
+
+        QVERIFY(controller.calls()->rejectIncoming());
+        settle();
+
+        // 2. The MatrixRTC lane. The legacy Accept is ABSENT — not disabled,
+        //    which in Qt Quick would receive no hover and could not explain
+        //    itself — and the reason is that answering it through the legacy
+        //    path is structurally refused, which is asserted here rather than
+        //    assumed.
+        CallSignal notify;
+        notify.kind = CallSignal::Kind::RtcNotification;
+        notify.roomId = QStringLiteral("!general:mock.local");
+        notify.eventId = QStringLiteral("$notify-lane");
+        notify.sender = QStringLiteral("@peer:mock.local");
+        notify.lifetimeMs = 30000;
+        notify.senderTs = QDateTime::currentMSecsSinceEpoch();
+        notify.originServerTs = notify.senderTs;
+        mock->emitCallSignalForTest(notify);
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        QVERIFY(controller.calls()->rtcRing());
+        settle();
+        QCOMPARE(root->property("rtcRing").toBool(), true);
+        QCOMPARE(root->property("legacyAcceptOffered").toBool(), false);
+        QVERIFY2(!controller.calls()->answer(),
+                 "the legacy answer path claims to accept an RTC ring");
+
+        // The ring is still up, and the card is still the surface for it —
+        // hiding Accept must not have hidden the card. Decline (which sends
+        // m.rtc.decline) is what stops the ring everywhere.
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        QTRY_COMPARE_WITH_TIMEOUT(root->property("shouldShow").toBool(),
+                                  true, 3000);
+    }
+
+    void theRingCardJoinsThroughTheOneSharedGate()
+    {
+        // ONE gate (app.rtc.joinBlockReason), ONE action
+        // (app.groupCall.join), three surfaces. RoomCallBanner and
+        // CallEventDelegate already carry that rule in their comments; this
+        // pins the card to the same pair so a third opinion about whether a
+        // call is joinable cannot appear.
+        const QString norm = normalized(
+            read(QStringLiteral(QML_DIR "/IncomingCallPrompt.qml")));
+        QVERIFY(!norm.isEmpty());
+        QVERIFY(norm.contains(
+            QStringLiteral("objectName: \"incomingCallPromptJoin\"")));
+        QVERIFY(norm.contains(QStringLiteral(
+            "onClicked: app.groupCall.join(root.callRoomId, false)")));
+        QVERIFY(norm.contains(
+            QStringLiteral("app.rtc.joinBlockReason(root.callRoomId)")));
+        QVERIFY(norm.contains(
+            QStringLiteral("visible: root.canJoinRtc")));
+        // The join gate's answers are a CLOSED SET of tokens mapped to
+        // wording here; a raw server string is never rendered.
+        QVERIFY(norm.contains(QStringLiteral("case \"no_transport\":")));
+        QVERIFY(norm.contains(QStringLiteral("case \"session_closed\":")));
+        // Joining must never be reported to the caller as a decline.
+        const int joinAt = norm.indexOf(
+            QStringLiteral("objectName: \"incomingCallPromptJoin\""));
+        const int acceptAt = norm.indexOf(
+            QStringLiteral("objectName: \"incomingCallPromptAccept\""));
+        QVERIFY(joinAt >= 0);
+        QVERIFY(acceptAt > joinAt);
+        QVERIFY2(!norm.mid(joinAt, acceptAt - joinAt)
+                      .contains(QStringLiteral("rejectIncoming")),
+                 "the Join button also declines the call");
+        // And the RTC lane must never fall back to a legacy invite: that
+        // rings every member of the room.
+        QVERIFY2(!norm.contains(QStringLiteral("app.calls.placeCall")),
+                 "the ring card can place a legacy call");
+    }
+
+    void theFullScreenWindowOpensOnTheApplicationsOwnScreen()
+    {
+        // "the full screen feature always starts in the same monitor and not
+        // the one the client is in."
+        //
+        // UNFIXED TREE: FAILS on every assertion — nothing anywhere named a
+        // screen, so QWindowPrivate::init() connected the window to the
+        // PRIMARY screen and QWindowPrivate::create() re-derived the same
+        // answer from the default geometry.
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(!stage.isEmpty());
+        const QString stageCode = normalized(code(stage));
+        // Prove the stripper still leaves code behind before trusting the
+        // ORDER assertions below — a comment mentioning showFullScreen()
+        // would otherwise decide them.
+        QVERIFY(stageCode.contains(QStringLiteral("objectName: \"callStage\"")));
+
+        // The placement happens BEFORE the window is shown. Assigning the
+        // screen afterwards does not move a window whose old and new screens
+        // are virtual siblings — the ordinary single-desktop case — because
+        // QWindow::setScreen() then finds windowRecreationRequired() false
+        // and is bookkeeping plus a signal.
+        const int place =
+            stageCode.indexOf(QStringLiteral("placeOnThisApplicationsScreen()"));
+        const int show =
+            stageCode.indexOf(QStringLiteral("fullScreenWindow.showFullScreen()"));
+        QVERIFY2(place >= 0, "nothing places the full-screen window");
+        QVERIFY2(show > place,
+                 "the window is shown before it is placed on a screen");
+
+        // The screen comes from the Screen ATTACHED to this item, which
+        // tracks the item's window and therefore follows the application
+        // between monitors. Window.window.screen would be a lazily created
+        // wrapper (QWindow has no `screen` Q_PROPERTY at all).
+        QVERIFY(stageCode.contains(QStringLiteral("var target = root.Screen")));
+        QVERIFY(stageCode.contains(
+            QStringLiteral("fullScreenWindow.screen = target")));
+        // ...AND the geometry, which is the half that actually decides:
+        // QWindowPrivate::create() calls screenForGeometry() just before the
+        // platform window exists, so a screen assignment with a default
+        // rectangle lands straight back on the primary monitor.
+        QVERIFY2(stageCode.contains(
+                     QStringLiteral("fullScreenWindow.x = target.virtualX")),
+                 "the window's geometry is not moved onto the target screen");
+        QVERIFY(stageCode.contains(
+            QStringLiteral("fullScreenWindow.y = target.virtualY")));
+
+        // The imperative-visibility rule survives (see
+        // fullScreenIsItsOwnWindowThatEscapeLeaves), and so does accepting
+        // the close — refusing it vetoes Ctrl+Q.
+        QVERIFY2(!code(stage).contains(QStringLiteral("visibility:")),
+                 "the full-screen window binds Window.visibility");
+        QVERIFY(stageCode.contains(
+            QStringLiteral("onClosing: root.exitFullScreen()")));
+        QVERIFY2(!stageCode.contains(QStringLiteral("close.accepted = false")),
+                 "the full-screen window refuses its close event");
+        // Never the primary screen, and never the whole virtual desktop.
+        QVERIFY2(!stageCode.contains(QStringLiteral("Qt.application.screens")),
+                 "the full-screen window picks a screen from a global list "
+                 "rather than from the application's own window");
+    }
+
+    void theRaiseHandControlDoesNotClaimPeersCanSeeIt()
+    {
+        // "raise hand does nothing in element" — correct, and it still does
+        // not: SfuCallController::setHandRaised() reaches no SFU, no
+        // MatrixRTC membership and no to-device message. element-call raises
+        // a hand with an ordinary room m.reaction annotating the sender's own
+        // membership state event; that is a Rust/FFI round (see
+        // docs/matrixrtc.md "Remaining work" item 2), not a QML one.
+        //
+        // Until it lands the control must not IMPLY a peer can see it. Not
+        // disabled — a disabled Qt Quick control receives no hover and so
+        // cannot explain itself — and not removed, because it is real local
+        // state this client draws on the user's own tile.
+        //
+        // UNFIXED TREE: FAILS. The tooltip was a bare "Raise your hand".
+        const QString bar = normalized(
+            read(QStringLiteral(QML_DIR "/CallHeaderBar.qml")));
+        QVERIFY(!bar.isEmpty());
+        QVERIFY(bar.contains(
+            QStringLiteral("objectName: \"callBarHandButton\"")));
+        // Both directions disclose it: raising and lowering.
+        QCOMPARE(static_cast<int>(
+                     bar.count(QStringLiteral("only shown on this device"))),
+                 2);
+        // The icon must stay one the bundled Material Symbols SUBSET carries,
+        // or the glyph is tofu (IconChromeTest owns the general rule).
+        QVERIFY(bar.contains(QStringLiteral("iconName: \"front_hand\"")));
     }
 
     // 2026-08-23 reporter round: FOUR call surfaces were on screen at once
@@ -1431,6 +1693,188 @@ Item {
         QCOMPARE(stage->fullScreen(), false);
         QCOMPARE(root->property("fullScreenActive").toBool(), false);
         QVERIFY(!window->isVisible());
+    }
+
+    void aParticipantsVolumeIsAdjustableAndSurvivesTheCall()
+    {
+        // "if a user A sets user B volume to 70% it stays the same in next
+        // call or other room." The persistence is SettingsManager's and the
+        // seeding is the controller's; what this pins is the surface, and
+        // specifically the four ways a plausible implementation of it is
+        // silently wrong.
+        //
+        // UNFIXED TREE: every assertion below fails — CallParticipantTile
+        // had no volume control of any kind, which is why there was nothing
+        // to set.
+        const QString raw =
+            read(QStringLiteral(QML_DIR "/CallParticipantTile.qml"));
+        QVERIFY(!raw.isEmpty());
+        const QString tile = normalized(raw);
+
+        // 1. It exists, and it is reachable BOTH ways — a right-click-only
+        //    control is one most people never find, and a hover-only one is
+        //    unreachable from the keyboard.
+        QVERIFY(tile.contains(
+            QStringLiteral("objectName: \"callParticipantVolumeSlider\"")));
+        QVERIFY(tile.contains(
+            QStringLiteral("objectName: \"callParticipantVolumeButton\"")));
+        QVERIFY(tile.contains(QStringLiteral("acceptedButtons: Qt.RightButton")));
+        QVERIFY(tile.contains(QStringLiteral("Qt.Key_Menu")));
+
+        // 2. THE RANGE IS 0..200. `to: 100` is the obvious wrong version and
+        //    it silently removes the entire reason the control exists: the
+        //    case it is for is a participant who is too QUIET.
+        QVERIFY(tile.contains(QStringLiteral("from: 0")));
+        QVERIFY(tile.contains(QStringLiteral("to: 200")));
+        // And the neutral point is MARKED. 100 is not the middle of a
+        // preference, it is the one value that changes nothing.
+        QVERIFY(tile.contains(QStringLiteral(
+            "objectName: \"callParticipantVolumeNeutralMark\"")));
+
+        // 3. IT READS THE CURRENT VALUE. A slider that always opens at 100 is
+        //    the specific failure called out in the brief, and it is what you
+        //    get from a control with a write path and no read path — which is
+        //    exactly what `setParticipantVolume` was before this round
+        //    (write-only, and therefore never called from any QML).
+        QVERIFY(tile.contains(QStringLiteral("function currentVolumePercent()")));
+        //    Read from the STORE through the controller, not from the model's
+        //    `volumePercent` role. The two agree in the steady state and
+        //    differ exactly while a call is opening — before the controller
+        //    has seeded the rows — which is when a person is most likely to
+        //    reach for this control.
+        QVERIFY(tile.contains(QStringLiteral(
+            "app.groupCall.participantVolume(root.identity)")));
+        QVERIFY(tile.contains(QStringLiteral(
+            "onOpened: volumeSlider.value = root.currentVolumePercent()")));
+
+        // 4. `onMoved`, NEVER `onValueChanged`. `onValueChanged` also fires
+        //    for the programmatic read above, so it would write the value
+        //    straight back to the controller on every single open — a store
+        //    write per open, and one that defeats the store's own "the
+        //    default is never recorded" rule by re-recording what it read.
+        //    This is the assertion most likely to catch a future edit.
+        QVERIFY(tile.contains(
+            QStringLiteral("onMoved: root.applyVolumePercent(value)")));
+        QVERIFY2(!code(raw).contains(QStringLiteral("onValueChanged")),
+                 "the volume slider must react to onMoved, not to "
+                 "onValueChanged");
+        // The speaker/muted glyph CALLS currentVolumePercent(). Qt cannot
+        // observe a C++ function call as a dependency, so that binding must
+        // read a revision counter or it evaluates once and then describes a
+        // level that has since changed.
+        QVERIFY(tile.contains(QStringLiteral("property int volumeRevision")));
+        QVERIFY(tile.contains(QStringLiteral("var _ = root.volumeRevision;")));
+
+        // 5. Amplification is DISCLOSED, and disclosed always — not revealed
+        //    once the user is already past the line, which is not a
+        //    disclosure.
+        QVERIFY(tile.contains(
+            QStringLiteral("Above 100% amplifies and can clip.")));
+
+        // 6. NOT on the local tile. This is a PLAYBACK volume; nobody hears
+        //    their own published audio, so a slider there would move a number
+        //    with no audible effect and read as broken.
+        QVERIFY(tile.contains(QStringLiteral(
+            "readonly property bool _volumeOffered: !root.local")));
+
+        // 7. The popup SINKS its own presses. A Popup does not consume a
+        //    press that lands on it — blockInput() is false when the item is
+        //    the popup item — so without an all-buttons sink in `background:`
+        //    a press on the popup's chrome walks down to the tile's two
+        //    TapHandlers beneath: left re-spotlights the stage, right
+        //    re-opens the popup under itself. The Slider consumes its own
+        //    presses, which is what makes this easy to miss — dragging works
+        //    and only the surrounding chrome misbehaves. `modal: true` would
+        //    NOT fix it: it blocks presses OUTSIDE a popup only.
+        //
+        //    This assertion fails on the first draft of this very feature,
+        //    which is the only reason it is worth writing down.
+        QVERIFY2(tile.contains(QStringLiteral(
+                     "MouseArea { anchors.fill: parent acceptedButtons: "
+                     "Qt.AllButtons")),
+                 "the volume popup does not sink its own presses");
+    }
+
+    void theVolumeSurfaceGoesThroughTheControllerAndNeverTheStore()
+    {
+        // The write must reach the CONTROLLER, because the controller is the
+        // only place that can map the SFU identity this tile holds to the
+        // Matrix user id the preference is stored under. An identity is per
+        // DEVICE and, in the sticky membership format, an opaque hash — a
+        // preference keyed by it would be forgotten on the next rejoin, which
+        // is the exact opposite of what was asked for.
+        //
+        // So a surface that "helpfully" also wrote app.settings would look
+        // correct in a single call and lose the setting between calls. This
+        // ban is what stops that, and it is the reason the test exists at all.
+        const QString tile =
+            code(read(QStringLiteral(QML_DIR "/CallParticipantTile.qml")));
+        QVERIFY(!tile.isEmpty());
+
+        // Present-token control: without this the ban below could pass simply
+        // because the scan found nothing at all.
+        QVERIFY2(tile.contains(QStringLiteral("app.groupCall.setParticipantVolume")),
+                 "the volume write must go through the controller");
+
+        QVERIFY2(!tile.contains(QStringLiteral("setCallParticipantVolume")),
+                 "the tile must not write the store directly — the controller "
+                 "owns the identity-to-user-id mapping");
+        QVERIFY2(!tile.contains(QStringLiteral("QSettings")),
+                 "no QML surface may touch QSettings");
+    }
+
+    void microphoneGainIsOfferedWithItsMicrophoneAndSaysWhatItCosts()
+    {
+        // The other direction: what OTHERS hear. It lives with the microphone
+        // picker because it is a property of this computer's capture device,
+        // not of a call or of a person.
+        //
+        // UNFIXED TREE: fails on every assertion — CallDeviceSettings.qml had
+        // three device pickers and no level control at all.
+        const QString raw =
+            read(QStringLiteral(QML_DIR "/CallDeviceSettings.qml"));
+        QVERIFY(!raw.isEmpty());
+        const QString devices = normalized(raw);
+
+        QVERIFY(devices.contains(
+            QStringLiteral("objectName: \"microphoneGainSlider\"")));
+        // Same range and the same marked neutral point as the per-person
+        // control. Two level sliders in one app that disagree about what 100
+        // means is a worse outcome than either of them being wrong.
+        QVERIFY(devices.contains(QStringLiteral("to: 200")));
+        QVERIFY(devices.contains(QStringLiteral(
+            "objectName: \"microphoneGainNeutralMark\"")));
+        QVERIFY(devices.contains(
+            QStringLiteral("Above 100% amplifies and can clip.")));
+
+        // Bound to the settings property both ways, and moved by a USER
+        // gesture only — `onValueChanged` here would write back the value the
+        // binding just delivered from the store.
+        QVERIFY(devices.contains(
+            QStringLiteral("value: app.settings.microphoneGain")));
+        QVERIFY(devices.contains(QStringLiteral(
+            "onMoved: app.settings.microphoneGain = Math.round(value)")));
+        QVERIFY2(!code(raw).contains(QStringLiteral("onValueChanged")),
+                 "the gain slider must react to onMoved, not onValueChanged");
+        QVERIFY2(!code(raw).contains(QStringLiteral("QSettings")),
+                 "no QML surface may touch QSettings");
+    }
+
+    void everyIconTheVolumeSurfacesAskForIsInTheBundledSubset()
+    {
+        // The bundled Material Symbols font is a SUBSET: a name absent from
+        // Icon.qml's map renders as tofu, and nothing else catches it —
+        // the glyph simply comes out as a box on the maintainer's desktop.
+        // Pinned here for the names THIS round introduced, so a rename in
+        // Icon.qml cannot quietly blank the volume button.
+        const QString icons = read(QStringLiteral(QML_DIR "/Icon.qml"));
+        QVERIFY(!icons.isEmpty());
+        for (const auto &name : {"volume_up", "volume_off"}) {
+            QVERIFY2(icons.contains(
+                         QStringLiteral("\"%1\":").arg(QLatin1String(name))),
+                     qPrintable(QStringLiteral("icon '%1' is not mapped")
+                                    .arg(QLatin1String(name))));
+        }
     }
 
     void initTestCase()

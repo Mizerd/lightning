@@ -85,6 +85,18 @@ class CallStageState : public QObject
     /// flag drops itself whenever the spotlight empties — instead of being
     /// left to a binding somebody can later simplify away.
     Q_PROPERTY(bool fullScreen READ fullScreen NOTIFY fullScreenChanged)
+    /// `LIGHTNING_CALL_TRACE` is set, so the call surface may print its
+    /// bounded diagnostic lines.
+    ///
+    /// Here because this is the only object the stage reaches that C++ owns,
+    /// and QML cannot read an environment variable. CONSTANT: the variable is
+    /// read once at construction — a process does not gain a debug flag
+    /// halfway through, and a notifying property would invite one.
+    ///
+    /// What it may carry is bounded by the same rule as GuiStallTracer:
+    /// LITERAL strings, counts and platform/screen NAMES. Never a room, a
+    /// user, a track key or anything a peer chose.
+    Q_PROPERTY(bool traceEnabled READ traceEnabled CONSTANT)
 
 public:
     explicit CallStageState(QObject *parent = nullptr);
@@ -99,6 +111,7 @@ public:
     bool restorableShareAvailable() const;
     int dismissedShareCount() const;
     bool fullScreen() const { return m_fullScreen; }
+    bool traceEnabled() const { return m_traceEnabled; }
 
     /// Go full screen, or come back.
     ///
@@ -160,6 +173,8 @@ private:
     QString m_lastSpotlightShareId;
     bool m_lastRestorable = false;
     bool m_fullScreen = false;
+    /// Read once, in the constructor. See the property's note.
+    bool m_traceEnabled = false;
 
     /// True when there is something for a full screen to SHOW. Not a
     /// property: it is the guard, and exposing it would invite a caller to
