@@ -20,7 +20,35 @@ rpm -qpl "$package" | tee "$ROOT/dist/rpm-contents.txt"
 rpm -qpR "$package" | tee "$ROOT/dist/rpm-requires.txt"
 rpmlint "$package" >"$ROOT/dist/rpm-rpmlint.log" 2>&1 || true
 cat "$ROOT/dist/rpm-rpmlint.log"
-if grep -qE '(^|: )E: ' "$ROOT/dist/rpm-rpmlint.log"; then
+
+# Waived rpmlint errors, exact "<check> <argument>" pairs. Each needs a reason
+# here, and a waiver that STOPS FIRING is itself a failure below: a stale entry
+# is how a real error later slips through under an old justification.
+#
+# explicit-lib-dependency libnice-gstreamer1
+#   rpmlint fires this on any Requires whose name looks like a library, on the
+#   premise that rpm's automatic soname dependencies already cover it. They
+#   cannot cover this one: libnice-gstreamer1 ships a GStreamer PLUGIN
+#   (libgstnice.so) that is dlopen'd from the plugin path at runtime, so it
+#   appears in no ELF NEEDED entry of ours and the auto-generator never sees
+#   it. Dropping the Requires would produce a package that installs cleanly
+#   and then refuses every call — see the comment above it in
+#   packaging/rpm/lightning.spec.
+rpmlint_waivers=(
+    "explicit-lib-dependency libnice-gstreamer1"
+)
+
+errors="$(grep -E '(^|: )E: ' "$ROOT/dist/rpm-rpmlint.log" || true)"
+for waiver in "${rpmlint_waivers[@]}"; do
+    if ! grep -qF ": E: $waiver" <<<"$errors"; then
+        die "stale rpmlint waiver (no longer reported): $waiver"
+    fi
+    printf 'validate-rpm: waived rpmlint error: %s\n' "$waiver"
+    errors="$(grep -vF ": E: $waiver" <<<"$errors" || true)"
+done
+
+if [[ -n "${errors//[[:space:]]/}" ]]; then
+    printf '%s\n' "$errors"
     die "rpmlint reported errors"
 fi
 (cd "$ROOT/dist" && sha256sum -c "$(basename "$package").sha256")
