@@ -50,6 +50,13 @@ SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
     // would be a rebind, which is the reset this whole layer exists to
     // avoid. Leaving empties them instead.
     m_participantModel = new CallParticipantModel(this);
+    // participantCount() reads the model, so the property's NOTIFY has to be
+    // the model's own signal. Every other route (emitting participantsChanged
+    // from each rebuild site) is a list somebody has to keep complete, and it
+    // was already incomplete: onSfuJoined and the mediaStateChanged rebuild
+    // both moved the count without saying so.
+    connect(m_participantModel, &CallParticipantModel::countChanged, this,
+            &SfuCallController::participantCountChanged);
     m_shareModel = new CallShareModel(this);
     m_stageState = new CallStageState(this);
     m_stageState->setShareModel(m_shareModel);
@@ -904,23 +911,6 @@ void SfuCallController::attachVideoSink(const QString &identity,
 #endif
 }
 
-void SfuCallController::detachVideoSink(const QString &identity)
-{
-#ifdef HAVE_LIGHTNING_WEBRTC
-    if (!m_videoRouter)
-        return;
-    const QString cameraKey = trackKeyForSource(
-        identity, QStringLiteral("camera"));
-    if (!cameraKey.isEmpty())
-        m_videoRouter->detachSink(cameraKey);
-    const QString streamId = streamIdForIdentity(identity);
-    if (!streamId.isEmpty())
-        m_videoRouter->detachSink(streamId);
-#else
-    Q_UNUSED(identity);
-#endif
-}
-
 void SfuCallController::attachScreenSink(const QString &identity,
                                          QObject *videoSink)
 {
@@ -941,21 +931,6 @@ void SfuCallController::attachScreenSink(const QString &identity,
 #endif
 }
 
-void SfuCallController::detachScreenSink(const QString &identity)
-{
-#ifdef HAVE_LIGHTNING_WEBRTC
-    if (!m_videoRouter)
-        return;
-    const QString key = trackKeyForSource(identity,
-                                          QStringLiteral("screen_share"));
-    if (key.isEmpty())
-        return;
-    m_videoRouter->detachSink(key);
-#else
-    Q_UNUSED(identity);
-#endif
-}
-
 void SfuCallController::attachLocalCameraSink(QObject *videoSink)
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
@@ -965,15 +940,6 @@ void SfuCallController::attachLocalCameraSink(QObject *videoSink)
                               qobject_cast<QVideoSink *>(videoSink));
 #else
     Q_UNUSED(videoSink);
-#endif
-}
-
-void SfuCallController::detachLocalCameraSink()
-{
-#ifdef HAVE_LIGHTNING_WEBRTC
-    if (!m_videoRouter)
-        return;
-    m_videoRouter->detachSink(SfuMediaEngine::localCameraStreamId());
 #endif
 }
 
@@ -989,12 +955,30 @@ void SfuCallController::attachLocalScreenSink(QObject *videoSink)
 #endif
 }
 
-void SfuCallController::detachLocalScreenSink()
+void SfuCallController::detachSink(QObject *videoSink)
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (!m_videoRouter)
         return;
-    m_videoRouter->detachSink(SfuMediaEngine::localScreenStreamId());
+    // A cast, not a trust. A wrong type releases NOTHING rather than being
+    // reinterpreted — and, unlike the four key-named detaches this replaced,
+    // a null argument here cannot clear anybody's route.
+    auto *sink = qobject_cast<QVideoSink *>(videoSink);
+    if (!sink)
+        return;
+    m_videoRouter->releaseSink(sink);
+#else
+    Q_UNUSED(videoSink);
+#endif
+}
+
+bool SfuCallController::isRoutingVideoTo(const QString &streamId) const
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    return m_videoRouter && m_videoRouter->watching(streamId);
+#else
+    Q_UNUSED(streamId);
+    return false;
 #endif
 }
 
@@ -1301,6 +1285,20 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_screenSharing = false;
     m_handRaised = false;
     m_mediaEncrypted = false;
+#ifdef HAVE_LIGHTNING_WEBRTC
+    // The sink table belonged to THIS call's track sids. In practice the
+    // tiles release their own as the models empty, but "in practice" is not
+    // the bar for a table the engine consults on a STREAMING THREAD: a stale
+    // entry is a dangling destination for the next call's frames, and sids
+    // are server-assigned and can repeat.
+    //
+    // Unconditional, and it must stay that way. The ownership rule that
+    // governs one surface's release is deliberately NOT applied here — there
+    // is no surviving owner to protect, and honouring it would leave exactly
+    // the stale entries this exists to remove.
+    if (m_videoRouter)
+        m_videoRouter->clear();
+#endif
     // Mute/deafen intent deliberately SURVIVES a call (the familiar
     // convention); it is cleared only on sign-out, where setClient runs.
     setState(finalState, error);

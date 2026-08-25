@@ -74,8 +74,15 @@ class SfuCallController : public QObject
     Q_PROPERTY(bool screenSharing READ screenSharing NOTIFY mediaStateChanged)
     Q_PROPERTY(bool handRaised READ handRaised NOTIFY mediaStateChanged)
     Q_PROPERTY(bool mediaEncrypted READ mediaEncrypted NOTIFY mediaStateChanged)
+    /// NOTIFY is the MODEL's own countChanged, forwarded, and not
+    /// `participantsChanged`. This reader now answers out of
+    /// `CallParticipantModel::rowCount()`, and the model is rebuilt from
+    /// paths that do not all emit `participantsChanged` (`onSfuJoined`, and
+    /// every `mediaStateChanged`) — so a surface binding this saw a stale
+    /// count. Forwarding the model's own signal cannot go stale and cannot
+    /// storm: the model emits it only when the row count really changed.
     Q_PROPERTY(int participantCount READ participantCount
-                   NOTIFY participantsChanged)
+                   NOTIFY participantCountChanged)
     /// THE call's people. CONSTANT because the object lives as long as the
     /// controller does — it is emptied on leave, never replaced, so a view
     /// bound to it is never re-bound and never reset.
@@ -135,9 +142,6 @@ public:
     /// guess would put one participant's frames in another's tile.
     Q_INVOKABLE void attachVideoSink(const QString &identity,
                                      QObject *videoSink);
-    /// Release a tile's sink. Must be called when a tile is destroyed, or
-    /// the router keeps a dangling destination for one frame.
-    Q_INVOKABLE void detachVideoSink(const QString &identity);
     /// Attach a sink to one participant's SCREEN SHARE, which is a second,
     /// separate video track from the same person.
     ///
@@ -148,18 +152,46 @@ public:
     /// media-section id (`mid`), which LiveKit states per track.
     Q_INVOKABLE void attachScreenSink(const QString &identity,
                                       QObject *videoSink);
-    Q_INVOKABLE void detachScreenSink(const QString &identity);
-    /// Attach a sink to OUR OWN screen share, straight off the capture
-    /// pipeline. Nothing is sent for this and nothing is decrypted: it is the
-    /// only way the sharer can see that their share is carrying pixels.
     /// Attach a sink to OUR OWN CAMERA, straight off the capture pipeline.
     /// Our camera is published, never received, so this self-view is the only
     /// local camera video there is — without it a local tile can only show an
     /// avatar while the capture light is on.
     Q_INVOKABLE void attachLocalCameraSink(QObject *videoSink);
-    Q_INVOKABLE void detachLocalCameraSink();
+    /// Attach a sink to OUR OWN screen share, straight off the capture
+    /// pipeline. Nothing is sent for this and nothing is decrypted: it is the
+    /// only way the sharer can see that their share is carrying pixels.
     Q_INVOKABLE void attachLocalScreenSink(QObject *videoSink);
-    Q_INVOKABLE void detachLocalScreenSink();
+
+    /// ONE detach, and it names the SINK rather than a key. This is the whole
+    /// correction of 2026-08-27 and it replaced four per-key detaches
+    /// (`detachVideoSink`/`detachScreenSink`/`detachLocalCameraSink`/
+    /// `detachLocalScreenSink`), which are gone rather than deprecated.
+    ///
+    /// Two things were wrong with naming a key here, and both bit:
+    ///
+    ///  * The key was DERIVED at call time — `trackKeyForSource()` reads the
+    ///    live participant list, and `local`/`mediaKind` are tile properties
+    ///    that can change — so a tile could compute a different key at
+    ///    destruction than it did at creation and release the wrong one.
+    ///  * Far worse, a key-named release removed whatever was there. Qt
+    ///    destroys a replaced surface AFTER building its replacement
+    ///    (deleteLater vs. synchronous create), so on every layout swap and
+    ///    every Repeater regenerate the dying tile unhooked the living one
+    ///    and the video never came back.
+    ///
+    /// A sink cannot be named wrongly: a surface releases exactly what it
+    /// holds. A null or non-QVideoSink argument is a NO-OP, deliberately —
+    /// the old code treated "no sink" as "remove the key", which is the same
+    /// defect wearing a different hat.
+    Q_INVOKABLE void detachSink(QObject *videoSink);
+
+    /// Diagnostic: is anything currently watching this routing key?
+    ///
+    /// Exists so a test can assert the ROUTER's state across a layout change
+    /// rather than a QML property, which is the whole failure — a tile can
+    /// report "attached" while the router disagrees. §16 records twice what a
+    /// test that never reaches production is worth.
+    Q_INVOKABLE bool isRoutingVideoTo(const QString &streamId) const;
 
     State state() const { return m_state; }
     int stateInt() const { return static_cast<int>(m_state); }
@@ -250,6 +282,8 @@ Q_SIGNALS:
     void stateChanged();
     void mediaStateChanged();
     void participantsChanged();
+    /// Forwarded from CallParticipantModel::countChanged. See the property.
+    void participantCountChanged();
     /// A user-facing failure, already reduced to plain wording.
     void callFailed(const QString &message);
 

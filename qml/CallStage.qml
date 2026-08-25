@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import MatrixClient
 
 // The call surface — Discord's DM arrangement, Lightning's tokens.
@@ -99,7 +100,15 @@ Rectangle {
         function onDataChanged() { root.recountCameras() }
         function onCountChanged() { root.recountCameras() }
     }
-    Component.onCompleted: root.recountCameras()
+    Component.onCompleted: {
+        root.recountCameras();
+        // The stage is destroyed and rebuilt by its host's Loader on every
+        // room change, while the call — and `CallStageState` with it —
+        // outlives that. So the flag can already be true when this component
+        // is created, and a sync driven only by the CHANGE signal would leave
+        // the stage drawing "Playing full screen" with no window anywhere.
+        root.syncFullScreenWindow();
+    }
 
     /// True when nothing in this call is sending video at all — the ordinary
     /// voice call, drawn as circular avatars on the canvas rather than a grid
@@ -161,6 +170,192 @@ Rectangle {
         if (root.stageState.spotlightShareId.length > 0)
             root.stageState.dismissShare(root.stageState.spotlightShareId);
         root.stageState.clearPin();
+    }
+
+    // ── Full screen ──────────────────────────────────────────────────────
+    //
+    // The focused surface on a whole screen, in its own window — Discord's
+    // "Full Screen" on the focused stream, and the maintainer's "add an
+    // option to full screen screen share so it takes full minotir".
+    //
+    // A SEPARATE Window, not an overlay inside the main one, because "full
+    // monitor" is what was asked for: an overlay can only ever fill the
+    // application window. It is declared inside this Item, so Qt makes it
+    // transient for the main window and it dies with the stage.
+    //
+    // NOT gated on `collapsed`: watching a share full screen on one monitor
+    // while the in-room panel is collapsed to read messages is a reason to
+    // have this at all.
+    //
+    // THE ONE STATE THAT MUST NOT EXIST is full screen with nothing in it —
+    // a black monitor with no obvious way out. `CallStageState` refuses to
+    // enter without a focused surface and drops the flag the moment the
+    // spotlight empties; this binding is the second half of the same rule,
+    // reading the resolved model rows rather than the ids.
+    readonly property bool fullScreenActive:
+        root.stageState ? (root.stageState.fullScreen
+                           && root.spotlightHasSurface)
+                        : false
+
+    function enterFullScreen() {
+        if (root.stageState)
+            root.stageState.setFullScreen(true);
+    }
+    function exitFullScreen() {
+        if (root.stageState)
+            root.stageState.setFullScreen(false);
+    }
+
+    /// One level back, whatever level you are on. Tapping the big picture
+    /// leaves full screen; tapping the stage's spotlight leaves the
+    /// spotlight. Entering full screen is a BUTTON, so this is only ever a
+    /// forgiving way out, never the way in.
+    function focusedSurfaceActivated() {
+        if (root.fullScreenActive)
+            root.exitFullScreen();
+        else
+            root.leaveSpotlight();
+    }
+
+    // Driven IMPERATIVELY, and that is deliberate. Binding `Window.visibility`
+    // would put a binding on the exact property a window manager writes when
+    // the user closes the window — and a QML binding that the platform
+    // overwrites is how this repo has shipped one-way latches before. There is
+    // no binding here to break: the flag is the single source of truth, and
+    // `onClosing` ACCEPTS the close (refusing it would veto Ctrl+Q, §16) and
+    // writes the flag back, so the two can never disagree for longer than one
+    // call.
+    function syncFullScreenWindow() {
+        // The flag can change while this component is still being built —
+        // `stageState` resolves partway through — and an id whose object has
+        // not been created yet reads as null rather than throwing. Guard, or
+        // the first evaluation logs a reference error nobody will connect to
+        // a window that then never opens.
+        if (!fullScreenWindow)
+            return;
+        if (root.fullScreenActive) {
+            fullScreenWindow.showFullScreen();
+            fullScreenSurface.forceActiveFocus();
+        } else if (fullScreenWindow.visible) {
+            fullScreenWindow.hide();
+        }
+    }
+    onFullScreenActiveChanged: root.syncFullScreenWindow()
+
+    // ── The focused surface, defined ONCE ────────────────────────────────
+    //
+    // Hosted by the stage's spotlight and by the full-screen window, and
+    // NEVER by both: `fullScreenActive` stands the stage's grid and spotlight
+    // Loaders down. That matters for one reason beyond tidiness — the router
+    // holds ONE sink per key, so two live surfaces asking for one
+    // participant's screen would take turns owning it, and whichever lost the
+    // race would be blank.
+    //
+    // Going full screen therefore does REBUILD the video item; a QQuickItem
+    // cannot move between scene graphs, so no arrangement of Loaders could
+    // avoid that. What makes the rebuild safe is the router's ownership rule
+    // (SfuVideoRouter): the surface being built CLAIMS the key, and the one
+    // being torn down releases by SINK, so by the time its deferred
+    // destruction runs it owns nothing and takes nothing with it. Without
+    // that rule this transition would blank the video exactly as the
+    // grid→spotlight one did.
+    Component {
+        id: focusedSurface
+
+        Item {
+            // The spotlighted SHARE. A Repeater over the real model rather
+            // than a `get(row)` snapshot: the track key fills in late, and a
+            // snapshot taken before it arrives never attaches a sink.
+            Repeater {
+                model: root.shareModel
+                delegate: Loader {
+                    id: spotShare
+                    required property string shareId
+                    required property string ownerIdentity
+                    required property string ownerDisplayName
+                    required property string trackKey
+                    required property bool local
+
+                    anchors.fill: parent
+                    active: root.stageState
+                            && spotShare.shareId
+                               === root.stageState.spotlightShareId
+                    visible: active
+                    sourceComponent: CallShareTile {
+                        shareId: spotShare.shareId
+                        ownerIdentity: spotShare.ownerIdentity
+                        ownerDisplayName: spotShare.ownerDisplayName
+                        trackKey: spotShare.trackKey
+                        local: spotShare.local
+                        focused: true
+                        onActivated: root.focusedSurfaceActivated()
+                    }
+                }
+            }
+
+            // The pinned PERSON, when no share is spotlighted.
+            Repeater {
+                model: root.participantModel
+                delegate: Loader {
+                    id: spotPerson
+                    required property string identity
+                    required property string userId
+                    required property string displayName
+                    required property string avatarMxc
+                    required property bool local
+                    required property bool micKnown
+                    required property bool micMuted
+                    required property bool cameraKnown
+                    required property bool cameraOn
+                    required property string cameraTrackKey
+                    required property bool screenSharing
+                    required property bool speaking
+                    required property real speakingLevel
+                    required property bool handRaised
+                    required property string connectionQuality
+
+                    anchors.fill: parent
+                    active: root.stageState
+                            && root.spotlightShareRow < 0
+                            && spotPerson.identity
+                               === root.stageState.pinnedIdentity
+                    visible: active
+                    sourceComponent: CallParticipantTile {
+                        identity: spotPerson.identity
+                        userId: spotPerson.userId
+                        displayName: spotPerson.displayName
+                        avatarMxc: spotPerson.avatarMxc
+                        local: spotPerson.local
+                        micKnown: spotPerson.micKnown
+                        micMuted: spotPerson.micMuted
+                        cameraKnown: spotPerson.cameraKnown
+                        cameraOn: spotPerson.cameraOn
+                        cameraTrackKey: spotPerson.cameraTrackKey
+                        screenSharing: spotPerson.screenSharing
+                        mediaKind: "camera"
+                        speaking: spotPerson.speaking
+                        speakingLevel: spotPerson.speakingLevel
+                        handRaised: spotPerson.handRaised
+                        connectionQuality: spotPerson.connectionQuality
+                        focused: true
+                        onActivated: root.focusedSurfaceActivated()
+                    }
+                }
+            }
+
+            // Only when there is genuinely nobody to spotlight — a pinned
+            // participant who has left, for instance.
+            Loader {
+                anchors.centerIn: parent
+                active: !root.spotlightHasSurface
+                visible: active
+                sourceComponent: Text {
+                    text: qsTr("Nobody to show here yet")
+                    color: AppTheme.stormTextSecondary
+                    font.pixelSize: 13
+                }
+            }
+        }
     }
 
     ColumnLayout {
@@ -287,9 +482,13 @@ Rectangle {
             visible: !root.collapsed
 
             // GRID — every surface the same size. Shares first, then people.
+            //
+            // Stood down while full screen is up: one surface per routing key
+            // at a time, or two live tiles fight over it.
             Loader {
                 anchors.fill: parent
-                active: !root.collapsed && root.effectiveLayout === "grid"
+                active: !root.collapsed && !root.fullScreenActive
+                        && root.effectiveLayout === "grid"
                 visible: active
                 sourceComponent: CallTileGrid {
                     objectName: "callGrid"
@@ -315,7 +514,8 @@ Rectangle {
             // readable.
             Loader {
                 anchors.fill: parent
-                active: !root.collapsed && root.effectiveLayout === "spotlight"
+                active: !root.collapsed && !root.fullScreenActive
+                        && root.effectiveLayout === "spotlight"
                 visible: active
                 sourceComponent: ColumnLayout {
                     spacing: AppTheme.spacing8
@@ -330,115 +530,38 @@ Rectangle {
                         border.color: AppTheme.stormBorder
                         clip: true
 
-                        // The spotlighted SHARE. A Repeater over the real
-                        // model rather than a `get(row)` snapshot: the track
-                        // key fills in late, and a snapshot taken before it
-                        // arrives never attaches a sink.
-                        Repeater {
-                            model: root.shareModel
-                            delegate: Loader {
-                                id: spotShare
-                                required property string shareId
-                                required property string ownerIdentity
-                                required property string ownerDisplayName
-                                required property string trackKey
-                                required property bool local
-
-                                anchors.fill: parent
-                                anchors.margins: 1
-                                active: root.stageState
-                                        && spotShare.shareId
-                                           === root.stageState.spotlightShareId
-                                visible: active
-                                sourceComponent: CallShareTile {
-                                    shareId: spotShare.shareId
-                                    ownerIdentity: spotShare.ownerIdentity
-                                    ownerDisplayName: spotShare.ownerDisplayName
-                                    trackKey: spotShare.trackKey
-                                    local: spotShare.local
-                                    focused: true
-                                    onActivated: root.leaveSpotlight()
-                                }
-                            }
-                        }
-
-                        // The pinned PERSON, when no share is spotlighted.
-                        Repeater {
-                            model: root.participantModel
-                            delegate: Loader {
-                                id: spotPerson
-                                required property string identity
-                                required property string userId
-                                required property string displayName
-                                required property string avatarMxc
-                                required property bool local
-                                required property bool micKnown
-                                required property bool micMuted
-                                required property bool cameraKnown
-                                required property bool cameraOn
-                                required property string cameraTrackKey
-                                required property bool screenSharing
-                                required property bool speaking
-                                required property real speakingLevel
-                                required property bool handRaised
-                                required property string connectionQuality
-
-                                anchors.fill: parent
-                                anchors.margins: 1
-                                active: root.stageState
-                                        && root.spotlightShareRow < 0
-                                        && spotPerson.identity
-                                           === root.stageState.pinnedIdentity
-                                visible: active
-                                sourceComponent: CallParticipantTile {
-                                    identity: spotPerson.identity
-                                    userId: spotPerson.userId
-                                    displayName: spotPerson.displayName
-                                    avatarMxc: spotPerson.avatarMxc
-                                    local: spotPerson.local
-                                    micKnown: spotPerson.micKnown
-                                    micMuted: spotPerson.micMuted
-                                    cameraKnown: spotPerson.cameraKnown
-                                    cameraOn: spotPerson.cameraOn
-                                    cameraTrackKey: spotPerson.cameraTrackKey
-                                    screenSharing: spotPerson.screenSharing
-                                    mediaKind: "camera"
-                                    speaking: spotPerson.speaking
-                                    speakingLevel: spotPerson.speakingLevel
-                                    handRaised: spotPerson.handRaised
-                                    connectionQuality: spotPerson.connectionQuality
-                                    focused: true
-                                    onActivated: root.leaveSpotlight()
-                                }
-                            }
-                        }
-
-                        // Only when there is genuinely nobody to spotlight —
-                        // a pinned participant who has left, for instance.
                         Loader {
-                            anchors.centerIn: parent
-                            active: !root.spotlightHasSurface
-                            visible: active
-                            sourceComponent: Text {
-                                text: qsTr("Nobody to show here yet")
-                                color: AppTheme.stormTextSecondary
-                                font.pixelSize: 13
-                            }
+                            anchors.fill: parent
+                            anchors.margins: 1
+                            sourceComponent: focusedSurface
                         }
 
-                        AppButton {
-                            objectName: "callBackToGridButton"
-                            storm: true
+                        RowLayout {
                             anchors.top: parent.top
                             anchors.right: parent.right
                             anchors.margins: AppTheme.spacing8
-                            size: "sm"
-                            text: qsTr("Back to grid")
+                            spacing: AppTheme.spacing8
+
+                            CallControlButton {
+                                objectName: "callFullScreenButton"
+                                iconName: "fit_screen"
+                                diameter: 30
+                                glyphSize: 16
+                                tooltip: qsTr("Full screen")
+                                onClicked: root.enterFullScreen()
+                            }
+
                             // DISMISS, never a layout write. The dismissed
                             // share stays live, stays a row in the model and
-                            // stays a tile in the grid — so this exit is not
-                            // a door that locks behind you.
-                            onClicked: root.leaveSpotlight()
+                            // stays a tile in the grid — so this exit is not a
+                            // door that locks behind you.
+                            AppButton {
+                                objectName: "callBackToGridButton"
+                                storm: true
+                                size: "sm"
+                                text: qsTr("Back to grid")
+                                onClicked: root.leaveSpotlight()
+                            }
                         }
                     }
 
@@ -554,6 +677,44 @@ Rectangle {
                     }
                 }
             }
+
+            // WHERE THE PICTURE WENT. The stage's own surfaces are stood down
+            // while full screen is up, so without this the panel is an empty
+            // rectangle and the only way back is a window that may be on
+            // another monitor. This is the second exit, and it is on the
+            // screen the user was already looking at.
+            Loader {
+                anchors.fill: parent
+                active: !root.collapsed && root.fullScreenActive
+                visible: active
+                sourceComponent: Item {
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: AppTheme.spacing8
+
+                        Icon {
+                            Layout.alignment: Qt.AlignHCenter
+                            name: "fit_screen"
+                            size: 28
+                            color: AppTheme.stormTextSecondary
+                        }
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: qsTr("Playing full screen")
+                            color: AppTheme.stormTextSecondary
+                            font.pixelSize: 13
+                        }
+                        AppButton {
+                            objectName: "callExitFullScreenFromStageButton"
+                            Layout.alignment: Qt.AlignHCenter
+                            storm: true
+                            size: "sm"
+                            text: qsTr("Exit full screen")
+                            onClicked: root.exitFullScreen()
+                        }
+                    }
+                }
+            }
         }
 
         // The control dock: ONE control surface, at the bottom of the stage,
@@ -576,6 +737,97 @@ Rectangle {
                 objectName: "callStageDock"
                 placement: "dock"
                 onParticipantsRequested: root.participantsRequested()
+            }
+        }
+    }
+
+    // ── The full-screen window ───────────────────────────────────────────
+    //
+    // Its own top-level window, so "full screen" means the MONITOR and not
+    // the application window. Declared inside this Item, which is what makes
+    // Qt treat it as transient for the main window and destroy it with the
+    // stage.
+    //
+    // Black, not a theme surface: every pixel around a fitted picture should
+    // be the absence of a picture, and that is black on every theme.
+    Window {
+        id: fullScreenWindow
+
+        objectName: "callFullScreenWindow"
+        title: qsTr("Lightning — full screen")
+        color: "#000000"
+        width: 1280
+        height: 720
+
+        // NO `visible` and NO `visibility` binding: see syncFullScreenWindow().
+        // ACCEPTED, never refused. A window that refuses its close event
+        // vetoes application quit — §16 records close-to-tray eating Ctrl+Q
+        // for exactly that reason — so this lets the close happen and writes
+        // the flag back so the state cannot disagree with the screen.
+        onClosing: root.exitFullScreen()
+
+        Item {
+            id: fullScreenSurface
+            anchors.fill: parent
+            focus: true
+
+            // A Keys handler, NOT a Shortcut. Escape is in ShortcutRegistry's
+            // RESERVED list (it closes the find bar, room information, a
+            // thread and Settings), and two enabled Shortcuts on one sequence
+            // fire NEITHER — a window-level Shortcut here would break closing
+            // a dialog while a call is up. A handler on the focused item of a
+            // DIFFERENT window cannot collide with any of that.
+            Keys.onPressed: function (event) {
+                if (event.key === Qt.Key_Escape) {
+                    root.exitFullScreen();
+                    event.accepted = true;
+                }
+            }
+
+            Loader {
+                anchors.fill: parent
+                // Only while shown. A hidden Window still instantiates its
+                // children, and a VideoOutput nobody can see would hold a
+                // decoded frame and a router key for the whole call.
+                active: root.fullScreenActive
+                visible: active
+                sourceComponent: focusedSurface
+            }
+
+            // Floating controls. Deliberately always visible rather than
+            // fading on idle: a control that has to be summoned cannot
+            // explain how to leave, and leaving is the thing a full-screen
+            // surface most needs to make obvious.
+            RowLayout {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: AppTheme.spacing12
+                spacing: AppTheme.spacing8
+
+                CallControlButton {
+                    objectName: "callExitFullScreenButton"
+                    iconName: "close_fullscreen"
+                    diameter: 36
+                    glyphSize: 18
+                    tooltip: qsTr("Exit full screen (Esc)")
+                    onClicked: root.exitFullScreen()
+                }
+            }
+
+            // The same control set as everywhere else, in its dock
+            // placement. One definition; this is a placement of it, not
+            // another bar.
+            Loader {
+                anchors.bottom: parent.bottom
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottomMargin: AppTheme.spacing16
+                active: root.fullScreenActive
+                visible: active
+                sourceComponent: CallHeaderBar {
+                    objectName: "callFullScreenDock"
+                    placement: "dock"
+                    onParticipantsRequested: root.participantsRequested()
+                }
             }
         }
     }

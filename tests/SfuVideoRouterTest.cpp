@@ -55,17 +55,30 @@ private slots:
         QVERIFY(!router.watching(QString()));
     }
 
-    void aNullSinkDetachesRatherThanRegisteringNothing()
+    void aNullSinkRegistersNothingAndEvictsNobody()
     {
         // A QML VideoOutput whose videoSink is not ready yet passes null.
         // Recording that as an attachment would report the stream as
-        // watched, and the engine would copy frames into a hole.
+        // watched and the engine would copy frames into a hole — so it must
+        // not be stored.
+        //
+        // It must not REMOVE anything either, which is the 2026-08-27
+        // correction. "I have no sink yet" and "nobody may own this key" are
+        // different statements, and treating the first as the second let a
+        // half-built surface evict a working one — the same shape of defect
+        // as the key-named detach this round removed.
         SfuVideoRouter router;
         auto sink = std::make_unique<QVideoSink>();
         router.attachSink(QStringLiteral("PA_alice"), sink.get());
         QVERIFY(router.watching(QStringLiteral("PA_alice")));
         router.attachSink(QStringLiteral("PA_alice"), nullptr);
-        QVERIFY(!router.watching(QStringLiteral("PA_alice")));
+        QVERIFY2(router.watching(QStringLiteral("PA_alice")),
+                 "a null attach evicted the live owner");
+        QVERIFY(router.watchedBy(QStringLiteral("PA_alice"), sink.get()));
+
+        // And an empty key still registers nothing.
+        router.attachSink(QString(), sink.get());
+        QVERIFY(!router.watching(QString()));
     }
 
     void aDestroyedSinkStopsBeingWatched()
@@ -146,12 +159,61 @@ private slots:
         QVERIFY(!router.watching(QStringLiteral("PA_bob")));
     }
 
-    void detachingAnUnknownStreamIsHarmless()
+    void releasingASinkThatOwnsNothingIsHarmless()
     {
         SfuVideoRouter router;
-        router.detachSink(QStringLiteral("PA_nobody"));
-        router.detachSink(QString());
+        auto stranger = std::make_unique<QVideoSink>();
+        router.releaseSink(stranger.get());
+        router.releaseSink(nullptr); // a null release is not a wildcard
         QVERIFY(!router.watching(QStringLiteral("PA_nobody")));
+    }
+
+    void aSupersededSurfaceCannotTearDownItsReplacement()
+    {
+        // THE 2026-08-27 regression, at the layer that owns it. There was no
+        // way to write this before: `detachSink(key)` removed whatever was
+        // there, which is why eleven tests in this file passed straight
+        // through a defect that blanked every camera and every spotlighted
+        // share.
+        //
+        // The order below is the order production actually produces — Qt
+        // builds the replacement synchronously and destroys the old surface
+        // on the deferred-delete queue.
+        SfuVideoRouter router;
+        auto oldSurface = std::make_unique<QVideoSink>();
+        auto newSurface = std::make_unique<QVideoSink>();
+        const QString key = QStringLiteral("TR_share_a");
+
+        router.attachSink(key, oldSurface.get());
+        router.attachSink(key, newSurface.get()); // the replacement claims it
+        router.releaseSink(oldSurface.get());     // ...then the old one dies
+
+        QVERIFY2(router.watching(key), "a dying surface unhooked a live one");
+        QVERIFY(router.watchedBy(key, newSurface.get()));
+
+        // The real owner's release still works, or every assertion above is
+        // vacuous and the table simply never shrinks.
+        router.releaseSink(newSurface.get());
+        QVERIFY(!router.watching(key));
+    }
+
+    void oneSurfaceGivesUpEveryKeyItHoldsAndNobodyElses()
+    {
+        // A camera tile attaches under BOTH the camera track sid and the
+        // participant sid (SfuCallController::attachVideoSink), so a release
+        // has to cover every key that sink owns — and no key it does not.
+        SfuVideoRouter router;
+        auto mine = std::make_unique<QVideoSink>();
+        auto theirs = std::make_unique<QVideoSink>();
+        router.attachSink(QStringLiteral("TR_cam"), mine.get());
+        router.attachSink(QStringLiteral("PA_alice"), mine.get());
+        router.attachSink(QStringLiteral("TR_other"), theirs.get());
+
+        router.releaseSink(mine.get());
+
+        QVERIFY(!router.watching(QStringLiteral("TR_cam")));
+        QVERIFY(!router.watching(QStringLiteral("PA_alice")));
+        QVERIFY(router.watching(QStringLiteral("TR_other")));
     }
 };
 

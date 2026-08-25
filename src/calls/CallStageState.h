@@ -75,6 +75,16 @@ class CallStageState : public QObject
                    NOTIFY spotlightChanged)
     Q_PROPERTY(int dismissedShareCount READ dismissedShareCount
                    NOTIFY spotlightChanged)
+    /// The focused surface should fill a whole screen, in its own window —
+    /// Discord's "Full Screen" on the focused stream.
+    ///
+    /// Here rather than in QML for the same two reasons as everything else in
+    /// this class, plus a third: a full-screen window with NOTHING in it is
+    /// unrecoverable-looking, so the one state that must never happen is
+    /// "full screen with no focused surface". That is enforced here — the
+    /// flag drops itself whenever the spotlight empties — instead of being
+    /// left to a binding somebody can later simplify away.
+    Q_PROPERTY(bool fullScreen READ fullScreen NOTIFY fullScreenChanged)
 
 public:
     explicit CallStageState(QObject *parent = nullptr);
@@ -88,6 +98,16 @@ public:
     QString spotlightShareId() const;
     bool restorableShareAvailable() const;
     int dismissedShareCount() const;
+    bool fullScreen() const { return m_fullScreen; }
+
+    /// Go full screen, or come back.
+    ///
+    /// Refuses to go full screen when there is nothing focused: no share on
+    /// the spotlight and nobody pinned. A window filling the monitor with an
+    /// empty rectangle is the worst outcome this feature can produce, and the
+    /// refusal is here rather than in the caller so every caller inherits it.
+    Q_INVOKABLE void setFullScreen(bool fullScreen);
+    Q_INVOKABLE void toggleFullScreen();
 
     /// Take this share off the spotlight. It REMAINS a row in the share
     /// model and therefore a tile in the grid — "dismissed" has never meant
@@ -114,6 +134,7 @@ Q_SIGNALS:
     void pinnedIdentityChanged();
     void layoutPreferenceChanged();
     void spotlightChanged();
+    void fullScreenChanged();
 
 private Q_SLOTS:
     /// A share ended: drop its dismissal so the id cannot be inherited (the
@@ -138,4 +159,14 @@ private:
     /// rather than on every model poke.
     QString m_lastSpotlightShareId;
     bool m_lastRestorable = false;
+    bool m_fullScreen = false;
+
+    /// True when there is something for a full screen to SHOW. Not a
+    /// property: it is the guard, and exposing it would invite a caller to
+    /// check it and then act, which is the race this avoids by keeping the
+    /// check inside the write.
+    bool hasFocusedSurface() const;
+    /// Drop full screen if the thing it was showing is gone. Called from
+    /// every path that can empty the spotlight.
+    void enforceFullScreenHasSurface();
 };

@@ -565,30 +565,27 @@ UI says it is fine, and no media is usable.
   sits on it for exactly that long. Reported as "when i screen share from
   linux about for 1 sec the screen share is frozen then frames start going
   good and normal".
-  Fixed with `pipewiresrc keepalive-time=100`, which re-pushes the buffer the
-  element ALREADY HOLDS when nothing new has arrived in 100 ms. **This is not
-  `min-buffers` wearing a new name**: `min-buffers` changes the pool
-  negotiated *with PipeWire* and killed the capture outright, while
-  `keepalive-time` is a timer inside the element that touches no caps, no
-  pool and no negotiation. The wire is byte-for-byte unchanged.
-  Two refuted alternatives, both measured: `videorate skip-to-first=true`
-  changes nothing on this input shape, and `videorate max-duplication-time`
-  removes the burst but keeps the hold AND starves the encoder below the
-  pinned 30 fps — which is the condition that made Element refuse to render
-  in the first place.
-  **The cost is diagnostic and it is why 100 ms and not one frame period.** A
-  keepalive resend counts as a delivered frame, so `capture delivered frames
-  count=` no longer distinguishes a dead capture perfectly. At 100 ms a dead
-  capture reports ~10/s against a live capture's up-to-30/s, so the pair
-  still diverges; a 33 ms keepalive would have erased the signal on the one
-  lane that most needed it.
-  **Live validation: NOT TESTED.** The mechanism is measured, that it is the
-  maintainer's ~1 s is not. The measurement that settles it: start a share,
-  keep the desktop still for two seconds, and compare the timestamps of
-  `capture delivered frames count= 1` and the first `frames encrypted video=`
-  line. Before the fix that gap should be ~1 s; after it, ≤ ~100 ms. If it is
-  already near zero on an unfixed build, this diagnosis is wrong and the
-  freeze lives downstream.
+  **`pipewiresrc keepalive-time=100` was tried as the fix and made it
+  STRICTLY WORSE.** The reasoning was good — re-push the buffer the element
+  already holds, touching no caps, no pool and no negotiation, unlike the
+  `min-buffers` experiment below. It was shipped on that reasoning without a
+  live measurement, and the share then froze on its FIRST frame and never
+  recovered. The LOCAL SELF-VIEW sat on "Waiting for the picture", which is
+  what proves it: the self-view is tee'd off the capture, so it indicts the
+  capture and not the network. Reverted in the same day.
+  **That is the SECOND property tried here on reasoning alone and the second
+  to kill the capture.** The rule this lane keeps re-learning: a GStreamer
+  property change on the publish path is not a code review question, it is a
+  measurement question, and the measurement is one live share.
+  Two further alternatives measured and refuted before either was shipped:
+  `videorate skip-to-first=true` changes nothing on this input shape, and
+  `videorate max-duplication-time` removes the burst but keeps the hold AND
+  starves the encoder below the pinned 30 fps — which is the condition that
+  made Element refuse to render in the first place.
+  **The ~1 s hold is therefore ACCEPTED for now**, and the measurement that
+  should precede the next attempt is: start a share, keep the desktop still
+  for two seconds, and compare the timestamps of `capture delivered frames
+  count= 1` against the first `frames encrypted video=` line.
 * **`videorate` masks a dead capture.** It repeats the last picture to hold
   the output rate, so a screen capture that stalls still produces a full-rate
   stream of identical frames: every counter downstream — encoded, encrypted,
@@ -892,6 +889,59 @@ ssrc/msid/`TrackSource`, `AddTrackRequest` or negotiation ordering changed.
   same defect the Spaces rail hit. Membership changes are
   `begin{Insert,Remove,Move}Rows`; value changes are per-row `dataChanged`
   naming only the changed roles.
+* **A VIDEO ROUTE IS OWNED BY THE SINK THAT CLAIMED IT** (2026-08-27).
+  `SfuVideoRouter` holds one `QVideoSink` per routing key, and a release
+  now names the SINK: `releaseSink(sink)` gives up every key that sink owns
+  and nothing else. The four key-named detaches on `SfuCallController` are
+  gone, replaced by one `detachSink(QObject *videoSink)`.
+
+  Without that rule the surface above could not work at all. Qt destroys a
+  deactivated Loader's content and a regenerated Repeater's delegates with
+  `deleteLater()` while creating the replacements SYNCHRONOUSLY, so the
+  order on every grid↔spotlight swap and on every participant reorder is:
+  new tile attaches, THEN old tile detaches. A key-named detach removed
+  whatever was there, so the dying tile unhooked the living one — and since
+  a tile attaches only on creation and on a routing-key change, nothing
+  ever put it back. The video was gone for the rest of the call.
+
+  Both of the maintainer's reports are this one defect: "camera no longer
+  works" (a `beginMoveRows` on the participant model, which
+  `QQuickRepeater` answers by regenerating every delegate) and "when i full
+  screen it it stop shwoing video" (the grid→spotlight Loader swap, which
+  fires by itself the moment any share appears). It was masked before this
+  round by accident: the stage bound a JS array rebuilt on every update, so
+  every tile was destroyed and re-created several times a second and
+  re-attached itself. Removing that churn — which is what made an
+  amplitude-driven speaking ring possible — exposed a defect that had been
+  there since the router was written.
+
+  Two smaller rules fall out of the same reasoning and are pinned:
+  `attachSink(key, nullptr)` is a NO-OP rather than an eviction, and
+  `clear()` on teardown stays UNCONDITIONAL (there is no surviving owner to
+  protect, and honouring ownership there would leave exactly the stale
+  entries it exists to remove).
+
+  The older claim that "the grid and the spotlight are mutually exclusive
+  Loaders" was the stated safety property, and it is true of their `active`
+  and NOT of their object LIFETIME. That gap is where the defect lived; the
+  comment in `qml/CallShareTile.qml` has been corrected.
+
+* **FULL SCREEN is a separate top-level `Window`** (2026-08-27), because
+  "full monitor" is what was asked for and an overlay can only ever fill
+  the application window. `CallStageState::fullScreen` owns the flag —
+  call-scoped, so it survives the room-switch Loader — and REFUSES to enter
+  with nothing focused, dropping itself whenever the spotlight empties: a
+  black monitor with no obvious way out is the one state this feature must
+  never reach. The stage's grid and spotlight both stand down while it is
+  up, so there is still exactly one surface per routing key.
+
+  Escape is a `Keys` handler on the window's focused item, never a
+  `Shortcut`: Esc is in `ShortcutRegistry`'s RESERVED list and two enabled
+  Shortcuts on one sequence fire NEITHER. The window's visibility is driven
+  imperatively (`showFullScreen()`/`hide()`) rather than bound, because a
+  binding on `visibility` is a binding on the property a window manager
+  writes when the user closes the window. `onClosing` ACCEPTS the close and
+  writes the flag back — refusing it would veto Ctrl+Q.
 * **`CallParticipantTile`** — avatar, speaking ring, name strip, state
   badges. A badge appears only when the SFU actually reported that track's
   state; unknown renders nothing rather than a confident "not muted".
@@ -953,14 +1003,27 @@ from-scratch RFC 5869 HKDF, not against itself.
 
 ## Remaining work, stated plainly
 
-1. **Wire the frame cryptor into the pipeline** (pad probes on the RTP
-   payloader/depayloader), then flip `mediaEncrypted` and let encrypted rooms
-   join. Until then the gate above is what keeps this honest.
-2. **Portal integration** for screen-share and camera source selection.
-3. **Video rendering**: remote tracks are received and decoded, but the
-   spotlight shows who holds the stage rather than their picture — there is
-   no `QVideoSink` bridge yet.
-4. **Raise hand and reactions on the wire**, using whatever MatrixRTC
-   defines rather than a Lightning-only event.
-5. Live interoperability with Element, which is the only thing that turns any
+The first three items on this list were **DONE** by the 2026-08-24/25 interop
+round and the 2026-08-26 surface round, and were left standing here long
+enough to mislead a reader. Recorded rather than silently deleted, because a
+list that quietly loses entries cannot be trusted either:
+
+* ~~Wire the frame cryptor into the pipeline~~ — done; see "Call E2EE: real,
+  and cross-checked against an independent implementation" above.
+* ~~Portal integration for screen-share source selection~~ — done
+  (`src/calls/ScreenCastPortal.cpp`), and the fd it returns is load-bearing.
+  There is still no CAMERA source picker; that survives as item 1 below.
+* ~~Video rendering / no `QVideoSink` bridge yet~~ — done
+  (`src/calls/SfuVideoRouter`), and its one-sink-per-key rule is now an
+  ownership rule; see "What the UI is".
+
+What is actually left:
+
+1. **A camera source picker.** The screen-share picker is the portal's; a
+   machine with two cameras has no way to choose between them beyond the
+   device menu's enumeration.
+2. **Raise hand and reactions on the wire**, using whatever MatrixRTC
+   defines rather than a Lightning-only event. Today the hand is LOCAL ONLY
+   and no peer sees it.
+3. Live interoperability with Element, which is the only thing that turns any
    of the above from "implemented" into "works".

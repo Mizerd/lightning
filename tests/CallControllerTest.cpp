@@ -6,6 +6,7 @@
 #include <QtTest/QtTest>
 
 #include <QDateTime>
+#include <QMetaProperty>
 #include <QSignalSpy>
 
 #include <QAbstractItemModel>
@@ -2072,6 +2073,128 @@ private Q_SLOTS:
             QVERIFY2(row.contains(QLatin1String(key)), key);
         }
         QCOMPARE(call.participantCount(), 1);
+    }
+
+    // -----------------------------------------------------------------
+    // 2026-08-27 regression round. Two reports, one cause, plus the
+    // full-screen feature's one dangerous state.
+    // -----------------------------------------------------------------
+
+    void theParticipantCountNotifiesOnEveryPathThatMovesIt()
+    {
+        // `participantCount` was changed to read the MODEL's rowCount while
+        // keeping `participantsChanged` as its NOTIFY — and the model is
+        // rebuilt from paths that never emit it (`onSfuJoined`, and the
+        // `mediaStateChanged` rebuild that runs on every mute, camera and
+        // share change). So a surface binding the count saw a stale number.
+        //
+        // Asserted through the property's OWN notify signal rather than a
+        // named one, so this compiles against both trees and measures the
+        // contract rather than the implementation.
+        //
+        // UNFIXED TREE: FAILS. setOwnIdentityForTest() calls rebuildModels()
+        // directly; the local placeholder row appears, the count goes 0 -> 1,
+        // and nothing on that path emits participantsChanged — so the spy
+        // counts zero.
+        SfuCallController call;
+        const QMetaObject *mo = call.metaObject();
+        const int idx = mo->indexOfProperty("participantCount");
+        QVERIFY(idx >= 0);
+        const QMetaProperty prop = mo->property(idx);
+        QVERIFY(prop.hasNotifySignal());
+        QSignalSpy notified(&call, prop.notifySignal());
+
+        QCOMPARE(call.participantCount(), 0);
+        call.setOwnIdentityForTest(QStringLiteral("PA_me"));
+
+        QCOMPARE(call.participantCount(), 1);
+        QVERIFY2(notified.count() >= 1,
+                 "participantCount moved without notifying");
+    }
+
+    void fullScreenIsRefusedWhenThereIsNothingToShow()
+    {
+        // THE one state this feature must never reach: a window filling the
+        // monitor with an empty rectangle. The guard lives in the state
+        // object rather than in a QML binding so every caller inherits it —
+        // and so it can be driven, which a binding cannot.
+        //
+        // UNFIXED TREE: does not compile; there was no full-screen mode.
+        SfuCallController call;
+        CallStageState *stage = call.stageState();
+        QVERIFY(stage);
+        QCOMPARE(stage->fullScreen(), false);
+
+        // Nothing focused: refused, not stored.
+        stage->setFullScreen(true);
+        QCOMPARE(stage->fullScreen(), false);
+
+        // A live share gives it something to show.
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_a"), false) }),
+        });
+        QCOMPARE(stage->spotlightShareId(), QStringLiteral("TR_share_a"));
+        QSignalSpy fullScreenSpy(stage, &CallStageState::fullScreenChanged);
+        stage->setFullScreen(true);
+        QCOMPARE(stage->fullScreen(), true);
+        QCOMPARE(fullScreenSpy.count(), 1);
+
+        // A PIN is equally something to show, with no share at all.
+        stage->setFullScreen(false);
+        stage->dismissShare(QStringLiteral("TR_share_a"));
+        QCOMPARE(stage->spotlightShareId(), QString());
+        stage->setFullScreen(true);
+        QCOMPARE(stage->fullScreen(), false); // nothing focused yet
+        stage->pin(QStringLiteral("alice"));
+        stage->setFullScreen(true);
+        QCOMPARE(stage->fullScreen(), true);
+    }
+
+    void fullScreenDropsItselfWhenTheFocusedSurfaceGoesAway()
+    {
+        // The share ends, or the user unpins, while full screen is up. The
+        // flag has to fall on its own: the QML window is driven from it, and
+        // a stale true would leave a black monitor over the desktop with the
+        // call's own controls as the only clue.
+        //
+        // UNFIXED TREE: does not compile.
+        SfuCallController call;
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_a"), false) }),
+        });
+        CallStageState *stage = call.stageState();
+        stage->setFullScreen(true);
+        QCOMPARE(stage->fullScreen(), true);
+
+        // The sharer stops sharing: the share row goes, and with it the only
+        // thing full screen was showing.
+        QVariantMap stopped = sfuParticipant(QStringLiteral("alice"),
+                                             QStringLiteral("PA_1"),
+                                             { sfuTrack(
+                                                 QStringLiteral("screen_share"),
+                                                 QStringLiteral("TR_share_a"),
+                                                 true) });
+        call.ingestParticipantsForTest({ stopped });
+        QCOMPARE(stage->spotlightShareId(), QString());
+        QCOMPARE(stage->fullScreen(), false);
+
+        // Same for a pin that is dropped by "Back to grid".
+        stage->pin(QStringLiteral("alice"));
+        stage->setFullScreen(true);
+        QCOMPARE(stage->fullScreen(), true);
+        stage->clearPin();
+        QCOMPARE(stage->fullScreen(), false);
+
+        // And leaving the call clears it whatever it was.
+        stage->pin(QStringLiteral("alice"));
+        stage->setFullScreen(true);
+        QCOMPARE(stage->fullScreen(), true);
+        call.leave();
+        QCOMPARE(stage->fullScreen(), false);
     }
 };
 

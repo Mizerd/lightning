@@ -23,13 +23,24 @@ import MatrixClient
 // one and their CallParticipantTile — which is correct: they are two separate
 // tracks and one surface can only render one of them.
 //
-// ONE SINK PER TRACK. `SfuVideoRouter` holds a single screen sink per
-// participant identity: a second attach on the same identity replaces the
-// first, and the first surface's destruction then detaches the survivor, so
-// one of the two goes permanently blank. A share must therefore be rendered in
-// exactly ONE place at a time — the grid and the spotlight are mutually
-// exclusive Loaders, and the spotlight's strip excludes the spotlighted
-// share BY shareId.
+// ONE SINK PER TRACK, AND THE LAST ATTACH OWNS IT. `SfuVideoRouter` holds a
+// single screen sink per participant identity: a second attach on the same
+// identity replaces the first, and a release names the SINK — so it gives up
+// only what that sink still owns, and a superseded surface gives up nothing.
+//
+// That second clause was missing until 2026-08-27, and its absence is the
+// reported "when i full screen it it stop shwoing video". The comment here
+// used to claim the safety property came from "the grid and the spotlight are
+// mutually exclusive Loaders" — which is true of their `active` and NOT of
+// their object LIFETIME. Qt builds the newly activated Loader's content
+// synchronously and destroys the deactivated one's with `deleteLater()`, so
+// the two overlap by one event-loop turn, and the dying tile's key-named
+// detach landed inside that window every single time.
+//
+// A share is still rendered in exactly ONE place at a time — the strip
+// excludes the spotlighted share BY shareId, and full screen stands the stage
+// surfaces down — but that is now an arrangement, not the guarantee. The
+// guarantee is the ownership rule.
 Item {
     id: root
 
@@ -131,13 +142,21 @@ Item {
                                                        output.videoSink);
                 }
                 function detach() {
-                    if (root.local)
-                        app.groupCall.detachLocalScreenSink();
-                    else
-                        app.groupCall.detachScreenSink(root.ownerIdentity);
+                    // Names the SINK, never the key. The key-named detach
+                    // this replaced is what made a spotlighted share blank:
+                    // the spotlight's tile is built SYNCHRONOUSLY while the
+                    // grid's is destroyed by deleteLater(), so the dying grid
+                    // tile removed the key the spotlight had just taken, and
+                    // nothing re-attached. That is "when i full screen it it
+                    // stop shwoing video", every time rather than as a race.
+                    app.groupCall.detachSink(output.videoSink);
                 }
                 Component.onCompleted: attach()
                 Component.onDestruction: detach()
+
+                // No periodic re-arm — see CallParticipantTile for why one was
+                // written and removed. `onTrackKeyChanged` on the tile covers
+                // the late-key case, which is the only one that needs it.
             }
         }
 

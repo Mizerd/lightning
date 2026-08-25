@@ -4,13 +4,16 @@
 // AppController, which catches unresolved theme tokens and property typos
 // that string scans cannot. Predicates are matched whitespace-normalized
 // so reflows don't break them.
+#include <QDir>
 #include <QFile>
+#include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QRegularExpression>
 #include <QSignalSpy>
+#include <QWindow>
 #include <QtTest>
 
 #include <memory>
@@ -18,8 +21,17 @@
 #include "app/AppController.h"
 #include "auth/AuthManager.h"
 #include "calls/CallController.h"
+#include "calls/CallShareModel.h"
+#include "calls/CallStageState.h"
+#include "calls/SfuCallController.h"
 #include "matrix/CallSignal.h"
 #include "matrix/MockMatrixClient.h"
+
+#ifdef HAVE_LIGHTNING_WEBRTC
+#include <QVideoSink>
+
+#include "calls/SfuVideoRouter.h"
+#endif
 
 class CallUiContractTest : public QObject
 {
@@ -49,6 +61,21 @@ private:
         QString out = s;
         out.remove(QRegularExpression(QStringLiteral("(?m)^[ \\t]*//.*$")));
         return out;
+    }
+
+    /// Run queued work AND the DEFERRED DELETIONS.
+    ///
+    /// `deleteLater()` is the whole reason the tests below exist: Qt destroys
+    /// a replaced Loader's content and a regenerated Repeater's delegates
+    /// with it, while building the replacements synchronously. A test that
+    /// only calls processEvents() is measuring the moment BEFORE the
+    /// interesting thing happens, and would pass on the broken tree.
+    static void settle(int rounds = 3)
+    {
+        for (int i = 0; i < rounds; ++i) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        }
     }
 
     static QString normalized(const QString &s)
@@ -538,10 +565,13 @@ Item {
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY(!stage.isEmpty());
-        const int spotlight =
-            stage.indexOf(QStringLiteral("objectName: \"callSpotlight\""));
-        QVERIFY(spotlight >= 0);
-        const QString block = stage.mid(spotlight, 6000);
+        // The focused surface is defined ONCE, as `focusedSurface`, and both
+        // hosts load THAT — the stage's spotlight and the full-screen window.
+        // Two copies would be two things to keep in step, and one of them
+        // would eventually stop routing video.
+        const int surface = stage.indexOf(QStringLiteral("id: focusedSurface"));
+        QVERIFY2(surface >= 0, "the focused surface is no longer defined once");
+        const QString block = stage.mid(surface, 6000);
         // Both kinds of surface can be spotlighted, and each is the component
         // that owns its own routing: a SHARE is a CallShareTile (screen sink),
         // a pinned PERSON is a CallParticipantTile (camera sink). The old
@@ -558,6 +588,13 @@ Item {
             QStringLiteral("root.stageState.spotlightShareId")));
         QVERIFY(block.contains(
             QStringLiteral("root.stageState.pinnedIdentity")));
+        // And the spotlight really is one of its hosts.
+        const int spotlight =
+            stage.indexOf(QStringLiteral("objectName: \"callSpotlight\""));
+        QVERIFY(spotlight >= 0);
+        QVERIFY2(stage.mid(spotlight, 1200)
+                     .contains(QStringLiteral("sourceComponent: focusedSurface")),
+                 "the spotlight does not host the shared focused surface");
         // The old placeholder wording must not survive next to a real surface,
         // or the stage claims a share is unviewable while showing it.
         QVERIFY(!stage.contains(
@@ -576,8 +613,11 @@ Item {
         QVERIFY(tile.contains(QStringLiteral("property string mediaKind")));
         QVERIFY(tile.contains(QStringLiteral("attachScreenSink(")));
         QVERIFY(tile.contains(QStringLiteral("attachLocalScreenSink(")));
-        QVERIFY(tile.contains(QStringLiteral("detachScreenSink(")));
-        QVERIFY(tile.contains(QStringLiteral("detachLocalScreenSink(")));
+        // The RELEASE names the sink, not a key — see
+        // noVideoSurfaceEverReleasesARouteByKey for why that is the whole of
+        // "camera no longer works".
+        QVERIFY(tile.contains(
+            QStringLiteral("app.groupCall.detachSink(output.videoSink)")));
         // Re-attached when the routing key arrives: the SFU can announce a
         // participant before it says which media section their tracks landed
         // on, and an attach made under an empty key never gets a frame.
@@ -820,11 +860,12 @@ Item {
         // A person's own tile never renders their screen: two surfaces asking
         // the router for one participant's screen blank each other.
         QVERIFY(grid.contains(QStringLiteral("mediaKind: \"camera\"")));
-        // The share tile owns the screen sink, both ends of it.
+        // The share tile owns the screen sink, both ends of it — and it
+        // releases the SINK it holds, never a key it recomputes.
         QVERIFY(share.contains(QStringLiteral("attachScreenSink(")));
         QVERIFY(share.contains(QStringLiteral("attachLocalScreenSink(")));
-        QVERIFY(share.contains(QStringLiteral("detachScreenSink(")));
-        QVERIFY(share.contains(QStringLiteral("detachLocalScreenSink(")));
+        QVERIFY(share.contains(
+            QStringLiteral("app.groupCall.detachSink(output.videoSink)")));
         // A shared screen is CONTENT: fitted, never cropped.
         QVERIFY(share.contains(QStringLiteral("VideoOutput.PreserveAspectFit")));
         // The one-sharer collapse must not come back.
@@ -999,6 +1040,397 @@ Item {
                      "app.groupCall.roomId === app.currentRoomId")),
                  "the Voice Connected strip does not exclude the call's own "
                  "room");
+    }
+
+    // -----------------------------------------------------------------
+    // 2026-08-27. "camera no longer works" and "when i full screen it it
+    // stop shwoing video" are ONE defect, and it lives in how a destroyed
+    // surface gave up its video route.
+    // -----------------------------------------------------------------
+
+    void noVideoSurfaceEverReleasesARouteByKey()
+    {
+        // THE regression, stated as a rule the whole qml/ tree must obey.
+        //
+        // Qt destroys a replaced surface with deleteLater() while it builds
+        // the replacement synchronously, so on every grid<->spotlight swap,
+        // every full-screen transition and every QQuickRepeater regenerate
+        // (which is how a Repeater answers beginMoveRows — i.e. a participant
+        // reorder) the order is: NEW tile attaches, THEN old tile detaches.
+        // A key-named detach removed whatever was there, so the dying tile
+        // unhooked the living one — and since a tile only attaches on
+        // creation and on a routing-key change, nothing ever put it back.
+        //
+        // UNFIXED TREE: FAILS on the first four assertions. CallParticipantTile
+        // calls detachLocalScreenSink()/detachScreenSink(root.identity)/
+        // detachLocalCameraSink()/detachVideoSink(root.identity) and
+        // CallShareTile calls two of them, all with no sink.
+        QDir dir(QStringLiteral(QML_DIR));
+        const QStringList files =
+            dir.entryList({ QStringLiteral("*.qml") }, QDir::Files);
+        QVERIFY(!files.isEmpty());
+
+        // Prove the scan can see what it is looking for before trusting a ban.
+        bool sawARelease = false;
+        for (const QString &name : files) {
+            const QString body = read(dir.filePath(name));
+            for (const auto &banned : { "detachVideoSink(", "detachScreenSink(",
+                                        "detachLocalCameraSink(",
+                                        "detachLocalScreenSink(" }) {
+                QVERIFY2(!body.contains(QLatin1String(banned)),
+                         qPrintable(QStringLiteral(
+                                        "%1 releases a video route BY KEY (%2)")
+                                        .arg(name, QLatin1String(banned))));
+            }
+            // Every release names a sink. A bare `detachSink()` would be the
+            // same hole with the new API's name on it.
+            int at = 0;
+            while ((at = body.indexOf(QStringLiteral("detachSink("), at)) >= 0) {
+                at += 11; // past "detachSink("
+                QVERIFY2(body.mid(at, 1) != QLatin1String(")"),
+                         qPrintable(QStringLiteral(
+                                        "%1 calls detachSink() with no sink")
+                                        .arg(name)));
+                sawARelease = true;
+            }
+        }
+        QVERIFY2(sawARelease,
+                 "no QML surface releases a video sink at all — the scan is "
+                 "asserting nothing");
+
+        // AND NO PERIODIC RE-ARM. One was written as a safety net — attach()
+        // on every `participantsChanged`, restoring explicitly the accidental
+        // self-healing the old constantly-resetting stage provided — and
+        // REMOVED on analysis, because it reintroduces the very defect above.
+        //
+        // Between a layout swap and the deferred delete that ends the old
+        // tile, BOTH tiles are alive and connected. One participant update in
+        // that window has the dying tile re-CLAIM the key from its successor,
+        // and its destruction then releases it as the rightful owner — the
+        // live surface goes blank. The late-key case the net was meant to
+        // cover is handled where it belongs, by `onActiveTrackKeyChanged` /
+        // `onTrackKeyChanged` on the tile itself.
+        for (const auto &name : { "CallParticipantTile.qml",
+                                  "CallShareTile.qml" }) {
+            const QString body =
+                code(read(dir.filePath(QLatin1String(name))));
+            QVERIFY(body.contains(QStringLiteral("function attach()")));
+            QVERIFY2(!normalized(body).contains(
+                         QStringLiteral("function onParticipantsChanged() { "
+                                        "attach() }")),
+                     qPrintable(QStringLiteral(
+                                    "%1 re-arms its sink on every participant "
+                                    "update, which lets a dying tile steal the "
+                                    "key back from its successor")
+                                    .arg(QLatin1String(name))));
+        }
+        // The late-key re-attach IS required, in both tiles.
+        QVERIFY(read(dir.filePath(QStringLiteral("CallParticipantTile.qml")))
+                    .contains(QStringLiteral("onActiveTrackKeyChanged:")));
+        QVERIFY(read(dir.filePath(QStringLiteral("CallShareTile.qml")))
+                    .contains(QStringLiteral("onTrackKeyChanged:")));
+    }
+
+    void theRouterRefusesAReleaseFromASupersededSurface()
+    {
+        // The router-level statement of the same rule, and the one assertion
+        // that pins the mechanism rather than a call site.
+        //
+        // UNFIXED TREE: does not compile — `releaseSink` did not exist, and
+        // the API it replaced (`detachSink(key)`) had no way to EXPRESS this,
+        // which is exactly why eleven router tests passed straight through
+        // the regression. Behaviourally, the nearest thing you can write
+        // there — `detachSink(key)` from the superseded owner — leaves
+        // `watching(key)` FALSE, which is the blank tile.
+#ifndef HAVE_LIGHTNING_WEBRTC
+        QSKIP("built without the SFU media engine");
+#else
+        SfuVideoRouter router;
+        auto first = std::make_unique<QVideoSink>();
+        auto second = std::make_unique<QVideoSink>();
+        const QString key = QStringLiteral("TR_share_a");
+
+        router.attachSink(key, first.get());
+        QVERIFY(router.watchedBy(key, first.get()));
+
+        // The replacement CLAIMS the key. This is the ORDER production
+        // actually produces: Qt builds the new surface synchronously and
+        // destroys the old one on the deferred-delete queue.
+        router.attachSink(key, second.get());
+        QVERIFY(router.watchedBy(key, second.get()));
+
+        // ...and the superseded owner's release, arriving afterwards, takes
+        // nothing with it. THIS is the assertion the whole regression turns
+        // on.
+        router.releaseSink(first.get());
+        QVERIFY2(router.watching(key), "a dying surface unhooked a live one");
+        QVERIFY(router.watchedBy(key, second.get()));
+
+        // The real owner's release still works, or the table would only ever
+        // grow and every assertion here would be vacuous.
+        router.releaseSink(second.get());
+        QVERIFY(!router.watching(key));
+
+        // One surface gives up EVERY key it holds — a camera tile attaches
+        // under both the track sid and the participant sid — and touches
+        // nobody else's.
+        router.attachSink(key, first.get());
+        router.attachSink(QStringLiteral("PA_alice"), first.get());
+        router.attachSink(QStringLiteral("TR_other"), second.get());
+        router.releaseSink(first.get());
+        QVERIFY(!router.watching(key));
+        QVERIFY(!router.watching(QStringLiteral("PA_alice")));
+        QVERIFY(router.watching(QStringLiteral("TR_other")));
+
+        // A null attach is a NO-OP, never an eviction: "I have no sink yet"
+        // is not "nobody may own this key". It used to remove the key, which
+        // is the same defect wearing a different hat.
+        router.attachSink(QStringLiteral("TR_other"), nullptr);
+        QVERIFY(router.watching(QStringLiteral("TR_other")));
+
+        // A null release is likewise a no-op and not a wildcard.
+        router.releaseSink(nullptr);
+        QVERIFY(router.watching(QStringLiteral("TR_other")));
+#endif
+    }
+
+    void theVideoRouteSurvivesTheStagesOwnLayoutChanges()
+    {
+        // THE production-reaching one, and the only kind that would have
+        // caught this. §16 records twice what a test that calls the policy
+        // directly is worth (the row window shipped as a permanent no-op; the
+        // rail drop could never group), so this drives the REAL CallStage
+        // through the REAL transition and asserts against the ROUTER — never
+        // against a QML property, because the whole failure is a tile
+        // reporting "attached" while the router disagrees.
+        //
+        // UNFIXED TREE: does not compile (no isRoutingVideoTo). With the
+        // equivalent assertion wired in, it FAILS at the grid -> spotlight
+        // step: the grid tile's deferred destruction removes the key the
+        // spotlight tile took, and nothing re-attaches.
+#ifndef HAVE_LIGHTNING_WEBRTC
+        QSKIP("built without the SFU media engine");
+#else
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        SfuCallController *call = controller.groupCall();
+        QVERIFY(call);
+
+        QVariantMap track;
+        track.insert(QStringLiteral("source"), QStringLiteral("screen_share"));
+        track.insert(QStringLiteral("sid"), QStringLiteral("TR_share_a"));
+        track.insert(QStringLiteral("muted"), false);
+        QVariantMap sharer;
+        sharer.insert(QStringLiteral("identity"), QStringLiteral("bob"));
+        sharer.insert(QStringLiteral("sid"), QStringLiteral("PA_bob"));
+        sharer.insert(QStringLiteral("tracks"), QVariantList { track });
+        call->ingestParticipantsForTest({ sharer });
+        QCOMPARE(call->shareModel()->rowCount(), 1);
+
+        CallStageState *stage = call->stageState();
+        QVERIFY(stage);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine,
+                              &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(3000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY2(root != nullptr, "CallStage must instantiate");
+        root->setWidth(900);
+        root->setHeight(500);
+        settle();
+
+        const QString key = QStringLiteral("TR_share_a");
+
+        // 1. GRID. Dismissing the spotlight leaves the share as an ordinary
+        //    grid tile — still live, still routable, which is the invariant
+        //    CallStageState exists for.
+        stage->dismissShare(key);
+        settle();
+        QCOMPARE(stage->spotlightShareId(), QString());
+        QVERIFY2(call->isRoutingVideoTo(key),
+                 "the grid's share tile never attached a sink");
+
+        // 2. GRID -> SPOTLIGHT. The reported failure.
+        stage->restoreShare(key);
+        settle();
+        QCOMPARE(stage->spotlightShareId(), key);
+        QVERIFY2(call->isRoutingVideoTo(key),
+                 "the dying grid tile unhooked the spotlight's sink");
+
+        // 3. SPOTLIGHT -> FULL SCREEN. The same transition again, across a
+        //    window boundary this time, which is why the feature could not
+        //    have been added before this rule existed.
+        stage->setFullScreen(true);
+        QCOMPARE(stage->fullScreen(), true);
+        settle();
+        QVERIFY2(call->isRoutingVideoTo(key),
+                 "going full screen lost the video route");
+
+        // 4. ...and back.
+        stage->setFullScreen(false);
+        settle();
+        QVERIFY2(call->isRoutingVideoTo(key),
+                 "leaving full screen lost the video route");
+
+        // 5. The share ends: NOW the route really should be gone, or the
+        //    router is simply never releasing anything and every assertion
+        //    above is vacuous.
+        QVariantMap stopped = sharer;
+        track.insert(QStringLiteral("muted"), true);
+        stopped.insert(QStringLiteral("tracks"), QVariantList { track });
+        call->ingestParticipantsForTest({ stopped });
+        settle();
+        QCOMPARE(call->shareModel()->rowCount(), 0);
+        QVERIFY2(!call->isRoutingVideoTo(key),
+                 "the route outlived the share it belonged to");
+#endif
+    }
+
+    void fullScreenIsItsOwnWindowThatEscapeLeaves()
+    {
+        // "add an option to full screen screen share so it takes full
+        // minotir like discord". A separate Window, because an overlay can
+        // only ever fill the application window.
+        //
+        // UNFIXED TREE: FAILS on every assertion — there was no full-screen
+        // mode at all.
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(!stage.isEmpty());
+        const QString norm = normalized(stage);
+        const QString stageCode = code(stage);
+        // Prove the stripper still leaves code behind before trusting a ban.
+        QVERIFY(stageCode.contains(QStringLiteral("objectName: \"callStage\"")));
+
+        // 1. A real top-level Window, and a control that opens it.
+        QVERIFY(norm.contains(
+            QStringLiteral("objectName: \"callFullScreenWindow\"")));
+        QVERIFY(norm.contains(
+            QStringLiteral("objectName: \"callFullScreenButton\"")));
+
+        // 2. TWO ways out, one of them on the screen the user was already
+        //    looking at — the full-screen window may be on another monitor.
+        QVERIFY(norm.contains(
+            QStringLiteral("objectName: \"callExitFullScreenButton\"")));
+        QVERIFY(norm.contains(QStringLiteral(
+            "objectName: \"callExitFullScreenFromStageButton\"")));
+
+        // 3. ESCAPE IS A Keys HANDLER, NEVER A Shortcut. Esc is in
+        //    ShortcutRegistry's reserved list (the find bar, room
+        //    information, a thread, Settings), and two enabled Shortcuts on
+        //    one sequence fire NEITHER — so a Shortcut here would break
+        //    closing a dialog for as long as a call was up.
+        QVERIFY2(norm.contains(QStringLiteral("Keys.onPressed: function")),
+                 "full screen has no key handling at all");
+        QVERIFY2(norm.contains(QStringLiteral("event.key === Qt.Key_Escape")),
+                 "Escape does not leave full screen");
+        QVERIFY2(!stageCode.contains(QStringLiteral("Shortcut {")),
+                 "the call stage registers a Shortcut, which can shadow a "
+                 "reserved sequence");
+
+        // 4. The window's closing is ACCEPTED, never refused. A window that
+        //    refuses its close event vetoes application quit — §16 records
+        //    close-to-tray eating Ctrl+Q for exactly that reason.
+        QVERIFY(norm.contains(QStringLiteral("onClosing: root.exitFullScreen()")));
+        QVERIFY2(!stageCode.contains(QStringLiteral("close.accepted = false")),
+                 "the full-screen window refuses its close event");
+
+        // 5. ONE surface per routing key: the stage's grid and spotlight both
+        //    stand down while full screen is up. Two live tiles asking the
+        //    router for one participant's screen would fight over the key.
+        QVERIFY2(norm.contains(QStringLiteral(
+                     "active: !root.collapsed && !root.fullScreenActive && "
+                     "root.effectiveLayout === \"grid\"")),
+                 "the grid stays up behind the full-screen window");
+        QVERIFY2(norm.contains(QStringLiteral(
+                     "active: !root.collapsed && !root.fullScreenActive && "
+                     "root.effectiveLayout === \"spotlight\"")),
+                 "the spotlight stays up behind the full-screen window");
+
+        // 6. Never full screen with nothing in it.
+        QVERIFY(norm.contains(QStringLiteral(
+            "readonly property bool fullScreenActive: root.stageState ? "
+            "(root.stageState.fullScreen && root.spotlightHasSurface) : "
+            "false")));
+
+        // 7. The window's visibility is driven imperatively. A binding on
+        //    `visibility` is a binding on the property a window manager
+        //    writes when the user closes the window, and a QML binding the
+        //    platform overwrites is how this repo has shipped one-way
+        //    latches before.
+        QVERIFY(norm.contains(QStringLiteral("fullScreenWindow.showFullScreen()")));
+        QVERIFY2(!stageCode.contains(QStringLiteral("visibility:")),
+                 "the full-screen window binds Window.visibility");
+    }
+
+    void theFullScreenWindowStaysHiddenUntilItIsAskedFor()
+    {
+        // A real instantiation. The Window object exists for the stage's
+        // whole life — declaring it inside the Item is what makes Qt treat it
+        // as transient for the main window — so what must hold is that it is
+        // not SHOWN, and that its contents are not built, until the flag says
+        // so. A hidden Window still instantiates its children, which is why
+        // the surface inside it is behind a Loader.
+        //
+        // UNFIXED TREE: does not compile as written (no such window), and
+        // CallStage had never been instantiated in a test at all.
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine,
+                              &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(3000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY2(root != nullptr, "CallStage must instantiate");
+        settle();
+
+        QCOMPARE(root->property("fullScreenActive").toBool(), false);
+
+        // Found through the application's window list rather than through
+        // findChild: a Window declared inside an Item is not a child ITEM,
+        // and how Qt parents it is an implementation detail this assertion
+        // should not depend on. Every constructed QWindow is in this list,
+        // shown or not.
+        QWindow *window = nullptr;
+        for (QWindow *w : QGuiApplication::allWindows()) {
+            if (w->objectName() == QLatin1String("callFullScreenWindow")) {
+                window = w;
+                break;
+            }
+        }
+        QVERIFY2(window != nullptr, "the full-screen window is not declared");
+        QVERIFY2(!window->isVisible(),
+                 "the full-screen window opened without being asked for");
+
+        // With no call and nothing focused, asking for it is refused rather
+        // than opening an empty black window.
+        auto *stage = controller.groupCall()->stageState();
+        QVERIFY(stage);
+        stage->setFullScreen(true);
+        settle();
+        QCOMPARE(stage->fullScreen(), false);
+        QCOMPARE(root->property("fullScreenActive").toBool(), false);
+        QVERIFY(!window->isVisible());
     }
 
     void initTestCase()

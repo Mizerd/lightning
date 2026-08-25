@@ -264,10 +264,26 @@ Item {
                               : VideoOutput.PreserveAspectCrop
                 }
 
-                // Attach on creation, DETACH on destruction. The router
-                // holds a QPointer so a missed detach cannot crash, but it
-                // would keep routing frames at a dead tile for one frame and
-                // keep the entry alive until then.
+                // Attach on creation, RELEASE on destruction — and the
+                // release names this SINK, never a key.
+                //
+                // The four key-named detaches this replaced were the whole of
+                // "camera no longer works". Qt destroys a replaced surface
+                // with deleteLater() while it creates the replacement
+                // synchronously, so on every grid↔spotlight swap and on every
+                // QQuickRepeater regenerate (which is how a Repeater answers
+                // beginMoveRows — a participant reorder) the order is: new
+                // tile attaches, THEN old tile detaches. A key-named detach
+                // removed whatever was there, so the dying tile unhooked the
+                // living one, and since attach() only runs on creation and on
+                // an activeTrackKey change, NOTHING put it back for the rest
+                // of the call.
+                //
+                // Before this round that was masked: the stage bound a JS
+                // array rebuilt on every update, so every tile was destroyed
+                // and re-created several times a second and re-attached
+                // itself. The model that removed that churn is what exposed
+                // this.
                 function attach() {
                     if (root.mediaKind === "screen") {
                         if (root.local)
@@ -283,19 +299,41 @@ Item {
                     }
                 }
                 function detach() {
-                    if (root.mediaKind === "screen") {
-                        if (root.local)
-                            app.groupCall.detachLocalScreenSink();
-                        else
-                            app.groupCall.detachScreenSink(root.identity);
-                    } else if (root.local) {
-                        app.groupCall.detachLocalCameraSink();
-                    } else {
-                        app.groupCall.detachVideoSink(root.identity);
-                    }
+                    // ONE verb, naming the sink. It cannot name the wrong
+                    // key, and once another surface has claimed what this one
+                    // held there is nothing here left to give up — so a late
+                    // destruction takes nothing with it.
+                    //
+                    // The branch this replaced could ALSO name the wrong key
+                    // honestly: `local` and `mediaKind` are tile properties,
+                    // and the key itself is derived from a track sid that
+                    // arrives late — so a tile could compute a different key
+                    // at destruction than it did at creation.
+                    app.groupCall.detachSink(output.videoSink);
                 }
                 Component.onCompleted: attach()
                 Component.onDestruction: detach()
+
+                // NO periodic re-arm here, and that is a decision rather than
+                // an omission.
+                //
+                // A `Connections { onParticipantsChanged: attach() }` was
+                // written, analysed and REMOVED. It looks like free
+                // self-healing — attachSink is an idempotent hash write — and
+                // it would restore explicitly what the old
+                // constantly-resetting surface used to provide by accident.
+                // But it fires on a DYING tile too: between a layout swap and
+                // the deferred delete that ends the old tile, both tiles are
+                // alive and connected, so one participant update in that
+                // window has the dying tile re-CLAIM the key from its
+                // successor — and then its destruction releases it as the
+                // rightful owner, leaving the live surface blank. That is the
+                // exact defect this round exists to remove, reintroduced by
+                // its own safety net.
+                //
+                // The late-key case it was meant to cover is already handled
+                // where it belongs: `onActiveTrackKeyChanged` on the tile
+                // re-attaches when the SFU finally names the track.
             }
         }
 

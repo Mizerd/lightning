@@ -206,7 +206,10 @@ private slots:
         if (!remote.isEmpty()) {
             group.attachVideoSink(remote, &sink);
             QTest::qWait(8000);
-            group.detachVideoSink(remote);
+            // Names the SINK, not the participant: a release now gives up
+            // exactly what this sink holds, so it can neither name the wrong
+            // derived key nor tear down a surface that replaced it.
+            group.detachSink(&sink);
             qInfo() << "frames RENDERED on an attached sink:" << framesRendered;
         }
 

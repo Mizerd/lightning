@@ -73,11 +73,46 @@ void CallStageState::onSharesChanged()
 {
     const QString spotlight = spotlightShareId();
     const bool restorable = restorableShareAvailable();
+    // The full-screen guard runs whether or not anything else changed: it
+    // reads the same two facts, and an early return that skipped it would
+    // leave a full-screen window showing a share that had ended.
+    enforceFullScreenHasSurface();
     if (spotlight == m_lastSpotlightShareId && restorable == m_lastRestorable)
         return;
     m_lastSpotlightShareId = spotlight;
     m_lastRestorable = restorable;
     Q_EMIT spotlightChanged();
+}
+
+bool CallStageState::hasFocusedSurface() const
+{
+    return !spotlightShareId().isEmpty() || !m_pinnedIdentity.isEmpty();
+}
+
+void CallStageState::enforceFullScreenHasSurface()
+{
+    if (!m_fullScreen || hasFocusedSurface())
+        return;
+    m_fullScreen = false;
+    Q_EMIT fullScreenChanged();
+}
+
+void CallStageState::setFullScreen(bool fullScreen)
+{
+    // Nothing focused, nothing to fill a screen with. Refused rather than
+    // stored: the alternative is a black monitor with a control bar on it and
+    // no obvious way back.
+    if (fullScreen && !hasFocusedSurface())
+        return;
+    if (m_fullScreen == fullScreen)
+        return;
+    m_fullScreen = fullScreen;
+    Q_EMIT fullScreenChanged();
+}
+
+void CallStageState::toggleFullScreen()
+{
+    setFullScreen(!m_fullScreen);
 }
 
 void CallStageState::onShareEnded(const QString &shareId)
@@ -154,6 +189,9 @@ void CallStageState::pin(const QString &identity)
         return;
     m_pinnedIdentity = identity;
     Q_EMIT pinnedIdentityChanged();
+    // Clearing the pin can be the thing that empties the spotlight, and
+    // "Back to grid" does exactly that while full screen may be up.
+    enforceFullScreenHasSurface();
 }
 
 void CallStageState::clearPin()
@@ -177,12 +215,18 @@ void CallStageState::clear()
 {
     const bool hadPin = !m_pinnedIdentity.isEmpty();
     const bool hadMode = m_layoutPreference != QLatin1String("auto");
+    const bool hadFullScreen = m_fullScreen;
     m_pinnedIdentity.clear();
     m_layoutPreference = QStringLiteral("auto");
     m_dismissedShareIds.clear();
+    // The call ended. A full-screen window outliving it would cover the
+    // desktop with a call that is over.
+    m_fullScreen = false;
     if (hadPin)
         Q_EMIT pinnedIdentityChanged();
     if (hadMode)
         Q_EMIT layoutPreferenceChanged();
+    if (hadFullScreen)
+        Q_EMIT fullScreenChanged();
     onSharesChanged();
 }
