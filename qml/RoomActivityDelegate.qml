@@ -13,7 +13,34 @@ Item {
     property bool expanded: false
     signal toggleRequested()
 
-    readonly property int entryCount: entries ? entries.length : 0
+    // A CALL is not a room update, and it must never come back through here.
+    //
+    // It used to: the bridge phrased a call as a state event (state_kind
+    // "m.call", body the literal words "call event"), so one call rendered as
+    // "1 room update" expanding to "call event" — the reported bleak row.
+    // TimelineModel now breaks the group at a call row and CallEventDelegate
+    // draws it, so this filter normally removes nothing. It is here because
+    // this component is also fed by fixtures and by backends that phrase
+    // their own state rows, and because a silent second home for calls is
+    // exactly how the first one survived: "1 room update" is a wrong
+    // sentence, not a small one.
+    function entryIsCall(entry) {
+        if (!entry)
+            return false;
+        var kind = entry.eventKind || "";
+        return kind === "m.call" || kind === "m.call.video";
+    }
+    readonly property var entriesWithoutCalls: {
+        if (!entries || entries.length === 0)
+            return [];
+        var kept = [];
+        for (var i = 0; i < entries.length; ++i) {
+            if (!root.entryIsCall(entries[i]))
+                kept.push(entries[i]);
+        }
+        return kept;
+    }
+    readonly property int entryCount: entriesWithoutCalls.length
     readonly property bool canExpand: entryCount > 0
 
     // A collapsed group draws ONE summary line, and the date dividers that
@@ -42,8 +69,8 @@ Item {
     readonly property string dateRangeLabel: {
         if (root.entryCount < 2)
             return ""
-        var first = root.entries[0].timestamp
-        var last = root.entries[root.entryCount - 1].timestamp
+        var first = root.entriesWithoutCalls[0].timestamp
+        var last = root.entriesWithoutCalls[root.entryCount - 1].timestamp
         if (!root.validDate(first) || !root.validDate(last))
             return ""
         if (root.sameCalendarDay(first, last))
@@ -149,7 +176,7 @@ Item {
             Repeater {
                 id: activityRepeater
                 objectName: "stateActivityRepeater"
-                model: expandedColumn.visible ? root.entries : []
+                model: expandedColumn.visible ? root.entriesWithoutCalls : []
                 Label {
                     required property var modelData
                     objectName: "stateActivityEntry"

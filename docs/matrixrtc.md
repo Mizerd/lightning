@@ -553,6 +553,42 @@ UI says it is fine, and no media is usable.
   open. `capture negotiated caps=` is logged once per share for the next
   attempt: a `memory:DMABuf` feature there is the other classic reason a
   PipeWire capture stalls silently.
+* **`videorate` also HOLDS the first picture, and that is the ~1 s freeze at
+  the start of a share.** Measured in this repo's dev shell (GStreamer
+  1.26.11) against exactly this caps shape — input `framerate=(fraction)0/1`,
+  output pinned `30/1`: videorate emits **nothing at all** for the first
+  buffer. It holds it until a SECOND buffer arrives, and then back-fills the
+  whole gap in one sub-millisecond burst of duplicates whose RTP timestamps
+  span it. A PipeWire desktop capture delivers ON DAMAGE, so that gap is
+  "how long until something on the screen moves" — and a libwebrtc receiver
+  renders on the frame timeline, so Element paints the opening picture and
+  sits on it for exactly that long. Reported as "when i screen share from
+  linux about for 1 sec the screen share is frozen then frames start going
+  good and normal".
+  Fixed with `pipewiresrc keepalive-time=100`, which re-pushes the buffer the
+  element ALREADY HOLDS when nothing new has arrived in 100 ms. **This is not
+  `min-buffers` wearing a new name**: `min-buffers` changes the pool
+  negotiated *with PipeWire* and killed the capture outright, while
+  `keepalive-time` is a timer inside the element that touches no caps, no
+  pool and no negotiation. The wire is byte-for-byte unchanged.
+  Two refuted alternatives, both measured: `videorate skip-to-first=true`
+  changes nothing on this input shape, and `videorate max-duplication-time`
+  removes the burst but keeps the hold AND starves the encoder below the
+  pinned 30 fps — which is the condition that made Element refuse to render
+  in the first place.
+  **The cost is diagnostic and it is why 100 ms and not one frame period.** A
+  keepalive resend counts as a delivered frame, so `capture delivered frames
+  count=` no longer distinguishes a dead capture perfectly. At 100 ms a dead
+  capture reports ~10/s against a live capture's up-to-30/s, so the pair
+  still diverges; a 33 ms keepalive would have erased the signal on the one
+  lane that most needed it.
+  **Live validation: NOT TESTED.** The mechanism is measured, that it is the
+  maintainer's ~1 s is not. The measurement that settles it: start a share,
+  keep the desktop still for two seconds, and compare the timestamps of
+  `capture delivered frames count= 1` and the first `frames encrypted video=`
+  line. Before the fix that gap should be ~1 s; after it, ≤ ~100 ms. If it is
+  already near zero on an unfixed build, this diagnosis is wrong and the
+  freeze lives downstream.
 * **`videorate` masks a dead capture.** It repeats the last picture to hold
   the output rate, so a screen capture that stalls still produces a full-rate
   stream of identical frames: every counter downstream — encoded, encrypted,
@@ -813,25 +849,77 @@ survives the whole way down.
 
 ## What the UI is
 
-* **`CallStage`** — the call surface, hosted in the timeline column and
-  *replacing* the timeline while the call's room is open. A call is the thing
-  the user is doing; half-covering the room gives neither surface room.
-  Layout follows the participant count automatically (grid, or spotlight when
-  someone shares or a participant is pinned) with a manual override.
+Rebuilt 2026-08-26 as a PRESENTATION-only round: nothing below reaches the
+wire. No publish cap, `vp8enc` property, `RtpVp8Payloader`, frame cryptor,
+ssrc/msid/`TrackSource`, `AddTrackRequest` or negotiation ordering changed.
+
+* **`CallStage`** — a PANEL AT THE TOP of the conversation column, with the
+  messages still visible and scrolling below it. It used to REPLACE the
+  timeline; Discord's DM call is the arrangement copied here, and the
+  maintainer asked for it in those words. 40% of the column voice-only, 70%
+  once anything sends video, clamped to [220px, 75%], collapsible to a 64px
+  strip, resizable by a divider whose value is committed on the FALLING EDGE
+  of the drag — a release moves nothing and emits no `heightChanged` (§16).
+  The reader's message does not move when a call starts: the timeline is a
+  rotated Flickable pinned to the BOTTOM edge, this changes HEIGHT only, and
+  nothing writes `contentY`, so the space comes off the top.
+* **A SHARE IS A TILE, NOT A MODE.** `CallTileGrid` builds the grid over
+  SURFACES, not people: one cell per camera and one per screen share, so a
+  sharer with their camera on is TWO cells and two sharers are two cells.
+  This replaced `sharingPerson`, which looped participants and returned the
+  FIRST match — a second simultaneous share was structurally unrepresentable.
+* **A dismissed share can always be reached again.** The old "Back to grid"
+  wrote `layoutMode = "grid"` and NOTHING anywhere wrote it back, so the
+  spotlight was unreachable for the component's lifetime and only a room
+  switch (which destroys the Loader) recovered it. Reported as "now if share
+  is closed no way to get it back". `CallStageState` (C++, call-scoped, so it
+  survives that Loader) holds the dismissal, and it applies to the SPOTLIGHT
+  only — `CallShareModel` has no `dismissed` role and does not know the class
+  exists, so a dismissed share is still a row, still a grid tile, still
+  routable. A NEW share re-arms `auto`.
+* **The speaking ring reads AMPLITUDE, and Discord's cannot.** LiveKit's
+  `SpeakerInfo` carries `level` 0..1; `rust/src/sfu.rs` had been sending it
+  and `SfuCallController` was discarding everything but `active`. The ring's
+  gap is `3 + 6 * level` with a ~60 ms attack and ~220 ms release, drawn as a
+  free child of a fixed-size holder so it contributes no implicit size and
+  reflows nothing. **No level is fabricated from the boolean** — an SFU that
+  reports only `active` degrades to the fixed 3 px ring. Discord's own voice
+  gateway speaking payload is a bitmask with no amplitude field at all.
+* **`CallParticipantModel` is a real `QAbstractListModel`.** It was a
+  `Q_INVOKABLE QVariantList` re-invoked behind a hand-bumped tick and bound
+  into views — a MODEL RESET on every change, fired continuously while anyone
+  talked, destroying every tile and its `VideoOutput` on every syllable. The
+  same defect the Spaces rail hit. Membership changes are
+  `begin{Insert,Remove,Move}Rows`; value changes are per-row `dataChanged`
+  naming only the changed roles.
 * **`CallParticipantTile`** — avatar, speaking ring, name strip, state
   badges. A badge appears only when the SFU actually reported that track's
   state; unknown renders nothing rather than a confident "not muted".
-* **`CallControlBar`** — mic, deafen, camera, raise hand, layout,
-  participants, leave. Every control reaches something real; nothing is shown
-  disabled with a tooltip, because a disabled control receives no hover in Qt
-  Quick and so cannot explain itself.
 * **`VoiceConnectedBar`** — the persistent footer in the room list. The call
   does not end because the user opened another room, and this is how they get
   back to it.
+* **`CallControlBar` was DELETED** — nothing instantiated it and the contract
+  test banned it from the stage. `CallHeaderBar` carries the controls in both
+  of its placements. Every control still reaches something real; nothing is
+  shown disabled with a tooltip, because a disabled control receives no hover
+  in Qt Quick and so cannot explain itself. That is why the screen-share
+  control has NO device chevron: the portal IS the picker and there is no
+  screen-source enumeration to list.
+* **The timeline's call row** is its own kind now, not a room-state row. It
+  used to arrive as `state_kind: "m.call"` with the literal body "call
+  event", which the activity grouper drew as "1 room update" — reported as
+  "also room event look bleak". It now says who started the call and whether
+  it was video, and carries a Join button ONLY while the room's session is
+  live. The BUTTON is the only join target: Discord had a period where the
+  whole row was clickable and people joined by accident.
 
 Layout and interaction follow Discord; every colour, radius and type value
 comes from `AppTheme`, so all eleven themes and the text scale apply. No
-Discord artwork or colour is used.
+Discord artwork or colour is used. One honest caveat written into the source:
+CURRENT desktop Discord draws tiles even for a voice-only call — circular
+"bubbles" are its mobile and older DM presentation. Lightning draws the
+circles because that is what was asked for, not because Discord does it
+today.
 
 ## Validation
 

@@ -6,11 +6,14 @@
 // so reflows don't break them.
 #include <QFile>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QtTest>
+
+#include <memory>
 
 #include "app/AppController.h"
 #include "auth/AuthManager.h"
@@ -28,6 +31,24 @@ private:
         if (!f.open(QIODevice::ReadOnly))
             return {};
         return QString::fromUtf8(f.readAll());
+    }
+
+    /// Source with WHOLE-LINE `//` comments removed, for BAN assertions.
+    ///
+    /// Several bans below forbid a token that their own rationale comment
+    /// names, one line above — a ban read off the raw file would then always
+    /// "find" it and always fail. 2026-08-25 taught the other half of this:
+    /// a comment stripper is a parser, and the one in
+    /// NavigationLayoutContractTest silently weakened every assertion that
+    /// followed it because `[^"\']*` crossed newlines. So this one is
+    /// deliberately the simplest thing that can work — whole lines only,
+    /// which is where every mention in these files lives — and the ban tests
+    /// each assert a token they KNOW is present to prove it still parses.
+    static QString code(const QString &s)
+    {
+        QString out = s;
+        out.remove(QRegularExpression(QStringLiteral("(?m)^[ \\t]*//.*$")));
+        return out;
     }
 
     static QString normalized(const QString &s)
@@ -263,12 +284,18 @@ private Q_SLOTS:
         }
     }
 
-    // A REAL instantiation of the bubble row with a real participant list,
-    // because a source scan cannot see a binding against a token that does not
-    // exist, a delegate that lays out to nothing, or a row that reserves space
-    // while the call is still connecting. (An undeclared AppTheme token is
-    // exactly the class of mistake that shipped hundreds of "Unable to assign
-    // [undefined]" warnings past every offscreen gate once already.)
+    // A REAL instantiation, which is what catches an unresolved theme token
+    // or a property typo that a string scan cannot see.
+    //
+    // Fed a ListModel fixture rather than the live controller: the strip binds
+    // `app.groupCall.participantModel`, which on the mock backend is an empty
+    // model with no way to put people in it. The fixture exercises the same
+    // required-property delegate the real model drives, because a ListModel
+    // supplies roles by name exactly as a QAbstractListModel does.
+    //
+    // On the unfixed tree the strip has a `people` property and a `modelData`
+    // delegate, so binding `model:` leaves it empty and the count assertion
+    // fails.
     void speakerBubblesInstantiateAndSizeThemselves()
     {
         AppController controller(AppController::MockBackend);
@@ -279,7 +306,7 @@ private Q_SLOTS:
                                  QStringLiteral("unused"));
         QVERIFY(loginSpy.wait(3000));
 
-        QQmlApplicationEngine engine;
+        QQmlEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
         QStringList warnings;
         connect(&engine, &QQmlEngine::warnings, this,
@@ -287,49 +314,64 @@ private Q_SLOTS:
                     for (const auto &e : errors)
                         warnings << e.toString();
                 });
-        QSignalSpy createdSpy(&engine,
-                              &QQmlApplicationEngine::objectCreated);
-        engine.loadFromModule(QStringLiteral("MatrixClient"),
-                              QStringLiteral("CallSpeakerBubbles"));
-        if (createdSpy.isEmpty())
-            QVERIFY(createdSpy.wait(3000));
-        auto *root = qobject_cast<QQuickItem *>(
-            createdSpy.at(0).at(0).value<QObject *>());
-        QVERIFY2(root != nullptr, "CallSpeakerBubbles must instantiate");
 
-        // Nobody yet: no strip of empty space above the stage.
-        QCOMPARE(root->property("height").toDouble(), 0.0);
-        QCOMPARE(root->property("visible").toBool(), false);
-
-        // Two people, one of them speaking and muted-unknown.
-        QVariantList people;
-        QVariantMap one;
-        one.insert(QStringLiteral("identity"), QStringLiteral("PA_one"));
-        one.insert(QStringLiteral("userId"), QStringLiteral("@alice:mock.local"));
-        one.insert(QStringLiteral("displayName"), QStringLiteral("Alice"));
-        one.insert(QStringLiteral("speaking"), true);
-        one.insert(QStringLiteral("local"), true);
-        people.append(one);
-        QVariantMap two;
-        two.insert(QStringLiteral("identity"), QStringLiteral("PA_two"));
-        two.insert(QStringLiteral("userId"), QStringLiteral("@bob:mock.local"));
-        two.insert(QStringLiteral("displayName"), QStringLiteral("Bob"));
-        two.insert(QStringLiteral("micKnown"), true);
-        two.insert(QStringLiteral("micMuted"), true);
-        two.insert(QStringLiteral("screenSharing"), true);
-        people.append(two);
-        root->setProperty("people", people);
-        root->setWidth(300);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+Item {
+    id: outer
+    width: 320
+    height: 80
+    property alias bubbles: strip
+    ListModel {
+        id: people
+        ListElement {
+            identity: "PA_one"; userId: "@alice:mock.local"
+            displayName: "Alice"; avatarMxc: ""; local: true
+            speaking: true; micKnown: false; micMuted: false
+            screenSharing: false
+        }
+        ListElement {
+            identity: "PA_two"; userId: "@bob:mock.local"
+            displayName: "Bob"; avatarMxc: ""; local: false
+            speaking: false; micKnown: true; micMuted: true
+            screenSharing: true
+        }
+    }
+    CallSpeakerBubbles {
+        id: strip
+        objectName: "fixtureBubbles"
+        width: outer.width
+        model: people
+    }
+}
+)"), QUrl(QStringLiteral("qrc:/callbubblestest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *outer = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY2(outer != nullptr, "CallSpeakerBubbles must instantiate");
         QCoreApplication::processEvents();
-        root->polish();
+        outer->polish();
         QCoreApplication::processEvents();
 
-        QVERIFY2(root->property("height").toDouble() > 0.0,
+        auto *bubbles = qobject_cast<QQuickItem *>(
+            outer->property("bubbles").value<QObject *>());
+        QVERIFY(bubbles != nullptr);
+        QVERIFY2(bubbles->property("height").toDouble() > 0.0,
                  "the bubble row has no height with people in the call");
         auto *strip =
-            root->findChild<QQuickItem *>(QStringLiteral("callSpeakerBubbles"));
+            outer->findChild<QQuickItem *>(QStringLiteral("callSpeakerBubbles"));
         QVERIFY(strip != nullptr);
         QCOMPARE(strip->property("count").toInt(), 2);
+
+        // Nobody: no strip of empty space above the messages.
+        bubbles->setProperty("model", QVariant::fromValue<QObject *>(nullptr));
+        QCoreApplication::processEvents();
+        QCOMPARE(bubbles->property("height").toDouble(), 0.0);
+        QCOMPARE(bubbles->property("visible").toBool(), false);
+
         for (const QString &warning : warnings) {
             QVERIFY2(!warning.contains(QStringLiteral("Unable to assign"))
                          && !warning.contains(QStringLiteral("is not available")),
@@ -454,6 +496,14 @@ private Q_SLOTS:
         QVERIFY(!stage.isEmpty());
         QVERIFY2(!stage.contains(QStringLiteral("CallControlBar {")),
                  "the call stage instantiates a control bar again");
+        // 2026-08-26: CallControlBar.qml is DELETED. Nothing ever
+        // instantiated it, it carried the only layout control in the tree,
+        // and this suite already banned it from the one surface that could
+        // have used it — so it was a second, drifting definition of the
+        // control set kept alive only by the file list. On the unfixed tree
+        // this line fails, because the file is there.
+        QVERIFY2(!QFile::exists(QStringLiteral(QML_DIR "/CallControlBar.qml")),
+                 "the dead CallControlBar.qml is back in the tree");
 
         // The stage's dock is the SAME component in another placement, not a
         // second control bar — that distinction is the whole lesson here. And
@@ -491,15 +541,23 @@ private Q_SLOTS:
         const int spotlight =
             stage.indexOf(QStringLiteral("objectName: \"callSpotlight\""));
         QVERIFY(spotlight >= 0);
-        const QString block = stage.mid(spotlight, 3000);
+        const QString block = stage.mid(spotlight, 6000);
+        // Both kinds of surface can be spotlighted, and each is the component
+        // that owns its own routing: a SHARE is a CallShareTile (screen sink),
+        // a pinned PERSON is a CallParticipantTile (camera sink). The old
+        // stage had one surface and a `spotlightKind` string deciding which
+        // track it asked for, which is the same thing as "only one share can
+        // ever exist".
+        QVERIFY2(block.contains(QStringLiteral("CallShareTile {")),
+                 "the spotlight cannot show a screen share");
         QVERIFY2(block.contains(QStringLiteral("CallParticipantTile {")),
-                 "the spotlight draws no video surface at all");
-        // It shows the SHARE when there is one, and it says which track it is
-        // asking for — a surface that asked for the camera would render a face
-        // where the user asked for a screen.
-        QVERIFY(block.contains(QStringLiteral("mediaKind: root.spotlightKind")));
-        QVERIFY(stage.contains(QStringLiteral("readonly property string spotlightKind")));
-        QVERIFY(stage.contains(QStringLiteral("\"screen\" : \"camera\"")));
+                 "the spotlight cannot show a pinned participant");
+        // Matched BY ID against the real model, so a track key that arrives
+        // late still reaches the surface.
+        QVERIFY(block.contains(
+            QStringLiteral("root.stageState.spotlightShareId")));
+        QVERIFY(block.contains(
+            QStringLiteral("root.stageState.pinnedIdentity")));
         // The old placeholder wording must not survive next to a real surface,
         // or the stage claims a share is unviewable while showing it.
         QVERIFY(!stage.contains(
@@ -544,11 +602,21 @@ private Q_SLOTS:
         QVERIFY(bubbles.contains(QStringLiteral("Avatar {")));
         // The ring is bound to the model's speaking flag, never to anything
         // measured here.
-        QVERIFY(bubbles.contains(QStringLiteral("modelData.speaking === true")));
+        QVERIFY(bubbles.contains(QStringLiteral("required property bool speaking")));
+        QVERIFY(bubbles.contains(QStringLiteral("opacity: bubble.speaking ? 1 : 0")));
         QVERIFY(bubbles.contains(QStringLiteral("border.color: AppTheme.success")));
         // Initials come from the real name, never the "You" label — that
         // would render a Y for the local user.
-        QVERIFY(bubbles.contains(QStringLiteral("name: bubble.modelData.displayName")));
+        QVERIFY(bubbles.contains(QStringLiteral("name: bubble.displayName")));
+        // THE REAL MODEL, not a JS array copied out of participants(). On the
+        // unfixed tree the delegate reads `modelData`, which only exists
+        // because the strip was fed an array — and an array reassigned is a
+        // model reset, so every bubble was destroyed and rebuilt on every
+        // speaker update.
+        QVERIFY2(!bubbles.contains(QStringLiteral("modelData")),
+                 "the bubble strip is bound to a JS array again");
+        QVERIFY(bubbles.contains(
+            QStringLiteral("property var model: app.groupCall.participantModel")));
     }
 
     // Stopping one published track must never stop another. "Unpublish the
@@ -579,8 +647,11 @@ private Q_SLOTS:
             read(QStringLiteral(QML_DIR "/CallParticipantTile.qml"));
         QVERIFY(!stage.isEmpty());
         QVERIFY(!tile.isEmpty());
+        const QString grid = read(QStringLiteral(QML_DIR "/CallTileGrid.qml"));
+        QVERIFY2(!grid.isEmpty(), "CallTileGrid.qml is missing");
         QVERIFY(stage.contains(QStringLiteral("readonly property bool voiceOnly")));
-        QVERIFY(stage.contains(QStringLiteral("bare: root.voiceOnly")));
+        QVERIFY(stage.contains(QStringLiteral("voiceOnly: root.voiceOnly")));
+        QVERIFY(grid.contains(QStringLiteral("bare: root.voiceOnly")));
         QVERIFY(tile.contains(QStringLiteral("property bool bare")));
         // Selection and keyboard focus still draw: those are states the user
         // caused and must be able to see.
@@ -626,20 +697,34 @@ private Q_SLOTS:
                  "the banner keys on the account rather than the device");
     }
 
-    // The stage is documented as REPLACING the timeline, and it was only
-    // ever ADDED beside it. Both are `Layout.fillHeight` in one ColumnLayout,
-    // so the column was SPLIT between them: the stage got roughly half, its
-    // spotlight collapsed to a ~45px strip with the avatar and the "Back to
-    // grid" button piled on top of each other, and message rows kept drawing
-    // underneath the call's control dock. Every reported "the call UI is
-    // broken" screenshot is this.
-    void theCallStageOwnsTheColumnRatherThanSharingIt()
+    // 2026-08-26, maintainer request: "calls get put at the top of the screen".
+    // The call is a PANEL above the message list, which keeps scrolling
+    // beneath it — Discord's DM arrangement.
+    //
+    // This assertion is the INVERSE of what it used to be, and the history
+    // matters. Originally the stage was merely ADDED beside the timeline and
+    // both were `Layout.fillHeight`, so the ColumnLayout split the column:
+    // the stage got a ~45 px strip with its avatar and its buttons piled on
+    // each other. The fix then was to hide the timeline. The fix NOW is to
+    // stop the fight at its source — the stage takes an explicitly assigned,
+    // bounded height — which is what lets the timeline come back.
+    //
+    // On the unfixed tree every one of the four assertions below fails: the
+    // host is `Layout.fillHeight: active`, the timeline carries
+    // `visible: !root.callStageOwnsColumn`, and there is no panel height at
+    // all.
+    void theCallPanelSitsAboveTheTimelineRatherThanReplacingIt()
     {
+        // Comment-stripped BEFORE normalizing: the bans below forbid two
+        // literals that the new hosting comment quotes verbatim while
+        // explaining why they are gone, and `normalized()` destroys the line
+        // structure a stripper needs.
         const QString pane =
-            normalized(read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
+            normalized(code(read(QStringLiteral(QML_DIR "/TimelinePane.qml"))));
         QVERIFY(!pane.isEmpty());
-        // ONE condition, so the stage and everything it replaces cannot
-        // drift apart again.
+        QVERIFY(pane.contains(QStringLiteral("objectName: \"timelineCallStageHost\"")));
+        // ONE condition, so the stage and everything around it cannot drift
+        // apart again.
         QVERIFY2(pane.contains(QStringLiteral(
                      "readonly property bool callStageOwnsColumn: "
                      "app.groupCall.active && app.groupCall.roomId === "
@@ -647,13 +732,260 @@ private Q_SLOTS:
                  "TimelinePane has no single call-stage ownership condition");
         QVERIFY2(pane.contains(QStringLiteral("active: root.callStageOwnsColumn")),
                  "the call stage host does not read the ownership condition");
-        QVERIFY2(pane.contains(QStringLiteral("visible: !root.callStageOwnsColumn")),
-                 "the timeline does not stand down while the call stage owns "
-                 "the column, so the two share its height");
+        // BOUNDED, never fillHeight. `Layout.fillHeight` on the host is the
+        // original squash bug and must not come back.
         QVERIFY2(pane.contains(QStringLiteral(
+                     "Layout.preferredHeight: active ? root.callPanelHeight "
+                     ": 0")),
+                 "the call panel does not take a bounded height");
+        QVERIFY2(!pane.contains(QStringLiteral("Layout.fillHeight: active")),
+                 "the call stage host is fighting the timeline for the column "
+                 "again");
+        // The timeline and the composer STAY. Hiding them is what this round
+        // undoes.
+        QVERIFY2(!pane.contains(QStringLiteral("visible: !root.callStageOwnsColumn")),
+                 "the timeline still stands down for the call");
+        QVERIFY2(!pane.contains(QStringLiteral(
                      "visible: app.currentRoomId !== \"\" && "
                      "!root.callStageOwnsColumn")),
-                 "the composer does not stand down under the call stage");
+                 "the composer still stands down for the call");
+    }
+
+    // The divider is draggable, and the drag is COMMITTED ON THE FALLING EDGE.
+    //
+    // §16's SplitView lesson, which applies to any hand-rolled resize just as
+    // it does to SplitView.resizing: the RELEASE moves nothing, so it emits no
+    // heightChanged, and a handler hung off the height never sees the end of
+    // the gesture. On the unfixed tree there is no divider at all, so the
+    // first assertion fails.
+    void theCallPanelDividerCommitsOnTheFallingEdgeOfTheDrag()
+    {
+        const QString raw = read(QStringLiteral(QML_DIR "/TimelinePane.qml"));
+        QVERIFY(!raw.isEmpty());
+        const int at =
+            raw.indexOf(QStringLiteral("objectName: \"callPanelDivider\""));
+        QVERIFY2(at >= 0, "there is no call panel divider");
+        const QString block = normalized(raw.mid(at, 2600));
+        QVERIFY2(block.contains(QStringLiteral("DragHandler {")),
+                 "the divider cannot be dragged");
+        QVERIFY2(block.contains(QStringLiteral("onActiveChanged:")),
+                 "the divider does not watch the drag's own active flag");
+        // The stored value is written where the gesture ENDS.
+        QVERIFY2(block.contains(QStringLiteral(
+                     "root.callPanelUserHeight = root.clampCallPanelHeight("
+                     "root.callPanelHeight);")),
+                 "the divider never commits the released height");
+        // ...and NOT from a height handler, which is the trap.
+        const QString pane = normalized(code(raw));
+        QVERIFY2(!pane.contains(QStringLiteral(
+                     "onHeightChanged: root.callPanelUserHeight")),
+                 "the panel height is being persisted from a height change, "
+                 "which never fires on release");
+        // A collapse is a request to the HOST, not a self-resize: the stage
+        // cannot shrink a panel whose height it does not own.
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(stage.contains(QStringLiteral("signal collapseToggled()")));
+        QVERIFY(pane.contains(QStringLiteral(
+            "onCollapseToggled: root.callPanelCollapsed = "
+            "!root.callPanelCollapsed")));
+    }
+
+    // ── The reported bug, and the shape that fixes it ────────────────────
+    //
+    // "make sure multiple users can screen share, now if share is closed no
+    // way to get it back."
+    //
+    // A SHARE IS A TILE, NOT A MODE. The grid is built over SURFACES: one
+    // cell per share and one per participant. On the unfixed tree neither
+    // CallShareTile.qml nor CallTileGrid.qml exists, so this fails on its
+    // first read; and CallStage carries `sharingPerson`, which returns the
+    // FIRST sharer and stops.
+    void aScreenShareIsATileNotAMode()
+    {
+        const QString grid = read(QStringLiteral(QML_DIR "/CallTileGrid.qml"));
+        const QString share = read(QStringLiteral(QML_DIR "/CallShareTile.qml"));
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY2(!grid.isEmpty(), "CallTileGrid.qml is missing");
+        QVERIFY2(!share.isEmpty(), "CallShareTile.qml is missing");
+        QVERIFY(!stage.isEmpty());
+
+        // Two models, two Repeaters — surfaces, not people.
+        QVERIFY(grid.contains(QStringLiteral("model: root.shareModel")));
+        QVERIFY(grid.contains(QStringLiteral("model: root.participantModel")));
+        // The people start where the shares end, so a sharer occupies a cell
+        // AND still has their own.
+        QVERIFY2(grid.contains(QStringLiteral(
+                     "root.cellX(root.shareCount + personCell.index)")),
+                 "the grid does not place people after the shares");
+        // A person's own tile never renders their screen: two surfaces asking
+        // the router for one participant's screen blank each other.
+        QVERIFY(grid.contains(QStringLiteral("mediaKind: \"camera\"")));
+        // The share tile owns the screen sink, both ends of it.
+        QVERIFY(share.contains(QStringLiteral("attachScreenSink(")));
+        QVERIFY(share.contains(QStringLiteral("attachLocalScreenSink(")));
+        QVERIFY(share.contains(QStringLiteral("detachScreenSink(")));
+        QVERIFY(share.contains(QStringLiteral("detachLocalScreenSink(")));
+        // A shared screen is CONTENT: fitted, never cropped.
+        QVERIFY(share.contains(QStringLiteral("VideoOutput.PreserveAspectFit")));
+        // The one-sharer collapse must not come back.
+        QVERIFY2(!stage.contains(QStringLiteral("sharingPerson")),
+                 "the stage still resolves 'the one person who is sharing'");
+        QVERIFY2(!stage.contains(QStringLiteral("spotlightKind")),
+                 "the spotlight still has a single track kind, which is the "
+                 "one-share assumption in another spelling");
+    }
+
+    // N simultaneous shares are N surfaces. There is nothing further to add
+    // on the wire — SfuVideoRouter already keys per participant and
+    // CallShareModel already carries one row per live share — so what this
+    // pins is that the VIEW stops collapsing them.
+    //
+    // On the unfixed tree `readonly property var sharingPerson` is present
+    // and this fails.
+    void multipleSimultaneousSharesEachGetTheirOwnSurface()
+    {
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        const QString grid = read(QStringLiteral(QML_DIR "/CallTileGrid.qml"));
+        QVERIFY(!stage.isEmpty());
+        QVERIFY(!grid.isEmpty());
+        // The grid is fed the whole share model, not one chosen sharer.
+        QVERIFY(stage.contains(QStringLiteral("shareModel: root.shareModel")));
+        QVERIFY(stage.contains(
+            QStringLiteral("readonly property var shareModel: "
+                           "app.groupCall.shareModel")));
+        // No scan of the participant list for "who is sharing" survives
+        // anywhere on the stage — that scan is what could only ever find one.
+        QVERIFY2(!stage.contains(QStringLiteral("people[i].screenSharing")),
+                 "the stage scans participants for a sharer again");
+        QVERIFY2(!stage.contains(QStringLiteral("readonly property var people")),
+                 "the stage rebuilt the participant JS array");
+        // The strip excludes BY shareId. Excluding by identity is what used to
+        // drop a sharer's CAMERA when their SCREEN was spotlighted.
+        QVERIFY(normalized(stage).contains(QStringLiteral(
+            "stripShare.shareId !== root.stageState.spotlightShareId")));
+    }
+
+    // THE INVARIANT: while any share is live there is always at least one
+    // on-screen control that puts it back on the spotlight.
+    //
+    // Two of them, deliberately. The explicit "Show screen share" button
+    // bound to `restorableShareAvailable`, and the share's own tile in the
+    // grid — because the grid is a complete index of everything on offer, a
+    // dismissed share is still a row, still a tile, still routable.
+    //
+    // On the unfixed tree this fails three ways: `layoutMode` exists, "Back
+    // to grid" writes it, and there is no restore control anywhere.
+    void aLiveShareIsAlwaysReachableAgain()
+    {
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(!stage.isEmpty());
+        const QString norm = normalized(stage);
+
+        // 1. The explicit control.
+        QVERIFY2(norm.contains(
+                     QStringLiteral("objectName: \"callRestoreShareButton\"")),
+                 "there is no control that restores a dismissed share");
+        QVERIFY(norm.contains(
+            QStringLiteral("root.stageState.restorableShareAvailable")));
+        QVERIFY(norm.contains(
+            QStringLiteral("onClicked: root.stageState.restoreAllShares()")));
+
+        // 2. The implicit one: a share tile in the grid restores itself.
+        QVERIFY(norm.contains(QStringLiteral("root.stageState.restoreShare(")));
+
+        // 3. Leaving the spotlight DISMISSES; it never writes a layout.
+        QVERIFY(norm.contains(QStringLiteral(
+            "root.stageState.dismissShare(root.stageState.spotlightShareId);")));
+        QVERIFY(norm.contains(QStringLiteral("root.stageState.clearPin();")));
+        const int back =
+            norm.indexOf(QStringLiteral("objectName: \"callBackToGridButton\""));
+        QVERIFY2(back >= 0, "the Back to grid control is gone");
+        QVERIFY2(norm.mid(back, 400)
+                     .contains(QStringLiteral("onClicked: root.leaveSpotlight()")),
+                 "Back to grid does not go through the dismiss path");
+
+        // 4. THE LATCH IS GONE. `layoutMode` was a one-way door: the only
+        //    writer of anything but "auto" was Back to grid, writing "grid",
+        //    and nothing ever wrote back.
+        const QString stageCode = code(stage);
+        // Prove the stripper still leaves code behind before trusting a ban.
+        QVERIFY(stageCode.contains(QStringLiteral("objectName: \"callStage\"")));
+        QVERIFY2(!stageCode.contains(QStringLiteral("layoutMode")),
+                 "the terminal layout-mode latch is back on the call stage");
+        // And the stage never pins the shared preference either, which would
+        // be the same latch wearing the new API's name.
+        QVERIFY2(!stageCode.contains(QStringLiteral("setLayoutPreference")),
+                 "the stage writes a layout preference with no writer back");
+        // `= "` and not `=`: the derivation legitimately COMPARES the
+        // preference with `===`, which contains `= ` as a substring.
+        QVERIFY2(!stageCode.contains(QStringLiteral("layoutPreference = \"")),
+                 "the stage assigns a layout preference directly");
+    }
+
+    // "volume shows up as a circle arround user" — the ring is driven by the
+    // SFU's amplitude, not by a boolean.
+    //
+    // On the unfixed tree the tile has no `speakingLevel` at all and animates
+    // `scale: root.speaking ? 1 : 0.94`, so both the presence assertion and
+    // the scale ban fail.
+    void theSpeakingRingReadsALevelNotABoolean()
+    {
+        const QString tile =
+            read(QStringLiteral(QML_DIR "/CallParticipantTile.qml"));
+        const QString grid = read(QStringLiteral(QML_DIR "/CallTileGrid.qml"));
+        QVERIFY(!tile.isEmpty());
+        QVERIFY(!grid.isEmpty());
+        const QString norm = normalized(tile);
+
+        QVERIFY(tile.contains(QStringLiteral("property real speakingLevel")));
+        // The GAP follows amplitude.
+        QVERIFY2(norm.contains(QStringLiteral(
+                     "readonly property real ringTarget: root.speaking ? 3 + 6 "
+                     "* Math.max(0, Math.min(1, root.speakingLevel)) : 0")),
+                 "the ring does not read the level");
+        // Attack fast, release slow, or it strobes between syllables.
+        QVERIFY2(norm.contains(QStringLiteral(
+                     "ringMotion.duration = root.ringTarget > root.ringGap ? "
+                     "60 : 220")),
+                 "the ring has no attack/release asymmetry");
+        // NOTHING is fabricated from the boolean. An SFU that reports only
+        // `active` must degrade to the fixed minimum ring, not to an invented
+        // amplitude.
+        QVERIFY2(!norm.contains(QStringLiteral("speakingLevel: root.speaking ?")),
+                 "a level is being fabricated from the speaking boolean");
+        // The ring must not resize the ITEM: scaling the avatar reflows every
+        // neighbour on every syllable.
+        QVERIFY2(!tile.contains(QStringLiteral("scale: root.speaking")),
+                 "the speaking cue scales the avatar again");
+        QVERIFY(norm.contains(QStringLiteral("width: parent.width + 2 * root.ringGap")));
+        // ...and the level actually reaches the tile from the model.
+        QVERIFY(grid.contains(
+            QStringLiteral("speakingLevel: personCell.speakingLevel")));
+    }
+
+    // The stage binds the real models. A JS array reassigned is a MODEL
+    // RESET, and the speaker feed fires continuously while anyone talks — so
+    // the old `participants()` + `refreshTick` shape destroyed every tile,
+    // every VideoOutput and every attach()/detach() pair on every syllable.
+    // An amplitude ring cannot exist on top of that.
+    //
+    // On the unfixed tree `refreshTick` and `app.groupCall.participants()`
+    // are both in CallStage.qml and this fails.
+    void theStageBindsTheModelsRatherThanCopyingThem()
+    {
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(!stage.isEmpty());
+        QVERIFY(stage.contains(QStringLiteral(
+            "readonly property var participantModel: "
+            "app.groupCall.participantModel")));
+        QVERIFY(stage.contains(QStringLiteral(
+            "readonly property var stageState: app.groupCall.stageState")));
+        const QString stageCode = code(stage);
+        QVERIFY(stageCode.contains(QStringLiteral("objectName: \"callStage\"")));
+        QVERIFY2(!stageCode.contains(QStringLiteral("refreshTick")),
+                 "the stage is back on a hand-bumped tick");
+        QVERIFY2(!stageCode.contains(QStringLiteral("app.groupCall.participants()")),
+                 "the stage copies the participant list into a JS array again");
     }
 
     void theVoiceStripOnlyShowsWhenTheCallIsElsewhere()

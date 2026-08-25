@@ -224,6 +224,13 @@ Rectangle {
             }
         }
 
+        // THE join affordance, and the gate above it (`blockReason`,
+        // `ownDeviceHere`, `locallyInCall`) is the one every surface uses.
+        // The timeline's call row (CallEventDelegate.qml) offers Join on the
+        // same two calls — app.rtc.joinBlockReason() to decide, and
+        // app.groupCall.join() to act — deliberately, so a second surface
+        // cannot drift into a different opinion about whether a call can be
+        // joined. If this gate changes, that one changes with it.
         AppButton {
             objectName: "roomCallJoinButton"
             text: qsTr("Join")

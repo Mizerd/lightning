@@ -29,6 +29,11 @@
 namespace {
 Q_LOGGING_CATEGORY(lcSfuMedia, "lightning.calls.sfu")
 
+/// How long a desktop capture may stay silent before pipewiresrc re-pushes
+/// the picture it already holds. See screenShareSource() for why this exists
+/// and why it is 100 and not one frame period.
+constexpr int kScreenKeepaliveMs = 100;
+
 // Same alive-registry discipline as the 1:1 engine: GStreamer calls back on
 // its own threads and a marshalled lambda must never run against a destroyed
 // engine. Registration is by pointer, and the queued invocation is tied to
@@ -1061,11 +1066,42 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd)
     // pipeline holds several buffers downstream. Raising it to 8 was tried and
     // made things WORSE: not one frame arrived. So the pool size is NOT the
     // fault, and the default is restored here deliberately.
+    // NOTE ON `keepalive-time`, which is why the first second is no longer a
+    // frozen picture — and which is NOT `min-buffers` wearing a new name.
+    //
+    // A PipeWire desktop capture delivers ON DAMAGE, so nothing arrives
+    // between the picker closing and the next screen change. `videorate`,
+    // measured in this repo's own dev shell against exactly this caps shape
+    // (input framerate=(fraction)0/1, output pinned 30/1), HOLDS the first
+    // buffer entirely — it emits nothing at all until a SECOND buffer
+    // arrives — and then back-fills the whole gap in one sub-millisecond
+    // burst of duplicates whose RTP timestamps span it. The receiver renders
+    // on that timeline, so it paints the opening picture and sits on it for
+    // however long the desktop stayed still. That is the reported freeze.
+    //
+    // `keepalive-time` re-pushes the buffer pipewiresrc ALREADY HOLDS when
+    // nothing new has arrived in that many milliseconds. It touches no caps,
+    // no buffer pool and no negotiation — unlike `min-buffers`, which changed
+    // the pool negotiated WITH PipeWire and killed the capture outright. The
+    // wire is byte-for-byte unchanged: videorate still emits the same pinned
+    // 30 fps, so vp8enc, RtpVp8Payloader, the ssrc, the msid and the
+    // AddTrackRequest all see what they see today.
+    //
+    // 100 ms rather than one frame period is deliberate, and it is a
+    // DIAGNOSTIC choice. `capture delivered frames count=` next to
+    // `frames encrypted` is how a dead capture is told apart from a live one
+    // (docs/matrixrtc.md), and a keepalive resend counts as a delivered
+    // frame. At 100 ms a dead capture still reports ~10/s against a live
+    // capture's up-to-30/s, so the pair keeps diverging; a 33 ms keepalive
+    // would have erased that signal on the one lane that most needed it.
     if (pipewireFd >= 0) {
-        return QStringLiteral("pipewiresrc fd=%1 path=%2 do-timestamp=true")
-            .arg(pipewireFd).arg(nodeId);
+        return QStringLiteral("pipewiresrc fd=%1 path=%2 do-timestamp=true "
+                              "keepalive-time=%3")
+            .arg(pipewireFd).arg(nodeId).arg(kScreenKeepaliveMs);
     }
-    return QStringLiteral("pipewiresrc path=%1 do-timestamp=true").arg(nodeId);
+    return QStringLiteral("pipewiresrc path=%1 do-timestamp=true "
+                          "keepalive-time=%2")
+        .arg(nodeId).arg(kScreenKeepaliveMs);
 }
 
 void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
@@ -1213,6 +1249,17 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     m_publishedBins.insert(cid, bin);
     if (pipewireFd >= 0)
         m_publishedFds.insert(cid, pipewireFd);
+    if (screenShare) {
+        // Logged once per share, beside the counters it qualifies. A keepalive
+        // RESEND counts as a delivered frame, so "capture delivered frames
+        // count=" no longer separates a dead capture from a live one on its
+        // own: at this floor a dead capture reports ~10/s against a live
+        // capture's up-to-30/s. A reader who does not know the floor cannot
+        // make that judgement at all, and that counter is the most valuable
+        // diagnostic this lane has.
+        qCInfo(lcSfuMedia) << "screen capture keepalive floor ms="
+                           << kScreenKeepaliveMs;
+    }
     // COUNT WHAT THE CAPTURE ITSELF PRODUCES.
     //
     // Every counter we had was downstream of `videorate`, which manufactures

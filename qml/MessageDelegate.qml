@@ -42,11 +42,32 @@ Item {
     readonly property bool isVirtualRow: model.isVirtual === true
     readonly property bool isStateActivity: model.isStateActivity === true
     readonly property bool isRoutineActivity: model.isRoutineActivity === true
+    // 2026-08-26: a call somebody started. Its OWN row kind, not a state
+    // event — this is the third row family in this chooser (message /
+    // virtual / state), and §16 records what happens when a chooser names
+    // only SOME of the model's kinds: a group label rendered as a room row.
+    // Every branch below that enumerates row kinds names this one too.
+    // `=== true` deliberately: a host whose model lacks the role reads
+    // `undefined` and keeps today's behaviour.
+    readonly property bool isCallEvent: model.isCallEvent === true
     // State events remain in the authoritative timeline model. This is only
     // a zero-height presentation filter, so toggling the setting restores the
     // same delegates without a resync or a second timeline.
-    readonly property bool roomActivityVisible:
-        !isRoutineActivity || app.settings.showRoomActivity
+    // 2026-08-26: "room activity" is now a master switch with two halves,
+    // and the bridge has distinguished them all along (rust/src/timeline.rs
+    // emits state_kind "membership" and "member_profile"). Anything that is
+    // neither — room settings, topic, name — follows the master alone.
+    // Keep this matrix in step with TimelineModel::activityKindVisible,
+    // which answers the same question for a DATE DIVIDER's own visibility.
+    readonly property bool roomActivityVisible: {
+        if (!isRoutineActivity) return true
+        if (!app.settings.showRoomActivity) return false
+        if (model.stateKind === "membership")
+            return app.settings.showMembershipEvents
+        if (model.stateKind === "member_profile")
+            return app.settings.showProfileChangeEvents
+        return true
+    }
     // v0.6.0: the timeline model this delegate's stable-id actions resolve
     // against. The room timeline supplies app.timeline; the thread panel
     // supplies app.thread.model — identical role/invokable surface.
@@ -158,6 +179,7 @@ Item {
         (!roomActivityVisible || suppressedAsThreadRoot || dividerSuppressed
          || deletedFollower) ? 0
         : isVirtualRow ? virtualRow.implicitHeight
+        : isCallEvent ? callEventRow.implicitHeight + AppTheme.spacingS * 2
         : isStateActivity ? stateActivity.implicitHeight
         : layout.implicitHeight + messageTopSpacing
     property bool heightSeedActive: false
@@ -495,7 +517,8 @@ Item {
     // double-map it.
     function openContextMenu(x, y, alreadyInOverlaySpace) {
         var eventId = root.eventIdForActions()
-        if (eventId === "" || root.isVirtualRow || root.isStateActivity)
+        if (eventId === "" || root.isVirtualRow || root.isStateActivity
+            || root.isCallEvent)
             return
         // Dismiss any transient row surface FIRST. The picker and this menu
         // are both Popup.Item in one overlay, so the last one opened paints
@@ -595,7 +618,7 @@ Item {
                                 (previewText || "").substring(0, 80),
                                 root.timelineModel.mediaKeyForEvent(eventId))
     }
-    activeFocusOnTab: !isVirtualRow && !isStateActivity
+    activeFocusOnTab: !isVirtualRow && !isStateActivity && !isCallEvent
     Keys.onPressed: (event) => {
         if (event.key === Qt.Key_Menu
             || (event.key === Qt.Key_F10
@@ -772,7 +795,8 @@ Item {
     readonly property bool roomEncrypted:
         root.timelineView ? root.timelineView.roomEncrypted === true : false
     function refreshPreview() {
-        if (isVirtualRow || isStateActivity || model.redacted || model.isImage || model.isFile
+        if (isVirtualRow || isStateActivity || isCallEvent || model.redacted
+            || model.isImage || model.isFile
             || actionKey === "" || !app.linkPreviews.supported) {
             preview = ({ state: "none" })
             return
@@ -948,6 +972,39 @@ Item {
         }
     }
 
+    // A call somebody started. Behind a Loader because the overwhelming
+    // majority of rows are not calls and this row instantiates a card, an
+    // avatar, a glyph and a live-session gate — the room timeline is not
+    // virtualized, so an item every row pays for is an item every row pays
+    // for. `active` on the row kind alone, so a call row is built exactly
+    // once and never rebuilt.
+    Loader {
+        id: callEventRow
+        objectName: "callEventRow"
+        active: root.isCallEvent
+        visible: active
+        // Its own air, not the message ladder's: `messageTopSpacing` is 1px
+        // for a row that begins no sender group, and a CARD sitting 1px
+        // under a message reads as part of it.
+        y: AppTheme.spacingS
+        width: parent.width
+        sourceComponent: CallEventDelegate {
+            // The room the CALL is in. A call row only ever appears in the
+            // room timeline (a thread has none), and the pane's own call
+            // banner reads the same room, so both surfaces answer for one
+            // call.
+            roomId: root.previewRoomId
+            actorUserId: model.sender || ""
+            actorName: model.senderDisplayName || ""
+            actorAvatarMxc: model.senderAvatarMxc || ""
+            sentence: model.callEventText || ""
+            video: model.callIsVideo === true
+            declinedCount: model.callDeclinedCount || 0
+            timestamp: model.timestamp
+            onScreen: root.rowOnScreen
+        }
+    }
+
     // Compact, discreet room-activity summary (Element-style) — never a
     // message-bubble-like card. Collapsed by default; the whole row (not
     // just the chevron) is the Expand/Collapse control.
@@ -956,9 +1013,11 @@ Item {
         objectName: "stateActivityGroup"
         // An EMPTY entry list draws nothing: a run made only of call
         // membership yields no entries, and "0 room updates" is worse than
-        // no row at all.
+        // no row at all. The count comes from the DELEGATE, not from the raw
+        // list — it drops call entries of its own (see its note), so the raw
+        // length would claim a row it will not draw.
         visible: root.isStateActivity && model.stateGroupLeader === true
-                 && root.stateActivityEntries.length > 0
+                 && stateActivity.entryCount > 0
         width: parent.width
         groupId: model.stateGroupId || ""
         entries: root.stateActivityEntries
@@ -979,7 +1038,7 @@ Item {
         readonly property bool navigationLanded:
             root.navigationHighlightId === (model.eventId || "")
         readonly property bool wanted:
-            !root.isVirtualRow && !root.isStateActivity
+            !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
             && (rowHover.hovered || root.actionsPinned || navigationLanded)
         // Opacity, not `visible`. A reply jump used to SLAM a saturated
         // selected-blue block on and then off again with no easing when
@@ -1007,7 +1066,7 @@ Item {
 
     ColumnLayout {
         id: layout
-        visible: !root.isVirtualRow && !root.isStateActivity
+        visible: !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
         y: root.messageTopSpacing
         width: parent.width
         spacing: 2
@@ -1109,7 +1168,17 @@ Item {
                             && !root.compactMode
                     sourceComponent: Label {
                         objectName: "continuationTimestamp"
-                        text: Qt.formatDateTime(model.timestamp, "hh:mm")
+                        // ONE clock format for the whole application
+                        // (Settings -> Appearance): 24-hour, 12-hour, or the
+                        // system's. The literal "hh:mm" every message row
+                        // used was 24-hour regardless of locale while the
+                        // room list and Home used the locale's short format,
+                        // so a 12-hour locale already saw both. Read as a
+                        // PROPERTY so the binding has a real dependency —
+                        // through a helper function it would keep rendering
+                        // the old format until the row was next created.
+                        text: Qt.formatDateTime(model.timestamp,
+                                                app.settings.clockTimeFormat)
                         horizontalAlignment: Text.AlignRight
                         color: AppTheme.textMuted
                         // Scaled like the identity-line timestamp it stands
@@ -1355,7 +1424,8 @@ Item {
                         }
                         Label {
                             objectName: "senderTimestamp"
-                            text: Qt.formatDateTime(model.timestamp, "hh:mm")
+                            text: Qt.formatDateTime(model.timestamp,
+                                                    app.settings.clockTimeFormat)
                             color: AppTheme.textMuted
                             font.pixelSize: AppTheme.scaled(10)
                             Accessible.name: qsTr("Sent at %1").arg(text)
@@ -2150,7 +2220,8 @@ Item {
                             sourceComponent: Label {
                                 text: {
                                     var ts = Qt.formatDateTime(
-                                        model.timestamp, "hh:mm")
+                                        model.timestamp,
+                                        app.settings.clockTimeFormat)
                                     // Status: 0=Sent, 1=Sending, 2=Failed
                                     if (model.isOwn && model.status === 1) {
                                         // Percentage only where there IS
@@ -3163,7 +3234,8 @@ Item {
             // delegate, so the row data is authoritative).
             contextLabel: qsTr("Message · %1 · %2")
                 .arg(model.senderDisplayName || model.sender || "")
-                .arg(Qt.formatDateTime(model.timestamp, "hh:mm"))
+                .arg(Qt.formatDateTime(model.timestamp,
+                                       app.settings.clockTimeFormat))
             // C6: the menu takes transient row-interaction ownership so no
             // OTHER row can show its toolbar underneath it, while this row
             // keeps its own — transientOwnerBlocks carries exactly that

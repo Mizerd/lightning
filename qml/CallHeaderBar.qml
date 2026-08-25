@@ -49,13 +49,24 @@ Rectangle {
     /// the call UI.
     property string placement: "header"
     readonly property bool dock: root.placement === "dock"
+    /// The COLLAPSED call strip's form of the dock: smaller controls, no pill
+    /// behind them, and only the controls a one-line strip has room for.
+    ///
+    /// It exists because collapsing the call panel destroys the expanded dock,
+    /// and the header instance stands down for the whole time the stage is on
+    /// screen (`stageOwnsControls`) — so without this a collapsed call would
+    /// have NO controls anywhere. Still one definition of the control set;
+    /// this is a third placement of it, not a fourth bar.
+    property bool compact: false
     /// True when the call STAGE for this room is on screen. The stage carries
     /// its own dock, so the header must not draw a second copy of the same
     /// controls directly above it.
     readonly property bool stageOwnsControls:
         app.groupCall.active && app.groupCall.roomId === app.currentRoomId
-    readonly property int controlDiameter: root.dock ? 48 : 40
-    readonly property int controlGlyph: root.dock ? 22 : 19
+    readonly property int controlDiameter:
+        root.dock ? (root.compact ? 32 : 48) : 40
+    readonly property int controlGlyph:
+        root.dock ? (root.compact ? 17 : 22) : 19
 
     // ── Which lane is live ──
     readonly property bool legacyLive:
@@ -105,7 +116,13 @@ Rectangle {
     visible: previewMode
              || (live && callRoomId === app.currentRoomId
                  && (root.dock || !root.stageOwnsControls))
-    implicitHeight: visible ? bar.implicitHeight + AppTheme.spacing12 * 2 : 0
+    // The compact strip is a ONE-LINE band, so it gets one-line padding: the
+    // dock's generous vertical breathing room is what a floating pill needs,
+    // not what a 56 px strip has.
+    implicitHeight: visible
+                    ? bar.implicitHeight
+                      + (root.compact ? AppTheme.spacing4 : AppTheme.spacing12) * 2
+                    : 0
     height: implicitHeight
     // The dock floats over the stage's canvas, so it paints no field of its
     // own — the pill behind the controls is the surface.
@@ -130,7 +147,10 @@ Rectangle {
         width: bar.implicitWidth + AppTheme.spacing16 * 2
         height: bar.implicitHeight + AppTheme.spacing8 * 2
         radius: height / 2
-        visible: root.dock && root.visible
+        // The compact strip already sits on the call panel's own field; a
+        // second pill inside a one-line strip reads as a control inside a
+        // control.
+        visible: root.dock && root.visible && !root.compact
         color: AppTheme.stormPanel
         border.width: 1
         border.color: AppTheme.stormBorder
@@ -183,6 +203,9 @@ Rectangle {
                 }
                 CallDeviceChevron {
                     objectName: "callBarCameraChevron"
+                    visible: !root.compact
+                    // Zero width when hidden, or the RowLayout keeps its slot.
+                    Layout.preferredWidth: visible ? implicitWidth : 0
                     kind: "camera"
                     accessibleName: qsTr("Choose camera")
                     Layout.alignment: Qt.AlignVCenter
@@ -222,7 +245,7 @@ Rectangle {
         // under the call UI — reported exactly that way. One control surface,
         // at the top, which is what was asked for.
         Loader {
-            active: root.richMedia
+            active: root.richMedia && !root.compact
             visible: active
             sourceComponent: CallControlButton {
                 objectName: "callBarHandButton"
@@ -241,7 +264,7 @@ Rectangle {
 
         // ── Participants (SFU lane only) ──
         Loader {
-            active: root.richMedia
+            active: root.richMedia && !root.compact
             visible: active
             sourceComponent: CallControlButton {
                 objectName: "callBarParticipantsButton"
@@ -283,6 +306,8 @@ Rectangle {
             }
             CallDeviceChevron {
                 objectName: "callBarMicChevron"
+                visible: !root.compact
+                Layout.preferredWidth: visible ? implicitWidth : 0
                 kind: "microphone"
                 accessibleName: qsTr("Choose microphone")
                 Layout.alignment: Qt.AlignVCenter
@@ -314,6 +339,8 @@ Rectangle {
             }
             CallDeviceChevron {
                 objectName: "callBarSpeakerChevron"
+                visible: !root.compact
+                Layout.preferredWidth: visible ? implicitWidth : 0
                 kind: "speaker"
                 accessibleName: qsTr("Choose output device")
                 Layout.alignment: Qt.AlignVCenter
@@ -339,7 +366,7 @@ Rectangle {
             // Wider than the round controls: leaving is the one irreversible
             // action on this bar and must not be a same-shaped neighbour of
             // Mute.
-            implicitWidth: root.dock ? 70 : 58
+            implicitWidth: root.dock ? (root.compact ? 46 : 70) : 58
             glyphSize: root.controlGlyph
             tooltip: qsTr("Leave call")
             onClicked: {

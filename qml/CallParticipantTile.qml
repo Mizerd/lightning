@@ -3,12 +3,22 @@ import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
 
-// One participant on the call stage — Discord-style layout, Lightning tokens.
+// One participant on the call stage — Discord's layout, Lightning's tokens.
 //
-// A voice tile is an avatar on a calm surface with a speaking ring; a name
-// strip sits along the bottom and state badges ride the top-right corner.
-// Nothing here is Discord artwork or Discord colour: every value comes from
-// AppTheme, so the tile follows all eleven themes and the text scale.
+// Two shapes, and which one is drawn is NOT this component's decision:
+//
+//   * `bare` — a circular avatar on the stage's own canvas, no panel, no
+//     border, no fill, with the name centred beneath it. This is what the
+//     maintainer asked for ("bubbles of participats and their avatar").
+//     HONESTY NOTE so nobody later "corrects" this against a screenshot:
+//     CURRENT desktop Discord does not do this. Every participant there is a
+//     rounded-rect tile with a circular avatar inside it, camera or not; the
+//     free-standing circles are Discord's mobile call and its older desktop
+//     DM call. The brief asked for circles-until-video, which is the older
+//     shape, and it is a good one — but it is not "what Discord does today".
+//   * a TILE — a 16:9 rounded rectangle with a nameplate pill, which is what
+//     every participant becomes the moment ANYONE in the call turns on a
+//     camera or starts a share, including the people who have neither.
 //
 // HONESTY RULE, and the whole reason `micKnown`/`cameraKnown` exist: the SFU
 // reports a track's muted state only for tracks it knows about. Before a
@@ -40,11 +50,15 @@ Item {
     property string identity: ""
     property bool screenSharing: false
     property bool handRaised: false
+    /// "" (unknown) | "poor" | "good" | "excellent". UNKNOWN DRAWS NOTHING —
+    /// the SFU may never report quality for a participant, and an invented
+    /// "good" is a claim nobody made.
+    property string connectionQuality: ""
 
     /// Which of this participant's video tracks this surface shows:
     /// "camera" or "screen". A person can send BOTH at once, and one surface
-    /// can only render one of them — the stage puts the share on the
-    /// spotlight and the camera in the grid, exactly as Discord does.
+    /// can only render one of them — the stage gives a share its own TILE
+    /// (see CallShareTile) rather than replacing the person with it.
     property string mediaKind: "camera"
     /// Routing keys from the participant row, watched only so the sink is
     /// RE-ATTACHED when they change. The SFU can announce a participant
@@ -65,6 +79,18 @@ Item {
 
     /// Voice-activity ring, driven by the SFU's speaker updates.
     property bool speaking: false
+    /// Amplitude, 0.0-1.0, from LiveKit's `SpeakerInfo.level`.
+    ///
+    /// THIS is "volume shows up as a circle arround user". Discord itself
+    /// cannot do it — its voice gateway's speaking payload is a bitmask with
+    /// no amplitude field at all — but LiveKit publishes a level and
+    /// Lightning was throwing it away before CallParticipantModel existed.
+    ///
+    /// An SFU that publishes only `active` gives speaking=true, level=0.0,
+    /// and the ring degrades to its fixed minimum. That is deliberate: no
+    /// level is fabricated from the boolean, because a made-up amplitude
+    /// would animate a number nobody measured.
+    property real speakingLevel: 0.0
     /// This participant is the local device.
     property bool local: false
     /// Manually spotlighted.
@@ -72,12 +98,9 @@ Item {
     /// Compact form for the strip beside a screen share.
     property bool compact: false
     /// Draw no card: just the avatar, its speaking ring and the name, on
-    /// whatever the stage's canvas is.
+    /// whatever the stage's canvas is. See the shape note at the top.
     ///
-    /// This is what a voice call looks like in the client the maintainer
-    /// asked us to match — large circular avatars on the canvas, not a grid
-    /// of bordered panels. A tile only becomes a panel when it has video to
-    /// hold. Selection and keyboard focus still draw, because those are
+    /// Selection and keyboard focus still draw a card, because those are
     /// states the user caused and must be able to see.
     property bool bare: false
     readonly property bool _drawsCard:
@@ -87,6 +110,36 @@ Item {
 
     implicitWidth: compact ? 148 : 240
     implicitHeight: compact ? 96 : 168
+
+    // ── The speaking ring ────────────────────────────────────────────────
+    //
+    // The ring is OUTSIDE the avatar and the avatar does not move: the ring
+    // Rectangle is a CHILD of a fixed-size holder, so however far it breathes
+    // it contributes nothing to this item's implicit size and reflows
+    // nothing. Scaling the avatar instead would move every neighbour on every
+    // syllable, which is the reasoning already written into
+    // CallSpeakerBubbles.qml and it is correct.
+    //
+    // Attack fast, release slow, or a ring that follows amplitude strobes:
+    // speech amplitude crosses zero between syllables.
+    readonly property real ringTarget:
+        root.speaking ? 3 + 6 * Math.max(0, Math.min(1, root.speakingLevel)) : 0
+    property real ringGap: 0
+    onRingTargetChanged: {
+        ringMotion.duration = root.ringTarget > root.ringGap ? 60 : 220
+        root.ringGap = root.ringTarget
+    }
+    // The binding's FIRST evaluation does not arrive as a change, so a tile
+    // created while its owner is already talking would sit at gap 0 until
+    // they paused.
+    Component.onCompleted: root.ringGap = root.ringTarget
+    Behavior on ringGap {
+        NumberAnimation {
+            id: ringMotion
+            duration: 60
+            easing.type: Easing.OutCubic
+        }
+    }
 
     readonly property int _avatarSize: {
         // Fit the avatar to the tile rather than to a fixed ladder, so the
@@ -117,7 +170,8 @@ Item {
     Accessible.name: root._label.length > 0 ? root._label : qsTr("Participant")
     // Carries the same facts the badges show, so a screen-reader user learns
     // what a sighted one does — and is told nothing when the state is
-    // unknown.
+    // unknown. The speaking LEVEL is deliberately absent: an amplitude is
+    // decoration, and announcing a number would be noise.
     Accessible.description: {
         var parts = []
         if (root.micKnown && root.micMuted)
@@ -128,6 +182,8 @@ Item {
             parts.push(qsTr("Hand raised"))
         if (root.speaking)
             parts.push(qsTr("Speaking"))
+        if (root.connectionQuality === "poor")
+            parts.push(qsTr("Poor connection"))
         return parts.join(", ")
     }
     Accessible.focusable: true
@@ -243,9 +299,7 @@ Item {
             }
         }
 
-        // Speaking ring around the AVATAR, not a moving avatar: Discord's
-        // cue reads as a halo, and shifting the avatar on every syllable is
-        // what makes a grid feel unstable.
+        // The avatar and its ring.
         Item {
             id: avatarBlock
             // Hidden, not destroyed, while video is live: the camera can go
@@ -259,20 +313,25 @@ Item {
 
             Rectangle {
                 anchors.centerIn: parent
-                width: parent.width + (root.bare ? 8 : 12)
-                height: parent.height + (root.bare ? 8 : 12)
+                // The ONLY thing amplitude moves. `ringGap` is animated, so
+                // this width follows it smoothly without any layout being
+                // involved: the holder's size is fixed and this Rectangle is
+                // a free child of it.
+                width: parent.width + 2 * root.ringGap
+                height: parent.height + 2 * root.ringGap
                 radius: width / 2
                 color: "transparent"
                 border.width: root.bare ? 3 : 2
                 border.color: AppTheme.success
-                opacity: root.speaking ? 1 : 0
-                scale: root.speaking ? 1 : 0.94
+                // Louder also reads as brighter, but never fully transparent
+                // while speaking — an SFU that reports no level must still
+                // show a ring.
+                opacity: root.speaking
+                         ? 0.55 + 0.45 * Math.max(0, Math.min(1, root.speakingLevel))
+                         : 0
                 visible: opacity > 0
                 Behavior on opacity {
                     NumberAnimation { duration: 110 }
-                }
-                Behavior on scale {
-                    NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
                 }
             }
 
@@ -287,52 +346,107 @@ Item {
             }
         }
 
-        // Name strip. Behind a Loader: the label is empty until a profile
-        // resolves, which is the state it is created in.
+        // ── Nameplate ────────────────────────────────────────────────────
+        //
+        // On a TILE it is a pill in the bottom-left with the mute glyph
+        // INSIDE it, ahead of the name — the badge belongs to the name, and
+        // a mute state a reader has to hover to discover is the single
+        // most-complained-about thing about Discord's current call tile.
+        // Nothing here is hover-gated.
+        //
+        // On a BARE avatar there is no pill: a filled pill under a
+        // free-standing circle reads as a tile that failed to draw.
+        //
+        // Behind a Loader: the label is empty until a profile resolves,
+        // which is the state this delegate is created in.
         Loader {
-            active: root._label.length > 0
+            active: root._label.length > 0 && !root.bare
             visible: active
             anchors.left: parent.left
-            anchors.right: parent.right
             anchors.bottom: parent.bottom
-            anchors.margins: root.compact ? 6 : 10
-            sourceComponent: RowLayout {
-                spacing: 4
-                Loader {
-                    active: root.micKnown && root.micMuted
-                    visible: active
-                    Layout.alignment: Qt.AlignVCenter
-                    sourceComponent: Icon {
-                        name: "mic_off"
-                        size: root.compact ? 12 : 14
-                        color: AppTheme.dangerInk
+            anchors.margins: root.compact ? 6 : 8
+            anchors.rightMargin: root.compact ? 6 : 8
+            sourceComponent: Rectangle {
+                implicitWidth: Math.min(plate.implicitWidth + 12,
+                                        surface.width - (root.compact ? 12 : 16))
+                implicitHeight: plate.implicitHeight + 6
+                radius: AppTheme.radiusPill
+                // A translucent dark plate over whatever the tile is showing,
+                // so the name stays legible on a bright screen share as well
+                // as on the tile's own surface.
+                color: Qt.rgba(0, 0, 0, 0.55)
+
+                RowLayout {
+                    id: plate
+                    anchors.centerIn: parent
+                    spacing: 4
+                    Loader {
+                        active: root.micKnown && root.micMuted
+                        visible: active
+                        Layout.alignment: Qt.AlignVCenter
+                        sourceComponent: Icon {
+                            name: "mic_off"
+                            size: root.compact ? 12 : 14
+                            color: AppTheme.dangerInk
+                        }
                     }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: root._label
-                    color: AppTheme.textPrimary
-                    font.pixelSize: root.compact ? 11 : 12
-                    font.weight: Font.Medium
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
-                    // Centred under the avatar on a bare tile: a name pinned
-                    // to the leading edge of a card that is not painted reads
-                    // as text floating in the canvas.
-                    horizontalAlignment: root.bare && !videoLoader.visible
-                                         ? Text.AlignHCenter : Text.AlignLeft
+                    Text {
+                        Layout.fillWidth: true
+                        text: root._label
+                        // Deliberately a fixed light ink, not a theme text
+                        // token: this plate paints its own dark field over
+                        // arbitrary video, so the surrounding theme says
+                        // nothing about what is legible on it.
+                        color: "#FFFFFF"
+                        font.pixelSize: root.compact ? 11 : 12
+                        font.weight: Font.Medium
+                        elide: Text.ElideRight
+                        maximumLineCount: 1
+                    }
                 }
             }
         }
 
+        // The bare form's name: centred under the circle, no plate.
+        Loader {
+            active: root._label.length > 0 && root.bare && !videoLoader.visible
+            visible: active
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: avatarBlock.bottom
+            anchors.topMargin: 8
+            width: parent.width - 12
+            sourceComponent: Text {
+                text: root._label
+                color: AppTheme.stormText
+                font.pixelSize: root.compact ? 11 : 13
+                font.weight: Font.Medium
+                elide: Text.ElideRight
+                maximumLineCount: 1
+                horizontalAlignment: Text.AlignHCenter
+            }
+        }
+
         // State badges, top-right. Each in its own Loader so an inactive
-        // badge costs nothing and contributes no empty Text.
+        // badge costs nothing and contributes no empty Text. ALWAYS visible
+        // — never hover-gated.
         RowLayout {
             anchors.top: parent.top
             anchors.right: parent.right
             anchors.margins: root.compact ? 6 : 8
             spacing: 4
 
+            Loader {
+                // Only a REPORTED poor link earns a badge. "good" and
+                // "excellent" are the ordinary case and drawing a badge for
+                // them is decoration; "" means the SFU never said, and a
+                // badge there would be a claim nobody made.
+                active: root.connectionQuality === "poor"
+                visible: active
+                sourceComponent: CallTileBadge {
+                    iconName: "warning"
+                    tone: "danger"
+                }
+            }
             Loader {
                 active: root.handRaised
                 visible: active
@@ -350,12 +464,39 @@ Item {
                 }
             }
             Loader {
-                // Only an authoritative "camera is off" earns a badge.
-                active: root.cameraKnown && !root.cameraOn
+                // Only an authoritative "camera is off" earns a badge, and
+                // only on a tile: a bare avatar IS the "no camera" state, so
+                // the badge would be saying what the shape already says.
+                active: root.cameraKnown && !root.cameraOn && !root.bare
                 visible: active
                 sourceComponent: CallTileBadge {
                     iconName: "videocam_off"
                     tone: "muted"
+                }
+            }
+        }
+
+        // A muted mic still has to be visible on a BARE avatar, where there
+        // is no nameplate to carry it: a small badge on the circle itself,
+        // exactly where the bubble strip puts it.
+        Loader {
+            active: root.bare && root.micKnown && root.micMuted
+                    && !videoLoader.visible
+            visible: active
+            anchors.right: avatarBlock.right
+            anchors.bottom: avatarBlock.bottom
+            sourceComponent: Rectangle {
+                width: 22
+                height: 22
+                radius: 11
+                color: AppTheme.stormCanvas
+                border.width: 1
+                border.color: AppTheme.stormBorder
+                Icon {
+                    anchors.centerIn: parent
+                    name: "mic_off"
+                    size: 14
+                    color: AppTheme.danger
                 }
             }
         }

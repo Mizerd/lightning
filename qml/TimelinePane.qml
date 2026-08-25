@@ -34,6 +34,84 @@ Rectangle {
     /// other, and message rows kept showing underneath the control dock.
     readonly property bool callStageOwnsColumn:
         app.groupCall.active && app.groupCall.roomId === app.currentRoomId
+
+    // ── The call panel's share of the column ─────────────────────────────
+    //
+    // Discord's DM call is a panel at the TOP of the channel column, auto-
+    // sized and user-resizable, with the message list scrolling independently
+    // beneath it. No Discord documentation states its default height — the
+    // only figure anywhere is a user saying it takes "half the vertical
+    // height", which is an estimate — so these are Lightning's numbers, not
+    // measurements of Discord.
+    //
+    //   * 40 % of the column for a voice-only call, 70 % once anything is
+    //     sending video, clamped to [220 px, 75 % of the column].
+    //   * A drag STORES the user's height for the session. It does not
+    //     disable the auto-grow: video appearing gives a one-shot nudge up
+    //     (see onCallPanelHasVideoChanged) which the user may immediately
+    //     drag back, and that drag sticks. Discord's manual resize latches
+    //     the auto-size off permanently, which is reported there as a bug
+    //     across three machines — worth not copying.
+    //   * Collapsed, the panel is a one-line strip and the timeline gets the
+    //     rest of the column back.
+    //
+    // Session-scoped, deliberately: persisting it needs a SettingsManager key
+    // and that file is not this round's to change. Noted as a follow-up.
+    property bool callPanelCollapsed: false
+    /// < 0 means "no user preference yet — follow the automatic answer".
+    property real callPanelUserHeight: -1
+    /// The height the current drag started from. A DragHandler reports a
+    /// translation, not a position, so the gesture needs its own origin.
+    property real callPanelDragBase: 0
+    /// The collapsed strip: one line of avatars, speaking rings and compact
+    /// controls. 64 px because that is what the compact control row plus the
+    /// panel's own margins measure — a smaller number clips the controls,
+    /// which is worse than a slightly taller strip.
+    readonly property real callPanelCollapsedHeight: 64
+    /// True once anything in this call is sending video. Read off the stage
+    /// rather than recomputed: the stage already owns that derivation and two
+    /// copies of it would drift.
+    readonly property bool callPanelHasVideo:
+        callStageHost.active && callStageHost.item
+        ? !callStageHost.item.voiceOnly : false
+    readonly property real callPanelAutoHeight:
+        clampCallPanelHeight(root.height * (root.callPanelHasVideo ? 0.70 : 0.40))
+    readonly property real callPanelHeight:
+        root.callPanelCollapsed
+        ? root.callPanelCollapsedHeight
+        : (root.callPanelUserHeight < 0
+           ? root.callPanelAutoHeight
+           : clampCallPanelHeight(root.callPanelUserHeight))
+
+    function clampCallPanelHeight(value) {
+        // The 220 px floor YIELDS to a small column. It exists to keep the
+        // call usable, not to win an argument with the window: a 220 px panel
+        // in a 260 px pane leaves no timeline at all, which is the thing this
+        // whole change was made to stop.
+        var floor = Math.min(220, Math.max(64, root.height * 0.45))
+        var ceiling = Math.max(floor, root.height * 0.75)
+        return Math.max(floor, Math.min(value, ceiling))
+    }
+
+    // The one-shot grow. A share or a camera arriving is the moment the panel
+    // needs to be bigger; after that the user's own height wins again, which
+    // is why this writes the stored value once instead of becoming a floor
+    // under it.
+    onCallPanelHasVideoChanged: {
+        if (!root.callPanelHasVideo || root.callPanelUserHeight < 0)
+            return
+        var target = clampCallPanelHeight(root.height * 0.70)
+        if (root.callPanelUserHeight < target)
+            root.callPanelUserHeight = target
+    }
+
+    // A call ending must not leave the NEXT call collapsed: the collapse is a
+    // state of this call, and there is no control on a collapsed strip that
+    // belongs to a call that is over.
+    onCallStageOwnsColumnChanged: {
+        if (!root.callStageOwnsColumn)
+            root.callPanelCollapsed = false
+    }
     // The authoritative right-panel state. Exactly one surface is open:
     // the thread surface (controller-owned state) wins, then the info/member
     // panel, else none. All open/close paths flow through the two underlying
@@ -249,7 +327,14 @@ Rectangle {
         timeline.positionViewAtViewRow(row, true)
     }
     Shortcut {
-        sequences: [StandardKey.Find]
+        // Was StandardKey.Find, which is Ctrl+F on Linux and Windows. The
+        // registry's default is the same key, spelled explicitly so it can be
+        // SHOWN and REBOUND — a StandardKey has no stable text to display and
+        // cannot be overridden.
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("room.find")]
+        }
         enabled: app.currentRoomId !== ""
         onActivated: root.openFind()
     }
@@ -364,7 +449,7 @@ Rectangle {
             var startOfToday = new Date(now.getFullYear(), now.getMonth(),
                                         now.getDate())
             if (d >= startOfToday)
-                return Qt.formatTime(d, "hh:mm")
+                return Qt.formatTime(d, app.settings.clockTimeFormat)
             if (startOfToday - d < 6 * 86400000)
                 return Qt.formatDateTime(d, "ddd hh:mm")
             return Qt.formatDateTime(d, "MMM d, hh:mm")
@@ -910,22 +995,117 @@ Rectangle {
             onParticipantsRequested: root.infoOpen = !root.infoOpen
         }
 
-        // The call surface REPLACES the timeline while a call is live and
-        // the user has not navigated away from it. It is not an overlay: a
-        // call is the thing the user is doing, and half-covering the room
-        // gives neither surface enough space. Leaving it visible while they
-        // browse elsewhere is the Voice Connected bar's job, not this one's.
+        // The call surface is a PANEL AT THE TOP of the conversation column,
+        // with the message list still visible and scrolling independently
+        // beneath it and a draggable divider between them. Discord's DM
+        // arrangement, and what the maintainer asked for: "calls get put at
+        // the top of the screen".
+        //
+        // It used to REPLACE the timeline — the stage filled the column and
+        // the timeline and composer were hidden behind
+        // `visible: !callStageOwnsColumn`. That was itself a fix for a worse
+        // bug (both were `Layout.fillHeight` in one ColumnLayout, so the
+        // column was SPLIT and the stage got a ~45 px strip). The ownership
+        // condition survives; what changed is that the stage now takes a
+        // BOUNDED, explicitly assigned height instead of `fillHeight`, so
+        // there is nothing left for the two to fight over and the timeline
+        // can stay visible.
+        //
+        // WHY THE READER'S MESSAGE DOES NOT MOVE WHEN A CALL STARTS. The
+        // timeline is a 180-degree-rotated Flickable over one Column
+        // (§16): view row 0 is the NEWEST message at content y 0, and
+        // contentY grows going INTO history — so the content is pinned to
+        // the BOTTOM edge of the viewport. This change alters the timeline's
+        // HEIGHT only. Its WIDTH is untouched, so no row relayouts and
+        // `contentHeight` does not change; nothing here writes `contentY`;
+        // and with the content bottom-anchored, taking space off the TOP
+        // reveals or hides rows at the top while the row the reader is
+        // looking at stays exactly where it is. The one case that does move
+        // is the panel SHRINKING far enough that `contentY` exceeds the new
+        // `contentHeight - height` — the Flickable clamps, because there is
+        // no longer that much history above the reader. That is the same
+        // thing a window resize does and it is not avoidable.
+        //
+        // Second-order effect, stated rather than hidden: `distanceFromTop()`
+        // is `wheelMaxY() - contentY` and `wheelMaxY()` folds in the
+        // viewport height, so GROWING the timeline (call ends, panel
+        // collapses) can move the reader INTO the near-top pagination band
+        // and dispatch a backfill with no visible movement. A backfill is not
+        // a reader displacement, and it is the same behaviour as making the
+        // window taller.
         Loader {
+            id: callStageHost
             objectName: "timelineCallStageHost"
             Layout.fillWidth: true
-            Layout.fillHeight: active
+            // BOUNDED, never fillHeight: the timeline below keeps that.
+            Layout.preferredHeight: active ? root.callPanelHeight : 0
             active: root.callStageOwnsColumn
             visible: active
             sourceComponent: CallStage {
+                collapsed: root.callPanelCollapsed
                 // The dock's participants button reaches the room's existing
                 // side panel, exactly as the header bar's does — one list,
                 // not a second one belonging to the stage.
                 onParticipantsRequested: root.infoOpen = !root.infoOpen
+                onCollapseToggled: root.callPanelCollapsed = !root.callPanelCollapsed
+            }
+        }
+
+        // The divider, and the drag that resizes the call panel.
+        //
+        // Hand-rolled rather than a SplitView because putting the timeline
+        // into a SplitView would restructure a 7000-line ColumnLayout whose
+        // scrolling machinery is the most-reverted code in this repository.
+        // The SplitView LESSON still applies verbatim and is why the store
+        // happens where it does: a resize RELEASE moves nothing, so it emits
+        // no heightChanged, and a handler hung off the height would never see
+        // the end of the gesture. The value is therefore written on the
+        // FALLING EDGE of the drag's own `active`.
+        Item {
+            objectName: "callPanelDivider"
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? 9 : 0
+            visible: root.callStageOwnsColumn && !root.callPanelCollapsed
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: parent.width
+                height: 1
+                color: dividerHover.hovered || dividerDrag.active
+                       ? AppTheme.accentBorder : AppTheme.border
+            }
+
+            HoverHandler {
+                id: dividerHover
+                cursorShape: Qt.SizeVerCursor
+            }
+            DragHandler {
+                id: dividerDrag
+                target: null
+                yAxis.enabled: true
+                xAxis.enabled: false
+                cursorShape: Qt.SizeVerCursor
+                onActiveChanged: {
+                    if (dividerDrag.active) {
+                        root.callPanelDragBase = root.callPanelHeight;
+                    } else {
+                        // THE FALLING EDGE. Nothing moves on release, so this
+                        // is the only moment that can commit the gesture.
+                        root.callPanelUserHeight =
+                                root.clampCallPanelHeight(root.callPanelHeight);
+                    }
+                }
+                // `activeTranslation`, not `translation`: it is the movement
+                // since THIS drag began and resets on each new one, which is
+                // exactly what a base-plus-delta resize wants. (`translation`
+                // is the deprecated 6.0 spelling.)
+                onActiveTranslationChanged: {
+                    if (!dividerDrag.active)
+                        return;
+                    root.callPanelUserHeight = root.clampCallPanelHeight(
+                                root.callPanelDragBase
+                                + dividerDrag.activeTranslation.y);
+                }
             }
         }
 
@@ -1350,13 +1530,14 @@ Rectangle {
 
         // Timeline
         Item {
-            // Stands down while the call stage owns the column. Both are
-            // `Layout.fillHeight`, so leaving this visible does not put the
-            // timeline BEHIND the call — it makes the two SHARE the height,
-            // which is what squashed the stage into an unusable strip. The
-            // room is not unloaded, only hidden: everything here is alive and
-            // reappears with its scroll position when the call ends.
-            visible: !root.callStageOwnsColumn
+            // Stays visible THROUGH a call. It used to stand down entirely
+            // (`visible: !root.callStageOwnsColumn`) because the stage was
+            // `Layout.fillHeight` and the two split the column between them,
+            // squashing the stage into an unusable strip. The stage now takes
+            // an explicitly assigned, bounded height, so there is nothing left
+            // to fight over and the messages can keep scrolling under the
+            // call — which is the whole point of the change.
+            visible: true
             Layout.fillWidth: true
             Layout.fillHeight: true
 
@@ -5119,11 +5300,11 @@ Rectangle {
             id: messageComposer
             objectName: "messageComposer"
             Layout.fillWidth: true
-            // Also hidden under the call stage: the stage is a full-column
-            // surface with its own control dock at the bottom, and a composer
-            // beneath it is a second bottom bar for a timeline that is not on
-            // screen.
-            visible: app.currentRoomId !== "" && !root.callStageOwnsColumn
+            // Visible DURING a call too. It was hidden because the stage was
+            // a full-column surface and a composer beneath a timeline nobody
+            // could see was a second bottom bar for nothing. The timeline is
+            // on screen now, so being able to type in it is the point.
+            visible: app.currentRoomId !== ""
         }
     }
 

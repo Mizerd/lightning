@@ -769,9 +769,15 @@ were never backed up or shared.
   AppTheme.qml is the sole token source; the theme test enforces palette
   completeness, routing, and WCAG AA pairs. The storm* namespace (menus,
   popovers, Settings) is theme-ROUTED: Storm literals under theme 11, each
-  legacy theme's own semantic tones otherwise. The trust card is the one
-  deliberate invariant (raw _sto* literals). Ink on a bolt/accent fill uses
-  boltInk, never stormPanel
+  legacy theme's own semantic tones otherwise. There is NO invariant
+  exception left — the Sessions trust card was the last one, and 2026-08-26
+  deleted its ten pinned `trust*` tokens and routed it here too, because a
+  brand-navy card sitting between themed SettingsCards was the one surface
+  on the page that read as foreign. Ink on a bolt/accent fill uses boltInk,
+  never stormPanel — the trust card's complete-node glyph was the case that
+  proves it: it only looked right as `trustNavy` because the pinned fill
+  happened to be navy, and routed unchanged it would have painted the page
+  ground onto a yellow disc
 - The four-pane design shell: 68 px spaces rail (home, Spaces, settings,
   account avatar + switcher popover), 300 px room list with workspace header
   and Ctrl-K hint, timeline with members/threads side panel, card composer;
@@ -1524,6 +1530,107 @@ their index explicitly.
 ### Round history (newest first)
 
 Lessons only; features are described in §7, SHAs point into `git log`.
+
+**2026-08-26 tester round: the rail drop (again), the slow account switch,
+the People chip, the log, the settings, and the Discord call surface.**
+
+*The rail drop had never worked, and this is the SECOND round that thought it
+had fixed it.* The "resting on a tile" branch of `updateTileDrag` ended in
+`updateDrag(row, !dwellTimer.running)` — and `running` is TRUE for the whole
+250 ms the dwell is being served, so the second pointer sample inside the
+target's near half REORDERED, the target stepped aside, the row under the
+pointer became the dragged block, and the branch that then fired called
+`dwellTimer.stop()` on the very dwell it was waiting for. Grouping needed a
+frozen mouse. Both retired rules had the same shape: **a reading that moves
+things while the user is still aiming.** The rule now is Discord's — the TILE
+is the group target, the GAP between tiles is the reorder target, nothing
+moves while the pointer is on a tile, and there is no dwell because the
+geometry carries what the dwell was standing in for. One flag became three
+exclusive verbs (`hoverGroup` / `hoverGap` / `clearDropTarget`); `updateDrag`
+was REMOVED rather than shimmed, because its premise is the defect. The
+reorder destination is now derived from a GAP index with the
+`g > dragRow ? g - length : g` conversion the row-index version never had —
+which is separately why a one-row hover used to park the block under the
+pointer and oscillate. `tests/RailDragQmlTest.cpp` drives REAL
+`QTest::mousePress`/`mouseMove`/`mouseRelease` at tile centres resolved from
+real delegate geometry and asserts on the STORE; **all six cases were run
+against the reverted tree and all six failed**, case 2 reporting the
+mechanism in words ("target row moved from 3 to 2 on pointer sample 6").
+GENERALISE, third time: the fifteen model cases passed through both broken
+rules because they hand the model a state production could not produce.
+
+*The slow account switch was an unbounded profile-fetch loop introduced by
+`0b38f8c` itself.* `DirectAvatarResolver` cached a profile answer only when
+it carried a NON-EMPTY avatar, but announced EVERY answer; `SpaceChannelModel`
+was wired to that signal and its `rebuild()` calls `resolveMissing()`. So for
+every DM peer with no avatar — and every 404 — rebuild → fetch → answer →
+rebuild ran forever: one `/profile` request and one full model rebuild per
+network round trip, per such peer, for the whole session. A switch clears the
+caches, which is exactly what re-armed it. The in-source comment asserting
+"resolveMissing() is guarded by its own cache, so this cannot feed itself"
+was false for the two commonest answers. Fixed by caching the negative
+(`m_noAvatar`, session-scoped, cleared on sign-out) and announcing ONLY a
+face actually learned. Two further costs removed in the same lane: the
+rebuild is coalesced to one per event-loop turn, and it resolves child rooms
+through `SpaceManager::directChildRoomIds(spaceId, byId)` against the map it
+already built instead of `directChildRoomsDetailed`, which materialised the
+whole room list and a fresh hash PER SPACE. Why no test saw it: the fixture's
+`FakeClient` inherited `fetchUserProfile() { return 0; }`, and the resolver
+skips its pending bookkeeping entirely on op 0, so the failure mode was
+structurally unreachable in the harness.
+
+*The People chip was not inert — the layout had nowhere to put a person.*
+The Binding reached `setFilterMode` and `rebuild()` ran correctly; a SCOPED
+Space dropped the account-wide "Rooms" group, and that group was the only
+place a DM could live, so People produced exactly two navigation rows over
+blank space with no wording at all. **A DM is never scoped by a Space, in any
+filter** — Matrix gives no way for a DM to be a Space's child — which is the
+rule Classic had already reached. DMs also gained a group of their own:
+showing nothing but people under a heading that says "Rooms" looks like the
+filter did not take. And the column can now say a filter matched nothing
+without claiming the ACCOUNT is empty (`matchCount`, distinct from `empty`).
+
+*One log line fired once per DUPLICATE CALLER.* `avatarSource()` was the only
+one of five `alreadyPending()` branches that logged, and that branch is
+reached once per caller, so its volume is O(callers) — unbounded in a list.
+Twelve per-request lines moved to `lightning.media.trace`; one counts-only
+burst summary lands on the default category once activity goes quiet;
+failures keep their own line. Separately `qml/Avatar.qml` called the bridge
+from three triggers per instance, one of which (`onSizeChanged`) could not
+change the request at all because `avatarSource` opens with `Q_UNUSED(size)`.
+GENERALISE: a line that fires per CALLER does not belong in a default-on
+category; only state transitions do.
+
+*The screen share opened on one frozen picture, and `videorate` is why.*
+Measured in the dev shell: with input `framerate=(fraction)0/1` and output
+pinned `30/1`, videorate emits NOTHING for the first buffer — it holds it
+until a second arrives — then back-fills the whole gap in one sub-millisecond
+burst of duplicates timestamped across it. A PipeWire capture delivers ON
+DAMAGE, so that gap is "how long until the screen moves", and a libwebrtc
+receiver renders on the frame timeline. `pipewiresrc keepalive-time=100`
+re-pushes the buffer the element already holds. **It is not `min-buffers`
+wearing a new name** — that changed the pool negotiated with PipeWire and
+killed the capture; this touches no caps, no pool and no negotiation. 100 ms
+and not one frame period is a DIAGNOSTIC choice: a keepalive resend counts as
+a delivered frame, so at this floor a dead capture still reports ~10/s
+against a live capture's up-to-30/s and the counters keep diverging. Two
+alternatives measured and refuted: `skip-to-first` changes nothing on this
+input shape, and `max-duplication-time` keeps the hold AND starves the
+encoder below the pinned 30 fps.
+
+*A `json!` that grows past serde_json's macro recursion limit is a compile
+error that names no key.* Adding a nested `power_levels` object to the member
+snapshot produced "recursion limit reached while expanding
+`$crate::json_internal!`" pointing at the macro, not at the addition. Hoist
+any nested object out into its own `let` before the outer `json!`.
+
+*Two `type == StateChange` guards had to learn a new enum value.* Giving call
+events their own `TimelineEvent::CallEvent` silently un-suppressed them in
+`NotificationManager` (an EMPTY desktop notification per call, since the
+sentence is built in `TimelineModel`) and in `RustSdkMatrixClient`'s activity
+test (blanking the room-list preview). Both were found by reading, not by a
+test. GENERALISE: when a row stops being a `StateChange`, grep every branch
+that tests for one.
 
 **2026-08-26 rail-drop / Space-menu / log-noise round.** Contract in
 `docs/navigation-layouts.md` §2 and §4b.
