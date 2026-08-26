@@ -987,7 +987,17 @@ function(_lightning_configure_qml_module target _scope)
     # DeleteW/EnumerateW live in advapi32). WIN32 is true for both MSVC and the
     # MinGW cross-build; off Windows WinCredStore compiles as a no-op stub.
     if(WIN32)
-        target_link_libraries(${target} ${_scope} advapi32)
+        # gdi32/user32 for the WINDOW CAPTURE source (WindowCaptureSrc.cpp):
+        # CreateDIBSection, BitBlt, StretchBlt, GdiFlush, PrintWindow.
+        #
+        # NOT implied. Measured in the cross-builder: the same translation
+        # unit links with SEVEN undefined references without -lgdi32 and zero
+        # with it, so relying on Qt to drag them in transitively would be a
+        # link failure waiting for the next Qt version to stop doing it.
+        # dwmapi is deliberately absent — WindowCaptureSrc resolves
+        # DwmGetWindowAttribute with GetProcAddress so the packaging closure
+        # gains no new import.
+        target_link_libraries(${target} ${_scope} advapi32 gdi32 user32)
         target_compile_definitions(${target} ${_scope} HAVE_WINCRED=1)
     endif()
 
