@@ -121,6 +121,7 @@ private Q_SLOTS:
     void aCallBreaksTheActivityRunAroundIt();
     void consecutiveStateChangesFormOneGroup();
     void exposesTypedMembershipAndRoomStateEntries();
+    void aMembershipEntryCarriesWhatItDid();
     void dateDividerDoesNotSplitGroup();
     void readMarkerDoesNotSplitGroup();
     void timelineStartDoesNotSplitGroup();
@@ -273,6 +274,54 @@ void StateActivityGroupingTest::exposesTypedMembershipAndRoomStateEntries()
     QVERIFY(membership.value(QStringLiteral("timestamp")).toDateTime().isValid());
     QCOMPARE(entries.at(1).toMap().value(QStringLiteral("eventKind")).toString(),
              QStringLiteral("m.room.topic"));
+}
+
+// A membership row says WHAT IT DID, as a closed set, beside the sentence.
+//
+// The row draws a glyph per action — joining, being removed and being banned
+// are not the same event, and a column of identical grey sentences says they
+// are. Deriving that glyph from the sentence is the thing this field exists
+// to prevent: the sentence is TRANSLATED, so a glyph parsed out of it would
+// be right in exactly one language.
+//
+// On the unfixed tree the key is absent, so the row has nothing to draw from.
+void StateActivityGroupingTest::aMembershipEntryCarriesWhatItDid()
+{
+    TimelineEvent joined = makeStateChange(
+        QStringLiteral("$join"), QStringLiteral("Bob joined the room."),
+        QStringLiteral("membership"), QStringLiteral("Bob"));
+    joined.membershipChange = QStringLiteral("joined");
+    TimelineEvent banned = makeStateChange(
+        QStringLiteral("$ban"), QStringLiteral("Alice banned Bob."),
+        QStringLiteral("membership"), QStringLiteral("Bob"));
+    banned.membershipChange = QStringLiteral("banned");
+    // A membership change the bridge could not classify. It must stay
+    // UNKNOWN rather than defaulting to anything: a wrong glyph is a wrong
+    // claim about what somebody did.
+    TimelineEvent odd = makeStateChange(
+        QStringLiteral("$odd"), QStringLiteral("Membership for Bob changed."),
+        QStringLiteral("membership"), QStringLiteral("Bob"));
+    m_client->mirror = { joined, banned, odd };
+    m_model->setRoomId(kRoom);
+
+    const QVariantList entries =
+        m_model->data(m_model->index(0),
+                      TimelineModel::StateGroupEntriesRole).toList();
+    QCOMPARE(entries.size(), 3);
+    QCOMPARE(entries.at(0).toMap()
+                 .value(QStringLiteral("membershipChange")).toString(),
+             QStringLiteral("joined"));
+    QCOMPARE(entries.at(1).toMap()
+                 .value(QStringLiteral("membershipChange")).toString(),
+             QStringLiteral("banned"));
+    QVERIFY2(entries.at(2).toMap()
+                 .value(QStringLiteral("membershipChange")).toString().isEmpty(),
+             "an unclassified membership change was given an action it does "
+             "not have");
+    // The sentence is untouched: this is BESIDE it, never instead of it.
+    QCOMPARE(entries.at(0).toMap()
+                 .value(QStringLiteral("description")).toString(),
+             QStringLiteral("Bob joined the room."));
 }
 
 void StateActivityGroupingTest::dateDividerDoesNotSplitGroup()

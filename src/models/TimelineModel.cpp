@@ -615,6 +615,11 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
                          e.itemId.isEmpty() ? e.eventId : e.itemId);
             entry.insert(QStringLiteral("eventId"), e.eventId);
             entry.insert(QStringLiteral("eventKind"), e.stateKind);
+            // Closed set, for the row's glyph. Never parsed back out of the
+            // sentence — that is translated, and a glyph derived from
+            // translated text would be right in one language.
+            entry.insert(QStringLiteral("membershipChange"),
+                         e.membershipChange);
             entry.insert(QStringLiteral("actorUserId"), e.sender);
             entry.insert(QStringLiteral("actorDisplayName"),
                          senderDisplayName(e));

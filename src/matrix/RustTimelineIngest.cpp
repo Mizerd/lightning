@@ -122,6 +122,8 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     // sends that is the raw markdown source.
     e.formattedBody = item.value(QStringLiteral("formatted_body")).toString();
     e.stateKind = item.value(QStringLiteral("state_kind")).toString();
+    e.membershipChange =
+        item.value(QStringLiteral("membership_change")).toString();
     e.stateTarget = item.value(QStringLiteral("state_target")).toString();
     // Typed member-profile change. Rust sends null for profile_name_change
     // when the event carried no real rename (an avatar-only change, or an

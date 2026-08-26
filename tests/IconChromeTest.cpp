@@ -210,6 +210,79 @@ private Q_SLOTS:
         }
     }
 
+    // GLYPH NAMES CHOSEN AT RUNTIME, which the sweep above cannot see.
+    //
+    // That sweep matches `Icon { name: "x" }` and `iconName: "x"` — a literal
+    // beside the property. A name RETURNED from a function, or sent up from
+    // C++ and bound through the model, has no literal for it to find, so an
+    // unmapped one ships as tofu with every existing icon test green.
+    //
+    // Two such producers exist and both are swept here by their own shape:
+    // the room-activity row's per-action glyph (a JS chooser) and the
+    // Channels column's navigation rows (named in SpaceChannelModel).
+    void everyRuntimeChosenIconNameIsMapped()
+    {
+        const QString iconQml = readAll(QStringLiteral(QML_DIR "/Icon.qml"));
+        QVERIFY(!iconQml.isEmpty());
+        QSet<QString> mapped;
+        QRegularExpression mapEntry(QStringLiteral("\"([a-z0-9_]+)\": \"\\\\u"));
+        auto it = mapEntry.globalMatch(iconQml);
+        while (it.hasNext())
+            mapped.insert(it.next().captured(1));
+        QVERIFY(mapped.size() >= 40);
+
+        auto sweep = [&mapped](const QString &source, const QString &label,
+                               const QString &fromMarker,
+                               const QRegularExpression &use) {
+            QVERIFY2(!source.isEmpty(),
+                     qPrintable(QStringLiteral("%1 is unreadable").arg(label)));
+            const int at = source.indexOf(fromMarker);
+            QVERIFY2(at >= 0,
+                     qPrintable(QStringLiteral(
+                         "%1 no longer contains %2, so this test is sweeping "
+                         "nothing").arg(label, fromMarker)));
+            int found = 0;
+            auto uses = use.globalMatch(source);
+            while (uses.hasNext()) {
+                const QString icon = uses.next().captured(1);
+                ++found;
+                QVERIFY2(mapped.contains(icon),
+                         qPrintable(QStringLiteral(
+                             "%1 chooses unmapped icon '%2' at runtime")
+                                        .arg(label, icon)));
+            }
+            QVERIFY2(found > 0,
+                     qPrintable(QStringLiteral(
+                         "%1 yielded no icon names, so this test proves "
+                         "nothing about it").arg(label)));
+        };
+
+        // `return "glyph"` inside the activity row's chooser.
+        const QString activity =
+            readAll(QStringLiteral(QML_DIR "/RoomActivityDelegate.qml"));
+        sweep(activity, QStringLiteral("RoomActivityDelegate.qml"),
+              QStringLiteral("entryGlyph"),
+              QRegularExpression(
+                  QStringLiteral("return \"([a-z0-9_]+)\"")));
+
+        // SpaceChannelModel's own `kIcon…` block. The names live there as
+        // named constants and NOWHERE ELSE precisely so this sweep can find
+        // all of them: an earlier version of this test tried to pattern-match
+        // the call sites and silently matched none of them, which is a test
+        // that passes on a broken tree.
+        const QString channels = readAll(
+            QStringLiteral(QML_DIR "/../src/models/SpaceChannelModel.cpp"));
+        sweep(channels, QStringLiteral("SpaceChannelModel.cpp"),
+              QStringLiteral("kIconCreate"),
+              QRegularExpression(QStringLiteral(
+                  "kIcon\\w+ = \"([a-z0-9_]+)\"")));
+        // ...and the call sites must go through them, or a literal added
+        // later is invisible to the sweep above.
+        QVERIFY2(!channels.contains(QStringLiteral("iconName = QStringLiteral(")),
+                 "a glyph name is written as a literal instead of a kIcon "
+                 "constant, so nothing checks it against the icon subset");
+    }
+
     void iconFontShipsInRepo()
     {
         QVERIFY(QFile::exists(QStringLiteral(

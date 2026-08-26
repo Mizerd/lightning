@@ -93,6 +93,15 @@ struct TimelineEvent {
     // Typed room-activity target (for example the affected member's display
     // name or MXID). State presentation never needs raw event JSON.
     QString stateTarget;
+    // What a `membership` state row actually did, as a CLOSED SET:
+    // "" (unknown) / "joined" / "left" / "invited" / "kicked" / "banned" /
+    // "unbanned" / "revoked".
+    //
+    // Beside the sentence rather than inside it, so the presentation layer
+    // can draw a glyph per action without parsing a translated sentence back
+    // apart. Unknown stays unknown: a wrong glyph is a wrong claim about what
+    // somebody did.
+    QString membershipChange;
     // m.room.member profile change (stateKind == "member_profile"), typed so
     // the presentation layer can translate it instead of receiving an
     // English sentence built in the bridge — which could neither be

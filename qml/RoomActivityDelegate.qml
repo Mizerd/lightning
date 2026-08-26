@@ -177,12 +177,78 @@ Item {
                 id: activityRepeater
                 objectName: "stateActivityRepeater"
                 model: expandedColumn.visible ? root.entriesWithoutCalls : []
-                Label {
+                RowLayout {
+                    id: entryRow
                     required property var modelData
                     objectName: "stateActivityEntry"
                     width: expandedColumn.width
+                    spacing: 6
+
+                    // A GLYPH PER ACTION, as Sable draws them. Joining, being
+                    // removed and being banned are not the same event, and a
+                    // column of identical grey sentences says they are.
+                    //
+                    // Derived from the CLOSED SET the bridge sends beside the
+                    // sentence, never from the sentence: that is translated,
+                    // so a glyph parsed out of it would be right in exactly
+                    // one language. An unknown action gets the neutral mark
+                    // rather than a guess — a wrong glyph is a wrong claim
+                    // about what somebody did.
+                    //
+                    // Every name here is in the bundled Material Symbols
+                    // SUBSET (IconChromeTest owns that rule); an unmapped one
+                    // renders as tofu.
+                    readonly property string entryGlyph: {
+                        var kind = entryRow.modelData.eventKind || ""
+                        if (kind === "membership") {
+                            var change = entryRow.modelData.membershipChange || ""
+                            if (change === "joined")
+                                return "keyboard_tab"
+                            if (change === "left")
+                                return "logout"
+                            if (change === "invited")
+                                return "person_add"
+                            if (change === "kicked" || change === "revoked")
+                                return "person_remove"
+                            if (change === "banned")
+                                return "block"
+                            if (change === "unbanned")
+                                return "check_circle"
+                            return "group"
+                        }
+                        if (kind === "member_profile")
+                            return "edit_square"
+                        if (kind === "m.room.name" || kind === "m.room.topic")
+                            return "edit_square"
+                        if (kind === "m.room.avatar")
+                            return "image"
+                        if (kind === "m.room.encryption")
+                            return "lock"
+                        if (kind === "m.room.pinned_events")
+                            return "push_pin"
+                        if (kind === "m.room.canonical_alias")
+                            return "link"
+                        if (kind === "m.room.power_levels")
+                            return "shield"
+                        return "info"
+                    }
+
+                    Icon {
+                        name: entryRow.entryGlyph
+                        size: AppTheme.scaled(AppTheme.textMeta)
+                        color: AppTheme.textMuted
+                        Layout.alignment: Qt.AlignTop
+                        Layout.topMargin: 2
+                        // Decorative: the sentence beside it carries the
+                        // whole meaning, and a screen reader announcing an
+                        // unnamed glyph before every line is noise.
+                        Accessible.ignored: true
+                    }
+
+                    Label {
+                    Layout.fillWidth: true
                     height: Math.max(16, implicitHeight)
-                    text: modelData.description || ""
+                    text: entryRow.modelData.description || ""
                     // MANDATORY, and it is a security control, not styling.
                     // This sentence embeds THREE strings a remote member
                     // chose: the actor's resolved display name (at offset 0)
@@ -202,6 +268,7 @@ Item {
                     lineHeightMode: Text.ProportionalHeight
                     wrapMode: Text.WordWrap
                     Accessible.name: text
+                    }
                 }
             }
         }

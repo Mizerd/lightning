@@ -13,6 +13,21 @@
 
 namespace {
 constexpr auto kCollapsedKey = "shell/channelCollapsed";
+
+// EVERY Material Symbols glyph this model names, in one block.
+//
+// Named constants rather than literals at the call sites, and that is a test
+// seam: the bundled icon font is a SUBSET, an unmapped name renders as tofu,
+// and IconChromeTest's ordinary sweep only sees a literal sitting beside an
+// `Icon { name: }` in QML. A glyph chosen in C++ and bound through the model
+// has no such literal, so `everyRuntimeChosenIconNameIsMapped` sweeps this
+// block by its `kIcon` prefix — which only works if the names are here and
+// nowhere else.
+constexpr auto kIconCreate = "add";
+constexpr auto kIconJoinAddress = "link";
+constexpr auto kIconExploreSpaces = "groups";
+constexpr auto kIconMessageSearch = "search";
+constexpr auto kIconLobby = "flag";
 } // namespace
 
 bool SpaceChannelModel::Row::operator==(const Row &other) const
@@ -562,14 +577,18 @@ int SpaceChannelModel::buildHome(QVector<Row> &rows,
         // content, so a search over rooms leaves none of them standing —
         // they match nothing and would sit above an empty result claiming to
         // be part of it.
-        rows.append(actionRow(createRoomActionId(), tr("Create Room"), QStringLiteral("add")));
-        rows.append(actionRow(joinAddressActionId(), tr("Join with Address"), QStringLiteral("link")));
-        rows.append(actionRow(exploreSpacesActionId(), tr("Explore Spaces"), QStringLiteral("groups")));
+        rows.append(actionRow(createRoomActionId(), tr("Create Room"),
+                              QLatin1String(kIconCreate)));
+        rows.append(actionRow(joinAddressActionId(),
+                              tr("Join with Address"),
+                              QLatin1String(kIconJoinAddress)));
+        rows.append(actionRow(exploreSpacesActionId(), tr("Explore Spaces"),
+                              QLatin1String(kIconExploreSpaces)));
         if (m_messageSearchSupported) {
             Row search;
             search.kind = SearchKind;
             search.name = tr("Message Search");
-            search.iconName = QStringLiteral("search");
+            search.iconName = QLatin1String(kIconMessageSearch);
             rows.append(search);
         }
     }
@@ -627,7 +646,7 @@ int SpaceChannelModel::buildPeople(QVector<Row> &rows,
     const bool searching = !m_searchQuery.trimmed().isEmpty();
     if (!searching) {
         rows.append(actionRow(createChatActionId(), tr("Create Chat"),
-                              QStringLiteral("add")));
+                              QLatin1String(kIconCreate)));
     }
 
     QVector<Row> invites;
@@ -680,13 +699,13 @@ int SpaceChannelModel::buildSpace(QVector<Row> &rows,
         Row lobby;
         lobby.kind = LobbyKind;
         lobby.name = tr("Lobby");
-        lobby.iconName = QStringLiteral("flag");
+        lobby.iconName = QLatin1String(kIconLobby);
         rows.append(lobby);
         if (m_messageSearchSupported) {
             Row search;
             search.kind = SearchKind;
             search.name = tr("Message Search");
-            search.iconName = QStringLiteral("search");
+            search.iconName = QLatin1String(kIconMessageSearch);
             rows.append(search);
         }
     }

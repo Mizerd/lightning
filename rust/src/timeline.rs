@@ -3084,6 +3084,25 @@ fn event_item_to_json(
                     Some(M::InvitationRevoked) => format!("{actor} revoked {target}'s invitation."),
                     _ => format!("Membership for {target} changed."),
                 };
+                // The change as a CLOSED SET, beside the sentence rather
+                // than inside it. The presentation layer draws a glyph per
+                // action — joining and being banned are not the same event
+                // and a column of identical grey text says they are — and
+                // parsing that back out of a translated sentence is not
+                // something any layer should be asked to do.
+                out["membership_change"] = match change.change() {
+                    Some(M::Joined) | Some(M::InvitationAccepted) => "joined",
+                    Some(M::Left) | Some(M::InvitationRejected) => "left",
+                    Some(M::Invited) => "invited",
+                    Some(M::Kicked) => "kicked",
+                    Some(M::Banned) | Some(M::KickedAndBanned) => "banned",
+                    Some(M::Unbanned) => "unbanned",
+                    Some(M::InvitationRevoked) => "revoked",
+                    // Unknown stays unknown. A wrong glyph is a wrong claim
+                    // about what somebody did.
+                    _ => "",
+                }
+                .into();
                 out["msgtype"] = "state".into();
                 out["state_kind"] = "membership".into();
                 out["state_target"] = target.into();
