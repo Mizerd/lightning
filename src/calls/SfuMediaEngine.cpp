@@ -1296,17 +1296,21 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd)
     // platform-blind and the difference lives here, in the one place that
     // actually differs.
 #if defined(Q_OS_WIN)
-    // d3d11screencapturesrc, not gdiscreencapsrc: the GDI path is a
-    // per-frame BitBlt of the whole desktop and costs a visible amount of
-    // CPU at 4K, where the D3D11 one is a Desktop Duplication capture the
-    // compositor already has. `show-cursor` matches what the xdg portal
-    // gives a Linux sharer by default.
+    // gdiscreencapsrc, and NOT by preference. d3d11screencapturesrc is the
+    // better element — Desktop Duplication the compositor already has, where
+    // GDI is a per-frame BitBlt of the whole desktop and costs real CPU at
+    // 4K — but the d3d11 and mediafoundation plugins do not load in this
+    // toolchain at all (a mingw-w64 mbstate_t ABI break), so they are not
+    // shipped. See lightning-deploy docs/windows-packaging.md; revisit when
+    // GStreamer or mingw-w64 is next bumped.
     //
-    // NO `do-timestamp`: this source timestamps from the swap chain itself,
-    // and overriding that with arrival time is what the Linux branch needs
-    // only because pipewiresrc delivers on damage.
+    // Property names verified against the shipped plugin binary rather than
+    // assumed: `monitor` ("Which monitor to use (0 = 1st monitor and
+    // default)") and `cursor` ("Whether to show mouse cursor"). The d3d11
+    // element's `monitor-index`/`show-cursor` are DIFFERENT names, and using
+    // them here would be a pipeline that never builds.
     Q_UNUSED(pipewireFd);
-    return QStringLiteral("d3d11screencapturesrc monitor-index=%1 show-cursor=true")
+    return QStringLiteral("gdiscreencapsrc monitor=%1 cursor=true")
         .arg(nodeId < 0 ? 0 : nodeId);
 #elif defined(Q_OS_MACOS)
     // One element does both capture kinds on macOS; `capture-screen` is what
@@ -1328,9 +1332,12 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd)
 QString SfuMediaEngine::cameraSource()
 {
 #if defined(Q_OS_WIN)
-    // mfvideosrc (Media Foundation), not ksvideosrc: Kernel Streaming is the
-    // older path and does not see every UVC device Windows itself lists.
-    return QStringLiteral("mfvideosrc");
+    // ksvideosrc (Kernel Streaming), and NOT by preference either: mfvideosrc
+    // is the more modern path and sees devices KS does not, but the
+    // mediafoundation plugin does not load in this toolchain (see
+    // screenShareSource above). Kernel Streaming reaches every ordinary UVC
+    // webcam, which is what this needs to cover.
+    return QStringLiteral("ksvideosrc");
 #elif defined(Q_OS_MACOS)
     // The same element the screen branch uses, without capture-screen.
     return QStringLiteral("avfvideosrc");

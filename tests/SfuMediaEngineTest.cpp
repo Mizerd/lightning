@@ -351,11 +351,21 @@ private slots:
         QVERIFY(!camera.isEmpty());
         QVERIFY(!screen.isEmpty());
 #if defined(Q_OS_WIN)
-        QCOMPARE(camera, QStringLiteral("mfvideosrc"));
-        QVERIFY(screen.startsWith(QStringLiteral("d3d11screencapturesrc")));
-        QVERIFY2(screen.contains(QStringLiteral("monitor-index=")),
+        // ksvideosrc/gdiscreencapsrc, not mfvideosrc/d3d11screencapturesrc:
+        // the mediafoundation and d3d11 plugins do not load in the packaging
+        // toolchain, so those elements are not shipped. The property names
+        // differ between the two families — `monitor`/`cursor` here versus
+        // `monitor-index`/`show-cursor` there — so naming the wrong pair is a
+        // pipeline that never builds.
+        QCOMPARE(camera, QStringLiteral("ksvideosrc"));
+        QVERIFY(screen.startsWith(QStringLiteral("gdiscreencapsrc")));
+        QVERIFY2(screen.contains(QStringLiteral("monitor=")),
                  "the Windows screen source takes a monitor index, and "
                  "without one it captures whatever the element defaults to");
+        QVERIFY2(!screen.contains(QStringLiteral("monitor-index=")),
+                 "gdiscreencapsrc has no monitor-index property — that is "
+                 "d3d11screencapturesrc's name, and setting an unknown "
+                 "property makes gst_parse_launch fail outright");
 #elif defined(Q_OS_MACOS)
         QCOMPARE(camera, QStringLiteral("avfvideosrc"));
         QVERIFY(screen.contains(QStringLiteral("capture-screen=true")));
