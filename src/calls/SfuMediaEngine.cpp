@@ -3,6 +3,7 @@
 #include <unistd.h>
 
 #include "calls/CallFrameCryptor.h"
+#include "calls/GstBootstrap.h"
 #include "calls/RtpVp8Payloader.h"
 #include "calls/SfuVideoRouter.h"
 
@@ -457,44 +458,17 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
 
 bool SfuMediaEngine::runtimeAvailable(QString *whyNot)
 {
-    static std::once_flag once;
-    static bool initOk = false;
-    std::call_once(once, [] {
-        // THE BUNDLED PLUGINS HAVE TO BE FOUND BEFORE gst_init SCANS.
-        //
-        // A GStreamer plugin is dlopen'd, never linked, so nothing in the
-        // executable's import table names one and the packaging's recursive
-        // PE-import walk cannot discover them. On a packaged Windows build
-        // they ship in `gstreamer-1.0/` beside Lightning.exe, and the
-        // registry scan has to be pointed at that directory explicitly — the
-        // compiled-in default is the BUILDER's sysroot path, which does not
-        // exist on a user's machine.
-        //
-        // Set before gst_init_check and only when the directory is really
-        // there, so a development build (whose plugins come from the system
-        // GStreamer on GST_PLUGIN_SYSTEM_PATH) is untouched. qputenv, not a
-        // registry API: the variable is read during gst_init itself.
-        const QString bundled =
-            QCoreApplication::applicationDirPath() + QStringLiteral("/gstreamer-1.0");
-        if (QFileInfo(bundled).isDir()
-            && qEnvironmentVariableIsEmpty("GST_PLUGIN_PATH")) {
-            qputenv("GST_PLUGIN_PATH", QFile::encodeName(bundled));
-            // The bundle is COMPLETE, so the system path must not be
-            // consulted: a user with their own GStreamer installed would
-            // otherwise load a mixture of two builds into one process, which
-            // is a crash rather than a fallback.
-            qputenv("GST_PLUGIN_SYSTEM_PATH", QByteArray());
-        }
-        GError *error = nullptr;
-        initOk = gst_init_check(nullptr, nullptr, &error) == TRUE;
-        if (error)
-            g_error_free(error);
-    });
-    if (!initOk) {
-        if (whyNot)
-            *whyNot = QStringLiteral("gstreamer_init_failed");
+    // ONE init for the process, plugin path included — see GstBootstrap.h.
+    // This used to do its own gst_init AND set GST_PLUGIN_PATH beside it,
+    // which worked only when this engine happened to be probed first. It is
+    // not: AppController probes the 1:1 backend before this one, that
+    // backend called gst_init with no plugin path, and the second call was a
+    // no-op. A packaged build then had the engine compiled in, 25 plugins
+    // beside it, and an empty registry.
+    const bool initOk = lightning::gst::ensureInitialised(whyNot);
+    if (!initOk)
         return false;
-    }
+
     // Our own VP8 payloader, which the probe below then requires like any
     // other element. Registered here because this is the first thing that
     // runs after gst_init and before any pipeline is built.

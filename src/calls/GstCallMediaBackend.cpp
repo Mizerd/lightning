@@ -1,5 +1,7 @@
 #include "GstCallMediaBackend.h"
 
+#include "calls/GstBootstrap.h"
+
 #include <QCoreApplication>
 #include <QLoggingCategory>
 #include <QMetaObject>
@@ -149,14 +151,11 @@ GstBusSyncReply busSyncHandler(GstBus *bus, GstMessage *message,
 
 bool GstCallMediaBackend::runtimeAvailable(QString *whyNot)
 {
-    static std::once_flag once;
-    static bool initOk = false;
-    std::call_once(once, [] {
-        GError *error = nullptr;
-        initOk = gst_init_check(nullptr, nullptr, &error) == TRUE;
-        if (error)
-            g_error_free(error);
-    });
+    // ONE init for the process, plugin path included — see GstBootstrap.h.
+    // This backend is probed BEFORE the SFU engine, so when it did its own
+    // bare gst_init the bundled plugin path was never applied and every
+    // packaged build started with an empty registry.
+    const bool initOk = lightning::gst::ensureInitialised(whyNot);
     if (!initOk) {
         if (whyNot)
             *whyNot = QStringLiteral("gstreamer_init_failed");

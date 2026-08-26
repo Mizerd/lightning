@@ -335,6 +335,63 @@ private slots:
         engine.stop();
     }
 
+    // NEITHER BACKEND MAY CALL gst_init ITSELF.
+    //
+    // GST_PLUGIN_PATH is read DURING gst_init, once. There are two media
+    // backends and each used to run its own `gst_init_check` from its own
+    // `std::call_once`, with only the SFU one setting the bundled plugin
+    // path — and AppController probes the OTHER one first. So on a packaged
+    // build the first init scanned the builder's sysroot (absent on a user's
+    // machine), registered nothing, and the SFU engine's later init was a
+    // no-op. The result was a client with the engine compiled in and 25
+    // plugins beside it reporting `missing_element:webrtcbin`: no call
+    // button, and an incoming call offering only Decline and Dismiss.
+    //
+    // A source scan, because the defect is WHICH FUNCTION RUNS FIRST and
+    // that cannot be observed from inside one process that has already
+    // initialised GStreamer. It fails on the tree that had two inits.
+    void neitherMediaBackendInitialisesGstreamerItself()
+    {
+        const QString root = QStringLiteral(SOURCE_DIR "/src/calls/");
+        for (const QString &name : { QStringLiteral("SfuMediaEngine.cpp"),
+                                     QStringLiteral("GstCallMediaBackend.cpp") }) {
+            QFile file(root + name);
+            QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(root + name));
+            QString source = QString::fromUtf8(file.readAll());
+            QVERIFY(!source.isEmpty());
+            // COMMENTS STRIPPED FIRST. Both files EXPLAIN this defect in
+            // prose directly above the fix, so a ban read off the raw text
+            // always finds the token it forbids and fails on correct code —
+            // the self-referential-ban trap this repo has hit repeatedly.
+            // Whole-line `//` only, which is where every mention lives.
+            source.remove(QRegularExpression(QStringLiteral("(?m)^[ \\t]*//.*$")));
+            QVERIFY2(source.contains(QStringLiteral("runtimeAvailable")),
+                     "the comment stripper ate the file, so this ban is "
+                     "asserting nothing");
+            QVERIFY2(!source.contains(QStringLiteral("gst_init")),
+                     qPrintable(QStringLiteral(
+                         "%1 calls gst_init itself; whichever backend is "
+                         "probed first then decides whether the bundled "
+                         "plugin path was applied, and a packaged build gets "
+                         "an empty registry").arg(name)));
+            QVERIFY2(source.contains(QStringLiteral("gst::ensureInitialised")),
+                     qPrintable(QStringLiteral("%1 does not go through the "
+                                               "shared bootstrap").arg(name)));
+        }
+        // And the bootstrap applies the path BEFORE it initialises. The order
+        // is the whole point: reversed, it is exactly the bug above.
+        QFile boot(root + QStringLiteral("GstBootstrap.cpp"));
+        QVERIFY(boot.open(QIODevice::ReadOnly));
+        QString source = QString::fromUtf8(boot.readAll());
+        source.remove(QRegularExpression(QStringLiteral("(?m)^[ \\t]*//.*$")));
+        const int applied = source.indexOf(QStringLiteral("applyBundledPluginPath()"),
+                                           source.indexOf(QStringLiteral("call_once")));
+        const int inited = source.indexOf(QStringLiteral("gst_init_check"));
+        QVERIFY2(applied > 0 && inited > applied,
+                 "GstBootstrap initialises GStreamer before applying the "
+                 "bundled plugin path, which is the defect it exists to fix");
+    }
+
     // EVERY PLATFORM CAN ACTUALLY CAPTURE, and each one names an element that
     // exists there. A source fragment naming a Linux-only element is what made
     // Windows and macOS silently call-less: the pipeline could never be built,

@@ -641,6 +641,12 @@ endif()
 # still build even in a LIGHTNING_RUST_ONLY configuration.
 if(HAVE_LIGHTNING_WEBRTC)
     list(APPEND APP_SOURCES
+        # ONE GStreamer init for the process, with the bundled plugin path
+        # applied BEFORE it. Both backends below used to init independently
+        # and only one of them set the path, so whichever was probed first
+        # decided whether a packaged build had a plugin registry at all.
+        src/calls/GstBootstrap.h
+        src/calls/GstBootstrap.cpp
         src/calls/GstCallMediaBackend.h
         src/calls/GstCallMediaBackend.cpp
         src/calls/SfuMediaEngine.h
@@ -2819,6 +2825,8 @@ if(BUILD_TESTING)
         qt_add_executable(call-media-loopback-test
             tests/CallMediaLoopbackTest.cpp
             src/calls/CallMediaBackend.h
+            src/calls/GstBootstrap.h
+            src/calls/GstBootstrap.cpp
             src/calls/GstCallMediaBackend.h
             src/calls/GstCallMediaBackend.cpp
         )
@@ -2835,6 +2843,8 @@ if(BUILD_TESTING)
         # teardown, not the network.
         qt_add_executable(sfu-media-engine-test
             tests/SfuMediaEngineTest.cpp
+            src/calls/GstBootstrap.h
+            src/calls/GstBootstrap.cpp
             src/calls/SfuMediaEngine.h
             src/calls/SfuMediaEngine.cpp
         src/calls/RtpVp8Payloader.h
@@ -2849,7 +2859,11 @@ if(BUILD_TESTING)
         target_include_directories(sfu-media-engine-test PRIVATE src)
         target_compile_definitions(sfu-media-engine-test PRIVATE
             HAVE_LIGHTNING_WEBRTC
-            "LIGHTNING_SFU_ENGINE_SOURCE=\"${CMAKE_CURRENT_SOURCE_DIR}/src/calls/SfuMediaEngine.cpp\"")
+            "LIGHTNING_SFU_ENGINE_SOURCE=\"${CMAKE_CURRENT_SOURCE_DIR}/src/calls/SfuMediaEngine.cpp\""
+            # The gst_init ORDERING check reads both backends and the shared
+            # bootstrap: which function runs first cannot be observed from
+            # inside a process that has already initialised GStreamer.
+            "SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
         target_link_libraries(sfu-media-engine-test PRIVATE
             Qt6::Core Qt6::Multimedia Qt6::Test
             PkgConfig::GSTWEBRTC OpenSSL::Crypto)
