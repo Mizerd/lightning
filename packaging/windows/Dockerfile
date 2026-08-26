@@ -331,7 +331,7 @@ RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
     && test "$(x86_64-w64-mingw32-pkg-config --modversion gstreamer-webrtc-1.0)" \
          = "${GSTREAMER_VERSION}" \
     && test "$(ls /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/*.dll | wc -l)" \
-         = 25 \
+         = 26 \
     && for plugin in /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/*.dll; do \
          file "$plugin" | grep -F 'PE32+ executable' >/dev/null \
            || { echo "not a PE32+ plugin: $plugin" >&2; exit 1; }; \
@@ -342,7 +342,8 @@ RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
          rtpvp8pay:libgstrtp rtpbin:libgstrtpmanager appsink:libgstapp \
          queue:libgstcoreelements autoaudiosrc:libgstautodetect \
          webrtcdsp:libgstwebrtcdsp ksvideosrc:libgstwinks \
-         gdiscreencapsrc:libgstwinscreencap; do \
+         gdiscreencapsrc:libgstwinscreencap \
+         sctpenc:libgstsctp; do \
          element="${pair%%:*}"; plugin="${pair##*:}"; \
          strings -a -n 3 \
            "/usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/${plugin}.dll" \
