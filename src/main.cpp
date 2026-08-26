@@ -1087,6 +1087,28 @@ int main(int argc, char *argv[])
         QGuiApplication::translate("main",
             "Compatibility alias for --backend=mock."));
     parser.addOption(mockOpt);
+    // Preflight already CONSUMED these two, and unlike every other preflight
+    // flag they do not exit — the app goes on to run. So they must be
+    // registered here or `process()` rejects them as unknown and quits.
+    //
+    // `--console` shipped broken for exactly this reason: it was reported as
+    // "matrix-client: Unknown option 'console'." from an installed build, on
+    // the one flag whose entire job is getting a log out of an installed
+    // build. It has never worked in any build.
+    //
+    // `parseTimeFlagsSurviveIntoTheQtParser` pins it, so a third flag of this
+    // shape fails at build time rather than in a tester's hands.
+    QCommandLineOption consoleOpt(
+        QStringLiteral("console"),
+        QGuiApplication::translate("main",
+            "Windows: open a visible diagnostic console."));
+    parser.addOption(consoleOpt);
+    QCommandLineOption logFileOpt(
+        QStringLiteral("log-file"),
+        QGuiApplication::translate("main",
+            "Mirror the diagnostic log to this file as well as the console."),
+        QStringLiteral("path"));
+    parser.addOption(logFileOpt);
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
     // Preflight already consumed --screenshot-demo (a development-only build);
     // register it here so QCommandLineParser::process does not reject it as an

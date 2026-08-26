@@ -117,6 +117,113 @@ private Q_SLOTS:
         QVERIFY(main.contains(QStringLiteral(
             "qputenv(\"QT_FORCE_STDERR_LOGGING\", \"1\")")));
     }
+
+    // Every preflight flag that does NOT exit must also be registered with
+    // QCommandLineParser, or process() rejects it as unknown and quits.
+    //
+    // main() parses its own flags twice: a preflight pass before
+    // QGuiApplication exists (so --help and a bad --backend are not masked by
+    // a platform-plugin abort), and QCommandLineParser afterwards. Most
+    // preflight flags EXIT, so they never reach the second parser. The few
+    // that are consumed and let the app go on must be declared in both places.
+    //
+    // `--console` shipped broken for exactly this reason and reached a tester
+    // as "matrix-client: Unknown option 'console'." — on the one flag whose
+    // whole job is getting a log out of an installed build. It had never
+    // worked in any build.
+    //
+    // DERIVED, not a needle list: the flags come out of the preflight source
+    // itself, so a flag added tomorrow is covered without editing this test.
+    void parseTimeFlagsSurviveIntoTheQtParser()
+    {
+        const QString main =
+            readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
+        QVERIFY(!main.isEmpty());
+
+        // Each `if (a == QLatin1String("--x"))` / `a.startsWith(...("--x="))`
+        // branch, walked to its closing brace so we can ask whether the body
+        // assigns r.action (exits) or falls through into the running app.
+        static const QRegularExpression branch(
+            QStringLiteral("QLatin1String\\(\"--([a-z][a-z0-9-]*)=?\"\\)"));
+        QStringList continuing;
+        auto it = branch.globalMatch(main);
+        while (it.hasNext()) {
+            const auto m = it.next();
+            const QString flag = m.captured(1);
+            // Walk from the match to the end of the enclosing block.
+            int depth = 0;
+            bool started = false;
+            int i = m.capturedEnd(0);
+            int end = main.size();
+            for (; i < main.size(); ++i) {
+                if (main.at(i) == QLatin1Char('{')) { ++depth; started = true; }
+                else if (main.at(i) == QLatin1Char('}')) {
+                    --depth;
+                    if (started && depth <= 0) { end = i; break; }
+                }
+            }
+            if (!started)
+                continue;   // not a branch (a help string, a comparison)
+            const QString body = main.mid(m.capturedEnd(0),
+                                          end - m.capturedEnd(0));
+            // `continue;` is the discriminator, not `r.action =`: a flag can
+            // set an ERROR action on a bad value (--log-file with no path)
+            // and still fall through on a good one. Every branch that lets
+            // the app run ends in `continue`; every branch that exits ends in
+            // `return r`.
+            if (!body.contains(QStringLiteral("continue;")))
+                continue;
+            // A flag can DEFER its exit: --rust-sdk-smoke-test only records
+            // `r.smokeTestRequested` here and the action is decided further
+            // down, after the other flags have been read. Those still never
+            // reach the Qt parser, so the field it sets is the discriminator:
+            // if that field is later turned into an r.action, this flag exits.
+            static const QRegularExpression field(
+                QStringLiteral("r\\.([A-Za-z]\\w*)\\s*="));
+            bool deferredExit = false;
+            auto fit = field.globalMatch(body);
+            while (fit.hasNext()) {
+                const QString name = fit.next().captured(1);
+                if (name == QStringLiteral("action"))
+                    continue;
+                const int at = main.indexOf(
+                    QStringLiteral("r.%1)").arg(name), end);
+                if (at > 0 && main.mid(at, 900)
+                                  .contains(QStringLiteral("r.action ="))) {
+                    deferredExit = true;
+                    break;
+                }
+            }
+            if (!deferredExit)
+                continuing << flag;
+        }
+
+        // The derivation has to have found something, or an assertion over an
+        // empty list would pass while measuring nothing.
+        QVERIFY2(continuing.contains(QStringLiteral("console")),
+                 "the scan did not find --console; the derivation is broken");
+        QVERIFY2(continuing.contains(QStringLiteral("log-file")),
+                 "the scan did not find --log-file; the derivation is broken");
+
+        // Look only AFTER the parser is declared, and for the bare quoted
+        // name: the demo flags are registered from a `for (const char *name :
+        // {...})` list rather than one QCommandLineOption each, so a needle
+        // shaped like QStringLiteral("x") would miss them and report a defect
+        // that is not there.
+        const int parserAt =
+            main.indexOf(QStringLiteral("QCommandLineParser parser;"));
+        QVERIFY(parserAt > 0);
+        const QString registrations = main.mid(parserAt);
+
+        for (const QString &flag : std::as_const(continuing)) {
+            const QString needle = QStringLiteral("\"%1\"").arg(flag);
+            QVERIFY2(registrations.contains(needle),
+                     qPrintable(QStringLiteral(
+                         "--%1 is consumed by preflight, does not exit, and is "
+                         "not registered with QCommandLineParser: process() "
+                         "will reject it as an unknown option").arg(flag)));
+        }
+    }
 };
 
 QTEST_GUILESS_MAIN(DesktopIntegrationTest)
