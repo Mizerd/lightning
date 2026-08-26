@@ -35,6 +35,14 @@ namespace lightning::gst {
 /// sanitized category, never a path.
 bool ensureInitialised(QString *whyNot = nullptr);
 
+/// The runtime GStreamer version, e.g. "GStreamer 1.28.5". Empty before
+/// ensureInitialised() has run.
+///
+/// Worth reporting because the receive path depends on what webrtcbin fills
+/// in on a src pad, and that has moved between releases: this is developed
+/// against 1.26.x and shipped against 1.28.x on both Windows and macOS.
+QString versionString();
+
 /// The directory the bundled plugins were taken from, or empty when this is a
 /// development build using the system GStreamer. Diagnostics only.
 QString bundledPluginPath();

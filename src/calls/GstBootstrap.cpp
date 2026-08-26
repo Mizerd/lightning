@@ -81,6 +81,16 @@ bool ensureInitialised(QString *whyNot)
     return ok;
 }
 
+QString versionString()
+{
+    gchar *version = gst_version_string();
+    if (!version)
+        return {};
+    const QString text = QString::fromUtf8(version);
+    g_free(version);
+    return text;
+}
+
 QString bundledPluginPath()
 {
     return g_bundledPath;

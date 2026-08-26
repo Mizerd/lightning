@@ -693,7 +693,14 @@ static int printCallMediaStatus()
             << "\nRESULT: calls will be refused by this build.\n";
         return 1;
     }
-    out << "gstreamer: initialised\n";
+    // THE VERSION, not just "it started". The receive path depends on what
+    // webrtcbin fills in on a src pad, and that has moved between releases:
+    // the dev shell is 1.26.x while the packaged Windows runtime is 1.28.x
+    // and the macOS bundle 1.28.x again. A defect that reproduces on a
+    // tester's machine and nowhere here begins with knowing which runtime
+    // they actually loaded, and asking for it afterwards costs a round trip.
+    out << "gstreamer: initialised, " << lightning::gst::versionString()
+        << "\n";
 
     // BOTH engines, through the SAME functions AppController probes, in the
     // same order. A status command with its own check could pass while the
