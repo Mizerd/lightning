@@ -2429,6 +2429,13 @@ void SfuMediaEngine::clearKeys()
         m_recvCryptors.clear();
         m_streamForMline.clear();
         m_midForMline.clear();
+        // WITH ITS SIBLINGS, always. These three are one record of one
+        // subscriber description, and a track sid left behind from the last
+        // call would be matched against the next call's section mids — which
+        // are small integers that repeat, so a stale entry is not merely
+        // useless, it is a plausible-looking wrong answer that routes a
+        // track to the previous call's surface.
+        m_trackForMline.clear();
     }
     m_sendKeyReady.store(false);
     m_recvKeyReady.store(false);

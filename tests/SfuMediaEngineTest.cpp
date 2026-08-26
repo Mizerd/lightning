@@ -1760,6 +1760,18 @@ private slots:
                      QStringLiteral("trackSid = SfuMediaEngine::trackSidFromMsid")),
                  "the SDP scan records no per-section track sid, so the "
                  "fallback above has nothing to read");
+        // All THREE section maps are one record of one subscriber
+        // description and must be dropped together. Section mids are small
+        // integers that repeat across calls, so an entry left behind is not
+        // merely useless — it is a plausible-looking wrong answer.
+        for (const char *map : { "m_streamForMline.clear()",
+                                 "m_midForMline.clear()",
+                                 "m_trackForMline.clear()" }) {
+            QVERIFY2(pane.contains(QLatin1String(map)),
+                     qPrintable(QStringLiteral(
+                         "%1 is missing: a section map outlives its call")
+                                    .arg(QLatin1String(map))));
+        }
     }
 
     void aPackedLiveKitStreamIdResolvesToTheParticipant()
