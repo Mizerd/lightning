@@ -136,6 +136,274 @@ check "cocoa platform plugin bundled" \
 qt_fw_count="$(find "$CONTENTS/Frameworks" -maxdepth 1 -name '*.framework' 2>/dev/null | wc -l | tr -d ' ')"
 printf '  bundled frameworks: %s\n' "$qt_fw_count"
 
+# --- call media engine (GStreamer) -------------------------------------------
+# Everything here exists because the failure mode is INVISIBLE from outside: a
+# bundle with no plugins installs, launches, renders, syncs, and then refuses
+# every call with "Joining isn't available". Checking that some files were
+# copied is not enough either, so this section ends by building a real GStreamer
+# registry out of the bundled plugins and asking for every element by name.
+GST_PLUGIN_LINK="$CONTENTS/MacOS/gstreamer-1.0"
+GST_PLUGIN_DIR="$CONTENTS/PlugIns/gstreamer-plugins"
+GST_LIB_DIR="$CONTENTS/PlugIns/gstreamer-libs"
+
+# The app looks for applicationDirPath()/gstreamer-1.0 and nothing else
+# (src/calls/SfuMediaEngine.cpp). It has to be a SYMLINK: codesign refuses to
+# seal a directory whose name carries an extension, and "1.0" is one — see
+# scripts/stage-macos-gstreamer.sh for the three experiments that established
+# it. Assert the symlink, that it resolves, AND that it resolves to the staged
+# payload: each check alone passes on a bundle that cannot place a call.
+check "plugin path is a symlink"      test -L "$GST_PLUGIN_LINK"
+check "plugin path resolves"          test -d "$GST_PLUGIN_LINK"
+check "plugin payload directory"      test -d "$GST_PLUGIN_DIR"
+check "support library directory"     test -d "$GST_LIB_DIR"
+if [[ -d "$GST_PLUGIN_LINK" && -d "$GST_PLUGIN_DIR" ]] \
+   && [[ "$(cd "$GST_PLUGIN_LINK" && pwd -P)" == "$(cd "$GST_PLUGIN_DIR" && pwd -P)" ]]; then
+    printf '  ok: the plugin symlink points at the staged plugins\n'
+else
+    printf '  FAIL: %s does not resolve to %s\n' "$GST_PLUGIN_LINK" "$GST_PLUGIN_DIR" >&2
+    failures=$((failures + 1))
+fi
+
+for plugin in app applemedia audioconvert audiomixer audioresample audiotestsrc \
+              autodetect compositor coreelements dtls level nice opus osxaudio \
+              rtp rtpmanager sctp srtp videoconvertscale videorate videotestsrc \
+              volume vpx webrtc webrtcdsp; do
+    check "GStreamer plugin bundled: $plugin" \
+        test -f "$GST_PLUGIN_DIR/libgst${plugin}.dylib"
+done
+check "GStreamer core library bundled" test -f "$GST_LIB_DIR/libgstreamer-1.0.0.dylib"
+
+# The executable must link GStreamer — the media engine is the only thing in
+# Lightning that does, and its CMake probe fails silently — and it must link the
+# BUNDLED one, EXPLICITLY.
+#
+# `grep libgstreamer` alone would not prove the second half. macdeployqt runs
+# before the staging step and resolves the executable's @rpath GStreamer-stack
+# dependencies out of Homebrew, rewriting them into Contents/Frameworks:
+# measured on the runner, libglib/libgobject/libintl all landed there, pointing
+# the app's own g_* calls at Qt's GLib while the plugins use GStreamer's. The
+# staging script rebinds them; this is the check that proves it happened.
+main_deps="$(otool -L "$CONTENTS/MacOS/$APP_NAME" 2>/dev/null | grep '^	' | awk '{print $1}' || true)"
+if printf '%s\n' "$main_deps" \
+     | grep -qxF "@executable_path/../PlugIns/gstreamer-libs/libgstreamer-1.0.0.dylib"; then
+    printf '  ok: the executable links the bundled GStreamer explicitly\n'
+else
+    printf '  FAIL: the executable does not load libgstreamer-1.0.0.dylib from\n' >&2
+    printf '        PlugIns/gstreamer-libs — the media engine is missing or misbound\n' >&2
+    failures=$((failures + 1))
+fi
+misbound=0
+while IFS= read -r dep; do
+    [[ -n "$dep" ]] || continue
+    base="${dep##*/}"
+    [[ -f "$GST_LIB_DIR/$base" ]] || continue
+    case "$dep" in
+        "@executable_path/../PlugIns/gstreamer-libs/$base") continue ;;
+    esac
+    printf '  the executable loads %s from %s, not from the staged copy\n' \
+        "$base" "$dep" >&2
+    misbound=$((misbound + 1))
+done <<<"$main_deps"
+if (( misbound > 0 )); then
+    printf '  FAIL: %d GStreamer libraries are loaded from the wrong copy\n' "$misbound" >&2
+    failures=$((failures + 1))
+else
+    printf '  ok: every GStreamer library the executable loads is the staged copy\n'
+fi
+# Qt never links GStreamer on macOS (Qt Multimedia uses AVFoundation), so a
+# libgst* in the Qt framework directory can only be a second instance.
+if find "$CONTENTS/Frameworks" -maxdepth 1 -name 'libgst*' 2>/dev/null | grep -q .; then
+    printf '  FAIL: a second GStreamer copy is present in Contents/Frameworks\n' >&2
+    failures=$((failures + 1))
+else
+    printf '  ok: no GStreamer libraries in the Qt framework directory\n'
+fi
+
+# The builder's SDK path arrives here by default: gstreamer-1.0.pc's Libs line
+# ends in -Wl,-rpath,${libdir}, so the link records an absolute rpath into the
+# runner's home. Scoped to the executable and the staged payload ON PURPOSE —
+# Homebrew's libjpeg/libdbus/libjasper carry /opt/homebrew/Cellar rpaths of
+# their own, and this check is about what this packaging step added.
+rpaths_of() {
+    otool -l "$1" 2>/dev/null \
+        | awk '/^ *cmd LC_RPATH$/{f=1;next} f&&/^ *path /{print $2; f=0}'
+}
+host_rpaths=0
+while IFS= read -r macho; do
+    file -b "$macho" 2>/dev/null | grep -q 'Mach-O' || continue
+    while IFS= read -r rp; do
+        [[ -n "$rp" ]] || continue
+        case "$rp" in
+            @executable_path*|@loader_path*|/System/*|/usr/lib/*) continue ;;
+        esac
+        printf '  builder rpath in %s: %s\n' "${macho#"$APP_DIR"/}" "$rp" >&2
+        host_rpaths=$((host_rpaths + 1))
+    done < <(rpaths_of "$macho")
+done < <(find "$CONTENTS/MacOS/$APP_NAME" "$GST_PLUGIN_DIR" "$GST_LIB_DIR" -type f 2>/dev/null)
+if (( host_rpaths > 0 )); then
+    printf '  FAIL: %d builder rpaths survive in the executable or the staged runtime\n' "$host_rpaths" >&2
+    failures=$((failures + 1))
+else
+    printf '  ok: no builder rpaths in the executable or the staged GStreamer runtime\n'
+fi
+
+# Closure. Every @rpath dependency of every staged binary has to be present in
+# gstreamer-libs, and every staged binary has to be arm64. Neither is implied by
+# the element probe below, and a support library that is merely absent produces
+# a bundle that works perfectly on the build machine and nowhere else.
+#
+# Mach-O files are identified by CONTENT, not by a '*.dylib' name filter: the
+# staged basenames come from dependency records, and anything that did not end
+# in .dylib would be skipped by exactly the check meant to catch it.
+gst_unresolved=0
+gst_wrong_arch=0
+while IFS= read -r macho; do
+    file -b "$macho" 2>/dev/null | grep -q 'Mach-O' || continue
+    # `|| true`: a file with no LC_ID_DYLIB makes `grep -v` return 1, which
+    # under `set -o pipefail` fails the assignment and `set -e` aborts.
+    self="$(otool -D "$macho" 2>/dev/null | grep -v ':$' | head -1 || true)"
+    if [[ "$(lipo -archs "$macho" 2>/dev/null)" != "arm64" ]]; then
+        printf '  not arm64: %s\n' "${macho#"$APP_DIR"/}" >&2
+        gst_wrong_arch=$((gst_wrong_arch + 1))
+    fi
+    while IFS= read -r dep; do
+        [[ -n "$dep" ]] || continue
+        [[ "$dep" == "$self" ]] && continue
+        case "$dep" in
+            /usr/lib/*|/System/*) continue ;;
+            @rpath/*)
+                [[ -f "$GST_LIB_DIR/${dep#@rpath/}" ]] && continue
+                printf '  %s needs %s, absent from gstreamer-libs\n' \
+                    "${macho#"$APP_DIR"/}" "$dep" >&2
+                ;;
+            *) printf '  %s has a non-relocatable dependency: %s\n' \
+                    "${macho#"$APP_DIR"/}" "$dep" >&2 ;;
+        esac
+        gst_unresolved=$((gst_unresolved + 1))
+    done < <(otool -L "$macho" 2>/dev/null | grep '^	' | awk '{print $1}')
+done < <(find "$GST_PLUGIN_DIR" "$GST_LIB_DIR" -type f 2>/dev/null)
+if (( gst_unresolved > 0 )); then
+    printf '  FAIL: %d staged GStreamer dependencies do not resolve inside the bundle\n' \
+        "$gst_unresolved" >&2
+    failures=$((failures + 1))
+else
+    printf '  ok: every staged GStreamer dependency resolves inside the bundle\n'
+fi
+if (( gst_wrong_arch > 0 )); then
+    printf '  FAIL: %d staged GStreamer binaries are not arm64\n' "$gst_wrong_arch" >&2
+    failures=$((failures + 1))
+else
+    printf '  ok: every staged GStreamer binary is arm64\n'
+fi
+
+# THE check. Everything above is still file inspection: it cannot tell you
+# whether GStreamer can build a registry out of these plugins and hand back the
+# elements. So build one — through the SYMLINK the application itself uses, not
+# the real directory, because that string is what SfuMediaEngine constructs and
+# a symlink pointing somewhere else would otherwise pass every check here.
+#
+# THE PROBE TOOL IS REBUILT, NOT BORROWED, and that detail is the difference
+# between a real check and a decorative one. The bundle ships no gst-inspect of
+# its own, so it comes from the SDK — but the SDK's copy carries
+# @executable_path/../lib in its own LC_RPATH, and dyld resolves @rpath against
+# the MAIN EXECUTABLE's rpaths as well as the loading library's. Probing with it
+# as-is lets the SDK's lib/ quietly satisfy anything the bundle is missing:
+# measured, by deleting libvpx.9.dylib from a staged bundle and watching vp8enc
+# resolve anyway. A copy with every rpath stripped and one absolute rpath into
+# the bundle's own gstreamer-libs can see nothing else.
+#
+# The GST_*_1_0 variables are cleared alongside the unversioned ones because
+# GStreamer reads the VERSIONED name first: a leftover GST_PLUGIN_PATH_1_0 in
+# the runner's environment would point the scan at the SDK's ~250 plugins and
+# report every element resolving from a bundle containing none.
+#
+# Its absence is a hard failure, not a skip: a validation that cannot run is not
+# a validation that passed.
+GST_SDK_PREFIX="${LIGHTNING_MACOS_GSTREAMER_PREFIX:-$HOME/opt/gstreamer/GStreamer.framework/Versions/1.0}"
+GST_INSPECT="$GST_SDK_PREFIX/bin/gst-inspect-1.0"
+if [[ ! -x "$GST_INSPECT" ]]; then
+    printf '  FAIL: gst-inspect-1.0 not found at %s — cannot prove the plugins load\n' \
+        "$GST_INSPECT" >&2
+    failures=$((failures + 1))
+    gst_elements_state=unproven
+else
+    probe_dir="$(mktemp -d)"
+    probe="$probe_dir/gst-inspect-probe"
+    lipo -thin arm64 "$GST_INSPECT" -output "$probe" 2>/dev/null || cp "$GST_INSPECT" "$probe"
+    chmod 0755 "$probe"
+    rpaths_of "$probe" >"$probe_dir/rpaths"
+    while IFS= read -r rp; do
+        [[ -n "$rp" ]] || continue
+        install_name_tool -delete_rpath "$rp" "$probe" 2>/dev/null || true
+    done <"$probe_dir/rpaths"
+    install_name_tool -add_rpath "$(cd "$GST_LIB_DIR" && pwd -P)" "$probe"
+    # install_name_tool invalidates the signature, and Apple Silicon kills an
+    # unsigned-but-signature-bearing binary outright (SIGKILL, no message),
+    # which would read here as "every element is missing".
+    codesign --force --sign - --timestamp=none "$probe" >/dev/null 2>&1 || true
+
+    gst_registry="$probe_dir/registry.bin"
+    gst_probe_env=(
+        env
+        GST_PLUGIN_SYSTEM_PATH= GST_PLUGIN_SYSTEM_PATH_1_0=
+        GST_PLUGIN_PATH="$GST_PLUGIN_LINK" GST_PLUGIN_PATH_1_0="$GST_PLUGIN_LINK"
+        GST_REGISTRY="$gst_registry" GST_REGISTRY_1_0="$gst_registry"
+    )
+    if ! "${gst_probe_env[@]}" "$probe" --version >/dev/null 2>&1; then
+        printf '  FAIL: the element probe tool could not run against the bundle\n' >&2
+        printf '        (the bundled GStreamer core, glib or gobject did not load)\n' >&2
+        failures=$((failures + 1))
+        gst_elements_state=unproven
+    else
+        # REQUIRED is SfuMediaEngine::runtimeAvailable()'s own probe list plus
+        # the macOS capture sources and the receive-path elements its pipelines
+        # name. ADVISORY is the set the engine explicitly tolerates the absence
+        # of — SfuMediaEngine.cpp says so of `compositor` in as many words, and
+        # registers without webrtcdsp (losing only the microphone AGC). Failing
+        # the whole packaging job for an element the engine never requires would
+        # be a spurious red on the next GStreamer release that splits a plugin.
+        gst_missing=0
+        for element in \
+            webrtcbin nicesrc nicesink dtlssrtpenc dtlssrtpdec opusenc opusdec \
+            rtpopuspay rtpopusdepay audioconvert audioresample audiotestsrc \
+            fakesink autoaudiosrc autoaudiosink queue valve volume capsfilter \
+            vp8enc vp8dec rtpvp8pay rtpvp8depay videoconvert videoscale \
+            videotestsrc videorate identity tee funnel level appsink appsrc \
+            autovideosrc avfvideosrc osxaudiosrc osxaudiosink
+        do
+            if ! "${gst_probe_env[@]}" "$probe" "$element" >/dev/null 2>&1; then
+                printf '  missing element in the bundled plugins: %s\n' "$element" >&2
+                gst_missing=$((gst_missing + 1))
+            fi
+        done
+        gst_degraded=0
+        for element in webrtcdsp webrtcechoprobe compositor; do
+            if ! "${gst_probe_env[@]}" "$probe" "$element" >/dev/null 2>&1; then
+                printf '  note: optional element absent (%s) — the engine tolerates it\n' "$element"
+                gst_degraded=$((gst_degraded + 1))
+            fi
+        done
+        if (( gst_missing > 0 )); then
+            printf '  FAIL: %d required call elements do not resolve from the bundled plugins\n' \
+                "$gst_missing" >&2
+            failures=$((failures + 1))
+            gst_elements_state=unresolved
+        elif (( gst_degraded > 0 )); then
+            printf '  ok: every required call element resolves; %d optional element(s) absent\n' \
+                "$gst_degraded"
+            gst_elements_state=degraded
+        else
+            printf '  ok: every call media element resolves from the bundled plugins alone\n'
+            gst_elements_state=resolved
+        fi
+    fi
+    rm -rf -- "$probe_dir"
+fi
+
+gst_plugin_count="$(find "$GST_PLUGIN_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
+gst_lib_count="$(find "$GST_LIB_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
+printf '  GStreamer: %s plugins, %s support libraries\n' "$gst_plugin_count" "$gst_lib_count"
+
 # --- signature ---------------------------------------------------------------
 # Ad-hoc signature must be structurally valid or the bundle will not run on
 # Apple Silicon at all.
@@ -197,6 +465,10 @@ scan_for() {
 scan_for "a GitLab runner token" 'glrt-'
 scan_for "an SSH private key" '-----BEGIN OPENSSH PRIVATE KEY-----'
 scan_for "a builder SSH path" "$HOME/.ssh"
+# The GStreamer SDK lives in the runner's home, so it is a class of builder path
+# the /opt/homebrew checks above never covered. The rpath sweep in the GStreamer
+# section catches load commands; this catches an embedded string anywhere.
+scan_for "the builder's GStreamer SDK path" "$GST_SDK_PREFIX"
 
 # GIF provider keys are a conditional check, not an unconditional one. When the
 # project's GIPHY_API_KEY/KLIPY_API_KEY variables are available the build
@@ -235,10 +507,18 @@ jq -n \
     --argjson frameworks "${qt_fw_count:-0}" \
     --argjson bundle_bytes "$BUNDLE_BYTES" \
     --argjson failures "$failures" \
+    --argjson gst_plugins "${gst_plugin_count:-0}" \
+    --argjson gst_libs "${gst_lib_count:-0}" \
+    --arg gst_elements "${gst_elements_state:-unproven}" \
+    --argjson gst_optional_absent "${gst_degraded:-0}" \
     '{bundle_identifier:$bundle_id, version:$version, architectures:$archs,
       bundled_frameworks:$frameworks, bundle_bytes:$bundle_bytes,
       signature:"ad-hoc", notarized:false, gatekeeper:$gatekeeper,
       structural_failures:$failures,
+      gstreamer:{plugins:$gst_plugins, support_libraries:$gst_libs,
+                 call_elements:$gst_elements,
+                 optional_elements_absent:$gst_optional_absent},
+      call_media_live_tested:false,
       native_macos_acceptance_tested:false}' \
     >"$REPORT_DIR/macos-validation.json"
 

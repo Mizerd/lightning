@@ -38,6 +38,7 @@ Installed on the Mac, not by this pipeline:
 | Qt 6.11.1 | Homebrew `qt` (`/opt/homebrew/opt/qt`) | arm64-only bottle; sets the deployment floor |
 | OpenSSL 3 | Homebrew `openssl@3` (`/opt/homebrew/opt/openssl@3`) | **required** since the update-manifest verifier; keg-only, so it is passed explicitly (see below) |
 | CMake, Ninja, pkg-config | Homebrew | |
+| GStreamer 1.28.6 | official framework, unpacked into `~/opt/gstreamer` by `scripts/install-macos-gstreamer.sh` | **required** — without it voice and video calls are compiled out; deliberately NOT Homebrew, see below |
 | Rust 1.93.0 | rustup, in the `runner` account (`~/.cargo`) | matches the pinned toolchain the Linux `deb`/`rpm` builds use |
 | clang + macOS SDK | Xcode / Command Line Tools | either works; see below |
 | `jq`, `iconutil`, `sips`, `codesign`, `ditto`, `lipo`, `otool`, `spctl` | macOS 26 base system | `jq` ships with macOS 26 |
@@ -172,13 +173,18 @@ packaging cannot regress the Linux install rules.
 Lightning.app/Contents/
 ├── Info.plist                 generated (identity, version, usage strings)
 ├── PkgInfo
-├── MacOS/Lightning            the matrix-client binary
+├── MacOS/
+│   ├── Lightning              the matrix-client binary
 ├── Resources/
 │   ├── Lightning.icns         built from the source hicolor PNGs via iconutil
 │   ├── build-info.json
 │   └── qml/                   Qt QML modules (macdeployqt)
+│   └── gstreamer-1.0          symlink -> ../PlugIns/gstreamer-plugins
 ├── Frameworks/                Qt frameworks (macdeployqt)
-└── PlugIns/                   platform/imageformats/multimedia plugins
+└── PlugIns/
+    ├── platforms/ …           Qt platform/imageformats/multimedia plugins
+    ├── gstreamer-plugins/     the 25 GStreamer plugins calls need
+    └── gstreamer-libs/        the 34 dylibs those plugins load
 ```
 
 Three details that are load-bearing:
@@ -274,6 +280,282 @@ in the bundle afterwards and rewrites any remaining host reference to the copy
 already inside `Contents/Frameworks`. A binary's own install name (`LC_ID_DYLIB`)
 is skipped — it is identity, not a dependency. A host dependency whose framework
 is *not* bundled is a genuine missing dependency and stops the build.
+
+## Voice and video calls (GStreamer)
+
+Lightning's call media engine (`src/calls/SfuMediaEngine.cpp`) is compiled only
+when CMake's `pkg_check_modules` finds six GStreamer modules — `gstreamer-1.0`,
+`gstreamer-webrtc-1.0`, `gstreamer-sdp-1.0`, `gstreamer-app-1.0`,
+`gstreamer-video-1.0`, `gstreamer-rtp-1.0`. The probe fails **silently**: CMake
+prints a STATUS line, the engine is left out of `APP_SOURCES`, and the build
+succeeds. Until 2026-08-26 the Mac mini had no GStreamer at all, so any bundle
+built there from a source tree carrying the call engine came out in exactly
+that state — it installs, launches and syncs, and then refuses every call with
+"Joining isn't available", offering an incoming call nothing but Decline.
+
+Two separate problems have to be solved, and they fail in different ways.
+
+### 1. The SDK on the runner
+
+`scripts/install-macos-gstreamer.sh` installs it. It is **not** Homebrew, and
+the reasons are worth keeping because Homebrew is where everything else here
+comes from:
+
+- **The CI account cannot use Homebrew.** `/opt/homebrew` is owned by `roksme`;
+  the `runner` account that executes the shell executor is in `staff`, not
+  `admin`, and has no passwordless `sudo`. `brew install gstreamer` cannot
+  write there, and a second Homebrew prefix under `/Users/runner` would get no
+  bottles and build 61 dependencies — including `ffmpeg`, `gtk4` and
+  `python@3.14` — from source.
+- **Homebrew's closure is wrong for a bundle.** That formula's 61 required
+  dependencies exist to serve every GStreamer use; its dylibs carry absolute
+  `/opt/homebrew` install names; and its `glib`, `gio`, `gobject`, `libintl`
+  and `libpcre2` collide **by filename** with the copies `macdeployqt` already
+  places in `Contents/Frameworks` for Qt. That collision is not theoretical:
+  Homebrew's `QtCore` links `libglib-2.0.0.dylib` at compatibility version
+  8801, and GStreamer's own copy is 8201. One of them would have landed on top
+  of the other.
+- **It does not build `webrtc-audio-processing`**, so `webrtcdsp` — the
+  microphone AGC — would simply be absent.
+
+The official framework has none of those problems. It ships as a `.pkg` that
+installs to `/Library/Frameworks` and needs root — but it does not have to be
+installed that way. A `.pkg` is an xar archive, `pkgutil --expand-full` needs no
+privileges, and every component declares its install location relative to the
+framework root, so the tree reassembles anywhere. Nothing in it is bound to
+`/Library/Frameworks`: the `.pc` files use `prefix=${pcfiledir}/../..` and every
+dylib's install id and inter-library dependency is already `@rpath/…`, because
+the framework is built for relocation.
+
+```sh
+# on the Mac mini, as the runner account
+scripts/install-macos-gstreamer.sh          # FORCE=true to reinstall
+```
+
+**It is run by hand, not by the pipeline**, exactly like Qt, Rust and OpenSSL
+on this host: the shell executor's working directory is wiped between jobs but
+`~/opt` is not, so provisioning is a one-time act and `build-macos.sh` only
+asserts the result. That is deliberate — a packaging job that installs its own
+3.8 GB toolchain on every run is neither reproducible nor fast — and it is the
+reason the failure mode is a named `die` telling you which script to run.
+
+It downloads the runtime and devel packages for `GST_VERSION` (1.28.6),
+verifies both against **SHA-256 digests pinned in the script**, expands and
+reassembles them into `~/opt/gstreamer/GStreamer.framework/Versions/1.0`, and
+then **proves the install** rather than assuming it: it resolves all forty
+elements the engine needs and asserts all six `.pc` files exist. Roughly 3.8 GB
+on disk (universal binaries plus headers); the downloads are cached in
+`~/opt/gstreamer/download`.
+
+The pin is the control, and it is worth being precise about what it is not.
+Fetching the publisher's own `.sha256sum` over the same HTTPS host as the
+`.pkg` proves **integrity** — a truncated download, a poisoned CDN entry — and
+says nothing about **authenticity**, because anyone able to serve one could
+serve both and they would move together. There is no stronger check available
+on this artifact; measured, not assumed:
+
+```text
+$ pkgutil --check-signature gstreamer-1.0-1.28.6-universal.pkg
+Status: no signature
+```
+
+GStreamer publishes a detached GPG `.asc` instead, which would need the
+project's release key provisioned on the runner to mean anything. Until that
+happens, a digest pinned in the repository and reviewed in a merge request is
+what stands between a silently replaced upstream artifact and a shipped
+`Lightning.app`. The script fetches the upstream `.sha256sum` only as a
+cross-check and **fails** if it ever disagrees with the pin. Bumping
+`GST_VERSION` therefore requires adding the new digests.
+
+`build-macos.sh` puts `$GSTREAMER_PREFIX/lib/pkgconfig` on `PKG_CONFIG_PATH`
+and asserts all six modules resolve before configuring. It also checks the
+BUILT binary with `otool -L` for `libgstreamer-1.0`: the media engine is the
+only thing in Lightning that links it, `--build-info` reports nothing about it,
+and the load commands are therefore the evidence that it was compiled at all.
+
+### 2. Getting the plugins into the .app
+
+`scripts/stage-macos-gstreamer.sh` does this, after `macdeployqt` and after the
+load-command repair pass.
+
+A GStreamer plugin is `dlopen`'d, never linked. Nothing in the executable's
+import table names one, so `macdeployqt` — which walks Mach-O load commands —
+cannot discover a single plugin. This is the same class of failure the Linux
+formats hit (see `scripts/build-appimage.sh`), and it is the worst kind of
+packaging bug: the app installs, launches and works, and only calls are dead.
+
+**The layout is dictated by `codesign`, and it was measured.** The application
+looks for `applicationDirPath()/gstreamer-1.0` and nowhere else, which on macOS
+is `Contents/MacOS/gstreamer-1.0`. A real directory of that name cannot be
+sealed:
+
+```text
+$ codesign --force --sign - Lightning.app
+Lightning.app: bundle format unrecognized, invalid, or unsuitable
+In subcomponent: Lightning.app/Contents/MacOS/gstreamer-1.0
+```
+
+It is the **dot**, not the location. `codesign`'s default resource rules treat a
+directory under `MacOS/`, `PlugIns/`, `Frameworks/` … as nested code, and a
+directory name carrying an extension is taken for a bundle — here, extension
+`0`, which is not a bundle format it knows. Three experiments on one tree
+separated the two candidate causes:
+
+| Path | Result |
+| --- | --- |
+| `Contents/MacOS/gstreamer-1.0` (real directory) | codesign FAILS |
+| `Contents/PlugIns/gstreamer-1.0` (real directory) | codesign FAILS |
+| `Contents/PlugIns/gstreamer-plugins` | signs |
+| `Contents/MacOS/gstreamer-1.0` → `../PlugIns/gstreamer-plugins` (symlink) | signs |
+
+So the payload lives in dot-free `PlugIns` subdirectories — the shape Qt's own
+plugins already use here — and the dotted path the application asks for is a
+symlink onto it. A symlink is sealed as a symlink, so codesign never tries to
+read a bundle out of it, and `ditto -c -k` preserves it into the published zip.
+
+**Install names need almost nothing rewritten.** Because the framework is
+relocatable, no dependency is changed at all; only `LC_RPATH` is. Every staged
+binary gets two rpaths, because the plugins are reached by two different paths:
+
+- `@executable_path/../PlugIns/gstreamer-libs` — at run time, when the app loads
+  them through the `Contents/MacOS/gstreamer-1.0` symlink;
+- `@loader_path/../gstreamer-libs` — when the validator probes the real
+  directory with a tool that lives somewhere else entirely.
+
+The pre-baked framework rpaths are stripped first: they name directories that do
+not exist inside the bundle.
+
+**The main executable needed more than an rpath, and this is the subtle part.**
+It links GStreamer directly, so `gstreamer-1.0.pc`'s `Requires: glib-2.0
+gobject-2.0` puts `@rpath/libglib-2.0.0.dylib`, `@rpath/libgobject-2.0.0.dylib`
+and `@rpath/libintl.8.dylib` on it — and `macdeployqt`, which runs *before*
+staging, **resolves those out of Homebrew** and rewrites them into
+`Contents/Frameworks`, because Qt links glib too and Homebrew's copy is already
+on its search list. Measured on the runner with a Qt-plus-GStreamer test binary:
+
+| | after `macdeployqt` |
+| --- | --- |
+| the executable loads | `@executable_path/../Frameworks/libglib-2.0.0.dylib` |
+| the file there is | Homebrew's, compatibility version **8801** (what Qt needs) |
+| the plugins load | `PlugIns/gstreamer-libs/libglib-2.0.0.dylib`, compat **8201** |
+
+Two GLib copies in one process is unavoidable and fine — Qt requires 8801,
+GStreamer was built against 8201 — but the application's own
+`g_signal_connect`/`g_object_set` calls operate on `GstElement`s, so they must
+reach the same GObject type system the plugins registered in. Bound to Qt's
+GLib instead, they act on a type system that knows nothing about those objects.
+
+Deleting the builder rpath *before* `macdeployqt` does **not** prevent this —
+also measured; the same three libraries were deployed either way, because
+`macdeployqt` never needed our rpath to find Homebrew's glib. The repair is to
+rebind after staging: every dependency of the main executable whose basename is
+part of the staged set is rewritten to an explicit
+`@executable_path/../PlugIns/gstreamer-libs/…` path, leaving dyld no search
+order to get wrong. `/usr/lib` and `/System` dependencies are never touched, so
+a `libz` or `libffi` the platform provides stays the platform's.
+
+**That rewrite needs `-headerpad_max_install_names` at the link**, which
+`build-macos.sh` now passes. The staged paths are 17 bytes longer than the ones
+macdeployqt wrote (`…/PlugIns/gstreamer-libs/` versus `…/Frameworks/`), and a
+Mach-O's load commands live in a fixed header pad, so without the flag the
+rebinding fails outright — measured, on a binary built without it:
+
+```text
+install_name_tool: changing install names or rpaths can't be redone for:
+.../Contents/MacOS/Lightning (for architecture arm64) because larger updated
+load commands do not fit (the program must be relinked, and you may need to
+use -headerpad or -headerpad_max_install_names)
+```
+
+The staging script treats that as fatal rather than continuing, so the failure
+is a stopped build and not a shipped bundle with a split type system.
+
+**One host path arrives by default and must be removed.**
+`gstreamer-1.0.pc`'s `Libs:` line ends in `-Wl,-rpath,${libdir}`, so the link
+records an absolute rpath into the runner's home
+(`/Users/runner/opt/gstreamer/…`). The staging script deletes it and the
+validator fails the build if any non-`@` rpath survives in the executable or the
+staged payload. That check is scoped to those files on purpose: Homebrew's
+`libjpeg`, `libdbus` and `libjasper` carry `/opt/homebrew/Cellar` rpaths of their
+own, and this assertion is about what macOS packaging added.
+
+**What is staged.** Twenty-five plugins, chosen by mapping every element the
+engine and its pipelines require — `SfuMediaEngine::runtimeAvailable()`'s probe list, plus the
+elements its pipeline descriptions name — onto the plugin that provides it, plus
+the transitive closure of libraries those plugins and the executable load (34 at
+1.28.6; the number is computed, never asserted). Roughly 41 MB after thinning
+to arm64 (the official packages are universal, so half of every byte copied
+would be x86_64 that can never run on this target). The plugin list is in
+`stage-macos-gstreamer.sh` with the elements each one carries; the whole
+~250-plugin directory is deliberately not shipped.
+
+`applemedia` is the macOS-specific one that matters: `avfvideosrc` is the
+camera, and `avfvideosrc capture-screen=true` is the screen share.
+`autoaudiosrc`/`autoaudiosink` resolve to `osxaudiosrc`/`osxaudiosink`.
+
+### What the validator proves, and how it was made to actually prove it
+
+The GLib split above is the reason one of these checks exists at all. Every
+other check in this section — the plugins are present, the symlink resolves, the
+closure is complete, all forty elements load — **passed on a bundle whose
+executable was bound to Qt's GLib**. Verified by sabotage: rebinding
+`libglib-2.0.0.dylib` back to `Contents/Frameworks` on a finished bundle
+produces exactly one new failure,
+
+```text
+FAIL: 1 GStreamer libraries are loaded from the wrong copy
+```
+
+and nothing else changes. A check that only counts plugins would have shipped
+it.
+
+`validate-macos-artifacts.sh` asserts the symlink exists **and** resolves, that
+every expected plugin file is present, that the executable links GStreamer, that
+every `@rpath` dependency of every staged binary is present in
+`gstreamer-libs`, that every staged binary is arm64, that no builder rpath
+survives — and then builds a real GStreamer registry over the bundled plugin
+directory and asks for all forty elements.
+
+That last check needs a `gst-inspect-1.0`, which the bundle does not ship, so it
+comes from the SDK — and **borrowing it directly makes the check worthless**.
+The SDK's copy carries `@executable_path/../lib` in its own `LC_RPATH`, and dyld
+resolves `@rpath` against the main executable's rpaths as well as the loading
+library's, so the SDK's `lib/` quietly satisfies anything the bundle is missing.
+Measured: with `libvpx.9.dylib` deleted from a staged bundle, `vp8enc` still
+resolved. The validator therefore makes a **copy** of `gst-inspect-1.0` in a
+temp directory, strips every rpath from it, adds one absolute rpath into the
+bundle's own `gstreamer-libs`, and re-signs it (`install_name_tool` invalidates
+the signature, and Apple Silicon SIGKILLs such a binary with no message, which
+would read as "every element is missing"). With that copy, deleting one support
+library correctly fails `vp8enc` and `vp8dec`, and an x86_64 plugin fails both
+the arch check and the element probe.
+
+### Known gaps
+
+- **`gst-plugin-scanner` is not bundled.** GStreamer prefers to scan plugins in
+  a helper process and falls back to scanning in-process, which works and is
+  what happens here — at the cost of one `GStreamer-WARNING` line at startup
+  ("External plugin loader failed"). Finding the helper needs
+  `GST_PLUGIN_SCANNER` set by the application, which is an app-side change; the
+  binary is not staged in the meantime rather than shipping a file nothing
+  loads.
+- **No call has been placed from a packaged macOS build.** Everything above is
+  structural: the elements resolve from the bundled plugins, which is what the
+  engine's own probe requires before it registers. Whether a call connects to
+  Element from a macOS bundle is **NOT TESTED**.
+- **Two GLib copies are loaded into one process** — Qt's, from
+  `Contents/Frameworks`, and GStreamer's, from `Contents/PlugIns/gstreamer-libs`.
+  macOS uses a two-level namespace, so each image binds to the copy it was
+  linked against and the two never mix; and the call engine reads the GStreamer
+  bus through `gst_bus_set_sync_handler`, which is called on the posting thread
+  and needs no `GMainLoop` iteration at all, so nothing depends on the two
+  sharing a default main context. This is why they must stay in separate
+  directories.
+- **Microphone, camera and screen-recording consent are un-exercised.**
+  `Info.plist` carries `NSMicrophoneUsageDescription` and
+  `NSCameraUsageDescription`. Screen recording has no usage-string key — macOS
+  gates it through the Screen Recording privacy list instead, which an ad-hoc
+  signed bundle re-prompts for whenever its signature changes. **NOT TESTED.**
 
 ## Bundle identity
 
@@ -475,6 +757,11 @@ Artifacts, developer-visible, seven-day expiry:
 - `dist/macos/reports/` — macdeployqt log, codesign output, `spctl` assessment,
   `otool` dependency dumps, validation JSON
 
+`build-info.json` records `call_media_engine: true`, `call_media_backend:
+"gstreamer"` and the GStreamer version under `toolchain`, alongside
+`calls_live_tested: false` — the engine is compiled and its elements resolve,
+which is not the same claim as a call having connected.
+
 ## Build times and the cargo cache
 
 Cargo's target directory is not inside the build tree. `build-macos.sh` symlinks
@@ -571,6 +858,15 @@ version`**. These indicated a real bug and should no longer appear — see
 [Deployment target](#deployment-target). If they come back, the derived target
 has drifted from what Qt or the Rust objects were actually built against.
 
+**`GStreamer-WARNING **: External plugin loader failed.`** Printed by the
+validator's element probe, which is the only step here that builds a GStreamer
+registry. (It does *not* appear in the launch smoke test: `--version` and
+`--build-info` are answered by main.cpp's pre-flight parser and return before
+`gst_init` is ever reached.) GStreamer prefers to enumerate plugins in a helper
+process (`gst-plugin-scanner`) and falls back to doing it in-process; the bundle
+ships no helper, so the fallback is what runs, and it works. See
+[Known gaps](#known-gaps).
+
 **Long single-threaded stretches.** Lightning's `[profile.release]` sets
 `lto = true` and `codegen-units = 1`, so the final Rust crate and its link-time
 optimisation are single-threaded by construction. `BUILD_JOBS` parallelises the
@@ -594,6 +890,21 @@ framework or the cocoa platform plugin; check `reports/macdeployqt.log`.
 
 **`code signature verifies` fails** — something modified the bundle after
 `codesign`. Nothing may touch the tree between signing and `ditto`.
+
+**`GStreamer not found at ...`** — the SDK is gone from the runner's home. Run
+`scripts/install-macos-gstreamer.sh` as `runner`; it needs no admin rights.
+
+**`the built binary does not link GStreamer`** — CMake's `pkg_check_modules`
+probe missed the SDK, so the media engine was never compiled. Check
+`pkg-config --modversion gstreamer-webrtc-1.0` with `PKG_CONFIG_PATH` set to
+`~/opt/gstreamer/GStreamer.framework/Versions/1.0/lib/pkgconfig`.
+
+**`N call elements do not resolve from the bundled plugins`** — a plugin or one
+of its support libraries did not make it into the bundle, or is the wrong
+architecture. The failing element names are printed; map them back to a plugin
+with `gst-inspect-1.0 <element>` against the SDK and check the allowlist in
+`stage-macos-gstreamer.sh`. A GStreamer upgrade that splits or renames a plugin
+lands here.
 
 **Source clone fails** — the job needs `CI_JOB_TOKEN`; it is not available
 outside a pipeline. For a manual trial, seed `work/lightning` from a local

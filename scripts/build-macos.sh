@@ -84,6 +84,14 @@ QT_PREFIX="${QT_PREFIX:-$BREW_PREFIX/opt/qt}"
 # discovered-not-assumed idiom as QT_PREFIX above.
 OPENSSL_PREFIX="${OPENSSL_PREFIX:-$BREW_PREFIX/opt/openssl@3}"
 CARGO_BIN="${CARGO_BIN:-$HOME/.cargo/bin}"
+# GStreamer is the ONE dependency here that does not come from Homebrew, and
+# scripts/install-macos-gstreamer.sh records why at length: the CI account
+# cannot write to /opt/homebrew, Homebrew's gstreamer pulls gtk4/ffmpeg/x265
+# into the closure and would collide by FILENAME with the glib copies
+# macdeployqt puts in Contents/Frameworks for Qt, and it does not build
+# webrtcdsp. This is the official relocatable framework, unpacked without root
+# into the runner's home.
+GSTREAMER_PREFIX="${LIGHTNING_MACOS_GSTREAMER_PREFIX:-$HOME/opt/gstreamer/GStreamer.framework/Versions/1.0}"
 export PATH="$CARGO_BIN:$QT_PREFIX/bin:$BREW_PREFIX/bin:$PATH"
 
 # xcodebuild is deliberately NOT in this list. A Ninja/clang build needs only
@@ -93,10 +101,36 @@ export PATH="$CARGO_BIN:$QT_PREFIX/bin:$BREW_PREFIX/bin:$PATH"
 # it would fail a build that is perfectly able to proceed. (Full Xcode IS
 # required for the future iOS target; that is a separate check for a separate
 # job.)
-for tool in cmake ninja cargo rustc macdeployqt xcrun clang iconutil sips codesign ditto zip; do
+for tool in cmake ninja cargo rustc macdeployqt xcrun clang iconutil sips codesign ditto zip \
+            pkg-config lipo install_name_tool otool; do
     command -v "$tool" >/dev/null 2>&1 || die "required tool not found on the runner: $tool"
 done
 [[ -d "$QT_PREFIX/lib/cmake/Qt6" ]] || die "Qt 6 not found at $QT_PREFIX"
+
+# Voice and video calls. Lightning's CMake probes six GStreamer modules with
+# pkg_check_modules and builds SfuMediaEngine only when all six are found —
+# silently, with a STATUS message and no error, so a runner without GStreamer
+# produces a bundle that installs, launches, and then refuses every call with
+# "Joining isn't available". That is not a state this script may ship.
+#
+# The .pc files are relocatable (prefix=${pcfiledir}/../..), so a search path is
+# the whole configuration; nothing needs rewriting.
+#
+# NOT exported. pkg_check_modules runs at CONFIGURE time only, while an exported
+# PKG_CONFIG_PATH would also be in effect for `cargo fetch` and for the build
+# scripts cargo runs during `cmake --build` — and two crates in the pinned
+# Cargo.lock (aws-lc-sys, libsqlite3-sys) probe pkg-config themselves. The
+# framework's lib/pkgconfig carries ~150 modules; none of them should be able to
+# answer a question the Rust build asks. It is passed per-command instead.
+GST_PKG_CONFIG_PATH="$GSTREAMER_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+[[ -f "$GSTREAMER_PREFIX/lib/pkgconfig/gstreamer-webrtc-1.0.pc" ]] || \
+    die "GStreamer not found at $GSTREAMER_PREFIX (run scripts/install-macos-gstreamer.sh)"
+for gst_module in gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0 \
+                  gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-rtp-1.0; do
+    PKG_CONFIG_PATH="$GST_PKG_CONFIG_PATH" pkg-config --exists "$gst_module" || \
+        die "pkg-config cannot resolve $gst_module from $GSTREAMER_PREFIX"
+done
+GSTREAMER_VERSION="$(PKG_CONFIG_PATH="$GST_PKG_CONFIG_PATH" pkg-config --modversion gstreamer-1.0)"
 
 # `command -v openssl` is NOT the check: it finds Apple's /usr/bin/openssl,
 # which is LibreSSL and has no development headers. What the build needs is the
@@ -141,9 +175,10 @@ SDK_PATH="$(xcrun --show-sdk-path 2>/dev/null || true)"
 SDK_VERSION="$(xcrun --show-sdk-version 2>/dev/null || true)"
 [[ -n "$SDK_PATH" ]] || die "no macOS SDK is available (xcrun --show-sdk-path failed)"
 
-printf 'macOS %s | SDK %s | %s | Qt %s | %s | %s | %s\n' \
+printf 'macOS %s | SDK %s | %s | Qt %s | %s | %s | %s | GStreamer %s\n' \
     "$MACOS_VERSION" "${SDK_VERSION:-unknown}" "$XCODE_VERSION" \
-    "$QT_VERSION" "$RUST_VERSION" "$CMAKE_VERSION" "$OPENSSL_VERSION"
+    "$QT_VERSION" "$RUST_VERSION" "$CMAKE_VERSION" "$OPENSSL_VERSION" \
+    "$GSTREAMER_VERSION"
 printf 'developer dir: %s\n' "${DEVELOPER_DIR_ACTIVE:-unknown}"
 
 # --- clean output paths ------------------------------------------------------
@@ -215,7 +250,23 @@ cargo fetch --locked --manifest-path "$SOURCE_DIR/rust/Cargo.toml"
 # framework here is packaging configuration, not a source patch: the Lightning
 # source is unmodified, exactly as the Windows cross-build supplies its own
 # linker inputs.
-MACOS_LINK_FRAMEWORKS="-framework Security -framework CoreFoundation"
+#
+# -headerpad_max_install_names is NOT cosmetic and NOT optional. The GStreamer
+# staging step rewrites the executable's GStreamer-stack dependencies from the
+# paths macdeployqt left — @executable_path/../Frameworks/libgobject-2.0.0.dylib
+# — to the staged copies, @executable_path/../PlugIns/gstreamer-libs/… , which
+# are 17 bytes LONGER. A Mach-O's load commands live in a fixed-size header pad,
+# so without this flag the rewrite fails outright:
+#
+#   install_name_tool: changing install names or rpaths can't be redone for:
+#   .../Contents/MacOS/Lightning (for architecture arm64) because larger updated
+#   load commands do not fit (the program must be relinked, and you may need to
+#   use -headerpad or -headerpad_max_install_names)
+#
+# Measured on the runner, on a binary built without it. It is a hard failure in
+# stage-macos-gstreamer.sh rather than a silent one, but the place to fix it is
+# the link, which is here.
+MACOS_LINK_FRAMEWORKS="-framework Security -framework CoreFoundation -Wl,-headerpad_max_install_names"
 
 # libcrypto is linked STATICALLY on macOS, on purpose. Homebrew's openssl@3 is
 # keg-only, so a dynamically linked bundle would carry an absolute
@@ -226,6 +277,8 @@ MACOS_LINK_FRAMEWORKS="-framework Security -framework CoreFoundation"
 # what every other non-Qt dependency in this bundle already is. (If a future
 # Homebrew stops shipping libcrypto.a, drop OPENSSL_USE_STATIC_LIBS and add
 # libcrypto to the bundling pass — do not leave the host path in the binary.)
+# PKG_CONFIG_PATH is scoped to this one command — see the note above.
+PKG_CONFIG_PATH="$GST_PKG_CONFIG_PATH" \
 cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$QT_PREFIX" \
@@ -263,6 +316,14 @@ printf '%s\n' "$build_info_text" | grep -qx 'http_backend_compiled: false' \
     || die "built binary compiled the HTTP backend"
 printf '%s\n' "$build_info_text" | grep -qx 'mock_backend_compiled: false' \
     || die "built binary compiled the mock backend"
+
+# The call media engine is the only thing in Lightning that links GStreamer, and
+# its CMake probe fails SILENTLY (a STATUS message, then the engine is simply
+# not in APP_SOURCES). --build-info reports nothing about it, so the load
+# commands are the evidence: no libgstreamer means no engine, and no engine
+# means every call is refused. Checked here, before anything is bundled.
+otool -L "$BUILT_BINARY" | grep -q 'libgstreamer-1\.0' \
+    || die "the built binary does not link GStreamer — the media engine was not compiled"
 
 # --- assemble the .app bundle ------------------------------------------------
 # Lightning's CMake targets Linux/Windows layouts (install(TARGETS) into bin/,
@@ -428,6 +489,14 @@ done < <(find "$APP_DIR" -type f \( -perm -u+x -o -name '*.dylib' \) -exec sh -c
 
 printf 'load-command repair pass: %d rewritten\n' "$repaired"
 
+# --- bundle the GStreamer runtime the call engine dlopens ---------------------
+# AFTER macdeployqt and after the repair pass, deliberately. macdeployqt would
+# otherwise walk these dylibs and try to deploy their dependencies into
+# Contents/Frameworks, where GStreamer's glib would land on top of the copy Qt
+# needs; and the repair pass exists to fix what macdeployqt left behind, which
+# is not this. The staging script owns its own install names end to end.
+"$SCRIPT_DIR/stage-macos-gstreamer.sh" "$APP_DIR" "$GSTREAMER_PREFIX"
+
 # --- metadata ----------------------------------------------------------------
 # Written BEFORE signing, deliberately. build-info.json lives inside
 # Contents/Resources, so adding it after the bundle is sealed invalidates the
@@ -448,6 +517,7 @@ jq -n \
     --arg developer_dir "${DEVELOPER_DIR_ACTIVE:-unknown}" \
     --arg macos "$MACOS_VERSION" \
     --arg deployment_target "$MACOS_DEPLOYMENT_TARGET" \
+    --arg gstreamer "$GSTREAMER_VERSION" \
     --argjson gif_keys_embedded "$gif_keys_embedded" \
     '{version:$version, source_commit:$source_commit,
       packaging_commit:$packaging_commit, target:"aarch64-apple-darwin",
@@ -457,9 +527,11 @@ jq -n \
       notarized:false, gatekeeper_accepted:false,
       deployment_target:$deployment_target,
       toolchain:{qt:$qt, rust:$rust, cmake:$cmake, xcode:$xcode,
-                 macos_sdk:$sdk, developer_dir:$developer_dir, macos:$macos},
+                 macos_sdk:$sdk, developer_dir:$developer_dir, macos:$macos,
+                 gstreamer:$gstreamer},
+      call_media_engine:true, call_media_backend:"gstreamer",
       build_timestamp:$timestamp, gif_keys_embedded:$gif_keys_embedded,
-      native_macos_tested:false}' \
+      native_macos_tested:false, calls_live_tested:false}' \
     >"$CONTENTS/Resources/build-info.json"
 
 # --- signature ---------------------------------------------------------------
@@ -506,7 +578,11 @@ cp "$CONTENTS/Resources/build-info.json" "$MACOS_DIST/build-info.json"
 
 # --- validate then package ---------------------------------------------------
 # Validation runs on the finished bundle BEFORE it is zipped, so a broken
-# bundle cannot become a downloadable artifact.
+# bundle cannot become a downloadable artifact. The GStreamer prefix travels
+# with it: the validator probes the BUNDLED plugins with the SDK's own
+# gst-inspect-1.0, which is the only way to prove the staged set actually
+# yields the elements the engine refuses to run without.
+export LIGHTNING_MACOS_GSTREAMER_PREFIX="$GSTREAMER_PREFIX"
 "$SCRIPT_DIR/validate-macos-artifacts.sh" "$MACOS_DIST"
 
 short_sha="${SOURCE_SHA:0:7}"
