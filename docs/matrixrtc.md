@@ -677,6 +677,58 @@ connection's ICE/DTLS transitions.
 `tests/CallLiveDiagnostic.cpp` drives a real call against a real homeserver
 and SFU, headless, and SKIPS unless `LIGHTNING_LIVE_*` is set.
 
+### Getting a log out of a PACKAGED build
+
+A tester on Windows or macOS has no terminal. `--console` opens one on
+Windows but reopens stdout ONTO it, so a shell redirect captures nothing,
+and a macOS bundle started from Finder has no console at all. Use
+`--log-file`:
+
+```powershell
+# Windows (PowerShell). cmd users: "%LOCALAPPDATA%\Programs\Lightning\Lightning.exe" --log-file "%USERPROFILE%\Desktop\lightning.log"
+& "$env:LOCALAPPDATA\Programs\Lightning\Lightning.exe" --log-file "$env:USERPROFILE\Desktop\lightning.log"
+```
+
+```sh
+# macOS
+/Applications/Lightning.app/Contents/MacOS/Lightning --log-file ~/Desktop/lightning.log
+```
+
+It APPENDS and flushes every line, so a crash keeps the lines that explain
+it, and several runs accumulate in one file. It is a mirror of the same
+stream the console gets — no tokens, no passwords, no recovery keys, no
+message bodies.
+
+When calls do not start at all, `--call-media-status` answers why without
+needing a call, and names the GStreamer version it loaded.
+
+### Reading `received track attributed=`
+
+One line settles which of four things went wrong, and they have nothing in
+common:
+
+```
+received track attributed= true trackKey= "TR_…" fromPadMsid= true
+    sdpSections= 3 padSenderUnknown= false
+```
+
+* `fromPadMsid= false` — webrtcbin's pad `msid` property gave nothing and
+  the ids came from our own SDP parse. Expected on a runtime whose
+  webrtcbin populates it differently; **this is the packaged Windows and
+  macOS case** (1.28.x) and not the dev shell's (1.26.x).
+* `padSenderUnknown= true` — the property gave a sender that appears in NO
+  section of the description we were sent. Worse than empty: a well-formed
+  id nobody will ever send a key for. Re-derived from the SDP.
+* `sdpSections= 0` — our own scan of the subscriber description recorded no
+  media sections. Nothing to match against, so look at
+  `applyRemoteDescription`, not at the pad.
+* `attributed= false` with `sdpSections` non-zero — the sections are there
+  and the transceiver mid matched none of them.
+
+`trackKey` must be a `TR_…`. A small integer there is a media-section mid
+standing in for a track sid; that key routes video to no surface, and it is
+what shipped before 2026-08-26.
+
 ## Media: `SfuMediaEngine`
 
 A separate class from the 1:1 `GstCallMediaBackend`, because LiveKit differs
