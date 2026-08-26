@@ -43,6 +43,8 @@
 #include <QQuickStyle>
 #include <QSettings>
 #include <QStringList>
+#include <QDateTime>
+#include <QFile>
 #include <QTextStream>
 
 #include <cstdlib>
@@ -82,6 +84,64 @@ void configureWindowsConsole(bool forceAlloc)
     }
 }
 #endif
+
+// --log-file: mirror the diagnostic log to a file as well as the console.
+//
+// WHY A FILE OPTION EXISTS AT ALL. On Windows the app is a GUI-subsystem
+// binary that reopens stdout onto the console (`freopen("CONOUT$")`), so a
+// shell redirect captures NOTHING — the one thing a person debugging a
+// packaged build reaches for first. Getting a log out of an installed build
+// meant selecting text in a console window.
+//
+// SAME STREAM, SAME RULES. This is a mirror of what already goes to stdout,
+// so it carries exactly what the console does and nothing more: no tokens, no
+// passwords, no recovery keys, no message bodies — §6 governs what may be
+// logged and this changes none of it. It APPENDS, so two runs are both kept,
+// and a path that cannot be opened is reported once rather than silently
+// dropping the option on the floor.
+namespace {
+QFile *g_logFile = nullptr;
+QtMessageHandler g_previousHandler = nullptr;
+
+void logFileHandler(QtMsgType type, const QMessageLogContext &context,
+                    const QString &message)
+{
+    if (g_previousHandler)
+        g_previousHandler(type, context, message);
+    if (!g_logFile)
+        return;
+    const char *level = "info";
+    switch (type) {
+    case QtDebugMsg:    level = "debug"; break;
+    case QtInfoMsg:     level = "info"; break;
+    case QtWarningMsg:  level = "warning"; break;
+    case QtCriticalMsg: level = "critical"; break;
+    case QtFatalMsg:    level = "fatal"; break;
+    }
+    QTextStream(g_logFile)
+        << QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs) << ' '
+        << level << ' '
+        << (context.category ? context.category : "default") << ": "
+        << message << '\n';
+    g_logFile->flush();   // a crash must not lose the lines that explain it
+}
+} // namespace
+
+void installLogFile(const QString &path)
+{
+    if (path.isEmpty())
+        return;
+    auto *file = new QFile(path);
+    if (!file->open(QIODevice::WriteOnly | QIODevice::Append
+                    | QIODevice::Text)) {
+        QTextStream(stderr)
+            << "could not open --log-file for writing: " << path << '\n';
+        delete file;
+        return;
+    }
+    g_logFile = file;
+    g_previousHandler = qInstallMessageHandler(logFileHandler);
+}
 
 #ifndef LIGHTNING_BUILD_TYPE
 #define LIGHTNING_BUILD_TYPE "unknown"
@@ -188,6 +248,8 @@ struct PreflightResult {
     bool mockAliasUsed = false;
     bool smokeTestRequested = false;
     bool consoleRequested = false;   // Windows: force a visible console.
+    /// --log-file PATH: mirror the diagnostic log to a file.
+    QString logFilePath;
     // Development-only screenshot/demo mode (compile option
     // LIGHTNING_ENABLE_SCREENSHOT_DEMO). Rejected in preflight when the option
     // is not compiled in, so a production binary never reaches it.
@@ -226,6 +288,12 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "  --build-info         Print non-secret build metadata (version,\n"
                 "                       source, target, backends, default backend,\n"
                 "                       secret store, artifact kind) and exit.\n"
+                "  --log-file PATH      Mirror the diagnostic log to PATH as well as\n"
+                "                       the console. Use this to capture a log from a\n"
+                "                       packaged build: --console reopens stdout onto\n"
+                "                       the console itself, so a shell redirect cannot\n"
+                "                       capture it. Appends; never contains tokens,\n"
+                "                       passwords, recovery keys or message bodies.\n"
                 "  --console            Windows: open a visible diagnostic console\n"
                 "                       for the GUI-subsystem binary. No effect\n"
                 "                       elsewhere.\n"
@@ -280,6 +348,24 @@ PreflightResult preflightParse(int argc, char *argv[])
             r.action = PreflightResult::ExitSuccess;
             r.stdoutMsg = buildInfoString();
             return r;
+        }
+        if (a.startsWith(QLatin1String("--log-file="))) {
+            r.logFilePath = a.mid(QLatin1String("--log-file=").size());
+            if (r.logFilePath.isEmpty()) {
+                r.action = PreflightResult::ExitError;
+                r.stderrMsg = QStringLiteral("--log-file= needs a path\n");
+                return r;
+            }
+            continue;
+        }
+        if (a == QLatin1String("--log-file")) {
+            if (i + 1 >= argc) {
+                r.action = PreflightResult::ExitError;
+                r.stderrMsg = QStringLiteral("--log-file needs a path\n");
+                return r;
+            }
+            r.logFilePath = QString::fromLocal8Bit(argv[++i]);
+            continue;
         }
         if (a == QLatin1String("--console")) {
             // Windows: request a visible diagnostic console. Parsed on every
@@ -650,6 +736,11 @@ int main(int argc, char *argv[])
     // launched; a double-click has no parent console and stays window-only.
     configureWindowsConsole(pf.consoleRequested);
 #endif
+    // NOT inside the Windows guard. Windows is why the option exists, but a
+    // packaged macOS bundle launched from Finder has no terminal either, and
+    // asking a tester to reproduce a call bug through Console.app is the same
+    // problem wearing a different name.
+    installLogFile(pf.logFilePath);
 
     // Qt's default message handler routes qCDebug/qCInfo/qCWarning to the
     // systemd journal instead of stderr whenever stderr is not a TTY, which
