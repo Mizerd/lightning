@@ -1548,6 +1548,73 @@ their index explicitly.
 
 Lessons only; features are described in §7, SHAs point into `git log`.
 
+**2026-08-26 cross-platform calling round: Windows and macOS ship
+GStreamer.** Live validation NOT TESTED on either platform at the time of
+writing.
+
+*A packaged build had NO media engine at all, on either platform, and
+said so honestly for months.* `HAVE_LIGHTNING_WEBRTC` is set by a
+pkg-config probe; the Windows cross-builder had no mingw GStreamer and the
+Mac mini had none installed, so both shipped a client whose every call
+answered "Joining isn't available" and whose incoming-call prompt offered
+only Decline and Dismiss. The refusal was correct; nobody had noticed the
+cause was packaging rather than code.
+
+*Fedora's mingw GStreamer is a trap.* `mingw64-gstreamer1-plugins-bad-free`
+ships `libgstwebrtc-1.0-0.dll` — the webrtc LIBRARY — and not the
+`webrtcbin` PLUGIN, plus no nice, srtp, opus or vpx. A `.pc` file and a
+DLL of the right name are not the element. The official upstream MinGW SDK
+is the route.
+
+*THE CAPTURE ELEMENTS ARE PER-PLATFORM AND SO ARE THEIR PROPERTY NAMES.*
+`v4l2src`/`pipewiresrc` exist only on Linux, so off it the pipeline could
+never be built and a share would report success carrying nothing. Windows
+is `ksvideosrc`/`gdiscreencapsrc`, macOS is `avfvideosrc` with and without
+`capture-screen=true`. The subtle half: `gdiscreencapsrc` takes
+`monitor`/`cursor` where `d3d11screencapturesrc` takes
+`monitor-index`/`show-cursor`, and `gst_parse_launch` fails outright on an
+unknown property — so reaching for the wrong family's names is a screen
+share that can never start. Read out of the shipped plugin's own help
+strings, not assumed.
+
+*A UCRT/msvcrt CRT SPLIT, and the probe that cannot see it.* The upstream
+SDK is a UCRT build; the mingw64 toolchain is msvcrt. mingw-w64's
+`wchar.h` makes `mbstate_t` a struct under `_UCRT` and an `int` otherwise,
+so `std::codecvt<wchar_t,char,mbstate_t>` mangles differently:
+`libgstd3d11.dll` and `libgstmediafoundation.dll` import
+`_ZNSt7codecvtIwc9_MbstatetEC2Ey`, which the staged libstdc++ does not
+export (verified: 12018 exports, that one 0 times, the msvcrt spelling
+once). Windows fails a missing NORMAL import at LoadLibrary with
+ERROR_PROC_NOT_FOUND — **but Wine loads the module anyway**, so the Wine
+element probe passes and the feature is dead on the platform it was built
+for. A symbol-level walk over the staged closure is the only check that
+sees it, and it now runs in `validate-windows-artifacts.sh`; the same walk
+found ZERO unresolved across the 24 shipped plugins, which is what made
+shipping them defensible. It is a CRT CHOICE, not version drift — a
+GStreamer bump will not fix it.
+
+*macOS codesign refuses a plain directory of dylibs inside the bundle.*
+Neither `Contents/MacOS/gstreamer-1.0` nor
+`Contents/PlugIns/gstreamer-1.0` can be a real directory; the working
+shape is a SYMLINK from `Contents/MacOS/gstreamer-1.0` to
+`../PlugIns/gstreamer-plugins`, which satisfies both codesign and the
+app's `applicationDirPath()/gstreamer-1.0` lookup (QFileInfo::isDir
+follows symlinks). And `macdeployqt` rewrites the app's GStreamer
+glib/gobject/intl dependencies into `Contents/Frameworks` out of
+HOMEBREW — splitting the GObject type system between Qt's GLib and the
+plugins' — which every existing check passed straight through. The
+validation now asserts every GStreamer library the executable loads is
+the staged copy.
+
+*A subagent reported a failure it never observed.* The "d3d11 and
+mediafoundation cannot load" finding was a static symbol comparison
+presented as an observed load failure; asked for the actual output, the
+agent re-ran it and both plugins loaded and registered under Wine. The
+DECISION survived — the absent import is real and Wine cannot adjudicate
+it — but the stated reason did not. GENERALISE: ask an agent what it
+OBSERVED, not what it concluded, before writing its conclusion into a
+commit message.
+
 **2026-08-26 Sable-parity round: three Channels views, the member column, the
 call glyph, raised hands.** All four are **NOT TESTED** live.
 
@@ -2186,9 +2253,12 @@ Constraints that must not soften:
 - Pre-answer candidate buffering (callers trickle immediately, humans
   answer slowly — those candidates were being dropped) and RFC 3264
   answer-side Opus pt reuse came from reading GStreamer sources.
-Deliberate gaps: packages do not declare the GStreamer/libnice runtime
-deps (packaged builds stay signaling-only), no video, no MatrixRTC/group
-calls, `m.call.negotiate` unhandled. Suites: `call-controller` (35),
+Deliberate gaps: no video, no MatrixRTC/group calls,
+`m.call.negotiate` unhandled. ~~packages do not declare the
+GStreamer/libnice runtime deps (packaged builds stay signaling-only)~~ —
+addressed 2026-08-26 for Windows and macOS, which now BUNDLE GStreamer
+(§16). Linux packages still declare no runtime dep and a distro without
+GStreamer keeps the honest refusal. Suites: `call-controller` (35),
 `call-ring-policy` (10), `call-ui-contract` (6), `call-media-loopback`
 (a real in-process WebRTC call; SKIPs without plugins), `calls::tests`
 (10). **Live network or Element interop of an ANSWERED call: NOT

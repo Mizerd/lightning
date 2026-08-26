@@ -1167,11 +1167,77 @@ list that quietly loses entries cannot be trusted either:
   (`src/calls/SfuVideoRouter`), and its one-sink-per-key rule is now an
   ownership rule; see "What the UI is".
 
+## Windows and macOS: the capture elements, and what differs
+
+**Landed 2026-08-26.** Live validation on either platform: **NOT TESTED**.
+
+A packaged Windows or macOS build had NO media engine at all. CMake sets
+`HAVE_LIGHTNING_WEBRTC` from a pkg-config probe, the Windows cross-builder had
+no mingw GStreamer and the Mac mini had none installed, so both shipped a
+client whose every call answered "Joining isn't available". The refusal was
+correct; the cause was packaging, not code.
+
+Both now bundle GStreamer. The engine's capture sources are per-platform:
+
+| | Linux | Windows | macOS |
+|---|---|---|---|
+| camera | `v4l2src` | `ksvideosrc` | `avfvideosrc` |
+| screen | `pipewiresrc` | `gdiscreencapsrc` | `avfvideosrc capture-screen=true` |
+| audio | `autoaudiosrc`/`autoaudiosink` → Pulse/PipeWire | → WASAPI | → CoreAudio |
+
+Audio needs no branch: `autoaudiosrc` is an autodetect bin that instantiates
+the highest-ranked native element on each platform. Everything from the encoder
+onward — `webrtcbin`, opus, VP8, nice, dtls/srtp, Lightning's own payloader and
+frame cryptor — is identical everywhere, and must be: it is what Element and
+the SFU see on the wire.
+
+### The traps, each one measured
+
+**Fedora's mingw GStreamer ships the webrtc LIBRARY and not the `webrtcbin`
+PLUGIN** — plus no nice, srtp, opus or vpx. A `.pc` file and a DLL of the right
+name are not the element. The official upstream MinGW SDK is the route.
+
+**Property names differ between capture families.** `gdiscreencapsrc` takes
+`monitor` and `cursor`; `d3d11screencapturesrc` takes `monitor-index` and
+`show-cursor`. `gst_parse_launch` fails outright on an unknown property, so
+using one family's names with the other's element is a screen share that can
+never start.
+
+**A UCRT/msvcrt CRT split, invisible to the Wine probe.** The upstream SDK is
+a UCRT build; the toolchain is msvcrt. mingw-w64's `wchar.h` makes `mbstate_t`
+a struct under `_UCRT` and an `int` otherwise, so `libgstd3d11.dll` and
+`libgstmediafoundation.dll` import `_ZNSt7codecvtIwc9_MbstatetEC2Ey`, which the
+staged libstdc++ does not export. Windows fails a missing NORMAL import at
+LoadLibrary with `ERROR_PROC_NOT_FOUND` — **and Wine loads it anyway**, so the
+element probe passes while the feature is dead on the target platform. Those
+two are not shipped, which costs Windows the cheaper Desktop Duplication
+capture; a symbol-level walk over the staged closure is the only check that
+sees this class of defect and now runs in validation. It is a CRT CHOICE, not
+version drift: a GStreamer bump will not fix it.
+
+**macOS codesign refuses a plain directory of dylibs in the bundle.** The
+working shape is `Contents/MacOS/gstreamer-1.0` as a SYMLINK to
+`../PlugIns/gstreamer-plugins`. And `macdeployqt` rewrites the app's GStreamer
+glib/gobject dependencies into `Contents/Frameworks` out of Homebrew, splitting
+the GObject type system between Qt's GLib and the plugins' — silently, past
+every existing check. Validation now asserts every GStreamer library the
+executable loads is the staged copy.
+
+### What is NOT the same as Linux
+
+The xdg portal owns Linux's picker and offers monitors AND windows. Windows and
+macOS have no broker, so `ScreenCastPortal` resolves an index itself and picks
+**the screen the app is on** — not screen 0, which would silently share a
+display the user did not choose. Consequences, stated rather than hidden: a
+multi-monitor user shares the display they are on and cannot choose another,
+and single-window sharing is unavailable. Both need a Lightning-drawn picker.
+
 What is actually left:
 
-1. **A camera source picker.** The screen-share picker is the portal's; a
-   machine with two cameras has no way to choose between them beyond the
-   device menu's enumeration.
+1. **A capture source picker for every platform.** On Linux the screen picker is
+   the portal's and there is no camera picker; on Windows and macOS there is
+   neither, and the screen is chosen for the user (above). One picker over
+   `GstDeviceMonitor` for cameras plus a monitor list would answer all of it.
 2. **Emoji reactions on the wire.** The RAISED HAND now interoperates (see
    "Raised hands" below); the transient emoji reactions element-call sends
    beside it — `io.element.call.reaction` with a `m.reference` to the
