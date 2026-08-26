@@ -1,7 +1,10 @@
 #include "calls/ScreenCastPortal.h"
 
+#include <QGuiApplication>
 #include <QLoggingCategory>
 #include <QRandomGenerator>
+#include <QScreen>
+#include <QWindow>
 
 #ifdef HAVE_QT_DBUS
 #include <unistd.h>
@@ -108,7 +111,20 @@ ScreenCastPortal::~ScreenCastPortal()
 
 bool ScreenCastPortal::available()
 {
-#ifdef HAVE_QT_DBUS
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+    // Windows and macOS capture the screen through the GStreamer source
+    // itself (d3d11screencapturesrc / avfvideosrc capture-screen), so there
+    // is no portal to reach and nothing to probe. Available whenever the
+    // platform can name a screen at all.
+    //
+    // macOS additionally gates this behind the system Screen Recording
+    // permission. That is checked by the OS at CAPTURE time, not here: this
+    // answers "can this build share a screen", and the first share is what
+    // raises the system prompt — exactly as it does for every other macOS
+    // app. Refusing here on a permission the user has not been asked for yet
+    // would offer them no way to grant it.
+    return QGuiApplication::screens().size() > 0;
+#elif defined(HAVE_QT_DBUS)
     if (!QDBusConnection::sessionBus().isConnected())
         return false;
     // Ask for the interface's version. A desktop with no ScreenCast portal
@@ -150,7 +166,51 @@ void ScreenCastPortal::reset()
     m_sessionHandle.clear();
 }
 
-#ifndef HAVE_QT_DBUS
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+void ScreenCastPortal::requestShare(int types)
+{
+    Q_UNUSED(types);
+    // NO PORTAL HERE, AND NOTHING TO ASK IT FOR.
+    //
+    // On Linux the portal owns the picker and hands back a PipeWire node for
+    // whatever the user chose; that is what makes sharing safe on Wayland and
+    // why this class never enumerates anything itself. Windows and macOS have
+    // no such broker: the capture source takes a MONITOR INDEX and the OS
+    // gates access its own way (macOS raises its Screen Recording prompt on
+    // the first frame; Windows allows desktop duplication outright).
+    //
+    // So the answer is resolved here and delivered through the SAME `ready`
+    // signal, with the index in the node-id slot — see
+    // SfuMediaEngine::screenShareSource(), which reads it as a monitor index
+    // on exactly these platforms. The call controller stays platform-blind.
+    if (m_busy) {
+        Q_EMIT failed(QStringLiteral("busy"));
+        return;
+    }
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    if (screens.isEmpty()) {
+        Q_EMIT failed(QStringLiteral("no_screen"));
+        return;
+    }
+    // THE SCREEN THE APP IS ON, not screen 0. A person sharing "my screen"
+    // from a window on their second monitor means that monitor, and picking
+    // the primary instead silently shares the wrong desktop — the same
+    // mistake the full-screen defect makes and a much worse one here, since
+    // this one shows strangers a display the user did not choose.
+    const QWindow *window = QGuiApplication::focusWindow();
+    const QScreen *screen = window ? window->screen() : nullptr;
+    if (!screen)
+        screen = QGuiApplication::primaryScreen();
+    const int index = screen ? int(screens.indexOf(screen)) : 0;
+    // KNOWN DIFFERENCE FROM LINUX, stated rather than hidden: the portal
+    // offers a picker over monitors AND windows, and this offers neither. A
+    // multi-monitor user shares the display they are on and cannot choose
+    // another, and single-window sharing is unavailable. Both need a
+    // Lightning-drawn picker, which is a separate piece of work; nothing here
+    // pretends otherwise.
+    Q_EMIT ready(static_cast<unsigned>(index < 0 ? 0 : index), -1);
+}
+#elif !defined(HAVE_QT_DBUS)
 void ScreenCastPortal::requestShare(int types)
 {
     Q_UNUSED(types);

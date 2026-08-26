@@ -8,7 +8,10 @@
 
 #include <mutex>
 
+#include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLoggingCategory>
@@ -457,6 +460,31 @@ bool SfuMediaEngine::runtimeAvailable(QString *whyNot)
     static std::once_flag once;
     static bool initOk = false;
     std::call_once(once, [] {
+        // THE BUNDLED PLUGINS HAVE TO BE FOUND BEFORE gst_init SCANS.
+        //
+        // A GStreamer plugin is dlopen'd, never linked, so nothing in the
+        // executable's import table names one and the packaging's recursive
+        // PE-import walk cannot discover them. On a packaged Windows build
+        // they ship in `gstreamer-1.0/` beside Lightning.exe, and the
+        // registry scan has to be pointed at that directory explicitly — the
+        // compiled-in default is the BUILDER's sysroot path, which does not
+        // exist on a user's machine.
+        //
+        // Set before gst_init_check and only when the directory is really
+        // there, so a development build (whose plugins come from the system
+        // GStreamer on GST_PLUGIN_SYSTEM_PATH) is untouched. qputenv, not a
+        // registry API: the variable is read during gst_init itself.
+        const QString bundled =
+            QCoreApplication::applicationDirPath() + QStringLiteral("/gstreamer-1.0");
+        if (QFileInfo(bundled).isDir()
+            && qEnvironmentVariableIsEmpty("GST_PLUGIN_PATH")) {
+            qputenv("GST_PLUGIN_PATH", QFile::encodeName(bundled));
+            // The bundle is COMPLETE, so the system path must not be
+            // consulted: a user with their own GStreamer installed would
+            // otherwise load a mixture of two builds into one process, which
+            // is a crash rather than a fallback.
+            qputenv("GST_PLUGIN_SYSTEM_PATH", QByteArray());
+        }
         GError *error = nullptr;
         initOk = gst_init_check(nullptr, nullptr, &error) == TRUE;
         if (error)
@@ -1261,11 +1289,58 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd)
     // source — both properties above failed exactly because they did — and it
     // needs a live measurement, which `publish first encoded frame ...
     // rateStageHoldMs=` (publishVideo) provides.
+    //
+    // WINDOWS AND macOS HAVE NO PORTAL, so `nodeId` means something else
+    // there: a MONITOR INDEX rather than a PipeWire node. The signature is
+    // shared deliberately — the call controller's plumbing stays
+    // platform-blind and the difference lives here, in the one place that
+    // actually differs.
+#if defined(Q_OS_WIN)
+    // d3d11screencapturesrc, not gdiscreencapsrc: the GDI path is a
+    // per-frame BitBlt of the whole desktop and costs a visible amount of
+    // CPU at 4K, where the D3D11 one is a Desktop Duplication capture the
+    // compositor already has. `show-cursor` matches what the xdg portal
+    // gives a Linux sharer by default.
+    //
+    // NO `do-timestamp`: this source timestamps from the swap chain itself,
+    // and overriding that with arrival time is what the Linux branch needs
+    // only because pipewiresrc delivers on damage.
+    Q_UNUSED(pipewireFd);
+    return QStringLiteral("d3d11screencapturesrc monitor-index=%1 show-cursor=true")
+        .arg(nodeId < 0 ? 0 : nodeId);
+#elif defined(Q_OS_MACOS)
+    // One element does both capture kinds on macOS; `capture-screen` is what
+    // switches avfvideosrc from a camera to a display, and `device-index`
+    // selects which display.
+    Q_UNUSED(pipewireFd);
+    return QStringLiteral("avfvideosrc capture-screen=true "
+                          "capture-screen-cursor=true device-index=%1")
+        .arg(nodeId < 0 ? 0 : nodeId);
+#else
     if (pipewireFd >= 0) {
         return QStringLiteral("pipewiresrc fd=%1 path=%2 do-timestamp=true")
             .arg(pipewireFd).arg(nodeId);
     }
     return QStringLiteral("pipewiresrc path=%1 do-timestamp=true").arg(nodeId);
+#endif
+}
+
+QString SfuMediaEngine::cameraSource()
+{
+#if defined(Q_OS_WIN)
+    // mfvideosrc (Media Foundation), not ksvideosrc: Kernel Streaming is the
+    // older path and does not see every UVC device Windows itself lists.
+    return QStringLiteral("mfvideosrc");
+#elif defined(Q_OS_MACOS)
+    // The same element the screen branch uses, without capture-screen.
+    return QStringLiteral("avfvideosrc");
+#else
+    // `v4l2src`, NOT `autovideosrc`, and the reason is MEASURED — see the
+    // note at the call site. autovideosrc picks by rank, and on a PipeWire
+    // desktop pipewiresrc outranks v4l2src, so autodetect instantiated a
+    // pipewiresrc with no target and the camera never produced a frame.
+    return QStringLiteral("v4l2src");
+#endif
 }
 
 void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
@@ -1341,7 +1416,12 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         // Long-term this should be a node id resolved from a GstDeviceMonitor
         // on Video/Source — that is the only shape that can offer a choice
         // between two cameras, and it is docs/matrixrtc.md's open item 1.
-        source = QStringLiteral("v4l2src");
+        //
+        // The element itself is per-platform (mfvideosrc / avfvideosrc /
+        // v4l2src); everything above is the Linux reasoning for why it is not
+        // `autovideosrc`, and it is kept because that is the branch it
+        // describes.
+        source = cameraSource();
     }
 
     // Resolution and rate CEILINGS, matching livekit-client's own presets:

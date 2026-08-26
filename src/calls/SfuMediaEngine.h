@@ -201,7 +201,20 @@ public:
     /// through the portal's OWN remote, and `pipewiresrc path=` alone
     /// resolves it against the caller's default remote, where it need not
     /// exist. That pipeline plays, reports no error, and emits no buffer.
+    /// On Linux `nodeId` is the PipeWire node the xdg portal handed us and
+    /// `pipewireFd` its remote. On Windows and macOS there is no portal:
+    /// `nodeId` is a MONITOR INDEX and `pipewireFd` is unused (-1). One
+    /// signature for all three so the call controller's plumbing is
+    /// platform-blind — the platform difference belongs in the pipeline
+    /// description, which is the only thing that actually differs.
     static QString screenShareSource(int nodeId, int pipewireFd);
+    /// The capture-source fragment for the CAMERA, per platform.
+    ///
+    /// Exposed for the same reason screenShareSource() is: it decides whether
+    /// a camera carries pixels at all, and on Linux the choice of `v4l2src`
+    /// over `autovideosrc` is a MEASURED one (see the definition) that a
+    /// future edit must not undo by accident.
+    static QString cameraSource();
     /// Stop publishing one track and renegotiate.
     void unpublish(const QString &cid);
 

@@ -335,6 +335,46 @@ private slots:
         engine.stop();
     }
 
+    // EVERY PLATFORM CAN ACTUALLY CAPTURE, and each one names an element that
+    // exists there. A source fragment naming a Linux-only element is what made
+    // Windows and macOS silently call-less: the pipeline could never be built,
+    // so a share reported success and carried nothing.
+    //
+    // Compile-time branches, so this asserts the branch THIS build took —
+    // which is the only one it can observe. The other two are asserted by the
+    // packaging validation, which greps the shipped plugin DLLs for the
+    // element names (the Windows and macOS jobs in lightning-deploy).
+    void everyPlatformNamesACaptureSourceItActuallyHas()
+    {
+        const QString camera = SfuMediaEngine::cameraSource();
+        const QString screen = SfuMediaEngine::screenShareSource(0, -1);
+        QVERIFY(!camera.isEmpty());
+        QVERIFY(!screen.isEmpty());
+#if defined(Q_OS_WIN)
+        QCOMPARE(camera, QStringLiteral("mfvideosrc"));
+        QVERIFY(screen.startsWith(QStringLiteral("d3d11screencapturesrc")));
+        QVERIFY2(screen.contains(QStringLiteral("monitor-index=")),
+                 "the Windows screen source takes a monitor index, and "
+                 "without one it captures whatever the element defaults to");
+#elif defined(Q_OS_MACOS)
+        QCOMPARE(camera, QStringLiteral("avfvideosrc"));
+        QVERIFY(screen.contains(QStringLiteral("capture-screen=true")));
+        QVERIFY2(screen.contains(QStringLiteral("device-index=")),
+                 "the macOS screen source takes a display index");
+#else
+        QCOMPARE(camera, QStringLiteral("v4l2src"));
+        QVERIFY(screen.startsWith(QStringLiteral("pipewiresrc")));
+#endif
+        // NEVER a Linux element off Linux, and never a Windows one on Linux.
+        // The branches are what this test exists to keep honest.
+#if !defined(Q_OS_LINUX)
+        QVERIFY2(!camera.contains(QStringLiteral("v4l2"))
+                     && !screen.contains(QStringLiteral("pipewire")),
+                 "a Linux-only capture element is named on a platform that "
+                 "does not have it, so the pipeline can never be built");
+#endif
+    }
+
     // THE screen-share defect. The portal grants a node id AND a descriptor
     // to the PipeWire remote that node lives in (OpenPipeWireRemote); the
     // handshake used to stop before that call and hand `pipewiresrc path=<n>`
