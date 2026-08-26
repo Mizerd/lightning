@@ -2772,7 +2772,14 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         // text is identical on both, and we already parse it for the
         // participant and the mid; the track sid comes from the same line.
         const bool padCarriedMsid = !streamId.isEmpty() || !trackMid.isEmpty();
-        if (!padCarriedMsid) {
+        // EITHER id missing, not both. A pad can carry a stream id and no
+        // track sid — an unpacked msid whose track token is not a `TR_…` —
+        // and the earlier shape skipped the whole fallback in that case,
+        // leaving the track key EMPTY. An empty key routes video to no
+        // surface at all, which is the same invisible share by a different
+        // road.
+        int sdpSectionsKnown = 0;
+        if (streamId.isEmpty() || trackMid.isEmpty()) {
             QString sectionMid;
             GstWebRTCRTPTransceiver *transceiver = nullptr;
             g_object_get(srcPad, "transceiver", &transceiver, nullptr);
@@ -2791,12 +2798,17 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
                 // produces while LiveKit's offer carries a data channel in
                 // section 0, so the two counts do not agree.
                 QMutexLocker lock(&engine->m_recvMutex);
+                sdpSectionsKnown = engine->m_midForMline.size();
                 for (auto it = engine->m_midForMline.cbegin();
                      it != engine->m_midForMline.cend(); ++it) {
                     if (it.value() != sectionMid)
                         continue;
-                    streamId = engine->m_streamForMline.value(it.key());
-                    trackMid = engine->m_trackForMline.value(it.key());
+                    // Fill only what is MISSING. What the pad itself said is
+                    // first-hand and stays.
+                    if (streamId.isEmpty())
+                        streamId = engine->m_streamForMline.value(it.key());
+                    if (trackMid.isEmpty())
+                        trackMid = engine->m_trackForMline.value(it.key());
                     break;
                 }
             }
@@ -2806,9 +2818,15 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
             if (trackMid.isEmpty())
                 trackMid = sectionMid;
         }
+        // `sdpSections` is what makes ONE capture decisive when this still
+        // goes wrong: zero says our own SDP scan found no media sections to
+        // match against, non-zero with an empty streamId says the sections
+        // are there and the mid did not match one. Those are different
+        // causes and they were previously indistinguishable from the log.
         qCInfo(lcSfuMedia) << "received track attributed="
                            << !streamId.isEmpty() << "trackKey=" << trackMid
-                           << "fromPadMsid=" << padCarriedMsid;
+                           << "fromPadMsid=" << padCarriedMsid
+                           << "sdpSections=" << sdpSectionsKnown;
         if (streamId.isEmpty()) {
             // Unattributed. Deliberately given its OWN ring rather than
             // folded into a shared one: a frame decrypted with the wrong
