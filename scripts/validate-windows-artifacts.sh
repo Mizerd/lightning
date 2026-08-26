@@ -80,6 +80,50 @@ for forbidden in "$STAGE/qml/QtTest" "$STAGE/qml/Qt/test" \
     [[ ! -e "$forbidden" ]] || die "test-only Qt runtime found in portable payload: $forbidden"
 done
 
+# --- The call media engine ---------------------------------------------------
+#
+# Two separate facts, and a package can have either one without the other.
+#
+# 1. The engine was COMPILED IN. CMake enables it only when pkg-config finds the
+#    GStreamer WebRTC development files; when it does not, the build still
+#    succeeds, the packages still publish, and every call in the shipped client
+#    refuses with the honest signaling-only message. That failure is invisible to
+#    every other check here — the binary launches, signs in and syncs perfectly.
+#    The only thing that distinguishes an engine-enabled build from an
+#    engine-less one is that Lightning.exe IMPORTS the GStreamer libraries.
+# 2. The PLUGINS shipped. They are dlopen'd, so an engine-enabled binary with no
+#    `gstreamer-1.0/` directory beside it fails at first use instead of at build
+#    time — which is why this is asserted separately from (1).
+gst_meta() {
+    python3 -c 'import importlib.util,sys
+spec = importlib.util.spec_from_file_location("staging", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+print("\n".join(getattr(module, sys.argv[2])) if sys.argv[2] != "GSTREAMER_PLUGIN_DIR"
+      else module.GSTREAMER_PLUGIN_DIR)' "$SCRIPT_DIR/stage-windows-runtime.py" "$1"
+}
+gst_plugin_dir="$(gst_meta GSTREAMER_PLUGIN_DIR)"
+mapfile -t gst_plugins < <(gst_meta GSTREAMER_PLUGINS)
+mapfile -t gst_elements < <(gst_meta GSTREAMER_ELEMENTS)
+[[ ${#gst_plugins[@]} -ge 20 && ${#gst_elements[@]} -ge 30 ]] || \
+    die "the staging script declares only ${#gst_plugins[@]} GStreamer plugins and ${#gst_elements[@]} elements"
+
+mapfile -t gst_app_imports < <(
+    x86_64-w64-mingw32-objdump -p "$STAGE/Lightning.exe" |
+        sed -n 's/^[[:space:]]*DLL Name: //p' | grep -i '^libgst' | LC_ALL=C sort -fu
+)
+for gst_library in libgstreamer-1.0-0.dll libgstwebrtc-1.0-0.dll \
+    libgstsdp-1.0-0.dll libgstapp-1.0-0.dll; do
+    printf '%s\n' "${gst_app_imports[@]}" | grep -Fqix "$gst_library" || \
+        die "Lightning.exe does not import $gst_library: this build configured WITHOUT the GStreamer call media engine, and every call in this package would refuse"
+done
+for plugin in "${gst_plugins[@]}"; do
+    [[ -f "$STAGE/$gst_plugin_dir/$plugin" ]] || \
+        die "staged GStreamer plugin is missing: $gst_plugin_dir/$plugin"
+done
+printf 'call media engine linked in (%d GStreamer imports) with %d bundled plugins\n' \
+    "${#gst_app_imports[@]}" "${#gst_plugins[@]}"
+
 # The FFmpeg backend needs its runtime libraries alongside the plugin, or video
 # playback falls back to WMF and freezes. The DLLs are versioned (e.g.
 # avcodec-61.dll), so match by family. This is the structural guard that a
@@ -211,6 +255,15 @@ if [[ -n "$msi_only" ]]; then
 fi
 printf 'MSI payload matches the portable ZIP (%d files)\n' "$(wc -l <"$msi_payload")"
 
+# The comparison above proves MSI ⊇ ZIP, but only as a set difference — if a
+# future change dropped the plugins from the staging script they would be absent
+# from BOTH sides and the comparison would still pass. Name them here so the MSI
+# is checked against the requirement rather than against its sibling.
+for plugin in "${gst_plugins[@]}"; do
+    grep -Fxq "$plugin" "$msi_payload" || \
+        die "MSI payload does not carry the GStreamer plugin $plugin; calls would refuse after an MSI install"
+done
+
 grep -Fq 'StartMenuShortcut' "$REPORTS/msi-Shortcut.idt" || die "MSI shortcut is missing"
 upgrade_code="$(jq -er '.upgrade_code' "$REPORTS/msi-identity.json")"
 grep -Fq "$upgrade_code" "$REPORTS/msi-Upgrade.idt" || die "MSI UpgradeCode mismatch"
@@ -284,6 +337,10 @@ for forbidden in "$EXTRACTED/qml/QtTest" "$EXTRACTED/qml/Qt/test" \
     "$EXTRACTED/Qt6Test.dll" "$EXTRACTED/Qt6QuickTest.dll"; do
     [[ ! -e "$forbidden" ]] || \
         die "test-only Qt runtime found in the extracted portable ZIP: $forbidden"
+done
+for plugin in "${gst_plugins[@]}"; do
+    [[ -f "$EXTRACTED/$gst_plugin_dir/$plugin" ]] || \
+        die "extracted portable ZIP is missing the GStreamer plugin $gst_plugin_dir/$plugin"
 done
 
 # Runtime closure over the EXTRACTED tree. The required plugin set, the QML
@@ -480,6 +537,62 @@ while IFS= read -r candidate; do
             ;;
     esac
 done < <(find "$EXTRACTED" -type f -print)
+
+# Does the bundled GStreamer actually LOAD in this tree, or are 25 DLLs merely
+# present?
+#
+# Every check above this line is a file listing or an import table. None of them
+# can see a plugin that fails to LOAD — a runtime DLL that was never staged, a
+# symbol the bundled libstdc++/glib does not export, a plugin built against a
+# different ABI. That failure surfaces in the application as
+# "missing_element:webrtcbin" and a refused call, on the user's machine, with
+# every file sitting right beside the executable.
+#
+# gst-element-probe.exe is built into the packaging image and never shipped in a
+# package. It does exactly what SfuMediaEngine::runtimeAvailable() does: point
+# GST_PLUGIN_PATH at `<exe dir>/gstreamer-1.0`, clear GST_PLUGIN_SYSTEM_PATH,
+# gst_init, then ask the registry for each element by name. Running it from
+# INSIDE the extracted tree resolves its imports against exactly the DLLs the
+# user gets. It runs after the payload scans above so the temporary copy is
+# never part of any listing this script reports on.
+#
+# Wine is not Windows and this is not native acceptance: it proves the plugins
+# load and register against the bundled runtime, not that a call connects.
+gst_probe=/usr/local/share/lightning-windows/gst-element-probe.exe
+[[ -f "$gst_probe" ]] || \
+    die "gst-element-probe.exe is missing from the builder image; rebuild it from packaging/windows/Dockerfile"
+GST_PROBE_HOME="$(mktemp -d "${TMPDIR:-/tmp}/lightning-gst-probe.XXXXXX")"
+cleanup_gst_probe() {
+    rm -f -- "$EXTRACTED/gst-element-probe.exe"
+    # Scoped to this prefix only: smoke-windows-wine.sh runs later and creates
+    # its own, and a server left holding a deleted prefix survives the job.
+    [[ "${GST_PROBE_HOME:-}" == */lightning-gst-probe.* ]] && {
+        WINEPREFIX="$GST_PROBE_HOME/prefix" wineserver -k >/dev/null 2>&1 || true
+        rm -rf -- "$GST_PROBE_HOME"
+    }
+    # Explicit, because this is called directly as well as from the trap: the
+    # guard above returns non-zero on a second call, and `set -e` would take it.
+    return 0
+}
+trap 'cleanup_portable_root; cleanup_gst_probe' EXIT
+cp "$gst_probe" "$EXTRACTED/gst-element-probe.exe"
+gst_probe_env=(env "HOME=$GST_PROBE_HOME" "WINEPREFIX=$GST_PROBE_HOME/prefix"
+    WINEARCH=win64 WINEDEBUG=-all)
+# Bootstrap the prefix explicitly. Left implicit, the first-run bootstrap output
+# lands in the probe's own log and a bootstrap failure then reads as a missing
+# element, pointing the reader at the packaging instead of at Wine.
+timeout 120s "${gst_probe_env[@]}" wineboot -u \
+    >"$REPORTS/gst-element-probe-wineboot.log" 2>&1 || true
+if ! ( cd "$EXTRACTED" && "${gst_probe_env[@]}" \
+        xvfb-run -a wine ./gst-element-probe.exe "${gst_elements[@]}" ) \
+        >"$REPORTS/gst-element-probe.txt" 2>&1; then
+    cat "$REPORTS/gst-element-probe.txt" >&2
+    die "the bundled GStreamer did not provide every element the call engine requires (reports/gst-element-probe.txt)"
+fi
+cleanup_gst_probe
+trap cleanup_portable_root EXIT
+printf 'bundled GStreamer registered all %d required elements under Wine\n' \
+    "${#gst_elements[@]}"
 
 # The SignPath artifact boundary: the unsigned Lightning-owned payload must
 # exist on its own, with a checksum, so a future signing job has a deterministic

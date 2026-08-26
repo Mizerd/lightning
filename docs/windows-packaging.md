@@ -94,6 +94,62 @@ An earlier pre-runner feasibility pass had built the source as a 62 MiB
 console-subsystem application; that subsystem and the earlier HTTP/insecure
 defaults were the defects this pass corrected.
 
+## The call media engine (GStreamer)
+
+Voice, camera and screen share go through `SfuMediaEngine`, which is built only
+when CMake's `pkg_check_modules(GSTWEBRTC ... gstreamer-1.0 gstreamer-webrtc-1.0
+gstreamer-sdp-1.0 gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-rtp-1.0)`
+succeeds. **When it does not, the build still succeeds** and the shipped client
+answers every call attempt with the honest signaling-only refusal — a failure
+that is invisible in a package listing, in a launch, and in a sync. Windows
+shipped exactly that until this change: the build log carried
+`Package 'gstreamer-webrtc-1.0' not found` and the .exe imported no GStreamer at
+all.
+
+**Where the plugins come from.** Fedora's `mingw64-gstreamer1*` RPMs are not
+usable: they contain the `libgstwebrtc-1.0-0.dll` *library* but no `webrtcbin`
+*plugin*, and no nice/ICE, srtp, opus, vpx or webrtcdsp elements. The image
+installs a pinned, checksum-verified subset of the upstream **GStreamer 1.28.5
+MinGW SDK** instead — the same `x86_64-w64-mingw32` target the rest of the build
+uses. Its installer is Inno Setup 6.7 data, which `innoextract` cannot read and
+7-Zip cannot open, so the image runs it under the Wine it already carries, in
+the vendor's own silent mode. About 26 MB of the 2.4 GB extraction is kept.
+
+**One runtime, chosen with evidence.** A process gets one `libglib-2.0-0.dll`,
+one `libcrypto-3-x64.dll`, one `libstdc++-6.dll`. The SDK is built with GCC 14.2
+and this image's MinGW with GCC 15/16, so eleven DLL names exist on both sides.
+Every symbol the shipped SDK binaries import from each of those was compared
+against the Fedora copy's export table with `objdump`: all present, so **no
+Fedora runtime DLL is replaced** and the staging script keeps resolving
+everything from one place. Two plugins failed that comparison —
+`libgstmediafoundation.dll` (`mfvideosrc`) and `libgstd3d11.dll`
+(`d3d11screencapturesrc`) import `std::codecvt<wchar_t, char, _Mbstatet>`
+symbols that no longer exist since mingw-w64 changed `mbstate_t` — so they are
+**not shipped**, and Windows capture uses `ksvideosrc` (libgstwinks) and
+`gdiscreencapsrc` (libgstwinscreencap). The image build FAILS if any future
+GStreamer runtime DLL collides with a Fedora one, rather than overwriting it.
+
+**Staging is explicit, because nothing imports a plugin.** A GStreamer plugin is
+dlopen'd, so the recursive PE-import walk cannot discover one. `GSTREAMER_PLUGINS`
+in `scripts/stage-windows-runtime.py` copies 25 plugins into `gstreamer-1.0/`
+beside `Lightning.exe` and SEEDS them into that walk, which is what pulls their
+own runtime DLLs out of the sysroot. The directory name is a contract:
+`SfuMediaEngine::runtimeAvailable()` points `GST_PLUGIN_PATH` at
+`<exe dir>/gstreamer-1.0` and clears `GST_PLUGIN_SYSTEM_PATH` before `gst_init`,
+because the compiled-in default plugin path is the builder's sysroot.
+
+**What validation proves.** `scripts/validate-windows-artifacts.sh` asserts that
+`Lightning.exe` imports `libgstreamer-1.0-0.dll`, `libgstwebrtc-1.0-0.dll`,
+`libgstsdp-1.0-0.dll` and `libgstapp-1.0-0.dll` (the only evidence that the
+engine was compiled in at all), that every declared plugin is in the stage, the
+MSI File table and the extracted portable ZIP, and then runs
+`gst-element-probe.exe` — built into the image, never shipped — from inside the
+extracted tree under Wine, reproducing the engine's own registry probe and
+requiring all 34 elements to be found. `smoke-windows-wine.sh` additionally
+asserts the MSI and NSIS installs deliver the whole plugin directory. A Wine
+pass is not native Windows acceptance and not a completed call: it proves the
+plugins load and register against the bundled runtime.
+
 ## Security decision
 
 The Docker socket is required by the runner manager's Docker executor and is
@@ -136,5 +192,14 @@ fake/self-signed identity is ever created). Native Windows 10/11 installation,
 Credential Manager behaviour, SmartScreen/Defender, GUI/Direct3D, multimedia,
 notifications, tray behavior, DPI, long paths, non-ASCII profiles, the shutdown
 race, MSI repair/upgrade, and Add/Remove Programs presentation remain **NOT
-TESTED**. A real authorized Windows host (run the acceptance script above) is
+TESTED**.
+
+A call that actually connects on native Windows is **NOT TESTED**. The bundled
+GStreamer is proven only as far as Wine can prove it: the plugins load and every
+required element registers. Real capture is untested in both directions —
+`ksvideosrc` talks to the kernel-streaming camera stack, which does not expose
+MediaFoundation-only (virtual, DRM) cameras, and `gdiscreencapsrc` is a GDI
+desktop grab rather than a compositor capture. Audio device selection resolves
+through `autoaudiosrc`/`autoaudiosink`, i.e. WASAPI2/WASAPI/DirectSound by rank,
+and which one a given machine picks has not been observed. A real authorized Windows host (run the acceptance script above) is
 still required for those checks and for any release claim.

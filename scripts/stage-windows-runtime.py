@@ -15,8 +15,14 @@ SYSTEM_DLLS = {
     "bcryptprimitives.dll", "cfgmgr32.dll",
     "comdlg32.dll", "crypt32.dll", "d3d11.dll", "d3d12.dll",
     "d3dcompiler_47.dll", "d3d9.dll", "d2d1.dll", "dbghelp.dll",
-    "dnsapi.dll", "dwmapi.dll", "dwrite.dll", "dxgi.dll", "dxva2.dll",
+    "dnsapi.dll", "dsound.dll", "dwmapi.dll", "dwrite.dll", "dxgi.dll",
+    "dxva2.dll",
     "evr.dll", "gdi32.dll", "imm32.dll", "iphlpapi.dll", "kernel32.dll",
+    # DirectSound, the Core Audio device enumerator and the kernel-streaming
+    # user-mode library: the three OS audio/capture entry points the GStreamer
+    # directsound, wasapi2 and winks plugins bind to. All ship in System32 and
+    # none is redistributable.
+    "ksuser.dll", "mmdevapi.dll",
     "mf.dll", "mfplat.dll", "mfreadwrite.dll", "mfuuid.dll", "mpr.dll",
     "msvcrt.dll", "netapi32.dll", "ncrypt.dll", "ntdll.dll", "ole32.dll",
     "oleaut32.dll", "opengl32.dll", "powrprof.dll", "propsys.dll",
@@ -46,6 +52,71 @@ PLUGIN_FILES = {
 
 QML_RUNTIME_ENTRIES = (
     "QML", "Qt", "QtCore", "QtMultimedia", "QtNetwork", "QtQml", "QtQuick",
+)
+
+# GStreamer plugins for the MatrixRTC call media engine.
+#
+# A GStreamer plugin is dlopen'd, never linked, so NOTHING in any executable's
+# import table names one and the recursive PE-import walk below cannot discover
+# a single one of them. They are copied explicitly and then SEEDED into that
+# walk, which is what pulls their own runtime DLLs (libgstreamer-1.0-0.dll,
+# libnice-10.dll, libopus-0.dll, libsrtp2-1.dll, liborc-0.4-0.dll and the rest)
+# out of the sysroot.
+#
+# The directory name is a CONTRACT with the application:
+# SfuMediaEngine::runtimeAvailable() points GST_PLUGIN_PATH at
+# `<exe dir>/gstreamer-1.0` and clears GST_PLUGIN_SYSTEM_PATH before gst_init,
+# because the compiled-in default plugin path is the builder's sysroot and does
+# not exist on a user's machine. Rename this directory and every call refuses
+# with "missing_element:webrtcbin" on a machine that has the plugins on disk.
+#
+# The set is the engine's own element requirements, mapped to the plugin that
+# REGISTERS each one (several other plugins merely mention the names, which is
+# why this list was derived from the registering plugin rather than from a
+# string match). Windows capture is ksvideosrc + gdiscreencapsrc: the
+# mediafoundation and d3d11 plugins are built against a different mingw-w64
+# `mbstate_t` and cannot load beside Fedora's libstdc++ (packaging/windows/Dockerfile).
+GSTREAMER_PLUGIN_DIR = "gstreamer-1.0"
+GSTREAMER_PLUGINS = (
+    "libgstapp.dll",               # appsink, appsrc
+    "libgstaudioconvert.dll",      # audioconvert
+    "libgstaudioresample.dll",     # audioresample
+    "libgstaudiotestsrc.dll",      # audiotestsrc
+    "libgstautodetect.dll",        # autoaudiosrc, autoaudiosink, autovideosrc
+    "libgstcoreelements.dll",      # queue, valve, capsfilter, fakesink, tee
+    "libgstdirectsound.dll",       # directsoundsink
+    "libgstdirectsoundsrc.dll",    # directsoundsrc
+    "libgstdtls.dll",              # dtlssrtpenc, dtlssrtpdec
+    "libgstnice.dll",              # nicesrc, nicesink
+    "libgstopus.dll",              # opusenc, opusdec
+    "libgstrtp.dll",               # rtpopuspay/depay, rtpvp8pay/depay
+    "libgstrtpmanager.dll",        # rtpbin and friends, used inside webrtcbin
+    "libgstsrtp.dll",              # srtpenc, srtpdec, used inside dtlssrtp*
+    "libgstvideoconvertscale.dll", # videoconvert, videoscale
+    "libgstvideorate.dll",         # videorate
+    "libgstvideotestsrc.dll",      # videotestsrc
+    "libgstvolume.dll",            # volume
+    "libgstvpx.dll",               # vp8enc, vp8dec
+    "libgstwasapi.dll",            # wasapisrc/sink
+    "libgstwasapi2.dll",           # wasapi2src/sink
+    "libgstwebrtc.dll",            # webrtcbin
+    "libgstwebrtcdsp.dll",         # webrtcdsp, webrtcechoprobe
+    "libgstwinks.dll",             # ksvideosrc (camera)
+    "libgstwinscreencap.dll",      # gdiscreencapsrc (screen share)
+)
+
+# What the engine asks the registry for. This mirrors SfuMediaEngine.cpp's
+# kRequired probe plus the elements its gst_parse pipeline descriptions name;
+# `lightningrtpvp8pay` is deliberately absent because Lightning registers that
+# one itself and no plugin file carries it. validate-windows-artifacts.sh reads
+# this list and runs it against the packaged tree under Wine.
+GSTREAMER_ELEMENTS = (
+    "appsink", "audioconvert", "audioresample", "audiotestsrc", "autoaudiosink",
+    "autoaudiosrc", "capsfilter", "dtlssrtpdec", "dtlssrtpenc", "fakesink",
+    "gdiscreencapsrc", "ksvideosrc", "nicesink", "nicesrc", "opusdec", "opusenc",
+    "queue", "rtpbin", "rtpopusdepay", "rtpopuspay", "rtpvp8depay", "rtpvp8pay",
+    "srtpenc", "tee", "valve", "videoconvert", "videorate", "videoscale",
+    "videotestsrc", "volume", "vp8dec", "vp8enc", "webrtcbin", "webrtcdsp",
 )
 
 
@@ -110,6 +181,17 @@ def main() -> None:
                 raise SystemExit(f"required Qt plugin is missing: {source}")
             shutil.copy2(source, destination / name)
 
+    gstreamer_destination = args.stage / GSTREAMER_PLUGIN_DIR
+    gstreamer_destination.mkdir()
+    for name in GSTREAMER_PLUGINS:
+        source = SYSROOT / "lib/gstreamer-1.0" / name
+        if not source.is_file():
+            raise SystemExit(
+                "required GStreamer plugin is missing from the builder image "
+                f"(voice and video calls would be dead in the package): {source}"
+            )
+        shutil.copy2(source, gstreamer_destination / name)
+
     qwindows = args.stage / "plugins/platforms/qwindows.dll"
     qtmultimedia = args.stage / "qml/QtMultimedia/quickmultimediaplugin.dll"
     if not qwindows.is_file() or not qtmultimedia.is_file():
@@ -130,6 +212,11 @@ def main() -> None:
         copy_tree(license_dir, licenses / license_dir.name)
     source_licenses = pathlib.Path("/usr/share/licenses/lightning-qtmultimedia-qml-source")
     copy_tree(source_licenses, licenses / source_licenses.name)
+    # GStreamer and the libraries linked into its plugins (libnice, opus, vpx,
+    # libsrtp, orc, zlib, webrtc-audio-processing) are LGPL/BSD redistributables,
+    # so their licence texts ship with the binaries that carry them.
+    gstreamer_licenses = pathlib.Path("/usr/share/licenses/lightning-gstreamer")
+    copy_tree(gstreamer_licenses, licenses / gstreamer_licenses.name)
 
     (args.stage / "qt.conf").write_text(
         "[Paths]\nPlugins = plugins\nQml2Imports = qml\nTranslations = translations\n",
@@ -143,6 +230,11 @@ def main() -> None:
     # already pull in — but seeding it is what MAKES that true rather than
     # assumed, and it is what would catch a future helper that grows a new
     # dependency the stage does not carry.
+    #
+    # `rglob("*.dll")` is what seeds the GStreamer plugins copied above, and it
+    # has to: nothing imports them, so without being seeded here their own
+    # runtime libraries would never be staged and every plugin would fail to
+    # load on the user's machine with the files sitting right beside it.
     queue = sorted([
         args.stage / "Lightning.exe",
         args.stage / "lightning-updater.exe",
@@ -179,6 +271,9 @@ def main() -> None:
         "target": "x86_64-pc-windows-gnu",
         "application": "Lightning.exe",
         "update_helper": "lightning-updater.exe",
+        "gstreamer_plugins": sorted(
+            f"{GSTREAMER_PLUGIN_DIR}/{name}" for name in GSTREAMER_PLUGINS
+        ),
         "pe_files": sorted(str(p.relative_to(args.stage)) for p in scanned),
         "imports": dict(sorted(graph.items())),
     }

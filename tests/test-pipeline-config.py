@@ -457,7 +457,7 @@ for fmt in all_fmts:
 windows = resolve_extends("windows-package-test")
 check(set(windows.get("tags", [])) == {"windows-cross", "windows-package"},
       "Windows job uses only the dedicated cross-package runner tags")
-WINDOWS_IMAGE = "lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-rust1.95.0-v2"
+WINDOWS_IMAGE = "lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v3"
 image = windows.get("image", {})
 check(isinstance(image, dict)
       and image.get("name") == WINDOWS_IMAGE
@@ -724,6 +724,53 @@ check(not any(arg.startswith("--filesystem=host") for arg in _flatpak_args),
       "the Flatpak does not fall back to --filesystem=host")
 check("--filesystem=xdg-run/pipewire-0" in _flatpak_args,
       "the PipeWire socket is an actual finish-arg, not just a comment")
+
+# Windows bundles rather than depends, like the AppImage, and needs the same two
+# halves plus a third the Linux formats get for free: the builder image must
+# CARRY GStreamer at all, or CMake silently configures the engine out and every
+# check downstream still passes.
+with open(os.path.join(HERE, "..", "packaging", "windows", "Dockerfile"),
+          encoding="utf-8") as handle:
+    win_dockerfile = handle.read()
+check("GSTREAMER_SHA256" in win_dockerfile and "gstreamer-1.0-mingw-x86_64" in win_dockerfile,
+      "the Windows builder installs a checksum-pinned GStreamer MinGW SDK")
+check("gstreamer-webrtc-1.0" in win_dockerfile,
+      "the Windows builder verifies the WebRTC pkg-config module resolves")
+# The two plugins that cannot load beside Fedora's libstdc++ (mingw-w64 changed
+# mbstate_t). Naming them here keeps a future edit from re-adding them by
+# reflex, since the failure is a refused call on a user's machine.
+#
+# Matched against the Dockerfile with its COMMENT LINES REMOVED: both names are
+# in the comment that explains why they are excluded, so a raw substring search
+# would report them present and the ban would be inverted.
+_win_dockerfile_code = "\n".join(
+    line for line in win_dockerfile.splitlines()
+    if not line.lstrip().startswith("#"))
+check("libgstwebrtc.dll" in _win_dockerfile_code,
+      "the Dockerfile comment stripper still leaves the plugin install list")
+for banned in ("libgstmediafoundation.dll", "libgstd3d11.dll"):
+    check(banned not in _win_dockerfile_code,
+          f"the Windows builder does not install {banned}")
+
+with open(os.path.join(HERE, "..", "scripts", "stage-windows-runtime.py"),
+          encoding="utf-8") as handle:
+    win_stage_src = handle.read()
+check('GSTREAMER_PLUGIN_DIR = "gstreamer-1.0"' in win_stage_src,
+      "the Windows stage uses the gstreamer-1.0 directory the application reads")
+for needle in ("libgstwebrtc.dll", "libgstnice.dll", "libgstdtls.dll",
+               "libgstsrtp.dll", "libgstvpx.dll", "libgstopus.dll",
+               "libgstwinks.dll", "libgstwinscreencap.dll"):
+    check(needle in win_stage_src, f"the Windows stage bundles {needle}")
+
+with open(os.path.join(HERE, "..", "scripts", "validate-windows-artifacts.sh"),
+          encoding="utf-8") as handle:
+    win_validate_src = handle.read()
+# The ONE fact no file listing can show: an engine-less build is a normal,
+# launchable, syncing package.
+check("libgstwebrtc-1.0-0.dll" in win_validate_src,
+      "Windows validation proves the application links the call media engine")
+check("gst-element-probe.exe" in win_validate_src,
+      "Windows validation runs the packaged tree's own element probe")
 
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)

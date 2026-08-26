@@ -65,6 +65,7 @@ Lightning/
     qt.conf
     *.dll
     platforms/  imageformats/  tls/  multimedia/  sqldrivers/  qml/  ...
+    gstreamer-1.0/   call media plugins, loaded from HERE by name
     data/
         config/     settings (INI, never the registry)
         matrix/     account records, Matrix SDK store, E2EE crypto store

@@ -45,6 +45,24 @@ run_version() {
     grep -Fq "matrix-client $version" "$log" || die "Wine --version output mismatch: $exe"
 }
 
+# The call media plugins are dlopen'd from `gstreamer-1.0/` beside the
+# executable, so an installer that delivers Lightning.exe without that directory
+# produces an application that starts, signs in and syncs normally and then
+# refuses every call. Neither installer's payload can be inspected directly
+# (wixl's File table is checked in validate-windows-artifacts.sh; the NSIS
+# payload is /SOLID lzma and unreadable), so the delivered install is the proof.
+gst_plugin_count="$(find "$STAGE/gstreamer-1.0" -maxdepth 1 -name '*.dll' 2>/dev/null | wc -l)"
+[[ "$gst_plugin_count" -ge 20 ]] || \
+    die "the staged tree carries only $gst_plugin_count GStreamer plugins"
+assert_gstreamer_installed() {
+    local root="$1" kind="$2" installed
+    installed="$(find "$root/gstreamer-1.0" -maxdepth 1 -name '*.dll' 2>/dev/null | wc -l)"
+    [[ "$installed" -eq "$gst_plugin_count" ]] || \
+        die "$kind Wine install delivered $installed of $gst_plugin_count GStreamer plugins; calls would refuse in that install"
+    [[ -f "$root/gstreamer-1.0/libgstwebrtc.dll" ]] || \
+        die "$kind Wine install did not deliver gstreamer-1.0/libgstwebrtc.dll"
+}
+
 # Prove the packaged binary defaults to the Rust (E2EE) backend and the native
 # Windows secret store — the two production-critical properties. Wine can read a
 # GUI-subsystem PE's redirected stdout, so --build-info is capturable here.
@@ -100,6 +118,7 @@ msi_exe="$(find "$WINEPREFIX/drive_c/users" -type f -path '*/AppData/Local/Progr
 # installer, not merely present in the stage the installer was built from.
 [[ -f "$(dirname "$msi_exe")/lightning-updater.exe" ]] || \
     die "MSI Wine install did not create lightning-updater.exe"
+assert_gstreamer_installed "$(dirname "$msi_exe")" MSI
 run_version "$msi_exe" "$REPORTS/wine-msi-version.log"
 run_build_info "$msi_exe" "$REPORTS/wine-msi-build-info.log"
 timeout 120s wine64 msiexec /x "$msi_windows" /qn /norestart \
@@ -119,6 +138,7 @@ nsis_exe="$(find "$WINEPREFIX/drive_c/users" -type f -path '*/AppData/Local/Prog
 [[ -n "$nsis_exe" ]] || die "NSIS Wine install did not create Lightning.exe"
 [[ -f "$(dirname "$nsis_exe")/lightning-updater.exe" ]] || \
     die "NSIS Wine install did not create lightning-updater.exe"
+assert_gstreamer_installed "$(dirname "$nsis_exe")" NSIS
 run_version "$nsis_exe" "$REPORTS/wine-nsis-version.log"
 uninstaller="$(find "$(dirname "$nsis_exe")" -maxdepth 1 -type f -iname 'Uninstall.exe' -print -quit)"
 [[ -n "$uninstaller" ]] || die "NSIS uninstaller is missing"

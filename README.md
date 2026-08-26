@@ -174,8 +174,8 @@ main GitLab VM and never uses these Linux package pools.
 native Windows job. Its dedicated runner has only the tags `windows-cross` and
 `windows-package`, resides on `10.195.35.2`, and accepts no untagged or
 unprotected work. Build tools remain inside the pinned
-`lightning-windows-builder:fedora44-qt6.11.1-rust1.95.0-v1` image; the job does
-not receive the host Docker socket.
+`lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v3`
+image; the job does not receive the host Docker socket.
 
 The runner manager uses GitLab's host-internal coordinator endpoint for polling
 and the combined artifact upload because the public proxy rejects request

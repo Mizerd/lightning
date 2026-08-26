@@ -13,13 +13,13 @@ the existing Linux runners.
 | Stack path | `/srv/gitlab-runners/lightning-windows` |
 | Container | `lightning-windows-cross-runner` |
 | Runner | `lightning-windows-cross-main-gitlab` |
-| Runner image | `gitlab/gitlab-runner:v19.2.0` |
+| Runner image | `gitlab/gitlab-runner:v19.2.2` |
 | Executor | Docker, non-privileged jobs |
 | Tags | `windows-cross`, `windows-package` |
 | Scope | project 7 only, locked, protected, tagged jobs only |
 | Concurrency | 1 job; 2 polling requests |
 | Job limits | 4 CPU, 8 GiB memory (10 GiB including swap), 2-hour maximum |
-| Builder | `lightning-windows-builder:fedora44-qt6.11.1-rust1.95.0-v1` |
+| Builder | `lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v3` |
 
 The runner manager mounts `/var/run/docker.sock`, which is root-equivalent host
 access. It is constrained by project scope, protected-ref access, unique tags,
@@ -64,14 +64,14 @@ record the resulting image ID and size:
 ```bash
 sudo docker build \
   --label net.smetonis.lightning.task=windows-packaging \
-  -t lightning-windows-builder:fedora44-qt6.11.1-rust1.95.0-v1 \
+  -t lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v3 \
   -f packaging/windows/Dockerfile .
 sudo docker image inspect \
-  lightning-windows-builder:fedora44-qt6.11.1-rust1.95.0-v1
+  lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v3
 ```
 
-Do not use a floating builder image. The official Qt multimedia source checksum
-is verified during the image build. `docker system df` and `df -h /` are the
+Do not use a floating builder image. The official Qt multimedia, FFmpeg and
+GStreamer source/installer checksums are verified during the image build. `docker system df` and `df -h /` are the
 safe first disk checks. The runner cache is the dedicated stack `cache/`
 directory; inspect it with `sudo du -sh cache`. Stop the runner before removing
 only that directory's contents, and do so only when a cold rebuild is intended.
@@ -84,6 +84,73 @@ the measured Rust LTO peak approached 5.8 GiB, so the job has an 8 GiB cap
 while concurrency stays one. A missing local builder image,
 an unprotected ref, a non-SHA source, or any publication/release input causes
 the job to be absent or fail closed.
+
+## Changing the builder image
+
+The runner config on the host is root-owned and pins the image by exact tag with
+`pull_policy = "if-not-present"` and an `allowed_images` allowlist, so a builder
+change is a four-step operation and none of it is automatic. Read
+`infrastructure/windows-runner/config.example.toml` for the shape; the file on
+the host is the authority and carries the runner token, which must never be
+printed or copied anywhere.
+
+1. Commit the `packaging/windows/Dockerfile` change and the NEW tag in
+   `.gitlab-ci.yml`, `tests/test-pipeline-config.py`, this file, the README and
+   the example config. The tag encodes what changed, e.g.
+   `fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v3`.
+2. Build the image on `10.195.35.2` from a checkout of that commit, using the
+   `docker build` command above with the new tag.
+3. Edit the host's `config/config.toml`: set `[runners.docker] image` to the new
+   tag and ADD the new tag to `allowed_images`, keeping the previous one so a
+   rollback is an edit plus a restart. Both must change — the allowlist is
+   enforced independently of `image`, and a job requesting a tag that is not
+   allowed fails before it starts.
+4. `sudo docker compose restart runner`, then
+   `sudo docker exec lightning-windows-cross-runner gitlab-runner verify`.
+
+Keep the previous builder image on the host until the new one has produced a
+green `build-windows`. Removing it is what makes the rollback impossible.
+
+**A pin is only as durable as Fedora's mirrors.** On 2026-08-26 a rebuild of the
+image failed outright: `gcc`, `nasm`, `python3` and `rustup` had all been
+superseded, dnf could resolve none of the four, and the image had quietly become
+unbuildable from its own Dockerfile some time before anyone tried. There was no
+cached layer to fall back on either — the previous image was built by BuildKit,
+whose parent layers show as `<missing>` and cannot seed the classic builder's
+cache, and BuildKit's own cache had aged out. The four were re-pinned to the
+then-current NEVRAs; they are build-host tools only (FFmpeg's native helpers and
+the rustup installer), and the cross compiler and Rust toolchain are pinned
+separately and did not move. Expect to do this again. Check with
+`dnf repoquery` inside the base image before assuming a rebuild will reproduce
+the previous one, and do not treat "it built last month" as evidence that it
+builds today.
+
+## GStreamer in the builder
+
+The Windows call media engine is compiled only when pkg-config finds the
+GStreamer WebRTC development files, and when it does not the build SUCCEEDS and
+ships a client that refuses every call. The image therefore installs a pinned
+subset of the upstream GStreamer MinGW SDK (1.28.5, sha256-verified). Points
+worth knowing before touching it:
+
+- Fedora's `mingw64-gstreamer1*` RPMs cannot be used. They carry no `webrtcbin`
+  plugin, no nice/ICE, no srtp, no opus, no vpx and no webrtcdsp.
+- The upstream installer is Inno Setup 6.7 data. `innoextract` cannot read it
+  and 7-Zip cannot open it, so the image runs the installer under the Wine it
+  already has, in the vendor's own `/VERYSILENT` mode.
+- Only 25 plugin DLLs, the 19 runtime DLLs their import closure needs, the
+  headers, the `.pc` files and the import libraries are installed — about 26 MB
+  out of a 2.4 GB extraction.
+- No Fedora runtime DLL is replaced. The install loop FAILS if a GStreamer
+  runtime DLL name collides with one already in the sysroot, because the two
+  toolchains disagree (mingw-w64 changed `mbstate_t`, so the two `libstdc++-6.dll`
+  builds export different `std::codecvt` symbols) and a silent overwrite would
+  break Qt or the plugins depending on which way it went.
+- `libgstmediafoundation.dll` (`mfvideosrc`) and `libgstd3d11.dll`
+  (`d3d11screencapturesrc`) are deliberately NOT installed: they import the
+  `_Mbstatet` mangled symbols Fedora's `libstdc++-6.dll` does not export, so they
+  cannot load in this process. Windows capture uses `ksvideosrc` and
+  `gdiscreencapsrc` instead.
 
 An HTTP 413 during artifact upload means the runner is using the public proxy
 instead of the internal coordinator endpoint. Check only the non-secret `url`
@@ -118,5 +185,7 @@ explicit confirmation.
 
 For MSI failures inspect `reports/msi-*.idt` and `wixl.log`; for DLL/QML
 failures inspect `runtime-dependencies.json`, `pe-imports.txt`, and the required
-plugin checks; for Wine-only failures inspect `wine-*.log` and remember that a
-Wine pass or failure is not native Windows acceptance.
+plugin checks; for a refused call-engine check inspect
+`reports/gst-element-probe.txt`, which names the elements the packaged tree
+could not register; for Wine-only failures inspect `wine-*.log` and remember
+that a Wine pass or failure is not native Windows acceptance.

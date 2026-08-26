@@ -38,6 +38,7 @@
   "upstream_patterns": [
     "Qt6*.dll",
     "plugins/*/*.dll",
+    "gstreamer-1.0/*.dll",
     "qml/**/*.dll",
     "qml/*/*.dll",
     "qml/*/*/*.dll",
@@ -66,6 +67,7 @@
   "upstream_notes": {
     "Qt6*.dll": "Qt 6 runtime libraries (LGPL-3.0), redistributed unmodified",
     "plugins/*/*.dll": "Qt platform, imageformat, multimedia, TLS, SQL, style and icon-engine plugins",
+    "gstreamer-1.0/*.dll": "GStreamer 1.28.5 plugins for the MatrixRTC call media engine, from the upstream MinGW SDK (LGPL-2.1+), redistributed unmodified",
     "qml/**/*.dll": "Qt QML module plugins",
     "av*.dll, sw*.dll": "FFmpeg runtime behind Qt Multimedia's FFmpeg backend (LGPL-2.1+)",
     "libgcc_s_seh-1.dll, libstdc++-6.dll, libwinpthread-1.dll": "MinGW-w64 compiler runtime",
