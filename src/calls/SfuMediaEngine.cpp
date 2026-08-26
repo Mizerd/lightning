@@ -2779,6 +2779,58 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
     gst_promise_interrupt(local);
     gst_promise_unref(local);
 
+    // WHAT WEBRTCBIN ACTUALLY BUILT, as opposed to what we answered.
+    //
+    // The SDP summary logged in handleLocalDescription says what we CLAIMED;
+    // this says what the element did about it. They can disagree, and when a
+    // subscriber receives nothing at all that disagreement is the diagnosis:
+    //
+    //   * no transceivers  -> webrtcbin created none from the remote offer,
+    //                         so nothing can ever arrive no matter how good
+    //                         the answer looks;
+    //   * transceivers present with current-direction RECVONLY/SENDRECV
+    //                      -> our side is set up correctly and the fault is
+    //                         upstream (the SFU is not sending, or the media
+    //                         is not reaching this host);
+    //   * current-direction INACTIVE/NONE
+    //                      -> negotiated to nothing despite the SDP text.
+    //
+    // Subscriber only, and only counts and enum values — no ids, no content.
+    // Two prior theories about this receive path were wrong; this is the
+    // measurement that replaces a third guess.
+    if (!ctx->publisher) {
+        GArray *transceivers = nullptr;
+        g_signal_emit_by_name(ctx->webrtc, "get-transceivers", &transceivers);
+        QStringList summary;
+        if (transceivers) {
+            for (guint i = 0; i < transceivers->len; ++i) {
+                auto *t = g_array_index(transceivers,
+                                        GstWebRTCRTPTransceiver *, i);
+                if (!t)
+                    continue;
+                GstWebRTCRTPTransceiverDirection dir =
+                    GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_NONE;
+                GstWebRTCRTPTransceiverDirection current =
+                    GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_NONE;
+                gchar *mid = nullptr;
+                g_object_get(t, "direction", &dir, "current-direction",
+                             &current, "mid", &mid, nullptr);
+                summary << QStringLiteral("[mid=%1 dir=%2 current=%3]")
+                               .arg(mid ? QString::fromUtf8(mid)
+                                        : QStringLiteral("?"))
+                               .arg(static_cast<int>(dir))
+                               .arg(static_cast<int>(current));
+                g_free(mid);
+            }
+            g_array_unref(transceivers);
+        }
+        // Direction enum, so the line reads without the header to hand:
+        // 0 NONE, 1 INACTIVE, 2 SENDONLY, 3 RECVONLY, 4 SENDRECV.
+        qCInfo(lcSfuMedia) << "subscriber transceivers n=" << summary.size()
+                           << summary.join(QLatin1Char(' '))
+                           << "(dir: 1=inactive 3=recvonly 4=sendrecv)";
+    }
+
     gchar *text = gst_sdp_message_as_text(description->sdp);
     const QString sdp = QString::fromUtf8(text ? text : "");
     g_free(text);
