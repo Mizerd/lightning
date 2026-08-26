@@ -32,6 +32,7 @@
 // is reported as a black frame rather than as a failure to start.
 #pragma once
 
+#include <QImage>
 #include <QList>
 #include <QString>
 
@@ -57,6 +58,23 @@ bool available();
 /// on the taskbar, and never one of Lightning's own — sharing the call window
 /// into the call is a hall of mirrors, and offering it invites the mistake.
 QList<WindowInfo> enumerateWindows();
+
+/// A still of one window, for the share picker's preview tile.
+///
+/// Same PrintWindow path the capture uses, so what the tile shows is what
+/// the call would send — including, honestly, a blank one for a window that
+/// refuses to print. A preview that flattered the capture would be worse
+/// than none: the whole point is to let someone confirm what they are about
+/// to broadcast BEFORE they broadcast it.
+///
+/// Scaled so the longest edge is at most `maxEdge`. Returns a null image
+/// when the window is gone or cannot be drawn; the picker then shows its
+/// glyph, which is the pre-preview behaviour.
+QImage captureThumbnail(quint64 handle, int maxEdge);
+
+/// The same, for a whole display. `displayIndex` is the picker's row index,
+/// matched against the desktop's monitors in the order Windows reports them.
+QImage captureScreenThumbnail(int displayIndex, int maxEdge);
 
 /// Register `lightningwindowcapturesrc`. Idempotent, safe from any thread,
 /// must run after gst_init. A no-op off Windows.

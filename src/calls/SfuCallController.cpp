@@ -1948,7 +1948,14 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
     // A negative node id is REFUSED, never defaulted: the portal is what
     // decides which monitor or window is captured, and guessing here is
     // exactly how the wrong screen gets published.
-    if (pipewireNodeId < 0)
+    //
+    // ...UNLESS A WINDOW WAS CHOSEN, which carries its own handle and no node
+    // id at all. This guard has a twin in SfuMediaEngine::publishVideo and
+    // only the twin was taught about windows, so picking a window returned
+    // false RIGHT HERE — before a single line was logged, which is why the
+    // report was "selecting a window and sharing does nothing" and the log
+    // showed three `screen share requested` and not one publish.
+    if (pipewireNodeId < 0 && windowHandle == 0)
         return false;
     if (m_screenSharing)
         stopScreenShare();

@@ -659,6 +659,9 @@ if(HAVE_LIGHTNING_WEBRTC)
         # project cannot link against. Compiles to nothing off Windows.
         src/calls/WindowCaptureSrc.h
         src/calls/WindowCaptureSrc.cpp
+        # Serves those captures as preview tiles to the picker.
+        src/calls/ShareSourceImageProvider.h
+        src/calls/ShareSourceImageProvider.cpp
         # Only reachable through the SFU engine, and the one file that needs
         # OpenSSL directly — keeping it here rather than in the shared app
         # sources avoids linking libcrypto into every test target.

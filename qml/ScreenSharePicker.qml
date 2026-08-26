@@ -32,7 +32,12 @@ AppDialog {
     closePolicy: Popup.CloseOnEscape
     width: Math.min(520, parent ? parent.width - 64 : 520)
 
-    readonly property var sources: app.groupCall ? app.groupCall.screenShareSources : []
+    /// The rows to offer. Bound to the live call, and NOT readonly — the
+    /// binding is the production path, and a test that cannot put rows in it
+    /// cannot press one. That gap is not theoretical: the grouped-list rework
+    /// shipped with its rows unclickable, and every check that existed passed
+    /// because none of them had a row to click.
+    property var sources: app.groupCall ? app.groupCall.screenShareSources : []
     property int selected: 0
 
     // Split for the two group headers. A row is a WINDOW when it carries a
@@ -116,8 +121,12 @@ AppDialog {
 
         ListView {
             id: list
+            // Named so a test can find the list and press a real row; the
+            // grouped rework shipped with its rows unclickable precisely
+            // because nothing could reach one.
+            objectName: "sourceList"
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(260, contentHeight)
+            Layout.preferredHeight: Math.min(320, contentHeight)
             clip: true
             model: root.sources
             spacing: 2
@@ -160,7 +169,8 @@ AppDialog {
                 readonly property var modelData: rowColumn.modelData
                 readonly property int index: rowColumn.index
                 width: list.width
-                height: 52
+                // Tall enough for the 36px preview box plus breathing room.
+                height: 56
                 padding: 0
                 hoverEnabled: true
                 onClicked: root.selected = index
@@ -183,15 +193,58 @@ AppDialog {
                     anchors.rightMargin: AppTheme.spacing12
                     spacing: AppTheme.spacing12
 
-                    Icon {
-                        // BOTH names checked against Icon.qml's map. The
-                        // bundled Material Symbols font is a SUBSET and an
-                        // unmapped name renders as tofu; `web_asset`, which
-                        // is the obvious glyph for a window, is not in it.
-                        name: root.isWindowRow(modelData) ? "fit_screen"
-                                                          : "screen_share"
-                        size: 22
-                        color: root.selected === index ? AppTheme.accent : AppTheme.textSecondary
+                    // A LIVE PREVIEW of what this row would share, with the
+                    // glyph behind it as the fallback.
+                    //
+                    // Both are always present and the picture simply covers
+                    // the glyph when it loads: a Loader swap would make the
+                    // row change height as thumbnails arrive one by one, and
+                    // a list that reflows while you are aiming at it is worse
+                    // than a plain one. Fixed box, so the rows stay aligned
+                    // whatever the aspect ratio.
+                    Item {
+                        Layout.preferredWidth: 64
+                        Layout.preferredHeight: 36
+
+                        Icon {
+                            anchors.centerIn: parent
+                            // BOTH names checked against Icon.qml's map. The
+                            // bundled font is a SUBSET and an unmapped name
+                            // renders as tofu; `web_asset`, the obvious glyph
+                            // for a window, is not in it.
+                            name: root.isWindowRow(modelData) ? "fit_screen"
+                                                              : "screen_share"
+                            size: 22
+                            color: root.selected === index ? AppTheme.accent
+                                                           : AppTheme.textSecondary
+                        }
+
+                        Image {
+                            id: preview
+                            anchors.fill: parent
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            cache: false   // a live grab; a cached one is a lie
+                            // Bounded on the way in as well as in the
+                            // provider: a tile is 64px, and asking for the
+                            // desktop at full resolution to draw it would
+                            // cost megabytes per row.
+                            sourceSize.width: 128
+                            // The id carries WHICH thing, in the same terms
+                            // the controller uses to start the capture — a
+                            // window handle or the row's display index — so a
+                            // tile cannot preview something other than what
+                            // pressing Share would send.
+                            source: root.isWindowRow(modelData)
+                                ? "image://lightning-sharesource/w"
+                                  + modelData.windowHandle
+                                : "image://lightning-sharesource/s"
+                                  + (modelData.index !== undefined
+                                     ? modelData.index : 0)
+                            // Null image (a closed window, or any platform
+                            // without previews) leaves the glyph showing.
+                            visible: status === Image.Ready
+                        }
                     }
                     ColumnLayout {
                         Layout.fillWidth: true

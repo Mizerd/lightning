@@ -11,6 +11,7 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
+#include <QQuickWindow>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QWindow>
@@ -615,6 +616,126 @@ ApplicationWindow {
                          && !warning.contains(QStringLiteral("is not available"))
                          && !warning.contains(QStringLiteral("Binding loop")),
                      qPrintable(warning));
+        }
+    }
+
+    // PRESSING A ROW MUST SELECT IT — including a window row under the second
+    // group header.
+    //
+    // The grouped rework shipped with its rows unclickable and it reached a
+    // user: the picker opened, clicking a window did nothing, and pressing
+    // Share published display 0 because `selected` had never moved off it.
+    // The Windows log says it exactly — three `screen share requested` and
+    // one `screen share publishing node= 0 window= false`.
+    //
+    // Everything that existed passed, because nothing had a row to press.
+    // This drives real rows through the real delegate.
+    void pressingARowSelectsItIncludingUnderTheWindowsHeader()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 700
+    height: 500
+    visible: true
+    property alias picker: pick
+    ScreenSharePicker { id: pick; objectName: "sharePicker" }
+}
+)"), QUrl(QStringLiteral("qrc:/sharepickerclicktest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *window = qobject_cast<QQuickWindow *>(owner.get());
+        QVERIFY(window != nullptr);
+        auto *picker = owner->property("picker").value<QObject *>();
+        QVERIFY(picker != nullptr);
+
+        // Two displays then two windows — the shape the controller builds,
+        // and the one where a header sits between the groups.
+        QVariantList rows;
+        auto row = [](const QString &name, quint64 handle) {
+            return QVariantMap{
+                { QStringLiteral("index"), handle ? -1 : 0 },
+                { QStringLiteral("windowHandle"), handle },
+                { QStringLiteral("name"), name },
+                { QStringLiteral("geometry"), QStringLiteral("100 x 100") },
+                { QStringLiteral("primary"), false },
+                { QStringLiteral("current"), false },
+            };
+        };
+        rows << row(QStringLiteral("Screen A"), 0)
+             << row(QStringLiteral("Screen B"), 0)
+             << row(QStringLiteral("Window A"), 4660)
+             << row(QStringLiteral("Window B"), 4661);
+        picker->setProperty("sources", rows);
+        QMetaObject::invokeMethod(picker, "open");
+        QTRY_VERIFY(picker->property("visible").toBool());
+        QCoreApplication::processEvents();
+
+        QCOMPARE(picker->property("screenCount").toInt(), 2);
+
+        auto *list = picker->findChild<QQuickItem *>(QStringLiteral("sourceList"));
+        QVERIFY2(list != nullptr, "the picker's list has no objectName to find");
+        QTRY_COMPARE(list->property("count").toInt(), 4);
+
+        // The LAST row, which lives under the Windows header — the case that
+        // shipped broken. Resolved from the item's own geometry rather than
+        // from an assumed row height, so a header of any size still lands.
+        QQuickItem *item = nullptr;
+        QMetaObject::invokeMethod(list, "itemAtIndex",
+                                  Q_RETURN_ARG(QQuickItem *, item),
+                                  Q_ARG(int, 3));
+        QVERIFY2(item != nullptr, "no delegate was created for the last row");
+        const QPointF centre = item->mapToScene(
+            QPointF(item->width() / 2, item->height() - 10));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          centre.toPoint());
+        QCoreApplication::processEvents();
+
+        QCOMPARE(picker->property("selected").toInt(), 3);
+    }
+
+    // EVERY refusal that reads a node id must know a window carries none.
+    //
+    // A window share passes nodeId = -1 and its handle instead. There are TWO
+    // guards on that path — SfuCallController::startScreenShare and
+    // SfuMediaEngine::publishVideo — and the first shipped still refusing on
+    // `pipewireNodeId < 0` alone, so choosing a window returned false before
+    // anything was logged. The user saw a picker that did nothing and the log
+    // showed three `screen share requested` and not one publish.
+    //
+    // Source-scanned because reaching the real guard needs a live SFU
+    // session; what is pinned is that neither refusal reads a node id
+    // WITHOUT also asking whether a window was chosen.
+    void noScreenShareRefusalForgetsThatAWindowCarriesNoNodeId()
+    {
+        struct Site { const char *file; const char *guard; };
+        const Site sites[] = {
+            { SRC_DIR "/calls/SfuCallController.cpp",
+              "if (pipewireNodeId < 0 && windowHandle == 0)" },
+            { SRC_DIR "/calls/SfuMediaEngine.cpp",
+              "if (nodeId < 0 && windowHandle == 0) {" },
+        };
+        for (const Site &site : sites) {
+            const QString src = read(QString::fromUtf8(site.file));
+            QVERIFY2(!src.isEmpty(), site.file);
+            QVERIFY2(src.contains(QLatin1String(site.guard)),
+                     qPrintable(QStringLiteral(
+                         "%1 refuses a share on the node id without asking "
+                         "whether a window was chosen").arg(
+                         QString::fromUtf8(site.file))));
+            // ...and the bare form must be gone, or the corrected guard could
+            // sit harmlessly beside the one that still refuses.
+            QVERIFY2(!src.contains(QLatin1String("if (pipewireNodeId < 0)\n")),
+                     "a bare node-id refusal survives alongside the fixed one");
         }
     }
 

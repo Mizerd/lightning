@@ -454,6 +454,144 @@ namespace lightning::wincap {
 
 bool available() { return true; }
 
+namespace {
+
+/// Copy a device context region into a QImage, scaled to fit `maxEdge`.
+///
+/// One helper for both preview kinds so a window and a screen cannot end up
+/// with different colour handling or a different scaling rule.
+QImage grabToImage(HDC source, int x, int y, int width, int height,
+                   int maxEdge)
+{
+    if (width < 2 || height < 2 || !source)
+        return {};
+    HDC memory = CreateCompatibleDC(source);
+    if (!memory)
+        return {};
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;   // top-down, as QImage wants
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void *bits = nullptr;
+    HBITMAP bitmap = CreateDIBSection(source, &info, DIB_RGB_COLORS, &bits,
+                                      nullptr, 0);
+    QImage out;
+    if (bitmap && bits) {
+        SelectObject(memory, bitmap);
+        BitBlt(memory, 0, 0, width, height, source, x, y, SRCCOPY);
+        GdiFlush();
+        // COPIED, not wrapped: the DIB dies with this function and a QImage
+        // sharing its memory would be a dangling read the moment it is drawn.
+        out = QImage(reinterpret_cast<const uchar *>(bits), width, height,
+                     width * 4, QImage::Format_RGB32)
+                  .copy();
+    }
+    if (bitmap)
+        DeleteObject(bitmap);
+    DeleteDC(memory);
+    if (out.isNull())
+        return {};
+    return out.scaled(maxEdge, maxEdge, Qt::KeepAspectRatio,
+                      Qt::SmoothTransformation);
+}
+
+struct MonitorHunt {
+    int wanted;
+    int seen;
+    RECT rect;
+    bool found;
+};
+
+BOOL CALLBACK monitorProc(HMONITOR, HDC, LPRECT rect, LPARAM param)
+{
+    auto *hunt = reinterpret_cast<MonitorHunt *>(param);
+    if (hunt->seen++ == hunt->wanted) {
+        hunt->rect = *rect;
+        hunt->found = true;
+        return FALSE;   // stop: we have the one we were asked for
+    }
+    return TRUE;
+}
+
+} // namespace
+
+QImage captureThumbnail(quint64 handle, int maxEdge)
+{
+    auto window = reinterpret_cast<HWND>(static_cast<uintptr_t>(handle));
+    if (!handle || !IsWindow(window) || IsIconic(window))
+        return {};
+    RECT rect{};
+    if (!GetClientRect(window, &rect))
+        return {};
+    const int w = rect.right - rect.left;
+    const int h = rect.bottom - rect.top;
+    if (w < 2 || h < 2)
+        return {};
+
+    HDC screen = GetDC(nullptr);
+    if (!screen)
+        return {};
+    HDC memory = CreateCompatibleDC(screen);
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = w;
+    info.bmiHeader.biHeight = -h;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void *bits = nullptr;
+    HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits,
+                                      nullptr, 0);
+    ReleaseDC(nullptr, screen);
+    QImage out;
+    if (memory && bitmap && bits) {
+        SelectObject(memory, bitmap);
+        // THE SAME CALL THE CAPTURE MAKES. A preview drawn a different way
+        // could show a picture the share cannot actually send.
+        if (!PrintWindow(window, memory, PW_RENDERFULLCONTENT)) {
+            HDC windowDc = GetDC(window);
+            if (windowDc) {
+                BitBlt(memory, 0, 0, w, h, windowDc, 0, 0, SRCCOPY);
+                ReleaseDC(window, windowDc);
+            }
+        }
+        GdiFlush();
+        out = QImage(reinterpret_cast<const uchar *>(bits), w, h, w * 4,
+                     QImage::Format_RGB32)
+                  .copy();
+    }
+    if (bitmap)
+        DeleteObject(bitmap);
+    if (memory)
+        DeleteDC(memory);
+    if (out.isNull())
+        return {};
+    return out.scaled(maxEdge, maxEdge, Qt::KeepAspectRatio,
+                      Qt::SmoothTransformation);
+}
+
+QImage captureScreenThumbnail(int displayIndex, int maxEdge)
+{
+    MonitorHunt hunt{displayIndex < 0 ? 0 : displayIndex, 0, {}, false};
+    EnumDisplayMonitors(nullptr, nullptr, monitorProc,
+                        reinterpret_cast<LPARAM>(&hunt));
+    if (!hunt.found)
+        return {};
+    HDC screen = GetDC(nullptr);
+    if (!screen)
+        return {};
+    // The virtual desktop's own coordinates: a second monitor starts at a
+    // non-zero x, and grabbing from 0,0 would preview the wrong screen.
+    const QImage out = grabToImage(screen, hunt.rect.left, hunt.rect.top,
+                                   hunt.rect.right - hunt.rect.left,
+                                   hunt.rect.bottom - hunt.rect.top, maxEdge);
+    ReleaseDC(nullptr, screen);
+    return out;
+}
+
 QList<WindowInfo> enumerateWindows()
 {
     QList<WindowInfo> windows;
@@ -488,6 +626,8 @@ namespace lightning::wincap {
 // Reporting unavailable keeps the picker honest on both.
 bool available() { return false; }
 QList<WindowInfo> enumerateWindows() { return {}; }
+QImage captureThumbnail(quint64, int) { return {}; }
+QImage captureScreenThumbnail(int, int) { return {}; }
 void registerWindowCaptureSrc() {}
 const char *windowCaptureSrcName() { return "lightningwindowcapturesrc"; }
 

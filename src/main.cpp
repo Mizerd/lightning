@@ -1,6 +1,7 @@
 #include "app/AppController.h"
 #ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/GstBootstrap.h"
+#include "calls/ShareSourceImageProvider.h"
 #include "calls/GstCallMediaBackend.h"
 #include "calls/SfuMediaEngine.h"
 #endif
@@ -1239,6 +1240,13 @@ int main(int argc, char *argv[])
     // id, so a plain parameterless provider suffices.
     engine.addImageProvider(QStringLiteral("storm-band"),
                             new StormBandImageProvider());
+    // Preview tiles in the screen-share picker: a live grab of one window or
+    // display, taken when the row is drawn. Stateless — the id names what to
+    // grab — and nothing is written to disk, because a still of whatever the
+    // user has on screen must not outlive the dialog that asked for it. Null
+    // everywhere but Windows, where the picker falls back to its glyph.
+    engine.addImageProvider(QStringLiteral("lightning-sharesource"),
+                            new ShareSourceImageProvider());
     // Composer chips for images that are queued but not sent. A clipboard
     // paste never becomes a file, so there is no file:// URL to point an
     // Image at; the bytes live on the controller and are served from here.
