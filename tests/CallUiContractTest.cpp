@@ -2108,6 +2108,51 @@ Item {
                  "a role heading is no longer 22px");
         QVERIFY2(list.contains(QStringLiteral("size: 22")),
                  "the member avatar is no longer 22px");
+        // THE TAB STRIP IS ONE SIZE IN EVERY SECTION. `dense` and the tab
+        // margins used to be conditional on `section === "people"`, so the
+        // strip visibly shrank the moment People was selected and grew back
+        // on the way out — "when clicking people tab everything gets small".
+        // A control that resizes depending on which of its own tabs is active
+        // looks broken; the compactness People wanted is the ROSTER's.
+        // COMMENTS STRIPPED, and bounded to the control's own block (it ends
+        // at onActivated). Both halves are load-bearing: the fix's own
+        // rationale comment NAMES the token being banned, so a ban read off
+        // the raw file always "finds" it — the hazard `code()` exists for and
+        // that this file's own header warns about — and a fixed character
+        // window runs past the block into the Overview section, whose
+        // visibility condition is none of this test's business.
+        const QString clean = code(panel);
+        const int tabsAt = clean.indexOf(QStringLiteral("objectName: \"roomInfoTabs\""));
+        QVERIFY(tabsAt > 0);
+        const int tabsEnd = clean.indexOf(QStringLiteral("onActivated:"), tabsAt);
+        QVERIFY(tabsEnd > tabsAt);
+        const QString tabs = clean.mid(tabsAt, tabsEnd - tabsAt);
+        // Prove the window still contains what it is meant to read, or every
+        // negative assertion below is vacuous.
+        QVERIFY2(tabs.contains(QStringLiteral("dense:")),
+                 "the tab window no longer contains the control it scans");
+        QVERIFY2(!tabs.contains(QStringLiteral("section === \"people\"")),
+                 "the section tabs still resize themselves when People is "
+                 "selected");
+        QVERIFY2(tabs.contains(QStringLiteral("fitWidth: true"))
+                     && tabs.contains(QStringLiteral("Layout.fillWidth: true")),
+                 "the tab strip cannot compact into the panel: fitWidth only "
+                 "acts on a width the host actually gives it, so without "
+                 "fillWidth the row keeps its implicit width and the last tab "
+                 "runs off the edge");
+
+        // The panel may never take so much width that the shell overflows its
+        // own window. The stored width outlives the window it was dragged in.
+        const QString pane = read(QStringLiteral(QML_DIR "/TimelinePane.qml"));
+        QVERIFY(!pane.isEmpty());
+        QVERIFY2(pane.contains(QStringLiteral("Math.min(app.settings.sidePanelWidth")),
+                 "the info panel takes its stored width uncapped, so a window "
+                 "narrower than it was dragged in pushes the panel off the "
+                 "right edge");
+        QVERIFY2(panel.contains(QStringLiteral("clip: true")),
+                 "the info panel does not clip, so anything wider than it "
+                 "paints over the timeline");
+
         // ONE body size across the panel. Compacting the roster shrank the
         // TEXT as well as the spacing, so People read a size smaller than
         // Overview and Media and switching tabs looked like a zoom. Density

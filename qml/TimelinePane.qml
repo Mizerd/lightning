@@ -5391,7 +5391,23 @@ Rectangle {
         id: infoPanel
         objectName: "roomInfoPanel"
         Layout.fillHeight: true
-        Layout.preferredWidth: root.infoOpen ? app.settings.sidePanelWidth : 0
+        // CAPPED AGAINST WHAT IS ACTUALLY THERE, not just the stored width.
+        //
+        // The stored width is whatever the user last dragged it to, and it
+        // outlives the window it was dragged in. When the window is later
+        // narrower than (conversation minimum + this), the row's total
+        // minimum exceeds its width and QtQuickLayouts overflows to the
+        // RIGHT — so the panel ran off the window edge with its last tab, its
+        // Save buttons and half its wrapped text outside the frame.
+        //
+        // 420 is the conversation's floor: below that the timeline stops
+        // being a conversation. The panel's own floor is 260, and the
+        // `>= 700` gate below means the pane is never narrow enough for the
+        // two to fight.
+        Layout.preferredWidth: root.infoOpen
+            ? Math.max(260, Math.min(app.settings.sidePanelWidth,
+                                     root.width - 420))
+            : 0
         // Collapse cleanly at narrow widths instead of crushing the chat.
         visible: root.infoOpen && root.width >= 700
         onCloseRequested: root.infoOpen = false

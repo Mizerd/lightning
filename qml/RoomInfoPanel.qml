@@ -14,6 +14,11 @@ Rectangle {
     id: root
     color: AppTheme.sidebar
     visible: width > 0
+    // A LAST LINE OF DEFENCE, not a layout fix. Everything in here is meant
+    // to fit the panel's width and wrap or elide when it cannot; clip is what
+    // stops a control that gets that wrong from painting over the timeline —
+    // or, when the panel is at the window edge, off the window entirely.
+    clip: true
 
     property var roomData: ({})
     signal closeRequested()
@@ -199,16 +204,24 @@ Rectangle {
         SegmentedControl {
             objectName: "roomInfoTabs"
             storm: true
-            // Denser on People, where every point above the roster is one
-            // fewer person on screen; the other three sections are scrolling
-            // content that does not pay per pixel the same way.
-            Layout.margins: root.section === "people" ? AppTheme.spacing6
-                                                      : AppTheme.spacing8
-            dense: root.section === "people"
-            // The panel is user-resizable and four translated labels are
-            // whatever they translate to, so the row COMPACTS instead of
-            // running off the panel edge — the same reason the room list's
-            // filter chips carry this.
+            Layout.margins: AppTheme.spacing6
+            // fitWidth compacts the row into the width its HOST gives it, so
+            // it needs to be given one. Without fillWidth this RowLayout takes
+            // its own implicit width and simply overflows the panel — which
+            // is what cut "Media" off the end in every section but People.
+            Layout.fillWidth: true
+            // ONE SIZE IN EVERY SECTION. These two used to be conditional on
+            // `section === "people"`, so the tab strip visibly shrank the
+            // moment People was selected and grew back on the way out —
+            // reported as "when clicking people tab everything gets small".
+            // A control that changes size depending on which of its own tabs
+            // is active looks broken, and the compactness People wanted
+            // belongs to the ROSTER, never to the chrome above every section.
+            //
+            // Dense and fitWidth together are also what makes four translated
+            // labels fit a user-resizable panel at all: non-dense, the fourth
+            // tab ran off the panel edge in every section but People.
+            dense: true
             fitWidth: true
             // The Pinned tab appears only when the backend supports pinned
             // messages AND the panel is showing the room the pin controller
@@ -493,7 +506,12 @@ Rectangle {
                         font.pixelSize: AppTheme.textBody
                         font.weight: AppTheme.weightStrong
                     }
-                    RowLayout {
+                    // A Flow, not a RowLayout: two buttons with minimum
+                    // widths do not fit this panel at every width the user
+                    // may drag it to, and a RowLayout answers that by running
+                    // off the edge. A Flow puts the second one on the next
+                    // line instead.
+                    Flow {
                         visible: app.roomInfo.canEditAvatar
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing8
@@ -508,7 +526,6 @@ Rectangle {
                             enabled: !app.roomInfo.editPending
                             onClicked: app.roomInfo.removeRoomAvatar()
                         }
-                        Item { Layout.fillWidth: true }
                     }
                     RowLayout {
                         visible: app.roomInfo.canEditName
@@ -516,6 +533,10 @@ Rectangle {
                         spacing: AppTheme.spacing8
                         AppTextField {
                             id: editName
+                            // Yields, so the Save button beside it keeps its
+                            // size instead of the layout distributing the
+                            // shortfall across both and overflowing the panel.
+                            Layout.minimumWidth: 60
                             Layout.fillWidth: true
                             placeholderText: qsTr("Room name")
                             text: root.roomData.name || ""
@@ -535,6 +556,7 @@ Rectangle {
                         spacing: AppTheme.spacing8
                         AppTextField {
                             id: editTopic
+                            Layout.minimumWidth: 60
                             Layout.fillWidth: true
                             placeholderText: qsTr("Topic")
                             text: root.roomData.topic || ""
@@ -676,6 +698,7 @@ Rectangle {
                             spacing: AppTheme.spacing8
                             AppTextField {
                                 id: editAlias
+                                Layout.minimumWidth: 60
                                 objectName: "roomAliasField"
                                 Layout.fillWidth: true
                                 placeholderText: qsTr("#room-name")

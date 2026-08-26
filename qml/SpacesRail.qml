@@ -504,7 +504,14 @@ Rectangle {
                 Item {
                     id: expandChevronArea
                     objectName: "railSpaceExpandChevron"
-                    visible: spaceItem.isRealSpace
+                    // ONLY WHEN THERE IS SOMETHING TO EXPAND. It used to
+                    // appear on hover over ANY real Space, so a Space with no
+                    // joined subspaces offered a control that opened nothing
+                    // — reported as "remove this small arrow left of space,
+                    // it does nothing now". `expandable` is the model's own
+                    // answer (childSpaceCount > 0) and was already computed;
+                    // the chevron simply never read it.
+                    visible: spaceItem.isRealSpace && spaceItem.expandable
                              && (spaceHover.hovered || spaceItem.expanded)
                              && !root.dragging
                     anchors.left: parent.left
