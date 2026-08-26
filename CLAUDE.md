@@ -2396,6 +2396,25 @@ matrix-sdk-ui 0.18 are in `docs/receipt-semantics.md`. **NOT TESTED**.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-08-26 (later still) — RAISED HANDS INTEROPERATE WITH ELEMENT.**
+Confirmed working on a real desktop: a hand raised in Lightning is seen in
+Element and vice versa. The wire format was read out of element-call's own
+source rather than guessed at (§16), and it was right first time — which is
+the whole argument for reading the reference implementation.
+
+Two things from the same session log, neither of them the feature under test:
+
+* **The screen-share startup hold is 77 ms**, measured rather than reported:
+  `publish first encoded frame screenShare=true afterPublishMs=135
+  firstCaptureMs=58 rateStageHoldMs=77`. The open defect below describes
+  "5-10 s previously, 1-2 s on a restart" — this is the first NUMBER anyone
+  has had for it, and it says the `videorate` hold is no longer the cost on
+  this machine. It is ONE capture on ONE desktop and the cause is unchanged;
+  it is evidence about that share, not a fix.
+* **Switching accounts mid-call stranded the membership** (`retraction could
+  not be dispatched`), because the teardown ran after the Rust client was
+  released. Fixed the same day; live re-validation NOT TESTED.
+
 **2026-08-26 (later) — screen share STOP and RESTART, against Element.**
 Confirmed working on a real desktop: stopping a share genuinely stops it —
 the far end's tile clears instead of freezing on a grey box — and starting a
@@ -2487,9 +2506,22 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   (`e50eff6`); this is a synchronous block, and `shutdown_managed_tasks`
   does `block_on` on the GUI thread with a 15 s budget over a pool that
   includes ~170 avatar fetches.
-- **The screen share's startup is still VARIABLE**, though far less so:
-  live-confirmed 2026-08-26 as near-instant on the first share and 1-2 s on a
-  restart, against the 5-10 s previously reported. The cause is unchanged and
+  **A 2026-08-26 log makes the leading suspect look WRONG.** The same A→B→A
+  round trip reported `teardown_total_ms= 23` on the first switch and
+  `teardown_total_ms= 308` on the second — so the second switch IS ~13x
+  slower, and it is 0.3 s, not 3-5. Whatever costs seconds is somewhere else,
+  and the next round should stop reading `shutdown_managed_tasks` and get a
+  `LIGHTNING_GUI_STALL_TRACE` capture across a switch instead. One capture
+  beats another theory; that is the standing rule in this file and it applies
+  to the theory this file itself wrote down.
+- **The screen share's startup is still VARIABLE**, though far less so, and
+  there is now a MEASUREMENT: one live share on 2026-08-26 reported
+  `afterPublishMs=135 firstCaptureMs=58 rateStageHoldMs=77` — 77 ms of
+  `videorate` hold, not seconds. That is ONE capture on ONE desktop and the
+  cause is unchanged, so it bounds the problem rather than closing it; a
+  desktop that is genuinely still (no damage) still has nothing to deliver.
+  Previously live-confirmed as near-instant on the first share and 1-2 s on a
+  restart, against the 5-10 s originally reported. The cause is unchanged and
   unfixed — `videorate` emits nothing until a SECOND input buffer arrives and
   a desktop capture delivers ON DAMAGE, so the wait is "how long until
   something on the screen changes". THREE properties have now been shipped
@@ -2505,13 +2537,13 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   keeps the instant first frame, and that must go through the suite's own
   `framesFromASingleCaptureBuffer` harness before anything ships.
 - **The incoming-call prompt's Accept does nothing.**
-- ~~**Raise hand is invisible to Element**~~ — the wire representation was
-  established 2026-08-26 by READING element-call's own source rather than
-  guessing: an `m.reaction` annotating the raiser's OWN `m.call.member` state
-  event with `\u{1F590}\u{FE0F}`, lowered by redacting it. Three lanes (our
-  send, two sync handlers, one bounded join-time sweep for hands raised before
-  we arrived). Live Element interop **NOT TESTED** — this stays on the list
-  until somebody sees a hand cross.
+- ~~**Raise hand is invisible to Element**~~ — **FIXED and LIVE-CONFIRMED
+  2026-08-26** in both directions. The wire representation was established by
+  READING element-call's own source rather than guessing: an `m.reaction`
+  annotating the raiser's OWN `m.call.member` state event with
+  `\u{1F590}\u{FE0F}`, lowered by redacting it. Three lanes (our send, two
+  sync handlers, one bounded join-time sweep for hands raised before we
+  arrived).
 - **Full screen opens on the primary monitor**, not the one the app is on.
 
 STILL UNPROVEN, not reported broken:
