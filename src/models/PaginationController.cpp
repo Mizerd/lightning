@@ -360,8 +360,11 @@ void PaginationController::request(Reason reason)
     if (m_requestActive || m_client->paginating(m_roomId)
         || (m_autoRetryTimer.isActive()
             && reason != Reason::AutomaticRetry)) {
-        qCDebug(lcPagination) << "timeline pagination duplicate suppressed reason="
-                              << reasonName(reason);
+        // Counted, and reported once by the dispatch that ends the run. A
+        // viewport fill re-asks on every layout pass while a batch is in
+        // flight, so one line per suppression is O(layout passes).
+        ++m_suppressedSinceDispatch;
+        m_suppressedReason = reasonName(reason);
         return;
     }
     // canPaginate() is false when there is no live timeline for the room,
@@ -371,6 +374,13 @@ void PaginationController::request(Reason reason)
     if (!m_client->canPaginate(m_roomId) && !m_client->paginationFailed(m_roomId))
         return;
 
+    if (m_suppressedSinceDispatch > 0) {
+        qCDebug(lcPagination)
+            << "timeline pagination duplicates suppressed count="
+            << m_suppressedSinceDispatch << "reason=" << m_suppressedReason;
+        m_suppressedSinceDispatch = 0;
+        m_suppressedReason.clear();
+    }
     m_requestActive = true;
     m_activeReason = reason;
     m_batchInserted = 0;

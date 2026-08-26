@@ -290,6 +290,16 @@ private:
     int m_batchStartRows = 0;
     QSet<QString> m_batchStableIds;
     bool m_deferredFill = false;
+    /// Duplicate requests suppressed since the last dispatch, and what asked.
+    ///
+    /// COUNTED, not logged one line at a time. A viewport fill re-asks on
+    /// every layout pass while a batch is in flight, so the per-call line
+    /// this replaces produced fourteen identical entries in a row in a real
+    /// session log — the "a line that fires per CALLER does not belong in a
+    /// default-on category, only state transitions do" rule. The count is
+    /// reported once, on the dispatch that ends the run.
+    int m_suppressedSinceDispatch = 0;
+    QString m_suppressedReason;
     bool m_completionPending = false;
     bool m_completionReachedStart = false;
     bool m_seenLoading = false;
