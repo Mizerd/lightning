@@ -457,7 +457,7 @@ for fmt in all_fmts:
 windows = resolve_extends("windows-package-test")
 check(set(windows.get("tags", [])) == {"windows-cross", "windows-package"},
       "Windows job uses only the dedicated cross-package runner tags")
-WINDOWS_IMAGE = "lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v3"
+WINDOWS_IMAGE = "lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v4"
 image = windows.get("image", {})
 check(isinstance(image, dict)
       and image.get("name") == WINDOWS_IMAGE
@@ -760,8 +760,24 @@ check('GSTREAMER_PLUGIN_DIR = "gstreamer-1.0"' in win_stage_src,
       "the Windows stage uses the gstreamer-1.0 directory the application reads")
 for needle in ("libgstwebrtc.dll", "libgstnice.dll", "libgstdtls.dll",
                "libgstsrtp.dll", "libgstvpx.dll", "libgstopus.dll",
-               "libgstwinks.dll", "libgstwinscreencap.dll"):
+               "libgstwinks.dll", "libgstwinscreencap.dll",
+               # sctp is here because its absence cost a whole release round.
+               # NOTHING in Lightning names sctpenc — webrtcbin loads it for
+               # the DATA CHANNEL, and LiveKit's subscriber offer puts one in
+               # media section 0, which under bundle-policy=max-bundle owns
+               # the transport every audio and video section rides on. Windows
+               # shipped able to SEND and unable to RECEIVE anything, and the
+               # element probe could not see it: a required-element list built
+               # from what the application spells out cannot catch a plugin an
+               # element loads on its own behalf.
+               "libgstsctp.dll"):
     check(needle in win_stage_src, f"the Windows stage bundles {needle}")
+# ...and the elements themselves, so staging the DLL without probing it is
+# not enough. libgstsctp-1.0-0.dll — the SCTP LIBRARY — was copied all along
+# while the plugin was missing; a name of the right shape is not the element.
+for element in ("sctpenc", "sctpdec"):
+    check(f'"{element}"' in win_stage_src,
+          f"the Windows element probe covers {element}")
 
 with open(os.path.join(HERE, "..", "scripts", "validate-windows-artifacts.sh"),
           encoding="utf-8") as handle:
