@@ -121,7 +121,53 @@ for plugin in "${gst_plugins[@]}"; do
     [[ -f "$STAGE/$gst_plugin_dir/$plugin" ]] || \
         die "staged GStreamer plugin is missing: $gst_plugin_dir/$plugin"
 done
-printf 'call media engine linked in (%d GStreamer imports) with %d bundled plugins\n' \
+# EVERY NAMED IMPORT IN THE PAYLOAD RESOLVES, at the SYMBOL level.
+#
+# The staging script already proves every imported DLL is present, and the
+# Wine element probe proves the plugins register. Neither can catch this:
+# a plugin can carry a NORMAL import of a symbol that the DLL it names does
+# not export, and Windows fails that module at LoadLibrary with
+# ERROR_PROC_NOT_FOUND. Wine loads it anyway, so the probe passes and the
+# feature is dead on the platform it was built for.
+#
+# That is not hypothetical. libgstd3d11.dll and libgstmediafoundation.dll
+# from the upstream SDK import
+#     libstdc++-6.dll::_ZNSt7codecvtIwc9_MbstatetEC2Ey
+# which our libstdc++ does not export — the SDK is a UCRT build and this
+# toolchain is msvcrt, and mingw-w64's wchar.h makes mbstate_t a struct
+# under _UCRT and an int otherwise, so the two mangle differently. Those two
+# plugins are therefore not shipped (docs/windows-packaging.md). This check
+# is what would catch the next one.
+gst_symbols_report="$REPORTS/windows-import-symbols.txt"
+: >"$gst_symbols_report"
+declare -A staged_exports=()
+while IFS= read -r -d '' pe; do
+    staged_exports["$(basename "$pe" | tr 'A-Z' 'a-z')"]=1
+done < <(find "$STAGE" -type f -name '*.dll' -print0)
+all_exports="$(mktemp)"
+while IFS= read -r -d '' pe; do
+    x86_64-w64-mingw32-objdump -p "$pe" 2>/dev/null |
+        awk '/\+base\[/ {print $NF}'
+done < <(find "$STAGE" -type f -name '*.dll' -print0) | LC_ALL=C sort -u >"$all_exports"
+unresolved=0
+while IFS= read -r -d '' pe; do
+    x86_64-w64-mingw32-objdump -p "$pe" 2>/dev/null | awk -v self="$(basename "$pe")" '
+        /DLL Name:/ {dll=tolower($3); next}
+        /^\t[0-9a-f]+ +<none> +[0-9a-f]+ +/ {print self" "dll" "$4}'
+done < <(find "$STAGE" -type f \( -name '*.dll' -o -name '*.exe' \) -print0) |
+while read -r self dll sym; do
+    # Only DLLs WE ship: a system import (kernel32 &c.) is resolved by Windows.
+    [[ -n "${staged_exports[$dll]:-}" ]] || continue
+    LC_ALL=C grep -qxF "$sym" "$all_exports" || printf '%s needs %s::%s\n' "$self" "$dll" "$sym"
+done | LC_ALL=C sort -u >"$gst_symbols_report"
+unresolved="$(wc -l <"$gst_symbols_report" | tr -d ' ')"
+rm -f "$all_exports"
+if [[ "$unresolved" -ne 0 ]]; then
+    head -20 "$gst_symbols_report" >&2
+    die "$unresolved unresolved named import(s) in the Windows payload — every one of these modules fails to load on Windows with ERROR_PROC_NOT_FOUND, and Wine will not tell you"
+fi
+
+printf 'call media engine linked in (%d GStreamer imports) with %d bundled plugins, 0 unresolved symbols\n' \
     "${#gst_app_imports[@]}" "${#gst_plugins[@]}"
 
 # The FFmpeg backend needs its runtime libraries alongside the plugin, or video
