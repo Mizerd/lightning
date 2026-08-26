@@ -144,6 +144,77 @@ private Q_SLOTS:
                  "volume are inert and nothing is remembered");
     }
 
+    // A CALL MUST LEAVE BEFORE THE SESSION IT RUNS ON GOES AWAY, on every
+    // path that takes a session away. A membership RETRACTION is a Matrix
+    // send and a Leave is an SFU command, and both need the client.
+    //
+    // A live session log said the account switch got this wrong:
+    //
+    //   account switch begin from= … to= …
+    //   detaching local session …
+    //   rust client released …
+    //   teardown state= 6
+    //   retraction could not be dispatched — this device will remain in the
+    //   room's call membership until it expires
+    //
+    // The teardown ran AFTER the release, so rtcRetractMembership had no
+    // handle and returned 0. With no MSC4140 delayed retraction on that
+    // homeserver either, the membership then sat in the room until `expires`
+    // — a phantom participant every other client in the call had to see.
+    //
+    // prepareForShutdown() had this fix and switchToAccount() never got it,
+    // which is why the ORDER is asserted here rather than the mere presence
+    // of a leave() call: both are calls to the same function and only one
+    // ordering works.
+    void everyPathThatTakesTheSessionAwayLeavesTheCallFirst()
+    {
+        // COMMENTS STRIPPED FIRST, and that is load-bearing here rather
+        // than tidy: prepareForShutdown's own rationale comment names
+        // `stopSync()` twelve lines ABOVE the call it describes, so an
+        // ordering check over the raw file finds the comment, decides the
+        // teardown comes first, and fails on correct code. (`code()` removes
+        // whole-line `//` only, which is where these mentions live.)
+        const QString app = normalized(
+            code(read(QStringLiteral(QML_DIR "/../src/app/AppController.cpp"))));
+        QVERIFY2(!app.isEmpty(), "AppController.cpp did not read");
+
+        struct Path { const char *fn; const char *teardown; };
+        const Path paths[] = {
+            { "void AppController::prepareForShutdown", "stopSync()" },
+            { "void AppController::switchToAccount", "detachSession()" },
+        };
+        for (const Path &path : paths) {
+            const int at = app.indexOf(QLatin1String(path.fn));
+            QVERIFY2(at >= 0,
+                     qPrintable(QStringLiteral("%1 is gone, so this test is "
+                                               "pinning nothing")
+                                    .arg(QLatin1String(path.fn))));
+            // Bounded to this function: the next one starts at the next
+            // top-level definition, and scanning past it would find another
+            // path's calls and pass for the wrong reason.
+            const int next = app.indexOf(QStringLiteral("\nvoid AppController::"),
+                                         at + 1);
+            const QString body =
+                next > at ? app.mid(at, next - at) : app.mid(at);
+            const int leave = body.indexOf(QStringLiteral("m_groupCall->leave()"));
+            const int down = body.indexOf(QLatin1String(path.teardown));
+            QVERIFY2(leave >= 0,
+                     qPrintable(QStringLiteral(
+                         "%1 never leaves the call, so a live membership is "
+                         "stranded in the room until it expires")
+                                    .arg(QLatin1String(path.fn))));
+            QVERIFY2(down >= 0,
+                     qPrintable(QStringLiteral("%1 no longer calls %2")
+                                    .arg(QLatin1String(path.fn),
+                                         QLatin1String(path.teardown))));
+            QVERIFY2(leave < down,
+                     qPrintable(QStringLiteral(
+                         "%1 tears the session down BEFORE leaving the call, "
+                         "so the retraction has no client to reach")
+                                    .arg(QLatin1String(path.fn))));
+        }
+    }
+
     void inCallControlsLiveAtTheTopOfTheConversation()
     {
         // 2026-08-23 (maintainer request, with a reference screenshot): the
@@ -1947,9 +2018,6 @@ Item {
             QStringLiteral("call-ui-contract-test"));
     }
 
-private:
-    QTemporaryDir m_configHome;
-
     // "There is a call in this room" on a room-list row, in BOTH layouts.
     //
     // The load-bearing rule is what it may COST. RtcController::refresh()
@@ -1994,6 +2062,56 @@ private:
                          "the shared component").arg(file)));
         }
     }
+
+    // "the people tab takes up way too much space". The panel's whole job is
+    // to list people, and the chrome above the roster was a header, a tab
+    // strip, a filter/sort/Invite row AND a search row — about 190 px before
+    // the first member, in a column ~300 px wide.
+    //
+    // Pinned as NUMBERS because that is what regressed: every one of these is
+    // a value somebody can nudge back up one control at a time without
+    // noticing the column has lost a third of its rows.
+    void theMemberRosterStaysCompact()
+    {
+        const QString panel = read(QStringLiteral(QML_DIR "/RoomInfoPanel.qml"));
+        QVERIFY(!panel.isEmpty());
+
+        // ONE row of chrome: the search field and the three controls share it.
+        // A second row is the shape this replaced.
+        QVERIFY2(panel.contains(QStringLiteral("id: memberSearch")),
+                 "the member search field is gone");
+        const int searchAt = panel.indexOf(QStringLiteral("id: memberSearch"));
+        const int listAt = panel.indexOf(QStringLiteral("id: memberList"));
+        QVERIFY(searchAt > 0 && listAt > searchAt);
+        const QString chrome = panel.mid(searchAt, listAt - searchAt);
+        for (const QString &glyph : { QStringLiteral("person_search"),
+                                      QStringLiteral("unfold_more"),
+                                      QStringLiteral("person_add") }) {
+            QVERIFY2(chrome.contains(glyph),
+                     qPrintable(QStringLiteral(
+                         "the %1 control left the search row, so the roster "
+                         "has a second row of chrome above it again")
+                                    .arg(glyph)));
+        }
+        // ...and they are ICONS. A labelled control is most of the row in a
+        // column this narrow.
+        QVERIFY2(!chrome.contains(QStringLiteral("text: qsTr(\"A to Z\")")),
+                 "the sort control went back to a text button");
+
+        // The row and heading heights, and the avatar.
+        QVERIFY2(chrome.contains(QStringLiteral("implicitHeight: 30")),
+                 "the member search field grew back");
+        const QString list = panel.mid(listAt);
+        QVERIFY2(list.contains(QStringLiteral("height: 30")),
+                 "a member row is no longer 30px");
+        QVERIFY2(list.contains(QStringLiteral("height: 22")),
+                 "a role heading is no longer 22px");
+        QVERIFY2(list.contains(QStringLiteral("size: 20")),
+                 "the member avatar is no longer 20px");
+    }
+
+private:
+    QTemporaryDir m_configHome;
 };
 
 QTEST_MAIN(CallUiContractTest)

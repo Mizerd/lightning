@@ -198,7 +198,12 @@ Rectangle {
         SegmentedControl {
             objectName: "roomInfoTabs"
             storm: true
-            Layout.margins: AppTheme.spacing8
+            // Denser on People, where every point above the roster is one
+            // fewer person on screen; the other three sections are scrolling
+            // content that does not pay per pixel the same way.
+            Layout.margins: root.section === "people" ? AppTheme.spacing6
+                                                      : AppTheme.spacing8
+            dense: root.section === "people"
             // The Pinned tab appears only when the backend supports pinned
             // messages AND the panel is showing the room the pin controller
             // is tracking (the panel can be opened for a Space home, which
@@ -1020,7 +1025,9 @@ Rectangle {
             visible: root.section === "people"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: AppTheme.spacing8
+            // Tight: this column is a list of people and every point of
+            // spacing above it is one fewer person on screen.
+            spacing: AppTheme.spacing4
 
             // A method CALL creates no property dependency, so a binding that
             // calls memberRoleRows() never re-evaluates on its own. Reading
@@ -1039,27 +1046,50 @@ Rectangle {
             property string membership: "joined"
             property bool alphabetical: false
 
+            // ONE ROW OF CHROME, not two. The search field, the membership
+            // filter, the sort and Invite used to take a row each above the
+            // roster; with the panel header and the tab strip on top of them
+            // that was ~190 px of chrome before the first member, in a panel
+            // whose whole job is to list people. Reported as "the people tab
+            // takes up way too much space".
+            //
+            // The two toggles are ICONS with tooltips rather than words: in a
+            // column this narrow a labelled control is most of the row, and
+            // both are states with an obvious mark (a funnel, an A-to-Z sort).
             RowLayout {
                 Layout.fillWidth: true
-                Layout.leftMargin: AppTheme.spacing12
+                Layout.leftMargin: AppTheme.spacing8
                 Layout.rightMargin: AppTheme.spacing8
-                Layout.topMargin: AppTheme.spacing8
-                spacing: AppTheme.spacing6
+                Layout.topMargin: AppTheme.spacing6
+                spacing: AppTheme.spacing4
 
-                // The membership filter, as a cycling chip rather than a
-                // combo: four values, and a 300px column has no room for a
-                // dropdown next to a sort control and a count.
-                AppButton {
-                    kind: "ghost"
+                AppTextField {
+                    id: memberSearch
+                    Layout.fillWidth: true
+                    implicitHeight: 30
+                    searchIcon: true
+                    clearButton: true
+                    placeholderText: qsTr("Type name…")
+                    onTextChanged: root.memberFilter = text
+                }
+                // The membership filter, as a cycling toggle rather than a
+                // combo: four values, and this row has no space for a
+                // dropdown. `active` carries "this is not the default", so a
+                // roster narrowed to Banned cannot look like the whole room.
+                IconButton {
                     size: "sm"
-                    text: memberSection.membership === "joined" ? qsTr("Joined")
-                          : memberSection.membership === "invited" ? qsTr("Invited")
-                          : memberSection.membership === "banned" ? qsTr("Banned")
-                          : qsTr("Everyone")
+                    iconName: "person_search"
+                    active: memberSection.membership !== "joined"
                     Accessible.name: qsTr("Filter members by membership")
-                    ToolTip.text: qsTr("Showing %1 — click to change").arg(text)
+                    ToolTip.text: memberSection.membership === "joined"
+                                  ? qsTr("Showing joined members — click for invited")
+                                  : memberSection.membership === "invited"
+                                    ? qsTr("Showing invited members — click for banned")
+                                    : memberSection.membership === "banned"
+                                      ? qsTr("Showing banned members — click for everyone")
+                                      : qsTr("Showing everyone — click for joined")
                     ToolTip.visible: hovered
-                    ToolTip.delay: 500
+                    ToolTip.delay: 400
                     onClicked: {
                         memberSection.membership =
                             memberSection.membership === "joined" ? "invited"
@@ -1068,60 +1098,64 @@ Rectangle {
                             : "joined"
                     }
                 }
-                Item { Layout.fillWidth: true }
                 // A-to-Z, off by default. The snapshot arrives sorted by
                 // power level DESCENDING and is only THEN capped, so an
                 // alphabetical re-sort of a truncated roster is missing
                 // names from the MIDDLE of the alphabet rather than its tail
                 // — `truncated` below is what says so.
-                AppButton {
-                    kind: memberSection.alphabetical ? "secondary" : "ghost"
+                IconButton {
                     size: "sm"
-                    text: qsTr("A to Z")
+                    iconName: "unfold_more"
+                    active: memberSection.alphabetical
                     Accessible.name: qsTr("Sort members alphabetically")
+                    ToolTip.text: memberSection.alphabetical
+                                  ? qsTr("Sorted A to Z — click for role order")
+                                  : qsTr("Sorted by role — click for A to Z")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 400
                     onClicked: memberSection.alphabetical = !memberSection.alphabetical
                 }
-                AppButton {
-                    kind: "primary"
+                IconButton {
                     size: "sm"
+                    iconName: "person_add"
                     visible: app.roomInfo.canInvite
-                    text: qsTr("Invite")
                     Accessible.name: qsTr("Invite people to this room")
+                    ToolTip.text: qsTr("Invite people")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 400
                     onClicked: inviteDialog.openFor(app.roomInfo.roomId)
                 }
             }
 
-            AppTextField {
-                id: memberSearch
-                Layout.fillWidth: true
+            // Both behind Loaders: a never-laid-out empty Text keeps
+            // ItemObservesViewport forever, and these two are empty in the
+            // state this panel is normally in.
+            Loader {
+                active: app.roomInfo.loading
+                visible: active
                 Layout.leftMargin: AppTheme.spacing12
-                Layout.rightMargin: AppTheme.spacing12
-                searchIcon: true
-                clearButton: true
-                placeholderText: qsTr("Type name…")
-                onTextChanged: root.memberFilter = text
+                sourceComponent: Label {
+                    text: qsTr("Loading members…")
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.textMeta
+                }
             }
-
-            Label {
-                visible: app.roomInfo.loading
-                Layout.leftMargin: AppTheme.spacing12
-                text: qsTr("Loading members…")
-                color: AppTheme.textMuted
-                font.pixelSize: AppTheme.textBody
-            }
-            Label {
-                visible: app.roomInfo.truncated
+            Loader {
+                active: app.roomInfo.truncated
+                visible: active
                 Layout.leftMargin: AppTheme.spacing12
                 Layout.rightMargin: AppTheme.spacing12
                 Layout.fillWidth: true
-                text: qsTr("Showing the first %1 members of %2.")
-                      .arg(app.roomInfo.members.length)
-                      .arg(app.roomInfo.joinedCount + app.roomInfo.invitedCount)
-                color: AppTheme.textMuted
-                lineHeight: AppTheme.lineHeightBody
-                lineHeightMode: Text.ProportionalHeight
-                wrapMode: Text.WordWrap
-                font.pixelSize: AppTheme.textMeta
+                sourceComponent: Label {
+                    text: qsTr("Showing the first %1 members of %2.")
+                          .arg(app.roomInfo.members.length)
+                          .arg(app.roomInfo.joinedCount + app.roomInfo.invitedCount)
+                    color: AppTheme.textMuted
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
+                    wrapMode: Text.WordWrap
+                    font.pixelSize: AppTheme.textMicro
+                }
             }
 
             ListView {
@@ -1154,13 +1188,17 @@ Rectangle {
                         id: roleHeaderComponent
                         Item {
                             width: memberList.width
-                            height: 28
+                            // 22, not 28: the heading is wayfinding between
+                            // runs of people, so it needs to be legible and
+                            // to cost as little of the column as possible.
+                            height: 22
                             MenuSectionLabel {
                                 anchors.left: parent.left
                                 anchors.right: parent.right
                                 anchors.leftMargin: AppTheme.spacing12
                                 anchors.rightMargin: AppTheme.spacing12
                                 anchors.bottom: parent.bottom
+                                anchors.bottomMargin: 2
                                 text: qsTr("%1 — %2")
                                           .arg(memberLoader.modelData.label)
                                           .arg(memberLoader.modelData.count)
@@ -1172,7 +1210,10 @@ Rectangle {
                         id: memberRowComponent
                         ItemDelegate {
                             width: memberList.width
-                            height: 40
+                            // 30 with a 20px avatar. A member row is one line
+                            // of text beside a face; 40px was a message row's
+                            // rhythm applied to a directory.
+                            height: 30
                             padding: 0
                             hoverEnabled: true
                             readonly property var member: memberLoader.modelData
@@ -1197,8 +1238,8 @@ Rectangle {
                                 anchors.rightMargin: AppTheme.spacing12
                                 spacing: AppTheme.spacing8
                                 Avatar {
-                                    width: 26; height: 26
-                                    size: 26
+                                    width: 20; height: 20
+                                    size: 20
                                     name: member.displayName.length > 0
                                           ? member.displayName : member.userId
                                     mxc: member.avatarUrl || ""
@@ -1216,7 +1257,7 @@ Rectangle {
                                         anchors.right: parent.right
                                         anchors.bottom: parent.bottom
                                         anchors.margins: -1
-                                        dotSize: 9
+                                        dotSize: 8
                                         ring: AppTheme.sidebar
                                         userId: root.visible
                                                 && root.section === "people"
@@ -1233,7 +1274,7 @@ Rectangle {
                                     // person, and it was a column of
                                     // identical grey.
                                     color: AppTheme.userColor(member.userId || "")
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.textMeta
                                     elide: Label.ElideRight
                                 }
                                 // Invited and banned rows are in the list on
