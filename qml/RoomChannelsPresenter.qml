@@ -9,23 +9,26 @@ import MatrixClient
 // exists so the two layouts cannot fork the surrounding chrome; every user of
 // either layout gets the same workspace header and the same ⌘K hint.
 //
-// Sable's model, as directed: a Lobby entry, a Message Search entry, a group
-// for the rooms that belong to no Space, then EVERY joined Space as a flat
-// collapsible folder of its rooms. No Discord, Sable or Cinny code, asset,
-// sound, trademark or wording is used; every colour comes from AppTheme.
+// Sable's model, as directed. The rail chooses one of THREE views and this
+// column renders it: Home (its command rows and the rooms in no Space),
+// Direct Messages (Create Chat and the DMs), or one Space (Lobby, Message
+// Search, its own rooms and its subspaces as sibling folders). No Discord,
+// Sable or Cinny code, asset, sound, trademark or wording is used; every
+// colour comes from AppTheme.
 //
-// What changed from the first version of this layout, and why it is not a
-// tweak: it used to show the ACTIVE Space's hierarchy, with child Spaces as
-// nested categories, and the host silently fell back to Classic at Home
-// because there was nothing to show. A navigation layout that becomes the
-// other layout depending on where you are is not a navigation layout.
+// Two earlier designs and why neither survived. The FIRST scoped the whole
+// layout to the active Space and rendered its child Spaces as nested
+// categories, so at Home there was no hierarchy and the host silently fell
+// back to Classic — a navigation layout that becomes the other layout
+// depending on where you are is not a navigation layout. The SECOND made
+// every view the same global list narrowed by a scope, which meant Home
+// repeated every Space the rail was already showing, and a scoped Space had
+// to keep a Direct messages group anyway or the People filter chip produced
+// nothing at all.
 //
-// So the layout always exists, and the rail's selection NARROWS it instead of
-// deciding whether it works: pick a Space and the column becomes that Space and
-// its subspaces (still flat folders, never nested). Lobby is the HEAD of
-// whatever the column is showing — the scoped Space's own overview, or the
-// account's Home when nothing is scoped — so it is always one row away from
-// the page that lists everything the column is currently about.
+// A tab for DMs settles both: the rail says which view, each view contains
+// only what belongs to it, and no view has to carry another view's rows to
+// keep them reachable.
 Item {
     id: root
 
@@ -44,9 +47,17 @@ Item {
     readonly property bool lobbyActive: app.currentRoomId === ""
 
     signal roomActivated(string roomId)
-    /// Lobby: the home / all-conversations surface. Navigation only — there is
-    /// no Matrix room behind it and nothing is persisted for it.
+    /// Lobby: the selected Space's own overview. Navigation only — there is no
+    /// Matrix room behind it and nothing is persisted for it.
     signal lobbyActivated()
+    // The four command rows. The MODEL owns which of them exist in which view
+    // and the host owns what they do; this presenter only dispatches on the
+    // model's own id, so a row it cannot name is a visible dead control.
+    // `everyChannelActionIsDispatched` asserts all four ids appear here.
+    signal createRoomRequested()
+    signal joinAddressRequested()
+    signal exploreSpacesRequested()
+    signal createChatRequested()
     /// Message Search: the existing global server-side search dialog, which
     /// the host owns. Never a filter over this list — Sable's row opens a
     /// search experience, and so does this one.
@@ -74,6 +85,8 @@ Item {
             color: AppTheme.textMuted
             font.pixelSize: AppTheme.textBody
             text: qsTr("No conversations yet. Rooms you join, and the spaces " + "they belong to, will show up here.")
+            // `empty` is a fact about the ACCOUNT, so this wording never
+            // varies by view: a Space with nothing in it is the case below.
         }
     }
 
@@ -109,19 +122,16 @@ Item {
                 // blame the chip for the search's result.
                 if (app.spaceChannels.searchQuery.trim().length > 0)
                     return qsTr("Nothing in this list matches \"%1\".").arg(app.spaceChannels.searchQuery);
-                // The same words Classic uses, including the second sentence:
-                // "whichever Space is selected" is the actual contract, and it
-                // is the one this layout broke.
-                if (app.spaceChannels.filterMode === 1)
-                    return qsTr("No direct messages. They appear here whichever space is selected.");
-                if (app.spaceChannels.filterMode === 2)
-                    return qsTr("No rooms in this view. Direct messages are under the People filter.");
                 if (app.spaceChannels.filterMode === 3)
                     return qsTr("Nothing unread. Everything in this view has been read.");
-                // No filter and no search, so this is a genuinely empty view —
-                // a selected space with nothing in it yet. Still not an empty
-                // ACCOUNT, and it must not claim to be one.
-                return qsTr("Nothing to show here yet.");
+                // No filter and no search, so this view is genuinely empty.
+                // It must say WHICH view, and it must not claim the account is
+                // empty — `empty` above is the only thing allowed to say that.
+                if (app.spaceChannels.viewKind === "people")
+                    return qsTr("No direct messages yet. Start one with Create Chat.");
+                if (app.spaceChannels.viewKind === "space")
+                    return qsTr("Nothing in this space yet. Open Lobby to add a room.");
+                return qsTr("No rooms outside your spaces. Pick a space on the left, or create a room.");
             }
         }
     }
@@ -174,14 +184,18 @@ Item {
             // channel-row component and rendered as a room row with an empty
             // room id — clickable-looking, opening nothing, and carrying a
             // room's context menu over a heading.
-            sourceComponent: rowLoader.model.kind === "lobby" ? lobbyComponent : (rowLoader.model.kind === "search" ? searchComponent : (rowLoader.model.kind === "space" ? spaceComponent : (rowLoader.model.kind === "group" ? groupComponent : channelComponent)))
+            sourceComponent: rowLoader.model.kind === "lobby" ? lobbyComponent : (rowLoader.model.kind === "search" ? searchComponent : (rowLoader.model.kind === "action" ? actionComponent : (rowLoader.model.kind === "space" ? spaceComponent : (rowLoader.model.kind === "group" ? groupComponent : channelComponent))))
 
             Component {
                 id: lobbyComponent
                 ChannelNavRow {
                     width: channelList.width
                     label: rowLoader.model.name
-                    iconName: "home"
+                    // The MODEL names the glyph. A chooser here would have to
+                    // repeat the row set, and the bundled Material Symbols
+                    // font is a SUBSET — a name it does not carry renders as
+                    // tofu, so there is exactly one place to pin.
+                    iconName: rowLoader.model.iconName
                     current: root.lobbyActive
                     onClicked: root.lobbyActivated()
                 }
@@ -192,8 +206,31 @@ Item {
                 ChannelNavRow {
                     width: channelList.width
                     label: rowLoader.model.name
-                    iconName: "search"
+                    iconName: rowLoader.model.iconName
                     onClicked: root.messageSearchRequested()
+                }
+            }
+
+            Component {
+                id: actionComponent
+                ChannelNavRow {
+                    width: channelList.width
+                    label: rowLoader.model.name
+                    iconName: rowLoader.model.iconName
+                    // Dispatch on the model's own id. Every id the model can
+                    // produce is named here; an unnamed one would render as a
+                    // row that looks clickable and does nothing.
+                    onClicked: {
+                        var id = rowLoader.model.roomId
+                        if (id === "@new-room")
+                            root.createRoomRequested()
+                        else if (id === "@join-address")
+                            root.joinAddressRequested()
+                        else if (id === "@explore")
+                            root.exploreSpacesRequested()
+                        else if (id === "@new-chat")
+                            root.createChatRequested()
+                    }
                 }
             }
 

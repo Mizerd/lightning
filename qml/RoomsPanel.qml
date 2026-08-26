@@ -150,12 +150,22 @@ Rectangle {
                     Layout.maximumWidth: Math.max(0, root.width
                         - AppTheme.spacing12 * 2 - headerRow.spacing
                         - wordmarkBolt.implicitWidth)
+                    // In CHANNELS the header names the view the column is
+                    // showing — Home, Direct Messages, or the Space. Classic
+                    // keeps the wordmark at Home, unchanged: its single list
+                    // is not "a view of Home", it is every conversation, and
+                    // relabelling it would be a change to a layout that was
+                    // asked to stay as it is.
+                    readonly property bool channelsLayout:
+                        app.settings && app.settings.roomNavigationLayout === 1
                     text: {
                         if (!app.spaces)
                             return qsTr("Lightning")
                         var id = app.spaces.activeSpaceId
                         if (id === "" || id === undefined)
-                            return qsTr("Lightning")
+                            return channelsLayout ? qsTr("Home") : qsTr("Lightning")
+                        if (id === "@people")
+                            return qsTr("Direct Messages")
                         if (id === "@orphans")
                             return qsTr("Other rooms")
                         return app.spaces.spaceName(id) || qsTr("Lightning")
@@ -360,12 +370,27 @@ Rectangle {
                 // the row compacts instead of running off the pane edge
                 // ("Unreads" was clipped by the column boundary).
                 fitWidth: true
-                model: [
-                    { label: qsTr("All"), value: 0 },
-                    { label: qsTr("People"), value: 1 },
-                    { label: qsTr("Rooms"), value: 2 },
-                    { label: qsTr("Unreads"), value: 3 }
-                ]
+                // CHANNELS DROPS People and Rooms: the rail's Home and
+                // Direct Messages tabs ARE that split, and a chip claiming to
+                // do it again would either match nothing (People at Home, now
+                // that Home holds no DMs) or restate the view the user is
+                // already in. Classic keeps all four — its one list is the
+                // only place those two chips can mean anything.
+                //
+                // The stored preference is deliberately NOT rewritten when it
+                // is dropped: switching back to Classic must restore the chip
+                // the user actually chose, so the value is MAPPED on the way
+                // into this row and into the channel model, never clamped at
+                // the source.
+                readonly property bool channelsLayout:
+                    app.settings && app.settings.roomNavigationLayout === 1
+                model: channelsLayout
+                       ? [ { label: qsTr("All"), value: 0 },
+                           { label: qsTr("Unreads"), value: 3 } ]
+                       : [ { label: qsTr("All"), value: 0 },
+                           { label: qsTr("People"), value: 1 },
+                           { label: qsTr("Rooms"), value: 2 },
+                           { label: qsTr("Unreads"), value: 3 } ]
                 // Reads the SETTING it writes, not the model it drives. With
                 // `current` bound to app.roomList.filterMode the chips
                 // reported the model while every click wrote the setting, so
@@ -373,7 +398,9 @@ Rectangle {
                 // reliable one — left the chips showing a filter the user had
                 // not chosen and made clicking the stored value a no-op.
                 // One direction now: chips -> setting -> model (Binding).
-                current: app.settings.roomFilterMode
+                current: channelsLayout
+                         ? (app.settings.roomFilterMode === 3 ? 3 : 0)
+                         : app.settings.roomFilterMode
                 onActivated: (value) => {
                     app.settings.roomFilterMode = value
                 }
@@ -387,10 +414,14 @@ Rectangle {
         // The SAME chrome drives both layouts. Without these the chips and the
         // search box were visible and inert in Channels mode — reported as "in
         // channels mode all list doesn't show people".
+        // The same mapping the chips use, for the same reason: in Channels
+        // only All and Unreads exist, and a stored People/Rooms value must
+        // read as All here rather than silently filtering a view whose chip
+        // is not on screen.
         Binding {
             target: app.spaceChannels
             property: "filterMode"
-            value: app.settings.roomFilterMode
+            value: app.settings.roomFilterMode === 3 ? 3 : 0
         }
         Binding {
             target: app.spaceChannels
@@ -402,12 +433,11 @@ Rectangle {
             property: "messageSearchSupported"
             value: app.loggedIn && app.messageSearch.supported
         }
-        // Clicking a Space in the rail NARROWS this column to it. Without this
-        // the column showed every Space whatever the user clicked, so picking
-        // one did nothing visible — reported as "clicking a space basically
-        // does nothing". Lobby clears the active Space and so returns the whole
-        // account; a pseudo rail row ("", "@orphans") is not a Space and the
-        // model refuses it, so Home scopes nothing either.
+        // The rail's selection, VERBATIM, chooses which of the three views
+        // the column renders: a Space, Direct Messages, or Home. It is passed
+        // unfiltered because "@people" is a real selection that is not a
+        // Space — the model does the classifying, and doing any of it here
+        // would put the rule in two places.
         Binding {
             target: app.spaceChannels
             property: "scopeSpaceId"
@@ -634,6 +664,14 @@ Rectangle {
                     onRoomActivated: (roomId) => app.openRoom(roomId)
                     onLobbyActivated: app.openLobby()
                     onMessageSearchRequested: root.messageSearchRequested()
+                    // The command rows reuse the host's OWN dialogs — the
+                    // same ones the header's + button and the Home surface
+                    // open — so there is one create path and one discover
+                    // path however the user got there.
+                    onCreateRoomRequested: newConversationDialog.openDialog("room")
+                    onCreateChatRequested: newConversationDialog.openDialog("dm")
+                    onJoinAddressRequested: discoverJoinDialog.openDialog("address")
+                    onExploreSpacesRequested: discoverJoinDialog.openDialog("browse")
                     // The SAME clipboard proxy and leave-confirm dialog the
                     // Classic list uses, so a room left from either layout
                     // gets the same confirmation and the same honest failure.

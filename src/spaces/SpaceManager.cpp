@@ -181,6 +181,21 @@ QStringList SpaceManager::roomsInSpace(const QString &spaceId) const
         return QStringList(m_allRoomIds.constBegin(), m_allRoomIds.constEnd());
     if (spaceId == orphansId())
         return QStringList(m_orphanRoomIds.constBegin(), m_orphanRoomIds.constEnd());
+    if (spaceId == peopleId()) {
+        // Read from the CLIENT, not from a membership set: a DM is not a
+        // Space's child and never will be, so there is nothing here to
+        // accumulate. Anything that scopes by this id gets the DMs.
+        QStringList out;
+        if (!m_client)
+            return out;
+        const QList<RoomInfo> rooms = m_client->rooms();
+        out.reserve(rooms.size());
+        for (const RoomInfo &room : rooms) {
+            if (!room.isSpace && room.isDirect)
+                out.append(room.id);
+        }
+        return out;
+    }
     const auto it = m_membership.constFind(spaceId);
     if (it == m_membership.constEnd())
         return {};

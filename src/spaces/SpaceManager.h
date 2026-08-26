@@ -64,6 +64,15 @@ public:
     // so QML can render them consistently with real Spaces.
     static QString allRoomsId()   { return QStringLiteral(""); }
     static QString orphansId()    { return QStringLiteral("@orphans"); }
+    /// Direct Messages. A rail SELECTION, not a container: no room is "in"
+    /// it in the sense the other two are — `roomsInSpace` answers with every
+    /// DM so a consumer that scopes by id still gets the honest set, but a
+    /// DM's Space membership is unchanged and unchangeable (Matrix has no
+    /// way to make a DM a Space's child).
+    ///
+    /// The row is only OFFERED in the Channels layout, where DMs have a view
+    /// of their own; Classic keeps its People filter chip and never sees it.
+    static QString peopleId()     { return QStringLiteral("@people"); }
 
     explicit SpaceManager(QObject *parent = nullptr);
 

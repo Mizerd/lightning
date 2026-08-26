@@ -226,6 +226,14 @@ private:
             model.setSettings(&settings);
             model.setSources(&client, &spaces, &layout);
         }
+        /// The rail's three selections, spelled the way the rail spells them.
+        /// Every view test goes through one of these rather than poking
+        /// scopeSpaceId with a literal: the selection IS the view, and a test
+        /// that sets a value the rail cannot produce proves nothing about the
+        /// column the user sees (the row-window and rail-drag lesson).
+        void selectHome() { model.setScopeSpaceId(SpaceManager::allRoomsId()); }
+        void selectPeople() { model.setScopeSpaceId(SpaceManager::peopleId()); }
+        void selectSpace(const QString &id) { model.setScopeSpaceId(id); }
     };
 
 private Q_SLOTS:
@@ -246,31 +254,66 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // The whole reason this layout was rebuilt. There is no active Space here
-    // and never was one; the column is fully populated anyway.
-    void theLayoutIsGlobalAndNeedsNoActiveSpace()
+    // The rail chooses one of THREE views and the model produces exactly that
+    // one. This is the whole shape of the layout in one test.
+    void theRailSelectionChoosesOneOfThreeViews()
     {
         Fixture f;
         f.build(workspace());
         f.model.setMessageSearchSupported(true);
 
-        const QStringList names = namesOf(f.model);
+        // HOME: the command rows, then the rooms in no Space. No Spaces —
+        // the rail is already showing every one of them, and repeating the
+        // set here is what made picking one look like it did nothing.
+        f.selectHome();
+        QCOMPARE(f.model.viewKind(), QStringLiteral("home"));
+        QStringList names = namesOf(f.model);
+        QCOMPARE(names.mid(0, 4),
+                 QStringList({ QStringLiteral("Create Room"),
+                               QStringLiteral("Join with Address"),
+                               QStringLiteral("Explore Spaces"),
+                               QStringLiteral("Message Search") }));
+        QVERIFY2(!names.contains(QStringLiteral("Work")),
+                 "Home repeated a Space the rail already lists");
+        QVERIFY2(!names.contains(QStringLiteral("Ada")),
+                 "a DM is at Home as well as in its own tab");
+        QVERIFY(names.contains(QStringLiteral("Rooms")));
+        QVERIFY(names.contains(QStringLiteral("lounge")));
+
+        // PEOPLE: Create Chat and the DMs, and nothing else at all.
+        f.selectPeople();
+        QCOMPARE(f.model.viewKind(), QStringLiteral("people"));
+        names = namesOf(f.model);
+        QCOMPARE(names.at(0), QStringLiteral("Create Chat"));
+        QVERIFY(names.contains(QStringLiteral("Chats")));
+        QVERIFY(names.contains(QStringLiteral("Ada")));
+        QVERIFY2(!names.contains(QStringLiteral("lounge")),
+                 "an ordinary room is in the Direct Messages tab");
+        QVERIFY2(!names.contains(QStringLiteral("Work")),
+                 "a Space is in the Direct Messages tab");
+
+        // A SPACE: Lobby, Message Search, then its own rooms.
+        f.selectSpace(QStringLiteral("!work:x"));
+        QCOMPARE(f.model.viewKind(), QStringLiteral("space"));
+        names = namesOf(f.model);
         QCOMPARE(names.mid(0, 2),
                  QStringList({ QStringLiteral("Lobby"),
                                QStringLiteral("Message Search") }));
-        QVERIFY2(names.contains(QStringLiteral("Work")),
-                 "a joined Space is missing with no Space selected");
+        QVERIFY(names.contains(QStringLiteral("Work")));
         QVERIFY2(names.contains(QStringLiteral("Engineering")),
-                 "a joined SUBSPACE is missing from the flat list");
+                 "a subspace of the selected Space is missing");
+        QVERIFY2(!names.contains(QStringLiteral("Ada")),
+                 "a DM appeared under a Space, which Matrix cannot express");
+        QVERIFY2(!names.contains(QStringLiteral("lounge")),
+                 "a room in no Space appeared under a Space");
         QVERIFY(!f.model.empty());
-        // And the model has no notion of a selected Space to fall back on.
-        QCOMPARE(f.model.property("spaceId").isValid(), false);
     }
 
     void everyJoinedSpaceIsAFlatFolderAndSubspacesAreNotNested()
     {
         Fixture f;
         f.build(workspace());
+        f.selectSpace(QStringLiteral("!work:x"));
 
         const QStringList names = namesOf(f.model);
         const QStringList kinds = kindsOf(f.model);
@@ -307,6 +350,7 @@ private Q_SLOTS:
     {
         Fixture f;
         f.build(workspace());
+        f.selectHome();
 
         const QStringList names = namesOf(f.model);
         const int rooms = names.indexOf(QStringLiteral("Rooms"));
@@ -318,37 +362,89 @@ private Q_SLOTS:
                  "the Favourites group came back");
     }
 
-    // A DM used to live in "Rooms" with every other unparented room, on the
-    // reasoning that a DM has no Space parent so it belongs there. It reads as
-    // a mislabel the moment the People chip is the reason a row is on screen:
-    // a column of nothing but people, under a heading that says "Rooms", looks
-    // like the chip did not take. On the unfixed tree the DM group does not
-    // exist, so both halves of this fail: "Direct messages" is absent and
-    // "Ada" is found under "Rooms".
-    void directMessagesAreTheirOwnGroupRatherThanRowsUnderRooms()
+    // DMs live in a TAB of their own now, and in exactly one place. Two
+    // earlier designs put them in "Rooms" with every other unparented room
+    // (a column of nothing but people under a heading that says Rooms) and
+    // then in a "Direct messages" group that every other view had to carry so
+    // a scope could not delete it. A tab settles both: one home for a DM, and
+    // no other view has to keep it reachable.
+    void directMessagesLiveInTheirOwnTabAndNowhereElse()
     {
         Fixture f;
         f.build(workspace());
 
-        const QStringList names = namesOf(f.model);
-        const int directs = names.indexOf(QStringLiteral("Direct messages"));
-        QVERIFY2(directs >= 0,
-                 "there is no Direct messages group, so a DM is filed under a "
-                 "heading that says Rooms");
-        QCOMPARE(kindsOf(f.model).at(directs), QStringLiteral("group"));
-        QCOMPARE(names.mid(directs + 1, 1), QStringList{ QStringLiteral("Ada") });
+        f.selectPeople();
+        QStringList names = namesOf(f.model);
+        const int chats = names.indexOf(QStringLiteral("Chats"));
+        QVERIFY2(chats >= 0, "the Direct Messages tab has no Chats group");
+        QCOMPARE(kindsOf(f.model).at(chats), QStringLiteral("group"));
+        QCOMPARE(names.mid(chats + 1, 1), QStringList{ QStringLiteral("Ada") });
         // The synthetic id keeps the '@' prefix rule, so it can never collide
         // with a room id.
         QVERIFY(SpaceChannelModel::directsGroupId()
                     .startsWith(QLatin1Char('@')));
-        QCOMPARE(f.model.data(f.model.index(directs, 0),
+        QVERIFY(SpaceChannelModel::peopleViewId()
+                    .startsWith(QLatin1Char('@')));
+        QCOMPARE(f.model.data(f.model.index(chats, 0),
                               SpaceChannelModel::RoomIdRole).toString(),
                  SpaceChannelModel::directsGroupId());
-        // ...and it sits ABOVE Rooms, which still holds the non-DM unparented
-        // rooms and only those.
-        const int rooms = names.indexOf(QStringLiteral("Rooms"));
-        QVERIFY(rooms > directs);
-        QCOMPARE(names.mid(rooms + 1, 1), QStringList{ QStringLiteral("lounge") });
+
+        // ONE place. Neither Home nor any Space carries the DM as well.
+        f.selectHome();
+        names = namesOf(f.model);
+        QVERIFY2(!names.contains(QStringLiteral("Ada")),
+                 "the DM is at Home as well as in its own tab");
+        QCOMPARE(names.mid(names.indexOf(QStringLiteral("Rooms")) + 1, 1),
+                 QStringList{ QStringLiteral("lounge") });
+        f.selectSpace(QStringLiteral("!work:x"));
+        QVERIFY(!namesOf(f.model).contains(QStringLiteral("Ada")));
+    }
+
+    // Every one of the four command rows carries an id the host dispatches on
+    // and a glyph name the icon font actually has. A row the host cannot name
+    // renders as a control that looks clickable and does nothing.
+    void theCommandRowsCarryAnActionIdAndAGlyph()
+    {
+        Fixture f;
+        f.build(workspace());
+        f.model.setMessageSearchSupported(true);
+
+        QSet<QString> seen;
+        auto sweep = [&f, &seen] {
+            for (int i = 0; i < f.model.rowCount(); ++i) {
+                const QModelIndex idx = f.model.index(i, 0);
+                const QString kind =
+                    f.model.data(idx, SpaceChannelModel::KindRole).toString();
+                if (kind != QLatin1String("action"))
+                    continue;
+                const QString id =
+                    f.model.data(idx, SpaceChannelModel::RoomIdRole).toString();
+                QVERIFY2(SpaceChannelModel::actionIds().contains(id),
+                         qPrintable(QStringLiteral("unknown action id %1")
+                                        .arg(id)));
+                QVERIFY2(!f.model.data(idx, SpaceChannelModel::IconNameRole)
+                              .toString().isEmpty(),
+                         qPrintable(QStringLiteral("%1 has no glyph").arg(id)));
+                QVERIFY2(!f.model.data(idx, SpaceChannelModel::NameRole)
+                              .toString().isEmpty(),
+                         qPrintable(QStringLiteral("%1 has no label").arg(id)));
+                seen.insert(id);
+            }
+        };
+        f.selectHome();
+        sweep();
+        f.selectPeople();
+        sweep();
+        // A Space view has none: it has Lobby instead.
+        f.selectSpace(QStringLiteral("!work:x"));
+        for (const QString &kind : kindsOf(f.model))
+            QVERIFY(kind != QLatin1String("action"));
+
+        const QStringList all = SpaceChannelModel::actionIds();
+        QCOMPARE(seen.size(), all.size());
+        for (const QString &id : all)
+            QVERIFY2(seen.contains(id),
+                     qPrintable(QStringLiteral("%1 is in no view").arg(id)));
     }
 
     void aRoomInTwoSpacesAppearsUnderBoth()
@@ -363,10 +459,18 @@ private Q_SLOTS:
                   { QStringLiteral("!shared:x") }),
             room(QStringLiteral("!shared:x"), QStringLiteral("shared")),
         });
+        // Each Space's own view contains it: that is what "this Space
+        // contains it" means, and a first-parent-wins rule would make one of
+        // the two look incomplete.
+        f.selectSpace(QStringLiteral("!a:x"));
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("shared")));
+        f.selectSpace(QStringLiteral("!b:x"));
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("shared")));
+        // ...and it is NOT also at Home, because a Space does list it.
+        f.selectHome();
         const QStringList names = namesOf(f.model);
-        QCOMPARE(names.count(QStringLiteral("shared")), 2);
-        // ...and it is NOT also in Rooms, because a Space does list it.
         QVERIFY(!names.contains(QStringLiteral("Rooms")));
+        QVERIFY(!names.contains(QStringLiteral("shared")));
     }
 
     void aRoomWhoseOnlySpaceParentIsUnjoinedStaysReachable()
@@ -382,6 +486,7 @@ private Q_SLOTS:
                 return info;
             }(),
         });
+        f.selectHome();
         const QStringList names = namesOf(f.model);
         QVERIFY2(names.contains(QStringLiteral("orphan")),
                  "a room whose only Space parent is unjoined has no folder to "
@@ -396,6 +501,7 @@ private Q_SLOTS:
             room(QStringLiteral("!lounge:x"), QStringLiteral("lounge")),
             invite(QStringLiteral("!invited:x"), QStringLiteral("Newcomers")),
         });
+        f.selectHome();
         const QStringList names = namesOf(f.model);
         const int invites = names.indexOf(QStringLiteral("Invites"));
         QVERIFY2(invites >= 0,
@@ -440,12 +546,18 @@ private Q_SLOTS:
     {
         Fixture f;
         f.client.roomList = {
+            space(QStringLiteral("!parent:x"), QStringLiteral("Parent"),
+                  { QStringLiteral("!a:x"), QStringLiteral("!b:x"),
+                    QStringLiteral("!c:x") }),
             space(QStringLiteral("!a:x"), QStringLiteral("Alpha"),
-                  { QStringLiteral("!ra:x") }),
+                  { QStringLiteral("!ra:x") },
+                  { QStringLiteral("!parent:x") }),
             space(QStringLiteral("!b:x"), QStringLiteral("Beta"),
-                  { QStringLiteral("!rb:x") }),
+                  { QStringLiteral("!rb:x") },
+                  { QStringLiteral("!parent:x") }),
             space(QStringLiteral("!c:x"), QStringLiteral("Gamma"),
-                  { QStringLiteral("!rc:x") }),
+                  { QStringLiteral("!rc:x") },
+                  { QStringLiteral("!parent:x") }),
             room(QStringLiteral("!ra:x"), QStringLiteral("ra")),
             room(QStringLiteral("!rb:x"), QStringLiteral("rb")),
             room(QStringLiteral("!rc:x"), QStringLiteral("rc")),
@@ -459,6 +571,11 @@ private Q_SLOTS:
                                     QStringLiteral("!a:x") });
         f.model.setSources(&f.client, &f.spaces, &f.layout);
 
+        // A Space's view is that Space then its SUBSPACES, and the subspaces
+        // are ranked by the rail's arrangement — so a Space with several
+        // subspaces lists them in the order the user dragged them into,
+        // rather than in whatever order the hierarchy walk reached them.
+        f.selectSpace(QStringLiteral("!parent:x"));
         QStringList spaceNames;
         for (const QString &name : namesOf(f.model)) {
             if (name == QLatin1String("Alpha") || name == QLatin1String("Beta")
@@ -492,19 +609,15 @@ private Q_SLOTS:
         QVERIFY2(!names.contains(QStringLiteral("Rooms")),
                  "the account-wide Rooms group survived the scope");
         QVERIFY2(!names.contains(QStringLiteral("lounge")),
-                 "an unparented room that is not a DM survived the scope");
-        // NARROWED, not dropped. This used to assert that "Ada" was gone too,
-        // which pinned the defect as intended behaviour and is why no test
-        // caught it: Matrix gives no way for a DM to be a Space's child, so a
-        // DM hidden by a scope is a DM hidden EVERYWHERE — and the People chip
-        // then had nothing left to find. The account-wide ROOM group is still
-        // a statement about the whole account and still goes; the people the
-        // user talks to are not.
-        QVERIFY2(names.contains(QStringLiteral("Ada")),
-                 "a DM was deleted by a Space scope, so it is reachable from "
-                 "nowhere while that Space is selected");
-        QVERIFY2(names.contains(QStringLiteral("Direct messages")),
-                 "the surviving DM has no heading of its own");
+                 "an unparented room survived into a Space's own view");
+        // A DM IS NOT HERE, and that is now safe to assert: it has a tab of
+        // its own, so hiding it here hides it from nothing. Two earlier
+        // designs could not say this — the DM group had to ride along inside
+        // every view because there was nowhere else for it to be.
+        QVERIFY2(!names.contains(QStringLiteral("Ada")),
+                 "a DM appeared under a Space, which Matrix cannot express");
+        QVERIFY2(!names.contains(QStringLiteral("Direct messages")),
+                 "the account-wide DM group survived into a Space's view");
         QVERIFY(names.contains(QStringLiteral("general")));
         QVERIFY(names.contains(QStringLiteral("backend")));
         // A subspace is still a FLAT folder, not a level: this is a narrower
@@ -517,41 +630,63 @@ private Q_SLOTS:
         // ...and an empty account is still not claimed.
         QVERIFY(!f.model.empty());
 
-        // Lobby clears it.
-        f.model.setScopeSpaceId(QString());
+        // Home is one rail tile away, which is what makes a Space escapable.
+        f.selectHome();
         QVERIFY(namesOf(f.model).contains(QStringLiteral("Rooms")));
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("lounge")));
     }
 
-    void aPseudoRailRowScopesNothing()
+    void aPseudoRailRowThatIsNotTheDmTabIsHome()
     {
-        // "" is Home and "@orphans" is "Other rooms". Neither is a Space, and
-        // scoping to one would empty the column.
+        // "" is Home and "@orphans" is "Other rooms". Neither is a Space and
+        // neither is the DM tab, so both produce the Home view rather than an
+        // empty column — the selection is kept verbatim and CLASSIFIED, and
+        // an unrecognised one has to land somewhere that lists something.
         Fixture f;
         f.build(workspace());
-        const int all = f.model.rowCount();
-        f.model.setScopeSpaceId(QStringLiteral("@orphans"));
+        f.selectHome();
+        const int home = f.model.rowCount();
+        QVERIFY(home > 0);
+        f.model.setScopeSpaceId(SpaceManager::orphansId());
         QCOMPARE(f.model.scopeSpaceId(), QString());
-        QCOMPARE(f.model.rowCount(), all);
-        f.model.setScopeSpaceId(QString());
-        QCOMPARE(f.model.rowCount(), all);
+        QCOMPARE(f.model.viewKind(), QStringLiteral("home"));
+        QCOMPARE(f.model.rowCount(), home);
+        // The DM tab is the one pseudo id that is NOT Home.
+        f.selectPeople();
+        QCOMPARE(f.model.scopeSpaceId(), QString());
+        QCOMPARE(f.model.viewKind(), QStringLiteral("people"));
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("Ada")));
     }
 
-    void aScopeOnASpaceTheAccountNoLongerHasFallsBackToEverything()
+    void aSelectionOnASpaceTheAccountNoLongerHasStaysThatSpace()
     {
-        // Left the Space while it was selected. An empty column would look
-        // like the account had nothing in it.
+        // Left the Space while it was selected. It stays the selection, and
+        // the view renders its own emptiness — which is the truth. Falling
+        // back to "everything" here would silently become a DIFFERENT Space's
+        // view under a rail tile that is no longer there, and the account is
+        // still one rail tile away either way.
         Fixture f;
         f.build(workspace());
-        f.model.setScopeSpaceId(QStringLiteral("!gone:x"));
+        f.model.setMessageSearchSupported(true);
+        f.selectSpace(QStringLiteral("!gone:x"));
         const QStringList names = namesOf(f.model);
-        QVERIFY(names.contains(QStringLiteral("Work")));
-        QVERIFY(names.contains(QStringLiteral("Rooms")));
+        QCOMPARE(f.model.viewKind(), QStringLiteral("space"));
+        QVERIFY2(!names.contains(QStringLiteral("Work")),
+                 "a Space the user did not select is being shown as if they "
+                 "had");
+        QVERIFY(!names.contains(QStringLiteral("Rooms")));
+        // Lobby is still there, so the view is navigable rather than blank...
+        QCOMPARE(names.at(0), QStringLiteral("Lobby"));
+        // ...and the ACCOUNT is not claimed to be empty: it is not.
+        QVERIFY(!f.model.empty());
+        QCOMPARE(f.model.matchCount(), 0);
     }
 
     void aCollapsedFolderHidesItsRoomsButNotItsActivity()
     {
         Fixture f;
         f.build(workspace());
+        f.selectSpace(QStringLiteral("!work:x"));
 
         QVERIFY(namesOf(f.model).contains(QStringLiteral("backend")));
         f.model.toggleCollapsed(QStringLiteral("!eng:x"));
@@ -586,6 +721,7 @@ private Q_SLOTS:
         // message, in-memory-only state is state the user loses constantly.
         Fixture f;
         f.build(workspace());
+        f.selectSpace(QStringLiteral("!work:x"));
         f.model.toggleCollapsed(QStringLiteral("!work:x"));
         QVERIFY(!namesOf(f.model).contains(QStringLiteral("general")));
 
@@ -599,6 +735,7 @@ private Q_SLOTS:
         SpaceChannelModel reopened;
         reopened.setSettings(&f.settings);
         reopened.setSources(&f.client, &f.spaces, &f.layout);
+        reopened.setScopeSpaceId(QStringLiteral("!work:x"));
         QVERIFY(reopened.isCollapsed(QStringLiteral("!work:x")));
         QVERIFY(!namesOf(reopened).contains(QStringLiteral("general")));
     }
@@ -607,6 +744,7 @@ private Q_SLOTS:
     {
         Fixture f;
         f.build(workspace());
+        f.selectSpace(QStringLiteral("!work:x"));
         f.model.setMessageSearchSupported(true);
         f.model.toggleCollapsed(QStringLiteral("!eng:x"));
         QVERIFY(!namesOf(f.model).contains(QStringLiteral("backend")));
@@ -634,64 +772,77 @@ private Q_SLOTS:
         QVERIFY(namesOf(f.model).contains(QStringLiteral("general")));
     }
 
+    // The chips still filter WITHIN a view. In Channels the host only offers
+    // All and Unreads — the People/Rooms split IS the rail's two tabs now, and
+    // a chip repeating it would match nothing at Home — but the model keeps
+    // the whole closed set, because it is shared with Classic and a mode it
+    // refused would go inert there.
     void theFilterChipsSelectRoomsWithoutClaimingTheAccountIsEmpty()
     {
         Fixture f;
         f.build(workspace());
+        f.selectSpace(QStringLiteral("!work:x"));
 
-        f.model.setFilterMode(1);   // People
-        const QStringList people = namesOf(f.model);
-        QVERIFY(people.contains(QStringLiteral("Ada")));
-        QVERIFY(!people.contains(QStringLiteral("general")));
+        f.model.setFilterMode(3);   // Unreads
+        const QStringList unread = namesOf(f.model);
+        QVERIFY(unread.contains(QStringLiteral("backend")));
+        QVERIFY(!unread.contains(QStringLiteral("general")));
         // A filter that matched little is NOT an empty account, and the empty
         // state must not claim it is.
         QVERIFY2(!f.model.empty(),
                  "a filter's result was reported as the account having "
                  "nothing");
 
-        f.model.setFilterMode(2);   // Rooms
-        const QStringList rooms = namesOf(f.model);
-        QVERIFY(!rooms.contains(QStringLiteral("Ada")));
-        QVERIFY(rooms.contains(QStringLiteral("general")));
+        f.model.setFilterMode(0);
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("general")));
 
-        f.model.setFilterMode(3);   // Unreads
-        const QStringList unread = namesOf(f.model);
-        QVERIFY(unread.contains(QStringLiteral("backend")));
-        QVERIFY(!unread.contains(QStringLiteral("general")));
+        // The People and Rooms modes still mean what they mean, in the one
+        // view where both kinds can be present at once.
+        f.selectPeople();
+        f.model.setFilterMode(1);
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("Ada")));
+        f.model.setFilterMode(2);
+        QVERIFY2(!namesOf(f.model).contains(QStringLiteral("Ada")),
+                 "the Rooms mode kept a DM");
     }
 
-    // THE reported defect: "in channels mode people tab does nothing".
+    // The report this whole split came from: "in channels mode people tab
+    // does nothing". Two designs tried to answer it with a chip. A DM cannot
+    // be a Space's child, so under a selected Space the chip had nothing to
+    // find unless every view carried a DM group it did not otherwise want —
+    // and at Home the chip's result was a subset of what was already there.
     //
-    // The test above proves nothing about it, because it never sets a scope —
-    // the same "a policy test that never reaches production" shape as the row
-    // window and the rail drop. In production the rail almost always has a
-    // Space selected, and while scoped the only group a DM could live in was
-    // deleted wholesale, so People produced literally [Lobby, Message Search].
-    // On the unfixed tree every assertion here fails.
-    void thePeopleChipStillFindsPeopleWhileASpaceIsScoped()
+    // The tab is the answer, and this is what it has to guarantee: whatever
+    // the rail was last pointed at, DMs are ALWAYS exactly one tile away and
+    // the tab lists all of them.
+    void everyDirectMessageIsReachableFromTheTabWhateverElseIsSelected()
     {
         Fixture f;
         f.build(workspace());
         f.model.setMessageSearchSupported(true);
-        f.model.setScopeSpaceId(QStringLiteral("!work:x"));
-        f.model.setFilterMode(1);   // People
 
-        const QStringList names = namesOf(f.model);
-        QVERIFY2(names.contains(QStringLiteral("Ada")),
-                 "the People chip found no people while a Space was scoped");
-        QVERIFY2(kindsOf(f.model).contains(QStringLiteral("room")),
-                 "People produced a column with no rooms in it — two "
-                 "navigation rows over blank space");
-        // The chip did match something, so the column must not be told to
-        // draw a filter-miss message over a row that is right there.
-        QVERIFY(f.model.matchCount() > 0);
-        QVERIFY(!f.model.empty());
-        // A Space's own child rooms are not DMs, so its folder is gone — the
-        // chip narrowed the column rather than merely relabelling it.
-        QVERIFY(!names.contains(QStringLiteral("general")));
-        QVERIFY(!names.contains(QStringLiteral("backend")));
-        // And the scope is still escapable: Lobby is the head of the column.
-        QCOMPARE(names.at(0), QStringLiteral("Lobby"));
+        const QStringList froms = { SpaceManager::allRoomsId(),
+                                    SpaceManager::orphansId(),
+                                    QStringLiteral("!work:x"),
+                                    QStringLiteral("!eng:x"),
+                                    QStringLiteral("!gone:x") };
+        for (const QString &from : froms) {
+            f.model.setScopeSpaceId(from);
+            f.selectPeople();
+            const QStringList names = namesOf(f.model);
+            QVERIFY2(names.contains(QStringLiteral("Ada")),
+                     qPrintable(QStringLiteral("a DM is unreachable after %1")
+                                    .arg(from)));
+            QVERIFY2(kindsOf(f.model).contains(QStringLiteral("room")),
+                     "the DM tab produced no rooms at all");
+            QVERIFY(f.model.matchCount() > 0);
+            QVERIFY(!f.model.empty());
+            // ...and nothing that is not a DM came with them.
+            QVERIFY(!names.contains(QStringLiteral("general")));
+            QVERIFY(!names.contains(QStringLiteral("backend")));
+            QVERIFY(!names.contains(QStringLiteral("lounge")));
+            QVERIFY(!names.contains(QStringLiteral("Work")));
+        }
     }
 
     // `empty` and `matchCount` answer two different questions, and the column
@@ -711,6 +862,7 @@ private Q_SLOTS:
                   { QStringLiteral("!general:x") }),
             room(QStringLiteral("!general:x"), QStringLiteral("general")),
         });
+        f.selectSpace(QStringLiteral("!work:x"));
         QVERIFY(!f.model.empty());
         QVERIFY(f.model.matchCount() > 0);
 
@@ -741,8 +893,9 @@ private Q_SLOTS:
     {
         Fixture f;
         f.build(workspace());
+        f.selectSpace(QStringLiteral("!work:x"));
         QSignalSpy matches(&f.model, &SpaceChannelModel::matchCountChanged);
-        f.model.setFilterMode(1);   // People: one DM out of eight rooms
+        f.model.setFilterMode(1);   // People: a Space's rooms are not DMs
         QVERIFY2(matches.count() >= 1,
                  "the match count changed silently, so nothing in QML can "
                  "react to a filter that matched nothing");
@@ -752,6 +905,7 @@ private Q_SLOTS:
     {
         Fixture f;
         f.build(workspace());
+        f.selectSpace(QStringLiteral("!work:x"));
         QVERIFY2(!namesOf(f.model).contains(QStringLiteral("Message Search")),
                  "a dead search row is offered on a server that cannot search");
         f.model.setMessageSearchSupported(true);
@@ -763,6 +917,7 @@ private Q_SLOTS:
         Fixture f;
         f.build(workspace());
         f.model.setMessageSearchSupported(true);
+        f.selectSpace(QStringLiteral("!work:x"));
         for (int i = 0; i < 2; ++i) {
             const QString kind =
                 f.model.data(f.model.index(i, 0),
@@ -775,16 +930,32 @@ private Q_SLOTS:
                      "a navigation row carries a room id, so something will "
                      "eventually try to open it");
         }
+        // An ACTION row carries a synthetic '@' id, never a room id: the host
+        // dispatches on it, and anything that treated it as a room would try
+        // to open a room that does not exist.
+        f.selectHome();
+        for (int i = 0; i < f.model.rowCount(); ++i) {
+            const QModelIndex idx = f.model.index(i, 0);
+            if (f.model.data(idx, SpaceChannelModel::KindRole).toString()
+                != QLatin1String("action")) {
+                continue;
+            }
+            QVERIFY(f.model.data(idx, SpaceChannelModel::RoomIdRole)
+                        .toString().startsWith(QLatin1Char('@')));
+        }
         // A group's synthetic id can never collide with a room id.
         QVERIFY(SpaceChannelModel::roomsGroupId().startsWith(QLatin1Char('@')));
         QVERIFY(SpaceChannelModel::invitesGroupId()
                     .startsWith(QLatin1Char('@')));
+        for (const QString &id : SpaceChannelModel::actionIds())
+            QVERIFY(id.startsWith(QLatin1Char('@')));
     }
 
     void rowForRoomNeverMatchesAFolderOrAGroup()
     {
         Fixture f;
         f.build(workspace());
+        f.selectSpace(QStringLiteral("!work:x"));
         QVERIFY(f.model.rowForRoom(QStringLiteral("!general:x")) >= 0);
         // Highlighting a folder as "the room you are in" would mark the whole
         // group.
@@ -800,6 +971,7 @@ private Q_SLOTS:
         // visible. The rows did not move, so this must be a dataChanged.
         Fixture f;
         f.build(workspace());
+        f.selectSpace(QStringLiteral("!work:x"));
         QSignalSpy resets(&f.model, &QAbstractItemModel::modelReset);
         QSignalSpy changes(&f.model, &QAbstractItemModel::dataChanged);
 
@@ -834,6 +1006,7 @@ private Q_SLOTS:
         rooms[2].encrypted = true;
         rooms[2].encryptionKnown = false;
         f.build(rooms);
+        f.selectSpace(QStringLiteral("!s:x"));
 
         const int known = rowOfName(f.model, QStringLiteral("known"));
         const int unknown = rowOfName(f.model, QStringLiteral("unknown"));
@@ -849,8 +1022,18 @@ private Q_SLOTS:
     {
         Fixture f;
         f.build({});
+        f.selectHome();
         QVERIFY(f.model.empty());
-        QCOMPARE(f.model.rowCount(), 1);   // Lobby only
+        // Home keeps its command rows: an account with nothing in it is
+        // exactly when "Create Room" and "Join with Address" matter most, and
+        // a blank column would offer no way out of being empty.
+        QCOMPARE(kindsOf(f.model),
+                 QStringList({ QStringLiteral("action"),
+                               QStringLiteral("action"),
+                               QStringLiteral("action") }));
+        QCOMPARE(f.model.matchCount(), 0);
+        // A Space's view has no such rows and is genuinely bare.
+        f.selectSpace(QStringLiteral("!nothing:x"));
         QCOMPARE(kindsOf(f.model), QStringList{ QStringLiteral("lobby") });
     }
 
@@ -903,6 +1086,7 @@ private Q_SLOTS:
 
         Fixture f;
         f.build({ peer });
+        f.selectPeople();
         const int row = f.model.rowForRoom(QStringLiteral("!dm:x"));
         QVERIFY(row >= 0);
         QCOMPARE(f.model.data(f.model.index(row, 0),
@@ -936,6 +1120,7 @@ private Q_SLOTS:
 
         Fixture f;
         f.build({ peer });
+        f.selectPeople();
         QCOMPARE(f.client.profileFetches.count(QStringLiteral("@sam:example.org")), 1);
 
         // How a real homeserver answers a user who has never set an avatar:
@@ -998,6 +1183,7 @@ private Q_SLOTS:
 
         Fixture f;
         f.build({ peer });
+        f.selectPeople();
         const int row = f.model.rowForRoom(QStringLiteral("!dm:x"));
         QVERIFY(row >= 0);
         auto avatar = [&f, row] {
@@ -1034,6 +1220,7 @@ private Q_SLOTS:
 
         Fixture f;
         f.build({ group });
+        f.selectPeople();
         const int row = f.model.rowForRoom(QStringLiteral("!group:x"));
         QVERIFY(row >= 0);
         QVERIFY2(f.model.data(f.model.index(row, 0),
@@ -1056,6 +1243,7 @@ private Q_SLOTS:
 
         Fixture f;
         f.build({ peer });
+        f.selectPeople();
         const int row = f.model.rowForRoom(QStringLiteral("!dm:x"));
         QCOMPARE(f.model.data(f.model.index(row, 0),
                               SpaceChannelModel::AvatarUrlRole).toString(),
@@ -1185,6 +1373,7 @@ private Q_SLOTS:
 
         Fixture f;
         f.build({});
+        f.selectPeople();
         // An op this model never issued — note the id is not one the fake
         // client ever handed out — reporting a failure for that same user.
         Q_EMIT f.client.userProfileFinished(
@@ -1235,6 +1424,7 @@ private Q_SLOTS:
 
         Fixture f;
         f.build({ peer });
+        f.selectPeople();
         QCOMPARE(f.client.profileFetches.count(QStringLiteral("@Sam:example.org")), 1);
 
         Q_EMIT f.client.userProfileFinished(

@@ -1,53 +1,52 @@
-// The Channels navigation layout: EVERY joined Space as a flat, collapsible
-// folder of rooms, above a group for the rooms that belong to no Space.
+// The Channels navigation layout: three views chosen by the rail — Home,
+// Direct Messages, and one per joined Space.
 //
 // The shape, and why it is this one
 // ---------------------------------
 //
-//   Lobby
-//   Message Search
-//
-//   Invites            (only when there are any)
-//   Rooms       >      every joined room no Space folder will list
-//   Space A     v
+//   Home                        Direct Messages          A Space
+//   ----                        ---------------          -------
+//   Create Room                 Create Chat              Lobby
+//   Join with Address                                    Message Search
+//   Explore Spaces              Invites   (DM invites)
+//   Message Search              Chats     >              Rooms      >
+//                                 person 1                 room 1
+//   Invites  (room invites)       person 2                 room 2
+//   Rooms    >                                           Subspace   >
 //     room 1
 //     room 2
-//   Space B     >
 //
-// This replaces an earlier design that scoped the whole layout to the ACTIVE
-// Space and rendered its child Spaces as nested categories. Two things were
-// wrong with it and both were structural:
+// This is Sable's model, matched deliberately. The rail carries Home, a
+// People tab and then every Space; picking one decides WHICH of the three
+// views this model produces. A Space shows its own direct child rooms and its
+// subspaces as sibling folders — never DMs, because Matrix gives no way for a
+// DM to be a Space's child, so a DM under a Space heading would be a claim
+// the state does not make.
 //
-//  * It could not exist at Home. With no Space selected there was no
-//    hierarchy, so the host silently fell back to Classic — the user chose a
-//    navigation layout and got the other one, with nothing saying why.
-//  * Nesting a Space tree inside a sidebar is unreadable by about three
-//    levels, and it duplicated: a subspace's rooms appeared under the
-//    subspace's category AND (transitively) under the top-level Space.
-//
-// So the visual structure is FLAT BY SPACE. A subspace is a joined Space like
-// any other and gets its own folder at the same level; nothing is nested and
-// nothing is listed twice under one heading. Matrix relationships still decide
-// MEMBERSHIP — a folder lists the Space's DIRECT child rooms — they just do
-// not decide indentation.
+// This replaced a design in which every view was the same list narrowed by a
+// scope: Home listed every joined Space's folder AND a Direct messages group
+// AND a Rooms group, and a scoped Space kept the DM group because dropping it
+// made the People filter chip produce nothing. Both problems are gone once
+// DMs have a tab of their own — the DM group does not need to survive a
+// scope, and Home does not need to repeat what the rail already shows.
 //
 // Deliberate consequences, each one tested:
 //
-//  * A room that is a child of two Spaces appears under BOTH folders. That is
-//    what "this Space contains it" means, and inventing a first-parent-wins
-//    rule would make one of the two Spaces look incomplete.
+//  * A room that is a child of two Spaces appears under BOTH Spaces' views.
+//    That is what "this Space contains it" means, and inventing a
+//    first-parent-wins rule would make one of the two Spaces look incomplete.
 //  * A room whose only Space parents are Spaces the account has not joined has
-//    no folder to appear in, so it is in "Rooms". Nothing joined is
+//    no Space view to appear in, so it is in Home's "Rooms". Nothing joined is
 //    unreachable.
+//  * INVITES are split the same way the rest is: a DM invite is in People, a
+//    room invite is at Home. A Space view carries none, because an invite is
+//    not yet a member of anything.
 //  * ORDER IS STABLE. Spaces follow the rail's own arrangement (the order the
 //    user dragged them into, folders expanded in place); rooms follow their
-//    Space's `m.space.child` order, and "Rooms" is sorted by name. Nothing
-//    here is activity-ordered: a channel list whose rows move when somebody
-//    speaks is not a channel list. Unread changes a row's WEIGHT, never its
-//    position.
-//  * There is no Favourites group and no Direct messages group. Sable has
-//    neither, DMs live in "Rooms" like every other unparented room, and the
-//    People filter chip still reaches them.
+//    Space's `m.space.child` order, and Home's "Rooms" and People's "Chats"
+//    are sorted by name. Nothing here is activity-ordered: a channel list
+//    whose rows move when somebody speaks is not a channel list. Unread
+//    changes a row's WEIGHT, never its position.
 #pragma once
 
 #include <QAbstractListModel>
@@ -86,18 +85,20 @@ class SpaceChannelModel : public QAbstractListModel
     Q_PROPERTY(bool messageSearchSupported READ messageSearchSupported
                    WRITE setMessageSearchSupported
                    NOTIFY messageSearchSupportedChanged)
-    /// Narrows the column to ONE Space: its own folder, then each of its
-    /// subspaces as a folder of their own, and nothing else. Empty is the
-    /// whole account, which is what Lobby returns to.
+    /// The rail's selection, verbatim, and it chooses the VIEW: a room id
+    /// ('!') is that Space, `peopleViewId()` is Direct Messages, and anything
+    /// else (`""` for Home, `"@orphans"`) is Home.
     ///
-    /// This is the rail's selection, and it is what makes clicking a Space in
-    /// Channels mean something. Without it the column showed every Space you
-    /// are in whatever you clicked, so selecting one did nothing visible.
-    /// It is NOT a return to the old active-Space design: there is still no
-    /// fallback to Classic, Lobby is always one row away, and a scoped Space's
-    /// subspaces stay FLAT folders rather than nesting.
+    /// Written straight from `SpaceManager::activeSpaceId` so the rail and the
+    /// column can never disagree about where the user is. It used to strip
+    /// every pseudo id to "" and mean "scope", which is why the People tab
+    /// needed a value of its own rather than another chip.
     Q_PROPERTY(QString scopeSpaceId READ scopeSpaceId WRITE setScopeSpaceId
                    NOTIFY scopeSpaceIdChanged)
+    /// Which of the three views is being produced: "home" | "people" |
+    /// "space". A string for the same reason KindRole is one — a bare integer
+    /// comparison in QML silently stops matching when a value is inserted.
+    Q_PROPERTY(QString viewKind READ viewKind NOTIFY scopeSpaceIdChanged)
     /// True when the account genuinely has nothing to list — no Spaces and no
     /// rooms. Distinct from "the filter matched nothing", which is a fact
     /// about the filter and must not be reported as a fact about the account.
@@ -123,6 +124,13 @@ public:
         SpaceKind = 3,
         /// A room. Opens a timeline.
         RoomKind = 4,
+        /// A one-shot command row — Create Room, Join with Address, Explore
+        /// Spaces, Create Chat. It carries a synthetic '@' id naming the
+        /// action and NEVER a room id: the host dispatches on that id, so a
+        /// row this model can produce and the host cannot name is a compile
+        /// -time-invisible dead row, which is what `actionIds()` and its
+        /// contract test exist to prevent.
+        ActionKind = 5,
     };
     Q_ENUM(Kind)
 
@@ -132,7 +140,7 @@ public:
         /// synthetic id always starts with '@', which no room id can.
         RoomIdRole = Qt::UserRole + 1,
         NameRole,
-        /// "lobby" | "search" | "group" | "space" | "room". A STRING rather
+        /// "lobby" | "search" | "group" | "space" | "room" | "action". A STRING rather
         /// than the enum, because exposing the enum to QML would mean
         /// registering this type with the QML engine purely so a delegate can
         /// name a constant — and a bare integer comparison in QML silently
@@ -157,6 +165,12 @@ public:
         HiddenUnreadRole,
         HiddenHighlightRole,
         IsFavouriteRole,
+        /// The Material Symbols glyph a navigation or action row draws.
+        /// Named by the MODEL rather than mapped in the delegate because the
+        /// rows are a closed set the model owns, and a chooser in QML that
+        /// misses one renders tofu — the bundled icon font is a SUBSET, so
+        /// every name here is pinned by `IconChromeTest`.
+        IconNameRole,
     };
 
     explicit SpaceChannelModel(QObject *parent = nullptr);
@@ -205,12 +219,27 @@ public:
     /// Synthetic header ids. Not room ids and never sent anywhere; the '@'
     /// prefix is what keeps them from colliding with one.
     static QString invitesGroupId() { return QStringLiteral("@invites"); }
-    /// Direct messages have a group of their OWN, and it is the one group a
-    /// scoped Space never removes: Matrix has no way for a DM to be a Space's
-    /// child, so a scope that hid DMs hid them everywhere — and the People
-    /// chip, whose whole result set is DMs, then produced nothing at all.
+    /// Direct messages have a VIEW of their own now, reached from the rail,
+    /// and this is the group inside it. Matrix has no way for a DM to be a
+    /// Space's child, so a DM can never appear under a Space heading.
     static QString directsGroupId() { return QStringLiteral("@directs"); }
     static QString roomsGroupId() { return QStringLiteral("@rooms"); }
+
+    /// The rail selection that means Direct Messages. Shared with
+    /// SpaceManager, which owns the pseudo rail rows — one definition, or the
+    /// tab and the view disagree about which string selects which.
+    static QString peopleViewId();
+
+    /// The action rows' synthetic ids. Every one must be handled by the host;
+    /// `ChannelActionContractTest` asserts the presenter names all four.
+    static QString createRoomActionId() { return QStringLiteral("@new-room"); }
+    static QString joinAddressActionId() { return QStringLiteral("@join-address"); }
+    static QString exploreSpacesActionId() { return QStringLiteral("@explore"); }
+    static QString createChatActionId() { return QStringLiteral("@new-chat"); }
+    /// All of them, in no particular order. A test seam and the closed set.
+    static QStringList actionIds();
+
+    QString viewKind() const;
 
 Q_SIGNALS:
     void countChanged();
@@ -237,6 +266,7 @@ private:
         bool favourite = false;
         int hiddenUnread = 0;
         int hiddenHighlight = 0;
+        QString iconName;
 
         bool operator==(const Row &other) const;
         bool operator!=(const Row &other) const { return !(*this == other); }
@@ -260,10 +290,22 @@ private:
     /// survived the filter — a "Rooms" label over an empty list is worse than
     /// no label. Returns how many rooms were appended.
     int appendGroup(QVector<Row> &rows, Row header, QVector<Row> rooms);
-    /// The Spaces the column lists, in rail order: every joined Space when
-    /// unscoped, or the scoped Space followed by its subspaces (recursively,
-    /// deduped, cycle-safe) when scoped.
+    /// The Spaces the column lists, in rail order: the selected Space
+    /// followed by its subspaces (recursively, deduped, cycle-safe). EMPTY in
+    /// the Home and People views — the rail already lists every Space, and
+    /// repeating them under Home is what made picking one look like it did
+    /// nothing.
     QStringList listedSpaceIds() const;
+    /// One command row.
+    Row actionRow(const QString &id, const QString &name,
+                  const QString &icon) const;
+    /// The three view builders. Each one appends to `rows` and returns how
+    /// many ROOM rows survived the filter and the search.
+    int buildHome(QVector<Row> &rows, const QList<RoomInfo> &allRooms);
+    int buildPeople(QVector<Row> &rows, const QList<RoomInfo> &allRooms);
+    int buildSpace(QVector<Row> &rows, const QHash<QString, RoomInfo> &byId);
+    /// Shared by all three: one room's Row.
+    Row roomRow(const RoomInfo &info) const;
 
     MatrixClient *m_client = nullptr;
     /// A DM usually carries no room avatar of its own; the face belongs to the
@@ -279,7 +321,13 @@ private:
     int m_filterMode = 0;
     QString m_searchQuery;
     bool m_messageSearchSupported = false;
+    /// The rail selection verbatim. `m_scopeSpaceId` is the Space id it names,
+    /// or empty; the two are separate because "@people" is a real selection
+    /// that is not a Space, and collapsing it to "" is exactly what made a
+    /// People tab impossible to express.
+    QString m_selection;
     QString m_scopeSpaceId;
+    bool m_peopleView = false;
     QVector<Row> m_rows;
     QTimer m_rebuildCoalesce;
     /// Whether anything at all exists to list, independent of the filter.

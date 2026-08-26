@@ -53,6 +53,16 @@ class RailEntryModel : public QAbstractListModel
     /// visibly different things for the two, because "between" and "onto" are
     /// a few pixels apart and mean completely different outcomes.
     Q_PROPERTY(bool grouping READ grouping NOTIFY dragChanged)
+    /// Whether the Direct Messages tab is offered, directly under Home.
+    ///
+    /// CHANNELS ONLY. Classic reaches DMs through its People filter chip and
+    /// its one activity-ordered list, so a tab there would be a second route
+    /// to the same rows and a change to a layout the maintainer asked to
+    /// leave alone. The row is synthesised HERE rather than in SpaceManager
+    /// because SpaceManager's model feeds other surfaces that must not grow
+    /// a tab they have no view for.
+    Q_PROPERTY(bool peopleEntryVisible READ peopleEntryVisible
+                   WRITE setPeopleEntryVisible NOTIFY peopleEntryVisibleChanged)
 
 public:
     enum Roles {
@@ -110,6 +120,8 @@ public:
     QString draggingEntryId() const { return m_dragEntryId; }
     QString dropTargetId() const { return m_dropTargetId; }
     bool grouping() const { return m_grouping; }
+    bool peopleEntryVisible() const { return m_peopleEntryVisible; }
+    void setPeopleEntryVisible(bool visible);
 
     /// Recompute the rows from the Space model and the stored arrangement.
     /// A refresh that arrives DURING a drag is remembered and applied when the
@@ -167,6 +179,7 @@ public:
 Q_SIGNALS:
     void countChanged();
     void dragChanged();
+    void peopleEntryVisibleChanged();
 
 private:
     void applyRows(QVector<QVariantMap> rows);
@@ -199,6 +212,7 @@ private:
     RailLayoutStore *m_layout = nullptr;
     QVector<QVariantMap> m_rows;
 
+    bool m_peopleEntryVisible = false;
     bool m_dragging = false;
     bool m_grouping = false;
     QString m_dragEntryId;

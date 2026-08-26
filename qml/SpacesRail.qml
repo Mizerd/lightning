@@ -47,6 +47,28 @@ Rectangle {
     // it into the creation dialog's Space mode.
     signal createSpaceRequested()
 
+    // The Direct Messages tab, CHANNELS ONLY. Classic reaches DMs through its
+    // People filter chip over one activity-ordered list; a tab there would be
+    // a second route to the same rows in a layout the maintainer asked to
+    // leave untouched.
+    readonly property bool peopleTabVisible:
+        app.settings && app.settings.roomNavigationLayout === 1
+    Binding {
+        target: app.railEntries
+        property: "peopleEntryVisible"
+        value: root.peopleTabVisible
+    }
+    // A SELECTION THAT NO LONGER HAS A TILE MUST NOT SURVIVE. Switching to
+    // Classic removes the People tab, and leaving the selection on it would
+    // leave the whole shell scoped to a tab with nothing rendering it — the
+    // room list scoped to DMs with no visible control saying so, and no way
+    // back but to click a Space.
+    onPeopleTabVisibleChanged: {
+        if (!peopleTabVisible && app.spaces
+            && app.spaces.activeSpaceId === "@people")
+            app.spaces.activeSpaceId = ""
+    }
+
     // How many of a Space's rooms are revealed under its tile. SESSION state,
     // unlike the expansion itself: "show me five more" is a momentary
     // request, where "this Space is open" is how the user wants to navigate
@@ -341,6 +363,7 @@ Rectangle {
 
                 readonly property bool isFolder: kind === "folder"
                 readonly property bool isHome: pseudo && spaceId === ""
+                readonly property bool isPeople: pseudo && spaceId === "@people"
                 readonly property bool isRealSpace:
                     !pseudo && !isFolder && spaceId.charAt(0) === "!"
                 readonly property bool inFolder:
@@ -351,7 +374,12 @@ Rectangle {
                 // outline (drawn at -4px margins) is never clipped by the
                 // list bounds — this was the Home-icon clipping defect.
                 // Home carries the handoff divider (32×2) below its tile.
-                readonly property int tileBandHeight: isHome ? 58 : 48
+                // The handoff divider sits under the LAST navigation tab, so
+                // it separates the tabs from the Spaces rather than splitting
+                // the tabs from each other.
+                readonly property bool carriesDivider:
+                    root.peopleTabVisible ? isPeople : isHome
+                readonly property int tileBandHeight: carriesDivider ? 58 : 48
                 height: tileBandHeight
                         + (expansionCol.visible ? expansionCol.height + 2 : 0)
 
@@ -383,6 +411,7 @@ Rectangle {
                 Accessible.name: isFolder
                                  ? qsTr("Folder: %1").arg(spaceItem.name)
                                  : isHome ? qsTr("All rooms")
+                                 : isPeople ? qsTr("Direct Messages")
                                  : spaceItem.spaceId === "@orphans"
                                    ? qsTr("Other rooms") : spaceItem.name
 
@@ -446,7 +475,7 @@ Rectangle {
 
                 // Handoff divider between Home and the Space tiles (32×2).
                 Rectangle {
-                    visible: spaceItem.isHome
+                    visible: spaceItem.carriesDivider
                     width: 32; height: 2; radius: 2
                     color: AppTheme.border
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -546,8 +575,9 @@ Rectangle {
                     Icon {
                         anchors.centerIn: parent
                         visible: spaceItem.pseudo
-                        name: spaceItem.isHome ? "home" : "workspaces"
-                        size: spaceItem.isHome ? 22 : 20
+                        name: spaceItem.isHome ? "home"
+                              : spaceItem.isPeople ? "person" : "workspaces"
+                        size: spaceItem.isHome || spaceItem.isPeople ? 22 : 20
                         // Follows the tile: accent ink on the active wash, the
                         // plain icon ink otherwise. accentText was the ink for
                         // a solid fill that no longer exists, and on a soft

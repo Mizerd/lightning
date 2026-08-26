@@ -196,6 +196,65 @@ private slots:
                  "Classic");
     }
 
+    // Every command row the model can produce is DISPATCHED by the presenter
+    // and WIRED by the host to a dialog that exists. A row that reaches none
+    // of the three is a control that looks clickable and does nothing —
+    // exactly the failure the five-way row chooser already carries a note
+    // about, one layer up.
+    void everyChannelActionIsDispatched()
+    {
+        const QString header = readSrc(QStringLiteral("models/SpaceChannelModel.h"));
+        QVERIFY(!header.isEmpty());
+        const QString presenter = withoutComments(
+            read(QStringLiteral("RoomChannelsPresenter.qml")));
+        const QString host = withoutComments(read(QStringLiteral("RoomsPanel.qml")));
+        QVERIFY(!presenter.isEmpty());
+        QVERIFY(!host.isEmpty());
+        // SANITY FIRST: the stripper must still be able to see the chooser.
+        QVERIFY2(presenter.contains(QStringLiteral("actionComponent")),
+                 "the comment stripper ate the presenter's row chooser");
+
+        // The ids, read out of the header's own accessors rather than
+        // duplicated here — one definition, or this test pins a set the model
+        // has moved on from.
+        const QRegularExpression idRe(QStringLiteral(
+            "static QString (\\w+ActionId)\\(\\) \\{ return QStringLiteral\\(\"([^\"]+)\"\\)"));
+        QStringList ids;
+        auto it = idRe.globalMatch(header);
+        while (it.hasNext())
+            ids.append(it.next().captured(2));
+        QVERIFY2(ids.size() >= 4,
+                 "the action ids are no longer readable from the header, so "
+                 "this test is pinning nothing");
+
+        for (const QString &id : std::as_const(ids)) {
+            QVERIFY2(presenter.contains(QStringLiteral("\"%1\"").arg(id)),
+                     qPrintable(QStringLiteral(
+                         "the presenter never names %1, so that row renders "
+                         "as a control that does nothing").arg(id)));
+        }
+        // ...and the presenter's signals reach a real dialog in the host.
+        const QStringList wired = { QStringLiteral("onCreateRoomRequested"),
+                                    QStringLiteral("onCreateChatRequested"),
+                                    QStringLiteral("onJoinAddressRequested"),
+                                    QStringLiteral("onExploreSpacesRequested") };
+        for (const QString &handler : wired) {
+            QVERIFY2(host.contains(handler),
+                     qPrintable(QStringLiteral("the host never handles %1")
+                                    .arg(handler)));
+        }
+        QVERIFY2(host.contains(QStringLiteral("newConversationDialog.openDialog"))
+                     && host.contains(QStringLiteral("discoverJoinDialog.openDialog")),
+                 "the command rows open something other than the host's own "
+                 "shared dialogs, so there are now two create paths");
+        // The MODEL names each row's glyph, so there is one place to pin
+        // against the bundled icon SUBSET rather than a chooser in QML.
+        QVERIFY(header.contains(QStringLiteral("IconNameRole")));
+        QVERIFY2(presenter.contains(QStringLiteral("rowLoader.model.iconName")),
+                 "the presenter hardcodes glyph names instead of reading the "
+                 "model's");
+    }
+
     void theChannelsColumnCarriesLobbyRoomsAndMessageSearch()
     {
         // Sable's model, and the three entries that make it navigable on its
@@ -267,15 +326,23 @@ private slots:
                      QStringLiteral("&& !app.spaceChannels.empty")),
                  "the filter-miss message is not held off an empty account, so "
                  "the two states collide");
-        // It has to NAME what matched nothing. A message that does not is the
-        // same silence with words on it.
-        QVERIFY2(presenter.contains(QStringLiteral("filterMode === 1")),
-                 "the filter-miss message never mentions the People chip");
+        // It has to NAME which view matched nothing. A message that does not
+        // is the same silence with words on it. The two chips Channels still
+        // offers are All and Unreads — People and Rooms are the rail's tabs
+        // now — so the naming is by VIEW plus the search box and Unreads.
+        QVERIFY2(presenter.contains(QStringLiteral("filterMode === 3")),
+                 "the filter-miss message never mentions the Unreads chip");
         QVERIFY2(presenter.contains(QStringLiteral("searchQuery")),
                  "the filter-miss message never mentions the search box");
+        QVERIFY2(presenter.contains(QStringLiteral("viewKind === \"people\"")),
+                 "an empty Direct Messages tab is not named, so it reads as "
+                 "the account being empty");
+        QVERIFY2(presenter.contains(QStringLiteral("viewKind === \"space\"")),
+                 "an empty Space is not named, so it reads as the account "
+                 "being empty");
 
-        // The model's half. `empty` keeps answering one question, `matchCount`
-        // answers the other, and DMs get a group the scope may not delete.
+        // The model's half. `empty` keeps answering one question and
+        // `matchCount` answers the other.
         const QString header = withoutComments(
             readSrc(QStringLiteral("models/SpaceChannelModel.h")));
         QVERIFY(!header.isEmpty());
@@ -283,23 +350,54 @@ private slots:
                  "there is no count of what survived the filter, so the "
                  "presenter has nothing to key its message on");
         QVERIFY2(header.contains(QStringLiteral("directsGroupId")),
-                 "direct messages have no group of their own again, so the "
-                 "People chip files people under a heading that says Rooms");
+                 "the Direct Messages tab has no group id for its chats");
+        QVERIFY2(header.contains(QStringLiteral("peopleViewId")),
+                 "there is no shared name for the rail selection that means "
+                 "Direct Messages, so the tab and the view can disagree about "
+                 "which string selects which");
+    }
 
-        QString rebuild = withoutComments(
+    // A DIRECT MESSAGE IS IN EXACTLY ONE VIEW: its own tab. Two earlier
+    // designs put it in "Rooms" with every other unparented room, and then in
+    // a "Direct messages" group every view had to carry so a scope could not
+    // delete the only place it lived. Both are bans now, in the model AND in
+    // the builder that would have to reintroduce them.
+    void aDirectMessageIsOnlyInTheDirectMessagesTab()
+    {
+        QString model = withoutComments(
             readSrc(QStringLiteral("models/SpaceChannelModel.cpp")));
-        rebuild.replace(QRegularExpression(QStringLiteral("\\s+")),
-                        QStringLiteral(" "));
-        const int at =
-            rebuild.indexOf(QStringLiteral("void SpaceChannelModel::rebuild"));
-        QVERIFY(at >= 0);
-        const QString body = rebuild.mid(at);
-        QVERIFY2(body.contains(QStringLiteral("scoped && !info.isDirect")),
-                 "the scope decides a direct message's fate again");
-        QVERIFY2(!body.contains(QStringLiteral("if (scoped || info.isSpace")),
-                 "the blanket scope rule is back: it drops every DM along with "
-                 "the account-wide groups, and a DM hidden by a scope is a DM "
-                 "hidden everywhere");
+        QVERIFY(!model.isEmpty());
+        model.replace(QRegularExpression(QStringLiteral("\\s+")),
+                      QStringLiteral(" "));
+        // SANITY FIRST: prove the stripper can still see the code, or every
+        // negative assertion below is vacuous.
+        QVERIFY2(model.contains(QStringLiteral("int SpaceChannelModel::buildPeople")),
+                 "the comment stripper ate the model, so nothing this test "
+                 "asserts about it is being read");
+
+        const int home = model.indexOf(
+            QStringLiteral("int SpaceChannelModel::buildHome"));
+        const int people = model.indexOf(
+            QStringLiteral("int SpaceChannelModel::buildPeople"));
+        const int space = model.indexOf(
+            QStringLiteral("int SpaceChannelModel::buildSpace"));
+        QVERIFY(home >= 0 && people > home && space > people);
+
+        // Home SKIPS direct rooms outright.
+        QVERIFY2(model.mid(home, people - home)
+                     .contains(QStringLiteral("info.isDirect")),
+                 "Home does not exclude DMs, so they are listed twice");
+        // The Space builder drops a direct child that is somehow a DM, and
+        // never builds a DM group of its own.
+        const QString spaceBody = model.mid(space);
+        QVERIFY2(spaceBody.contains(QStringLiteral("childInfo->isDirect")),
+                 "a Space's view does not exclude DMs");
+        QVERIFY2(!spaceBody.contains(QStringLiteral("directsGroupId")),
+                 "the account-wide Direct messages group is back inside a "
+                 "Space's own view");
+        // ...and only the People builder makes one.
+        QVERIFY(model.mid(people, space - people)
+                    .contains(QStringLiteral("directsGroupId")));
     }
 
     // The rail's selection NARROWS this layout; it does not decide whether the
@@ -329,15 +427,28 @@ private slots:
         QVERIFY2(flat.contains(QStringLiteral(
                      "readonly property bool channelsUsable: channelsChosen")),
                  "the scope decides whether the layout renders again");
-        // A pseudo rail row is not a Space and must scope nothing — that is
-        // what makes Home and Lobby the whole account.
+        // The selection is kept VERBATIM and classified. A room id is a
+        // Space, peopleViewId() is the DM tab, everything else is Home — three
+        // outcomes, so the setter cannot collapse to the two it used to have.
         const QString model =
             readSrc(QStringLiteral("models/SpaceChannelModel.cpp"));
         const int at = model.indexOf(
             QStringLiteral("void SpaceChannelModel::setScopeSpaceId"));
         QVERIFY(at >= 0);
-        QVERIFY2(model.mid(at, 500).contains(QStringLiteral("QLatin1Char('!')")),
+        const QString setter = model.mid(at, 900);
+        QVERIFY2(setter.contains(QStringLiteral("QLatin1Char('!')")),
                  "a pseudo id would scope the column to nothing at all");
+        QVERIFY2(setter.contains(QStringLiteral("peopleViewId()")),
+                 "the setter cannot tell the Direct Messages tab from Home, so "
+                 "selecting it produces the Home view");
+        // The rail's tab is CHANNELS ONLY: Classic reaches DMs through its
+        // People chip and was asked to stay as it is.
+        const QString rail = withoutComments(read(QStringLiteral("SpacesRail.qml")));
+        QVERIFY(!rail.isEmpty());
+        QVERIFY2(rail.contains(QStringLiteral("roomNavigationLayout === 1")),
+                 "the Direct Messages tab is offered in Classic too");
+        QVERIFY2(rail.contains(QStringLiteral("peopleEntryVisible")),
+                 "the rail never tells its model whether to draw the tab");
         // And the rooms come from the CLIENT, not from RoomListModel — that
         // model is scoped to the active Space and filtered by the chips, which
         // would make the global groups vanish the moment a Space was picked.
@@ -827,9 +938,34 @@ private slots:
     {
         const QString host = read(QStringLiteral("RoomsPanel.qml"));
         QVERIFY(!host.isEmpty());
-        QVERIFY(host.contains(QStringLiteral("current: app.settings.roomFilterMode")));
-        QVERIFY(!host.contains(QStringLiteral("current: app.roomList.filterMode")));
+        QVERIFY2(host.contains(QStringLiteral("app.settings.roomFilterMode")),
+                 "the chips no longer read the setting they write");
+        QVERIFY2(!host.contains(QStringLiteral("current: app.roomList.filterMode")),
+                 "the chips report the model while every click writes the "
+                 "setting, so any moment the two disagree shows a filter the "
+                 "user did not choose");
         QVERIFY(host.contains(QStringLiteral("app.settings.roomFilterMode = value")));
+
+        // CHANNELS DROPS People and Rooms — the rail's two tabs ARE that
+        // split — but it must MAP the stored value rather than rewrite it, or
+        // switching layouts silently destroys the chip the user chose in
+        // Classic. The mapping appears twice on purpose (the chip row and the
+        // channel model's binding) and both must be the same rule.
+        QString flat = withoutComments(host);
+        flat.replace(QRegularExpression(QStringLiteral("\\s+")),
+                     QStringLiteral(" "));
+        QVERIFY2(flat.contains(QStringLiteral(
+                     "current: channelsLayout ? (app.settings.roomFilterMode === 3 ? 3 : 0) "
+                     ": app.settings.roomFilterMode")),
+                 "the chip row does not map the stored filter for Channels, so "
+                 "a stored People/Rooms value selects no chip at all");
+        QVERIFY2(flat.contains(QStringLiteral(
+                     "property: \"filterMode\" value: app.settings.roomFilterMode === 3 ? 3 : 0")),
+                 "the channel model is handed a filter whose chip is not on "
+                 "screen, so the column filters for a reason nothing states");
+        QVERIFY2(!flat.contains(QStringLiteral("app.settings.roomFilterMode = 0")),
+                 "the stored filter is rewritten when Channels drops its chip, "
+                 "so returning to Classic loses the user's choice");
     }
 
     // The room-list ORDER mirrors the SDK's own room list one for one,

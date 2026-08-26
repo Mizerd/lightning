@@ -124,6 +124,15 @@ QVariant RailEntryModel::data(const QModelIndex &index, int role) const
     }
 }
 
+void RailEntryModel::setPeopleEntryVisible(bool visible)
+{
+    if (m_peopleEntryVisible == visible)
+        return;
+    m_peopleEntryVisible = visible;
+    Q_EMIT peopleEntryVisibleChanged();
+    refresh();
+}
+
 void RailEntryModel::refresh()
 {
     if (m_dragging) {
@@ -157,6 +166,33 @@ void RailEntryModel::refresh()
     const QVariantList arranged = m_layout->arrange(topLevelInput);
     QVector<QVariantMap> rows;
     rows.reserve(arranged.size() + 4);
+    // The Direct Messages tab, directly under Home.
+    //
+    // Synthesised here, not read from SpaceManager: it is a rail SELECTION
+    // with a view behind it, not a Space with rooms in it, and the other
+    // surfaces that read SpaceManager's model have no such view. It is a
+    // pseudo row like Home and "Other rooms", so it is not draggable, not a
+    // group target, and it keeps its place ahead of every Space — a tab that
+    // could be dragged into a folder is a tab that can be lost.
+    //
+    // Inserted AFTER Home rather than at row 0: Home is the rail's anchor and
+    // pushing it down would move the one tile every user already knows.
+    const bool peopleWanted = m_peopleEntryVisible;
+    bool peopleInserted = false;
+    auto insertPeople = [&rows] {
+        QVariantMap people;
+        people.insert(QStringLiteral("kind"), kKindSpace);
+        people.insert(QStringLiteral("entryId"), SpaceManager::peopleId());
+        people.insert(QStringLiteral("spaceId"), SpaceManager::peopleId());
+        people.insert(QStringLiteral("name"), tr("Direct Messages"));
+        people.insert(QStringLiteral("folderId"), QString());
+        people.insert(QStringLiteral("pseudo"), true);
+        people.insert(QStringLiteral("hierarchyChild"), false);
+        people.insert(QStringLiteral("draggable"), false);
+        people.insert(QStringLiteral("expandable"), false);
+        people.insert(QStringLiteral("expanded"), false);
+        rows.append(people);
+    };
     for (const QVariant &value : arranged) {
         QVariantMap entry = value.toMap();
         const QString kind = entry.value(QStringLiteral("kind")).toString();
@@ -182,12 +218,23 @@ void RailEntryModel::refresh()
                      !folder && !pseudo
                          && m_layout->spaceExpanded(spaceId));
         rows.append(entry);
+        // Home is `allRoomsId()` — the empty spaceId — and it is always row 0.
+        if (peopleWanted && !peopleInserted && pseudo
+            && spaceId == SpaceManager::allRoomsId()) {
+            peopleInserted = true;
+            insertPeople();
+        }
         if (!folder && !pseudo) {
             appendSubspaces(spaceId,
                             entry.value(QStringLiteral("folderId")).toString(),
                             byId, rows, 1);
         }
     }
+    // Home is always present today, so this is a backstop rather than a
+    // branch anyone expects to take — but a tab that silently disappears
+    // because a row above it moved is worse than one in an unexpected place.
+    if (peopleWanted && !peopleInserted)
+        insertPeople();
     applyRows(std::move(rows));
 }
 
