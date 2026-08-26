@@ -92,6 +92,21 @@ GSTREAMER_PLUGINS = (
     "libgstopus.dll",              # opusenc, opusdec
     "libgstrtp.dll",               # rtpopuspay/depay, rtpvp8pay/depay
     "libgstrtpmanager.dll",        # rtpbin and friends, used inside webrtcbin
+    # sctpenc/sctpdec. NOT optional, and nothing in Lightning names them:
+    # webrtcbin loads them itself for the DATA CHANNEL, and LiveKit's
+    # SUBSCRIBER offer puts a data channel in media section 0. With
+    # bundle-policy=max-bundle every audio and video section is bundled onto
+    # THAT section's transport, so without this plugin webrtcbin cannot build
+    # the transport the media rides on: `_get_or_create_data_channel_transports:
+    # code should not be reached`, then not one `pad-added` for the whole call.
+    #
+    # The failure is silent and one-directional and looked like anything but a
+    # missing plugin. Windows SENT audio the far end could hear — our own
+    # publisher offer is media-only, so its bundle owner is the audio section —
+    # while receiving nothing at all in either media kind. The answer SDP is
+    # byte-identical with and without it, which is why comparing SDP text
+    # refuted the theory before a control run brought it back.
+    "libgstsctp.dll",              # sctpenc, sctpdec
     "libgstsrtp.dll",              # srtpenc, srtpdec, used inside dtlssrtp*
     "libgstvideoconvertscale.dll", # videoconvert, videoscale
     "libgstvideorate.dll",         # videorate
@@ -116,6 +131,11 @@ GSTREAMER_ELEMENTS = (
     "autoaudiosrc", "capsfilter", "dtlssrtpdec", "dtlssrtpenc", "fakesink",
     "gdiscreencapsrc", "ksvideosrc", "nicesink", "nicesrc", "opusdec", "opusenc",
     "queue", "rtpbin", "rtpopusdepay", "rtpopuspay", "rtpvp8depay", "rtpvp8pay",
+    # Probed even though no Lightning pipeline names them: webrtcbin loads
+    # them for the data channel, and their absence broke every incoming track
+    # while every other check passed. A probe list that only covers what the
+    # app spells out cannot see a dependency the element loads for itself.
+    "sctpdec", "sctpenc",
     "srtpenc", "tee", "valve", "videoconvert", "videorate", "videoscale",
     "videotestsrc", "volume", "vp8dec", "vp8enc", "webrtcbin", "webrtcdsp",
 )

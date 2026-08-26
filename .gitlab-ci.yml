@@ -366,7 +366,7 @@ windows-package-test:
   extends: .windows-test-rules
   stage: build
   image:
-    name: lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v3
+    name: lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v4
     pull_policy: if-not-present
   tags: [windows-cross, windows-package]
   resource_group: lightning-windows-cross-package
@@ -422,7 +422,7 @@ build-windows:
     - when: never
   stage: build
   image:
-    name: lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v3
+    name: lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v4
     pull_policy: if-not-present
   tags: [windows-cross, windows-package]
   resource_group: lightning-windows-cross-package

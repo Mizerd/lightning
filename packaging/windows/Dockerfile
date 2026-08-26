@@ -262,6 +262,7 @@ RUN set -eu; \
         libgstaudiotestsrc.dll libgstautodetect.dll libgstcoreelements.dll \
         libgstdirectsound.dll libgstdirectsoundsrc.dll libgstdtls.dll \
         libgstnice.dll libgstopus.dll libgstrtp.dll libgstrtpmanager.dll \
+        libgstsctp.dll \
         libgstsrtp.dll libgstvideoconvertscale.dll libgstvideorate.dll \
         libgstvideotestsrc.dll libgstvolume.dll libgstvpx.dll \
         libgstwasapi.dll libgstwasapi2.dll libgstwebrtc.dll \
