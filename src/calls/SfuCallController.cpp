@@ -206,6 +206,15 @@ void SfuCallController::setClient(MatrixClient *client)
             &SfuCallController::onSfuRemoteCandidate);
     connect(m_client, &MatrixClient::rtcMediaKeyReceived, this,
             &SfuCallController::onMediaKeyReceived);
+    // Raised hands, in element-call's own wire format. Three lanes: our own
+    // send's answer, live changes from the sync loop, and the one join-time
+    // sweep for hands raised before we arrived.
+    connect(m_client, &MatrixClient::rtcHandResult, this,
+            &SfuCallController::onHandResult);
+    connect(m_client, &MatrixClient::rtcHandChanged, this,
+            &SfuCallController::onHandChanged);
+    connect(m_client, &MatrixClient::rtcHandsReceived, this,
+            &SfuCallController::onHandsReceived);
     // The key SEND result was reported by the bridge and listened to by
     // NOBODY, so a distribution that reached zero devices was
     // indistinguishable from one that worked — and the only visible effect
@@ -495,6 +504,9 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_cameraOn = withVideo;
     m_screenSharing = false;
     m_handRaised = false;
+    m_handReactionId.clear();
+    m_handOp = 0;
+    m_handReactions.clear();
     m_participants.clear();
     m_speaking.clear();
     m_speakingLevel.clear();
@@ -623,6 +635,13 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
     }
     m_lastPublishMs = QDateTime::currentMSecsSinceEpoch();
     m_refreshTimer.start();
+
+    // The hands already up when we arrived. Spent ONCE per join: a hand
+    // raised before this client joined produces no sync event for us, so
+    // without this pass an early raiser is invisible for the whole call.
+    // After this the sync handler carries every change and costs nothing.
+    if (m_client && !m_roomId.isEmpty())
+        m_client->rtcReadRaisedHands(m_roomId);
 
     if (m_focusUrl.isEmpty()) {
         teardown(State::Failed,
@@ -1661,6 +1680,9 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_cameraOn = false;
     m_screenSharing = false;
     m_handRaised = false;
+    m_handReactionId.clear();
+    m_handOp = 0;
+    m_handReactions.clear();
     m_mediaEncrypted = false;
 #ifdef HAVE_LIGHTNING_WEBRTC
     // The sink table belonged to THIS call's track sids. In practice the
@@ -2029,16 +2051,153 @@ void SfuCallController::setHandRaised(bool raised)
 {
     if (m_handRaised == raised)
         return;
+
+    // ON THE WIRE, in element-call's own format — read out of its source
+    // (`src/reactions/useReactionsSender.tsx`), not invented here:
+    //
+    //   raise  → an `m.reaction` annotating OUR OWN `m.call.member` state
+    //            event with U+1F590 U+FE0F
+    //   lower  → a redaction of that reaction
+    //
+    // Annotating the MEMBERSHIP rather than a timeline message is what scopes
+    // the hand to one call: a new membership (rejoining, refreshing) is a new
+    // event, so an old hand cannot follow the user into the next call.
+    if (m_client && !m_roomId.isEmpty()) {
+        // Our own membership event id. Preferring the RtcController's
+        // observation over m_membershipEventId matters after a REFRESH: the
+        // periodic re-publish replaces the state event, and annotating the
+        // one we published at join would address an event the room has
+        // superseded — a hand nobody would ever see.
+        QString membership;
+        if (m_rtc)
+            membership = m_rtc->ownMembershipEventId(m_roomId);
+        if (membership.isEmpty())
+            membership = m_membershipEventId;
+        const quint64 op = m_client->rtcSetHandRaised(
+            m_roomId, membership, m_handReactionId, raised);
+        if (op != 0)
+            m_handOp = op;
+    }
+
     m_handRaised = raised;
-    // LOCAL ONLY, and honestly so: nothing here reaches the SFU, the
-    // MatrixRTC membership or a to-device message, so no peer can see it.
-    // The badge on OUR row is real feedback that the toggle took; a badge on
-    // anyone else's could never light, and inventing a wire representation
-    // for it is a protocol decision to be checked against a real
-    // element-call client, not guessed at here.
+    // OPTIMISTIC ON OUR OWN ROW ONLY, and deliberately: this is a toggle the
+    // user is watching, the round trip is a second or more, and a control
+    // that does nothing for a second reads as broken. A REFUSAL puts it back
+    // (onHandResult), which is the same discipline the mute controls use.
+    //
+    // Nothing else is optimistic: a remote hand is only ever drawn from an
+    // event that actually arrived.
+    if (m_participantModel && !m_ownIdentity.isEmpty())
+        m_participantModel->setHandRaised(m_ownIdentity, m_handRaised);
+    // Lowering forgets the reaction immediately. The redaction is in flight
+    // and the id is spent either way; keeping it would let a later lower
+    // redact an event that is already gone.
+    if (!raised)
+        m_handReactionId.clear();
+    Q_EMIT mediaStateChanged();
+}
+
+void SfuCallController::onHandResult(quint64 opId, bool ok, bool raised,
+                                     const QString &category,
+                                     const QString &eventId)
+{
+    if (opId == 0 || opId != m_handOp)
+        return;
+    m_handOp = 0;
+    if (ok) {
+        // The id the eventual lower must redact. Without keeping it a raised
+        // hand can never be lowered by this device.
+        if (raised)
+            m_handReactionId = eventId;
+        return;
+    }
+    // Put the control back. `category` is a sanitized class, never a body.
+    qCWarning(lcSfuCall) << "raised hand not applied raised=" << raised
+                         << "category=" << category;
+    m_handRaised = !raised;
     if (m_participantModel && !m_ownIdentity.isEmpty())
         m_participantModel->setHandRaised(m_ownIdentity, m_handRaised);
     Q_EMIT mediaStateChanged();
+}
+
+void SfuCallController::onHandChanged(const QString &roomId,
+                                      const QString &sender,
+                                      const QString &membershipEventId,
+                                      const QString &reactionEventId,
+                                      bool raised)
+{
+    if (roomId != m_roomId || m_roomId.isEmpty() || !m_participantModel)
+        return;
+
+    if (!raised) {
+        // A REDACTION NAMES ONLY WHAT IT REMOVED. The reaction is gone, so
+        // nothing on the wire can say whose hand it was — we answer from the
+        // ids we are already holding. A redaction of anything else is not
+        // ours and is dropped here, which is why every redaction in every
+        // room can be forwarded cheaply.
+        const QString identity = m_handReactions.take(reactionEventId);
+        if (identity.isEmpty())
+            return;
+        m_participantModel->setHandRaised(identity, false);
+        if (identity == m_ownIdentity) {
+            m_handReactionId.clear();
+            if (m_handRaised) {
+                m_handRaised = false;
+                Q_EMIT mediaStateChanged();
+            }
+        }
+        return;
+    }
+
+    // A RAISE is attributed through the membership it annotates, and
+    // identityForMembership refuses a sender who does not own that
+    // membership — anyone may annotate anyone's state event.
+    if (!m_rtc)
+        return;
+    const QString identity =
+        m_rtc->identityForMembership(roomId, membershipEventId, sender);
+    if (identity.isEmpty())
+        return;
+    m_handReactions.insert(reactionEventId, identity);
+    m_participantModel->setHandRaised(identity, true);
+    if (identity == m_ownIdentity) {
+        m_handReactionId = reactionEventId;
+        if (!m_handRaised) {
+            m_handRaised = true;
+            Q_EMIT mediaStateChanged();
+        }
+    }
+}
+
+void SfuCallController::onHandsReceived(quint64 opId, const QString &roomId,
+                                        const QVariantList &hands)
+{
+    Q_UNUSED(opId);
+    if (roomId != m_roomId || m_roomId.isEmpty() || !m_participantModel)
+        return;
+    // The join-time sweep. It ADDS what it found and never clears: a hand
+    // this pass could not read is not a hand that is down, and lowering one
+    // on the strength of a failed read is the one wrong answer available.
+    for (const QVariant &value : hands) {
+        const QVariantMap hand = value.toMap();
+        const QString identity =
+            hand.value(QStringLiteral("rtcIdentity")).toString();
+        const QString reactionId =
+            hand.value(QStringLiteral("reactionEventId")).toString();
+        if (identity.isEmpty() || reactionId.isEmpty())
+            continue;
+        m_handReactions.insert(reactionId, identity);
+        m_participantModel->setHandRaised(identity, true);
+        if (identity == m_ownIdentity) {
+            // Our own hand, still up from before this join. Adopt it rather
+            // than leaving a raised hand nobody here can lower.
+            m_handReactionId = reactionId;
+            if (!m_handRaised) {
+                m_handRaised = true;
+                Q_EMIT mediaStateChanged();
+            }
+        }
+    }
 }
 
 void SfuCallController::toggleHandRaised() { setHandRaised(!m_handRaised); }

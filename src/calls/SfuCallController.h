@@ -362,6 +362,17 @@ Q_SIGNALS:
     void callFailed(const QString &message);
 
 private Q_SLOTS:
+    /// Our own raise/lower completed. A refusal puts the control back —
+    /// nothing but our own row is ever optimistic.
+    void onHandResult(quint64 opId, bool ok, bool raised,
+                      const QString &category, const QString &eventId);
+    /// Somebody's hand went up or down, from the sync loop.
+    void onHandChanged(const QString &roomId, const QString &sender,
+                       const QString &membershipEventId,
+                       const QString &reactionEventId, bool raised);
+    /// The join-time sweep over hands raised before we arrived.
+    void onHandsReceived(quint64 opId, const QString &roomId,
+                         const QVariantList &hands);
     void onMembershipPublished(quint64 opId, bool ok, const QString &category,
                                const QString &eventId,
                                const QString &delayId);
@@ -535,6 +546,18 @@ private:
     bool m_cameraOn = false;
     bool m_screenSharing = false;
     bool m_handRaised = false;
+    /// The `m.reaction` OUR raise produced. A hand can only be lowered by
+    /// redacting the specific event that raised it, and this device is the
+    /// only thing that knows which one that was.
+    QString m_handReactionId;
+    quint64 m_handOp = 0;
+    /// reaction event id -> the SFU identity whose hand it is.
+    ///
+    /// A redaction names only what it removed — the reaction itself is gone —
+    /// so this is the only way to answer "whose hand just went down". It is
+    /// also what makes forwarding every redaction in every room cheap: one
+    /// hash lookup rejects the ones that are not ours.
+    QHash<QString, QString> m_handReactions;
     bool m_mediaEncrypted = false;
     /// Whether the ROOM is encrypted, so call media must be too. Captured at
     /// join from the tri-state the client reports, and UNKNOWN fails closed

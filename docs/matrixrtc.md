@@ -1077,6 +1077,80 @@ straight 0-1000 slider puts every useful setting in its first tenth. 1000 is
 the GStreamer `volume` element's own factor ceiling (range 0-10), not a number
 chosen here. Stored and displayed values are always the user scale.
 
+## Raised hands: element-call's own reaction, read out of its source
+
+**Landed 2026-08-26.** Live Element interop: **NOT TESTED**.
+
+The control existed and was honestly labelled "only shown on this device":
+`setHandRaised()` reached no SFU, no membership and no to-device message.
+The note against it said inventing a wire representation was "a protocol
+decision to be checked against a real element-call client, not guessed at
+here", so this round went and read one.
+
+### The format
+
+From `element-call/src/reactions/useReactionsSender.tsx` and
+`ReactionsReader.ts`:
+
+| | |
+|---|---|
+| **Raise** | an `m.reaction` whose `m.relates_to` is `{ rel_type: "m.annotation", event_id: <the sender's OWN m.call.member state event>, key: "🖐️" }` |
+| **Lower** | a **redaction** of that reaction |
+| **Read** | annotations of each membership event, keeping only those whose SENDER owns that membership |
+
+Three things about it are load-bearing and none of them is obvious.
+
+**The target is the sender's own MEMBERSHIP STATE EVENT, not a timeline
+message.** That is what scopes a hand to one call rather than to the room's
+history: rejoining or refreshing publishes a new membership event, so an old
+hand cannot follow the user into the next call. It is also why
+`RtcMember` had to start carrying `event_id` — `parse_session_membership`
+sees content alone, so `read_session` fills it from the envelope, and a
+membership read from a source with no envelope keeps it EMPTY (which reads as
+"no hand can be matched", never as a wrong match).
+
+**The key is two code points.** U+1F590 RAISED HAND WITH FINGERS SPLAYED
+followed by U+FE0F VARIATION SELECTOR-16. element-call compares the whole
+string, so the same emoji without the selector is a hand no Element client
+will ever see — and the two are visually identical in every editor, which is
+why `the_raised_hand_key_is_element_calls_own_bytes` asserts the seven UTF-8
+bytes rather than the literal.
+
+**The sender must own the membership they annotate.** Anyone may react to
+anyone's state event. Without that check one user could raise everybody's
+hand, so `RtcController::identityForMembership` refuses a sender who is not
+the membership's own user, and the Rust join-time sweep applies the same rule.
+
+### Three lanes, and why there are three
+
+* **Ours.** `mx_rust_rtc_set_hand` sends or redacts. The answer carries the
+  reaction's event id, and keeping it is not optional: a hand can only be
+  lowered by redacting the specific event that raised it, so a client that
+  forgets the id has raised a hand it can never lower.
+* **Live.** Two sync handlers, deliberately UNFILTERED by room: a reaction is
+  cheap to inspect and almost all of them are rejected by the key comparison,
+  where filtering on "the room we are in a call in" would need the handler to
+  hold call state it has no business holding — and would drop a hand raised
+  in the window between joining and that state being written.
+* **The backlog.** `mx_rust_rtc_read_hands`, spent ONCE per join. A hand
+  raised before this client arrived produces no sync event for us, so without
+  it an early raiser is invisible for the whole call. Bounded at
+  `MAX_HAND_PROBES` memberships and cache-first, because it is one relations
+  load per membership in the worst case.
+
+**A redaction names only what it removed.** The reaction is gone by the time
+we see it, so nothing on the wire can say whose hand it was:
+`SfuCallController` holds `reaction event id -> identity` and answers from
+that. It is also what makes forwarding every redaction in every room cheap —
+one hash lookup rejects the ones that are not ours.
+
+**Only our own row is optimistic.** The toggle is a control the user is
+watching and the round trip is a second or more, so the local badge lights
+immediately and a REFUSAL puts it back. Nothing else is: a remote hand is
+only ever drawn from an event that actually arrived, and a failed read
+contributes nothing rather than a lowered hand — absence of evidence is not
+evidence that a hand is down.
+
 ## Remaining work, stated plainly
 
 The first three items on this list were **DONE** by the 2026-08-24/25 interop
@@ -1098,9 +1172,10 @@ What is actually left:
 1. **A camera source picker.** The screen-share picker is the portal's; a
    machine with two cameras has no way to choose between them beyond the
    device menu's enumeration.
-2. **Raise hand and reactions on the wire**, using whatever MatrixRTC
-   defines rather than a Lightning-only event. Today the hand is LOCAL ONLY
-   and no peer sees it.
+2. **Emoji reactions on the wire.** The RAISED HAND now interoperates (see
+   "Raised hands" below); the transient emoji reactions element-call sends
+   beside it — `io.element.call.reaction` with a `m.reference` to the
+   sender's membership — do not, and there is no control for them.
 3. **The screen-share startup hold.** Live-confirmed 2026-08-26 as
    near-instant on a first share and 1-2 s on a restart — much better than the
    5-10 s previously reported, and still not fixed. `videorate` emits nothing

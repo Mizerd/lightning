@@ -269,11 +269,13 @@ Rectangle {
                 role: app.groupCall.handRaised ? "active" : "neutral"
                 diameter: root.controlDiameter
                 glyphSize: root.controlGlyph
-                tooltip: app.groupCall.handRaised
-                         ? qsTr("Lower your hand — only shown on this device "
-                                + "for now")
-                         : qsTr("Raise your hand — only shown on this device "
-                                + "for now")
+                // The hand is on the wire now, in element-call's own
+                // format, so the "only on this device" disclaimer it used to
+                // carry would be false. It said that because the toggle
+                // really was local-only until the wire representation was
+                // read out of element-call's source rather than guessed at.
+                tooltip: app.groupCall.handRaised ? qsTr("Lower your hand")
+                                                  : qsTr("Raise your hand")
                 onClicked: app.groupCall.toggleHandRaised()
             }
         }

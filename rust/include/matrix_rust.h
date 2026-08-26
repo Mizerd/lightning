@@ -922,6 +922,31 @@ char *mx_rust_rtc_notify(void *client,
                          unsigned long long lifetime_ms,
                          const char *membership_event_id_or_empty,
                          unsigned long long op_id);
+/* Raised hands, in element-call's own wire format (read out of
+ * src/reactions/useReactionsSender.tsx and ReactionsReader.ts, not chosen
+ * here): raising sends an m.reaction annotating the sender's OWN
+ * m.call.member state event with U+1F590 U+FE0F, and lowering REDACTS that
+ * reaction. membership_event_id is required to raise, reaction_event_id to
+ * lower.
+ *
+ * mx_rust_rtc_set_hand   -> rtc_hand_result {op_id, ok, raised, category,
+ *                           event_id}  — on a successful raise event_id is
+ *                           the reaction the lower must redact.
+ * mx_rust_rtc_read_hands -> rtc_hands {op_id, room_id, hands[]} — the
+ *                           join-time sweep, since a hand raised before we
+ *                           arrived produces no sync event for us.
+ *
+ * Live changes arrive as rtc_hand_changed {room_id, sender, raised,
+ * membership_event_id (raise only), reaction_event_id}. */
+char *mx_rust_rtc_set_hand(void *client,
+                           const char *room_id,
+                           const char *membership_event_id_or_empty,
+                           const char *reaction_event_id_or_empty,
+                           unsigned char raised,
+                           unsigned long long op_id);
+char *mx_rust_rtc_read_hands(void *client,
+                             const char *room_id,
+                             unsigned long long op_id);
 /* MatrixRTC phase 2 — publishing our own membership. Publish arms an
  * MSC4140 DELAYED retraction that the client restarts periodically, so a
  * crash removes the membership instead of leaving a phantom participant

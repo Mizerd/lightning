@@ -233,6 +233,24 @@ public:
     QVariantMap participantForIdentity(const QString &roomId,
                                       const QString &identity) const;
 
+    /// The SFU identity of whoever declared `membershipEventId` in `roomId`,
+    /// or empty.
+    ///
+    /// A raised hand is an `m.reaction` annotating the raiser's OWN
+    /// `m.call.member` state event, so this is how one is attributed to a
+    /// participant. `sender` MUST match that membership's user: anyone may
+    /// annotate anyone's state event, and without the check one user could
+    /// raise everybody's hand.
+    ///
+    /// Empty is the honest answer for a membership this client has not
+    /// observed, and it leaves the hand unattributed rather than guessed at.
+    QString identityForMembership(const QString &roomId,
+                                  const QString &membershipEventId,
+                                  const QString &sender) const;
+    /// This device's own membership event id in `roomId`, or empty. What a
+    /// raise annotates.
+    QString ownMembershipEventId(const QString &roomId) const;
+
     /// Whether this room's media must be encrypted. UNKNOWN fails CLOSED to
     /// true: a room we cannot prove is unencrypted is treated as encrypted,
     /// so the honest failure is a refused call, never a cleartext one.

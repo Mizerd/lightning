@@ -75,7 +75,7 @@ use matrix_sdk::event_handler::EventHandlerDropGuard;
 use matrix_sdk::ruma::events::macros::EventContent;
 use matrix_sdk::ruma::events::relation::Reference;
 use matrix_sdk::ruma::events::{Mentions, StateEventType};
-use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId};
+use matrix_sdk::ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
 use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk::config::RequestConfig;
 use matrix_sdk::ruma::api::client::state::get_state_events;
@@ -124,6 +124,17 @@ const MAX_NOTIFICATION_LIFETIME_MS: u64 = 90_000;
 
 // Bounds. Every one of these guards a value a remote party chooses.
 const MAX_WIRE_LEN: usize = 255;
+/// How long a raise/lower may take before it is reported as a failure. Short:
+/// the control is a toggle the user is watching, and a hand that silently
+/// never went up is worse than one that says it could not.
+const HAND_TIMEOUT: Duration = Duration::from_secs(10);
+/// How many memberships the join-time raised-hand pass will probe.
+///
+/// Each one is a cache-first relations load that may reach the network, and
+/// this runs once per join. Beyond the cap a hand raised before we arrived is
+/// simply not seen — the sync handler still catches every hand raised after,
+/// so the bound costs history rather than function.
+const MAX_HAND_PROBES: usize = 24;
 const MAX_URL_LEN: usize = 1024;
 const MAX_MEMBERS: usize = 128;
 /// Bound on how many raw membership state events are PARSED. The 128-member
@@ -332,6 +343,15 @@ pub(crate) struct RtcMember {
     /// Room-resolved profile, filled in after parsing (see `read_session`).
     pub display_name: String,
     pub avatar_mxc: String,
+    /// The `m.call.member` STATE EVENT that declared this membership.
+    ///
+    /// element-call addresses a raised hand to it: the hand is an `m.reaction`
+    /// annotating the raiser's OWN membership event, so this id is the only
+    /// thing that ties one to the other. Filled in by `read_session` from the
+    /// event envelope — `parse_session_membership` sees content alone, and a
+    /// membership read from a source that carries no envelope keeps it empty
+    /// (which reads as "no hand can be matched", never as a wrong match).
+    pub event_id: String,
 }
 
 impl RtcMember {
@@ -351,6 +371,10 @@ impl RtcMember {
             "intent": self.intent,
             "created_ts": self.created_ts,
             "expires_at_ms": self.expires_at_ms,
+            // The state event this membership came from. A raised hand is an
+            // m.reaction annotating it, so this is what matches one to a
+            // participant.
+            "event_id": self.event_id,
             "kind": self.kind.as_str(),
             "foci": self.foci.iter().map(LivekitTransport::to_json)
                 .collect::<Vec<_>>(),
@@ -456,6 +480,8 @@ pub(crate) fn parse_session_membership(
         kind: MembershipKind::Session,
         display_name: String::new(),
         avatar_mxc: String::new(),
+        // Content alone; the envelope is the caller's. read_session fills it.
+        event_id: String::new(),
     })
 }
 
@@ -535,6 +561,7 @@ pub(crate) fn parse_rtc_membership(
         kind: MembershipKind::Rtc,
         display_name: String::new(),
         avatar_mxc: String::new(),
+        event_id: String::new(),
     })
 }
 
@@ -910,7 +937,21 @@ async fn read_session(room: &Room, now_ms: u64) -> RtcSession {
             .and_then(|value| value.as_u64())
             .unwrap_or(now_ms);
         let Some(content) = object.get("content") else { continue };
-        if let Some(member) = parse_session_membership(content, sender, event_ts) {
+        if let Some(mut member) =
+            parse_session_membership(content, sender, event_ts)
+        {
+            // The envelope's own id, which parse_session_membership cannot
+            // see. A raised hand is an m.reaction annotating THIS event, so
+            // without it a hand can never be matched to its participant.
+            member.event_id = object
+                .get("event_id")
+                .and_then(|value| value.as_str())
+                .filter(|id| {
+                    id.len() <= MAX_WIRE_LEN
+                        && !id.chars().any(|c| c.is_control())
+                })
+                .unwrap_or_default()
+                .to_owned();
             members.push(member);
         }
     }
@@ -1750,6 +1791,238 @@ fn update_delayed(
 }
 
 // ---------------------------------------------------------------------------
+// Raised hands
+// ---------------------------------------------------------------------------
+
+/// The reaction key element-call uses for a raised hand.
+///
+/// U+1F590 RAISED HAND WITH FINGERS SPLAYED followed by U+FE0F VARIATION
+/// SELECTOR-16. READ OUT OF element-call's own source, not chosen here:
+/// `src/reactions/useReactionsSender.tsx` sends exactly this string and
+/// `src/reactions/ReactionsReader.ts` compares against exactly this string,
+/// so a different hand emoji — or the same one without the variation
+/// selector — is a hand no Element client will ever see.
+pub(crate) const HAND_RAISED_KEY: &str = "\u{1F590}\u{FE0F}";
+
+/// Raise or lower this device's hand.
+///
+/// THE WIRE FORMAT IS element-call's, and there is nothing of Lightning's own
+/// invention in it:
+///
+///   raise  → an `m.reaction` whose `m.relates_to` is
+///            `{ rel_type: "m.annotation", event_id: <MY OWN m.call.member
+///            state event>, key: "🖐️" }`
+///   lower  → a REDACTION of that reaction
+///
+/// The target is the sender's own MEMBERSHIP state event, not a timeline
+/// message, which is what scopes the hand to one call rather than to the
+/// room's history: a new membership (rejoining, refreshing) is a new event,
+/// so an old hand cannot follow the user into the next call.
+///
+/// `reaction_event_id` is required to LOWER and ignored to raise — a hand can
+/// only be lowered by redacting the specific event that raised it, and this
+/// device is the only thing that knows which one that was.
+pub(crate) fn set_hand_raised(
+    bridge: &RustClient,
+    room_id: String,
+    membership_event_id: String,
+    reaction_event_id: String,
+    raised: bool,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::events::reaction::ReactionEventContent;
+    use matrix_sdk::ruma::events::relation::Annotation;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+
+    if raised {
+        let target = match sane(&membership_event_id, MAX_WIRE_LEN) {
+            Some(id) => EventId::parse(id)
+                .map_err(|_| "invalid membership event id".to_owned())?,
+            None => return Err("no membership event to annotate".to_owned()),
+        };
+        let content = ReactionEventContent::new(Annotation::new(
+            target,
+            HAND_RAISED_KEY.to_owned(),
+        ));
+        bridge.spawn_room_action(async move {
+            let result =
+                tokio::time::timeout(HAND_TIMEOUT, room.send(content)).await;
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+            let (ok, category, event_id) = match result {
+                Ok(Ok(sent)) => {
+                    (true, String::new(), sent.response.event_id.to_string())
+                }
+                Ok(Err(err)) => (
+                    false,
+                    classify_room_error(&err.to_string()).to_owned(),
+                    String::new(),
+                ),
+                Err(_) => (false, "network".to_owned(), String::new()),
+            };
+            enqueue(&events, json!({
+                "type": "rtc_hand_result",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "ok": ok,
+                "raised": true,
+                "category": category,
+                // The id the redaction will need. Without it a raised hand
+                // can never be lowered by this device.
+                "event_id": event_id,
+            }));
+        });
+        return Ok(());
+    }
+
+    let target = match sane(&reaction_event_id, MAX_WIRE_LEN) {
+        Some(id) => EventId::parse(id)
+            .map_err(|_| "invalid reaction event id".to_owned())?,
+        None => return Err("no raised hand to lower".to_owned()),
+    };
+    bridge.spawn_room_action(async move {
+        let result = tokio::time::timeout(
+            HAND_TIMEOUT,
+            room.redact(&target, None, None),
+        )
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, category) = match result {
+            Ok(Ok(_)) => (true, String::new()),
+            Ok(Err(err)) => {
+                (false, classify_room_error(&err.to_string()).to_owned())
+            }
+            Err(_) => (false, "network".to_owned()),
+        };
+        enqueue(&events, json!({
+            "type": "rtc_hand_result",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "ok": ok,
+            "raised": false,
+            "category": category,
+            "event_id": String::new(),
+        }));
+    });
+    Ok(())
+}
+
+/// Read the hands already raised in a room's call.
+///
+/// A hand raised BEFORE this client joined produces no sync event for us, so
+/// without this pass a participant who raised early is invisible for the rest
+/// of the call. element-call solves it the same way, walking the annotations
+/// of each membership event.
+///
+/// BOUNDED, because this is one request per membership in the worst case:
+/// `MAX_HAND_PROBES` memberships, cache-first
+/// (`load_or_fetch_event_with_relations` only reaches the network on a miss),
+/// and the whole pass is spent ONCE per join rather than per poke. A poke is
+/// answered by the sync handler below, which costs nothing.
+///
+/// A membership whose annotations cannot be read contributes NOTHING rather
+/// than a lowered hand: absence of evidence is not evidence that a hand is
+/// down, and reporting one as lowered would clear a hand that is really up.
+pub(crate) fn read_raised_hands(
+    bridge: &RustClient,
+    room_id: String,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::events::relation::RelationType;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    let now_ms = now_ms();
+    bridge.spawn_room_action(async move {
+        let session = read_session(&room, now_ms).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let mut hands = Vec::new();
+        for member in session.members.iter().take(MAX_HAND_PROBES) {
+            let Some(id) = sane(&member.event_id, MAX_WIRE_LEN) else {
+                continue;
+            };
+            let Ok(event_id) = EventId::parse(id) else { continue };
+            let loaded = room
+                .load_or_fetch_event_with_relations(
+                    &event_id,
+                    Some(vec![RelationType::Annotation]),
+                    None,
+                )
+                .await;
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+            let Ok((_target, relations)) = loaded else { continue };
+            for relation in &relations {
+                let Ok(parsed) = relation.raw().deserialize() else { continue };
+                // THE SENDER MUST BE THE MEMBER THEMSELVES. Anyone may
+                // annotate anyone's membership event; only the owner of that
+                // membership raising their own hand means anything, and
+                // without this check one user could raise everybody's.
+                if parsed.sender().as_str() != member.user_id {
+                    continue;
+                }
+                let Ok(value) =
+                    serde_json::from_str::<serde_json::Value>(relation.raw().json().get())
+                else {
+                    continue;
+                };
+                if value.get("type").and_then(|t| t.as_str())
+                    != Some("m.reaction")
+                {
+                    continue;
+                }
+                // A redacted reaction keeps its envelope and loses its
+                // content, so the key is simply absent — which reads as "not
+                // a raised hand", exactly as it should.
+                let key = value
+                    .get("content")
+                    .and_then(|c| c.get("m.relates_to"))
+                    .and_then(|r| r.get("key"))
+                    .and_then(|k| k.as_str());
+                if key != Some(HAND_RAISED_KEY) {
+                    continue;
+                }
+                let Some(reaction_id) =
+                    value.get("event_id").and_then(|v| v.as_str())
+                else {
+                    continue;
+                };
+                hands.push(json!({
+                    "user_id": member.user_id,
+                    "device_id": member.device_id,
+                    "rtc_identity": member.rtc_identity,
+                    "membership_event_id": member.event_id,
+                    "reaction_event_id": reaction_id,
+                }));
+                break;   // one hand per membership
+            }
+        }
+        enqueue(&events, json!({
+            "type": "rtc_hands",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "hands": hands,
+        }));
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Media encryption keys (io.element.call.encryption_keys)
 // ---------------------------------------------------------------------------
 
@@ -1995,6 +2268,86 @@ pub(crate) fn register_rtc_handlers(
                         "type": "rtc_session_changed",
                         "lifecycle": timelines.lifecycle(),
                         "room_id": room.room_id().to_string(),
+                    }));
+                }
+            },
+        );
+        guards.push(client.event_handler_drop_guard(handle));
+    }
+
+    // Raised hands, in both directions.
+    //
+    // element-call represents a raised hand as an `m.reaction` annotating the
+    // raiser's own `m.call.member` state event, and a lowered one as a
+    // REDACTION of that reaction. Both arrive here as ordinary timeline
+    // events, so observing them costs one filter each and no requests.
+    //
+    // DELIBERATELY UNFILTERED BY ROOM. A reaction is cheap to inspect and the
+    // vast majority are ordinary message reactions rejected by the key check
+    // on the first comparison; filtering by "the room we are in a call in"
+    // would need this handler to know about call state it has no business
+    // holding, and would drop a hand raised in the window between joining and
+    // that state being written.
+    {
+        let events = Arc::clone(events);
+        let timelines = Arc::clone(timelines);
+        let handle = client.add_event_handler(
+            move |ev: matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent,
+                  room: Room| {
+                let events = Arc::clone(&events);
+                let timelines = Arc::clone(&timelines);
+                async move {
+                    if ev.content.relates_to.key != HAND_RAISED_KEY {
+                        return;
+                    }
+                    // The C++ side matches this against the membership it
+                    // already holds, and REQUIRES the sender to be that
+                    // membership's own user — anyone may annotate anyone's
+                    // state event, and without that check one user could
+                    // raise everybody's hand.
+                    enqueue(&events, json!({
+                        "type": "rtc_hand_changed",
+                        "lifecycle": timelines.lifecycle(),
+                        "room_id": room.room_id().to_string(),
+                        "sender": ev.sender.to_string(),
+                        "membership_event_id":
+                            ev.content.relates_to.event_id.to_string(),
+                        "reaction_event_id": ev.event_id.to_string(),
+                        "raised": true,
+                    }));
+                }
+            },
+        );
+        guards.push(client.event_handler_drop_guard(handle));
+    }
+
+    {
+        let events = Arc::clone(events);
+        let timelines = Arc::clone(timelines);
+        let handle = client.add_event_handler(
+            move |ev: matrix_sdk::ruma::events::room::redaction::SyncRoomRedactionEvent,
+                  room: Room| {
+                let events = Arc::clone(&events);
+                let timelines = Arc::clone(&timelines);
+                async move {
+                    // A redaction names what it removed, and nothing else
+                    // here can say WHAT was redacted — the event is gone. So
+                    // every redaction is forwarded and the C++ side answers
+                    // "was that one of the reactions I am tracking?", which
+                    // it can, because it holds the reaction ids.
+                    let Some(redacts) = ev.as_original()
+                        .and_then(|original| original.redacts.as_ref())
+                        .or_else(|| ev.as_original().and_then(|o| o.content.redacts.as_ref()))
+                    else {
+                        return;
+                    };
+                    enqueue(&events, json!({
+                        "type": "rtc_hand_changed",
+                        "lifecycle": timelines.lifecycle(),
+                        "room_id": room.room_id().to_string(),
+                        "sender": ev.sender().to_string(),
+                        "reaction_event_id": redacts.to_string(),
+                        "raised": false,
                     }));
                 }
             },
@@ -2289,6 +2642,7 @@ mod tests {
             kind: MembershipKind::Session,
             display_name: String::new(),
             avatar_mxc: String::new(),
+            event_id: String::new(),
         }
     }
 
@@ -2670,5 +3024,52 @@ mod tests {
             Msc4075RtcNotificationEventContent::TYPE,
             "org.matrix.msc4075.rtc.notification"
         );
+    }
+
+    /// The one thing about a raised hand that MUST NOT DRIFT.
+    ///
+    /// element-call's `ReactionsReader` compares `m.relates_to.key` against
+    /// this exact string, so a different hand emoji — or the same one without
+    /// the U+FE0F variation selector — is a hand no Element client will ever
+    /// see, and one of theirs is a hand we will never show. Asserted by BYTES
+    /// because that is what goes on the wire and because the two forms are
+    /// visually identical in every editor.
+    #[test]
+    fn the_raised_hand_key_is_element_calls_own_bytes() {
+        assert_eq!(
+            HAND_RAISED_KEY.as_bytes(),
+            &[0xF0, 0x9F, 0x96, 0x90, 0xEF, 0xB8, 0x8F]
+        );
+        // Two code points, not one: the selector is part of the key.
+        assert_eq!(HAND_RAISED_KEY.chars().count(), 2);
+        assert_eq!(HAND_RAISED_KEY.chars().next(), Some('\u{1F590}'));
+        assert_eq!(HAND_RAISED_KEY.chars().nth(1), Some('\u{FE0F}'));
+    }
+
+    /// A membership carries the id of the state event that declared it, and
+    /// that id comes from the ENVELOPE — `parse_session_membership` sees
+    /// content alone. Without it a raised hand can never be matched to a
+    /// participant, because the reaction addresses the event, not the user.
+    #[test]
+    fn a_membership_read_from_content_alone_claims_no_event_id() {
+        let content = json!({
+            "application": APPLICATION_CALL,
+            "call_id": "",
+            "device_id": "DEVICE",
+            "focus_active": { "type": "livekit" },
+            "expires": 3_600_000u64,
+        });
+        let member = parse_session_membership(&content, "@a:x", 1_000)
+            .expect("a well-formed membership should parse");
+        assert!(
+            member.event_id.is_empty(),
+            "content alone cannot know its own event id, and a fabricated \
+             one would attribute somebody else's hand"
+        );
+        // ...and it survives the round trip to the C++ side as an empty
+        // string rather than being dropped from the payload, so the reader
+        // sees "unknown" rather than a missing key.
+        let wire = member.to_json();
+        assert_eq!(wire.get("event_id").and_then(|v| v.as_str()), Some(""));
     }
 }

@@ -388,6 +388,39 @@ bool RtcController::hasVideoIntent(const QString &roomId) const
         });
 }
 
+QString RtcController::identityForMembership(
+    const QString &roomId, const QString &membershipEventId,
+    const QString &sender) const
+{
+    if (membershipEventId.isEmpty() || sender.isEmpty())
+        return {};
+    const auto it = m_sessions.constFind(roomId);
+    if (it == m_sessions.cend())
+        return {};
+    for (const RtcParticipant &participant : it->participants) {
+        if (participant.membershipEventId != membershipEventId)
+            continue;
+        // THE SENDER MUST OWN THE MEMBERSHIP. Anyone may annotate anyone's
+        // state event; only the owner raising their own hand means anything.
+        if (participant.userId != sender)
+            return {};
+        return participant.rtcIdentity;
+    }
+    return {};
+}
+
+QString RtcController::ownMembershipEventId(const QString &roomId) const
+{
+    const auto it = m_sessions.constFind(roomId);
+    if (it == m_sessions.cend())
+        return {};
+    for (const RtcParticipant &participant : it->participants) {
+        if (participant.ownDevice)
+            return participant.membershipEventId;
+    }
+    return {};
+}
+
 QVariantList RtcController::participants(const QString &roomId, int max) const
 {
     QVariantList out;

@@ -768,33 +768,56 @@ Item {
                  "rather than from the application's own window");
     }
 
-    void theRaiseHandControlDoesNotClaimPeersCanSeeIt()
+    void theRaiseHandControlIsOnTheWireAndSaysNothingElse()
     {
-        // "raise hand does nothing in element" — correct, and it still does
-        // not: SfuCallController::setHandRaised() reaches no SFU, no
-        // MatrixRTC membership and no to-device message. element-call raises
-        // a hand with an ordinary room m.reaction annotating the sender's own
-        // membership state event; that is a Rust/FFI round (see
-        // docs/matrixrtc.md "Remaining work" item 2), not a QML one.
+        // "raise hand does nothing in element" — it does now. The control
+        // used to carry an "only shown on this device" disclaimer in BOTH
+        // directions, which was true and is now false: setHandRaised() sends
+        // element-call's own m.reaction annotating our own membership state
+        // event, so a peer really does see it.
         //
-        // Until it lands the control must not IMPLY a peer can see it. Not
-        // disabled — a disabled Qt Quick control receives no hover and so
-        // cannot explain itself — and not removed, because it is real local
-        // state this client draws on the user's own tile.
-        //
-        // UNFIXED TREE: FAILS. The tooltip was a bare "Raise your hand".
+        // A stale disclaimer is worse than none — it tells the user a
+        // working feature does not work — so the ban is the point of this
+        // test, and it fails on the tree that still carries the wording.
         const QString bar = normalized(
             read(QStringLiteral(QML_DIR "/CallHeaderBar.qml")));
         QVERIFY(!bar.isEmpty());
         QVERIFY(bar.contains(
             QStringLiteral("objectName: \"callBarHandButton\"")));
-        // Both directions disclose it: raising and lowering.
-        QCOMPARE(static_cast<int>(
-                     bar.count(QStringLiteral("only shown on this device"))),
-                 2);
+        QVERIFY2(!bar.contains(QStringLiteral("only shown on this device")),
+                 "the raise-hand control still claims no peer can see it, "
+                 "which stopped being true when it went on the wire");
         // The icon must stay one the bundled Material Symbols SUBSET carries,
         // or the glyph is tofu (IconChromeTest owns the general rule).
         QVERIFY(bar.contains(QStringLiteral("iconName: \"front_hand\"")));
+
+        // The wire format itself, and every part of it that must not drift.
+        // element-call's ReactionsReader compares against exactly this key —
+        // a different hand emoji, or the same one without the U+FE0F
+        // variation selector, is a hand no Element client will ever see.
+        const QString rtc =
+            read(QStringLiteral(QML_DIR "/../rust/src/rtc.rs"));
+        QVERIFY(!rtc.isEmpty());
+        QVERIFY2(rtc.contains(QStringLiteral(
+                     "HAND_RAISED_KEY: &str = \"\\u{1F590}\\u{FE0F}\"")),
+                 "the raised-hand reaction key is not element-call's, so no "
+                 "Element client will ever see one of ours");
+        QVERIFY2(rtc.contains(QStringLiteral("RelationType::Annotation")),
+                 "the join-time sweep does not ask for annotations, so a hand "
+                 "raised before we joined stays invisible");
+        // A raise is attributed through the membership it annotates, and the
+        // SENDER MUST OWN IT: anyone may annotate anyone's state event, and
+        // without the check one user could raise everybody's hand.
+        const QString controller = read(QStringLiteral(
+            QML_DIR "/../src/calls/RtcController.cpp"));
+        QVERIFY(!controller.isEmpty());
+        const int at = controller.indexOf(
+            QStringLiteral("RtcController::identityForMembership"));
+        QVERIFY2(at >= 0, "there is no way to attribute a raised hand");
+        QVERIFY2(controller.mid(at, 900)
+                     .contains(QStringLiteral("participant.userId != sender")),
+                 "a raised hand is attributed without checking that the "
+                 "sender owns the membership it annotates");
     }
 
     // 2026-08-23 reporter round: FOUR call surfaces were on screen at once

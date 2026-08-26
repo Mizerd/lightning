@@ -5750,6 +5750,39 @@ void RustSdkMatrixClient::sfuDisconnect()
     takeRustString(mx_rust_sfu_disconnect(m_rustHandle));
 }
 
+quint64 RustSdkMatrixClient::rtcSetHandRaised(
+    const QString &roomId, const QString &membershipEventId,
+    const QString &reactionEventId, bool raised)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    // Each direction needs its own id and neither substitutes for the other:
+    // a raise annotates the membership, a lower redacts the reaction the
+    // raise produced. Refusing here keeps the FFI edge from having to invent
+    // a meaning for a missing one.
+    if (raised ? membershipEventId.isEmpty() : reactionEventId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray membership = membershipEventId.toUtf8();
+    const QByteArray reaction = reactionEventId.toUtf8();
+    const QString result = takeRustString(mx_rust_rtc_set_hand(
+        m_rustHandle, room.constData(), membership.constData(),
+        reaction.constData(), raised, opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::rtcReadRaisedHands(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_rtc_read_hands(m_rustHandle, room.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::rtcNotify(const QString &roomId,
                                        const QString &notificationType,
                                        const QString &intent,
@@ -6473,6 +6506,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             participant.expiresAtMs = static_cast<qint64>(
                 row.value(QStringLiteral("expires_at_ms")).toDouble());
             participant.wireFormat = row.value(QStringLiteral("kind")).toString();
+            participant.membershipEventId =
+                row.value(QStringLiteral("event_id")).toString();
             participant.ownUser =
                 !ownUser.isEmpty() && participant.userId == ownUser;
             // Own DEVICE, not just own user: the same account on another
@@ -6611,6 +6646,47 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             opId(), event.value(QStringLiteral("ok")).toBool(),
             event.value(QStringLiteral("category")).toString(),
             event.value(QStringLiteral("event_id")).toString());
+        return true;
+    }
+    if (type == QLatin1String("rtc_hand_result")) {
+        Q_EMIT rtcHandResult(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("raised")).toBool(),
+            event.value(QStringLiteral("category")).toString(),
+            event.value(QStringLiteral("event_id")).toString());
+        return true;
+    }
+    if (type == QLatin1String("rtc_hand_changed")) {
+        // Every field was bounded in rust/src/rtc.rs. Ids are opaque here:
+        // compared against what we already hold, never rendered, never logged.
+        Q_EMIT rtcHandChanged(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("sender")).toString(),
+            event.value(QStringLiteral("membership_event_id")).toString(),
+            event.value(QStringLiteral("reaction_event_id")).toString(),
+            event.value(QStringLiteral("raised")).toBool());
+        return true;
+    }
+    if (type == QLatin1String("rtc_hands")) {
+        QVariantList hands;
+        const QJsonArray rows = event.value(QStringLiteral("hands")).toArray();
+        for (const QJsonValue &value : rows) {
+            const QJsonObject hand = value.toObject();
+            hands.append(QVariantMap{
+                { QStringLiteral("userId"),
+                  hand.value(QStringLiteral("user_id")).toString() },
+                { QStringLiteral("deviceId"),
+                  hand.value(QStringLiteral("device_id")).toString() },
+                { QStringLiteral("rtcIdentity"),
+                  hand.value(QStringLiteral("rtc_identity")).toString() },
+                { QStringLiteral("membershipEventId"),
+                  hand.value(QStringLiteral("membership_event_id")).toString() },
+                { QStringLiteral("reactionEventId"),
+                  hand.value(QStringLiteral("reaction_event_id")).toString() },
+            });
+        }
+        Q_EMIT rtcHandsReceived(
+            opId(), event.value(QStringLiteral("room_id")).toString(), hands);
         return true;
     }
     if (type == QLatin1String("call_turn_servers")) {

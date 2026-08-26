@@ -48,6 +48,17 @@ struct RtcParticipant {
     /// Wire format the membership was read from ("session" / "rtc").
     /// Diagnostics only — never shown in normal UI.
     QString wireFormat;
+    /// The `m.call.member` STATE EVENT that declared this membership.
+    ///
+    /// element-call addresses a raised hand to it — the hand is an
+    /// `m.reaction` annotating the raiser's own membership event — so this is
+    /// the only thing that ties one to a participant. Opaque: compared
+    /// against ids we already hold, never rendered, never logged.
+    ///
+    /// Empty is a real answer (a membership read from a source with no
+    /// envelope), and it reads as "no hand can be matched to this device",
+    /// never as a match.
+    QString membershipEventId;
     /// True when this is one of the local user's own devices.
     bool ownUser = false;
     /// True when this is specifically THIS device.

@@ -5,7 +5,7 @@
 
 use std::{
     collections::{BTreeSet, HashMap, VecDeque},
-    ffi::{c_char, CStr, CString},
+    ffi::{c_char, c_uchar, CStr, CString},
     fs::OpenOptions,
     io::Write,
     os::raw::{c_int, c_uint, c_void},
@@ -6632,6 +6632,63 @@ pub unsafe extern "C" fn mx_rust_rtc_notify(
             op_id,
         )
         .map(|_| String::new())
+    })
+}
+
+/// Raise or lower this device's hand in a room's call.
+///
+/// element-call's own wire format: raising sends an `m.reaction` annotating
+/// the sender's OWN `m.call.member` state event with the raised-hand emoji,
+/// and lowering REDACTS that reaction. `membership_event_id` is required to
+/// raise, `reaction_event_id` to lower.
+///
+/// Answers `rtc_hand_result {ok, raised, category, event_id}`; on a
+/// successful raise `event_id` is the reaction the eventual lower must
+/// redact, and without keeping it a raised hand can never be lowered.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_rtc_set_hand(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    membership_event_id: *const c_char,
+    reaction_event_id: *const c_char,
+    raised: c_uchar,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let membership_event_id = unsafe { cstr_arg(membership_event_id) }?;
+        let reaction_event_id = unsafe { cstr_arg(reaction_event_id) }?;
+        // `unsigned char` on both sides, matching
+        // mx_rust_calls_set_media_capable: a C `bool` and a Rust `bool` agree
+        // on size today and nothing in this header depends on that.
+        rtc::set_hand_raised(
+            bridge,
+            room_id,
+            membership_event_id,
+            reaction_event_id,
+            raised != 0,
+            op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
+/// Read the hands already raised in a room's call.
+///
+/// Spent ONCE per join: a hand raised before this client arrived produces no
+/// sync event for us, so without this pass an early raiser is invisible for
+/// the rest of the call. Bounded and cache-first; answers `rtc_hands`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_rtc_read_hands(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        rtc::read_raised_hands(bridge, room_id, op_id).map(|_| String::new())
     })
 }
 

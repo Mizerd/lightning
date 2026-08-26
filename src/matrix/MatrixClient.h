@@ -843,6 +843,26 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(notificationType); Q_UNUSED(intent);
         Q_UNUSED(lifetimeMs); Q_UNUSED(membershipEventId); return 0;
     }
+    // Raised hands, in element-call's own wire format: raising sends an
+    // `m.reaction` annotating the sender's own `m.call.member` state event
+    // with the raised-hand emoji, lowering REDACTS that reaction.
+    // `membershipEventId` is required to raise, `reactionEventId` to lower.
+    // Answers on rtcHandResult; a successful raise carries the reaction id the
+    // eventual lower must redact.
+    virtual quint64 rtcSetHandRaised(const QString &roomId,
+                                     const QString &membershipEventId,
+                                     const QString &reactionEventId,
+                                     bool raised)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(membershipEventId);
+        Q_UNUSED(reactionEventId); Q_UNUSED(raised); return 0;
+    }
+    // The hands already raised when we joined. A hand raised before this
+    // client arrived produces no sync event for us, so without this pass an
+    // early raiser stays invisible for the whole call. Answers on
+    // rtcHandsReceived.
+    virtual quint64 rtcReadRaisedHands(const QString &roomId)
+    { Q_UNUSED(roomId); return 0; }
     // v0.7.x device sign-out through reusable UIA. The flow: deleteDevices
     // → (server may answer with a challenge → uiaRequired) →
     // uiaSubmitPassword / uiaCancel → deviceDeleteFinished. Credentials
@@ -1354,6 +1374,24 @@ Q_SIGNALS:
                                const QString &participantFocusUrl);
     void rtcSendFinished(quint64 opId, bool ok, const QString &category,
                          const QString &eventId);
+    /// A raise or lower completed. On a successful RAISE `eventId` is the
+    /// reaction the eventual lower must redact; without keeping it a raised
+    /// hand can never be lowered by this device.
+    void rtcHandResult(quint64 opId, bool ok, bool raised,
+                       const QString &category, const QString &eventId);
+    /// Somebody's hand went up or down, from the sync loop.
+    ///
+    /// A RAISE carries `membershipEventId`; a LOWER carries only the reaction
+    /// id, because a redaction names what it removed and the event itself is
+    /// gone — the receiver answers "was that one of the reactions I track?"
+    /// from the ids it already holds.
+    void rtcHandChanged(const QString &roomId, const QString &sender,
+                        const QString &membershipEventId,
+                        const QString &reactionEventId, bool raised);
+    /// The join-time sweep. Each entry:
+    /// {userId, deviceId, rtcIdentity, membershipEventId, reactionEventId}.
+    void rtcHandsReceived(quint64 opId, const QString &roomId,
+                          const QVariantList &hands);
     /// Our membership was published. `delayId` empty means the server has no
     /// MSC4140, so cleanup falls back to the membership's own `expires`.
     void rtcMembershipPublished(quint64 opId, bool ok, const QString &category,
