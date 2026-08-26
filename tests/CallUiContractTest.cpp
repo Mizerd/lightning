@@ -2099,15 +2099,23 @@ Item {
                  "the sort control went back to a text button");
 
         // The row and heading heights, and the avatar.
-        QVERIFY2(chrome.contains(QStringLiteral("implicitHeight: 30")),
-                 "the member search field grew back");
         const QString list = panel.mid(listAt);
-        QVERIFY2(list.contains(QStringLiteral("height: 34")),
-                 "a member row is no longer 34px");
-        QVERIFY2(list.contains(QStringLiteral("height: 22")),
-                 "a role heading is no longer 22px");
-        QVERIFY2(list.contains(QStringLiteral("size: 22")),
-                 "the member avatar is no longer 22px");
+        // EVERY SIZE IN THIS SECTION FOLLOWS THE TEXT-SIZE SLIDER.
+        //
+        // The whole panel used AppTheme.scaled zero times while the room list
+        // used it six, so the slider grew every other surface and left this
+        // one behind — which is why the roster read small however its literal
+        // sizes were tuned, across three rounds of trying to tune them.
+        //
+        // Heights are expressions over the scaled text rather than literals,
+        // or a row clips its own contents at 140%.
+        QVERIFY2(list.contains(QStringLiteral("AppTheme.scaled(AppTheme.textDisplay)")),
+                 "the member name does not follow the text-size slider");
+        QVERIFY2(list.contains(QStringLiteral("Math.max(40, AppTheme.scaled")),
+                 "the member row height is a literal again, so it clips its "
+                 "own text at a larger slider position");
+        QVERIFY2(list.contains(QStringLiteral("Math.max(28, AppTheme.scaled")),
+                 "the member avatar no longer follows the row");
         // THE TAB STRIP IS ONE SIZE IN EVERY SECTION. `dense` and the tab
         // margins used to be conditional on `section === "people"`, so the
         // strip visibly shrank the moment People was selected and grew back
@@ -2166,11 +2174,9 @@ Item {
         const int rowEnd = panel.indexOf(QStringLiteral("Media & Files"), rowAt);
         QVERIFY(rowEnd > rowAt);
         const QString row = panel.mid(rowAt, rowEnd - rowAt);
-        QVERIFY2(row.contains(QStringLiteral("font.pixelSize: AppTheme.textBody")),
-                 "the member name is not the panel's body size");
-        QVERIFY2(!row.contains(QStringLiteral("font.pixelSize: AppTheme.textMeta")),
-                 "a member row uses a smaller font than the rest of the "
-                 "panel, so switching tabs reads as a zoom");
+        QVERIFY2(!row.contains(QStringLiteral("font.pixelSize: AppTheme.text")),
+                 "a member row sets an UNSCALED font size, so it ignores the "
+                 "text-size slider every other surface honours");
     }
 
 private:

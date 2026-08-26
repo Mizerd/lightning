@@ -1101,7 +1101,8 @@ Rectangle {
                     // panel narrow pushed the buttons off its edge rather
                     // than shrinking the box they sit next to.
                     Layout.minimumWidth: 40
-                    implicitHeight: 30
+                    // Follows the slider with everything else in the section.
+                    implicitHeight: Math.max(30, AppTheme.scaled(AppTheme.textBody) + 16)
                     searchIcon: true
                     clearButton: true
                     placeholderText: qsTr("Type name…")
@@ -1172,7 +1173,7 @@ Rectangle {
                 sourceComponent: Label {
                     text: qsTr("Loading members…")
                     color: AppTheme.textMuted
-                    font.pixelSize: AppTheme.textMeta
+                    font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                     wrapMode: Text.WordWrap
                 }
             }
@@ -1190,7 +1191,7 @@ Rectangle {
                     lineHeight: AppTheme.lineHeightBody
                     lineHeightMode: Text.ProportionalHeight
                     wrapMode: Text.WordWrap
-                    font.pixelSize: AppTheme.textMeta
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 }
             }
 
@@ -1224,10 +1225,10 @@ Rectangle {
                         id: roleHeaderComponent
                         Item {
                             width: memberList.width
-                            // 22, not 28: the heading is wayfinding between
-                            // runs of people, so it needs to be legible and
-                            // to cost as little of the column as possible.
-                            height: 22
+                            // Wayfinding between runs of people: legible, and
+                            // costing as little of the column as it can.
+                            // Sized to its own text for the slider's sake.
+                            height: Math.max(26, AppTheme.scaled(AppTheme.textTitle) + 10)
                             MenuSectionLabel {
                                 anchors.left: parent.left
                                 anchors.right: parent.right
@@ -1235,6 +1236,11 @@ Rectangle {
                                 anchors.rightMargin: AppTheme.spacing12
                                 anchors.bottom: parent.bottom
                                 anchors.bottomMargin: 2
+                                // MenuSectionLabel pins 12px for popovers.
+                                // This is a list heading in a resizable panel
+                                // and has to follow the slider like the names
+                                // under it.
+                                font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
                                 text: qsTr("%1 — %2")
                                           .arg(memberLoader.modelData.label)
                                           .arg(memberLoader.modelData.count)
@@ -1246,12 +1252,12 @@ Rectangle {
                         id: memberRowComponent
                         ItemDelegate {
                             width: memberList.width
-                            // 34 with a 22px avatar: tight for a directory
-                            // row, and enough for the panel's body size —
-                            // density belongs to the row height, never to the
-                            // font, or one tab reads smaller than its
-                            // neighbours.
-                            height: 34
+                            // Sized to the TEXT, so the row follows the
+                            // text-size slider instead of clipping its own
+                            // contents at 140%. The floor is the old fixed
+                            // height; the avatar and the padding are what the
+                            // rest of it is.
+                            height: Math.max(40, AppTheme.scaled(AppTheme.textDisplay) + 18)
                             padding: 0
                             hoverEnabled: true
                             readonly property var member: memberLoader.modelData
@@ -1276,8 +1282,12 @@ Rectangle {
                                 anchors.rightMargin: AppTheme.spacing12
                                 spacing: AppTheme.spacing8
                                 Avatar {
-                                    width: 22; height: 22
-                                    size: 22
+                                    // Follows the text, so the row keeps its
+                                    // proportions at every slider position.
+                                    readonly property int px:
+                                        Math.max(28, AppTheme.scaled(AppTheme.textDisplay) + 8)
+                                    width: px; height: px
+                                    size: px
                                     name: member.displayName.length > 0
                                           ? member.displayName : member.userId
                                     mxc: member.avatarUrl || ""
@@ -1312,14 +1322,22 @@ Rectangle {
                                     // person, and it was a column of
                                     // identical grey.
                                     color: AppTheme.userColor(member.userId || "")
-                                    // The panel's body size, the same one
-                                    // Overview and Media use. Compacting the
-                                    // roster shrank the TEXT as well as the
-                                    // spacing, so People read a size smaller
-                                    // than every other tab in the same panel
-                                    // and switching to Media looked like a
-                                    // zoom. Density is the row height's job.
-                                    font.pixelSize: AppTheme.textBody
+                                    // THROUGH scaled(), which this whole
+                                    // panel was not doing at all: it used
+                                    // AppTheme.scaled zero times while the
+                                    // room list uses it six, so the text-size
+                                    // slider grew every other surface and
+                                    // left this one behind. That is why the
+                                    // roster read small however its literal
+                                    // size was tuned.
+                                    //
+                                    // A name is what a person scans this
+                                    // list for, and at the body size it was
+                                    // asked to be "1.5-2x bigger" twice. This
+                                    // is the top of the type ladder (22 vs
+                                    // 14, ~1.6x) and the row is sized to it
+                                    // below, not the other way round.
+                                    font.pixelSize: AppTheme.scaled(AppTheme.textDisplay)
                                     elide: Label.ElideRight
                                 }
                                 // Invited and banned rows are in the list on
