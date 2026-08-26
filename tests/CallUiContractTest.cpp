@@ -1926,6 +1926,51 @@ Item {
 
 private:
     QTemporaryDir m_configHome;
+
+    // "There is a call in this room" on a room-list row, in BOTH layouts.
+    //
+    // The load-bearing rule is what it may COST. RtcController::refresh()
+    // re-reads one room's session, and read_membership_events falls back to a
+    // full /state request whenever the store holds no live membership — the
+    // normal state of every idle room. A row that refreshed itself would issue
+    // one /state per room in the list, on every rebuild, so this component
+    // reads only what the controller already knows and re-reads on its
+    // sessionChanged poke.
+    void theRoomRowCallGlyphNeverAsksForARefresh()
+    {
+        const QString glyph = read(QStringLiteral(QML_DIR "/RoomCallGlyph.qml"));
+        QVERIFY2(!glyph.isEmpty(), "RoomCallGlyph.qml is missing");
+        QVERIFY2(glyph.contains(QStringLiteral("app.rtc.hasLiveSession")),
+                 "the glyph does not ask whether a call is live");
+        QVERIFY2(!glyph.contains(QStringLiteral("app.rtc.refresh")),
+                 "the room-row call glyph refreshes the session itself, which "
+                 "is one /state request per idle room in the list");
+        QVERIFY2(glyph.contains(QStringLiteral("onSessionChanged")),
+                 "the glyph never re-reads, so it freezes on whatever was "
+                 "known when the row was built");
+        // An Icon is a Text, and a never-laid-out empty Text keeps
+        // ItemObservesViewport forever — in a per-row delegate that is the
+        // most expensive QML mistake in this tree (d1ddc2f).
+        QVERIFY2(glyph.contains(QStringLiteral("Loader")),
+                 "the glyph's Icon is not behind a Loader, so every room row "
+                 "adds a permanent viewport observer");
+
+        // ONE component, used by both layouts: the rule is identical in
+        // Classic and Channels, and a second copy is how the two lists end up
+        // disagreeing about whether a call is live.
+        for (const QString &file : { QStringLiteral(QML_DIR "/RoomDelegate.qml"),
+                                     QStringLiteral(QML_DIR "/ChannelDelegate.qml") }) {
+            const QString source = read(file);
+            QVERIFY(!source.isEmpty());
+            QVERIFY2(source.contains(QStringLiteral("RoomCallGlyph")),
+                     qPrintable(QStringLiteral("%1 shows no call indicator")
+                                    .arg(file)));
+            QVERIFY2(!source.contains(QStringLiteral("app.rtc.hasLiveSession")),
+                     qPrintable(QStringLiteral(
+                         "%1 reimplements the call indicator instead of using "
+                         "the shared component").arg(file)));
+        }
+    }
 };
 
 QTEST_MAIN(CallUiContractTest)

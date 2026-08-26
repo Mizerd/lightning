@@ -201,7 +201,7 @@ ItemDelegate {
             active: root.channelName.length > 0
             anchors.left: roomAvatar.right
             anchors.leftMargin: 8
-            anchors.right: pillLoader.left
+            anchors.right: callGlyph.left
             anchors.rightMargin: 6
             anchors.verticalCenter: parent.verticalCenter
             sourceComponent: Label {
@@ -212,6 +212,20 @@ ItemDelegate {
                 font.weight: root.readsUnread && !root.muted ? AppTheme.weightMedium : AppTheme.weightBody
                 color: root.active ? AppTheme.channelSelectedText : (root.muted ? AppTheme.channelCategoryText : (root.readsUnread ? AppTheme.channelTextUnread : AppTheme.channelText))
             }
+        }
+
+        // "There is a call in this room", between the name and the unread
+        // pill. It collapses to zero width when there is no call, so a row
+        // without one is pixel-identical to what it was.
+        RoomCallGlyph {
+            id: callGlyph
+            roomId: root.roomId
+            glyphSize: 14
+            color: root.active ? AppTheme.channelSelectedText
+                               : AppTheme.channelCategoryText
+            anchors.right: pillLoader.active ? pillLoader.left : parent.right
+            anchors.rightMargin: pillLoader.active ? 6 : 14
+            anchors.verticalCenter: parent.verticalCenter
         }
 
         Loader {
@@ -229,7 +243,7 @@ ItemDelegate {
 
         // Only when muted, so it does not become permanent furniture.
         Loader {
-            active: root.muted && !root.showsPill
+            active: root.muted && !root.showsPill && !callGlyph.live
             visible: active
             anchors.right: parent.right
             anchors.rightMargin: 14

@@ -705,6 +705,11 @@ set(APP_QML_FILES
     # Space-shaped surface, reached from the rail's menu.
     qml/SpaceSettingsDialog.qml
     qml/UnreadBadge.qml
+    # "There is a call in this room", shared by BOTH room-row layouts. One
+    # component because the rule — and what it may cost — is the same in both,
+    # and it must never ask RtcController to refresh (that falls back to a
+    # full /state per idle room).
+    qml/RoomCallGlyph.qml
     qml/NavigationLayoutCard.qml
     qml/MessageDelegate.qml
     # Element-style local image hiding: keeps the media box's exact geometry.

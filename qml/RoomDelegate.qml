@@ -290,6 +290,16 @@ Item {
                     size: 12
                     color: selected ? AppTheme.selectedText : AppTheme.textMuted
                 }
+                // "There is a call in this room", on the title line with the
+                // lock and the mute glyph — the row's other state marks.
+                // Collapses to zero width when there is no call, so a row
+                // without one is pixel-identical to what it was.
+                RoomCallGlyph {
+                    objectName: "roomCallGlyph"
+                    roomId: model.roomId
+                    glyphSize: 13
+                    color: selected ? AppTheme.selectedText : AppTheme.textMuted
+                }
                 // The visible half of the mute state. Decorative here — the
                 // row's Accessible.name carries the word.
                 Icon {
