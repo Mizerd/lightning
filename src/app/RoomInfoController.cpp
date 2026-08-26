@@ -910,6 +910,42 @@ QVariantList RoomInfoController::memberRoleGroups(const QString &needle,
     return groups;
 }
 
+QVariantList RoomInfoController::memberRoleRows(const QString &needle,
+                                                const QString &membership,
+                                                bool alphabetical) const
+{
+    const QVariantList groups = memberRoleGroups(needle, membership,
+                                                 alphabetical);
+    QVariantList out;
+    for (const QVariant &value : groups) {
+        const QVariantMap group = value.toMap();
+        const QVariantList members =
+            group.value(QStringLiteral("members")).toList();
+        const QString label = group.value(QStringLiteral("label")).toString();
+        const qlonglong level =
+            group.value(QStringLiteral("level")).toLongLong();
+        QVariantMap header;
+        header.insert(QStringLiteral("kind"), QStringLiteral("header"));
+        header.insert(QStringLiteral("label"), label);
+        header.insert(QStringLiteral("level"), level);
+        header.insert(QStringLiteral("count"), members.size());
+        // A header needs an id a delegate can key on, and it must never be
+        // mistaken for a user id: '@' starts every Matrix user id, so a level
+        // prefix is used instead.
+        header.insert(QStringLiteral("userId"),
+                      QStringLiteral("role:%1").arg(level));
+        out.append(header);
+        for (const QVariant &memberValue : members) {
+            QVariantMap row = memberValue.toMap();
+            row.insert(QStringLiteral("kind"), QStringLiteral("member"));
+            row.insert(QStringLiteral("roleLabel"), label);
+            row.insert(QStringLiteral("powerLevel"), level);
+            out.append(row);
+        }
+    }
+    return out;
+}
+
 void RoomInfoController::onLoggedOut()
 {
     m_membersOp = 0;

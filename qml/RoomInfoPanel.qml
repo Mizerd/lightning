@@ -56,6 +56,12 @@ Rectangle {
         section = "overview"
         memberFilter = ""
         memberSearch.text = ""
+        // The membership filter and the sort are part of "what am I looking
+        // at", so they reset with the room: opening a new room under the
+        // previous room's Banned filter shows an empty roster with nothing
+        // saying why.
+        memberSection.membership = "joined"
+        memberSection.alphabetical = false
         refreshRoomData()
         // Poll-on-open: re-query the room's server push-rule mode so a
         // change made in another client lands in the local cache (and the
@@ -152,7 +158,22 @@ Rectangle {
                 spacing: AppTheme.spacing8
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("Room information")
+                    // The People section names its own subject and its size,
+                    // as Sable's member column does. A panel titled "Room
+                    // information" over a roster is a header describing the
+                    // tab strip rather than the thing under it.
+                    // Branched explicitly rather than %n: without a loaded
+                    // translation a %n source string renders its "(s)"
+                    // literally (the same reason RoomCallBanner branches).
+                    text: {
+                        if (root.section !== "people")
+                            return qsTr("Room information");
+                        var n = app.roomInfo.joinedCount;
+                        if (n <= 0)
+                            return qsTr("Members");
+                        return n === 1 ? qsTr("1 member")
+                                       : qsTr("%1 members").arg(n);
+                    }
                     color: AppTheme.textPrimary
                     // The pane-header role: 16, matching the room-list
                     // header on the same shell row. It was 15 here and 16
@@ -983,31 +1004,102 @@ Rectangle {
         }
 
         // ── People ───────────────────────────────────────────────────────
+        // Sable's / Discord's shape: a count, a membership filter and an
+        // A-to-Z toggle, a name search, then the roster GROUPED BY POWER
+        // LEVEL with a heading per group.
+        //
+        // The buckets come from C++ (`memberRoleRows`), not from QML. Which
+        // roles a room HAS is a model fact — a room using 42 gets its own
+        // "Custom (42)" heading rather than being folded into Moderator,
+        // which would misdescribe the room's own configuration in the one
+        // place a person consults to understand it — and the flattening has
+        // to be there too, or a nested Repeater instantiates every row of
+        // every group at once in a room that may have thousands of members.
         ColumnLayout {
+            id: memberSection
             visible: root.section === "people"
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: AppTheme.spacing8
 
+            // A method CALL creates no property dependency, so a binding that
+            // calls memberRoleRows() never re-evaluates on its own. Reading
+            // this counter inside it is what makes an arriving roster reach
+            // the list — the same idiom SpaceSettingsDialog's rosterTick uses
+            // and the media-cache handlers' resolveTick before it.
+            property int rosterTick: 0
+            Connections {
+                target: app.roomInfo
+                function onMembersChanged() { memberSection.rosterTick++ }
+            }
+
+            /// "" (everyone) | "joined" | "invited" | "banned". A closed set:
+            /// the controller matches nothing for anything else rather than
+            /// quietly meaning "all".
+            property string membership: "joined"
+            property bool alphabetical: false
+
             RowLayout {
                 Layout.fillWidth: true
-                Layout.margins: AppTheme.spacing8
-                spacing: AppTheme.spacing8
-                AppTextField {
-                    id: memberSearch
-                    Layout.fillWidth: true
-                    searchIcon: true
-                    clearButton: true
-                    placeholderText: qsTr("Search members…")
-                    onTextChanged: root.memberFilter = text
+                Layout.leftMargin: AppTheme.spacing12
+                Layout.rightMargin: AppTheme.spacing8
+                Layout.topMargin: AppTheme.spacing8
+                spacing: AppTheme.spacing6
+
+                // The membership filter, as a cycling chip rather than a
+                // combo: four values, and a 300px column has no room for a
+                // dropdown next to a sort control and a count.
+                AppButton {
+                    kind: "ghost"
+                    size: "sm"
+                    text: memberSection.membership === "joined" ? qsTr("Joined")
+                          : memberSection.membership === "invited" ? qsTr("Invited")
+                          : memberSection.membership === "banned" ? qsTr("Banned")
+                          : qsTr("Everyone")
+                    Accessible.name: qsTr("Filter members by membership")
+                    ToolTip.text: qsTr("Showing %1 — click to change").arg(text)
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: {
+                        memberSection.membership =
+                            memberSection.membership === "joined" ? "invited"
+                            : memberSection.membership === "invited" ? "banned"
+                            : memberSection.membership === "banned" ? ""
+                            : "joined"
+                    }
+                }
+                Item { Layout.fillWidth: true }
+                // A-to-Z, off by default. The snapshot arrives sorted by
+                // power level DESCENDING and is only THEN capped, so an
+                // alphabetical re-sort of a truncated roster is missing
+                // names from the MIDDLE of the alphabet rather than its tail
+                // — `truncated` below is what says so.
+                AppButton {
+                    kind: memberSection.alphabetical ? "secondary" : "ghost"
+                    size: "sm"
+                    text: qsTr("A to Z")
+                    Accessible.name: qsTr("Sort members alphabetically")
+                    onClicked: memberSection.alphabetical = !memberSection.alphabetical
                 }
                 AppButton {
                     kind: "primary"
+                    size: "sm"
                     visible: app.roomInfo.canInvite
                     text: qsTr("Invite")
                     Accessible.name: qsTr("Invite people to this room")
                     onClicked: inviteDialog.openFor(app.roomInfo.roomId)
                 }
+            }
+
+            AppTextField {
+                id: memberSearch
+                Layout.fillWidth: true
+                Layout.leftMargin: AppTheme.spacing12
+                Layout.rightMargin: AppTheme.spacing12
+                searchIcon: true
+                clearButton: true
+                placeholderText: qsTr("Type name…")
+                onTextChanged: root.memberFilter = text
             }
 
             Label {
@@ -1020,6 +1112,7 @@ Rectangle {
             Label {
                 visible: app.roomInfo.truncated
                 Layout.leftMargin: AppTheme.spacing12
+                Layout.rightMargin: AppTheme.spacing12
                 Layout.fillWidth: true
                 text: qsTr("Showing the first %1 members of %2.")
                       .arg(app.roomInfo.members.length)
@@ -1033,134 +1126,138 @@ Rectangle {
 
             ListView {
                 id: memberList
+                objectName: "memberRoleList"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                // Reading `members` makes this binding re-evaluate when the
-                // snapshot updates (invites landing, refreshes), not only
-                // when the filter text changes.
+                // ONE flat list of headers and members, so it virtualises.
+                // The role groups are the model's, not this view's.
                 model: {
-                    var snapshot = app.roomInfo.members // dependency only
-                    return root.memberFilter.length > 0
-                            ? app.roomInfo.filterMembers(root.memberFilter)
-                            : snapshot
+                    var _t = memberSection.rosterTick   // dependency only
+                    return app.roomInfo.memberRoleRows(root.memberFilter,
+                                                       memberSection.membership,
+                                                       memberSection.alphabetical)
                 }
                 ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                 // Same wheel/touchpad feel as the room timeline; see
                 // qml/SmoothWheelArea.qml.
                 SmoothWheelArea {}
 
-                delegate: ItemDelegate {
-                    width: ListView.view.width
-                    Accessible.name: modelData.displayName.length > 0
-                                     ? qsTr("%1 (%2)").arg(modelData.displayName)
-                                                      .arg(modelData.userId)
-                                     : modelData.userId
-                    onClicked: memberProfile.openFor(modelData)
-                    contentItem: RowLayout {
-                        spacing: AppTheme.spacing8
-                        Avatar {
-                            width: 32; height: 32
-                            size: 32
-                            name: modelData.displayName.length > 0
-                                  ? modelData.displayName : modelData.userId
-                            mxc: modelData.avatarUrl || ""
-                            colorKey: modelData.userId || ""
+                delegate: Loader {
+                    id: memberLoader
+                    width: memberList.width
+                    required property var modelData
+                    sourceComponent: modelData.kind === "header"
+                                     ? roleHeaderComponent : memberRowComponent
 
-                            // v0.7.x Matrix presence. Banned members are
-                            // not IN the room — polling them would be
-                            // noise, so they get no dot. The userId is
-                            // additionally gated on the panel actually
-                            // showing People (the MemberProfilePopover
-                            // `opened` idiom): this panel is never behind
-                            // a Loader and the ListView keeps cached
-                            // delegates alive, so without the gate a
-                            // closed panel kept watching members
-                            // (review L4).
-                            PresenceDot {
+                    Component {
+                        id: roleHeaderComponent
+                        Item {
+                            width: memberList.width
+                            height: 28
+                            MenuSectionLabel {
+                                anchors.left: parent.left
                                 anchors.right: parent.right
+                                anchors.leftMargin: AppTheme.spacing12
+                                anchors.rightMargin: AppTheme.spacing12
                                 anchors.bottom: parent.bottom
-                                anchors.margins: -1
-                                dotSize: 10
-                                ring: AppTheme.sidebar
-                                userId: root.visible
-                                        && root.section === "people"
-                                        && modelData.membership !== "banned"
-                                        ? (modelData.userId || "") : ""
+                                text: qsTr("%1 — %2")
+                                          .arg(memberLoader.modelData.label)
+                                          .arg(memberLoader.modelData.count)
                             }
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 0
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: AppTheme.spacing4
-                                Label {
-                                    text: modelData.displayName.length > 0
-                                          ? modelData.displayName
-                                          : modelData.userId
-                                    // Identity ink — the member list is the
-                                    // one place a reader scans for a
-                                    // specific person, and it was a column
-                                    // of identical grey.
-                                    color: AppTheme.userColor(modelData.userId || "")
-                                    font.pixelSize: AppTheme.textSubtitle
-                                    font.weight: AppTheme.weightStrong
-                                    elide: Label.ElideRight
-                                }
-                                Label {
-                                    visible: modelData.ambiguous === true
-                                             && modelData.displayName.length > 0
-                                    text: modelData.userId
-                                    color: AppTheme.textMuted
-                                    font.pixelSize: AppTheme.textMeta
-                                    elide: Label.ElideMiddle
-                                    Layout.fillWidth: true
-                                }
-                            }
-                            Label {
-                                visible: modelData.displayName.length > 0
-                                         && modelData.ambiguous !== true
-                                text: modelData.userId
-                                color: AppTheme.textMuted
-                                font.pixelSize: AppTheme.textMeta
-                                elide: Label.ElideMiddle
-                                Layout.fillWidth: true
-                            }
-                        }
-                        // These four were bare coloured words, two of them
-                        // (Admin, Mod) in the SAME accent — different powers
-                        // rendered identically. StatusChip carries the six
-                        // tone families and keeps the pill geometry shared
-                        // with every other status chip in the app.
-                        StatusChip {
-                            visible: modelData.membership === "invited"
-                            tone: "warning"
-                            label: qsTr("Invited")
-                        }
-                        // Banned members ride the snapshot since the unban
-                        // round (sorted last) — mark them so the list
-                        // doesn't read as "still here".
-                        StatusChip {
-                            visible: modelData.membership === "banned"
-                            tone: "danger"
-                            label: qsTr("Banned")
-                        }
-                        StatusChip {
-                            visible: modelData.role === "administrator"
-                                     || modelData.role === "creator"
-                            tone: "accent"
-                            label: qsTr("Admin")
-                        }
-                        StatusChip {
-                            visible: modelData.role === "moderator"
-                            tone: "info"
-                            label: qsTr("Mod")
                         }
                     }
-                    ToolTip.text: modelData.userId
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 600
+
+                    Component {
+                        id: memberRowComponent
+                        ItemDelegate {
+                            width: memberList.width
+                            height: 40
+                            padding: 0
+                            hoverEnabled: true
+                            readonly property var member: memberLoader.modelData
+                            Accessible.name: member.displayName.length > 0
+                                             ? qsTr("%1 (%2), %3")
+                                                   .arg(member.displayName)
+                                                   .arg(member.userId)
+                                                   .arg(member.roleLabel)
+                                             : member.userId
+                            onClicked: memberProfile.openFor(member)
+                            background: Rectangle {
+                                anchors.fill: parent
+                                anchors.leftMargin: AppTheme.spacing8
+                                anchors.rightMargin: AppTheme.spacing8
+                                radius: AppTheme.radiusSm
+                                color: parent.hovered ? AppTheme.hover
+                                                      : "transparent"
+                            }
+                            contentItem: RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: AppTheme.spacing12
+                                anchors.rightMargin: AppTheme.spacing12
+                                spacing: AppTheme.spacing8
+                                Avatar {
+                                    width: 26; height: 26
+                                    size: 26
+                                    name: member.displayName.length > 0
+                                          ? member.displayName : member.userId
+                                    mxc: member.avatarUrl || ""
+                                    colorKey: member.userId || ""
+
+                                    // Banned members are not IN the room —
+                                    // polling them would be noise, so they
+                                    // get no dot. The userId is additionally
+                                    // gated on the panel actually showing
+                                    // People: this panel is never behind a
+                                    // Loader and the ListView keeps cached
+                                    // delegates alive, so without the gate a
+                                    // closed panel kept watching members.
+                                    PresenceDot {
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        anchors.margins: -1
+                                        dotSize: 9
+                                        ring: AppTheme.sidebar
+                                        userId: root.visible
+                                                && root.section === "people"
+                                                && member.membership !== "banned"
+                                                ? (member.userId || "") : ""
+                                    }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: member.displayName.length > 0
+                                          ? member.displayName : member.userId
+                                    // Identity ink — the member list is the
+                                    // one place a reader scans for a specific
+                                    // person, and it was a column of
+                                    // identical grey.
+                                    color: AppTheme.userColor(member.userId || "")
+                                    font.pixelSize: AppTheme.textBody
+                                    elide: Label.ElideRight
+                                }
+                                // Invited and banned rows are in the list on
+                                // purpose (a banned member you cannot see is
+                                // a ban you cannot lift), so they have to be
+                                // legible AS invited and banned. The ROLE is
+                                // the group heading and is deliberately not
+                                // repeated per row.
+                                StatusChip {
+                                    visible: member.membership === "invited"
+                                    tone: "warning"
+                                    label: qsTr("Invited")
+                                }
+                                StatusChip {
+                                    visible: member.membership === "banned"
+                                    tone: "danger"
+                                    label: qsTr("Banned")
+                                }
+                            }
+                            ToolTip.text: member.userId
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 600
+                        }
+                    }
                 }
             }
         }

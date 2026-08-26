@@ -198,6 +198,24 @@ public:
     Q_INVOKABLE QVariantList memberRoleGroups(const QString &needle,
                                               const QString &membership,
                                               bool alphabetical) const;
+    // The same buckets FLATTENED into one list a ListView can virtualise:
+    // a `{ kind: "header", label, level, count }` row followed by its
+    // `{ kind: "member", … }` rows, in the same order.
+    //
+    // Why flattened rather than a Repeater over memberRoleGroups(): a nested
+    // Repeater instantiates EVERY member row of EVERY group at once, and this
+    // list is the side panel of a room that may have thousands of members —
+    // where the dialog's version is a bounded page inside a modal. A ListView
+    // needs one flat model, and building the flattening in QML would put the
+    // grouping rule in two places.
+    //
+    // Each member row carries `roleLabel` and `powerLevel` so a delegate never
+    // has to ask again per row: `roleLabelForLevel` is Q_INVOKABLE, so a call
+    // from a binding creates no dependency and a recycled delegate would keep
+    // the previous member's label.
+    Q_INVOKABLE QVariantList memberRoleRows(const QString &needle,
+                                            const QString &membership,
+                                            bool alphabetical) const;
     // Moderation (kick / ban / unban) against the panel's room. `reason`
     // may be empty. One in-flight action at a time. The offer/dispatch
     // policy lives HERE, not in QML (architecture §5): canModerate(op)

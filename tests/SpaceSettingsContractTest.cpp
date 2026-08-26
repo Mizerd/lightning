@@ -606,6 +606,74 @@ private Q_SLOTS:
                      .size(), 2);
     }
 
+    // The room member panel is a ListView over a room that may have thousands
+    // of members, so it needs ONE FLAT model — a Repeater over the nested
+    // groups instantiates every row of every group at once. The flattening is
+    // in C++ with the bucketing, or the grouping rule lives in two places.
+    void theFlattenedRoleRowsCarryTheirHeadingsInOrder()
+    {
+        FakeClient client;
+        RoomInfoController ctl;
+        ctl.setClient(&client);
+        seed(ctl, client);
+
+        const QVariantList groups =
+            ctl.memberRoleGroups(QString(), QString(), false);
+        const QVariantList rows =
+            ctl.memberRoleRows(QString(), QString(), false);
+
+        // Same content, same order: one header per group followed by that
+        // group's members.
+        int expected = groups.size();
+        for (const QVariant &g : groups)
+            expected += g.toMap().value(QStringLiteral("members")).toList().size();
+        QCOMPARE(rows.size(), expected);
+
+        int at = 0;
+        for (const QVariant &g : groups) {
+            const QVariantMap group = g.toMap();
+            const QVariantMap header = rows.at(at++).toMap();
+            QCOMPARE(header.value(QStringLiteral("kind")).toString(),
+                     QStringLiteral("header"));
+            QCOMPARE(header.value(QStringLiteral("label")).toString(),
+                     group.value(QStringLiteral("label")).toString());
+            QCOMPARE(header.value(QStringLiteral("level")).toLongLong(),
+                     group.value(QStringLiteral("level")).toLongLong());
+            const QVariantList members =
+                group.value(QStringLiteral("members")).toList();
+            QCOMPARE(header.value(QStringLiteral("count")).toInt(),
+                     int(members.size()));
+            // A header's id must never be mistakable for a user id — every
+            // Matrix user id starts with '@', so a delegate keying on it
+            // would otherwise open a profile for a heading.
+            QVERIFY(!header.value(QStringLiteral("userId")).toString()
+                         .startsWith(QLatin1Char('@')));
+            for (const QVariant &m : members) {
+                const QVariantMap row = rows.at(at++).toMap();
+                QCOMPARE(row.value(QStringLiteral("kind")).toString(),
+                         QStringLiteral("member"));
+                QCOMPARE(row.value(QStringLiteral("userId")).toString(),
+                         m.toMap().value(QStringLiteral("userId")).toString());
+                // Carried per row so a recycled delegate cannot inherit the
+                // previous member's role: roleLabelForLevel is Q_INVOKABLE,
+                // so a call from a binding creates no dependency.
+                QCOMPARE(row.value(QStringLiteral("roleLabel")).toString(),
+                         group.value(QStringLiteral("label")).toString());
+                QCOMPARE(row.value(QStringLiteral("powerLevel")).toLongLong(),
+                         group.value(QStringLiteral("level")).toLongLong());
+            }
+        }
+        QCOMPARE(at, int(rows.size()));
+
+        // The membership filter and the A-to-Z sort reach it, or the panel's
+        // two controls are inert.
+        QCOMPARE(ctl.memberRoleRows(QString(), QStringLiteral("banned"),
+                                    false).size(),
+                 2);   // one heading + one banned member
+        QVERIFY(ctl.memberRoleRows(QStringLiteral("zzzz"), QString(),
+                                   false).isEmpty());
+    }
+
     // Sign-out and a Space switch both clear the matrix. An empty map is the
     // unknown state, so a stale threshold cannot survive into the next room.
     void switchingSpaceClearsTheMatrix()
