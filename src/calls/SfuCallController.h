@@ -298,8 +298,13 @@ public:
     /// PASSES to the media engine on success; on any refusal the caller still
     /// owns it and must close it. -1 means "no remote", which only the test
     /// source path accepts.
+    ///
+    /// `windowHandle` is a Windows HWND, widened, and non-zero only when the
+    /// user picked a single WINDOW rather than a display. It is exclusive
+    /// with `pipewireNodeId`, which then means nothing.
     Q_INVOKABLE bool startScreenShare(int pipewireNodeId,
-                                      int pipewireFd = -1);
+                                      int pipewireFd = -1,
+                                      quint64 windowHandle = 0);
     Q_INVOKABLE void stopScreenShare();
     Q_INVOKABLE void setHandRaised(bool raised);
     Q_INVOKABLE void toggleHandRaised();

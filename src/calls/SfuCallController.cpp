@@ -1,5 +1,7 @@
 #include "calls/SfuCallController.h"
 
+#include "calls/WindowCaptureSrc.h"
+
 #include <QLoggingCategory>
 
 #include <QGuiApplication>
@@ -440,15 +442,39 @@ void SfuCallController::requestScreenShare()
             { QStringLiteral("current"), screen == ownScreen },
         });
     }
+    // ...AND THE WINDOWS, which is the half a person actually reaches for.
+    //
+    // Every other call client offers applications, and the reason this one
+    // did not was never design: no GStreamer element we can ship captures a
+    // window, so Lightning brings its own (WindowCaptureSrc.h). Empty off
+    // Windows, where the portal owns the picker and already offers windows
+    // itself.
+    for (const lightning::wincap::WindowInfo &window :
+         lightning::wincap::enumerateWindows()) {
+        m_screenShareSources.append(QVariantMap{
+            { QStringLiteral("index"), -1 },
+            { QStringLiteral("windowHandle"), window.handle },
+            { QStringLiteral("name"), window.title },
+            { QStringLiteral("geometry"),
+              QStringLiteral("%1 x %2").arg(window.width).arg(window.height) },
+            { QStringLiteral("primary"), false },
+            { QStringLiteral("current"), false },
+        });
+    }
+
     if (m_screenShareSources.isEmpty()) {
         Q_EMIT callFailed(tr("No display is available to share."));
         return;
     }
     Q_EMIT screenShareSourcesChanged();
-    // ONE display is not a choice. Opening a dialog to confirm the only
-    // possible answer is a click that tells the user nothing, so it starts
-    // straight away — which is also exactly what the previous behaviour did
-    // correctly on a single-monitor machine.
+    // ONE source and it is a DISPLAY: not a choice, so share it. Opening a
+    // dialog to confirm the only possible answer is a click that tells the
+    // user nothing.
+    //
+    // Windows can no longer take this path in practice — a desktop with a
+    // window open has at least two entries — and that is the point: the
+    // report was "it just grabs the main monitor", and a single-monitor
+    // machine used to hit exactly this branch and share without asking.
     if (m_screenShareSources.size() == 1) {
         chooseScreenShareSource(0);
         return;
@@ -473,13 +499,25 @@ void SfuCallController::chooseScreenShareSource(int index)
         cancelScreenShareSelection();
         return;
     }
+    // Read BEFORE the list is cleared. The chosen row carries which kind it
+    // is, and clearing first would leave only the index — which says nothing
+    // about whether it means a display or a window.
+    const QVariantMap chosen = m_screenShareSources.at(index).toMap();
+    const quint64 windowHandle =
+        chosen.value(QStringLiteral("windowHandle")).toULongLong();
+    const int displayIndex = chosen.value(QStringLiteral("index")).toInt();
+    const bool isWindow = windowHandle != 0;
+
     m_screenShareSources.clear();
     Q_EMIT screenShareSourcesChanged();
-    // The display index goes in the node-id slot, which is what
+    // A display index goes in the node-id slot, which is what
     // SfuMediaEngine::screenShareSource() reads it as off Linux. No portal
-    // remote exists, hence -1 for the fd.
-    if (!startScreenShare(index, -1)) {
-        Q_EMIT callFailed(tr("Couldn't start sharing that display."));
+    // remote exists, hence -1 for the fd. A window carries its handle
+    // instead and the node id is meaningless.
+    if (!startScreenShare(isWindow ? -1 : displayIndex, -1, windowHandle)) {
+        Q_EMIT callFailed(isWindow
+                              ? tr("Couldn't start sharing that window.")
+                              : tr("Couldn't start sharing that display."));
     }
 #else
     Q_UNUSED(index);
@@ -1901,7 +1939,8 @@ void SfuCallController::setCameraOn(bool on)
 
 void SfuCallController::toggleCamera() { setCameraOn(!m_cameraOn); }
 
-bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd)
+bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
+                                         quint64 windowHandle)
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (!active() || m_engine.isNull() || !m_client)
@@ -1914,14 +1953,18 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd)
     if (m_screenSharing)
         stopScreenShare();
     const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    // `window=` is a BOOLEAN, never the handle: an HWND identifies a window
+    // on the user's desktop and its title is theirs, so neither belongs in a
+    // log they may be asked to send.
     qCInfo(lcSfuCall) << "screen share publishing node=" << pipewireNodeId
+                      << "window=" << (windowHandle != 0)
                       << "encrypted=" << m_roomEncrypted;
     m_client->sfuAddTrack(cid, QStringLiteral("screen"), 1,
                           SfuMediaEngine::kScreenWidth,
                           SfuMediaEngine::kScreenHeight,
                           true, m_roomEncrypted);
     m_engine->publishVideo(cid, /*screenShare=*/true, pipewireNodeId,
-                           pipewireFd);
+                           pipewireFd, windowHandle);
     m_screenCid = cid;
     m_publishedTrackIds.append(cid);
     m_screenSharing = true;

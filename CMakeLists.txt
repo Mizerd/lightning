@@ -653,6 +653,12 @@ if(HAVE_LIGHTNING_WEBRTC)
         src/calls/SfuMediaEngine.cpp
         src/calls/RtpVp8Payloader.h
         src/calls/RtpVp8Payloader.cpp
+        # Window capture, ours because nothing shippable does it: the only
+        # capture element in the Windows SDK set takes a monitor index, and
+        # the one with a window handle is the UCRT-built d3d11 plugin this
+        # project cannot link against. Compiles to nothing off Windows.
+        src/calls/WindowCaptureSrc.h
+        src/calls/WindowCaptureSrc.cpp
         # Only reachable through the SFU engine, and the one file that needs
         # OpenSSL directly — keeping it here rather than in the shared app
         # sources avoids linking libcrypto into every test target.
@@ -2852,8 +2858,12 @@ if(BUILD_TESTING)
             src/calls/SfuMediaEngine.cpp
         src/calls/RtpVp8Payloader.h
         src/calls/RtpVp8Payloader.cpp
+        src/calls/WindowCaptureSrc.h
+        src/calls/WindowCaptureSrc.cpp
             src/calls/RtpVp8Payloader.h
             src/calls/RtpVp8Payloader.cpp
+            src/calls/WindowCaptureSrc.h
+            src/calls/WindowCaptureSrc.cpp
             src/calls/CallFrameCryptor.h
             src/calls/CallFrameCryptor.cpp
             src/calls/SfuVideoRouter.h

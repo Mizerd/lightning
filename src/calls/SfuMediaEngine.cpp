@@ -7,6 +7,7 @@
 #include "calls/CallFrameCryptor.h"
 #include "calls/GstBootstrap.h"
 #include "calls/RtpVp8Payloader.h"
+#include "calls/WindowCaptureSrc.h"
 #include "calls/SfuVideoRouter.h"
 
 #include <mutex>
@@ -475,6 +476,9 @@ bool SfuMediaEngine::runtimeAvailable(QString *whyNot)
     // other element. Registered here because this is the first thing that
     // runs after gst_init and before any pipeline is built.
     lightning::rtp::registerVp8Payloader();
+    // Same reason and the same moment: an element we compile in has to be in
+    // the registry before any pipeline description can name it.
+    lightning::wincap::registerWindowCaptureSrc();
     // Everything the SFU pipelines need. Video and screen capture are
     // included because an SFU call that cannot carry them is not what this
     // engine claims to be — a partial probe would let it register and then
@@ -1244,7 +1248,8 @@ QString SfuMediaEngine::localScreenStreamId()
     return QStringLiteral("local:screen");
 }
 
-QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd)
+QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd,
+                                         quint64 windowHandle)
 {
     // `fd` FIRST: the portal's remote is where this node lives, and
     // pipewiresrc resolves `path` against whichever remote it was given.
@@ -1307,6 +1312,18 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd)
     // element's `monitor-index`/`show-cursor` are DIFFERENT names, and using
     // them here would be a pipeline that never builds.
     Q_UNUSED(pipewireFd);
+    // A SINGLE WINDOW goes to our own element, because nothing shippable
+    // takes one: `gdiscreencapsrc` has `monitor` and a crop rectangle and no
+    // window property at all, and `d3d11screencapturesrc`, which does, is in
+    // the plugin this toolchain cannot load. Cropping the screen to the
+    // window's rectangle was the cheap alternative and is refused on purpose
+    // — it would share whatever is stacked on top of that window. See
+    // WindowCaptureSrc.h.
+    if (windowHandle != 0) {
+        return QStringLiteral("%1 hwnd=%2")
+            .arg(QLatin1String(lightning::wincap::windowCaptureSrcName()))
+            .arg(windowHandle);
+    }
     return QStringLiteral("gdiscreencapsrc monitor=%1 cursor=true")
         .arg(nodeId < 0 ? 0 : nodeId);
 #elif defined(Q_OS_MACOS)
@@ -1348,7 +1365,8 @@ QString SfuMediaEngine::cameraSource()
 }
 
 void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
-                                  int nodeId, int pipewireFd)
+                                  int nodeId, int pipewireFd,
+                                  quint64 windowHandle)
 {
     // The fd belongs to this engine now. It is held for the LIFETIME of the
     // publishing bin and closed by unpublish(), NOT once the element exists:
@@ -1378,12 +1396,15 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         // decides what is shared. A negative node id would mean "whatever
         // PipeWire feels like", which is exactly how you publish the wrong
         // monitor, so it is refused.
-        if (nodeId < 0) {
+        // A WINDOW handle is a source in its own right, so the node-id
+        // refusal below must not reject it. Without this a window share fails
+        // as "no source" while holding a perfectly good HWND.
+        if (nodeId < 0 && windowHandle == 0) {
             closeFd();
             Q_EMIT failed(QStringLiteral("screen_share_no_source"));
             return;
         }
-        source = screenShareSource(nodeId, pipewireFd);
+        source = screenShareSource(nodeId, pipewireFd, windowHandle);
     } else {
         // `v4l2src`, NOT `autovideosrc`, and the reason is measured.
         //

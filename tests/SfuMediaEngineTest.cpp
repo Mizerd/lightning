@@ -1774,6 +1774,55 @@ private slots:
         }
     }
 
+    // A CHOSEN WINDOW must reach a capture element, not fall through to the
+    // monitor one.
+    //
+    // Windows has no element that can capture a window: `gdiscreencapsrc`
+    // takes a `monitor` index and a crop rectangle, and
+    // `d3d11screencapturesrc`, which has `window-handle`, is in the plugin
+    // this toolchain cannot load. So Lightning compiles its own
+    // (WindowCaptureSrc.h) and the routing has to be pinned — a handle
+    // silently ignored is a share that says "window" and sends the whole
+    // desktop, which is a privacy failure rather than a cosmetic one.
+    //
+    // Source-scanned because the branch is `#if defined(Q_OS_WIN)`: this
+    // suite runs on Linux, where calling the function can only ever return
+    // the pipewiresrc form. `everyPlatformNamesACaptureSourceItActuallyHas`
+    // above is the same shape for the same reason.
+    void aChosenWindowRoutesToTheWindowCaptureElement()
+    {
+        const QString pane = QString::fromUtf8(SOURCE_UNDER_TEST);
+        QVERIFY(!pane.isEmpty());
+
+        const int windowBranch =
+            pane.indexOf(QStringLiteral("if (windowHandle != 0) {"));
+        QVERIFY2(windowBranch > 0,
+                 "screenShareSource has no window branch at all");
+        const int gdi =
+            pane.indexOf(QStringLiteral("gdiscreencapsrc monitor="));
+        QVERIFY2(gdi > 0, "the monitor branch vanished");
+        QVERIFY2(windowBranch < gdi,
+                 "a window handle is only considered after the monitor "
+                 "source has already been chosen");
+        QVERIFY2(pane.contains(QStringLiteral("windowCaptureSrcName()")),
+                 "the window branch does not name Lightning's capture "
+                 "element, so it cannot be the one that runs");
+
+        // And the refusal above it must not reject a window: a handle is a
+        // source in its own right and carries no node id.
+        QVERIFY2(pane.contains(
+                     QStringLiteral("if (nodeId < 0 && windowHandle == 0) {")),
+                 "the no-source refusal still rejects a share that has a "
+                 "window handle but no node id");
+
+        // The element has to be REGISTERED, or naming it in a pipeline
+        // description fails at parse time — the same trap the VP8 payloader
+        // is registered against, in the same place.
+        QVERIFY2(pane.contains(
+                     QStringLiteral("wincap::registerWindowCaptureSrc()")),
+                 "the window capture element is never registered");
+    }
+
     void aPackedLiveKitStreamIdResolvesToTheParticipant()
     {
         // Packed: participant sid, then the track id.

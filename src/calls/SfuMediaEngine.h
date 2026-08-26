@@ -116,8 +116,12 @@ public:
     /// the caller's own default PipeWire remote, where a portal node need not
     /// be visible at all: the pipeline then plays and produces no frames,
     /// which is a black screen share that reports success.
+    /// `windowHandle` is a Windows HWND, widened, and non-zero ONLY when the
+    /// user picked a single window rather than a display. It is the third
+    /// mutually exclusive way of saying "capture this": a portal node on
+    /// Linux, a display index on Windows/macOS, a window here.
     void publishVideo(const QString &cid, bool screenShare, int nodeId,
-                      int pipewireFd = -1);
+                      int pipewireFd = -1, quint64 windowHandle = 0);
     /// The VIDEO publish pipeline, as a gst_parse description.
     ///
     /// Exposed so the SCREEN-SHARE shape — which adds a `tee` and a self-view
@@ -207,7 +211,12 @@ public:
     /// signature for all three so the call controller's plumbing is
     /// platform-blind — the platform difference belongs in the pipeline
     /// description, which is the only thing that actually differs.
-    static QString screenShareSource(int nodeId, int pipewireFd);
+    /// ...and `windowHandle`, non-zero only on Windows and only when a
+    /// single window was chosen, which routes to Lightning's own capture
+    /// element (WindowCaptureSrc.h) because no shippable GStreamer element
+    /// can take a window.
+    static QString screenShareSource(int nodeId, int pipewireFd,
+                                     quint64 windowHandle = 0);
     /// The capture-source fragment for the CAMERA, per platform.
     ///
     /// Exposed for the same reason screenShareSource() is: it decides whether

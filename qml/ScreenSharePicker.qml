@@ -35,6 +35,21 @@ AppDialog {
     readonly property var sources: app.groupCall ? app.groupCall.screenShareSources : []
     property int selected: 0
 
+    // Split for the two group headers. A row is a WINDOW when it carries a
+    // non-zero handle — the same fact the controller keys the capture off, so
+    // the list and the pipeline cannot disagree about what a row means.
+    function isWindowRow(row) {
+        return row !== undefined && row !== null
+            && row.windowHandle !== undefined && row.windowHandle !== 0;
+    }
+    readonly property int screenCount: {
+        var n = 0;
+        for (var i = 0; i < sources.length; ++i)
+            if (!isWindowRow(sources[i]))
+                ++n;
+        return n;
+    }
+
     // Opened by the controller, never by the button: the button asks for a
     // share and the CONTROLLER decides whether a choice is needed — it starts
     // straight away when there is only one display, because a dialog to
@@ -91,7 +106,12 @@ AppDialog {
             // Says what is shared AND what is not, because a person who came
             // here looking for "share one window" should find that out now
             // rather than after everyone has seen their whole desktop.
-            text: qsTr("Everyone in the call sees the whole display you pick. Sharing a single window isn't available on this platform yet.")
+            // Says what each choice actually shares, because "share my
+            // screen" and "share this window" have different consequences
+            // and the difference is the whole reason to offer both.
+            text: root.screenCount === root.sources.length
+                ? qsTr("Everyone in the call sees the whole display you pick.")
+                : qsTr("A screen shares everything on it. A window shares only that window, even if something is in front of it.")
         }
 
         ListView {
@@ -105,9 +125,40 @@ AppDialog {
                 policy: ScrollBar.AsNeeded
             }
 
-            delegate: ItemDelegate {
+            delegate: Column {
+                id: rowColumn
                 required property var modelData
                 required property int index
+                width: list.width
+
+                // The header belongs to the FIRST row of each kind rather
+                // than to a section delegate: the model is a plain
+                // QVariantList with no section role, and giving the rows
+                // themselves the header keeps one source of truth for the
+                // ordering.
+                readonly property bool startsWindows:
+                    root.isWindowRow(modelData)
+                    && index === root.screenCount
+                readonly property bool startsScreens:
+                    !root.isWindowRow(modelData) && index === 0
+
+                Loader {
+                    active: rowColumn.startsScreens || rowColumn.startsWindows
+                    sourceComponent: Label {
+                        topPadding: rowColumn.startsWindows ? AppTheme.spacing12 : 0
+                        bottomPadding: 4
+                        leftPadding: AppTheme.spacing12
+                        text: rowColumn.startsWindows ? qsTr("Windows")
+                                                      : qsTr("Screens")
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                        font.weight: AppTheme.weightMedium
+                    }
+                }
+
+            ItemDelegate {
+                readonly property var modelData: rowColumn.modelData
+                readonly property int index: rowColumn.index
                 width: list.width
                 height: 52
                 padding: 0
@@ -133,7 +184,12 @@ AppDialog {
                     spacing: AppTheme.spacing12
 
                     Icon {
-                        name: "screen_share"
+                        // BOTH names checked against Icon.qml's map. The
+                        // bundled Material Symbols font is a SUBSET and an
+                        // unmapped name renders as tofu; `web_asset`, which
+                        // is the obvious glyph for a window, is not in it.
+                        name: root.isWindowRow(modelData) ? "fit_screen"
+                                                          : "screen_share"
                         size: 22
                         color: root.selected === index ? AppTheme.accent : AppTheme.textSecondary
                     }
@@ -170,6 +226,7 @@ AppDialog {
                         label: qsTr("Primary")
                     }
                 }
+            }
             }
         }
 
