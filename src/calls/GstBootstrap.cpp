@@ -87,3 +87,4 @@ QString bundledPluginPath()
 }
 
 } // namespace lightning::gst
+

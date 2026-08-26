@@ -1,4 +1,9 @@
 #include "app/AppController.h"
+#ifdef HAVE_LIGHTNING_WEBRTC
+#include "calls/GstBootstrap.h"
+#include "calls/GstCallMediaBackend.h"
+#include "calls/SfuMediaEngine.h"
+#endif
 #include "i18n/LocalizationManager.h"
 #include "app/BackendSelection.h"
 #include "app/StartupChecks.h"
@@ -172,6 +177,7 @@ struct PreflightResult {
         RunSmokeTest,  // --rust-sdk-smoke-test (Rust build only)
         RunGifStatus,  // --gif-status: print provider-configured booleans
         RunGifSelfTest, // --gif-selftest: bounded live provider request
+        RunCallMediaStatus, // --call-media-status: probe the media engines
     };
     Action action = Continue;
     // Compile-time default (Rust when the SDK backend is built, else HTTP). A
@@ -249,6 +255,12 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                       isolated storage. Rejected unless compiled with\n"
                 "                       -DLIGHTNING_ENABLE_SCREENSHOT_DEMO=ON (never a\n"
                 "                       release build). See docs/screenshot-demo.md.\n"
+                "  --call-media-status  Probe the call media engines exactly as a\n"
+                "                       normal launch does and print the result, then\n"
+                "                       exit. Exit 0 only when the group-call (SFU)\n"
+                "                       engine is available. Names the first missing\n"
+                "                       GStreamer element when it is not. No network,\n"
+                "                       no GUI, no window.\n"
                 "  --gif-status         Print 'GIPHY/KLIPY configured: yes|no' and exit.\n"
                 "                       Booleans only; never prints keys. No network.\n"
                 "  --gif-selftest       As --gif-status plus a bounded live trending\n"
@@ -366,6 +378,10 @@ PreflightResult preflightParse(int argc, char *argv[])
             continue;
         }
 #endif
+        if (a == QLatin1String("--call-media-status")) {
+            r.action = PreflightResult::RunCallMediaStatus;
+            return r;
+        }
         if (a == QLatin1String("--gif-status")) {
             r.action = PreflightResult::RunGifStatus;
             return r;
@@ -558,6 +574,69 @@ void installVaapiLogGate()
 
 } // namespace
 
+#ifdef HAVE_LIGHTNING_WEBRTC
+/// `--call-media-status`: probe both media engines the way a real launch does.
+///
+/// Lives in main.cpp, NOT in GstBootstrap, because it names BOTH engines and
+/// the bootstrap is linked by test targets that carry only one of them —
+/// putting it there made call-media-loopback-test and sfu-media-engine-test
+/// fail to link against an engine they deliberately do not build.
+///
+/// It exists because none of this was answerable from a package: the build log
+/// said the engine was compiled in, the packaging said 25 plugins were
+/// bundled, and calls were still refused — the plugin path was applied AFTER
+/// gst_init had already run, and nothing shipped could say so.
+static int printCallMediaStatus()
+{
+    QTextStream out(stdout);
+    out << "call media engine built in: yes\n";
+
+    QString whyNot;
+    const bool inited = lightning::gst::ensureInitialised(&whyNot);
+    const QString bundled = lightning::gst::bundledPluginPath();
+    // The PATH, not its contents: it is the app's own install directory and
+    // the single most useful line when the answer is "the plugins are not
+    // where I look".
+    out << "bundled plugin directory: "
+        << (bundled.isEmpty()
+                ? QStringLiteral("<none - using system GStreamer>")
+                : bundled)
+        << "\n";
+    if (!inited) {
+        out << "gstreamer: FAILED (" << whyNot << ")\n"
+            << "\nRESULT: calls will be refused by this build.\n";
+        return 1;
+    }
+    out << "gstreamer: initialised\n";
+
+    // BOTH engines, through the SAME functions AppController probes, in the
+    // same order. A status command with its own check could pass while the
+    // application refused.
+    QString oneToOneWhy;
+    const bool oneToOne = GstCallMediaBackend::runtimeAvailable(&oneToOneWhy);
+    out << "1:1 call engine: "
+        << (oneToOne ? QStringLiteral("available")
+                     : QStringLiteral("unavailable (%1)").arg(oneToOneWhy))
+        << "\n";
+
+    QString sfuWhy;
+    const bool sfu = SfuMediaEngine::runtimeAvailable(&sfuWhy);
+    out << "group call (SFU) engine: "
+        << (sfu ? QStringLiteral("available")
+                : QStringLiteral("unavailable (%1)").arg(sfuWhy))
+        << "\n";
+
+    // The SFU engine alone decides the exit code: it is the one every
+    // MatrixRTC call runs through, and the 1:1 lane's button is disabled in
+    // the UI regardless.
+    out << "\nRESULT: "
+        << (sfu ? QStringLiteral("calls can be placed and answered.")
+                : QStringLiteral("calls will be refused by this build."))
+        << "\n";
+    return sfu ? 0 : 1;
+}
+#endif
+
 int main(int argc, char *argv[])
 {
     // Parse and validate our own flags before QGuiApplication constructs.
@@ -628,6 +707,40 @@ int main(int argc, char *argv[])
         QTextStream(stdout) << pf.stdoutMsg;
         QTextStream(stderr) << pf.stderrMsg;
         return 3;
+    }
+    if (pf.action == PreflightResult::RunCallMediaStatus) {
+        // THE ONE COMMAND THAT ANSWERS "why can I not call from this build".
+        //
+        // A packaged Windows or macOS build reaches this through exactly the
+        // path a normal launch does — the shared GStreamer bootstrap, the
+        // bundled plugin directory beside the executable, and both engines'
+        // own runtimeAvailable() probes. So it can distinguish, without a
+        // GUI and without a homeserver, between "the engine was never built
+        // into this binary", "the plugins are not where the app looks" and
+        // "one specific element is missing".
+        //
+        // It exists because none of that was answerable from a package: the
+        // build log said the engine was compiled in, the packaging said 25
+        // plugins were bundled, and calls still refused — the plugin path was
+        // applied AFTER gst_init had already run. Nothing shipped could say
+        // so. A QCoreApplication is needed because the bootstrap resolves the
+        // plugin directory from applicationDirPath().
+        QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
+        QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
+#ifdef HAVE_LIGHTNING_WEBRTC
+        QCoreApplication probeApp(argc, argv);
+        return printCallMediaStatus();
+#else
+        // The honest answer for a build configured without the engine: the
+        // CMake pkg-config probe found no GStreamer, so there is nothing to
+        // ask. This is what EVERY packaged Windows and macOS build printed
+        // before 2026-08-26.
+        QTextStream(stdout)
+            << "call media engine built in: no\n"
+            << "\nRESULT: calls will be refused by this build "
+               "(configured without GStreamer).\n";
+        return 1;
+#endif
     }
     if (pf.action == PreflightResult::RunGifStatus) {
         // Booleans only; no Qt application or network needed.

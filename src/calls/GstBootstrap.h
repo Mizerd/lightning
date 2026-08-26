@@ -40,3 +40,4 @@ bool ensureInitialised(QString *whyNot = nullptr);
 QString bundledPluginPath();
 
 } // namespace lightning::gst
+
