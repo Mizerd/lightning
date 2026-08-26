@@ -1,5 +1,7 @@
 #include "calls/SfuMediaEngine.h"
 
+#include <algorithm>
+
 #include <unistd.h>
 
 #include "calls/CallFrameCryptor.h"
@@ -2785,7 +2787,36 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         // leaving the track key EMPTY. An empty key routes video to no
         // surface at all, which is the same invisible share by a different
         // road.
+        //
+        // ...AND WHEN AN ID IS PRESENT BUT NAMES NOTHING IN THE DESCRIPTION.
+        // The version hazard above is not only "the property is empty": a
+        // release that packs the msid differently hands back a token of the
+        // WRONG KIND — the track id where the stream id belongs — and that
+        // is worse than empty, because the decrypt ring is keyed by the
+        // participant and a confidently wrong participant is a ring nobody
+        // keyed while every id looks well-formed. Deliberately NOT a prefix
+        // test (`PA_`/`TR_` are LiveKit's spelling, not a guarantee we should
+        // hard-code): the test is whether the value appears among the stream
+        // ids our own parse of THIS description recorded. A participant that
+        // is in no section of the offer we were sent cannot be the sender of
+        // a track in it.
         int sdpSectionsKnown = 0;
+        bool padStreamIdUnknown = false;
+        if (!streamId.isEmpty()) {
+            QMutexLocker lock(&engine->m_recvMutex);
+            padStreamIdUnknown = !engine->m_streamForMline.isEmpty()
+                && !std::any_of(engine->m_streamForMline.cbegin(),
+                                engine->m_streamForMline.cend(),
+                                [&streamId](const QString &known) {
+                                    return known == streamId;
+                                });
+        }
+        if (padStreamIdUnknown) {
+            qCWarning(lcSfuMedia)
+                << "pad msid named a sender absent from the subscriber "
+                   "description; re-deriving from the SDP";
+            streamId.clear();
+        }
         if (streamId.isEmpty() || trackMid.isEmpty()) {
             QString sectionMid;
             GstWebRTCRTPTransceiver *transceiver = nullptr;
@@ -2833,7 +2864,8 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         qCInfo(lcSfuMedia) << "received track attributed="
                            << !streamId.isEmpty() << "trackKey=" << trackMid
                            << "fromPadMsid=" << padCarriedMsid
-                           << "sdpSections=" << sdpSectionsKnown;
+                           << "sdpSections=" << sdpSectionsKnown
+                           << "padSenderUnknown=" << padStreamIdUnknown;
         if (streamId.isEmpty()) {
             // Unattributed. Deliberately given its OWN ring rather than
             // folded into a shared one: a frame decrypted with the wrong
