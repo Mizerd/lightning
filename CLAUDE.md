@@ -405,24 +405,41 @@ backend capability checks and honest live-test status.
   * **Classic** — one activity-ordered conversation list. The default and the
     clamp target for an out-of-range stored value, because it works in an
     account with no Spaces at all.
-  * **Channels** — Sable's model: Lobby, Message Search, an Invites group, a
-    "Rooms" group for every joined room no Space folder lists (DMs included),
-    then EVERY joined Space as a flat collapsible folder of its DIRECT child
-    rooms. It no longer falls back to Classic at Home — a layout that becomes
-    the other layout depending on where you are is not a layout. The rail's
-    selection NARROWS it (`scopeSpaceId`: that Space and its subspaces, with
-    the account-wide groups dropped) rather than deciding whether it renders.
-    **Lobby is the HEAD of whatever the column shows** — the scoped Space's own
-    overview, or Home when nothing is scoped — never a "clear the scope"
-    control wearing the wrong name; `lobbyActive` is therefore just "no room
-    open". Subspaces are NOT nested; a subspace is a Space folder at the same
-    level. A room in two Spaces appears under both. Rows carry the room's
-    AVATAR (the lock/DM glyph is a corner badge, not a replacement), and a DM's
-    face comes from `DirectAvatarResolver` — ONE derivation shared with the
-    Classic list, because `RoomInfo::avatarUrl` is empty on most DMs and this
-    column drew initials next to a Home strip showing the real pictures. Order
-    is the rail's arrangement for Spaces and `m.space.child` for rooms — never
-    activity.
+  * **Channels** — Sable's model, reworked 2026-08-26 into THREE VIEWS the
+    rail chooses between: **Home** (Create Room / Join with Address / Explore
+    Spaces / Message Search, then the room invites and the rooms in no Space),
+    **Direct Messages** (Create Chat, the DM invites and the DMs) and **one
+    per Space** (Lobby / Message Search, its own DIRECT child rooms, its
+    subspaces as sibling folders). It no longer falls back to Classic at
+    Home — a layout that becomes the other layout depending on where you are
+    is not a layout.
+    The selection is written to `scopeSpaceId` VERBATIM and CLASSIFIED there;
+    it used to collapse every non-`!` value to `""`, which left the rail one
+    way to say anything that was not a Space, so a People tab could not be
+    expressed and DMs had to ride along inside every view to stay reachable.
+    **A DM is in the People tab and nowhere else** — Matrix gives no way for a
+    DM to be a Space's child, so a DM under a Space heading is a claim the
+    state does not make. **The People tab is CHANNELS ONLY** and the rail
+    resets a selection left on it when the layout changes. **The People/Rooms
+    filter chips are dropped in Channels** (the tabs are that split); the
+    stored value is MAPPED on the way in, never rewritten, so Classic gets the
+    user's own chip back. A selection on a Space the account no longer has
+    STAYS that Space and renders its own emptiness — falling back to
+    "everything" would silently be a different Space's view under a tile that
+    is gone. **Lobby is the HEAD of a SPACE'S view and only that one**; Home
+    and People have no overview of themselves to open. Subspaces are NOT
+    nested; a subspace is a Space folder at the same level. A room in two
+    Spaces appears under both. Rows carry the room's AVATAR (the lock/DM glyph
+    is a corner badge, not a replacement), and a DM's face comes from
+    `DirectAvatarResolver` — ONE derivation shared with the Classic list,
+    because `RoomInfo::avatarUrl` is empty on most DMs and this column drew
+    initials next to a Home strip showing the real pictures. Order is the
+    rail's arrangement for subspaces and `m.space.child` for rooms — never
+    activity. Command rows carry a synthetic `@` id the presenter must name
+    (contract-pinned: an unnamed one renders as a control that does nothing)
+    and the MODEL names each row's glyph, because the icon font is a SUBSET
+    and the ordinary icon sweep only sees a literal beside an `Icon { name: }`.
+    Live GUI validation of the three-view rework: **NOT TESTED**.
   * **The rail's drag** lives in `RailEntryModel`, a real QAbstractListModel
     emitting `beginMoveRows`, so a preview reorder ANIMATES and the delegate
     holding the gesture survives a refresh. A JS array rebuilt per change is a
@@ -1531,6 +1548,60 @@ their index explicitly.
 
 Lessons only; features are described in §7, SHAs point into `git log`.
 
+**2026-08-26 Sable-parity round: three Channels views, the member column, the
+call glyph, raised hands.** All four are **NOT TESTED** live.
+
+*A design where every view is the same list narrowed by a scope cannot express
+a tab.* Channels held DMs, every Space and the unparented rooms in ONE list and
+narrowed it with `scopeSpaceId`, which stripped every non-`!` value to `""`. So
+the rail had exactly one way to say anything that was not a Space — and the
+previous round's fix for "the people tab does nothing" had to make EVERY view
+carry a Direct messages group a scope was forbidden to delete, because there
+was nowhere else a DM could live. Home then repeated both that group and every
+Space the rail was already showing. Keeping the selection VERBATIM and
+classifying it (`!` → Space, `@people` → DMs, else Home) is what made three
+real views possible, and each one now holds only what belongs to it.
+GENERALISE: when a fix has to make every surface carry something so it stays
+reachable, the thing that is missing is a place for it to be.
+
+*A test with no teeth, caught by mutation and not by review — twice in one
+round.* `everyRuntimeChosenIconNameIsMapped` was written to sweep glyph names
+the ordinary icon test cannot see (a name RETURNED from a function, or chosen
+in C++ and bound through a model, has no literal beside an `Icon { name: }`).
+Its C++ half tried to pattern-match the call sites, matched NONE of them, and
+passed on a deliberately broken tree. Fixed by moving the names into a `kIcon…`
+block the sweep finds by prefix and BANNING the literal form, then
+mutation-checking both halves against an unmapped name. The suite for the
+Channels rework was checked the same way, against two mutations of the FIXED
+tree (a Space view carrying the DM group again: 4 failures; a Home repeating
+every Space: 2). A `found > 0` guard inside the sweep is what turns "matched
+nothing" from a pass into a failure.
+
+*A room-list indicator must not be allowed to ask.* `RtcController::refresh()`
+re-reads one room's session, and `read_membership_events` falls back to a full
+`/state` request whenever the store holds no live membership — the normal state
+of every idle room. A call glyph that refreshed itself would issue one `/state`
+PER ROOM in the list, on every rebuild. `RoomCallGlyph` therefore reads only
+what the controller already knows and re-reads on its poke; the honest cost is
+that a call already running before this client synced, in a room nothing has
+poked since, shows nothing. `app.rtc.refresh` is banned from the component by
+contract test.
+
+*Raised hands: read the reference implementation, do not infer it.* The note
+against the local-only control said inventing a wire representation was a
+protocol decision to be checked against a real element-call client — so this
+round cloned element-call and read `useReactionsSender.tsx` and
+`ReactionsReader.ts`. Three things would have been got wrong by inference: the
+target is the sender's OWN `m.call.member` STATE event (not a timeline
+message — that is what scopes a hand to one call, since rejoining publishes a
+new membership); the key is TWO code points (U+1F590 + U+FE0F, visually
+identical to the one-code-point form in every editor, so the test asserts the
+seven UTF-8 bytes); and the sender must OWN the membership they annotate, or
+one user could raise everybody's hand. A redaction names only what it removed,
+so "whose hand went down" is answered from a locally held
+`reaction id -> identity` map — which is also what makes forwarding every
+redaction in every room cheap.
+
 **2026-08-26 tester round: the rail drop (again), the slow account switch,
 the People chip, the log, the settings, and the Discord call surface.**
 
@@ -2434,8 +2505,13 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   keeps the instant first frame, and that must go through the suite's own
   `framesFromASingleCaptureBuffer` harness before anything ships.
 - **The incoming-call prompt's Accept does nothing.**
-- **Raise hand is invisible to Element** — it is local-only, and either the
-  wire representation gets established from element-call or the control goes.
+- ~~**Raise hand is invisible to Element**~~ — the wire representation was
+  established 2026-08-26 by READING element-call's own source rather than
+  guessing: an `m.reaction` annotating the raiser's OWN `m.call.member` state
+  event with `\u{1F590}\u{FE0F}`, lowered by redacting it. Three lanes (our
+  send, two sync handlers, one bounded join-time sweep for hands raised before
+  we arrived). Live Element interop **NOT TESTED** — this stays on the list
+  until somebody sees a hand cross.
 - **Full screen opens on the primary monitor**, not the one the app is on.
 
 STILL UNPROVEN, not reported broken:

@@ -1,16 +1,17 @@
 # Room navigation: the Spaces rail, Classic, and Channels
 
-**Landed 2026-08-23, substantially reworked 2026-08-25.** Live GUI validation:
-partial — see §11 for exactly what has been seen and what has not.
+**Landed 2026-08-23, substantially reworked 2026-08-25 and again 2026-08-26.**
+Live GUI validation: partial — see §11 for exactly what has been seen and what
+has not. **The 2026-08-26 three-view rework is NOT TESTED live.**
 
 Three things live here and they are deliberately different systems. Confusing
 any two of them is the failure mode this document exists to prevent.
 
 | | What it is | Where it lives |
 |---|---|---|
-| **The Spaces rail** | The 68 px column: Home, your Spaces, and your own *local* folders over them | `qml/SpacesRail.qml`, `RailEntryModel`, `RailLayoutStore` |
+| **The Spaces rail** | The 68 px column: Home, Direct Messages (Channels only), your Spaces, and your own *local* folders over them | `qml/SpacesRail.qml`, `RailEntryModel`, `RailLayoutStore` |
 | **Classic** | One activity-ordered conversation list | `qml/RoomListClassicPresenter.qml` |
-| **Channels** | Every joined Space as a flat collapsible folder of rooms | `qml/RoomChannelsPresenter.qml`, `SpaceChannelModel` |
+| **Channels** | Three views the rail chooses between: Home, Direct Messages, one per Space | `qml/RoomChannelsPresenter.qml`, `SpaceChannelModel` |
 
 ## 1. Three kinds of grouping, and none of them are the same thing
 
@@ -358,20 +359,46 @@ bans `app.settings` and `app.railLayout` from the file.
 
 ## 5. Channels: Sable's model
 
-```text
-Lobby
-Message Search
+**Reworked 2026-08-26 to match Sable's three views.** The rail chooses one and
+the column renders exactly that one:
 
-Invites            (only when there are any)
-Rooms       >      every joined room no Space folder will list
-Space A     v
-  room 1
+```text
+Home                    Direct Messages         A Space
+----                    ---------------         -------
+Create Room             Create Chat             Lobby
+Join with Address                               Message Search
+Explore Spaces          Invites  (DM invites)
+Message Search          Chats    >              Rooms      >
+                          person 1                room 1
+Invites (room invites)    person 2                room 2
+Rooms   >                                       Subspace   >
+  room 1                                          room 3
   room 2
-Space B     >
-Space C     >
 ```
 
-### What the previous design got wrong, structurally
+The rail carries **Home**, a **Direct Messages** tab and then every Space.
+Each view holds only what belongs to it: Home has the rooms in no Space,
+People has the DMs, a Space has its own direct child rooms and its subspaces
+as sibling folders — never DMs, because Matrix gives no way for a DM to be a
+Space's child, so a DM under a Space heading would be a claim the state does
+not make.
+
+**The People tab is CHANNELS ONLY.** Classic reaches DMs through its People
+filter chip over one activity-ordered list; a tab there would be a second
+route to the same rows in a layout that was asked to stay as it is. The rail
+resets a selection left on the tab when the layout changes — a selection with
+no tile scopes the whole shell with no visible control saying so.
+
+**The People and Rooms filter chips are dropped in Channels**, because the
+two tabs ARE that split and a chip repeating it either matches nothing (People
+at Home) or restates the view the user is already in. All and Unreads stay.
+The stored preference is MAPPED on the way in and never rewritten, so
+switching back to Classic restores the chip the user actually chose.
+
+### Two designs this replaced, and why neither survived
+
+The FIRST scoped the whole layout to the active Space and rendered its child
+Spaces as nested categories.
 
 Channels used to show the **active Space's** hierarchy, with its child Spaces as
 nested categories. Two problems, and neither was fixable by tuning:
@@ -385,19 +412,25 @@ nested categories. Two problems, and neither was fixable by tuning:
 So the visual structure is now **flat by Space**, and the layout always exists:
 `RoomsPanel`'s `channelsUsable` is the user's choice and nothing else.
 
-**The rail's selection NARROWS it; it does not decide whether it works.** Those
-are different things and the difference is the point. Picking a Space in the rail
-sets `scopeSpaceId`, and the column becomes that Space and its subspaces — still
-flat folders, never nested — with the two account-wide groups dropped, because
-"every joined room no Space folder lists" is a statement about the whole account
-and repeating it under a Space the user just selected is what
-*"clicking a space basically does nothing"* was. Lobby clears the selection and
-the column is the whole account again; it is always the first row, so the scope
-is one click from escapable.
+**The rail's selection CHOOSES THE VIEW; it does not decide whether the layout
+works.** Those are different things and the difference is the point. The
+selection is written to `scopeSpaceId` VERBATIM and classified there: a room id
+is that Space, `peopleViewId()` is Direct Messages, and anything else (`""`,
+`@orphans`) is Home. It used to collapse every non-`!` value to `""` and call
+the result a "scope", which meant the rail had exactly one way to say anything
+that was not a Space — so a People tab could not be expressed at all.
 
-A pseudo rail row ("" for Home, `@orphans`) is not a Space and scopes nothing. A
-scope on a Space the account no longer has falls back to everything — an empty
-column would look like the account had nothing in it.
+A selection on a Space the account no longer has STAYS that Space: the view
+renders its own emptiness, which is the truth. Falling back to "everything"
+would silently become a different Space's view under a rail tile that is no
+longer there, and Home is one tile away either way.
+
+`empty` stays a fact about the ACCOUNT and is answered from the whole room
+list, never from what the current view happens to hold — a Space with no rooms
+in it yet is an empty VIEW on an account that is not empty, and saying "you
+have no conversations" there sends the user looking for a problem that is not
+there. `matchCount` answers the other question, and the column's wording names
+WHICH view matched nothing.
 
 ### Rows
 
@@ -437,18 +470,25 @@ each one tested:
   of the two Spaces look incomplete.
 * A room whose only Space parents are Spaces the account has not **joined** has no
   folder to appear in, so it is in "Rooms". Nothing joined is unreachable.
-* DMs are in "Rooms" with every other unparented room. There is **no** Favourites
-  group and **no** Direct messages group — Sable has neither, and the People
-  filter chip still reaches DMs.
+* **DMs are in the People tab and nowhere else.** Two earlier designs put them
+  in "Rooms" with every other unparented room (a column of nothing but people
+  under a heading that says Rooms), and then in a "Direct messages" group every
+  view had to carry so a scope could not delete the only place one could live.
+  A tab settles both: one home for a DM, and no view has to carry another
+  view's rows to keep them reachable.
+* There is **no** Favourites group — Sable has none either.
 
 ### Lobby and Message Search
 
-**Lobby** is the HEAD of whatever the column is currently showing. With a Space
-scoped it opens **that Space's own overview** — its rooms and subspaces, its
-People, its settings — which is the page a single tap on the rail tile already
-opens; with nothing scoped it opens the account's Home. Either way it is
+**Lobby** is the HEAD of a SPACE'S view, and only that view has one: it opens
+**that Space's own overview** — its rooms and subspaces, its People, its
+settings — which is the page a single tap on the rail tile already opens. It is
 `openSpaceHome`, so the teardown ordering (close the timeline before the
 selection clears) is not copied anywhere. No fake room, no persisted event.
+
+Home has command rows instead, and People has Create Chat: neither has an
+"overview of itself" to open, and a Lobby row that opened the page you are
+already on would be furniture.
 
 It used to clear the selection instead, which made Lobby a "leave this Space"
 control wearing the wrong name: the column jumped back to the whole account and
@@ -467,7 +507,23 @@ homeserver cannot search, rather than offered as a dead entry.
 
 **Invites** are not in Sable's own column and are here anyway: this layout is now
 the whole navigation column, so leaving invites out would make an invite
-unreachable for anyone who chose it.
+unreachable for anyone who chose it. They are split the same way the joined
+rooms are — a DM invite is in People, a room invite is at Home — so an invite
+is found where its room will be found once accepted. A Space view carries
+none: an invite is not yet a member of anything.
+
+**The command rows** (Create Room, Join with Address, Explore Spaces, Create
+Chat) carry a synthetic `@` id and open the HOST's own dialogs, so there is
+one create path and one discover path however the user got there. Both halves
+are contract-pinned by `everyChannelActionIsDispatched`: a row the presenter
+cannot name renders as a control that looks clickable and does nothing, which
+is the five-way row chooser's defect one layer up.
+
+**The model names each row's glyph** (`IconNameRole`) rather than a chooser in
+QML repeating the row set. The bundled Material Symbols font is a SUBSET, so
+an unmapped name renders as tofu; naming them in one place is what lets
+`everyRuntimeChosenIconNameIsMapped` check them, since the ordinary icon sweep
+only sees a literal beside an `Icon { name: }`.
 
 ### Ordering
 
@@ -475,15 +531,16 @@ Deterministic and stable everywhere, because a channel list whose rows move when
 somebody speaks is not a channel list. Unread changes a row's **weight**, never
 its position.
 
-* **Spaces** follow the rail's own arrangement — `RailLayoutStore::orderedSpaceIds`,
-  which is the user's order with each local folder's members inline where the
-  folder sits, *regardless of whether it is collapsed*. `arrange()` cannot answer
-  this: that is a presentation list and legitimately hides a collapsed folder's
-  members, which for an ordering question would silently drop Spaces.
+* **A Space's subspaces** follow the rail's own arrangement —
+  `RailLayoutStore::orderedSpaceIds`, which is the user's order with each local
+  folder's members inline where the folder sits, *regardless of whether it is
+  collapsed*. `arrange()` cannot answer this: that is a presentation list and
+  legitimately hides a collapsed folder's members, which for an ordering
+  question would silently drop Spaces.
 * **Rooms inside a Space** follow that Space's `m.space.child` order.
-* **Rooms and Invites** are sorted by name, then by room id — two rooms may
-  legitimately share a name, and a tie broken by nothing is a list that reorders
-  itself between syncs.
+* **Home's Rooms, People's Chats and every Invites group** are sorted by name,
+  then by room id — two rooms may legitimately share a name, and a tie broken by
+  nothing is a list that reorders itself between syncs.
 
 ### Collapse and search
 
