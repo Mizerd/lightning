@@ -909,6 +909,27 @@ void SfuMediaEngine::publishAudio(const QString &cid)
 
     const QString description =
         QStringLiteral("%1 ! queue ! audioconvert ! audioresample "
+                       // MONO, PINNED. Voice is mono — Opus's rtpmap says
+                       // `/2` because RFC 7587 fixes that field, not because
+                       // the stream is stereo — and leaving the channel
+                       // count unpinned means the capture device decides it.
+                       //
+                       // That is a real platform difference, not a
+                       // theoretical one: a Windows microphone is commonly
+                       // exposed by WASAPI as TWO channels with signal only
+                       // in the first, so the far end received a stereo
+                       // stream whose right channel was silent. Reported as
+                       // "I hear you but only in my left ear" — and it could
+                       // not reproduce on Linux, where the source hands over
+                       // one channel to begin with.
+                       //
+                       // `audioconvert` above does the downmix, so a genuine
+                       // stereo mic is averaged rather than half-discarded.
+                       // A device with signal in one channel only loses 6 dB
+                       // to that average, which the DSP's gain control makes
+                       // back; being quiet in both ears is the right failure
+                       // next to being absent from one.
+                       "! audio/x-raw,channels=1 "
                        "! valve name=micvalve drop=%2 "
                        "%5 "
                        // OWN MICROPHONE GAIN, in the RAW AUDIO DOMAIN and
@@ -2550,6 +2571,66 @@ void SfuMediaEngine::handleLocalDescription(quintptr token, bool offer,
     qCInfo(lcSfuMedia) << "local description ready offer=" << offer
                        << "target=" << static_cast<int>(target)
                        << "bytes=" << sdp.size();
+    // WHAT WE ACTUALLY ANSWERED, on the SUBSCRIBER only.
+    //
+    // A byte count says an answer exists; it does not say whether that
+    // answer accepts the media being offered. Windows produced answers of a
+    // plausible size for 1-, 2- and 3-section offers and then received not
+    // one track — no `pad-added`, no receive bin, nothing — while the same
+    // build sent audio the far end could hear. Every theory about the
+    // RECEIVE side is unfalsifiable until this line exists, and two of them
+    // have already been wrong.
+    //
+    // One line per section: its mid, its media kind, whether the port is
+    // non-zero (zero REJECTS the section), and the direction we claimed.
+    // `recvonly`/`sendrecv` means we asked to be sent to; `inactive` or a
+    // zero port means we declined and the SFU is right not to send.
+    //
+    // Publisher side deliberately excluded: it offers, we already log the
+    // offer, and doubling the volume on a working path helps nobody. Nothing
+    // here is user content — SDP media kinds, mids, ports and directions.
+    if (target == Target::Subscriber) {
+        QStringList sections;
+        int index = 0;
+        const QStringList lines = sdp.split(QLatin1Char('\n'));
+        QString mid, kind, direction;
+        bool portOpen = false;
+        auto flush = [&] {
+            if (kind.isEmpty())
+                return;
+            sections << QStringLiteral("[%1 mid=%2 %3 %4]")
+                            .arg(QString::number(index++), mid.isEmpty()
+                                     ? QStringLiteral("?") : mid, kind,
+                                 portOpen
+                                     ? (direction.isEmpty()
+                                            ? QStringLiteral("dir=?")
+                                            : QStringLiteral("dir=%1")
+                                                  .arg(direction))
+                                     : QStringLiteral("REJECTED-port0"));
+            mid.clear(); kind.clear(); direction.clear(); portOpen = false;
+        };
+        for (const QString &raw : lines) {
+            const QString line = raw.trimmed();
+            if (line.startsWith(QLatin1String("m="))) {
+                flush();
+                // "m=<media> <port> <proto> ..." — the port is field 1, and
+                // 0 there is how SDP says "I refuse this section".
+                const QStringList f = line.mid(2).split(QLatin1Char(' '));
+                kind = f.value(0);
+                portOpen = f.value(1) != QLatin1String("0");
+            } else if (line.startsWith(QLatin1String("a=mid:"))) {
+                mid = line.mid(6);
+            } else if (line == QLatin1String("a=recvonly")
+                       || line == QLatin1String("a=sendonly")
+                       || line == QLatin1String("a=sendrecv")
+                       || line == QLatin1String("a=inactive")) {
+                direction = line.mid(2);
+            }
+        }
+        flush();
+        qCInfo(lcSfuMedia) << "subscriber answer sections="
+                           << sections.join(QLatin1Char(' '));
+    }
     Q_EMIT localDescription(static_cast<int>(target),
                             offer ? QStringLiteral("offer")
                                   : QStringLiteral("answer"),
