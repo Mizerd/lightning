@@ -175,6 +175,7 @@ Rectangle {
                                        : qsTr("%1 members").arg(n);
                     }
                     color: AppTheme.textPrimary
+                    elide: Label.ElideRight
                     // The pane-header role: 16, matching the room-list
                     // header on the same shell row. It was 15 here and 16
                     // there, which is exactly the kind of one-pixel
@@ -204,6 +205,11 @@ Rectangle {
             Layout.margins: root.section === "people" ? AppTheme.spacing6
                                                       : AppTheme.spacing8
             dense: root.section === "people"
+            // The panel is user-resizable and four translated labels are
+            // whatever they translate to, so the row COMPACTS instead of
+            // running off the panel edge — the same reason the room list's
+            // filter chips carry this.
+            fitWidth: true
             // The Pinned tab appears only when the backend supports pinned
             // messages AND the panel is showing the room the pin controller
             // is tracking (the panel can be opened for a Space home, which
@@ -1066,6 +1072,12 @@ Rectangle {
                 AppTextField {
                     id: memberSearch
                     Layout.fillWidth: true
+                    // The field YIELDS; the three icon buttons keep their
+                    // size. Without a minimum the layout distributes the
+                    // shortfall across every child instead, so dragging the
+                    // panel narrow pushed the buttons off its edge rather
+                    // than shrinking the box they sit next to.
+                    Layout.minimumWidth: 40
                     implicitHeight: 30
                     searchIcon: true
                     clearButton: true
@@ -1138,6 +1150,7 @@ Rectangle {
                     text: qsTr("Loading members…")
                     color: AppTheme.textMuted
                     font.pixelSize: AppTheme.textMeta
+                    wrapMode: Text.WordWrap
                 }
             }
             Loader {
@@ -1154,7 +1167,7 @@ Rectangle {
                     lineHeight: AppTheme.lineHeightBody
                     lineHeightMode: Text.ProportionalHeight
                     wrapMode: Text.WordWrap
-                    font.pixelSize: AppTheme.textMicro
+                    font.pixelSize: AppTheme.textMeta
                 }
             }
 
@@ -1210,10 +1223,12 @@ Rectangle {
                         id: memberRowComponent
                         ItemDelegate {
                             width: memberList.width
-                            // 30 with a 20px avatar. A member row is one line
-                            // of text beside a face; 40px was a message row's
-                            // rhythm applied to a directory.
-                            height: 30
+                            // 34 with a 22px avatar: tight for a directory
+                            // row, and enough for the panel's body size —
+                            // density belongs to the row height, never to the
+                            // font, or one tab reads smaller than its
+                            // neighbours.
+                            height: 34
                             padding: 0
                             hoverEnabled: true
                             readonly property var member: memberLoader.modelData
@@ -1238,8 +1253,8 @@ Rectangle {
                                 anchors.rightMargin: AppTheme.spacing12
                                 spacing: AppTheme.spacing8
                                 Avatar {
-                                    width: 20; height: 20
-                                    size: 20
+                                    width: 22; height: 22
+                                    size: 22
                                     name: member.displayName.length > 0
                                           ? member.displayName : member.userId
                                     mxc: member.avatarUrl || ""
@@ -1274,7 +1289,14 @@ Rectangle {
                                     // person, and it was a column of
                                     // identical grey.
                                     color: AppTheme.userColor(member.userId || "")
-                                    font.pixelSize: AppTheme.textMeta
+                                    // The panel's body size, the same one
+                                    // Overview and Media use. Compacting the
+                                    // roster shrank the TEXT as well as the
+                                    // spacing, so People read a size smaller
+                                    // than every other tab in the same panel
+                                    // and switching to Media looked like a
+                                    // zoom. Density is the row height's job.
+                                    font.pixelSize: AppTheme.textBody
                                     elide: Label.ElideRight
                                 }
                                 // Invited and banned rows are in the list on

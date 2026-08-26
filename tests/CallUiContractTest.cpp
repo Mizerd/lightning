@@ -2102,12 +2102,30 @@ Item {
         QVERIFY2(chrome.contains(QStringLiteral("implicitHeight: 30")),
                  "the member search field grew back");
         const QString list = panel.mid(listAt);
-        QVERIFY2(list.contains(QStringLiteral("height: 30")),
-                 "a member row is no longer 30px");
+        QVERIFY2(list.contains(QStringLiteral("height: 34")),
+                 "a member row is no longer 34px");
         QVERIFY2(list.contains(QStringLiteral("height: 22")),
                  "a role heading is no longer 22px");
-        QVERIFY2(list.contains(QStringLiteral("size: 20")),
-                 "the member avatar is no longer 20px");
+        QVERIFY2(list.contains(QStringLiteral("size: 22")),
+                 "the member avatar is no longer 22px");
+        // ONE body size across the panel. Compacting the roster shrank the
+        // TEXT as well as the spacing, so People read a size smaller than
+        // Overview and Media and switching tabs looked like a zoom. Density
+        // is the row height's job.
+        //
+        // Scoped to the member ROW component: `list` runs to the end of the
+        // file and so contains the Media section, whose own smaller labels
+        // are none of this test's business.
+        const int rowAt = panel.indexOf(QStringLiteral("id: memberRowComponent"));
+        QVERIFY2(rowAt > 0, "the member row component is gone");
+        const int rowEnd = panel.indexOf(QStringLiteral("Media & Files"), rowAt);
+        QVERIFY(rowEnd > rowAt);
+        const QString row = panel.mid(rowAt, rowEnd - rowAt);
+        QVERIFY2(row.contains(QStringLiteral("font.pixelSize: AppTheme.textBody")),
+                 "the member name is not the panel's body size");
+        QVERIFY2(!row.contains(QStringLiteral("font.pixelSize: AppTheme.textMeta")),
+                 "a member row uses a smaller font than the rest of the "
+                 "panel, so switching tabs reads as a zoom");
     }
 
 private:

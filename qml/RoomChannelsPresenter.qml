@@ -207,7 +207,19 @@ Item {
                     width: channelList.width
                     label: rowLoader.model.name
                     iconName: rowLoader.model.iconName
-                    onClicked: root.messageSearchRequested()
+                    // GREYED AND MARKED, on the maintainer's report that
+                    // pressing it does nothing. The signal chain is intact
+                    // (presenter -> RoomsPanel -> MainScreen's dialog) and
+                    // the contract test still asserts it, so what is broken
+                    // is somewhere past that and is not diagnosed yet.
+                    //
+                    // The row stays rather than being removed: it is real
+                    // navigation Sable has and Lightning intends to have, and
+                    // a row that vanished would leave the user wondering
+                    // whether the feature exists. Saying "not yet" is the
+                    // honest state until the click is traced.
+                    comingSoon: true
+                    onClicked: {}
                 }
             }
 
