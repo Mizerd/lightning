@@ -357,7 +357,19 @@ else
     else
         # REQUIRED is SfuMediaEngine::runtimeAvailable()'s own probe list plus
         # the macOS capture sources and the receive-path elements its pipelines
-        # name. ADVISORY is the set the engine explicitly tolerates the absence
+        # name — AND sctpenc/sctpdec, which that rule cannot reach.
+        #
+        # Nothing in Lightning names them: webrtcbin loads them itself for the
+        # DATA CHANNEL, and LiveKit's subscriber offer puts a data channel in
+        # media section 0, which under bundle-policy=max-bundle owns the
+        # transport every audio and video section rides on. Windows shipped
+        # without the plugin and could SEND while receiving nothing at all, and
+        # a required-element list derived from what the application spells out
+        # is precisely what failed to notice. This bundle stages sctp today;
+        # without this line, trimming the PLUGINS list would break macOS the
+        # same way with every check still green.
+        #
+        # ADVISORY is the set the engine explicitly tolerates the absence
         # of — SfuMediaEngine.cpp says so of `compositor` in as many words, and
         # registers without webrtcdsp (losing only the microphone AGC). Failing
         # the whole packaging job for an element the engine never requires would
@@ -369,7 +381,8 @@ else
             fakesink autoaudiosrc autoaudiosink queue valve volume capsfilter \
             vp8enc vp8dec rtpvp8pay rtpvp8depay videoconvert videoscale \
             videotestsrc videorate identity tee funnel level appsink appsrc \
-            autovideosrc avfvideosrc osxaudiosrc osxaudiosink
+            autovideosrc avfvideosrc osxaudiosrc osxaudiosink \
+            sctpenc sctpdec
         do
             if ! "${gst_probe_env[@]}" "$probe" "$element" >/dev/null 2>&1; then
                 printf '  missing element in the bundled plugins: %s\n' "$element" >&2
