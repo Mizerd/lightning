@@ -270,6 +270,25 @@ public:
     /// picks. This is the entry point the UI uses: the portal owns the
     /// picker, so Lightning never enumerates windows itself.
     Q_INVOKABLE void requestScreenShare();
+    /// The displays a share could capture, on the platforms with no portal.
+    ///
+    /// EMPTY ON LINUX, always: the xdg portal owns the picker there, shows
+    /// its own dialog and hands back a node for whatever was chosen. Drawing
+    /// a second picker over it would be two dialogs for one gesture, and
+    /// enumerating displays ourselves on Wayland is exactly what the portal
+    /// exists to stop.
+    ///
+    /// Each entry: {index, name, geometry, primary, current}. `current` is
+    /// the display the app is on — what the share would take if the user
+    /// simply confirms.
+    Q_PROPERTY(QVariantList screenShareSources READ screenShareSources
+                   NOTIFY screenShareSourcesChanged)
+    QVariantList screenShareSources() const { return m_screenShareSources; }
+    /// Start the share on one of `screenShareSources`. Ignored when the list
+    /// is empty (Linux), where the portal has already chosen.
+    Q_INVOKABLE void chooseScreenShareSource(int index);
+    /// Abandon the picker without sharing.
+    Q_INVOKABLE void cancelScreenShareSelection();
     /// Start sharing a PipeWire node the portal already granted. A negative
     /// id is REFUSED rather than defaulted — "whatever PipeWire feels like"
     /// is how you publish the wrong monitor.
@@ -358,6 +377,10 @@ Q_SIGNALS:
     void participantsChanged();
     /// Forwarded from CallParticipantModel::countChanged. See the property.
     void participantCountChanged();
+    /// The picker has something to show. Raised only where there is no
+    /// portal; on Linux the portal's own dialog is the picker.
+    void screenShareSourcesChanged();
+    void screenShareSourcesAvailable();
     /// A user-facing failure, already reduced to plain wording.
     void callFailed(const QString &message);
 
@@ -538,6 +561,9 @@ private:
     QString m_membershipEventId;
     QString m_delayId;
     QString m_ownIdentity;
+    /// Populated while the picker is open; cleared when a source is chosen
+    /// or the gesture is abandoned. Never populated on Linux.
+    QVariantList m_screenShareSources;
     bool m_withVideo = false;
 
     bool m_micMuted = false;

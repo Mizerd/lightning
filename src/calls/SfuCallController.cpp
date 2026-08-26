@@ -2,6 +2,9 @@
 
 #include <QLoggingCategory>
 
+#include <QGuiApplication>
+#include <QScreen>
+#include <QWindow>
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -402,11 +405,93 @@ void SfuCallController::requestScreenShare()
         return;
     }
     qCInfo(lcSfuCall) << "screen share requested";
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+    // NO PORTAL, SO LIGHTNING OWNS THE PICKER HERE.
+    //
+    // The capture element takes a display index and nothing asks the user
+    // which one. Until this existed a share silently took whichever display
+    // the app happened to be on — reported as "no option to select which
+    // window or what screen, it just grabs full monitor".
+    //
+    // Windows/displays only, and honestly so: `gdiscreencapsrc` captures a
+    // MONITOR (its properties are `monitor` and a crop rectangle) and
+    // `avfvideosrc capture-screen` captures a DISPLAY. Single-window capture
+    // needs elements this toolchain cannot ship (see
+    // docs/windows-packaging.md), so the picker offers what the pipeline can
+    // actually deliver rather than a window list that would fail on use.
+    m_screenShareSources.clear();
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    const QWindow *ownWindow = QGuiApplication::focusWindow();
+    const QScreen *ownScreen = ownWindow ? ownWindow->screen() : nullptr;
+    if (!ownScreen)
+        ownScreen = QGuiApplication::primaryScreen();
+    for (int i = 0; i < screens.size(); ++i) {
+        const QScreen *screen = screens.at(i);
+        const QRect g = screen->geometry();
+        m_screenShareSources.append(QVariantMap{
+            { QStringLiteral("index"), i },
+            // The platform's own name for the display, so the row matches
+            // what the OS display settings call it.
+            { QStringLiteral("name"), screen->name() },
+            { QStringLiteral("geometry"),
+              QStringLiteral("%1 x %2").arg(g.width()).arg(g.height()) },
+            { QStringLiteral("primary"),
+              screen == QGuiApplication::primaryScreen() },
+            { QStringLiteral("current"), screen == ownScreen },
+        });
+    }
+    if (m_screenShareSources.isEmpty()) {
+        Q_EMIT callFailed(tr("No display is available to share."));
+        return;
+    }
+    Q_EMIT screenShareSourcesChanged();
+    // ONE display is not a choice. Opening a dialog to confirm the only
+    // possible answer is a click that tells the user nothing, so it starts
+    // straight away — which is also exactly what the previous behaviour did
+    // correctly on a single-monitor machine.
+    if (m_screenShareSources.size() == 1) {
+        chooseScreenShareSource(0);
+        return;
+    }
+    Q_EMIT screenShareSourcesAvailable();
+#else
     // Monitors and windows. Virtual sources are deliberately not offered:
     // they exist for remote-desktop use and would confuse the picker here.
     m_portal->requestShare(ScreenCastPortal::Monitor
                            | ScreenCastPortal::Window);
 #endif
+#endif
+}
+
+void SfuCallController::chooseScreenShareSource(int index)
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (m_screenShareSources.isEmpty())
+        return;   // Linux: the portal already chose.
+    if (index < 0 || index >= m_screenShareSources.size()) {
+        qCWarning(lcSfuCall) << "screen share source out of range";
+        cancelScreenShareSelection();
+        return;
+    }
+    m_screenShareSources.clear();
+    Q_EMIT screenShareSourcesChanged();
+    // The display index goes in the node-id slot, which is what
+    // SfuMediaEngine::screenShareSource() reads it as off Linux. No portal
+    // remote exists, hence -1 for the fd.
+    if (!startScreenShare(index, -1)) {
+        Q_EMIT callFailed(tr("Couldn't start sharing that display."));
+    }
+#else
+    Q_UNUSED(index);
+#endif
+}
+
+void SfuCallController::cancelScreenShareSelection()
+{
+    if (m_screenShareSources.isEmpty())
+        return;
+    m_screenShareSources.clear();
+    Q_EMIT screenShareSourcesChanged();
 }
 
 bool SfuCallController::active() const

@@ -716,6 +716,9 @@ set(APP_QML_FILES
     # and it must never ask RtcController to refresh (that falls back to a
     # full /state per idle room).
     qml/RoomCallGlyph.qml
+    # Choose which display to share, on the platforms with no xdg portal.
+    # Never opens on Linux — the portal owns the picker there.
+    qml/ScreenSharePicker.qml
     qml/NavigationLayoutCard.qml
     qml/MessageDelegate.qml
     # Element-style local image hiding: keeps the media box's exact geometry.
