@@ -2732,15 +2732,23 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     if (!pipeline)
         return;
 
-    // Which sender is this? webrtcbin names a received pad `src_<index>`
-    // where the index is the SDP media-section index, which is exactly the
-    // key noteStreamIds() recorded. That is how a decrypt probe gets the
-    // right sender's key ring instead of a shared one.
+    // Which sender is this, and which of their tracks? The decrypt ring is
+    // keyed by the SENDER (`streamId`); the TRACK sid decides which surface
+    // the media lands on. Two different questions, two different ids, and
+    // getting either wrong is silent — a healthy connection carrying nothing
+    // anyone can open or see.
+    //
+    // Three sources, in this order: the pad's own `msid`, then our own parse
+    // of the same description matched on the section mid, then the mid
+    // itself as a last resort that routes rather than decrypts. Everything
+    // below is about the ways the first source has been observed to be
+    // absent or wrong.
     QString streamId;
     QString trackMid;
     {
-        // THE PAD'S OWN msid AND mid, which webrtcbin fills in from the
-        // remote description for exactly this purpose.
+        // THE PAD'S OWN msid, which webrtcbin extracts from the remote
+        // description. Read FIRST because it belongs to this exact pad — but
+        // never trusted blindly, for the version reasons below.
         //
         // This used to derive a media-section index from the pad NAME
         // (`src_<n>`) and look that up in the SDP. That index is NOT the
