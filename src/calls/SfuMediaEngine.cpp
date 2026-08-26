@@ -1948,7 +1948,7 @@ namespace {
 /// same attribute livekit-client reads to decide which participant a
 /// received track belongs to.
 void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
-                      QHash<int, QString> *mids)
+                      QHash<int, QString> *mids, QHash<int, QString> *tracks)
 {
     if (!message)
         return;
@@ -1959,6 +1959,7 @@ void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
             continue;
         QString streamId;
         QString mid;
+        QString trackSid;
         const guint attributes = gst_sdp_media_attributes_len(media);
         for (guint a = 0; a < attributes; ++a) {
             const GstSDPAttribute *attribute =
@@ -1974,6 +1975,11 @@ void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
                 // the track to a SENDER — one per participant, so it cannot
                 // tell that participant's camera from their screen share.
                 streamId = SfuMediaEngine::participantIdFromMsid(value);
+                // ...and the TRACK sid from the same line. It is what names
+                // ONE track on both ends — the frame-crypto key is installed
+                // against it, and it is the only thing that tells a
+                // participant's camera from their screen share.
+                trackSid = SfuMediaEngine::trackSidFromMsid(value);
             } else if (key == QLatin1String("mid")) {
                 // The section's own id, which LiveKit also states on every
                 // TrackInfo it publishes (`mid`, tag 12). That pairing is
@@ -1986,6 +1992,8 @@ void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
             streams->insert(static_cast<int>(index), streamId);
         if (mids)
             mids->insert(static_cast<int>(index), mid);
+        if (tracks)
+            tracks->insert(static_cast<int>(index), trackSid);
     }
 }
 
@@ -2034,8 +2042,9 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
     if (target == Target::Subscriber) {
         QHash<int, QString> streams;
         QHash<int, QString> mids;
-        streamIdsFromSdp(message, &streams, &mids);
-        noteStreamIds(streams, mids);
+        QHash<int, QString> tracks;
+        streamIdsFromSdp(message, &streams, &mids, &tracks);
+        noteStreamIds(streams, mids, tracks);
     }
 
     const GstWebRTCSDPType type = (kind == QLatin1String("offer"))
@@ -2426,7 +2435,8 @@ void SfuMediaEngine::clearKeys()
 }
 
 void SfuMediaEngine::noteStreamIds(const QHash<int, QString> &byMline,
-                                   const QHash<int, QString> &midsByMline)
+                                   const QHash<int, QString> &midsByMline,
+                                   const QHash<int, QString> &tracksByMline)
 {
     QMutexLocker lock(&m_recvMutex);
     for (auto it = byMline.cbegin(); it != byMline.cend(); ++it) {
@@ -2442,6 +2452,12 @@ void SfuMediaEngine::noteStreamIds(const QHash<int, QString> &byMline,
             m_midForMline.remove(it.key());
         else
             m_midForMline.insert(it.key(), it.value());
+    }
+    for (auto it = tracksByMline.cbegin(); it != tracksByMline.cend(); ++it) {
+        if (it.value().isEmpty() || it.value().size() > 128)
+            m_trackForMline.remove(it.key());
+        else
+            m_trackForMline.insert(it.key(), it.value());
     }
 }
 
@@ -2738,36 +2754,61 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
             trackMid = trackSidFromMsid(msid);
             g_free(padMsid);
         }
-        if (trackMid.isEmpty()) {
-            // No track sid in the msid: fall back to the section's own mid so
-            // a server that packs its ids differently still routes SOMETHING.
+        // WHEN THE PAD PROPERTY GIVES NOTHING, resolve from OUR OWN parse of
+        // the same SDP rather than from a different property of the pad.
+        //
+        // The old fallback took the transceiver's `mid` and USED IT AS THE
+        // TRACK KEY. That recovers the participant (a mid does identify the
+        // section) but never the track sid, so the key ring was named "1" or
+        // "2" — a ring nobody had keyed, because keys arrive addressed by
+        // `TR_…`. Every frame then failed to decrypt with `passed=0`: audio
+        // silent, video absent, both ends reporting a healthy connection.
+        // The remote end was fine; only this side could not open anything.
+        //
+        // How much of the pad's `msid` webrtcbin populates has moved between
+        // GStreamer releases, and the packaged Windows runtime (1.28.5) is
+        // NOT the version this is developed against (1.26.11) — so this path
+        // is reachable on a user's machine and unreachable on mine. The SDP
+        // text is identical on both, and we already parse it for the
+        // participant and the mid; the track sid comes from the same line.
+        const bool padCarriedMsid = !streamId.isEmpty() || !trackMid.isEmpty();
+        if (!padCarriedMsid) {
+            QString sectionMid;
             GstWebRTCRTPTransceiver *transceiver = nullptr;
             g_object_get(srcPad, "transceiver", &transceiver, nullptr);
             if (transceiver) {
                 gchar *mid = nullptr;
                 g_object_get(transceiver, "mid", &mid, nullptr);
                 if (mid) {
-                    trackMid = QString::fromUtf8(mid);
+                    sectionMid = QString::fromUtf8(mid);
                     g_free(mid);
                 }
                 gst_object_unref(transceiver);
             }
-        }
-        // Fallback for a pad that carries neither property: match on the
-        // section's OWN mid rather than on a positional index, so it can
-        // never be indexed by the wrong number again.
-        if (streamId.isEmpty() && !trackMid.isEmpty()) {
-            QMutexLocker lock(&engine->m_recvMutex);
-            for (auto it = engine->m_midForMline.cbegin();
-                 it != engine->m_midForMline.cend(); ++it) {
-                if (it.value() == trackMid) {
+            if (!sectionMid.isEmpty()) {
+                // Matched on the section's OWN mid, never on a positional
+                // index: webrtcbin numbers src pads over the media it
+                // produces while LiveKit's offer carries a data channel in
+                // section 0, so the two counts do not agree.
+                QMutexLocker lock(&engine->m_recvMutex);
+                for (auto it = engine->m_midForMline.cbegin();
+                     it != engine->m_midForMline.cend(); ++it) {
+                    if (it.value() != sectionMid)
+                        continue;
                     streamId = engine->m_streamForMline.value(it.key());
+                    trackMid = engine->m_trackForMline.value(it.key());
                     break;
                 }
             }
+            // Only now, and only if the SDP had no track sid either. A mid is
+            // a LAST RESORT that routes something rather than nothing; it is
+            // never a key that can decrypt.
+            if (trackMid.isEmpty())
+                trackMid = sectionMid;
         }
         qCInfo(lcSfuMedia) << "received track attributed="
-                           << !streamId.isEmpty() << "trackKey=" << trackMid;
+                           << !streamId.isEmpty() << "trackKey=" << trackMid
+                           << "fromPadMsid=" << padCarriedMsid;
         if (streamId.isEmpty()) {
             // Unattributed. Deliberately given its OWN ring rather than
             // folded into a shared one: a frame decrypted with the wrong

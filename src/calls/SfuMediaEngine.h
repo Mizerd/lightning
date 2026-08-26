@@ -447,7 +447,8 @@ private:
     /// and pulling gst/sdp into this header for one parameter would put
     /// GStreamer on every translation unit that mentions the engine.
     void noteStreamIds(const QHash<int, QString> &byMline,
-                       const QHash<int, QString> &midsByMline);
+                       const QHash<int, QString> &midsByMline,
+                       const QHash<int, QString> &tracksByMline);
 
     Peer m_publisher;
     Peer m_subscriber;
@@ -518,6 +519,22 @@ private:
     /// same value on every TrackInfo, so this is what distinguishes two video
     /// tracks from ONE participant — a camera and a screen share.
     QHash<int, QString> m_midForMline;
+    /// Media-section index -> the section's LiveKit TRACK SID (`TR_…`), from
+    /// the same `a=msid:` line the participant comes from.
+    ///
+    /// WHY WE PARSE IT OURSELVES rather than reading the pad's `msid`
+    /// property. That property is webrtcbin's own extraction, and how much of
+    /// it is populated has moved between GStreamer releases — the dev shell
+    /// is 1.26.11 while the packaged Windows runtime is 1.28.5. When the
+    /// property comes back empty the code fell back to the transceiver `mid`,
+    /// which recovers the participant but NEVER the track sid, so the track
+    /// key was the string "1" or "2" and the frames it named were decrypted
+    /// against a ring nobody had keyed.
+    ///
+    /// The SDP text is the same on every platform, and we already parse it
+    /// for the participant and the mid. Taking the track sid from the same
+    /// pass removes the version-sensitive dependency entirely.
+    QHash<int, QString> m_trackForMline;
     /// Read from GStreamer streaming threads inside the pad probes, written
     /// from the Qt thread. Atomic because those are different threads and a
     /// probe cannot marshal without letting a frame through first.

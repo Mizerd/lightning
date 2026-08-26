@@ -1728,6 +1728,38 @@ private slots:
         // pad-name index.
         QVERIFY2(!pane.contains(QStringLiteral("m_streamForMline.value(mline)")),
                  "a pad-name index still indexes the SDP section map");
+
+        // A MID MAY NEVER BE THE TRACK KEY while the SDP still holds a track
+        // sid for that section.
+        //
+        // This is the Windows receive failure. The pad's `msid` property is
+        // webrtcbin's own extraction and how much of it is filled in has
+        // moved between GStreamer releases — the dev shell is 1.26.11, the
+        // packaged Windows runtime 1.28.5 — so on a user's machine the
+        // property came back empty and the fallback used the transceiver mid
+        // AS THE KEY. Keys arrive addressed by `TR_…`, so the ring named "1"
+        // was one nobody had keyed and every frame failed with `passed=0`:
+        // audio silent, video absent, the connection healthy, and the sending
+        // end (and Element in the same room) perfectly fine.
+        //
+        // The section's track sid is in the SDP text, which is identical on
+        // every platform and which this engine already parses for the
+        // participant and the mid. The fallback must read THAT first.
+        const int fromSdp = pane.indexOf(
+            QStringLiteral("trackMid = engine->m_trackForMline.value("));
+        QVERIFY2(fromSdp > 0,
+                 "the mid fallback does not recover the track sid from the "
+                 "SDP the engine already parsed");
+        const int fromMid =
+            pane.indexOf(QStringLiteral("trackMid = sectionMid;"));
+        QVERIFY2(fromMid < 0 || fromMid > fromSdp,
+                 "a media-section mid is taken as the track key before the "
+                 "SDP's own track sid is consulted");
+        // ...and the SDP scan has to be extracting it in the first place.
+        QVERIFY2(pane.contains(
+                     QStringLiteral("trackSid = SfuMediaEngine::trackSidFromMsid")),
+                 "the SDP scan records no per-section track sid, so the "
+                 "fallback above has nothing to read");
     }
 
     void aPackedLiveKitStreamIdResolvesToTheParticipant()
@@ -1751,6 +1783,22 @@ private slots:
                      QStringLiteral("|TR_xyz789 TR_xyz789")),
                  QString());
         QCOMPARE(SfuMediaEngine::participantIdFromMsid(QString()), QString());
+
+        // The other half of the same line, and the one a media key is
+        // addressed by. Both shapes LiveKit emits must yield the track sid.
+        QCOMPARE(SfuMediaEngine::trackSidFromMsid(
+                     QStringLiteral("PA_abc123|TR_xyz789 TR_xyz789")),
+                 QStringLiteral("TR_xyz789"));
+        QCOMPARE(SfuMediaEngine::trackSidFromMsid(
+                     QStringLiteral("PA_abc123 TR_xyz789")),
+                 QStringLiteral("TR_xyz789"));
+        // Nothing that looks like a track sid: EMPTY, so the caller can tell
+        // it must look elsewhere. Returning the token anyway would put a
+        // participant sid where a track key belongs.
+        QCOMPARE(SfuMediaEngine::trackSidFromMsid(
+                     QStringLiteral("PA_abc123")),
+                 QString());
+        QCOMPARE(SfuMediaEngine::trackSidFromMsid(QString()), QString());
     }
 
     // A media key names a Matrix DEVICE; a frame names a LiveKit sid. Those
