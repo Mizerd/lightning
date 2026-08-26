@@ -3658,6 +3658,32 @@ void AppController::switchToAccount(const QString &userId)
     m_switchFallbackUserId =
         m_client->isLoggedIn() ? m_settings->activeAccountUserId() : QString{};
 
+    // LEAVE THE CALL BEFORE THE SESSION GOES, for the same reason
+    // prepareForShutdown() does it: a membership RETRACTION is a Matrix send
+    // and a Leave is an SFU command, and both need the client that
+    // detachSession() is about to release.
+    //
+    // This path did not do it, and a live log said so exactly:
+    //
+    //   account switch begin from= … to= …
+    //   detaching local session …
+    //   rust client released …
+    //   teardown state= 6
+    //   retraction could not be dispatched — this device will remain in the
+    //   room's call membership until it expires
+    //
+    // The teardown ran AFTER the release, so rtcRetractMembership had no
+    // handle and returned 0. With no MSC4140 delayed retraction on this
+    // homeserver either, the membership then sat in the room until `expires`
+    // — a phantom participant every other client in the call had to see, and
+    // the exact failure the retraction retry machinery exists to prevent.
+    //
+    // Unconditional, and `leave()` is documented safe in any state including
+    // mid-join: a join still in flight is precisely the case that would
+    // otherwise strand a membership published moments earlier.
+    if (m_groupCall)
+        m_groupCall->leave();
+
     // Leave the room and thread before detaching so no composer target,
     // pending send, or open thread survives into the next account.
     setCurrentRoomId(QString{});
