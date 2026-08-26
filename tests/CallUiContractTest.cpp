@@ -538,6 +538,86 @@ Item {
         }
     }
 
+    // The share picker LOADS, and it classifies a row the same way the
+    // capture does.
+    //
+    // The picker was reworked from a flat display list into Screens/Windows
+    // groups, which moved every row into a Column wrapper — the kind of
+    // structural change whose failure mode is a binding error that only
+    // appears when a person opens the dialog, mid-call, which is the worst
+    // possible place to find out.
+    //
+    // `isWindowRow` is the load-bearing part: the picker uses it to decide
+    // which group a row belongs to and the CONTROLLER uses the same fact —
+    // a non-zero window handle — to decide whether to capture a window or a
+    // display. If those two ever disagreed, the list would say one thing and
+    // the share would do another.
+    //
+    // Rows themselves are NOT exercised here: `sources` is bound to the live
+    // call, so populating it would need a real SFU session, and adding a test
+    // seam to production for it would be worse than the gap.
+    void theSharePickerLoadsAndKnowsAWindowRowFromAScreen()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 700
+    height: 500
+    property alias picker: pick
+    ScreenSharePicker { id: pick; objectName: "sharePicker" }
+}
+)"), QUrl(QStringLiteral("qrc:/sharepickertest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY2(owner != nullptr, "ScreenSharePicker must instantiate");
+        QCoreApplication::processEvents();
+
+        auto *picker = owner->property("picker").value<QObject *>();
+        QVERIFY(picker != nullptr);
+
+        // No call, so nothing to share and no group headers to draw.
+        QCOMPARE(picker->property("screenCount").toInt(), 0);
+
+        // A window row carries a non-zero handle; a display row does not.
+        // Both shapes come straight from SfuCallController's own maps.
+        auto classify = [picker](const QVariantMap &row) {
+            QVariant out;
+            const bool called = QMetaObject::invokeMethod(
+                picker, "isWindowRow", Q_RETURN_ARG(QVariant, out),
+                Q_ARG(QVariant, QVariant::fromValue(row)));
+            return called && out.toBool();
+        };
+        QVERIFY2(classify({{QStringLiteral("windowHandle"), quint64(4660)}}),
+                 "a row with a window handle is not treated as a window");
+        QVERIFY2(!classify({{QStringLiteral("windowHandle"), quint64(0)},
+                            {QStringLiteral("index"), 0}}),
+                 "a display row is being treated as a window");
+        QVERIFY2(!classify({{QStringLiteral("index"), 1}}),
+                 "a row with no handle at all is being treated as a window");
+
+        for (const QString &warning : warnings) {
+            QVERIFY2(!warning.contains(QStringLiteral("Unable to assign"))
+                         && !warning.contains(QStringLiteral("is not available"))
+                         && !warning.contains(QStringLiteral("Binding loop")),
+                     qPrintable(warning));
+        }
+    }
+
     void callHeaderBarShowsForALiveCallInItsOwnRoomOnly()
     {
         AppController controller(AppController::MockBackend);
