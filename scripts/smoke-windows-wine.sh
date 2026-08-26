@@ -39,6 +39,35 @@ finish_prefix() {
     rm -rf -- "$WINEPREFIX"
 }
 
+# THE CHECK THAT WOULD HAVE CAUGHT THE LAST THREE ROUNDS.
+#
+# Everything else here proves the payload's SHAPE — the plugins are present,
+# every DLL resolves, every symbol resolves. None of it proves the application
+# can actually FIND the plugins at runtime, and that is exactly what was broken:
+# the plugin path was applied after gst_init had already run, so a package with
+# 25 correct plugins beside the exe still refused every call.
+#
+# `--call-media-status` probes through the same functions AppController calls,
+# so a pass here means the shipped binary would offer a call button.
+run_call_media_status() {
+    local exe="$1" log="$2"
+    if ! timeout 120s wine64 "$exe" --call-media-status >"$log" 2>&1; then
+        cat "$log" >&2
+        die "the packaged build cannot place calls: $exe"
+    fi
+    grep -Fq "RESULT: calls can be placed and answered" "$log" || {
+        cat "$log" >&2
+        die "call media status did not confirm a usable engine: $exe"
+    }
+    # The bundled directory must be the one BESIDE the exe. Empty here would
+    # mean it fell back to a system GStreamer, which a user's machine has not
+    # got — a pass that would not survive contact with a real Windows box.
+    grep -Eq '^bundled plugin directory: .*gstreamer-1\.0' "$log" || {
+        cat "$log" >&2
+        die "the packaged build did not use its own bundled plugin directory"
+    }
+}
+
 run_version() {
     local exe="$1" log="$2"
     timeout 60s wine64 "$exe" --version >"$log" 2>&1
@@ -98,6 +127,8 @@ run_gif_status() {
 
 new_prefix
 run_version "$STAGE/Lightning.exe" "$REPORTS/wine-portable-version.log"
+run_call_media_status "$STAGE/Lightning.exe" \
+    "$REPORTS/wine-portable-call-media-status.log"
 run_build_info "$STAGE/Lightning.exe" "$REPORTS/wine-portable-build-info.log"
 if [[ "$gif_embedded" == "true" ]]; then
     run_gif_status "$STAGE/Lightning.exe" "$REPORTS/wine-portable-gif-status.log"

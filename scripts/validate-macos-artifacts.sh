@@ -432,6 +432,29 @@ else
     printf '  FAIL: bundled binary could not execute --version\n' >&2
     failures=$((failures + 1))
 fi
+# THE CHECK THAT WOULD HAVE CAUGHT THE LAST THREE ROUNDS.
+#
+# Everything above proves the bundle's SHAPE — the plugins are there, every
+# dependency resolves inside the bundle, every element resolves when the probe
+# is handed the plugin path explicitly. None of it proves the APPLICATION finds
+# them, and that is exactly what was broken on Windows: the plugin path was
+# applied after gst_init had already run, so a bundle with correct plugins
+# still refused every call.
+#
+# --call-media-status probes through the same functions AppController calls, so
+# a pass here means the shipped bundle would offer a call button.
+if "$CONTENTS/MacOS/$APP_NAME" --call-media-status         >"$REPORT_DIR/call-media-status.txt" 2>&1; then
+    check "the bundled app can place calls"         grep -qF 'RESULT: calls can be placed and answered'             "$REPORT_DIR/call-media-status.txt"
+    # It must be the bundle's OWN plugins. Falling back to a system GStreamer
+    # would pass on this runner (which has one installed) and fail on every
+    # user's Mac, which is the worst possible shape for a check.
+    check "the bundled app used its own plugin directory"         grep -Eq '^bundled plugin directory: .*gstreamer-1\.0'             "$REPORT_DIR/call-media-status.txt"
+else
+    printf '  FAIL: the bundled app cannot place calls
+' >&2
+    sed 's/^/        /' "$REPORT_DIR/call-media-status.txt" >&2 || true
+    failures=$((failures + 1))
+fi
 if "$CONTENTS/MacOS/$APP_NAME" --build-info >"$REPORT_DIR/bundle-build-info.txt" 2>&1; then
     check "bundle reports the Rust backend" \
         grep -qx 'matrix_backend: rust' "$REPORT_DIR/bundle-build-info.txt"
