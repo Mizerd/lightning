@@ -2109,13 +2109,15 @@ Item {
         //
         // Heights are expressions over the scaled text rather than literals,
         // or a row clips its own contents at 140%.
-        QVERIFY2(list.contains(QStringLiteral("AppTheme.scaled(AppTheme.textDisplay)")),
+        QVERIFY2(list.contains(QStringLiteral("AppTheme.scaled(AppTheme.textTitle)")),
                  "the member name does not follow the text-size slider");
-        QVERIFY2(list.contains(QStringLiteral("Math.max(40, AppTheme.scaled")),
+        QVERIFY2(list.contains(QStringLiteral("Math.max(34, AppTheme.scaled")),
                  "the member row height is a literal again, so it clips its "
                  "own text at a larger slider position");
-        QVERIFY2(list.contains(QStringLiteral("Math.max(28, AppTheme.scaled")),
+        QVERIFY2(list.contains(QStringLiteral("Math.max(24, AppTheme.scaled")),
                  "the member avatar no longer follows the row");
+        QVERIFY2(list.contains(QStringLiteral("spacing: 3")),
+                 "the member rows touch, so two names read as one block");
         // THE TAB STRIP IS ONE SIZE IN EVERY SECTION. `dense` and the tab
         // margins used to be conditional on `section === "people"`, so the
         // strip visibly shrank the moment People was selected and grew back

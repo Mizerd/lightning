@@ -781,6 +781,12 @@ private:
     // v0.5.7 live-timeline event handlers.
     void handleTimelineReset(const QJsonObject &event);
     void handleTimelineDiff(const QJsonObject &event);
+    /// Report and reset the stale-diff run, if there is one.
+    ///
+    /// A superseded generation keeps delivering until its subscription stops,
+    /// so the run is a whole timeline's worth of diffs. One line per diff is
+    /// O(timeline) for a guard that is working correctly.
+    void reportStaleTimelineDiffs();
     void handleTimelinePagination(const QJsonObject &event);
     void flushTimelineInsertBatch();
     void clearTimelineInsertBatch();
@@ -891,6 +897,11 @@ private:
         bool failureTransient = false;
     };
     matrix::rust_timeline::TimelineGenerationTracker m_timelineTracker;
+    /// The superseded generation currently being counted, and how many of its
+    /// diffs have been dropped. Reported once, by the first diff the new
+    /// generation accepts.
+    quint64 m_staleDiffGeneration = 0;
+    int m_staleDiffCount = 0;
     // v0.6.0: same tracker type for the single open thread timeline, keyed
     // by the composite thread timeline id and stamped with Rust's
     // thread_generation.

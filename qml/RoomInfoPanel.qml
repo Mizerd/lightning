@@ -1201,6 +1201,9 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
+                // Air between names. A directory is scanned by NAME, and rows
+                // that touch make two of them read as one block of text.
+                spacing: 3
                 // ONE flat list of headers and members, so it virtualises.
                 // The role groups are the model's, not this view's.
                 model: {
@@ -1228,7 +1231,7 @@ Rectangle {
                             // Wayfinding between runs of people: legible, and
                             // costing as little of the column as it can.
                             // Sized to its own text for the slider's sake.
-                            height: Math.max(26, AppTheme.scaled(AppTheme.textTitle) + 10)
+                            height: Math.max(24, AppTheme.scaled(AppTheme.textSubtitle) + 10)
                             MenuSectionLabel {
                                 anchors.left: parent.left
                                 anchors.right: parent.right
@@ -1239,8 +1242,9 @@ Rectangle {
                                 // MenuSectionLabel pins 12px for popovers.
                                 // This is a list heading in a resizable panel
                                 // and has to follow the slider like the names
-                                // under it.
-                                font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
+                                // under it — and stay a step UNDER them, or
+                                // the wayfinding competes with the content.
+                                font.pixelSize: AppTheme.scaled(AppTheme.textSubtitle)
                                 text: qsTr("%1 — %2")
                                           .arg(memberLoader.modelData.label)
                                           .arg(memberLoader.modelData.count)
@@ -1257,7 +1261,7 @@ Rectangle {
                             // contents at 140%. The floor is the old fixed
                             // height; the avatar and the padding are what the
                             // rest of it is.
-                            height: Math.max(40, AppTheme.scaled(AppTheme.textDisplay) + 18)
+                            height: Math.max(34, AppTheme.scaled(AppTheme.textTitle) + 16)
                             padding: 0
                             hoverEnabled: true
                             readonly property var member: memberLoader.modelData
@@ -1285,7 +1289,7 @@ Rectangle {
                                     // Follows the text, so the row keeps its
                                     // proportions at every slider position.
                                     readonly property int px:
-                                        Math.max(28, AppTheme.scaled(AppTheme.textDisplay) + 8)
+                                        Math.max(24, AppTheme.scaled(AppTheme.textTitle) + 8)
                                     width: px; height: px
                                     size: px
                                     name: member.displayName.length > 0
@@ -1331,13 +1335,17 @@ Rectangle {
                                     // roster read small however its literal
                                     // size was tuned.
                                     //
-                                    // A name is what a person scans this
-                                    // list for, and at the body size it was
-                                    // asked to be "1.5-2x bigger" twice. This
-                                    // is the top of the type ladder (22 vs
-                                    // 14, ~1.6x) and the row is sized to it
-                                    // below, not the other way round.
-                                    font.pixelSize: AppTheme.scaled(AppTheme.textDisplay)
+                                    // textTitle, one real step up the type
+                                    // ladder from the body size — a name is
+                                    // what a person scans this list for.
+                                    //
+                                    // It was briefly textDisplay (22), which
+                                    // is the ladder's HERO size ("login hero,
+                                    // empty-state hero, verification panel
+                                    // headline") and too big for a directory
+                                    // row. The ladder is five sizes on
+                                    // purpose; this is the one above body.
+                                    font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
                                     elide: Label.ElideRight
                                 }
                                 // Invited and banned rows are in the list on

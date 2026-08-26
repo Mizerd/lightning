@@ -4475,6 +4475,18 @@ void RustSdkMatrixClient::flushTimelineInsertBatch()
         Q_EMIT eventChangedAt(roomId, changed.first, changed.second);
 }
 
+void RustSdkMatrixClient::reportStaleTimelineDiffs()
+{
+    if (m_staleDiffCount <= 0)
+        return;
+    qCInfo(lcRust) << "timeline stale diffs ignored"
+                   << "count=" << m_staleDiffCount
+                   << "generation=" << m_staleDiffGeneration
+                   << "adopted=" << m_timelineTracker.generation();
+    m_staleDiffCount = 0;
+    m_staleDiffGeneration = 0;
+}
+
 void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
 {
     // Attributed for stall tracing (2026-08-19): ingesting a batch
@@ -4503,11 +4515,23 @@ void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
         event.value(QStringLiteral("room_generation")).toDouble(0));
     if (!m_timelineTracker.accepts(roomId, generation)) {
         flushTimelineInsertBatch();
-        qCInfo(lcRust) << "timeline stale diff ignored"
-                       << "generation=" << generation
-                       << "adopted=" << m_timelineTracker.generation();
+        // COUNTED, not one line per diff. A superseded generation keeps
+        // delivering until its subscription actually stops, and that is a
+        // whole timeline's worth of diffs — 97 identical lines in a row in a
+        // real session log, for a guard that is WORKING. The count is
+        // reported once, by the first diff the new generation accepts.
+        //
+        // Same rule as the media-burst and pagination summaries: a line that
+        // fires per CALLER does not belong in a default-on category; only
+        // state transitions do.
+        if (m_staleDiffGeneration != generation) {
+            reportStaleTimelineDiffs();
+            m_staleDiffGeneration = generation;
+        }
+        ++m_staleDiffCount;
         return;
     }
+    reportStaleTimelineDiffs();
 
     const QString &op = diffOp;
     const int insertionIndex = op == QLatin1String("push_front")
