@@ -1512,6 +1512,44 @@ packages). **Cancel a doomed pipeline immediately — it keeps running its
 other jobs and HOLDS the runners, so a retry sits pending.** (Third time
 that note has earned its place.)
 
+**GStreamer version differences, same trap, different library.** The dev
+shell is **1.26.11**; packaged Windows is **1.28.5** (upstream MinGW SDK)
+and the macOS bundle **1.28.6**. Received-track attribution read the
+`msid` PROPERTY off a webrtcbin src pad, and how much of it is populated
+moved between those releases — so on a packaged build it came back empty,
+the fallback took the transceiver **mid as the TRACK KEY**, and the ring
+named `"1"` was one nobody had keyed. Reported as Linux→Windows audio
+inaudible and a screen share Element could see and Lightning could not.
+**RULE: do not depend on a webrtcbin pad or transceiver PROPERTY for
+anything load-bearing.** The SDP text is identical everywhere and the
+engine already parses it; take the participant AND the track sid from
+that one pass, matched on the section's own mid — never a positional
+index (LiveKit's subscriber offer carries a data channel in section 0).
+Two things this round also proves: the track key is **NOT** the decrypt
+key (the cryptor ring is per PARTICIPANT), so a wrong track key explains
+missing VIDEO and not silent audio; and the three per-section maps
+(`m_streamForMline`, `m_midForMline`, `m_trackForMline`) are ONE record
+and must be cleared together, because section mids are small integers
+that repeat across calls. `--call-media-status` now names the loaded
+version so a tester's output identifies their runtime without a round
+trip.
+
+**A preflight flag that does not EXIT must be registered TWICE.**
+`src/main.cpp` parses its flags in a preflight pass before
+`QGuiApplication` exists and again through `QCommandLineParser`. Most
+preflight flags exit and never meet the second parser; the ones that let
+the app run must be declared in both places or `process()` rejects them
+as unknown and quits. `--console` shipped broken this way and reached a
+tester as `matrix-client: Unknown option 'console'.` — the one flag whose
+whole job is getting a log out of an installed build, and it had never
+worked in any build. `--log-file PATH` (added the same day, initially
+with the identical defect) mirrors the log to a file on every platform,
+because `--console` reopens stdout ONTO the console so a shell redirect
+captures nothing, and a macOS bundle from Finder has no terminal at all.
+`DesktopIntegrationTest::parseTimeFlagsSurviveIntoTheQtParser` DERIVES
+the set from preflight's own source, so a new flag is covered without
+editing it.
+
 **TapHandlers are non-exclusive across subtrees**, and TapHandler points
 are PARENT-local. A right-click on a non-modal popup's tile also reached
 the message context menu beneath it (fixed by making the emoji picker
