@@ -192,10 +192,52 @@ while IFS= read -r candidate; do
     fi
 done < <(find "$STAGE" -type f -print)
 
+# Builder paths and credential markers that must never reach a shipped byte.
+#
+# `/source/` IS ANCHORED, and that is the whole subtlety. Unanchored it matches
+# a path COMPONENT anywhere, which is not what it was ever meant to catch — it
+# fired on three upstream strings the moment GStreamer was bundled:
+#
+#   libgstwebrtcdsp.dll  ../webrtc/system_wrappers/source/field_trial.cc
+#   icutu77.dll          icu/source/tools/gencmn/gencmn
+#   libgstwinks.dll      Sink/Source/Audio/Video      <- not a path at all
+#
+# The last one is a device-category string and shows what the loose form was
+# really doing: matching the letters "source" between slashes. This builder has
+# NO /source/ component anyway — its checkout is $ROOT/work/lightning under
+# /builds/, which the pattern above already covers — so the anchored form loses
+# no real coverage. `[^[:alnum:]_.+-]` before it means a path ROOTED at
+# /source still matches while a component never does.
+#
+# Nothing else is relaxed: every credential marker and every other builder path
+# is byte-for-byte what it was.
+readonly FORBIDDEN_RE='(/home/roksme|/builds/[^ ]+|(^|[^[:alnum:]_.+-])/source/|Documents/API|loggins\.txt|10\.195\.35\.[26]|CI_JOB_TOKEN|glrt-|glpat-|gldt-)'
+
+# THE SCANNER HAS TEETH, asserted before it is trusted. A regex that silently
+# stops matching is a scanner that passes everything, and this one guards
+# credentials — so it is proven against a known-bad sample and a known-good one
+# on every run, not reasoned about.
+scan_self_test() {
+    local bad good
+    for bad in '/home/roksme/git/lightning' '/builds/Mizerd/lightning-deploy/work' \
+               '/source/lightning/main.cpp' 'glpat-EXAMPLETOKENVALUE' \
+               'CI_JOB_TOKEN=x' '10.195.35.2'; do
+        printf '%s\n' "$bad" | grep -Eiq "$FORBIDDEN_RE" || \
+            die "the forbidden-marker scanner no longer matches '$bad' — it would pass a real leak"
+    done
+    for good in '../webrtc/system_wrappers/source/field_trial.cc' \
+                'icu/source/tools/gencmn/gencmn' 'Sink/Source/Audio/Video'; do
+        printf '%s\n' "$good" | grep -Eiq "$FORBIDDEN_RE" && \
+            die "the forbidden-marker scanner matches upstream string '$good' — it will fail every build on a false positive"
+    done
+    return 0
+}
+scan_self_test
+
 scan_forbidden() {
     local file="$1"
     if { strings -a "$file"; strings -a -el "$file"; } 2>/dev/null | \
-        grep -Ei '(/home/roksme|/builds/[^ ]+|/source/|Documents/API|loggins\.txt|10\.195\.35\.[26]|CI_JOB_TOKEN|glrt-|glpat-|gldt-)' >/dev/null; then
+        grep -Ei "$FORBIDDEN_RE" >/dev/null; then
         die "forbidden build path or credential marker found in ${file#"$DIST/"}"
     fi
 }
