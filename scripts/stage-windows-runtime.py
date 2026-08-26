@@ -74,8 +74,9 @@ QML_RUNTIME_ENTRIES = (
 # REGISTERS each one (several other plugins merely mention the names, which is
 # why this list was derived from the registering plugin rather than from a
 # string match). Windows capture is ksvideosrc + gdiscreencapsrc: the
-# mediafoundation and d3d11 plugins are built against a different mingw-w64
-# `mbstate_t` and cannot load beside Fedora's libstdc++ (packaging/windows/Dockerfile).
+# mediafoundation and d3d11 plugins are UCRT builds whose `mbstate_t` differs
+# from this msvcrt toolchain's, so they import libstdc++ symbols the staged
+# libstdc++-6.dll does not export (docs/windows-packaging.md).
 GSTREAMER_PLUGIN_DIR = "gstreamer-1.0"
 GSTREAMER_PLUGINS = (
     "libgstapp.dll",               # appsink, appsrc

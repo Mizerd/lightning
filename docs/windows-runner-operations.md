@@ -147,10 +147,11 @@ worth knowing before touching it:
   builds export different `std::codecvt` symbols) and a silent overwrite would
   break Qt or the plugins depending on which way it went.
 - `libgstmediafoundation.dll` (`mfvideosrc`) and `libgstd3d11.dll`
-  (`d3d11screencapturesrc`) are deliberately NOT installed: they import the
-  `_Mbstatet` mangled symbols Fedora's `libstdc++-6.dll` does not export, so they
-  cannot load in this process. Windows capture uses `ksvideosrc` and
-  `gdiscreencapsrc` instead.
+  (`d3d11screencapturesrc`) are deliberately NOT installed: they are UCRT builds
+  and import the `_Mbstatet` `std::codecvt` symbols this msvcrt toolchain's
+  `libstdc++-6.dll` does not export. They are the BETTER capture path, so this
+  is a real cost -- see docs/windows-packaging.md, and re-check it whenever
+  GStreamer or the MinGW toolchain moves.
 
 An HTTP 413 during artifact upload means the runner is using the public proxy
 instead of the internal coordinator endpoint. Check only the non-secret `url`

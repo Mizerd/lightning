@@ -736,9 +736,10 @@ check("GSTREAMER_SHA256" in win_dockerfile and "gstreamer-1.0-mingw-x86_64" in w
       "the Windows builder installs a checksum-pinned GStreamer MinGW SDK")
 check("gstreamer-webrtc-1.0" in win_dockerfile,
       "the Windows builder verifies the WebRTC pkg-config module resolves")
-# The two plugins that cannot load beside Fedora's libstdc++ (mingw-w64 changed
-# mbstate_t). Naming them here keeps a future edit from re-adding them by
-# reflex, since the failure is a refused call on a user's machine.
+# The two plugins whose libstdc++ imports the staged libstdc++-6.dll does not
+# export (UCRT vs msvcrt `mbstate_t`). Naming them here keeps a future edit from
+# re-adding them by reflex -- Wine loads them, so the element probe would not
+# catch it, and the failure would land on a user's machine.
 #
 # Matched against the Dockerfile with its COMMENT LINES REMOVED: both names are
 # in the comment that explains why they are excluded, so a raw substring search

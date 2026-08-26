@@ -220,16 +220,20 @@ COPY packaging/windows/gst-element-probe.c \
 # needs, the headers, the .pc files and the import libraries. Everything else
 # (ffmpeg, gtk, curl, x264, gst-devtools, 240 other plugins) is discarded.
 #
-# THE COLLISION RULE IS A HARD ERROR, NOT AN OVERWRITE. The SDK is built with
-# GCC 14.2 and Fedora's MinGW with GCC 15/16, and mingw-w64 changed `mbstate_t`
-# between them, so `std::codecvt<wchar_t, char, mbstate_t>` mangles differently
-# in the two libstdc++ builds. A process gets exactly ONE libstdc++-6.dll, so a
-# plugin needing the other one cannot load. Measured with objdump: of the 267
-# SDK plugins, exactly two of the ones we would want -- libgstd3d11.dll
-# (d3d11screencapturesrc) and libgstmediafoundation.dll (mfvideosrc) -- import
-# the `_Mbstatet` symbols Fedora's libstdc++ does not export. They are
-# DELIBERATELY NOT SHIPPED; Windows capture uses ksvideosrc (libgstwinks) and
-# gdiscreencapsrc (libgstwinscreencap), which are clean. With those two out,
+# THE COLLISION RULE IS A HARD ERROR, NOT AN OVERWRITE. The upstream SDK is a
+# UCRT build and Fedora's MinGW is an msvcrt build, and mingw-w64-headers'
+# wchar.h keys `mbstate_t` on exactly that (`struct _Mbstatet` under _UCRT,
+# `int` otherwise), so `std::codecvt<wchar_t, char, mbstate_t>` mangles
+# differently in the two libstdc++ builds. A process gets exactly ONE
+# libstdc++-6.dll. Measured with objdump: of the 267 SDK plugins, exactly two of
+# the ones we would want -- libgstd3d11.dll (d3d11screencapturesrc) and
+# libgstmediafoundation.dll (mfvideosrc) -- carry normal imports of the
+# `_Mbstatet` forms that Fedora's libstdc++ does not export (GetProcAddress:
+# ABSENT). They are DELIBERATELY NOT SHIPPED even though they are the better
+# capture path; see docs/windows-packaging.md for the cost, and note that Wine
+# loads them anyway, so the element probe cannot decide this one. Windows
+# capture uses ksvideosrc (libgstwinks) and gdiscreencapsrc
+# (libgstwinscreencap), which are clean. With those two out,
 # every symbol the shipped SDK set imports from every colliding DLL
 # (libglib/libgobject/libgio/libgmodule, libcrypto, libssl, libintl, libgcc,
 # libstdc++, libwinpthread) is present in the Fedora copy -- verified symbol by

@@ -121,13 +121,56 @@ and this image's MinGW with GCC 15/16, so eleven DLL names exist on both sides.
 Every symbol the shipped SDK binaries import from each of those was compared
 against the Fedora copy's export table with `objdump`: all present, so **no
 Fedora runtime DLL is replaced** and the staging script keeps resolving
-everything from one place. Two plugins failed that comparison —
-`libgstmediafoundation.dll` (`mfvideosrc`) and `libgstd3d11.dll`
-(`d3d11screencapturesrc`) import `std::codecvt<wchar_t, char, _Mbstatet>`
-symbols that no longer exist since mingw-w64 changed `mbstate_t` — so they are
-**not shipped**, and Windows capture uses `ksvideosrc` (libgstwinks) and
-`gdiscreencapsrc` (libgstwinscreencap). The image build FAILS if any future
-GStreamer runtime DLL collides with a Fedora one, rather than overwriting it.
+everything from one place. The image build FAILS if any future GStreamer runtime
+DLL collides with a Fedora one, rather than overwriting it.
+
+### The two capture plugins that are NOT shipped, and what that costs
+
+`libgstd3d11.dll` (`d3d11screencapturesrc`) and `libgstmediafoundation.dll`
+(`mfvideosrc`) are the plugins Windows capture would PREFER.
+`d3d11screencapturesrc` uses Desktop Duplication, which reads the frame the
+compositor already has; `gdiscreencapsrc` is a per-frame `BitBlt` of the whole
+desktop and costs meaningfully more CPU at 4K. They are not shipped anyway.
+
+**The mechanism, measured.** `mingw-w64-headers`' `wchar.h` contains:
+
+```c
+#if defined(_UCRT) || defined(__LARGE_MBSTATE_T)
+  typedef struct _Mbstatet { ... } _Mbstatet;
+  typedef _Mbstatet mbstate_t;
+#else
+  typedef int mbstate_t;
+#endif
+```
+
+The upstream SDK is a **UCRT** build, so its `mbstate_t` is `struct _Mbstatet`.
+Fedora's `mingw64-*` toolchain is an **msvcrt** build, so its `mbstate_t` is
+`int` (`mingw64-headers-13.0.0-3.fc44`, confirmed by compiling
+`std::codecvt<wchar_t,char,mbstate_t>` here and reading the mangled name:
+`_ZNSt7codecvtIwciEC1Ey`). `libstdc++` instantiates
+`std::codecvt<wchar_t, char, mbstate_t>` against whichever that is, so the two
+`libstdc++-6.dll` builds export different symbols, and the two plugins carry
+five **normal** (not delay-loaded) imports of the `_Mbstatet` forms —
+e.g. `_ZNSt7codecvtIwc9_MbstatetEC2Ey` — that Fedora's copy does not export.
+`GetProcAddress` for that name against the staged `libstdc++-6.dll` returns
+**ABSENT**.
+
+**This is a CRT choice, not version drift.** It will NOT resolve itself when
+GStreamer is bumped. It resolves only if the upstream SDK ships an msvcrt build,
+or if this image moves to a UCRT MinGW toolchain — and the latter is a change to
+the whole Windows build, not to this lane. Re-check it whenever either side
+moves; the check is one `objdump` of the plugin's imports against the staged
+`libstdc++-6.dll`'s exports.
+
+**What is NOT established.** Whether Windows actually refuses to load them.
+Windows' loader fails a missing named import with `ERROR_PROC_NOT_FOUND`, so the
+expectation is that it does — but **Wine loads both plugins successfully and
+registers both elements**, verified here, even though `GetProcAddress` reports
+the symbol absent. Wine tolerates what Windows does not, so the Wine element
+probe in `validate-windows-artifacts.sh` **cannot decide this class of defect**;
+the static symbol comparison is what catches it. Shipping them is therefore a
+judgement made on static evidence, and the honest status of "they would fail on
+native Windows" is **NOT TESTED**.
 
 **Staging is explicit, because nothing imports a plugin.** A GStreamer plugin is
 dlopen'd, so the recursive PE-import walk cannot discover one. `GSTREAMER_PLUGINS`
