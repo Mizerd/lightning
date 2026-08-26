@@ -1549,8 +1549,27 @@ their index explicitly.
 Lessons only; features are described in §7, SHAs point into `git log`.
 
 **2026-08-26 cross-platform calling round: Windows and macOS ship
-GStreamer.** Live validation NOT TESTED on either platform at the time of
-writing.
+GStreamer.** Pipeline 121, both platforms green, and each artifact PROVES
+ITSELF: `--call-media-status` runs from inside the packaged build and
+reports the SFU engine available from the bundled plugin directory. A
+call has still never been PLACED from either package — that needs a
+person on each platform.
+
+*The last defect was the app's, and three rounds of packaging validation
+passed the broken build.* `GST_PLUGIN_PATH` is read DURING `gst_init`,
+once. There were TWO media backends, each with its own `gst_init_check`
+in its own `call_once`, and only `SfuMediaEngine` set the bundled plugin
+path — while `AppController` probes the OTHER one first. So the first
+init scanned the builder's sysroot, registered nothing, and the second
+`gst_init_check` was a no-op. A package with 25 correct plugins beside
+the exe and zero unresolved symbols refused every call, and every check
+that existed passed it: they all proved the payload's SHAPE and none
+proved the application could FIND it. `src/calls/GstBootstrap.{h,cpp}` is
+now the one entry point that does path-then-init together, both backends
+are BANNED from `gst_init`, and `--call-media-status` (gated in both
+validators) is what makes the difference observable from a package.
+GENERALISE: when a feature is assembled at package time, one check must
+run the SHIPPED artifact and ask it whether the feature works.
 
 *A packaged build had NO media engine at all, on either platform, and
 said so honestly for months.* `HAVE_LIGHTNING_WEBRTC` is set by a

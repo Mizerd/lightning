@@ -1169,7 +1169,25 @@ list that quietly loses entries cannot be trusted either:
 
 ## Windows and macOS: the capture elements, and what differs
 
-**Landed 2026-08-26.** Live validation on either platform: **NOT TESTED**.
+**Landed 2026-08-26**, pipeline 121, both platforms green. Each artifact
+proves itself: `matrix-client --call-media-status` runs from inside the
+packaged build and reports
+
+```
+call media engine built in: yes
+bundled plugin directory: .../Lightning/gstreamer-1.0
+gstreamer: initialised
+1:1 call engine: available
+group call (SFU) engine: available
+RESULT: calls can be placed and answered.
+```
+
+Both validators fail the build without that line AND without the bundled
+directory being the app's own — falling back to a system GStreamer would pass
+on both runners and fail on every user's machine.
+
+**A call has still never been PLACED from either package.** That needs a person
+on each platform; everything here is the packaging and the engine probe.
 
 A packaged Windows or macOS build had NO media engine at all. CMake sets
 `HAVE_LIGHTNING_WEBRTC` from a pkg-config probe, the Windows cross-builder had
