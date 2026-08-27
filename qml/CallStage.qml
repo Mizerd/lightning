@@ -171,6 +171,33 @@ Rectangle {
     readonly property int minimumTileStrip: 80
     readonly property int bubbleStripHeight: 44
 
+    /// The overlay controls the spotlight draws over its own top-right
+    /// corner: Full screen, and Back to grid.
+    ///
+    /// A 30 px button plus its two margins. Below this the row does not
+    /// shrink — it OVERFLOWS a clipped rectangle, which is what the
+    /// maintainer photographed: a share tile squeezed to a few pixels with
+    /// the two controls crushed and half-drawn across its top edge.
+    readonly property int spotlightOverlayHeight: 30 + 2 * AppTheme.spacing8
+
+    /// The shortest this stage can be and still be worth drawing.
+    ///
+    /// Read by the HOST, which owns the panel's height and cannot otherwise
+    /// know what this surface spends before the picture starts: the header
+    /// row, the dock, the column's own margins and spacings. Kept here
+    /// because this is the file those bands are declared in — a copy in the
+    /// host is a copy that drifts the first time one of them changes.
+    ///
+    /// `minimumPicture` is what makes it a POLICY rather than an accounting
+    /// identity: a stage that fits its chrome and nothing else is exactly the
+    /// state being fixed.
+    readonly property int minimumPictureHeight: 132
+    readonly property int minimumUsefulHeight:
+        2 * AppTheme.spacing12          // the column's own margins
+        + 28 + AppTheme.spacing8        // header row, then its spacing
+        + root.minimumPictureHeight
+        + AppTheme.spacing4 + 48        // the dock's top margin and its band
+
     /// What the strip beneath the spotlight is, for a stage of `available`
     /// px: "tiles" or "bubbles".
     ///
@@ -703,6 +730,19 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.margins: AppTheme.spacing8
                             spacing: AppTheme.spacing8
+                            // ABSENT, NOT SQUEEZED — the same rule the strip
+                            // below already follows. This row has a fixed
+                            // height and is anchored inside a CLIPPED
+                            // rectangle, so on a spotlight shorter than it
+                            // needs it does not compact: it draws across the
+                            // tile's top edge and is cut in half. Hiding it
+                            // costs no route — the header's "Show screen
+                            // share" and the share's own grid tile both lead
+                            // back, which is the invariant recorded at the
+                            // top of this file.
+                            visible: parent.height
+                                     >= root.spotlightOverlayHeight
+                                        + AppTheme.spacing8
 
                             CallControlButton {
                                 objectName: "callFullScreenButton"

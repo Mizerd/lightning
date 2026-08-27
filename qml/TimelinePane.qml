@@ -83,12 +83,40 @@ Rectangle {
            ? root.callPanelAutoHeight
            : clampCallPanelHeight(root.callPanelUserHeight))
 
+    /// The floor a panel SHOWING VIDEO gets, asked of the stage itself.
+    ///
+    /// The stage knows what it spends before a picture starts — its header,
+    /// its dock, its own margins — and this pane does not. Reading the number
+    /// rather than restating it is the same rule the `callPanelHasVideo`
+    /// derivation above already follows; a second copy here would drift the
+    /// first time one of those bands changes. Falls back to the old flat
+    /// number while the stage is not loaded.
+    readonly property real callPanelVideoFloor:
+        callStageHost.active && callStageHost.item
+        ? callStageHost.item.minimumUsefulHeight : 220
+
     function clampCallPanelHeight(value) {
-        // The 220 px floor YIELDS to a small column. It exists to keep the
-        // call usable, not to win an argument with the window: a 220 px panel
-        // in a 260 px pane leaves no timeline at all, which is the thing this
-        // whole change was made to stop.
-        var floor = Math.min(220, Math.max(64, root.height * 0.45))
+        // The floor YIELDS to a small column. It exists to keep the call
+        // usable, not to win an argument with the window: a floor taller than
+        // the pane leaves no timeline at all, which is the thing this whole
+        // change was made to stop.
+        //
+        // A PANEL SHOWING VIDEO ASKS FOR MORE, and that is the fix for
+        // "when screen share is on it's too squishable, the UI breaks then".
+        // At 45% of a short pane the stage was getting its header and its
+        // dock and about ten pixels of picture, which is not a smaller
+        // version of this surface — it is a broken one: the share collapsed
+        // to a sliver and the spotlight's own overlay controls drew across
+        // its top edge. A voice-only panel is unaffected; it has no picture
+        // to protect and 45% is genuinely enough for it.
+        //
+        // Still a MINIMUM WITH A CEILING, not a demand: the `Math.min`
+        // against the pane keeps a very short window from losing its timeline
+        // entirely, and 0.6 rather than 0.45 is what buys the picture back.
+        var floor = root.callPanelHasVideo
+            ? Math.min(root.callPanelVideoFloor,
+                       Math.max(64, root.height * 0.6))
+            : Math.min(220, Math.max(64, root.height * 0.45))
         var ceiling = Math.max(floor, root.height * 0.75)
         return Math.max(floor, Math.min(value, ceiling))
     }

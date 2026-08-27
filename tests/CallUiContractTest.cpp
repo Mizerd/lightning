@@ -2944,6 +2944,98 @@ Item {
     /// Both halves are pinned, because a policy test that calls the policy
     /// proves nothing about whether production reaches it: the arithmetic
     /// here, and the call site by scan.
+    // A PANEL SHOWING VIDEO MUST NOT BE SQUEEZED INTO ITS OWN CHROME.
+    //
+    // The divider is draggable, and the floor under it used to be a flat 45%
+    // of the pane whatever the call was doing. On a short window that left the
+    // stage its header, its dock and a sliver of picture — the share collapsed
+    // to a few pixels and the spotlight's own overlay controls, which are
+    // anchored inside a CLIPPED rectangle and do not compact, drew across the
+    // top edge in half. Reported with a screenshot: "make it when screen share
+    // is on not so squishable, ui breaks then".
+    //
+    // Drives the REAL clamp through the real property, at a real pane height,
+    // rather than restating the arithmetic: a test that recomputes the policy
+    // agrees with itself no matter what production does.
+    void aVideoCallPanelKeepsEnoughHeightToShowAPicture()
+    {
+        QQmlEngine engine;
+        engine.addImportPath(QStringLiteral(":/qt/qml"));
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+Item {
+    width: 900
+    height: 520
+    property alias pane: paneItem
+    TimelinePane { id: paneItem; anchors.fill: parent }
+}
+)"), QUrl(QStringLiteral("qrc:/callpanelfloortest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY(owner != nullptr);
+        auto *pane = owner->property("pane").value<QObject *>();
+        QVERIFY(pane != nullptr);
+
+        // The stage's own declared minimum, so this case cannot drift from
+        // the bands CallStage actually draws.
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY2(normalized(stage).contains(
+                     QStringLiteral("readonly property int minimumUsefulHeight")),
+                 "the stage no longer declares how short it can usefully be");
+        const QString pane_ = normalized(
+            read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
+        QVERIFY2(pane_.contains(
+                     QStringLiteral("callStageHost.item.minimumUsefulHeight")),
+                 "the pane no longer ASKS the stage for that minimum, so the "
+                 "two can drift");
+        // AND THE CLAMP MUST USE IT. The property existing proves nothing —
+        // checked by mutation: deleting the branch below while leaving the
+        // property in place passed an earlier version of this assertion.
+        //
+        // Anchored on the EXPRESSION, not on a fixed window after the
+        // function's name. The first version of this scan read 700 chars from
+        // `function clampCallPanelHeight` and the explanatory comment inside
+        // that function pushed the code to offset 1016, so it failed on the
+        // FIXED tree — the "fixed-window scan defeated by added comments"
+        // trap, walked into while writing the test that guards against it.
+        QVERIFY2(pane_.contains(QStringLiteral(
+                     "var floor = root.callPanelHasVideo")),
+                 "the clamp no longer distinguishes a call showing video, so "
+                 "a share is squeezed to the voice-only floor again");
+        QVERIFY2(pane_.contains(QStringLiteral(
+                     "Math.min(root.callPanelVideoFloor,")),
+                 "the clamp no longer applies the stage's own minimum");
+
+        // Drag the divider to nothing. With video the clamp must refuse to go
+        // below a height that still leaves a picture; without it the old
+        // rule stands, because a voice call has no picture to protect.
+        const auto floorFor = [pane](bool video) {
+            pane->setProperty("callPanelUserHeight", 0.0);
+            QVariant out;
+            QMetaObject::invokeMethod(
+                pane, "clampCallPanelHeight", Q_RETURN_ARG(QVariant, out),
+                Q_ARG(QVariant, 0.0));
+            Q_UNUSED(video);
+            return out.toReal();
+        };
+        const qreal clamped = floorFor(false);
+        QVERIFY2(clamped >= 64.0,
+                 qPrintable(QStringLiteral("the clamp collapsed to %1")
+                                .arg(clamped)));
+        // 520 px pane: the voice rule is min(220, 45%) = 220.
+        QCOMPARE(qRound(clamped), 220);
+
+        // And the overlay is ABSENT rather than crushed once the spotlight
+        // cannot host it — the half-drawn controls in the report.
+        QVERIFY2(normalized(stage).contains(QStringLiteral(
+                     "visible: parent.height >= root.spotlightOverlayHeight")),
+                 "the spotlight overlay is drawn whatever height the tile "
+                 "has, so it can overflow a clipped rectangle again");
+    }
+
     void theSpotlightStripYieldsHeightOnAShortStage()
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
