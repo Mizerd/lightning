@@ -328,6 +328,22 @@ endif()
 # is ever registered.
 option(LIGHTNING_ENABLE_WEBRTC
     "Build the GStreamer webrtcbin voice-call media engine when available" ON)
+# REQUIRE it, for a build that must not silently ship without calling.
+#
+# The option above is AUTO by design: a source build on a machine with no
+# GStreamer should still produce a working client, and the runtime refusal is
+# honest. But "available" is decided by a pkg-config probe that says STATUS
+# and carries on, and a packaging job cannot hear the difference between "we
+# looked and it is not there" and "we forgot to install it". Lightning 0.8.0
+# shipped every Linux package with the media engine compiled out for exactly
+# that reason, and the artifacts said `call media engine built in: no` while
+# every job reported success.
+#
+# So a build that INTENDS to ship calling passes -DLIGHTNING_REQUIRE_WEBRTC=ON
+# and the probe becomes fatal. Packaging turns it on; a developer's source
+# build leaves it off and keeps the graceful degradation.
+option(LIGHTNING_REQUIRE_WEBRTC
+    "Fail configuration if the GStreamer WebRTC dev files are missing" OFF)
 set(HAVE_LIGHTNING_WEBRTC OFF)
 if(LIGHTNING_ENABLE_WEBRTC AND PkgConfig_FOUND)
     # gstreamer-app-1.0 is for the received-video appsink: decoded frames are
@@ -346,9 +362,25 @@ if(LIGHTNING_ENABLE_WEBRTC AND PkgConfig_FOUND)
     if(GSTWEBRTC_FOUND)
         set(HAVE_LIGHTNING_WEBRTC ON)
         message(STATUS "GStreamer WebRTC found (${GSTWEBRTC_gstreamer-webrtc-1.0_VERSION}) — building the voice-call media engine")
+    elseif(LIGHTNING_REQUIRE_WEBRTC)
+        message(FATAL_ERROR
+            "LIGHTNING_REQUIRE_WEBRTC=ON but the GStreamer WebRTC development "
+            "files were not found. This build would ship with calling, screen "
+            "sharing and camera compiled out, and would answer \"Calling isn't "
+            "available here.\" Install the development packages for "
+            "gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, "
+            "gstreamer-app-1.0, gstreamer-video-1.0 and gstreamer-rtp-1.0, or "
+            "configure with -DLIGHTNING_REQUIRE_WEBRTC=OFF to accept a build "
+            "with no media engine.")
     else()
         message(STATUS "GStreamer WebRTC not found — voice calls stay signaling-only (honest refusal)")
     endif()
+elseif(LIGHTNING_REQUIRE_WEBRTC)
+    # Both switches set, contradicting each other. Refusing beats guessing
+    # which one the caller meant.
+    message(FATAL_ERROR
+        "LIGHTNING_REQUIRE_WEBRTC=ON contradicts LIGHTNING_ENABLE_WEBRTC=OFF "
+        "(or PkgConfig is unavailable). Pick one.")
 endif()
 
 set(APP_SOURCES
