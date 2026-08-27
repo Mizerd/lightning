@@ -1953,6 +1953,7 @@ Item {
                                 model: root.messageSegments
                                 delegate: Item {
                                     id: segmentRow
+                                    objectName: "messageSegmentRow"
                                     required property var modelData
                                     // kind: 0 RichText, 1 CodeBlock. Anything
                                     // else is treated as rich text — an
@@ -1967,27 +1968,93 @@ Item {
                                     // implicit width, so a row that reports 0
                                     // would collapse a code-only DM message
                                     // to the 60px floor.
-                                    implicitWidth: segmentLoader.item
-                                        ? segmentLoader.item.implicitWidth : 0
-                                    implicitHeight: segmentLoader.item
-                                        ? segmentLoader.item.implicitHeight : 0
+                                    //
+                                    // Read from the LOADER, never from
+                                    // `segmentLoader.item`, and that is HALF
+                                    // of a real binding-loop fix (2026-08-27;
+                                    // a live run printed
+                                    // "Binding loop detected for property
+                                    // implicitWidth" once per rich segment of
+                                    // every fenced message). QQuickTextEdit
+                                    // computes its implicit width LAZILY: the
+                                    // first read sets requireImplicitWidth and
+                                    // runs updateSize(), which calls
+                                    // setImplicitWidth() and emits
+                                    // implicitWidthChanged SYNCHRONOUSLY —
+                                    // while this binding is still on the
+                                    // stack, which is exactly what Qt reports
+                                    // as a loop. QQuickLoader mirrors the
+                                    // item's implicit size onto itself through
+                                    // that signal, so reading the loader is a
+                                    // plain cached read with no side effect
+                                    // and the same value. Measured: with the
+                                    // item read, EVERY rich segment loops;
+                                    // with the loader read, only a segment
+                                    // narrower than the cap still does (the
+                                    // other half, below).
+                                    implicitWidth: segmentLoader.implicitWidth
+                                    implicitHeight: segmentLoader.implicitHeight
                                     Loader {
                                         id: segmentLoader
                                         anchors.left: parent.left
-                                        // The mediaBox idiom: take the
-                                        // segment's own natural width, capped
-                                        // at the column. A code block sizes
-                                        // to its widest line (it clamps and
-                                        // scrolls internally past that) and a
-                                        // two-word snippet must not stretch
-                                        // edge to edge; a long paragraph hits
-                                        // the cap and wraps, exactly as the
-                                        // single-body TextEdit does.
-                                        width: item
-                                               ? Math.min(
-                                                     segmentsLoader.segmentCap,
-                                                     item.implicitWidth)
-                                               : segmentsLoader.segmentCap
+                                        // ── The other half of the loop ─────
+                                        // The two components do NOT share a
+                                        // sizing contract, and giving them one
+                                        // is what closed the cycle.
+                                        //
+                                        // A CodeBlock's implicitWidth is
+                                        // width-INDEPENDENT by construction
+                                        // (a NoWrap gutter plus a NoWrap
+                                        // TextEdit, clamped to a constant), so
+                                        // it can safely size itself: that is
+                                        // what keeps `ls -la` a narrow frame
+                                        // instead of an edge-to-edge grey box,
+                                        // and what makes a longer line clamp
+                                        // at the cap and scroll internally.
+                                        // A code segment has never looped, in
+                                        // any layout, at any width.
+                                        //
+                                        // A WRAPPING TextEdit is the opposite:
+                                        // its width decides its content, so
+                                        // `width: min(cap, item.implicitWidth)`
+                                        // hands it a width derived from its own
+                                        // measurement. Whenever the natural
+                                        // width is below the cap the min picks
+                                        // the item's own number, the item is
+                                        // laid out at exactly its ideal width,
+                                        // and the relayout answers back. So a
+                                        // rich segment takes its width FROM
+                                        // ABOVE — the row, which is filled by
+                                        // the layout out of the cap — and
+                                        // reports its natural width upward
+                                        // through implicitWidth only. A short
+                                        // message still produces a narrow
+                                        // bubble (the bubble is sized from that
+                                        // implicit width), and the text now
+                                        // fills the bubble it is in rather than
+                                        // sitting inside it at its own width,
+                                        // which is also what keeps a
+                                        // right-aligned RTL paragraph inside
+                                        // the bubble.
+                                        //
+                                        // The `> 8` startup guard is
+                                        // bodyLabel's, for bodyLabel's reason:
+                                        // the ColumnLayout incubates this row
+                                        // before it has a width, and measuring
+                                        // wrapped text against a 0px clamp
+                                        // turns a paragraph into a transient
+                                        // tens-of-thousands-of-pixels delegate.
+                                        width: !segmentLoader.item
+                                               ? segmentsLoader.segmentCap
+                                               : segmentRow.isCode
+                                                 ? Math.min(
+                                                       segmentsLoader.segmentCap,
+                                                       segmentLoader.implicitWidth)
+                                                 : (segmentRow.width > 8
+                                                    ? Math.min(
+                                                          segmentsLoader.segmentCap,
+                                                          segmentRow.width)
+                                                    : segmentsLoader.segmentCap)
                                         sourceComponent: segmentRow.isCode
                                                          ? codeSegment
                                                          : richSegment

@@ -26,14 +26,23 @@
 #include <QClipboard>
 #include <QColor>
 #include <QGuiApplication>
+#include <QQmlApplicationEngine>
 #include <QQmlComponent>
+#include <QQmlContext>
 #include <QQmlEngine>
 #include <QQmlError>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSettings>
+#include <QTemporaryDir>
+#include <QVariantMap>
 #include <QWheelEvent>
 
 #include <memory>
+
+#include "app/AppController.h"
+#include "app/SettingsManager.h"
+#include "models/TimelineModel.h"
 
 namespace {
 constexpr int kTimeoutMs = 3000;
@@ -154,7 +163,204 @@ Item {
         QCoreApplication::processEvents();
     }
 
+    // ── The segment HOST, not the block ─────────────────────────────────
+    // A fenced block does not render alone: MessageDelegate replaces the
+    // single body TextEdit with a Repeater of segment rows, and that host is
+    // where the geometry of a code block actually lands. These cases load the
+    // real MessageDelegate with a real TimelineModel role schema, exactly as
+    // the timeline does.
+    struct RowHarness {
+        // Declared FIRST so it is destroyed LAST -- the warning lambda below
+        // captures it by reference and the engine still emits during its own
+        // teardown.
+        QStringList warnings;
+        std::unique_ptr<AppController> controller;
+        std::unique_ptr<QQmlApplicationEngine> engine;
+        std::unique_ptr<QQuickWindow> window;
+        // Owned explicitly and destroyed FIRST, exactly as the CodeBlock
+        // harness above does: component.create() hands back an object with no
+        // QObject parent, and the QML tree must go before the engine that
+        // built it and before the AppController its bindings reach into.
+        std::unique_ptr<QObject> hostOwner;
+        QQuickItem *host = nullptr;
+        QQuickItem *row = nullptr;
+        QQuickItem *segments = nullptr;
+
+        QStringList bindingLoops() const
+        {
+            QStringList out;
+            for (const QString &w : warnings) {
+                if (w.contains(QLatin1String("Binding loop")))
+                    out << w;
+            }
+            return out;
+        }
+    };
+
+    // TimelineModel::MessageSegmentsRole's exact payload shape: kind 0 is
+    // rich text, kind 1 a fenced block (see TimelineModel.cpp).
+    static QVariantMap segment(int kind, const QString &text,
+                               const QString &language)
+    {
+        QVariantMap m;
+        m.insert(QStringLiteral("kind"), kind);
+        m.insert(QStringLiteral("text"), text);
+        m.insert(QStringLiteral("language"), language);
+        return m;
+    }
+
+    static QVariantMap richSegment(const QString &text)
+    {
+        return segment(0, text, QString());
+    }
+
+    static QVariantMap codeSegment(const QString &code,
+                                   const QString &language)
+    {
+        return segment(1, code, language);
+    }
+
+    // Long enough that it cannot fit the cap at any window width these cases
+    // use, so "reaches the cap and wraps" is a property of the text and not
+    // of a lucky fixture size.
+    static QString longProse()
+    {
+        return QStringLiteral(
+            "Here is the thing I meant, and it runs on for a good while so "
+            "that it certainly has to wrap inside the bubble at any sane cap "
+            "width whatsoever, twice over if need be.");
+    }
+
+    // The Repeater's delegates, in the order the column lays them out.
+    // findChildren() makes no ordering promise; the layout's own child list
+    // does, and these cases assert on "the first segment" by position.
+    static QList<QQuickItem *> segmentRows(const RowHarness &h)
+    {
+        QList<QQuickItem *> rows;
+        auto *inner = h.segments
+            ? qobject_cast<QQuickItem *>(
+                  h.segments->property("item").value<QObject *>())
+            : nullptr;
+        if (!inner)
+            return rows;
+        for (QQuickItem *child : inner->childItems()) {
+            if (child->objectName() == QLatin1String("messageSegmentRow"))
+                rows << child;
+        }
+        return rows;
+    }
+
+    bool buildRow(RowHarness &h, const QVariantList &segments,
+                  const QString &body, bool bubbles)
+    {
+        h.controller =
+            std::make_unique<AppController>(AppController::MockBackend);
+        h.controller->settings()->setMessageLayout(bubbles ? 1 : 0);
+
+        QVariantMap fixture;
+        const auto roles = h.controller->timeline()->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+            fixture.insert(QString::fromUtf8(it.value()), QVariant{});
+        fixture.insert(QStringLiteral("isVirtual"), false);
+        fixture.insert(QStringLiteral("isStateActivity"), false);
+        fixture.insert(QStringLiteral("stateGroupEntries"), QVariantList{});
+        fixture.insert(QStringLiteral("showSenderIdentity"), true);
+        fixture.insert(QStringLiteral("itemId"), QStringLiteral("$fix:mock"));
+        fixture.insert(QStringLiteral("eventId"), QStringLiteral("$fix:mock"));
+        fixture.insert(QStringLiteral("sender"),
+                       QStringLiteral("@fixture:mock.local"));
+        fixture.insert(QStringLiteral("senderDisplayName"),
+                       QStringLiteral("Fixture"));
+        fixture.insert(QStringLiteral("senderInitials"), QStringLiteral("F"));
+        fixture.insert(QStringLiteral("body"), body);
+        fixture.insert(QStringLiteral("messageSegments"), segments);
+        fixture.insert(QStringLiteral("eventType"), 0);
+        fixture.insert(QStringLiteral("status"), 0);
+        fixture.insert(QStringLiteral("isOwn"), false);
+        fixture.insert(QStringLiteral("replyToEventId"), QString{});
+        fixture.insert(QStringLiteral("timestamp"),
+                       QDateTime::currentDateTimeUtc());
+        fixture.insert(QStringLiteral("isEncrypted"), false);
+        fixture.insert(QStringLiteral("isDecrypted"), true);
+        fixture.insert(QStringLiteral("undecryptable"), false);
+        fixture.insert(QStringLiteral("redacted"), false);
+        fixture.insert(QStringLiteral("isImage"), false);
+        fixture.insert(QStringLiteral("isFile"), false);
+        fixture.insert(QStringLiteral("reactions"), QVariantList{});
+
+        h.engine = std::make_unique<QQmlApplicationEngine>();
+        connect(h.engine.get(), &QQmlEngine::warnings, this,
+                [&h](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        h.warnings << e.toString();
+                });
+        h.engine->rootContext()->setContextProperty("app", h.controller.get());
+        h.engine->rootContext()->setContextProperty("model", fixture);
+
+        QQmlComponent component(h.engine.get());
+        component.setData(R"(
+import QtQuick
+import MatrixClient
+Item {
+    id: host
+    objectName: "segmentHost"
+    width: 640
+    height: 900
+    property bool direct: false
+    MessageDelegate {
+        objectName: "segmentMessageRow"
+        width: host.width
+        isDirectRoom: host.direct
+    }
+}
+)", QUrl(QStringLiteral("qrc:/segmenthosttest.qml")));
+        if (!component.errors().isEmpty()) {
+            qWarning("%s", qPrintable(component.errorString()));
+            return false;
+        }
+        h.hostOwner.reset(component.create());
+        h.host = qobject_cast<QQuickItem *>(h.hostOwner.get());
+        if (!h.host)
+            return false;
+        h.host->setProperty("direct", bubbles);
+
+        h.window = std::make_unique<QQuickWindow>();
+        h.window->resize(700, 900);
+        h.host->setParentItem(h.window->contentItem());
+        h.window->show();
+        QCoreApplication::processEvents();
+
+        h.row = h.host->findChild<QQuickItem *>(
+            QStringLiteral("segmentMessageRow"));
+        if (!h.row)
+            return false;
+        h.row->polish();
+        QCoreApplication::processEvents();
+        QCoreApplication::processEvents();
+        h.segments = h.row->findChild<QQuickItem *>(
+            QStringLiteral("messageSegments"));
+        return true;
+    }
+
+private:
+    QTemporaryDir m_configHome;
+
 private Q_SLOTS:
+    // The segment-host cases construct a real AppController, which owns a
+    // SettingsManager backed by QSettings. Redirect the whole suite at a
+    // temporary config home so a test can never read or write the developer's
+    // own Lightning settings.
+    void initTestCase()
+    {
+        QVERIFY(m_configHome.isValid());
+        qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+        QCoreApplication::setOrganizationName(
+            QStringLiteral("MatrixClientTests"));
+        QCoreApplication::setApplicationName(
+            QStringLiteral("code-block-qml-test"));
+        QSettings().clear();
+    }
+
     // THE defect. A 5000-character line must not become 5000 characters of
     // geometry: the component stays inside the width it was given, its
     // implicit width stays bounded (so it cannot inflate the bubble or the
@@ -425,6 +631,177 @@ private Q_SLOTS:
         QCOMPARE(pen->property("color").value<QColor>(),
                  theme->property("focusRing").value<QColor>());
         QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // ── The segment host's geometry, and the loop it used to report ──────
+    //
+    // A live `scripts/run-dev.sh` run printed this four times while a room
+    // loaded, once per rich segment of the fenced messages in it:
+    //
+    //   MessageDelegate.qml:1954:43: QML QQuickItem*: Binding loop detected
+    //   for property "implicitWidth": MessageDelegate.qml:1970:37
+    //
+    // A binding loop is a WARNING, so nothing in the suite could fail on it.
+    // These cases collect QQmlEngine::warnings from a REAL MessageDelegate
+    // loaded over the real TimelineModel role schema and require ZERO of
+    // them — measured against the unfixed tree, this case reports one loop
+    // per rich segment in every layout.
+    //
+    // The mechanism, established by bisecting the two halves separately:
+    // reading QQuickTextEdit::implicitWidth from a binding is not a pure
+    // read (the first one sets requireImplicitWidth and runs updateSize(),
+    // which emits implicitWidthChanged while the binding is still on the
+    // stack), and a wrapping text item handed `min(cap, its own implicit
+    // width)` is being sized from its own measurement whenever that width
+    // is under the cap. A code segment has neither property and never
+    // looped; the split is what the fix encodes.
+    void segmentedMessageRowsReportNoBindingLoop()
+    {
+        const QString prose = longProse();
+        const QVariantList mixed{
+            richSegment(prose),
+            codeSegment(QStringLiteral("ls -la\ncd /tmp"),
+                        QStringLiteral("bash")),
+            richSegment(QStringLiteral("Short tail."))};
+        const QVariantList codeOnly{
+            codeSegment(QStringLiteral("ls -la"), QStringLiteral("bash"))};
+        const QVariantList shortAndCode{
+            richSegment(QStringLiteral("Short tail.")),
+            codeSegment(QStringLiteral("ls -la"), QStringLiteral("bash"))};
+        const QVariantList longAndCode{
+            richSegment(prose),
+            codeSegment(QString(400, QLatin1Char('x')), QString())};
+
+        struct Case { const char *name; QVariantList segments; QString body; };
+        const QList<Case> cases{
+            // (a) and (b) carry no fenced block at all, so they render
+            // through the single-body TextEdit. They are here because the
+            // ordinary message is the majority of the timeline and the fix
+            // must not have moved the loop onto it.
+            {"shortPlainMessage", QVariantList{}, QStringLiteral("ok")},
+            {"longPlainMessage", QVariantList{}, prose},
+            {"codeOnlyMessage", codeOnly, QStringLiteral("```\nls -la\n```")},
+            {"shortProseAndCode", shortAndCode, QStringLiteral("body")},
+            {"longProseAndWideCode", longAndCode, QStringLiteral("body")},
+            {"proseCodeProse", mixed, QStringLiteral("body")},
+        };
+
+        for (bool bubbles : {false, true}) {
+            for (const Case &c : cases) {
+                RowHarness h;
+                QVERIFY2(buildRow(h, c.segments, c.body, bubbles), c.name);
+                const QStringList loops = h.bindingLoops();
+                QVERIFY2(loops.isEmpty(),
+                         qPrintable(QStringLiteral("%1 (bubbles=%2) reported "
+                                                   "%3 binding loop(s):\n%4")
+                                        .arg(QLatin1String(c.name))
+                                        .arg(bubbles)
+                                        .arg(loops.size())
+                                        .arg(loops.join(QLatin1Char('\n')))));
+            }
+        }
+    }
+
+    // The behaviour the loop fix had to preserve. A segment reports its
+    // NATURAL width upward (that implicit width is what sizes a DM bubble),
+    // so a two-word tail must stay well under the cap while a paragraph must
+    // exceed it -- and the paragraph's text item must actually be laid out AT
+    // the cap, which is what makes it wrap instead of running off the row.
+    void aShortSegmentStaysNarrowAndAParagraphReachesTheCap()
+    {
+        RowHarness h;
+        QVERIFY(buildRow(h, QVariantList{
+                                richSegment(longProse()),
+                                codeSegment(QStringLiteral("ls -la"),
+                                            QStringLiteral("bash")),
+                                richSegment(QStringLiteral("Hi."))},
+                         QStringLiteral("body"), false));
+        const QList<QQuickItem *> rows = segmentRows(h);
+        QCOMPARE(rows.size(), 3);
+        const qreal cap = h.segments->property("segmentCap").toReal();
+        QVERIFY(cap > 100.0);
+
+        QVERIFY2(rows.at(0)->implicitWidth() > cap,
+                 qPrintable(QStringLiteral("a wrapping paragraph reported %1, "
+                                           "under the %2 cap -- it can no "
+                                           "longer be said to reach it")
+                                .arg(rows.at(0)->implicitWidth()).arg(cap)));
+        QVERIFY2(rows.at(2)->implicitWidth() < cap / 2.0,
+                 qPrintable(QStringLiteral("a two-word segment reported %1 "
+                                           "against a %2 cap -- a short "
+                                           "message would stretch its bubble")
+                                .arg(rows.at(2)->implicitWidth()).arg(cap)));
+
+        // The paragraph is laid out at the cap and wraps there. contentWidth
+        // is the widest laid-out line, so it can never exceed the width the
+        // item was given; a paragraph that did NOT wrap would report a
+        // content width equal to its (much larger) implicit width.
+        auto *paragraph = rows.at(0)->findChild<QQuickItem *>(
+            QStringLiteral("messageSegmentText"));
+        QVERIFY(paragraph != nullptr);
+        QCOMPARE(paragraph->width(), cap);
+        QVERIFY(paragraph->property("contentWidth").toReal() <= cap + 0.5);
+        QVERIFY2(paragraph->property("lineCount").toInt() > 1,
+                 "the paragraph did not wrap at the cap");
+    }
+
+    // A code-only message is the case the implicit-width propagation exists
+    // for: in Bubbles the bubble's width IS its content's implicit width, so
+    // a row reporting nothing collapses the whole message to the 60px floor.
+    // And the block must still be its own width -- `ls -la` in an
+    // edge-to-edge grey frame is the regression on the other side.
+    void aCodeOnlyMessageKeepsItsOwnWidthInsideABubble()
+    {
+        RowHarness h;
+        QVERIFY(buildRow(h, QVariantList{codeSegment(
+                                QStringLiteral("ls -la"),
+                                QStringLiteral("bash"))},
+                         QStringLiteral("```\nls -la\n```"), true));
+        const QList<QQuickItem *> rows = segmentRows(h);
+        QCOMPARE(rows.size(), 1);
+        const qreal cap = h.segments->property("segmentCap").toReal();
+
+        QVERIFY2(rows.at(0)->implicitWidth() > 60.0,
+                 qPrintable(QStringLiteral("the code row reported %1 -- a DM "
+                                           "bubble would collapse to its floor")
+                                .arg(rows.at(0)->implicitWidth())));
+        QVERIFY2(rows.at(0)->implicitWidth() < cap / 2.0,
+                 qPrintable(QStringLiteral("a six-character snippet reported "
+                                           "%1 against a %2 cap -- the block "
+                                           "is stretching edge to edge")
+                                .arg(rows.at(0)->implicitWidth()).arg(cap)));
+
+        auto *bubbleItem = h.row->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        QVERIFY(bubbleItem != nullptr);
+        QVERIFY2(bubbleItem->width() > 60.0,
+                 qPrintable(QStringLiteral("the bubble collapsed to %1")
+                                .arg(bubbleItem->width())));
+        QVERIFY(bubbleItem->width() < cap);
+    }
+
+    // The other end of the code block's contract, inside the delegate rather
+    // than standalone: a line wider than any pane clamps at the cap and the
+    // overflow becomes horizontal scroll range, never geometry.
+    void aWideCodeBlockClampsAtTheCapAndScrollsInstead()
+    {
+        RowHarness h;
+        QVERIFY(buildRow(h, QVariantList{codeSegment(
+                                QString(400, QLatin1Char('x')), QString())},
+                         QStringLiteral("body"), false));
+        const QList<QQuickItem *> rows = segmentRows(h);
+        QCOMPARE(rows.size(), 1);
+        const qreal cap = h.segments->property("segmentCap").toReal();
+
+        auto *scroll = rows.at(0)->findChild<QQuickItem *>(
+            QStringLiteral("codeBlockScroll"));
+        QVERIFY(scroll != nullptr);
+        QVERIFY2(scroll->width() <= cap + 0.5,
+                 qPrintable(QStringLiteral("the block was laid out %1 wide "
+                                           "against a %2 cap")
+                                .arg(scroll->width()).arg(cap)));
+        QVERIFY2(scroll->property("contentWidth").toReal() > scroll->width(),
+                 "the long line did not become horizontal scroll range");
     }
 };
 
