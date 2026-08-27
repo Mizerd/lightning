@@ -195,11 +195,20 @@ for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
     LINUXDEPLOY_PLUGIN_ARGS+=(--library "$GST_PLUGIN_SRC/$plugin.so")
 done
 
-# AND THEN COPY THE DEPENDENCIES OURSELVES, because linuxdeploy does not.
+# AND THEN COPY THE DEPENDENCIES OURSELVES.
 #
-# Measured across pipelines 139 and 140: neither the staged-copy form nor the
-# source-path form of `--library` makes linuxdeploy walk a plugin's own NEEDED
-# list. Both produced an AppImage with all 28 plugins present and
+# NOTE, and re-test this before trusting it: the belief that `--library` never
+# walks a plugin's NEEDED list is TRUE of 139/140 and FALSE of 141. Pipeline
+# 141's build log shows linuxdeploy deploying dependencies for each staged
+# plugin and copying libgstsctp-1.0.so.0, libgstallocators-1.0.so.0,
+# libgstnet-1.0.so.0 and libsrtp2.so.1 into usr/lib itself, rpath set to
+# $ORIGIN. Those four were PRESENT in 141 and still unreachable, because a
+# plugin in usr/lib/gstreamer-1.0 resolving $ORIGIN never looks in usr/lib.
+# So this loop may now be redundant; it is kept because it is harmless and
+# because nothing has re-tested removing it. What fixed 141 is the hook's
+# LD_LIBRARY_PATH, not this copy.
+#
+# The 139/140 history, which the source-path form above addresses:
 # libgstsctp-1.0.so.0, libgstallocators-1.0.so.0, libgstnet-1.0.so.0,
 # libgstbadaudio-1.0.so.0, libnice.so.10, libvpx.so.9 and libsrtp2.so.1 all
 # absent — so webrtcbin did not exist and the engine reported
@@ -272,6 +281,29 @@ cat >"$APPDIR/apprun-hooks/gstreamer.sh" <<'HOOK'
 # Point GStreamer at the plugins bundled beside the binary.
 export GST_PLUGIN_SYSTEM_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
 export GST_PLUGIN_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
+# AND MAKE THE PLUGINS' OWN DEPENDENCIES RESOLVABLE. linuxdeploy's AppRun sets
+# no LD_LIBRARY_PATH at all -- it relies entirely on rewriting RUNPATH to
+# $ORIGIN on the files it deploys itself. The plugins here, and the libraries
+# they need, are staged by this script and never pass through that rewrite, so
+# they keep whatever RUNPATH the distro shipped. A plugin in
+# usr/lib/gstreamer-1.0/ resolving $ORIGIN looks in gstreamer-1.0/, NOT in
+# usr/lib/ where its dependencies actually are. That is pipeline 141, whose
+# build log shows linuxdeploy itself placing libgstsctp-1.0.so.0 and three
+# others INTO usr/lib -- present, rpath $ORIGIN, and unreachable from
+# gstreamer-1.0/: "libgstsctp-1.0.so.0: cannot open shared object file".
+# (139 and 140 are a different failure: those libraries were not bundled at
+# all, and no search path would have helped.)
+#
+# THE COST, stated rather than glossed: LD_LIBRARY_PATH is inherited by every
+# child process, so a browser launched for OAuth or a permalink starts with
+# this bundle's glib/gio/dbus ahead of the host's. That is bounded by the
+# copy loop's excludelist -- glibc, libstdc++, libgcc, GL/EGL, drm/gbm and X
+# are deliberately never bundled -- and build-snap.sh:57 already makes the
+# same trade. The surgical alternative is patchelf --set-rpath '$ORIGIN/..'
+# on the staged plugins, which leaks into no child; it needs to run AFTER
+# linuxdeploy has set its own rpath, so it needs a packaging step this script
+# does not have yet. Revisit with a pipeline available to test it.
+export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # The plugin registry is a CACHE and GStreamer rewrites it whenever the
 # plugin set changes. An AppImage mount is read-only and its path changes
 # every run, so leaving the registry at its default makes every launch
@@ -292,6 +324,80 @@ HOOK
     --output appimage
 
 test -s "$OUT" || die "AppImage not produced at $OUT"
+
+# ASK THE PACKED ARTIFACT, and ask it the right question.
+#
+# Pipelines 139, 140 and 141 each verified something upstream of the squashfs
+# and shipped anyway. The gate that actually caught them is validate-appimage,
+# which launches the binary on an image carrying no Qt and no GStreamer. This
+# block is an EARLIER WARNING in the job that can still fix it, not a
+# replacement for that gate.
+#
+# It must not repeat 141's mistake in a new costume. A bare `ldd ... | grep
+# "not found"` has NO TEETH HERE: this job apt-installs the GStreamer runtime,
+# so every library a plugin needs resolves from /usr/lib/x86_64-linux-gnu
+# whether or not it was bundled. The question is therefore not "did the loader
+# find it" but "did it find it INSIDE THE BUNDLE".
+verify_dir="$(mktemp -d -p "$ROOT/work")"
+trap 'rm -rf "$verify_dir"' EXIT
+if ! ( cd "$verify_dir" && "$ROOT/$OUT" --appimage-extract >extract.log 2>&1 ); then
+    cat "$verify_dir/extract.log" >&2 || true
+    die "could not extract the built AppImage for verification"
+fi
+verify_root="$verify_dir/squashfs-root"
+
+# The hook is what makes usr/lib reachable from usr/lib/gstreamer-1.0 at all.
+# Both assertions are anchored: linuxdeploy emits one `source` line PER hook,
+# so a bare 'apprun-hooks' match is satisfied by the Qt hook alone, and a bare
+# 'LD_LIBRARY_PATH' match is satisfied by this file's own comments.
+[[ -f "$verify_root/AppRun" ]] || die "packed bundle has no AppRun"
+grep -q 'gstreamer\.sh' "$verify_root/AppRun" \
+    || die "packed AppRun does not source gstreamer.sh; the GStreamer hook is inert"
+[[ -f "$verify_root/apprun-hooks/gstreamer.sh" ]] \
+    || die "packed bundle has no apprun-hooks/gstreamer.sh"
+grep -q '^export LD_LIBRARY_PATH="\$APPDIR/usr/lib' "$verify_root/apprun-hooks/gstreamer.sh" \
+    || die "packed GStreamer hook does not export LD_LIBRARY_PATH; plugin dependencies will not resolve"
+
+packed_plugins=0
+for plugin_name in "${GST_REQUIRED_PLUGINS[@]}"; do
+    [[ -e "$verify_root/usr/lib/gstreamer-1.0/$plugin_name.so" ]] \
+        && packed_plugins=$((packed_plugins+1))
+done
+[[ "$packed_plugins" -eq "${#GST_REQUIRED_PLUGINS[@]}" ]] || \
+    die "AppImage carries $packed_plugins of ${#GST_REQUIRED_PLUGINS[@]} GStreamer plugins"
+
+# Resolve each plugin the way the AppRun arranges it, then reject any
+# dependency satisfied from OUTSIDE the bundle unless it is base system --
+# the same allowlist the copy loop applies, for the same reason.
+packed_escaped=""
+for staged_plugin in "$verify_root/usr/lib/gstreamer-1.0"/*.so; do
+    [[ -e "$staged_plugin" ]] || continue
+    while IFS= read -r line; do
+        dep_name="${line%% *}"
+        dep_path="$line"; dep_path="${dep_path#* }"
+        case "$dep_name" in
+            ld-linux*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|\
+            libgcc_s.so.*|libstdc++.so.*|libresolv.so.*|\
+            libX*.so.*|libxcb*.so.*|libasound.so.*|libGL*.so.*|libEGL*.so.*|\
+            libdrm.so.*|libgbm.so.*|libdbus-1.so.*|libudev.so.*|libsystemd.so.*)
+                continue ;;
+        esac
+        [[ "$dep_path" == "$verify_root"/* ]] && continue
+        packed_escaped+=" $(basename "$staged_plugin")->$dep_name"
+    done < <(
+        LD_LIBRARY_PATH="$verify_root/usr/lib" ldd "$staged_plugin" 2>/dev/null \
+            | awk '/ => \// { print $1, $3 } / not found/ { print $1, "MISSING" }'
+    )
+done
+if [[ -n "$packed_escaped" ]]; then
+    printf 'packed usr/lib holds %d libraries, %d of them libgst*\n' \
+        "$(find "$verify_root/usr/lib" -maxdepth 1 -name '*.so*' | wc -l)" \
+        "$(find "$verify_root/usr/lib" -maxdepth 1 -name 'libgst*' | wc -l)"
+    die "packed plugins resolve dependencies from outside the bundle (they would be missing on a user's machine):$packed_escaped"
+fi
+printf 'Packed AppImage: %d GStreamer plugins, every non-base dependency satisfied from inside the bundle\n' \
+    "$packed_plugins"
+
 write_sha256 "$OUT"
 
 # Hand the fully bundled AppDir to the snap job so it does not recompile.
