@@ -26,11 +26,19 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.7.6** (`v0.7.6` -> `b13e346`),
-notes in `docs/releases/v0.7.6.md`. The application version reads
-**0.7.6** in `CMakeLists.txt` (`APP_VERSION_LABEL`), `rust/Cargo.toml`,
-and the Rust/HTTP user agent (derived from `CARGO_PKG_VERSION`). It is released, so the next bump is a new
-release checkpoint and only on Rokas's explicit request (§14).
+Latest release: **Lightning 0.8.0**, cut from `83d8427` by project 7
+pipeline **137** on 2026-08-27; notes in `docs/releases/v0.8.0.md`. The
+application version reads **0.8.0** in `CMakeLists.txt` (both `project()`
+and `APP_VERSION_LABEL`), `rust/Cargo.toml`, `rust/Cargo.lock`, and the
+Rust/HTTP user agent (derived from `CARGO_PKG_VERSION`). The next bump is a
+new release checkpoint and only on Rokas's explicit request (§14).
+
+**CHECK THE PIPELINE BEFORE QUOTING THIS.** The tag and the GitLab Release
+are created by the pipeline AFTER packages publish and verify, so a run that
+failed mid-flight leaves this file claiming a release that does not exist.
+`glab api projects/7/pipelines/137` and
+`git ls-remote --tags origin refs/tags/v0.8.0` are the two answers that
+settle it.
 
 `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to
 **0.18.0** in `rust/Cargo.lock`; UI and base are exact-pinned in
@@ -41,6 +49,7 @@ them incidentally.
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
+| 0.8.0 | `83d8427` | 137, all platforms, `create` | `docs/releases/v0.8.0.md` |
 | 0.7.6 | `b13e346` | 111, **20/20 green first attempt**, 10 assets | `docs/releases/v0.7.6.md` |
 | 0.7.5 | `848a29e` | 110, 18/20 green — mirror wired wrong, mirrored by hand (see below) | `docs/releases/v0.7.5.md` |
 | 0.7.4 | `e8139ed` | not recorded here (105 FAILED, see below) | `docs/releases/v0.7.4.md` |
@@ -1532,6 +1541,31 @@ improvement, a follow-up cap made the app FREEZE, and its
 width-invalidation injected anchor calls on every resize into the
 machinery three fixes were reverted from). Incremental unfilling while
 scrolling remains deliberately NOT done.
+
+**THE LINUX PACKAGE JOBS BUILD WITHOUT THE MEDIA ENGINE, and no local tree
+does.** Every machine here has GStreamer, so `HAVE_LIGHTNING_WEBRTC` is ON in
+`build` and in `build-rust` alike. The deb/rpm/flatpak/appimage jobs build
+WITHOUT it on purpose — a distribution with no GStreamer gets the honest
+refusal rather than a hard dependency — so anything behind that guard is
+compiled in that configuration for the first time thirty minutes into a
+release pipeline. 0.8.0 lost `build-deb` to exactly that, twice over in one
+job: an `#include` inside the guard whose REGISTRATION was outside it, and an
+INLINE accessor in a header calling into a source file the build does not
+compile (the `QPointer` lesson below, in a second costume — an inline accessor
+in a header creates a link dependency in EVERY target that includes it).
+
+Three minutes locally instead of thirty in CI:
+
+```sh
+nix develop -c cmake -S . -B /tmp/build-nowebrtc -G Ninja \
+    -DLIGHTNING_ENABLE_WEBRTC=OFF
+nix develop -c cmake --build /tmp/build-nowebrtc -j18
+```
+
+**Build EVERY target, not just `matrix-client`** — a passing app target is how
+0.8.0's first attempt got through. Run it before a release and after touching
+`src/calls/`. Out-of-tree, `presence-manager` fails because it walks up to
+find the repository it scans; that is the harness, not the code.
 
 **Qt version differences the dev shell cannot show you.** Pipeline 105's
 `build-deb` died on `CallController.h` holding
