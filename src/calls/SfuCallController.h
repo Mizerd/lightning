@@ -77,7 +77,9 @@
 #include "calls/CallParticipantModel.h"
 #include "calls/CallShareModel.h"
 #include "calls/CallStageState.h"
+#ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/WindowCaptureSrc.h"
+#endif
 
 class MatrixClient;
 class RtcController;
@@ -316,7 +318,17 @@ public:
                    CONSTANT)
     bool windowCaptureSupported() const
     {
+#ifdef HAVE_LIGHTNING_WEBRTC
         return lightning::wincap::available();
+#else
+        // No media engine means no capture at all, so no window list — and
+        // `WindowCaptureSrc.cpp` is not compiled into this build either, so
+        // calling it would not link. An inline accessor in a header creates a
+        // link dependency in EVERY target that includes it; that is the same
+        // shape as the `QPointer`-of-an-incomplete-type lesson in §16, and it
+        // is what broke `build-deb` for 0.8.0.
+        return false;
+#endif
     }
     /// Start the share on one of `screenShareSources`. Ignored when the list
     /// is empty (Linux), where the portal has already chosen.

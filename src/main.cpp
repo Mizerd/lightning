@@ -1245,8 +1245,18 @@ int main(int argc, char *argv[])
     // grab — and nothing is written to disk, because a still of whatever the
     // user has on screen must not outlive the dialog that asked for it. Null
     // everywhere but Windows, where the picker falls back to its glyph.
+    //
+    // GUARDED, because its header is: `ShareSourceImageProvider.cpp` is only
+    // compiled under `HAVE_LIGHTNING_WEBRTC`, so a build without a media
+    // engine has no such type. Registering it unconditionally compiled fine
+    // on every machine that has GStreamer — which is every developer machine
+    // here — and broke `build-deb`, where Debian's job builds without it.
+    // A build with no media engine has no call, so no picker, so nothing ever
+    // asks this provider for an image.
+#ifdef HAVE_LIGHTNING_WEBRTC
     engine.addImageProvider(QStringLiteral("lightning-sharesource"),
                             new ShareSourceImageProvider());
+#endif
     // Composer chips for images that are queued but not sent. A clipboard
     // paste never becomes a file, so there is no file:// URL to point an
     // Image at; the bytes live on the controller and are served from here.
