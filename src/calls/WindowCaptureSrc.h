@@ -45,10 +45,51 @@ struct WindowInfo {
     /// The HWND, widened so it can cross into QML and a GObject property
     /// without a Windows type leaking into either.
     quint64 handle = 0;
+    /// The window's own caption.
     QString title;
+    /// WHICH APPLICATION it belongs to, and it is not decoration. Chromium
+    /// browsers put only the tab's title in the caption, so a Brave window
+    /// offered by its title alone says nothing about being a browser at all
+    /// — reported as "with brave it listed my tab name but didnt even say
+    /// brave anywhere". Taken from the executable's VERSIONINFO description,
+    /// which is the name Task Manager shows and therefore the one the user
+    /// already associates with the window; the executable's own base name is
+    /// the fallback. Empty when neither can be read.
+    QString application;
+    /// The window's VISIBLE size — the frame DWM actually paints, which on
+    /// Windows 10/11 is smaller than the window rect by an invisible resize
+    /// border. It is the size the CAPTURE delivers, from the same helper, so
+    /// a row in the picker cannot advertise a shape the share does not send.
     int width = 0;
     int height = 0;
 };
+
+/// A frame size, so the fitting rule below can be tested without Windows.
+struct Size {
+    int width = 0;
+    int height = 0;
+};
+
+/// The largest size no larger than `maxW` x `maxH` that keeps `srcW`:`srcH`,
+/// with both edges even.
+///
+/// EVEN because VP8 encodes in 16x16 macroblocks over chroma subsampled by
+/// two; an odd edge reaches `videoconvert` and costs a copy per frame to fix
+/// something we can simply never produce.
+///
+/// NEVER UPSCALES. A window smaller than the ceiling is published at its own
+/// size; enlarging it spends bitrate on invented pixels and makes text
+/// softer, not sharper.
+///
+/// KEEPS THE ASPECT, which the element used to leave to a pair of independent
+/// clamps: a 3840x2100 window fixated to 1920x1080 is a 16:9 rectangle
+/// holding a 1.83:1 picture, so everything in it is stretched. Returns a zero
+/// size for a degenerate input rather than inventing one.
+///
+/// Compiled on every platform deliberately. This is the rule that decides
+/// what resolution a shared window is published at, and it is the one part of
+/// a Windows-only file that a test on any machine can hold to account.
+Size fitInto(int srcW, int srcH, int maxW, int maxH);
 
 /// Whether this build can capture a window at all. False everywhere but
 /// Windows, so the picker offers displays only and says so.
@@ -72,9 +113,27 @@ QList<WindowInfo> enumerateWindows();
 /// glyph, which is the pre-preview behaviour.
 QImage captureThumbnail(quint64 handle, int maxEdge);
 
-/// The same, for a whole display. `displayIndex` is the picker's row index,
-/// matched against the desktop's monitors in the order Windows reports them.
+/// The same, for a whole display. `displayIndex` is the index Windows itself
+/// reports the monitor at — see `displayForDeviceName`, which is the only way
+/// a caller should obtain one.
 QImage captureScreenThumbnail(int displayIndex, int maxEdge);
+
+/// Resolve a display by the platform's own device name (`\\.\DISPLAY1`), as
+/// `QScreen::name()` reports it on Windows.
+///
+/// WHY THIS EXISTS. Three enumerations were being treated as one: Qt's screen
+/// list, the order `EnumDisplayMonitors` walks, and whatever
+/// `gdiscreencapsrc`'s `monitor` property counts. Nothing maps between them,
+/// so on a multi-monitor machine the row a user picked could name one
+/// display, preview a second and capture a third — the same class of failure
+/// the picker was built to close. Matching on the device NAME is exact, and
+/// it also yields the monitor's real framebuffer rectangle, which is what
+/// gets captured and therefore the only honest thing to put on the row.
+///
+/// Returns false off Windows and for a name Windows does not know; the caller
+/// then falls back to Qt's own index and geometry.
+bool displayForDeviceName(const QString &deviceName, int *index, int *width,
+                          int *height);
 
 /// Register `lightningwindowcapturesrc`. Idempotent, safe from any thread,
 /// must run after gst_init. A no-op off Windows.

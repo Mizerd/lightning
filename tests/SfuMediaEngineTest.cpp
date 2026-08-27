@@ -15,6 +15,7 @@
 #include "calls/CallFrameCryptor.h"
 #include "calls/RtpVp8Payloader.h"
 #include "calls/SfuVideoRouter.h"
+#include "calls/WindowCaptureSrc.h"
 
 #include <QSet>
 #include <QSignalSpy>
@@ -1968,6 +1969,226 @@ private slots:
         // Junk must be ignored, never dereferenced.
         engine.setIceServers(QVariantList{ QVariant(), QVariant(42) });
         engine.stop();
+    }
+
+    // THE CAMERA FREEZE, reproduced as arithmetic rather than pinned as a
+    // string.
+    //
+    // videorate starts its output clock at SEGMENT START, not at the first
+    // buffer's timestamp. A publish bin joins a pipeline that has been
+    // PLAYING since the call was joined, and the Windows camera and monitor
+    // sources both stamp with the pipeline's RUNNING TIME — so the first
+    // buffer carries the age of the call and videorate owes thirty duplicate
+    // frames for every second of it, which it emits as fast as the encoder
+    // will take them. One picture, at full rate, with every counter healthy.
+    //
+    // This drives the REAL rate stage the engine builds, so it fails the
+    // moment `skip-to-first` is dropped from it: against the unfixed stage
+    // the second case emits 5247 buffers instead of 27.
+    void theRateStageDoesNotBackFillFromSegmentStart()
+    {
+        struct Counter {
+            int frames = 0;
+        };
+        const auto measure = [](GstClockTime firstPts) {
+            const QString stage = SfuMediaEngine::videoRateStage(true);
+            GstElement *pipeline = gst_pipeline_new(nullptr);
+            GstElement *src = gst_element_factory_make("appsrc", "src");
+            GError *error = nullptr;
+            GstElement *rate = gst_parse_bin_from_description(
+                stage.toUtf8().constData(), TRUE, &error);
+            GstElement *caps = gst_element_factory_make("capsfilter", "caps");
+            GstElement *sink = gst_element_factory_make("fakesink", "sink");
+            if (error) {
+                g_error_free(error);
+                return -1;
+            }
+            if (!pipeline || !src || !rate || !caps || !sink)
+                return -1;
+
+            GstCaps *inCaps = gst_caps_new_simple(
+                "video/x-raw", "format", G_TYPE_STRING, "BGRA", "width",
+                G_TYPE_INT, 64, "height", G_TYPE_INT, 64, "framerate",
+                GST_TYPE_FRACTION, 10, 1, nullptr);
+            g_object_set(src, "caps", inCaps, "format", GST_FORMAT_TIME,
+                         "is-live", TRUE, "do-timestamp", FALSE, nullptr);
+            gst_caps_unref(inCaps);
+            GstCaps *outCaps = gst_caps_new_simple(
+                "video/x-raw", "framerate", GST_TYPE_FRACTION, 30, 1, nullptr);
+            g_object_set(caps, "caps", outCaps, nullptr);
+            gst_caps_unref(outCaps);
+            g_object_set(sink, "sync", FALSE, "async", FALSE, nullptr);
+
+            gst_bin_add_many(GST_BIN(pipeline), src, rate, caps, sink,
+                             nullptr);
+            if (!gst_element_link_many(src, rate, caps, sink, nullptr))
+                return -1;
+
+            auto *counter = new Counter;
+            GstPad *pad = gst_element_get_static_pad(sink, "sink");
+            gst_pad_add_probe(
+                pad, GST_PAD_PROBE_TYPE_BUFFER,
+                [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                    static_cast<Counter *>(data)->frames++;
+                    return GST_PAD_PROBE_OK;
+                },
+                counter, nullptr);
+            gst_object_unref(pad);
+
+            gst_element_set_state(pipeline, GST_STATE_PLAYING);
+            gst_element_get_state(pipeline, nullptr, nullptr,
+                                  GST_CLOCK_TIME_NONE);
+            constexpr GstClockTime step = GST_SECOND / 10;
+            for (int i = 0; i < 10; ++i) {
+                GstBuffer *buffer =
+                    gst_buffer_new_allocate(nullptr, 64 * 64 * 4, nullptr);
+                gst_buffer_memset(buffer, 0, 0, 64 * 64 * 4);
+                GST_BUFFER_PTS(buffer) = firstPts + i * step;
+                GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer);
+                GST_BUFFER_DURATION(buffer) = step;
+                gst_app_src_push_buffer(GST_APP_SRC(src), buffer);
+            }
+            gst_app_src_end_of_stream(GST_APP_SRC(src));
+            GstBus *bus = gst_element_get_bus(pipeline);
+            GstMessage *message = gst_bus_timed_pop_filtered(
+                bus, 20 * GST_SECOND,
+                static_cast<GstMessageType>(GST_MESSAGE_EOS
+                                            | GST_MESSAGE_ERROR));
+            if (message)
+                gst_message_unref(message);
+            gst_object_unref(bus);
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+            gst_object_unref(pipeline);
+            const int frames = counter->frames;
+            delete counter;
+            return frames;
+        };
+
+        // A publish that starts with the pipeline: one second of input at
+        // 10 fps becomes about one second at 30.
+        const int fresh = measure(0);
+        QVERIFY2(fresh > 0, "the rate stage produced nothing at all");
+        QVERIFY2(fresh < 60,
+                 qPrintable(QStringLiteral("a fresh publish emitted %1 buffers "
+                                           "for 1 s of input")
+                                .arg(fresh)));
+
+        // The same input, published into a call that has been up for three
+        // minutes. The source stamps with running time, so the first buffer
+        // carries 174 s. Nothing about the INPUT changed, so nothing about
+        // the output count may either.
+        const int late = measure(174 * GST_SECOND);
+        QVERIFY2(late > 0, "the rate stage produced nothing at all");
+        QVERIFY2(late < fresh + 60,
+                 qPrintable(QStringLiteral("a publish 174 s into a call "
+                                           "emitted %1 buffers against %2 for "
+                                           "the same input on a fresh "
+                                           "pipeline — the rate stage is "
+                                           "back-filling from segment start")
+                                .arg(late)
+                                .arg(fresh)));
+    }
+
+    // WHAT RESOLUTION A SHARED WINDOW IS PUBLISHED AT.
+    //
+    // The element itself is `#ifdef Q_OS_WIN`, but this rule is not: it is
+    // compiled on every platform precisely so the arithmetic that decides a
+    // share's shape can be held to account from a machine that has no
+    // Windows. Two independent clamps used to do this job, and a 3840x2100
+    // window came out as 1920x1080 — a 16:9 rectangle holding a 1.83:1
+    // picture, with everything in it stretched.
+    void fitIntoKeepsTheAspectAndNeverUpscales()
+    {
+        using lightning::wincap::fitInto;
+
+        // The real case from the Windows report: a maximised Brave window on
+        // a 4K display, against the 1080p publish ceiling. 1050, not 1080.
+        const auto brave = fitInto(3840, 2100, 1920, 1080);
+        QCOMPARE(brave.width, 1920);
+        QCOMPARE(brave.height, 1050);
+
+        // A window already inside the ceiling keeps its own size. Publishing
+        // it larger would spend bitrate on invented pixels.
+        const auto small = fitInto(800, 600, 1920, 1080);
+        QCOMPARE(small.width, 800);
+        QCOMPARE(small.height, 600);
+
+        // Odd edges are rounded DOWN to even, because VP8 subsamples chroma
+        // by two. The second Windows case was a 1557x1213 File Explorer.
+        const auto explorer = fitInto(1557, 1213, 4000, 4000);
+        QCOMPARE(explorer.width, 1556);
+        QCOMPARE(explorer.height, 1212);
+
+        // Height-bound rather than width-bound, and still proportional.
+        const auto tall = fitInto(1000, 4000, 1920, 1080);
+        QCOMPARE(tall.height, 1080);
+        QCOMPARE(tall.width, 270);
+
+        // Never over the ceiling, even by the rounding.
+        for (int w = 1900; w <= 1940; ++w) {
+            for (int h = 1070; h <= 1090; ++h) {
+                const auto fit = fitInto(w, h, 1920, 1080);
+                QVERIFY(fit.width <= 1920);
+                QVERIFY(fit.height <= 1080);
+                QVERIFY(fit.width % 2 == 0);
+                QVERIFY(fit.height % 2 == 0);
+            }
+        }
+
+        // Degenerate input answers with a zero size rather than inventing one.
+        QCOMPARE(fitInto(0, 0, 1920, 1080).width, 0);
+        QCOMPARE(fitInto(1920, 1080, 0, 0).width, 0);
+        QCOMPARE(fitInto(-4, -4, 1920, 1080).height, 0);
+    }
+
+    // THE GARBLING DEFECT, pinned at its root.
+    //
+    // The element advertises a RANGE on its src pad, so fixation can land
+    // anywhere downstream permits — measured on a real Windows run, 1920x1080
+    // for a 3840x2100 window. It then went on allocating and copying a buffer
+    // of the WINDOW's size, because it implemented no `set_caps` and never
+    // learned what it had agreed to. Downstream reads a buffer at the stride
+    // the CAPS imply, so every displayed row was half a source row and only
+    // the top quarter of the window was ever consumed.
+    //
+    // Source-scanned because the whole file is `#ifdef Q_OS_WIN` and this
+    // suite runs on Linux: the same shape as
+    // `aChosenWindowRoutesToTheWindowCaptureElement` above, for the same
+    // reason.
+    void theWindowCaptureLearnsTheSizeItNegotiated()
+    {
+        QFile file(QStringLiteral(SOURCE_DIR "/src/calls/WindowCaptureSrc.cpp"));
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "WindowCaptureSrc.cpp is not where this test looks for it");
+        const QString source = QString::fromUtf8(file.readAll());
+        QVERIFY(source.size() > 1000);
+
+        QVERIFY2(source.contains(QStringLiteral("base->set_caps = setCapsSrc;")),
+                 "the element installs no set_caps vfunc, so it cannot learn "
+                 "the frame size it negotiated");
+
+        // The buffer's size must come from the NEGOTIATED fields, never from
+        // a fresh measurement of the window.
+        QVERIFY2(source.contains(QStringLiteral(
+                     "static_cast<gsize>(self->outWidth) * self->outHeight")),
+                 "the frame size is no longer computed from the negotiated "
+                 "output size");
+
+        // The capture measures the WINDOW rect, because that is what
+        // PrintWindow draws. Sizing a surface to the client rect while
+        // printing the whole window is what put the frame in the top of the
+        // picture and cut the same number of pixels off the bottom.
+        // The CALL form, with its open paren. Banning the bare token matches
+        // the comment that explains why the client rect is wrong, which is
+        // the "a ban regex matching a token named in a COMMENT" trap this
+        // repository has already paid for once.
+        QVERIFY2(!source.contains(QStringLiteral("GetClientRect(")),
+                 "the capture is measuring the client rect again while "
+                 "PrintWindow draws the whole window");
+
+        // And the fit is the shared rule, not a pair of clamps written here.
+        QVERIFY2(source.contains(QStringLiteral("wincap::fitInto(")),
+                 "the element no longer uses the shared fitting rule");
     }
 };
 

@@ -5,10 +5,15 @@
 namespace {
 
 // Big enough that a tile stays readable on a high-DPI screen, small enough
-// that grabbing one per row costs no visible pause. The picker asks for a
-// ~160px tile; this is the ceiling regardless of what it asks for, so a
-// mis-sized Image cannot turn a 4K desktop into a full-resolution copy.
-constexpr int kMaxEdge = 320;
+// that grabbing one per row costs no visible pause. This is the ceiling
+// regardless of what the picker asks for, so a mis-sized Image cannot turn a
+// 4K desktop into a full-resolution copy.
+//
+// RAISED for the grid picker: the preview is the thing the user actually
+// reads now — a 64px strip next to a caption was not enough to tell one
+// browser window from another, which is what the caption problem and the
+// tile size problem had in common.
+constexpr int kMaxEdge = 640;
 
 } // namespace
 

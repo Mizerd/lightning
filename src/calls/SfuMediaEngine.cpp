@@ -1124,13 +1124,51 @@ QString SfuMediaEngine::videoRateStage(bool screenShare)
     // until something on screen changes". Whatever fixes it must be measured
     // on a REAL 4K capture and must assert the negotiated output size.
     //
-    // Refuted and not to be retried: `queue min-threshold-buffers=0` and
-    // `identity` in front of videorate (neither can manufacture the second
-    // buffer); `capssetter` (gst_util_fraction_multiply CRITICAL, zero frames
-    // out); `videorate skip-to-first` and `max-duplication-time`; and the two
-    // SOURCE-level properties `min-buffers=8` and `keepalive-time=100`, each
-    // of which killed the capture outright.
-    return QStringLiteral("videorate");
+    // Refuted and not to be retried AGAINST THE HOLD: `queue
+    // min-threshold-buffers=0` and `identity` in front of videorate (neither
+    // can manufacture the second buffer); `capssetter`
+    // (gst_util_fraction_multiply CRITICAL, zero frames out);
+    // `max-duplication-time`; and the two SOURCE-level properties
+    // `min-buffers=8` and `keepalive-time=100`, each of which killed the
+    // capture outright.
+    //
+    // `skip-to-first` IS ON THAT LIST AND IS NOW SET ANYWAY, because it was
+    // tried against the wrong problem. It does nothing for the hold — videorate
+    // still needs a second buffer to know the interval — and it is the whole
+    // of a DIFFERENT defect: the one that froze the camera on a single frame.
+    //
+    // videorate starts its output clock at SEGMENT START, not at the first
+    // buffer's timestamp (gst_video_rate_compute_next_ts). A publish bin is
+    // added to a publisher pipeline that has been PLAYING since the call was
+    // joined, and `ksvideosrc` and `gdiscreencapsrc` both stamp buffers with
+    // the pipeline's RUNNING TIME — so the first buffer of a camera switched
+    // on three minutes into a call carries a PTS of three minutes, and
+    // videorate owes thirty duplicates for every second of it. It emits them
+    // as fast as the encoder will take them: a full-rate stream of ONE
+    // picture, with every counter healthy. Reported as "camera didnt work, it
+    // sent one frame out and froze".
+    //
+    // MEASURED, not reasoned — every earlier property on this lane was
+    // shipped on reasoning and three of them made things worse. appsrc
+    // pushing ten buffers at 10 fps into videorate ! 30/1 ! fakesink, on
+    // GStreamer 1.26.11:
+    //
+    //   first PTS      0 s, skip-to-first=false ->    27 buffers out
+    //   first PTS     10 s, skip-to-first=false ->   327 buffers out
+    //   first PTS     10 s, skip-to-first=true  ->    27 buffers out
+    //   first PTS    174 s, skip-to-first=false ->  5247 buffers out
+    //   first PTS    174 s, skip-to-first=true  ->    27 buffers out
+    //
+    // 174 s is the real call age at which the camera was switched on in the
+    // Windows log. The corroboration in that log is exact: the monitor share
+    // was published 8.73 s into the call and encoded 262 frames more than a
+    // 30 fps steady state accounts for, against 30 x 8.73 = 262 predicted.
+    //
+    // The negative control is Lightning's own WindowCaptureSrc, which stamps
+    // from ZERO and therefore never back-filled — which is why a WINDOW share
+    // worked while the camera did not, and why that element must keep its
+    // zero-based timeline (see the `frameIndex` field there).
+    return QStringLiteral("videorate skip-to-first=true");
 }
 
 QString SfuMediaEngine::videoPipelineDescription(const QString &source,
@@ -1481,16 +1519,45 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     // the far end expects.
     //
     // The SIZE stays a range: those are ceilings, and videoscale picks the
-    // largest fitting size that keeps the display aspect ratio, so an
-    // ultrawide (or this 4K source) stays its own shape instead of being
-    // stretched into 16:9.
+    // largest fitting size inside them.
+    //
+    // THE PIXEL ASPECT RATIO IS PINNED TO 1/1, AND WITHOUT IT THE COMMENT
+    // THAT USED TO SIT HERE WAS FALSE.
+    //
+    // It claimed videoscale "picks the largest size inside them that keeps
+    // the display aspect ratio, so an ultrawide stays ultrawide instead of
+    // being stretched into 16:9". videoscale does keep the display aspect
+    // ratio — but it keeps it by clamping BOTH axes to the ceiling and
+    // signalling the difference as a non-square PAR, and VP8 carries no PAR
+    // and neither does the RTP payload. A libwebrtc receiver draws the frame
+    // at its literal width by height, so the ratio videoscale carefully
+    // preserved is thrown away at the far end and the picture arrives
+    // distorted. Measured, videoscale ! this ceiling ! fakesink:
+    //
+    //   3840x2160 -> 1920x1080 PAR  1/1    (16:9, so no distortion, which is
+    //                                       why nobody has seen this)
+    //   3840x2100 -> 1920x1080 PAR 36/35   ->  2.9% stretch
+    //   1920x1200 -> 1920x1080 PAR  9/10   -> 11%   stretch
+    //   3440x1440 -> 1920x1080 PAR 43/32   -> 34%   squash
+    //
+    // With the PAR pinned, videoscale has to satisfy the ratio by choosing a
+    // SIZE, which is the thing that actually survives to the far end:
+    //
+    //   3840x2160 -> 1920x1080     3840x2100 -> 1920x1050
+    //   3440x1440 -> 1920x 804     1920x1200 -> 1728x1080
+    //   1556x1212 -> 1387x1080      800x 600 ->  800x 600 (never upscaled)
+    //
+    // Every one of those negotiated cleanly from a source declaring no PAR of
+    // its own, which is what Lightning's own window capture element does.
     const QString limits = screenShare
         ? QStringLiteral("video/x-raw,width=(int)[1,1920],"
                          "height=(int)[1,1080],"
-                         "framerate=(fraction)30/1")
+                         "framerate=(fraction)30/1,"
+                         "pixel-aspect-ratio=(fraction)1/1")
         : QStringLiteral("video/x-raw,width=(int)[1,1280],"
                          "height=(int)[1,720],"
-                         "framerate=(fraction)30/1");
+                         "framerate=(fraction)30/1,"
+                         "pixel-aspect-ratio=(fraction)1/1");
 
     // Screen content is text-heavy and mostly static, so the trades differ
     // from a camera's on every axis:
@@ -1608,6 +1675,38 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                     delete static_cast<std::shared_ptr<PublishProbeState> *>(
                         data);
                 });
+            // AND WHEN THE CAPTURE ENDS ITSELF.
+            //
+            // Closing the window you are sharing is an ordinary thing to do,
+            // and the capture element answers it with EOS rather than an
+            // error — correctly, because ending the whole call over it would
+            // be worse. But nothing was listening: the encoder stopped, the
+            // track stayed declared, and the far end kept the last frame
+            // indefinitely while this end still showed "Your screen" with the
+            // Stop control armed. Retiring it here routes into exactly the
+            // path the Stop button uses, which is the one that sets the
+            // transceiver INACTIVE and actually clears the far end's tile.
+            struct EndedCtx {
+                SfuMediaEngine *engine;
+                QString cid;
+            };
+            auto *endedCtx = new EndedCtx{this, cid};
+            gst_pad_add_probe(
+                srcPad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
+                [](GstPad *, GstPadProbeInfo *info, gpointer data) {
+                    GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
+                    if (!event || GST_EVENT_TYPE(event) != GST_EVENT_EOS)
+                        return GST_PAD_PROBE_OK;
+                    auto *ctx = static_cast<EndedCtx *>(data);
+                    SfuMediaEngine *engine = ctx->engine;
+                    const QString cid = ctx->cid;
+                    marshal(engine, [engine, cid] {
+                        engine->handleCaptureEnded(cid);
+                    });
+                    return GST_PAD_PROBE_OK;
+                },
+                endedCtx,
+                [](gpointer data) { delete static_cast<EndedCtx *>(data); });
             gst_object_unref(srcPad);
         }
         gst_object_unref(capture);
@@ -2673,6 +2772,23 @@ void SfuMediaEngine::handleFailure(quintptr token, const QString &category)
     if (!tokenIsLive(token))
         return;
     Q_EMIT failed(category);
+}
+
+void SfuMediaEngine::handleCaptureEnded(const QString &cid)
+{
+    if (!m_active || !m_publishedBins.contains(cid))
+        return;
+    auto watch = m_publishWatch.find(cid);
+    if (watch == m_publishWatch.end() || !watch->state || watch->reported)
+        return;
+    const bool screenShare = watch->state->screenShare;
+    watch->reported = true;
+    qCInfo(lcSfuMedia) << "capture ended itself; retiring the publish"
+                       << "screenShare=" << screenShare;
+    Q_EMIT publishFailed(cid,
+                         screenShare
+                             ? QStringLiteral("screen_share_source_closed")
+                             : QStringLiteral("camera_source_closed"));
 }
 
 void SfuMediaEngine::handlePublishError(const QString &cid)

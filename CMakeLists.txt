@@ -2681,6 +2681,12 @@ if(BUILD_TESTING)
         src/calls/RtcController.cpp
         src/calls/SfuCallController.h
         src/calls/SfuCallController.cpp
+        # SfuCallController.h answers `windowCaptureSupported` inline from
+        # wincap::available(), so every target that includes the header needs
+        # the symbol. Off Windows this file compiles to `fitInto` plus a
+        # handful of stubs and pulls in no GStreamer at all.
+        src/calls/WindowCaptureSrc.h
+        src/calls/WindowCaptureSrc.cpp
         src/calls/CallParticipantModel.h
         src/calls/CallParticipantModel.cpp
         src/calls/CallShareModel.h
@@ -2869,10 +2875,6 @@ if(BUILD_TESTING)
             src/calls/GstBootstrap.cpp
             src/calls/SfuMediaEngine.h
             src/calls/SfuMediaEngine.cpp
-        src/calls/RtpVp8Payloader.h
-        src/calls/RtpVp8Payloader.cpp
-        src/calls/WindowCaptureSrc.h
-        src/calls/WindowCaptureSrc.cpp
             src/calls/RtpVp8Payloader.h
             src/calls/RtpVp8Payloader.cpp
             src/calls/WindowCaptureSrc.h

@@ -77,6 +77,7 @@
 #include "calls/CallParticipantModel.h"
 #include "calls/CallShareModel.h"
 #include "calls/CallStageState.h"
+#include "calls/WindowCaptureSrc.h"
 
 class MatrixClient;
 class RtcController;
@@ -284,6 +285,22 @@ public:
     Q_PROPERTY(QVariantList screenShareSources READ screenShareSources
                    NOTIFY screenShareSourcesChanged)
     QVariantList screenShareSources() const { return m_screenShareSources; }
+    /// Whether this BUILD can list windows at all, which is not the same
+    /// question as whether any are open.
+    ///
+    /// Window enumeration is Windows-only (WindowCaptureSrc.h), so on macOS
+    /// the Applications tab can never have a row. Without this the picker had
+    /// no way to tell "you have no windows open" from "Lightning cannot see
+    /// windows on this platform", and it stated the first — a sentence that is
+    /// simply false on a Mac with three apps running. The repository's own
+    /// rule elsewhere is that unknown renders nothing rather than a fabricated
+    /// fact; this is the same rule for a capability.
+    Q_PROPERTY(bool windowCaptureSupported READ windowCaptureSupported
+                   CONSTANT)
+    bool windowCaptureSupported() const
+    {
+        return lightning::wincap::available();
+    }
     /// Start the share on one of `screenShareSources`. Ignored when the list
     /// is empty (Linux), where the portal has already chosen.
     Q_INVOKABLE void chooseScreenShareSource(int index);

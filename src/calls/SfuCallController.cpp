@@ -429,12 +429,39 @@ void SfuCallController::requestScreenShare()
         ownScreen = QGuiApplication::primaryScreen();
     for (int i = 0; i < screens.size(); ++i) {
         const QScreen *screen = screens.at(i);
-        const QRect g = screen->geometry();
+        // PHYSICAL pixels, which is what gets captured. `QScreen::geometry()`
+        // is device-INDEPENDENT, so at the 125% scaling this was reported on
+        // a 3840x2160 display was offered to the user as "3072 x 1728" — the
+        // "it didnt show 4k on resolution" report, and a number that appears
+        // nowhere else on the machine. The capture element takes a monitor
+        // index and grabs the real framebuffer; the row has to agree with it.
+        QSize g = screen->geometry().size() * screen->devicePixelRatio();
+        // AND THE INDEX THE CAPTURE ACTUALLY COUNTS IN.
+        //
+        // Qt's screen order, the order EnumDisplayMonitors walks, and
+        // whatever `gdiscreencapsrc`'s `monitor` property counts are three
+        // enumerations with nothing mapping between them. Passing Qt's index
+        // to the capture was a guess that happens to hold on most machines
+        // and, when it does not, names one display, previews a second and
+        // captures a third. Resolved by DEVICE NAME instead, which is exact
+        // — and which also yields the monitor's real framebuffer rectangle,
+        // better than any arithmetic on a device-independent geometry.
+        int captureIndex = i;
+        int pixelWidth = 0;
+        int pixelHeight = 0;
+        if (lightning::wincap::displayForDeviceName(screen->name(),
+                                                    &captureIndex,
+                                                    &pixelWidth,
+                                                    &pixelHeight)
+            && pixelWidth > 0 && pixelHeight > 0) {
+            g = QSize(pixelWidth, pixelHeight);
+        }
         m_screenShareSources.append(QVariantMap{
-            { QStringLiteral("index"), i },
+            { QStringLiteral("index"), captureIndex },
             // The platform's own name for the display, so the row matches
             // what the OS display settings call it.
             { QStringLiteral("name"), screen->name() },
+            { QStringLiteral("application"), QString() },
             { QStringLiteral("geometry"),
               QStringLiteral("%1 x %2").arg(g.width()).arg(g.height()) },
             { QStringLiteral("primary"),
@@ -455,6 +482,11 @@ void SfuCallController::requestScreenShare()
             { QStringLiteral("index"), -1 },
             { QStringLiteral("windowHandle"), window.handle },
             { QStringLiteral("name"), window.title },
+            // WHICH APPLICATION, separately from the caption. A Chromium
+            // window's caption is the TAB's title and names no browser at
+            // all, so a picker offering the caption alone leaves the user
+            // guessing what they are about to broadcast.
+            { QStringLiteral("application"), window.application },
             { QStringLiteral("geometry"),
               QStringLiteral("%1 x %2").arg(window.width).arg(window.height) },
             { QStringLiteral("primary"), false },
@@ -564,8 +596,14 @@ QString SfuCallController::userFacingError(const QString &category) const
         return tr("Couldn't connect to the call.");
     if (category == QLatin1String("server_error"))
         return tr("The calling service is having trouble.");
+    // Before the startsWith below, which would otherwise tell someone whose
+    // shared window they just closed that it "couldn't start".
+    if (category == QLatin1String("screen_share_source_closed"))
+        return tr("The window you were sharing was closed.");
     if (category.startsWith(QLatin1String("screen_share")))
         return tr("Screen sharing couldn't start.");
+    if (category == QLatin1String("camera_source_closed"))
+        return tr("Your camera stopped.");
     if (category == QLatin1String("camera_failed"))
         return tr("Your camera isn't available.");
     if (category == QLatin1String("audio_source_failed"))

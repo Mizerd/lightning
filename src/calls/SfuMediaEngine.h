@@ -227,6 +227,15 @@ public:
     /// Stop publishing one track and renegotiate.
     void unpublish(const QString &cid);
 
+    /// A capture that ENDED ITSELF — the shared window was closed, a camera
+    /// was unplugged. Distinct from handlePublishError(), which is about a
+    /// publish that never started: this one has been delivering frames and
+    /// then stops, and if nobody retires it the far end keeps the last
+    /// picture forever while the control stays lit. That is the frozen-tile
+    /// failure the unpublish round fixed for the STOP button, reachable again
+    /// through a path the button never touches.
+    void handleCaptureEnded(const QString &cid);
+
     /// How many sink pads the PUBLISHER webrtcbin currently holds — one per
     /// live outgoing track, and therefore one per m= section it will offer.
     /// Test-only observation point: unpublish() retires a transceiver
