@@ -232,6 +232,23 @@ public:
     /// test that never reaches production is worth.
     Q_INVOKABLE bool isRoutingVideoTo(const QString &streamId) const;
 
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    /// DEVELOPMENT-ONLY: stage a call that exists only in this process, for
+    /// promotional screenshots on the mock backend.
+    ///
+    /// It publishes NO membership, contacts NO SFU, opens NO microphone or
+    /// camera, and sends nothing anywhere. It reports Connected and fills the
+    /// participant model with fictional people so the call surface — the
+    /// stage, the grid, the strip, the dock, the nameplates, raised hands —
+    /// can be photographed without a homeserver, a focus and a second human.
+    ///
+    /// Compiled out of every release binary by the same option that gates the
+    /// rest of the demo, so this cannot become a way to show a call that is
+    /// not happening. `endDemoCall()` returns the controller to Idle.
+    void startDemoCall(const QString &roomId, bool withScreenShare);
+    void endDemoCall();
+#endif
+
     State state() const { return m_state; }
     int stateInt() const { return static_cast<int>(m_state); }
     QString roomId() const { return m_roomId; }
@@ -576,6 +593,12 @@ private:
     QPointer<ScreenCastPortal> m_portal;
     QPointer<SettingsManager> m_settings;
 
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    /// A demo call is staged, so `rebuildModels()` must leave the participant
+    /// model alone: it reconciles against the SFU, and in a demo there is no
+    /// SFU, so every rebuild would wipe the fictional people back to nothing.
+    bool m_demoCall = false;
+#endif
     State m_state = State::Idle;
     QString m_roomId;
     QString m_lastError;

@@ -18,6 +18,7 @@
 #include "models/EmojiCatalog.h"
 #include "threads/ThreadController.h"
 
+#include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -46,6 +47,74 @@ private Q_SLOTS:
         QSettings s; s.clear(); s.sync();
     }
 
+    // THE CHANNELS SCENARIOS MUST ACTUALLY SWITCH THE LAYOUT.
+    //
+    // Naming a rail scope proves nothing on its own: with the layout left at
+    // Classic there is no rail scope to honour, and all three would
+    // photograph the same conversation list under three different names —
+    // which is the failure this catalogue exists to prevent.
+    void theChannelsScenariosSelectTheChannelsLayoutAndDistinctViews()
+    {
+        QFile file(QStringLiteral(
+            SOURCE_DIR "/src/app/ScreenshotDemoController.cpp"));
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "the demo controller is not where this test looks for it");
+        const QString source = QString::fromUtf8(file.readAll());
+
+        // The layout is applied at all, and BEFORE the room is opened —
+        // Channels resolves its view from the scope, so a later write would
+        // photograph one frame of the wrong column.
+        const int applyAt = source.indexOf(
+            QStringLiteral("setRoomNavigationLayout(s.navLayout)"));
+        QVERIFY2(applyAt > 0, "the scenario's navigation layout is never "
+                              "applied, so a Channels scenario renders "
+                              "Classic");
+        const int openAt = source.indexOf(QStringLiteral("m_app->openRoom("));
+        QVERIFY2(openAt > applyAt,
+                 "the layout is applied after the room is opened");
+        QVERIFY2(source.contains(
+                     QStringLiteral("setScopeSpaceId(s.channelsScope)")),
+                 "the scenario's Channels view is never selected");
+
+        // And the three views are genuinely different scopes.
+        for (const char *scope : { "\"@home\"", "\"@people\"",
+                                   "!space-studio" }) {
+            QVERIFY2(source.contains(QLatin1String(scope)),
+                     qPrintable(QStringLiteral(
+                         "no Channels scenario selects the %1 view")
+                                    .arg(QLatin1String(scope))));
+        }
+    }
+
+    // THE DEMO CALL MUST NOT FOLLOW THE USER THROUGH THE CATALOGUE.
+    //
+    // It is process-local state, so a scenario that does not ask for a call
+    // has to END one — otherwise every screenshot taken after `call-grid`
+    // carries a call panel over the top of whatever it was meant to show.
+    void aScenarioWithoutACallEndsOne()
+    {
+        QFile file(QStringLiteral(
+            SOURCE_DIR "/src/app/ScreenshotDemoController.cpp"));
+        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString source = QString::fromUtf8(file.readAll());
+        QVERIFY2(source.contains(QStringLiteral("endDemoCall()")),
+                 "no scenario ever ends a staged call, so one leaks into "
+                 "every screenshot taken after it");
+        const int start = source.indexOf(QStringLiteral("startDemoCall("));
+        const int end = source.indexOf(QStringLiteral("endDemoCall()"));
+        QVERIFY2(end > 0 && start > 0 && end < start,
+                 "the empty-call branch does not come first, so a scenario "
+                 "with no call may not clear one");
+        // And it must be staged only in a build that has the seam at all.
+        QFile controller(QStringLiteral(
+            SOURCE_DIR "/src/calls/SfuCallController.h"));
+        QVERIFY(controller.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString header = QString::fromUtf8(controller.readAll());
+        QVERIFY2(header.contains(
+                     QStringLiteral("#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO")),
+                 "the demo call is not compiled out of release builds");
+    }
+
     void catalogueHasEveryRequiredScenario()
     {
         const QStringList ids = ScreenshotDemoController::scenarioIds();
@@ -67,6 +136,13 @@ private Q_SLOTS:
             QStringLiteral("trust-card"), QStringLiteral("new-conversation"),
             QStringLiteral("settings-search"), QStringLiteral("invite-people"),
             QStringLiteral("create-poll"),
+            // 0.8.0: the Channels navigation layout is THREE views, and one
+            // screenshot of it would show a third of the feature. Classic is
+            // stated explicitly beside them so a release pair can be shot
+            // without depending on what the demo profile was left in.
+            QStringLiteral("channels-home"), QStringLiteral("channels-space"),
+            QStringLiteral("channels-people"), QStringLiteral("classic-home"),
+            QStringLiteral("call-grid"), QStringLiteral("call-screen-share"),
         };
         for (const QString &r : required)
             QVERIFY2(ids.contains(r), qUtf8Printable("missing scenario: " + r));

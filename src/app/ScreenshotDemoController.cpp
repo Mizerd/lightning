@@ -41,6 +41,25 @@ struct ScreenshotDemoController::Scenario {
     // from `popup` to the matching demoOpen*/demoFocus* signal.
     QString popup;
     QString query;
+
+    // 0.8.0: which NAVIGATION LAYOUT the scenario runs in — -1 leaves the
+    // account's own choice alone, 0 is Classic, 1 is Channels.
+    //
+    // A field rather than a separate scenario list because Channels is not a
+    // different screen: it is the SAME shell with a different conversation
+    // column, and the honest way to photograph it is to run existing
+    // scenarios in it. Trailing with a default, so every row above is
+    // unchanged (aggregate initialization).
+    int navLayout = -1;
+    // 0.8.0: stage a PROCESS-LOCAL call for the shot. "" none, "call" a voice
+    // and camera call, "call-share" the same with a screen share spotlighted.
+    // Nothing is published and no device is opened — see
+    // SfuCallController::startDemoCall.
+    QString call;
+    // Which Channels VIEW the rail should select: "" leaves it, "@people" is
+    // the Direct Messages tab, a `!` id is that Space, and "@home" is Home.
+    // Ignored in Classic, where there is no such concept.
+    QString channelsScope;
 };
 
 namespace {
@@ -82,6 +101,74 @@ const QList<ScreenshotDemoController::Scenario> &
 ScreenshotDemoController::catalogue()
 {
     static const QList<Scenario> c = {
+        // ── 0.8.0: the Channels navigation layout ───────────────────────
+        //
+        // THREE VIEWS, three scenarios, because that is what Channels IS —
+        // the rail chooses between Home, Direct Messages and one view per
+        // Space, and a single screenshot of "Channels" would show one third
+        // of it. Same shell, same rooms, same theme as the Classic shots
+        // above, so a release page can put them side by side and the only
+        // difference a reader sees is the conversation column.
+        //
+        // The scope strings are the model's own vocabulary
+        // (docs/navigation-layouts.md): a `!` id is that Space, `@people` is
+        // the Direct Messages tab, anything else is Home.
+        // ── 0.8.0: the call surface ─────────────────────────────────────
+        //
+        // A PROCESS-LOCAL call: no membership, no SFU, no microphone, no
+        // camera. It exists so the stage, the grid, the dock and the
+        // nameplates can be photographed without a homeserver and a second
+        // person. Two shots, because the grid and the share spotlight are
+        // different surfaces and one cannot stand in for the other.
+        //
+        // DESIGNATED INITIALIZERS from here down, and not as a style
+        // preference: this struct is sixteen fields long and every row above
+        // is positional, so a field inserted in the MIDDLE of it shifts every
+        // value after that point silently. That happened while these rows
+        // were being written — `channelsScope` landed in `call`, and the
+        // Channels shots staged a call with an empty participant model that
+        // rendered as "Connecting…" over the screenshot. Named fields cannot
+        // do that, and the compiler enforces declaration order.
+        { .id = QStringLiteral("call-grid"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .theme = kStormTheme, .size = QStringLiteral("1440x900"),
+          .title = QStringLiteral("Call — participant grid"),
+          .call = QStringLiteral("call") },
+        { .id = QStringLiteral("call-screen-share"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .theme = kStormTheme, .size = QStringLiteral("1600x1000"),
+          .title = QStringLiteral("Call — screen share"),
+          .call = QStringLiteral("call-share") },
+
+        { .id = QStringLiteral("channels-home"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .theme = kStormTheme, .typing = true,
+          .size = QStringLiteral("1440x900"),
+          .title = QStringLiteral("Channels — Home"),
+          .navLayout = 1, .channelsScope = QStringLiteral("@home") },
+        { .id = QStringLiteral("channels-space"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .space = QStringLiteral("!space-studio:lightning.example"),
+          .theme = kStormTheme, .typing = true,
+          .size = QStringLiteral("1440x900"),
+          .title = QStringLiteral("Channels — a Space"),
+          .navLayout = 1,
+          .channelsScope = QStringLiteral("!space-studio:lightning.example") },
+        { .id = QStringLiteral("channels-people"), .account = kAlex,
+          .room = QStringLiteral("!dm-maya:lightning.example"),
+          .theme = kStormTheme, .size = QStringLiteral("1280x800"),
+          .title = QStringLiteral("Channels — Direct Messages"),
+          .navLayout = 1, .channelsScope = QStringLiteral("@people") },
+        // Classic, stated EXPLICITLY rather than inherited, so a release
+        // pair can be shot without depending on whatever the demo profile
+        // was last left in.
+        { .id = QStringLiteral("classic-home"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .theme = kStormTheme, .typing = true,
+          .size = QStringLiteral("1440x900"),
+          .title = QStringLiteral("Classic — conversation list"),
+          .navLayout = 0 },
+
         { QStringLiteral("home-overview"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"), QString(),
           QString(), false, kStormTheme, true, QStringLiteral("1440x900"), true,
@@ -539,6 +626,18 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
     // Per-account presentation, now that the target account is active.
     if (s.theme >= 0)
         m_app->settings()->setTheme(SettingsManager::Theme(s.theme));
+    // THE NAVIGATION LAYOUT, before the room is selected. Channels resolves
+    // its three views from the rail's scope, so setting it afterwards would
+    // photograph one frame of the wrong column.
+    if (s.navLayout >= 0)
+        m_app->settings()->setRoomNavigationLayout(s.navLayout);
+    // And WHICH of Channels' three views. Written VERBATIM, because that is
+    // the contract: the model classifies `!`-prefixed ids as a Space,
+    // `@people` as the Direct Messages tab and anything else as Home
+    // (docs/navigation-layouts.md). Collapsing a non-`!` value here is the
+    // exact defect that made a People tab inexpressible.
+    if (!s.channelsScope.isEmpty() && m_app->spaceChannels())
+        m_app->spaceChannels()->setScopeSpaceId(s.channelsScope);
     if (m_mock)
         m_mock->setDemoTypingSuppressed(!s.typing);
     m_typingEnabled = s.typing;
@@ -555,6 +654,22 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
         m_app->openRoom(s.room);
     else
         m_app->setCurrentRoomId(QString());
+
+    // THE DEMO CALL, after the room is open, because the call panel is keyed
+    // on `groupCall.roomId === currentRoomId`.
+    //
+    // ENDED UNCONDITIONALLY when a scenario does not ask for one: a staged
+    // call is process-local state that would otherwise follow the user
+    // through the rest of the catalogue and photograph a call panel over
+    // every other screenshot.
+    if (m_app->groupCall()) {
+        if (s.call.isEmpty()) {
+            m_app->groupCall()->endDemoCall();
+        } else {
+            m_app->groupCall()->startDemoCall(
+                s.room, s.call == QLatin1String("call-share"));
+        }
+    }
 
     // Page / panel.
     if (s.page == QLatin1String("settings-appearance")) {

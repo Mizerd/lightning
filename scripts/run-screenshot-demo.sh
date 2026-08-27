@@ -17,7 +17,9 @@
 # Usage:
 #   scripts/run-screenshot-demo.sh                      # build + launch demo
 #   scripts/run-screenshot-demo.sh --reset              # remove the demo profile
+#   scripts/run-screenshot-demo.sh --list               # print every scenario
 #   scripts/run-screenshot-demo.sh --scenario main-chat
+#   scripts/run-screenshot-demo.sh --scenario channels-home
 #   scripts/run-screenshot-demo.sh --theme ocean
 #   scripts/run-screenshot-demo.sh --appearance dark
 #   scripts/run-screenshot-demo.sh --size 1440x900
@@ -39,7 +41,9 @@ BUILD_DIR="${LIGHTNING_DEMO_BUILD:-build-demo}"
 MARKER=".lightning-screenshot-demo"
 
 # The valid screenshot scenarios (kept in sync with ScreenshotDemoController).
-VALID_SCENARIOS="home-overview main-chat direct-message development \
+VALID_SCENARIOS="channels-home channels-space channels-people classic-home \
+ call-grid call-screen-share \
+home-overview main-chat direct-message development \
 media-gallery thread-view poll settings-themes account-switching security \
 invite work-overview community-overview responsive-chat \
 menu-message menu-room find-in-room quick-switcher quick-switcher-command emoji-picker \
@@ -82,6 +86,7 @@ do_reset() {
 
 # --- Parse launcher arguments --------------------------------------------
 RESET=0
+LIST=0
 SCENARIO=""
 THEME=""
 APPEARANCE=""
@@ -100,6 +105,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help) usage 0 ;;
         --reset) RESET=1; shift ;;
+        --list) LIST=1; shift ;;
         --scenario) need_value "$1" "${2:-}"; SCENARIO="$2"; shift 2 ;;
         --theme) need_value "$1" "${2:-}"; THEME="$2"; shift 2 ;;
         --appearance) need_value "$1" "${2:-}"; APPEARANCE="$2"; shift 2 ;;
@@ -113,6 +119,16 @@ done
 
 if [ "$RESET" = 1 ]; then
     do_reset
+    exit 0
+fi
+
+if [ "$LIST" = 1 ]; then
+    echo "Scenarios (--scenario <id>):"
+    for sc in $VALID_SCENARIOS; do echo "  $sc"; done
+    echo
+    echo "Themes (--theme <name|id>): storm is the brand theme; indigo-night is"
+    echo "the flagship dark and moss-light the flagship light. --appearance"
+    echo "light|dark picks those two by name."
     exit 0
 fi
 

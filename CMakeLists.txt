@@ -3648,7 +3648,11 @@ if(BUILD_TESTING)
         )
         lightning_configure_qml_test(screenshot-demo-scenario-test)
         target_compile_definitions(screenshot-demo-scenario-test PRIVATE
-            LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
+            LIGHTNING_ENABLE_SCREENSHOT_DEMO=1
+            # The Channels case reads the controller's own source: which
+            # navigation layout a scenario selects, and in what ORDER, is not
+            # observable from the catalogue it exposes.
+            "SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
         target_link_libraries(screenshot-demo-scenario-test PRIVATE Qt6::Test)
         add_test(NAME screenshot-demo-scenario
             COMMAND screenshot-demo-scenario-test)

@@ -570,6 +570,105 @@ bool SfuCallController::active() const
         && m_state != State::Failed;
 }
 
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+void SfuCallController::startDemoCall(const QString &roomId,
+                                      bool withScreenShare)
+{
+    // NOTHING LEAVES THIS PROCESS. No membership is published, no SFU is
+    // contacted, no capture device is opened. The only things written are the
+    // controller's own presentation state and the participant model the call
+    // surface reads — which is exactly what a screenshot needs and nothing
+    // more. See the header for why this is compiled out of release builds.
+    if (roomId.isEmpty())
+        return;
+    m_roomId = roomId;
+    // Before any emit below: `mediaStateChanged` runs `rebuildModels()`
+    // synchronously, and that would reconcile these people out of existence.
+    m_demoCall = true;
+
+    struct DemoPerson {
+        const char *id;
+        const char *name;
+        bool local;
+        bool micMuted;
+        bool camera;
+        bool hand;
+    };
+    // Fictional, and deliberately so: these names exist nowhere but the demo
+    // seed. A screenshot must never carry a real account.
+    static const DemoPerson kPeople[] = {
+        { "@alex:lightning.example",  "Alex Rivera",  true,  false, true,  false },
+        { "@maya:lightning.example",  "Maya Chen",    false, false, true,  false },
+        { "@jordan:lightning.example","Jordan Blake", false, true,  false, true  },
+        { "@sam:lightning.example",   "Sam Okonkwo",  false, false, false, false },
+    };
+
+    QVector<CallParticipantRow> rows;
+    rows.reserve(int(std::size(kPeople)));
+    for (const DemoPerson &p : kPeople) {
+        CallParticipantRow row;
+        row.identity = QString::fromLatin1(p.id);
+        row.sid = QStringLiteral("PA_demo_") + QString::fromLatin1(p.name)
+                      .remove(QLatin1Char(' '));
+        row.userId = QString::fromLatin1(p.id);
+        row.displayName = QString::fromLatin1(p.name);
+        row.local = p.local;
+        // KNOWN, so the tiles draw real state rather than the unknown
+        // placeholder — the whole point is to photograph the populated case.
+        row.micKnown = true;
+        row.micMuted = p.micMuted;
+        row.cameraKnown = true;
+        row.cameraOn = p.camera;
+        if (p.camera)
+            row.cameraTrackKey = QStringLiteral("TR_demo_cam_") + row.sid;
+        rows.append(row);
+    }
+    if (withScreenShare) {
+        // The share rides on a REAL participant, as it does in a live call —
+        // a share with no sharer would be a shape the model cannot produce.
+        rows[1].screenSharing = true;
+        rows[1].screenTrackKey = QStringLiteral("TR_demo_screen");
+    }
+    if (m_participantModel) {
+        m_participantModel->applyParticipants(rows);
+        for (const DemoPerson &p : kPeople) {
+            if (p.hand)
+                m_participantModel->setHandRaised(QString::fromLatin1(p.id),
+                                                  true);
+        }
+        // One speaker, so the speaking ring is in the picture.
+        QHash<QString, bool> active;
+        QHash<QString, qreal> level;
+        active.insert(rows[1].sid, true);
+        level.insert(rows[1].sid, 0.62);
+        m_participantModel->applySpeakers(active, level);
+    }
+
+    m_micMuted = false;
+    m_cameraOn = true;
+    m_screenSharing = withScreenShare;
+    setState(State::Connected);
+    Q_EMIT mediaStateChanged();
+    Q_EMIT participantsChanged();
+}
+
+
+void SfuCallController::endDemoCall()
+{
+    if (!m_demoCall && m_state == State::Idle)
+        return;
+    m_demoCall = false;
+    if (m_participantModel)
+        m_participantModel->applyParticipants({});
+    m_screenSharing = false;
+    m_cameraOn = false;
+    m_roomId.clear();
+    setState(State::Idle);
+    Q_EMIT mediaStateChanged();
+    Q_EMIT participantsChanged();
+}
+#endif
+
 void SfuCallController::setState(State state, const QString &error)
 {
     if (m_state == state && m_lastError == error)
@@ -2475,6 +2574,15 @@ void SfuCallController::applyStoredVolumes()
 // insert/remove/move plus per-role dataChanged.
 void SfuCallController::rebuildModels()
 {
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // A STAGED CALL OWNS THE MODEL. This function reconciles against the SFU,
+    // and a demo call has none — so every rebuild would clear the fictional
+    // participants back to nothing. It is reached from `mediaStateChanged`
+    // (which the staging itself emits) and from the refresh timer, so a
+    // guard at the one place they both arrive is the only one that holds.
+    if (m_demoCall)
+        return;
+#endif
     if (!m_participantModel)
         return;
     QVector<CallParticipantRow> rows;
