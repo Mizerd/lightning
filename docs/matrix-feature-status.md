@@ -7,6 +7,12 @@
 > path negotiates `/_matrix/client/v1/media/*` itself since the media
 > bridge landed; audited v0.7.x), multi-account switching (landed 0.6.x),
 > and OIDC/OAuth login (landed and live-validated 0.7.0).
+>
+> **Calls are absent from this table entirely** and always were — MatrixRTC
+> group calls, screen sharing and the legacy 1:1 lane all postdate it. Nothing
+> below should be read as saying Lightning has no calling. CLAUDE.md §7
+> ("Calls, screen sharing and MatrixRTC"), `docs/matrixrtc.md` and
+> `docs/voice-calls.md` are the sources for that lane.
 
 Honest per-feature status per backend. Do not check anything as "done"
 here that is not actually done in code.

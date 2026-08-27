@@ -734,6 +734,47 @@ backend capability checks and honest live-test status.
 These mechanisms cannot guarantee recovery of historical messages whose keys
 were never backed up or shared.
 
+### Calls, screen sharing and MatrixRTC
+
+The deep contract is `docs/matrixrtc.md` and `docs/voice-calls.md`; §16 carries
+the lane's refuted hypotheses and must be read before touching any of it. What
+EXISTS, so nobody rebuilds it:
+
+- **MatrixRTC group calls over LiveKit**, with audio, camera and screen share
+  working in both directions against Element (live-validated 2026-08-25).
+  Per-participant frame encryption, raised hands interoperating with Element,
+  per-participant volume, a spotlight/grid stage, and a device picker.
+- **Legacy 1:1 `m.call.*` signalling** plus a GStreamer/webrtcbin media
+  backend behind a build-time seam, re-probed at runtime, with a
+  `LIGHTNING_DISABLE_WEBRTC=1` kill switch and an honest signalling-only
+  refusal when no engine is present.
+- **Screen sharing per platform.** Linux goes through the xdg-desktop-portal,
+  which owns its own picker and hands back a PipeWire node — Lightning
+  enumerates nothing there. Windows and macOS have no such broker, so
+  Lightning draws the picker: displays on both, and on Windows also SINGLE
+  WINDOWS through `src/calls/WindowCaptureSrc.*`, an element Lightning
+  compiles in itself because nothing shippable captures a window
+  (`d3d11screencapturesrc` has `window-handle` but its plugin does not load in
+  this toolchain). It asks the window to render itself via `PrintWindow`
+  rather than cropping the screen, DELIBERATELY: cropping would share whatever
+  is stacked on top, and a share that can leak a window the user did not
+  choose is not a feature. The honest cost is that a window drawing through
+  its own swapchain prints blank, which is reported as a black frame and NOT
+  worked around.
+- **Publish ceilings match livekit-client's presets** — 1920x1080/30 for a
+  screen share, 1280x720/30 for a camera — with `pixel-aspect-ratio` pinned to
+  1/1 at BOTH the ceiling and the source, so a non-16:9 source arrives the
+  right shape instead of carrying a PAR that VP8 discards (§16).
+- Windows and macOS packages BUNDLE GStreamer and each artifact proves itself
+  with `--call-media-status`; Linux packages declare no runtime dependency and
+  a distro without GStreamer keeps the honest refusal.
+
+Live status, and do not inflate it: **audio, camera and screen share are
+live-confirmed** — against Element on Linux, and on a packaged Windows build
+(2026-08-27). Group-call behaviour on macOS, an ANSWERED legacy 1:1 call, and
+most failure branches are **NOT TESTED**. The full inventory is at the end of
+§16.
+
 ### Notifications
 
 - Native freedesktop notifications when Qt DBus and a notification service
@@ -1563,6 +1604,57 @@ that repeat across calls. `--call-media-status` now names the loaded
 version so a tester's output identifies their runtime without a round
 trip.
 
+**Three QML/CTest suites are LOAD-SENSITIVE and will flake a full run.**
+`timeline-pane-qml`, `timeline-hydration-qml` and `media-bridge` all pass
+alone and fail intermittently under `-j14`/`-j18`. Measured 2026-08-27 on a diff that
+touched none of them: `timeline-pane-qml` failed a full `-j14` run and failed
+once more when re-run alone, then passed three isolated runs in a row; a
+`build-rust` run at `-j14` that failed BOTH timeline suites passed each of
+them alone and then went 157/157 at `-j8`.
+The usual offender is
+`topEdgePrependKeepsReaderOnTheSameRowMidGesture`, which is an ANCHOR case —
+so before reading a failure as a scroll regression, re-run it alone and at
+lower parallelism. §16's scrolling block is explicit that a fourth anchor fix
+needs a `LIGHTNING_SCROLL_TRACE=1` capture naming a failure, and a flake is
+not that capture.
+
+**A PIPELINE'S CAPS ARE A CONTRACT BOTH ENDS MUST HONOUR, and three ways
+this lane has broken it.** All three were live defects, all three were
+invisible to every test that existed, and all three are cheap to re-create.
+
+* **A source must produce the size it NEGOTIATED, not the size it measured.**
+  `gst_video_frame_map` accepts an OVERSIZED buffer in silence and reads it at
+  the caps' stride. Implement `set_caps`, size every buffer from what it
+  recorded, and attach a `GstVideoMeta`.
+* **`gst_caps_get_structure(caps, 0)` is not "the peer's caps".**
+  videoconvertscale puts the DOWNSTREAM-RESTRICTED structure first because
+  passthrough is cheaper. An element that fixates structure 0 blind clamps
+  itself to a downstream ceiling and defeats the scaler that was there to do
+  the work. An element reporting FIXED caps never meets this, which is why two
+  sources in the SAME pipeline can disagree.
+* **Any caps field a source's `fixate` leaves alone is taken to its MINIMUM by
+  `gst_caps_fixate`.** For a `pixel-aspect-ratio` opened by a downstream pin,
+  that minimum is 1/2147483647 and videoscale then dies of integer overflow.
+  Fixate every field you constrain — and if you pin a field downstream, put a
+  FIXED value in front of the source too, because a fixed value is not a range
+  and cannot be fixated to a minimum.
+
+**A REFUTATION IS ONLY AS WIDE AS WHAT IT WAS TESTED AGAINST.** `videorate
+skip-to-first` sat on this file's do-not-retry list and WAS the fix for the
+camera freeze. It had been refuted against the first-buffer hold, on a fresh
+pipeline where the call age is ~0 and the property is a no-op by
+construction — a true result about a different defect. When re-proposing
+something from that list, do not argue it; state which claim was refuted, and
+whether yours is the same claim.
+
+**AND A PROBE IS EVIDENCE ONLY IF IT SHARES THE PROPERTY UNDER TEST.**
+`videotestsrc` fixates its own PAR, so a probe built on it CANNOT see a PAR
+defect in a source that does not — my measurement passed on code that would
+have killed every window share larger than the publish ceiling, and my first
+attempt to reproduce the review's finding passed too, because it omitted the
+element's caps-reorder step. Before trusting a harness, ask what would make it
+pass on broken code, and make it fail on purpose first.
+
 **A preflight flag that does not EXIT must be registered TWICE.**
 `src/main.cpp` parses its flags in a preflight pass before
 `QGuiApplication` exists and again through `QCommandLineParser`. Most
@@ -1614,6 +1706,144 @@ their index explicitly.
 ### Round history (newest first)
 
 Lessons only; features are described in §7, SHAs point into `git log`.
+
+**2026-08-27 Windows capture round: the camera and the window share both
+worked at last** (`31e6048`, `e983bef`, `9f829a3`, `008ccfd`). Camera and
+screen share LIVE-CONFIRMED on Windows; everything else in the round is NOT
+TESTED. Four defects, and not one of them was where the symptom pointed.
+
+*A source that fixates one size and produces another, and GStreamer accepts
+it in silence.* `WindowCaptureSrc` advertised a width/height RANGE and
+implemented NO `set_caps`, so it fixated wherever downstream allowed —
+measured on the tester's own log, BGRA 1920x1080 for a 3840x2100 window —
+while `createFrame` went on allocating from the WINDOW's size.
+`gst_video_frame_map` only rejects a buffer SMALLER than the caps imply, so
+an oversized one passes and is read at the CAPS' stride: every displayed row
+was half a source row and only the top quarter of the window was ever
+consumed. A window under 1920 wide escaped the shear because its stride
+happened to match, losing only its bottom rows — which is the whole of "File
+Explorer worked perfect, Brave was a garbled mess". GENERALISE: an element
+that fills its own buffers must SIZE them from what `set_caps` recorded, and
+should attach a `GstVideoMeta` so no consumer takes the stride on trust.
+
+*Fixating structure 0 is not fixating against the peer.* videoconvertscale
+answers a caps query with the DOWNSTREAM-RESTRICTED structure FIRST —
+passthrough is cheaper, so it is offered first — and appends the size-opened
+one after it. `gdiscreencapsrc` never met this because it reports FIXED caps,
+so the restricted structure intersects to nothing and drops out. That is
+exactly why a MONITOR share negotiated the full 3840x2160 and a WINDOW share
+did not, an asymmetry that looks inexplicable until you know it.
+
+*THE CAMERA WAS NEVER THE CAMERA.* `videorate` starts its output clock at
+SEGMENT START, not at the first buffer's PTS. A publish bin joins a publisher
+pipeline that has been PLAYING since the call was joined, and `ksvideosrc`
+and `gdiscreencapsrc` both stamp with the pipeline's RUNNING TIME — so a
+camera switched on three minutes in handed videorate a first PTS of three
+minutes, and it owed thirty duplicates for every second of that, emitted as
+fast as the encoder would take them. ONE picture at full rate, with every
+counter healthy. Measured (appsrc, ten buffers at 10 fps, `videorate ! 30/1
+! fakesink`, 1.26.11): first PTS 0 s -> 27 out; 10 s -> 327; 174 s -> 5247;
+`skip-to-first=true` -> 27 every time. The tester's log corroborates exactly:
+the monitor share published 8.73 s in encoded 262 frames more than a 30 fps
+steady state accounts for, against 30 x 8.73 = 262 predicted.
+**`skip-to-first` IS on this file's refuted list, and re-scoping it rather
+than deleting it is the point**: it was tried against the FIRST-BUFFER HOLD,
+a different defect, on a fresh pipeline where the call age is ~0 and the
+property is a no-op BY CONSTRUCTION. A refutation is only as wide as the
+thing it was tested against. The negative control is Lightning's own capture
+element, which stamps from ZERO and never back-filled — that is why the
+window share was the one Windows video source that worked, and why that
+element must keep its zero-based timeline.
+
+*videoscale keeps the aspect with a PAR that VP8 throws away.* The comment
+promising "the largest size inside them that keeps the display aspect ratio,
+so an ultrawide stays ultrawide" was FALSE. It clamps both axes and signals
+the shape as a non-square `pixel-aspect-ratio`, which neither VP8 nor the RTP
+payload carries, so a libwebrtc receiver draws the frame at its literal size.
+Measured: 3840x2100 -> PAR 36/35; 1920x1200 -> 9/10 (11% stretch);
+3440x1440 -> 43/32 (34% squash); and `ximagesrc` on the maintainer's own
+desktop negotiates 2/1 unpinned. Live on every non-16:9 source, on every
+platform, and never reported — because his monitors are 16:9. Pinning
+`pixel-aspect-ratio=(fraction)1/1` makes videoscale satisfy the ratio by
+choosing a SIZE, which is what survives to the far end.
+
+*And that pin has a second-order hazard that independent review caught before
+it shipped.* Pinning PAR downstream is what makes videoconvertscale offer the
+SOURCE an OPEN PAR RANGE, and a field a source's `fixate` leaves alone falls
+through to `gst_caps_fixate`, which takes a range's MINIMUM — 1/2147483647 —
+after which videoscale dies of integer overflow. Reproduced: 3840x2100 and
+3840x2160 ERROR outright, 1557x1213 "succeeds" carrying that PAR. Every
+window over the ceiling would have published NOTHING, which is strictly worse
+than the garbling being fixed. **MY MEASUREMENT MISSED IT BECAUSE I MEASURED
+`videotestsrc`, WHICH FIXATES ITS OWN PAR** and therefore cannot exhibit the
+bug; my first attempt to reproduce the review's finding ALSO passed, because
+it omitted the element's caps-REORDER step — and the reorder is precisely
+what makes the size-opened structure the one being fixated. Fixed twice over:
+the element fixates PAR 1/1 itself, and a FIXED 1/1 capsfilter sits
+immediately after the source, because `avfvideosrc` declares no PAR and ends
+its fixate in a bare `gst_caps_fixate` and `pipewiresrc` is untestable
+outside a portal session. GENERALISE: a probe is evidence about the real
+thing only if it SHARES THE PROPERTY UNDER TEST — ask what would make your
+harness pass on broken code before trusting it.
+
+*A capture that ends itself was heard by nobody.* Closing the shared window
+answers with EOS — correctly, since ending the call over it would be worse —
+and nothing was listening: the encoder stopped, the track stayed declared,
+and the far end kept the last frame while this end still showed "Your screen"
+with Stop armed. It now retires through the same path the Stop button uses,
+which is the one that sets the transceiver INACTIVE. Same failure the
+unpublish round closed, reached through a door that round never touched.
+
+*A dialog is not a list of rows.* The picker was rebuilt as a tabbed grid
+because a 64 px strip beside a caption could not answer the question it
+exists to answer: a Chromium window's caption is the TAB's title, so a Brave
+window was offered under a name that says nothing about Brave. The owning
+application now comes from the executable's VERSIONINFO. Screens report
+PHYSICAL pixels (`QScreen::geometry()` is device-independent, so a 4K display
+at 125% was listed as 3072x1728 — the "it didnt show 4k" report, which was
+about the LABEL and not the share). The display index is resolved by DEVICE
+NAME, because Qt's screen order, `EnumDisplayMonitors`' order and
+`gdiscreencapsrc`'s `monitor` index are three unrelated enumerations and the
+old code assumed all three agreed.
+
+*Two QML mechanisms worth keeping.* `QObject::findChild` CANNOT reach a
+`Repeater`'s delegates — they belong to the delegate model, not to the item
+they are laid out inside; established by giving a segment a CONSTANT
+objectName and watching it stay absent from a full `findChildren` dump, which
+rules out a binding that failed to evaluate. And a CHANGE HANDLER can run
+BEFORE the bindings that depend on the same property: `onTabChanged` read a
+binding on `tab` and got the tab being LEFT, so the rescue meant to keep a
+tile highlighted moved the selection into the tab the user had just left.
+
+*The layout faults were all one shape: a fixed band in a viewport that got
+smaller.* They bite on Windows at 125-150% scaling and not on Linux, because
+every number is unchanged and two thirds as many of them fit. `CallHeaderBar`
+declared no `implicitWidth`, so the two placements that READ its implicit
+size laid the control row out at width 0 and drew the collapse button through
+it. The spotlight strip's flat 96 px made it the bigger half of a short
+stage. The call panel's floor was a flat 45% of the pane, which on a short
+window bought the header, the dock and about ten pixels of picture — and the
+spotlight's overlay controls, anchored inside a CLIPPED rectangle at fixed
+height, then drew across the top edge in half. The floor now asks the STAGE
+for its own `minimumUsefulHeight`, and the overlay is ABSENT rather than
+squeezed, which is the rule the strip below it already followed.
+
+*The test written to guard the fixed-window trap fell into it.* The new panel
+case read 700 chars after `function clampCallPanelHeight`, and the
+explanatory comment inside that function pushed the code to offset 1016 — so
+it failed on the FIXED tree. Fourth time this file has recorded that trap.
+Anchor a source scan on the EXPRESSION, never on a fixed window after a name,
+and mutation-check both halves.
+
+*Reusable: how to compile-check a `Q_OS_WIN`-only translation unit here.*
+`x86_64-w64-mingw32-g++-posix -fsyntax-only` inside `debian:13.6-slim`
+against Linux Qt/GStreamer headers, plus a one-line stub for
+`QtGui/qwindowdefs_win.h` (a Linux Qt build does not ship it). The only errors
+left are three glib LP64/LLP64 `static_assert`s. **Prove the check reached the
+end of the file** with a probe TU that includes the real `.cpp` and then a
+deliberate undeclared identifier — "no errors" otherwise can mean "gave up
+early". nixpkgs' `pkgsCross.mingwW64` gcc does NOT work for this: it wants
+`mcfgthread/gthr.h`, which its plain gcc derivation does not carry.
 
 **2026-08-26 cross-platform calling round: Windows and macOS ship
 GStreamer.** Pipeline 121, both platforms green, and each artifact PROVES
@@ -1826,6 +2056,10 @@ GENERALISE: a line that fires per CALLER does not belong in a default-on
 category; only state transitions do.
 
 *The screen share opened on one frozen picture, and `videorate` is why.*
+(2026-08-27 NOTE: `skip-to-first=true` was later SHIPPED for a DIFFERENT
+videorate defect — the segment-start back-fill that froze the camera. It does
+not address the hold described here, which needs a second buffer that no
+property can manufacture, and shipping it did not change this analysis.)
 Measured in the dev shell: with input `framerate=(fraction)0/1` and output
 pinned `30/1`, videorate emits NOTHING for the first buffer — it holds it
 until a second arrives — then back-fills the whole gap in one sub-millisecond
@@ -2552,6 +2786,26 @@ matrix-sdk-ui 0.18 are in `docs/receipt-semantics.md`. **NOT TESTED**.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-08-27 — THE WINDOWS CAMERA AND THE WINDOWS SCREEN SHARE BOTH WORK.**
+Confirmed on a real packaged Windows build (project 7 pipeline 135, a
+NON-PUBLISHING snapshot from `9f829a3`): the camera sends live video instead
+of one frozen frame, and screen sharing works. Earlier the same day, from the
+same tester on the pipeline 134 artifact: selecting a MONITOR works with two
+monitors attached, and a window share of File Explorer is correct.
+
+WHAT THAT DOES AND DOES NOT COVER. It closes the two headline defects of this
+lane — the camera has been an open defect since 2026-08-26 and window shares
+were garbling as of pipeline 134. It does NOT cover: a window share of Brave
+or Logitech G Hub specifically (those were the garbled ones and the fix is
+untested against them), a window RESIZED mid-share, closing a shared window,
+the picker's grid rework, the call-UI layout fixes, or anything at all on
+macOS. Do not promote those to tested.
+
+STILL WRONG at the time of that confirmation, reported with a screenshot and
+fixed afterwards in `008ccfd` (so ITSELF not yet re-validated): with a share
+running, dragging the call panel small collapsed the picture to a sliver and
+the spotlight's overlay controls drew across its top edge in half.
+
 **2026-08-26 (later still) — RAISED HANDS INTEROPERATE WITH ELEMENT.**
 Confirmed working on a real desktop: a hand raised in Lightning is seen in
 Element and vice versa. The wire format was read out of element-call's own
@@ -2651,11 +2905,23 @@ either.
 
 OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 
-- **The camera does not work at all**, and the control lags when pressed. It
-  survived one fix (the video router's detach-by-key becoming sink ownership,
-  `91acd25`), so the route was not the cause or not the only one. Screen share
-  works on the same publish path, which makes DIFFING THE TWO BRANCHES the
-  highest-value comparison available.
+- ~~**The camera does not work at all**~~ — **FIXED and LIVE-CONFIRMED on
+  Windows 2026-08-27** (`31e6048`). It was never the camera, and "screen share
+  works on the same publish path" was the clue rather than the puzzle: the
+  window share worked because Lightning's OWN capture element stamps PTS from
+  ZERO, and every other source stamps the pipeline's RUNNING TIME.
+  `videorate` starts its output clock at SEGMENT START, so a camera switched
+  on three minutes into a call handed it a first PTS of three minutes and it
+  owed thirty duplicate frames for every second of that — emitted as fast as
+  the encoder would take them. ONE picture at full rate, every counter
+  healthy. See `videorate skip-to-first` below and §16's rate-stage note.
+  **The 10 fps ceiling is a SEPARATE and still-open item**: `ksvideosrc`
+  negotiated YUY2 1280x720@10 because `libgstjpeg.dll` is not staged, so an
+  MJPG mode cannot negotiate and raw YUY2 at 720p saturates USB 2.0. Fixing
+  the freeze did not raise the rate. The control lag is also unclosed
+  (`firstCaptureMs` 794-811 ms, the KS device open running on the GUI thread
+  inside `gst_element_sync_state_with_parent`); it needs a
+  `LIGHTNING_GUI_STALL_TRACE` capture, not a theory.
 - **An account switch FREEZES the UI for 3-5 seconds**, reproducibly, on the
   SECOND switch (A→B→A) and not the first. Distinct from the unbounded
   profile-fetch loop (`be195f7`) and from the double-polled JoinHandle
@@ -2693,6 +2959,14 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   keeps the instant first frame, and that must go through the suite's own
   `framesFromASingleCaptureBuffer` harness before anything ships.
 - **The incoming-call prompt's Accept does nothing.**
+- **Windows camera runs at 10 fps**, and the fix for the freeze did not touch
+  it. `ksvideohelpers.c` exposes `image/jpeg` for MJPG media types, the
+  publish bin links `capsrc ! queue ! videoconvert` with no decoder, and
+  `libgstjpeg.dll` is absent from the staged plugin list — so an MJPG mode
+  cannot negotiate and the camera falls back to raw YUY2, which at 1280x720
+  is 18.4 MB/s and hits a USB 2.0 ceiling at 10 fps. Staging the jpeg plugin
+  and adding a decoder to the camera branch is the lead; it is a packaging
+  change, so it must go through the shipped-artifact check (§16).
 - ~~**Raise hand is invisible to Element**~~ — **FIXED and LIVE-CONFIRMED
   2026-08-26** in both directions. The wire representation was established by
   READING element-call's own source rather than guessing: an `m.reaction`

@@ -7,10 +7,32 @@
 > **stable** `m.rtc.notification` type, and current Element sends
 > `org.matrix.msc4075.rtc.notification`, so it never fired for a current
 > Element ring. That is fixed in the MatrixRTC module, not here.
+>
+> **The two lanes have diverged sharply since, and this matters when reading
+> any status line below.** The MatrixRTC/SFU lane is the one that carries real
+> media against Element today; the legacy 1:1 `m.call.*` lane described here
+> has a real engine and has never been live-validated against another client.
+> Anything in this document about capture elements, publish caps, videoscale
+> or screen sharing belongs to the SFU engine, and `docs/matrixrtc.md` is
+> authoritative for it.
 
-Status: **internal pipes only.** No UI, no media. This document records what
-exists, what is deliberately absent, and the contract a future media backend
-plugs into.
+Status, by round rather than as one word — this document is written in
+ROUNDS, and each round's own status line was true when it was written:
+
+* **Signalling (rounds 1-2):** implemented, plus the incoming-call surface.
+* **Media (round 3):** a real GStreamer `webrtcbin` engine — audio-only, 1:1.
+  Builds without the plugins keep the honest signalling-only refusal.
+* **Live validation of the legacy lane: NOT TESTED**, still. No answered 1:1
+  call has ever been placed across a network, and the incoming-call prompt's
+  Accept is a currently OPEN defect (CLAUDE.md §16). The loopback suite proves
+  the engine and the handshake, not the network and not another client.
+* **Packaging:** Windows and macOS packages BUNDLE GStreamer as of
+  2026-08-26, and the Linux formats declare or stage the plugins. The
+  "packaged builds stay signalling-only" note in round 3 below is superseded;
+  see `docs/matrixrtc.md` §Packaging.
+
+The rest of this document records what exists, what is deliberately absent,
+and the contract the media backend plugs into.
 
 ## What was built
 
@@ -202,9 +224,13 @@ that have the engine.
   without the plugins keeps the honest signaling-only refusal. The dev
   shell now carries gst-plugins-base/good/bad and libnice (whose
   GStreamer plugin joins `GST_PLUGIN_SYSTEM_PATH_1_0`). **Packaging
-  follow-up (lightning-deploy)**: official packages do not yet declare
-  the GStreamer/libnice runtime deps, so packaged builds stay
-  signaling-only until that lands — by design, not by accident.
+  follow-up (lightning-deploy) — SUPERSEDED 2026-08-26**: this said official
+  packages did not declare the GStreamer/libnice runtime deps, so packaged
+  builds stayed signaling-only. They now do: deb `CALL_DEPENDS`, rpm
+  `Requires:`, AppImage staging plus an AppRun hook, and Windows and macOS
+  BUNDLE GStreamer beside the executable with `--call-media-status` run from
+  inside the package to prove the engine finds it. See
+  `docs/matrixrtc.md` §Packaging and §"Windows and macOS".
 - **ICE candidates** (`m.call.candidates`) now flow BOTH ways, media-capable
   mode only (pure ICE = host IPs; without an engine nothing crosses):
   inbound handler → bounded entries (32/event, 1024/line, control-free) →
@@ -378,10 +404,33 @@ Two things Element Call reads that we were getting wrong:
 ### Screen share, matched to livekit-client's own presets
 
 Screen share is `ScreenSharePresets.h1080fps30` — 1920x1080, 30 fps,
-3 Mbit/s — and camera is the h720 default, 1280x720 at 1.7 Mbit/s. Those
-are ceilings expressed as caps **ranges**, so videoscale picks the largest
-size inside them that keeps the display aspect ratio: an ultrawide stays
-ultrawide instead of being stretched to 16:9.
+3 Mbit/s — and camera is the h720 default, 1280x720 at 1.7 Mbit/s. Those are
+ceilings expressed as caps **ranges** on the SIZE (the framerate is FIXED at
+`30/1`, and the range was a bug — see `docs/matrixrtc.md`).
+
+**CORRECTED 2026-08-27. The sentence that stood here — "so videoscale picks
+the largest size inside them that keeps the display aspect ratio: an
+ultrawide stays ultrawide instead of being stretched to 16:9" — was FALSE,
+and it was false in the source comment too.** videoscale answers a size
+ceiling by clamping BOTH axes and signalling the shape as a non-square
+PIXEL ASPECT RATIO; VP8 carries no PAR and neither does the RTP payload, so a
+libwebrtc receiver draws the frame at its literal width by height and the
+ratio videoscale carefully preserved is thrown away. Measured: 3840x2160 ->
+PAR 1/1 (16:9, which is why nobody ever saw this), 3840x2100 -> 36/35,
+1920x1200 -> 9/10 (11% stretch), 3440x1440 -> 43/32 (34% squash); and
+`ximagesrc` on a real desktop negotiates PAR 2/1 unpinned, a 2x squash at the
+far end.
+
+The fix is to pin `pixel-aspect-ratio=(fraction)1/1` into the ceiling, which
+makes videoscale satisfy the ratio by choosing a SIZE (3440x1440 ->
+1920x804, 1920x1200 -> 1728x1080, 800x600 unchanged — it never upscales). It
+has a second-order hazard that must not be forgotten: pinning downstream
+hands the SOURCE an open PAR range, and a source that does not fixate PAR
+falls through to `gst_caps_fixate`, which takes a range's MINIMUM
+(1/2147483647), after which videoscale dies of integer overflow. Hence a
+fixed 1/1 capsfilter in front of the source as well. The full measurement,
+the elements that are and are not safe, and why a `videotestsrc` probe cannot
+see the hazard are in `docs/matrixrtc.md`.
 
 The ceiling is the point. A screencast source is whatever the monitor is; on
 a 4K display an uncapped pipeline asks VP8 to encode 3840x2160 in real time,
@@ -464,17 +513,68 @@ Decisions worth keeping:
 
 ### Screen-share audio
 
-Not captured, and this is parity rather than a gap: xdg-desktop-portal's
-ScreenCast interface does not offer audio, which is the same position Element
-Call is in on Wayland. Capturing the default sink's monitor instead would
-share everything the computer plays — including the other participants'
-voices back to them — so it is deliberately not done.
+Not captured on any platform, and this is parity rather than a gap:
+xdg-desktop-portal's ScreenCast interface does not offer audio, which is the
+same position Element Call is in on Wayland, and neither `gdiscreencapsrc`
+nor Lightning's own Windows window capture produces audio either. Capturing
+the default sink's monitor instead would share everything the computer plays
+— including the other participants' voices back to them — so it is
+deliberately not done.
 
 ### NOT TESTED
+
+*(As written, and SUPERSEDED from 2026-08-25 onward. Kept because it is the
+honest record of what this round could claim.)*
 
 No call has completed between two clients, so nothing here has decrypted a
 frame another implementation encrypted, and no remote video frame has been
 rendered from a real sender. What *is* verified: the cryptor's format against
 a known answer and an independent HKDF, the LiveKit handshake against a real
 `nixpkgs#livekit` SFU, and the router's lifetime discipline in
-`sfu-video-router`. End-to-end interop with Element Call is unproven.
+`sfu-video-router`.
+
+**Where the SFU lane actually stands now** — the authoritative account is
+`docs/matrixrtc.md`; this is the index:
+
+* **PASS** — audio, camera and screen share both ways against Element on
+  Linux (2026-08-24/25); screen-share stop and restart (2026-08-26); raised
+  hands both ways (2026-08-26); the camera and screen share from a packaged
+  **Windows** build (2026-08-27, pipeline 135).
+* **NOT TESTED** — anything from the macOS package; federation, TURN
+  traversal and reconnection; the failure branches of everything above; and
+  the single-WINDOW branch on Windows specifically, since the confirmation
+  names "the camera" and "screen share" without recording which kind of
+  source the share used.
+
+None of that transfers to the legacy 1:1 lane this document is mostly about.
+That lane's live status is unchanged and is stated at the top.
+
+## After round 6: two publish-path facts that will be re-derived wrongly here
+
+Rounds 7 and later happened in the SFU lane and are recorded in
+`docs/matrixrtc.md`, not here. Two of their findings are properties of
+GStreamer rather than of LiveKit, so they will bite anything on a publish
+path — including this document's engine, if it ever gains video:
+
+* **`videorate` starts its output clock at SEGMENT START, not at the first
+  buffer's PTS.** Add a publish bin to a pipeline that has been PLAYING for
+  three minutes, with a source that stamps pipeline RUNNING TIME
+  (`ksvideosrc` and `gdiscreencapsrc` both do), and videorate owes thirty
+  duplicates per second of call age and emits them as fast as the encoder
+  takes them: one picture at full rate, every counter healthy. Measured, at
+  30/1: first PTS 0 s -> 27 buffers, 10 s -> 327, 174 s -> 5247;
+  `skip-to-first=true` -> 27 in every case. A source of our own must keep its
+  PTS ZERO-BASED and pace on a clock anchor.
+  Note carefully: `skip-to-first` is ALSO recorded as refuted — against the
+  first-buffer HOLD, which is a different defect and on which it genuinely
+  does nothing. Both entries stand.
+* **A size ceiling does not keep a picture's shape.** `videoscale` answers one
+  with a non-square pixel aspect ratio, which VP8 and RTP both drop. Pin
+  `pixel-aspect-ratio=(fraction)1/1` at the ceiling AND in front of the
+  source; see the corrected section above.
+
+Live validation of that lane, so it is not read off this document by mistake:
+audio, camera and screen share are **PASS** against Element on Linux, and the
+camera and screen share are **PASS** from a packaged Windows build
+(2026-08-27). The legacy 1:1 lane described in this document remains
+**NOT TESTED** end to end.

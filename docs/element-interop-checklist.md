@@ -1,8 +1,9 @@
 # Element interoperability — scripted live-validation checklist
 
-Purpose: convert the largest pile of unknown risk (the ~24 "NOT TESTED"
+Purpose: convert the largest pile of unknown risk (the "NOT TESTED"
 admissions across CLAUDE.md §7/§16) into either confidence or a bug list, in
-one scripted pass. This is not exploratory clicking: run the steps in order,
+one scripted pass. Section H (calls and screen sharing) is where most of that
+risk now sits, and it is worth running on **Windows** specifically. This is not exploratory clicking: run the steps in order,
 record **PASS**, **FAIL**, or **NOT TESTED** per line, and keep the filled-in
 copy. A FAIL needs one line of symptom next to it, nothing more — deeper
 diagnosis happens later, with this sheet as the index.
@@ -108,6 +109,36 @@ This is the E2EE claim that matters most and has never been live-proven.
 | G5 | After verification + backup restore, the historical encrypted messages decrypt **in place, without restart or manual Retry** | | |
 | G6 | New messages sent from Element to the fresh session decrypt immediately | | |
 | G7 | QR path specifically (if not used in G4): Lightning shows the QR, Element scans it, flow completes and trust is reflected on both sides | | |
+
+## H. Calls and screen sharing
+
+Where the remaining risk now is. Audio, camera and screen share are
+live-confirmed against Element on Linux, and on a packaged **Windows** build
+(2026-08-27) — so this section is about the branches that confirmation did NOT
+reach, not about whether calling works at all. CLAUDE.md §16 has the mechanism
+for each line; do not diagnose here, just record.
+
+Run H1-H6 on **Windows** if you can. That is where every capture element is
+untested and where the 2026-08-27 fixes landed.
+
+| # | Step | Result | Notes |
+|---|---|---|---|
+| H1 | Share a **whole monitor**. Element renders it the right way up, the right shape and legible. With two monitors, the one you PICKED is the one shared | | |
+| H2 | Share a **single window** — a browser (Brave/Chrome) and a non-trivial app (e.g. Logitech G Hub). Element shows that window's contents, not a sheared or quarter-cropped image | | |
+| H3 | With the share running, **resize** that window. The stream keeps going, letterboxes into its original resolution, and Element does not stall or renegotiate | | |
+| H4 | **Close** the shared window while sharing. Lightning stops the share and says the window was closed; Element's tile CLEARS rather than freezing on the last frame | | |
+| H5 | Turn the **camera** on a few minutes into a call (not immediately — the defect scaled with call age). Element sees live motion, not one frozen frame. Note the frame rate: 10 fps is a known separate limitation | | |
+| H6 | Share from a **non-16:9** display or window if you have one (16:10, ultrawide). Element renders it un-squashed | | |
+| H7 | The share **picker**: Applications and Screens tabs, previews visible, and a browser window named by its application ("Brave Browser") and not only by its tab title | | |
+| H8 | Drag the call panel **small** with a share running. The picture shrinks but stays visible; the full-screen and Back-to-grid controls do not draw across the tile's top edge | | |
+| H9 | **Raise hand** in Lightning → visible in Element; and Element → visible in Lightning | | |
+| H10 | Per-participant **volume** control changes only that participant | | |
+| H11 | macOS only: join a call, share a display, and confirm audio both ways. Nothing on macOS has been live-validated | | |
+
+If any of H1-H3 or H6 fails, capture a log — `--log-file <path>` works on
+every platform — and look for `capture negotiated caps=` and
+`publish first encoded frame`. Those two lines have diagnosed every defect in
+this lane so far, and a capture beats a theory (§16).
 
 ## Wrap-up
 
