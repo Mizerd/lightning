@@ -35,9 +35,18 @@ finish-args:
   # decides what may be captured, and the app never sees anything the user
   # did not choose.
   - --filesystem=xdg-run/pipewire-0
-  # Camera capture goes through the same portal + PipeWire route, so it
-  # needs no --device=all: granting every device would hand the sandbox raw
-  # /dev/video* (and much else) to avoid one dialog.
+  # SCREEN SHARING is what the socket above is for. THE CAMERA IS NOT, and
+  # this manifest deliberately does not enable it: SfuMediaEngine opens
+  # `v4l2src` on Linux (autovideosrc is not used -- on a PipeWire desktop
+  # pipewiresrc outranks v4l2src and produces no frames), which needs the raw
+  # /dev/video* node. Flatpak has no camera-only device permission, so the
+  # only ways to grant it are --device=all -- which hands the sandbox every
+  # device on the machine, not just the webcam -- or teaching the client to
+  # take a PipeWire node from the xdg-desktop-portal Camera interface, which
+  # is a change in the CLIENT, not in packaging. Until one of those is
+  # decided, the camera is unavailable inside the Flatpak and the engine's
+  # own refusal is the honest outcome; audio calls and screen sharing are
+  # unaffected.
 
 build-options:
   # The 24.08 rust-stable SDK extension ships rustc 1.89, too old for
@@ -88,8 +97,29 @@ modules:
         -DLIGHTNING_INSTALL_TYPE=linux-flatpak
         -DLIGHTNING_UPDATE_PUBKEY_2026A=@UPDATE_SIGNING_PUBKEY_2026A@
         -DLIGHTNING_ARTIFACT_KIND=release
+        -DLIGHTNING_ENABLE_WEBRTC=ON
+        -DLIGHTNING_REQUIRE_WEBRTC=ON
       - cmake --build build
       - cmake --install build
+      # This is the ONE packaging build that does not run configure-build.sh,
+      # so it needs that script's call-engine guard spelled out here.
+      # LIGHTNING_REQUIRE_WEBRTC above is the half that fails FAST -- at
+      # configure, before a full Rust build -- and the grep below is the half
+      # that holds even against a source too old to know the option. The
+      # option above is only HONOURED when a pkg-config probe finds the
+      # GStreamer WebRTC development files; the org.kde.Sdk 6.9 runtime
+      # supplies all six modules the probe names, but an SDK bump could take
+      # them away and CMake would say so in one STATUS line and configure the
+      # engine out. Every Linux 0.8.0 package shipped exactly that way.
+      #
+      # The command exits non-zero whenever the engine cannot be USED, which
+      # is a runtime question the build sandbox is the wrong place to judge,
+      # so only the compiled-in line is asserted -- validate-flatpak.sh runs
+      # the same command against the installed app on the real runtime.
+      - /app/bin/matrix-client --call-media-status
+        > call-media-status.txt 2>&1 || true
+      - cat call-media-status.txt
+      - grep -qx 'call media engine built in: yes' call-media-status.txt
     sources:
       - type: dir
         path: "@SOURCE_DIR@"

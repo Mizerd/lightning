@@ -74,6 +74,18 @@ if grep -Ei 'module .* is not installed|cannot load library|failed to load.*plug
     die "DEB headless launch reported a missing runtime component"
 fi
 
+# The call media engine, asked of the INSTALLED package. This is the one check
+# that can see the 0.8.0 defect: an engine-less build installs cleanly, launches
+# cleanly, passes every audit above, and then refuses every call. It also proves
+# the GStreamer plugin Depends resolved, because the engine's element probe runs
+# against whatever apt actually pulled in.
+set +e
+(cd /tmp && timeout 60s /usr/bin/matrix-client --call-media-status) \
+    >"$ROOT/dist/deb-call-media-status.txt" 2>&1
+call_media_status=$?
+set -e
+assert_call_media_engine DEB "$ROOT/dist/deb-call-media-status.txt" "$call_media_status"
+
 # The generated build-only key header must never ship inside the package.
 if grep -q 'LightningGifBuildKeys.h' "$ROOT/dist/deb-contents.txt"; then
     die "DEB contains the generated GIF build-key header"

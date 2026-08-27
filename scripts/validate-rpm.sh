@@ -107,6 +107,17 @@ if grep -Ei 'module .* is not installed|cannot load library|failed to load.*plug
     die "RPM headless launch reported a missing runtime component"
 fi
 
+# The call media engine, asked of the INSTALLED package -- see validate-deb.sh
+# for why nothing else can see this. It doubles as proof that the spec's
+# GStreamer Requires resolved: the engine's element probe runs against whatever
+# dnf actually pulled in, and rpm's automatic generator can see none of it.
+set +e
+(cd /tmp && timeout 60s /usr/bin/matrix-client --call-media-status) \
+    >"$ROOT/dist/rpm-call-media-status.txt" 2>&1
+call_media_status=$?
+set -e
+assert_call_media_engine RPM "$ROOT/dist/rpm-call-media-status.txt" "$call_media_status"
+
 # The generated build-only key header must never ship inside the package.
 if grep -q 'LightningGifBuildKeys.h' "$ROOT/dist/rpm-contents.txt"; then
     die "RPM contains the generated GIF build-key header"

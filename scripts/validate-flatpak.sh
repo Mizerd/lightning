@@ -54,6 +54,19 @@ set -e
 grep -Eiq "module .* is not installed|could not find|failed to load|error while loading shared libraries" \
     dist/flatpak-launch.log && { cat dist/flatpak-launch.log; die "launch reported missing components"; }
 
+# The call media engine, asked of the INSTALLED Flatpak against the real
+# org.kde.Platform runtime. A Flatpak depends on its runtime for the plugins
+# rather than bundling them, so this is the check that would catch a runtime
+# bump quietly dropping one -- and, like every other format, the only check
+# that can see an engine-less build at all.
+set +e
+timeout 60s flatpak run --user --command=sh "$APP_ID" -c \
+    "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/matrix-client --call-media-status" \
+    > dist/flatpak-call-media-status.txt 2>&1
+call_media_status=$?
+set -e
+assert_call_media_engine Flatpak dist/flatpak-call-media-status.txt "$call_media_status"
+
 # GIF provider state with every key variable unset (embedded keys only).
 gif_env_clear="env -u GIPHY_API_KEY -u KLIPY_API_KEY \
  -u LIGHTNING_GIPHY_API_KEY -u LIGHTNING_KLIPY_API_KEY \

@@ -113,6 +113,24 @@ printf 'Cargo: '; cargo --version
 printf 'Fetching locked Rust dependencies before the source-enforced offline build\n'
 cargo fetch --locked --manifest-path "$SOURCE_DIR/rust/Cargo.toml"
 
+# Voice/video calling is requested EXPLICITLY even though the source option
+# already defaults to ON, because the default is not what decides it: the
+# source only sets HAVE_LIGHTNING_WEBRTC when a pkg-config probe finds the
+# GStreamer WebRTC development files, and with none installed it configures the
+# engine OUT and says so in one STATUS line among hundreds. Every Linux 0.8.0
+# package shipped that way -- `--call-media-status` in the published deb
+# answered "call media engine built in: no" and `ldd` named no GStreamer at
+# all, so calling, screen sharing and the camera were compiled out and the app
+# refused every call. Naming the option here does not change what CMake DOES;
+# it changes what this script is entitled to assert afterwards, which is the
+# staged-binary check at the end of this file.
+#
+# LIGHTNING_REQUIRE_WEBRTC=ON is the half that fails FAST. The source added it
+# for exactly this: with it, a failed probe becomes a CMake FATAL_ERROR naming
+# the missing pkg-config modules, so the job dies during CONFIGURE rather than
+# after the ~30 minutes of Rust it takes to reach the staged-binary check at
+# the end of this file. Both guards stay — this one catches a missing dev
+# package early, and that one is the only thing that proves what was STAGED.
 cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_INSTALL_PREFIX=/usr \
@@ -120,6 +138,8 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DENABLE_RUST_SDK_BACKEND=ON \
     -DLIGHTNING_RUST_ONLY=ON \
     -DLIGHTNING_REQUIRE_GIF_KEYS="$REQUIRE_GIF_KEYS" \
+    -DLIGHTNING_ENABLE_WEBRTC=ON \
+    -DLIGHTNING_REQUIRE_WEBRTC=ON \
     -DLIGHTNING_ARTIFACT_KIND=release \
     -DLIGHTNING_INSTALL_TYPE="$LIGHTNING_INSTALL_TYPE" \
     -DLIGHTNING_UPDATE_PUBKEY_2026A="${UPDATE_SIGNING_PUBKEY_2026A:-}" \
@@ -178,3 +198,32 @@ printf '%s\n' "$staged_build_info" | grep -qx 'http_backend_compiled: false' \
     || die "staged binary compiled the HTTP backend"
 printf '%s\n' "$staged_build_info" | grep -qx 'mock_backend_compiled: false' \
     || die "staged binary compiled the mock backend"
+
+# Fail closed on the call media engine. Ask the BINARY, not the build log: the
+# build log is what everybody read in 0.8.0 and it never said the engine was
+# missing. `--call-media-status` is the source's own probe, and its first line
+# is decided purely by whether HAVE_LIGHTNING_WEBRTC was defined at compile
+# time -- which is exactly the question a build job can answer.
+#
+# Only that line is asserted here. The lines under it describe the RUNTIME
+# (whether gst_init found plugins, and whether every element the engine needs
+# is registered), and a build image is the wrong place to judge those: a deb
+# gets its plugins from its Depends and an AppImage from its own bundle. The
+# per-format validators run the same command against the INSTALLED artifact
+# and require the engine to be genuinely usable there.
+#
+# The command exits non-zero whenever the engine cannot be used, so its status
+# is deliberately not the test.
+call_media_status="$(timeout 60s "$STAGE_DIR/usr/bin/matrix-client" --call-media-status 2>&1 || true)"
+printf '%s\n' "$call_media_status"
+printf '%s\n' "$call_media_status" >"$ROOT/dist/call-media-status-build.txt"
+printf '%s\n' "$call_media_status" | grep -qx 'call media engine built in: yes' || \
+    die "the staged binary has NO call media engine: CMake's GStreamer probe found\
+ no development files, so LIGHTNING_ENABLE_WEBRTC=ON was silently ignored and\
+ calls, screen sharing and the camera are compiled out. Install the GStreamer\
+ development packages in this build job (Debian/Ubuntu: libgstreamer1.0-dev\
+ libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev; Fedora:\
+ gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-bad-free-devel).\
+ If SOURCE_REF is pinned to a commit older than 2026-08-26 it has no\
+ --call-media-status at all and no engine to assert; that is a source too old\
+ to publish a calling client from, not a check to remove."

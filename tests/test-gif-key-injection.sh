@@ -80,6 +80,11 @@ fi
 printf '== configure-build key mapping ==\n'
 BIN="$WORK/bin"; mkdir -p "$BIN"
 ARGLOG="$WORK/cmake-argv.log"; ENVLOG="$WORK/cmake-env.log"
+# What the staged stub binary answers to --call-media-status. configure-build.sh
+# refuses to package a build with no call media engine, so the stub has to be
+# able to say both things -- and a case below flips it to prove the refusal is
+# real rather than assumed.
+ENGINE_STATE="$WORK/engine-state"; printf 'yes\n' >"$ENGINE_STATE"
 
 cat >"$BIN/cmake" <<STUB
 #!/usr/bin/env bash
@@ -94,7 +99,7 @@ case "\$1" in
     # configure-build.sh now refuses a stage without the update helper.
     dest="\${DESTDIR:?}"
     mkdir -p "\$dest/usr/bin"
-    printf '#!/bin/sh\necho "matrix-client 0.6.2"\necho "matrix_backend: rust"\necho "http_backend_compiled: false"\necho "mock_backend_compiled: false"\n' > "\$dest/usr/bin/matrix-client"
+    printf '#!/bin/sh\nif [ "\$1" = "--call-media-status" ]; then\n  state=\$(cat "%s" 2>/dev/null || echo yes)\n  echo "call media engine built in: \$state"\n  [ "\$state" = yes ] || { echo "RESULT: calls will be refused by this build (configured without GStreamer)."; exit 1; }\n  echo "RESULT: calls can be placed and answered."\n  exit 0\nfi\necho "matrix-client 0.6.2"\necho "matrix_backend: rust"\necho "http_backend_compiled: false"\necho "mock_backend_compiled: false"\n' "$ENGINE_STATE" > "\$dest/usr/bin/matrix-client"
     chmod +x "\$dest/usr/bin/matrix-client"
     printf '#!/bin/sh\nexit 0\n' > "\$dest/usr/bin/lightning-updater"
     chmod +x "\$dest/usr/bin/lightning-updater"
@@ -192,6 +197,34 @@ if run_cfg PUBLISH_PACKAGES=false LIGHTNING_INSTALL_TYPE=linux-deb; then
         || bad "the update public key flag disappeared"
 else
     bad "keyless-trust-root configure failed: $(tail -3 "$WORK/cfg.log")"
+fi
+
+
+# --- 4. the call media engine must be IN the staged binary ------------------
+# Lightning 0.8.0 shipped every Linux package with calling compiled out: the
+# source's LIGHTNING_ENABLE_WEBRTC is gated on a pkg-config probe, no build job
+# installed the GStreamer development files, and CMake configured the engine
+# away in one STATUS line. Nothing downstream noticed, because an engine-less
+# build installs, launches and syncs perfectly and only refuses calls.
+#
+# configure-build.sh now asks the STAGED BINARY, so the stub is made to answer
+# the way that build did and the refusal is exercised for real.
+printf '== call media engine guard ==\n'
+printf 'no\n' >"$ENGINE_STATE"
+if run_cfg PUBLISH_PACKAGES=false LIGHTNING_INSTALL_TYPE=linux-deb; then
+    bad "configure-build staged a binary with NO call media engine"
+else
+    grep -q 'NO call media engine' "$WORK/cfg.log" \
+        && ok "an engine-less staged binary fails the build by name" \
+        || bad "an engine-less build failed for the wrong reason: $(tail -3 "$WORK/cfg.log")"
+fi
+printf 'yes\n' >"$ENGINE_STATE"
+if run_cfg PUBLISH_PACKAGES=false LIGHTNING_INSTALL_TYPE=linux-deb; then
+    grep -q 'LIGHTNING_ENABLE_WEBRTC=ON' "$ARGLOG" \
+        && ok "the engine is requested explicitly, not left to the source default" \
+        || bad "LIGHTNING_ENABLE_WEBRTC was not passed to cmake"
+else
+    bad "configure-build rejected a binary that HAS the engine: $(tail -3 "$WORK/cfg.log")"
 fi
 
 if [[ "$fail" == 0 ]]; then printf 'GIF key injection tests passed\n'; else printf 'GIF key injection tests FAILED\n' >&2; exit 1; fi

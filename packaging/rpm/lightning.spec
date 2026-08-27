@@ -22,7 +22,17 @@ Requires:       desktop-file-utils
 #   plugins-good     : rtpopus/rtpvp8 pay+depay, autoaudiosrc/sink, vp8
 #   plugins-bad-free : webrtcbin, dtlssrtpenc/dec, srtp (the WebRTC core)
 #   libnice          : the ICE transport webrtcbin requires
-#   pipewire         : pipewiresrc, the Wayland/portal screen-capture source
+#   pipewire         : pipewiresrc, the Wayland/portal screen-capture source,
+#                      and pipewiresink
+#
+# The three sinks autoaudiosink can resolve to are all covered already, which
+# is NOT true on Debian and is worth recording so nobody "fixes" it here:
+# libgstalsa.so is in gstreamer1-plugins-base and libgstpulseaudio.so in
+# gstreamer1-plugins-good on Fedora, whereas Debian ships ALSA in a separate
+# gstreamer1.0-alsa package (see CALL_DEPENDS in scripts/build-deb.sh). Without
+# a sink a call installs, reports every engine check green — the probe only asks
+# for the `autodetect` FACTORIES — and produces no sound.
+# plugins-good also carries libgstximagesrc, the X11 screen-share fallback.
 Requires:       gstreamer1-plugins-base
 Requires:       gstreamer1-plugins-good
 Requires:       gstreamer1-plugins-bad-free

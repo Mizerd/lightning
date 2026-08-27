@@ -92,31 +92,98 @@ export QMAKE=$(command -v qmake6)
 # about it looks like packaging.
 GST_PLUGIN_SRC="/usr/lib/x86_64-linux-gnu/gstreamer-1.0"
 GST_PLUGIN_DEST="$APPDIR/usr/lib/gstreamer-1.0"
-if [[ -d "$GST_PLUGIN_SRC" ]]; then
-    mkdir -p "$GST_PLUGIN_DEST"
-    # Only what the call engine actually probes for. Bundling the whole
-    # plugin directory would add tens of megabytes of codecs nothing loads.
-    for plugin in libgstwebrtc libgstnice libgstdtls libgstsrtp \
-                  libgstopus libgstrtp libgstrtpmanager libgstvpx \
-                  libgstaudioconvert libgstaudioresample libgstaudioparsers \
-                  libgstvideoconvertscale libgstvideorate \
-                  libgstautodetect libgstpulseaudio libgstpipewire \
-                  libgstcoreelements libgstplayback libgsttypefindfunctions; do
-        cp -n "$GST_PLUGIN_SRC/$plugin.so" "$GST_PLUGIN_DEST/" 2>/dev/null || true
-    done
-    # Declared to linuxdeploy so their own NEEDED libraries are bundled and
-    # their RPATHs rewritten; without this they load on the build image and
-    # nowhere else.
-    for staged_plugin in "$GST_PLUGIN_DEST"/*.so; do
-        [[ -e "$staged_plugin" ]] || continue
-        LINUXDEPLOY_PLUGIN_ARGS+=(--library "$staged_plugin")
-    done
+# NOT `if [ -d ... ]`. The previous revision skipped this whole block when the
+# directory was absent, and the build job installed no GStreamer at all, so it
+# was skipped on every build: no plugins staged, no AppRun hook written, and a
+# green pipeline. Absence is now the loud case, because on THIS image the
+# plugins are installed by the job and their absence can only mean the job
+# changed.
+[[ -d "$GST_PLUGIN_SRC" ]] || die "no GStreamer plugins at $GST_PLUGIN_SRC: the build job did not install the runtime plugin packages, so the AppImage would bundle none and refuse every call"
+mkdir -p "$GST_PLUGIN_DEST"
 
-    # linuxdeploy's generated AppRun sources every apprun-hooks/*.sh. Without
-    # this hook the plugins are bundled and never found: GStreamer scans its
-    # COMPILED-IN system path, which points at the build image.
-    mkdir -p "$APPDIR/apprun-hooks"
-    cat >"$APPDIR/apprun-hooks/gstreamer.sh" <<'HOOK'
+# Exactly what the call engine loads, and nothing else -- bundling the whole
+# directory would add tens of megabytes of codecs nothing ever opens. Each name
+# was resolved against this build image from the elements the Linux source
+# actually names: SfuMediaEngine::runtimeAvailable's kRequired list, every
+# element appearing in a pipeline description, AND every element probed at
+# runtime through elementAvailable()/gst_element_factory_find() OUTSIDE
+# kRequired. That last clause is not padding -- it is where `ximagesrc` lives,
+# and an element no call requires is invisible to every runtime check we have.
+# A MISSING one is a packaging regression rather than a distribution
+# limitation, so it is fatal here.
+#
+# Grouped by why it is needed:
+#   coreelements                        queue valve capsfilter tee fakesink identity
+#   webrtc nice dtls srtp               webrtcbin and its ICE/DTLS-SRTP transport
+#   sctp                                NOT named anywhere in Lightning. webrtcbin
+#                                       loads it ITSELF for the data channel, and
+#                                       LiveKit's subscriber offer puts one in
+#                                       media section 0 -- which under
+#                                       bundle-policy=max-bundle owns the transport
+#                                       every audio and video section rides on.
+#                                       Windows shipped for months able to SEND and
+#                                       unable to RECEIVE because this was missing.
+#   opus rtp rtpmanager vpx             the codecs and their RTP payloaders
+#   app                                 appsink/appsrc: the received-video path
+#   audioconvert audioresample          format conversion on both audio legs
+#   audiotestsrc videotestsrc           in kRequired: the engine REFUSES without them
+#   videoconvertscale videorate volume  the publish chain and per-participant volume
+#   autodetect pulseaudio alsa          device selection, enumeration, and a
+#                                       real sink on every desktop: autoaudiosink
+#                                       resolves to pipewiresink, pulsesink or
+#                                       alsasink depending on the host, and an
+#                                       AppImage carries no system plugins to
+#                                       fall back on
+#   pipewire                            pipewiresrc: portal screen capture
+#   ximagesrc                           the X11 screen-share fallback, used when
+#                                       no xdg portal answers. It is NOT in
+#                                       kRequired -- correctly, a call does not
+#                                       need it -- so `--call-media-status` is
+#                                       GREEN on a bundle without it while the
+#                                       feature is DEAD: SfuCallController probes
+#                                       the RUNNING REGISTRY, and the hook below
+#                                       REPLACES the system plugin path, so the
+#                                       host's plugins-good is invisible. The
+#                                       route then refuses with "install
+#                                       gst-plugins-good" -- a package the user
+#                                       very likely already has and which would
+#                                       change nothing. Nothing we can run
+#                                       against the artifact can see its absence,
+#                                       so staging it is the only defence.
+#   video4linux2                        v4l2src: the camera (autovideosrc is
+#                                       deliberately not used -- see the source)
+#   webrtcdsp                           the microphone AGC, live-confirmed audible
+#   audioparsers playback typefindfunctions   supporting demux/parse paths
+GST_REQUIRED_PLUGINS=(
+    libgstcoreelements
+    libgstwebrtc libgstnice libgstdtls libgstsrtp libgstsctp
+    libgstopus libgstrtp libgstrtpmanager libgstvpx
+    libgstapp
+    libgstaudioconvert libgstaudioresample libgstaudiotestsrc
+    libgstvideotestsrc libgstvideoconvertscale libgstvideorate libgstvolume
+    libgstautodetect libgstpulseaudio libgstalsa
+    libgstpipewire libgstvideo4linux2 libgstximagesrc
+    libgstwebrtcdsp
+    libgstaudioparsers libgstplayback libgsttypefindfunctions
+)
+for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
+    [[ -f "$GST_PLUGIN_SRC/$plugin.so" ]] || \
+        die "required GStreamer plugin $plugin.so is not installed in the build image"
+    cp "$GST_PLUGIN_SRC/$plugin.so" "$GST_PLUGIN_DEST/"
+done
+
+# Declared to linuxdeploy so their own NEEDED libraries are bundled and their
+# RPATHs rewritten; without this they load on the build image and nowhere else.
+for staged_plugin in "$GST_PLUGIN_DEST"/*.so; do
+    [[ -e "$staged_plugin" ]] || continue
+    LINUXDEPLOY_PLUGIN_ARGS+=(--library "$staged_plugin")
+done
+
+# linuxdeploy's generated AppRun sources every apprun-hooks/*.sh. Without this
+# hook the plugins are bundled and never found: GStreamer scans its COMPILED-IN
+# system path, which points at the build image.
+mkdir -p "$APPDIR/apprun-hooks"
+cat >"$APPDIR/apprun-hooks/gstreamer.sh" <<'HOOK'
 # Point GStreamer at the plugins bundled beside the binary.
 export GST_PLUGIN_SYSTEM_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
 export GST_PLUGIN_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
@@ -128,7 +195,6 @@ export GST_PLUGIN_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
 export GST_REGISTRY_1_0="${XDG_CACHE_HOME:-$HOME/.cache}/lightning/gst-registry.bin"
 mkdir -p "$(dirname "$GST_REGISTRY_1_0")" 2>/dev/null || true
 HOOK
-fi
 
 "$TOOLS/linuxdeploy" --appdir "$APPDIR" \
     --desktop-file "$APPDIR/usr/share/applications/lightning.desktop" \

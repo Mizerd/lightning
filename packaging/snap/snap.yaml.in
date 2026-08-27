@@ -35,5 +35,16 @@ apps:
       - desktop-legacy
       - opengl
       - audio-playback
+      # Voice/video calling. audio-playback covers only what the user HEARS;
+      # the microphone is a separate interface, so without this a call is
+      # one-directional silence. It is not auto-connected on every system, so
+      # a user may still have to `snap connect lightning:audio-record`.
+      - audio-record
+      # v4l2src opens /dev/video* directly (autovideosrc is deliberately not
+      # used -- on a PipeWire desktop pipewiresrc outranks v4l2src and
+      # produces no frames), so the camera needs this interface rather than
+      # the portal. Screen sharing takes the portal route instead and rides
+      # on the desktop interface above.
+      - camera
       # libsecret / Secret Service access for token storage.
       - password-manager-service

@@ -78,8 +78,23 @@ QML_DEPENDS="qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtqu
 #   plugins-good : rtpopuspay/depay, rtpvp8pay/depay, autoaudiosrc/sink, vp8
 #   plugins-bad  : webrtcbin, dtlssrtpenc/dec, srtp  (the WebRTC core)
 #   nice         : the libnice ICE transport webrtcbin requires
-#   pipewire     : pipewiresrc, the Wayland/portal screen-capture source
-CALL_DEPENDS="gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-nice, gstreamer1.0-pipewire"
+#   pipewire     : pipewiresrc, the Wayland/portal screen-capture source AND
+#                  pipewiresink, one of the three sinks autoaudiosink resolves to
+#   alsa         : alsasink, the LAST of those three. It is a SEPARATE Debian
+#                  binary package (verified: plugins-good ships libgstximagesrc
+#                  and libgstpulseaudio, but NOT libgstalsa), and without it a
+#                  host running neither PipeWire nor PulseAudio gets a call with
+#                  no audio output. Nothing catches that: the engine's element
+#                  probe only asks for the `autodetect` FACTORIES, which exist
+#                  whether or not a sink is installed, so --call-media-status is
+#                  green on a package that cannot make a sound. The AppImage
+#                  bundles both sinks for exactly this reason; the deb had
+#                  neither declared.
+#
+# NOTE for the RPM: its Requires need no equivalent addition — on Fedora
+# libgstalsa.so is in gstreamer1-plugins-base and libgstpulseaudio.so in
+# gstreamer1-plugins-good, both already required. The split is Debian's.
+CALL_DEPENDS="gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-nice, gstreamer1.0-pipewire, gstreamer1.0-alsa"
 
 {
     cat "$ROOT/packaging/deb/control"

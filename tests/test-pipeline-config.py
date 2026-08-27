@@ -779,6 +779,228 @@ for element in ("sctpenc", "sctpdec"):
     check(f'"{element}"' in win_stage_src,
           f"the Windows element probe covers {element}")
 
+# ---------------------------------------------------------------------------
+# The call media engine must be BUILT INTO every Linux package (2026-08-27).
+#
+# The section above pins the runtime DEPENDENCIES, and every one of them was
+# correct while 0.8.0 shipped with calling compiled out of the binary they
+# apply to. `--call-media-status` on the published deb answered "call media
+# engine built in: no" and `ldd` named no GStreamer at all.
+#
+# The cause was silence. The source's LIGHTNING_ENABLE_WEBRTC defaults to ON,
+# but it is only HONOURED when a pkg-config probe finds the GStreamer WebRTC
+# development files -- and no Linux build job installed any, so CMake set
+# HAVE_LIGHTNING_WEBRTC OFF, said so in one STATUS line among hundreds, and
+# every downstream check still passed: the packages installed, launched,
+# synced, and refused every call.
+#
+# Three things therefore have to hold, and this block pins all three:
+#   1. every Linux job that COMPILES installs the development files;
+#   2. the build asserts the resulting binary carries the engine;
+#   3. every per-format validator asks the SHIPPED artifact whether calling
+#      actually works.
+
+
+def _strip_shell_comments(text):
+    """Drop whole-line shell comments.
+
+    Every explanation in these scripts names the very strings asserted below,
+    so a raw substring search would pass on a tree with the code removed. Only
+    FULL-LINE comments are dropped, which is where the prose lives and which
+    cannot be confused with a `#` inside a string.
+    """
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def _read(*parts):
+    with open(os.path.join(HERE, "..", *parts), encoding="utf-8") as handle:
+        return handle.read()
+
+
+# --- 1. the development files, in every job that compiles -------------------
+#
+# build-flatpak and build-snap are deliberately absent: the Flatpak compiles
+# INSIDE the org.kde.Sdk sandbox (which supplies all six pkg-config modules,
+# verified against org.kde.Sdk//6.9) and the snap only repacks the AppImage
+# job's AppDir. Neither runs a compiler in its own image.
+_GST_DEV_PACKAGES = {
+    # Debian/Ubuntu. gstreamer-1.0 comes from the first, sdp/app/video/rtp
+    # from the second, and webrtc from the third -- all six modules the
+    # source's pkg_check_modules names, verified in debian:13.6-slim.
+    "build-deb": ("libgstreamer1.0-dev", "libgstreamer-plugins-base1.0-dev",
+                  "libgstreamer-plugins-bad1.0-dev"),
+    "build-appimage": ("libgstreamer1.0-dev", "libgstreamer-plugins-base1.0-dev",
+                       "libgstreamer-plugins-bad1.0-dev"),
+    # Fedora, same split, verified in fedora:44.
+    "build-rpm": ("gstreamer1-devel", "gstreamer1-plugins-base-devel",
+                  "gstreamer1-plugins-bad-free-devel"),
+}
+for job, packages in _GST_DEV_PACKAGES.items():
+    # The parsed before_script carries only COMMANDS -- YAML has already
+    # dropped the comments that name these same packages.
+    script_text = " ".join(resolve_extends(job).get("before_script", []))
+    for package in packages:
+        check(package in script_text,
+              f"{job} installs the GStreamer dev package {package}")
+
+# The AppImage BUNDLES the runtime plugins instead of depending on them (the
+# snap then inherits that AppDir), so its job needs them installed as well.
+_appimage_before = " ".join(resolve_extends("build-appimage").get("before_script", []))
+for package in ("gstreamer1.0-plugins-base", "gstreamer1.0-plugins-good",
+                "gstreamer1.0-plugins-bad", "gstreamer1.0-nice",
+                "gstreamer1.0-pipewire", "gstreamer1.0-alsa"):
+    check(package in _appimage_before,
+          f"build-appimage installs the runtime plugin package {package}")
+
+# --- 2. the build refuses to produce an engine-less binary ------------------
+configure_src = _strip_shell_comments(_read("scripts", "configure-build.sh"))
+check("-DLIGHTNING_ENABLE_WEBRTC=ON" in configure_src,
+      "configure-build.sh requests the call media engine explicitly")
+check("--call-media-status" in configure_src,
+      "configure-build.sh probes the staged binary for the engine")
+check("call media engine built in: yes" in configure_src,
+      "configure-build.sh fails the build when the engine was configured out")
+
+# The Flatpak is the ONE packaging build that does not run configure-build.sh,
+# so the same guard has to be spelled out in its manifest.
+flatpak_manifest = _read("packaging", "flatpak",
+                         "org.lightning_matrix.Lightning.yaml.in")
+_flatpak_code = "\n".join(
+    line for line in flatpak_manifest.splitlines()
+    if not line.lstrip().startswith("#"))
+check("-DLIGHTNING_ENABLE_WEBRTC=ON" in _flatpak_code,
+      "the Flatpak manifest requests the call media engine explicitly")
+check("call media engine built in: yes" in _flatpak_code,
+      "the Flatpak build fails when the engine was configured out")
+# ...and fails FAST, at configure, rather than after a full Rust build. Every
+# other format gets this from configure-build.sh.
+check("-DLIGHTNING_REQUIRE_WEBRTC=ON" in _flatpak_code,
+      "the Flatpak fails at configure, not after the build, like every other format")
+check("-DLIGHTNING_REQUIRE_WEBRTC=ON" in configure_src,
+      "configure-build.sh fails at configure when the probe finds nothing")
+
+# --- 3. every format asks the SHIPPED artifact ------------------------------
+#
+# Derived from the format list above rather than written out, so a new Linux
+# format cannot be added without this check coming with it.
+for fmt in sorted(FORMAT_SELECTOR):
+    validator = _strip_shell_comments(_read("scripts", f"validate-{fmt}.sh"))
+    check("--call-media-status" in validator,
+          f"validate-{fmt} runs the packaged build's own engine probe")
+    check("assert_call_media_engine" in validator,
+          f"validate-{fmt} judges the probe through the shared helper")
+
+# ONE helper judges all five, so the bar cannot drift between formats. Both
+# halves matter: the first line answers "was it compiled in", the RESULT line
+# answers "can it actually run here" -- an engine compiled in with no plugins
+# beside it refuses calls exactly as completely as no engine at all.
+lib_src = _strip_shell_comments(_read("scripts", "lib.sh"))
+check("assert_call_media_engine()" in lib_src,
+      "lib.sh defines the shared call-engine assertion")
+check("call media engine built in: yes" in lib_src,
+      "the shared assertion requires the engine to be compiled in")
+check("RESULT: calls can be placed and answered." in lib_src,
+      "the shared assertion requires the engine to be runnable")
+
+# --- the AppImage/snap bundle, which has nobody to depend on ----------------
+appimage_build = _read("scripts", "build-appimage.sh")
+# Staging used to be wrapped in `if [ -d "$GST_PLUGIN_SRC" ]`, and the job
+# installed no GStreamer, so the whole block was skipped on EVERY build and
+# the pipeline stayed green. Absence must be loud.
+check('[[ -d "$GST_PLUGIN_SRC" ]] || die' in appimage_build,
+      "the AppImage fails rather than silently skipping plugin staging")
+_appimage_plugin_list = re.search(
+    r"GST_REQUIRED_PLUGINS=\((.*?)\n\)", appimage_build, re.S)
+check(_appimage_plugin_list is not None,
+      "build-appimage declares an explicit required-plugin list")
+if _appimage_plugin_list:
+    # Matched against the LIST, not the file: every name below also appears in
+    # the comment above it explaining why it is there.
+    staged = set(_appimage_plugin_list.group(1).split())
+    for plugin in ("libgstwebrtc", "libgstnice", "libgstdtls", "libgstsrtp",
+                   "libgstopus", "libgstrtp", "libgstvpx",
+                   # In SfuMediaEngine's kRequired list: the engine REFUSES
+                   # without these, and the pre-2026-08-27 staging list had
+                   # none of the four.
+                   "libgstvolume", "libgstaudiotestsrc", "libgstvideotestsrc",
+                   # appsink/appsrc: the received-video path.
+                   "libgstapp",
+                   # Named NOWHERE in Lightning -- webrtcbin loads it itself
+                   # for the data channel, which under bundle-policy=max-bundle
+                   # owns the transport every media section rides on. Windows
+                   # shipped for months able to send and unable to receive
+                   # because this plugin was not staged.
+                   "libgstsctp",
+                   # Screen share and camera.
+                   "libgstpipewire", "libgstvideo4linux2",
+                   # The X11 screen-share fallback, and the one entry here
+                   # that NO runtime check can defend. It is deliberately not
+                   # in the engine's kRequired list -- a call does not need it
+                   # -- so `--call-media-status` is green on a bundle without
+                   # it while the feature is dead: SfuCallController probes the
+                   # RUNNING REGISTRY, and the AppRun hook and snap launcher
+                   # REPLACE the system plugin path, so the host's
+                   # plugins-good is invisible. The user is then told to
+                   # install a package they probably already have.
+                   "libgstximagesrc"):
+        check(plugin in staged,
+              f"the AppImage stages {plugin} into the AppDir")
+
+# Staging a plugin that cannot load is staging nothing, and ximagesrc is the
+# only one whose failure is silent end to end. Both bundling formats resolve it
+# the way the loader will, and their jobs install the X libraries linuxdeploy
+# deliberately leaves on the host.
+for fmt in ("appimage", "snap"):
+    validator = _strip_shell_comments(_read("scripts", f"validate-{fmt}.sh"))
+    # Matched against the LOOP'S OWN LIST, not the file. A bare substring search
+    # passed with the name deleted from the loop, because the `ldd` check below
+    # it names the same file -- so the assertion was true for a reason that had
+    # nothing to do with what it claimed. Caught by mutation, not by review.
+    _payload_loop = re.search(r"for gst_plugin in (.*?); do", validator, re.S)
+    check(_payload_loop is not None,
+          f"validate-{fmt} declares an explicit required-plugin loop")
+    _payload_plugins = set(
+        _payload_loop.group(1).replace("\\", " ").split()) if _payload_loop else set()
+    check("libgstximagesrc" in _payload_plugins,
+          f"validate-{fmt} requires the X11 screen-share fallback in the payload")
+    check("not found" in validator,
+          f"validate-{fmt} proves the staged fallback resolves its libraries")
+    job_script = " ".join(resolve_extends(f"validate-{fmt}").get("before_script", []))
+    for lib in ("libxdamage1", "libxfixes3", "libxtst6"):
+        check(lib in job_script,
+              f"validate-{fmt} provides the host library {lib} that ximagesrc links")
+
+# An installed package must be able to make a SOUND. `autoaudiosink` resolves to
+# pipewiresink, pulsesink or alsasink, and the engine's probe only asks for the
+# `autodetect` FACTORIES -- which exist whether or not any sink is installed --
+# so --call-media-status is green on a package with none. Debian splits ALSA into
+# its own binary package; Fedora does not (base carries libgstalsa, good carries
+# libgstpulseaudio), which is why only the deb needs the extra name.
+check("gstreamer1.0-alsa" in _deb_deps if _deb_call else False,
+      "deb depends on an ALSA sink, which Debian splits into its own package")
+for needle in ("gstreamer1.0-pipewire",):
+    check(needle in _deb_deps if _deb_call else False,
+          f"deb depends on {needle} for the PipeWire sink and screen capture")
+
+snap_build = _strip_shell_comments(_read("scripts", "build-snap.sh"))
+# The snap takes only usr/ from the AppDir, so linuxdeploy's AppRun and its
+# apprun-hooks/gstreamer.sh stay behind and the launcher is the ONLY thing that
+# can point GStreamer at the bundled plugins.
+check("GST_PLUGIN_SYSTEM_PATH_1_0" in snap_build,
+      "the snap launcher points GStreamer at the bundled plugins")
+snap_yaml = _read("packaging", "snap", "snap.yaml.in")
+_snap_plugs = [
+    line.strip()[2:].strip()
+    for line in snap_yaml.splitlines()
+    if line.strip().startswith("- ") and not line.strip().startswith("- --")
+]
+# audio-playback alone is a call nobody can hear the user on; the microphone is
+# a separate snap interface. Matched against actual list entries, not the file,
+# because the comment beside it names the same string.
+check("audio-record" in _snap_plugs,
+      "the snap declares the microphone interface calling needs")
+
 with open(os.path.join(HERE, "..", "scripts", "validate-windows-artifacts.sh"),
           encoding="utf-8") as handle:
     win_validate_src = handle.read()

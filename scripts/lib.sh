@@ -33,6 +33,43 @@ json_value() {
     jq -er --arg key "$key" '.[$key]' "$file"
 }
 
+# --- call media engine ------------------------------------------------------
+#
+# ONE judgement of a `--call-media-status` transcript, shared by every Linux
+# format, so the bar cannot drift between them.
+#
+# It exists because 0.8.0 shipped every Linux package with the engine compiled
+# OUT and every check passed: the packages installed, launched, synced and
+# refused every call. Nothing that reads a file listing or an ELF header can
+# see this -- the plugins are dlopen'd and the engine is a compile-time
+# #ifdef -- so the only check that answers the question is running the SHIPPED
+# artifact and asking it.
+#
+# Callers produce the transcript however their format is run (an installed
+# binary, an AppImage, the snap launcher, `flatpak run`) and hand the log and
+# the exit status here.
+#
+#   $1  format label for the error message
+#   $2  path to the captured combined output
+#   $3  the command's exit status
+assert_call_media_engine() {
+    local label="$1" log="$2" status="$3"
+    [[ -s "$log" ]] || die "$label: --call-media-status produced no output at all"
+    cat "$log"
+    grep -qx 'call media engine built in: yes' "$log" || die \
+        "$label: the packaged binary has NO call media engine compiled in. CMake's GStreamer probe found no development files at build time, so calling, screen sharing and the camera are absent and the app refuses every call."
+    # The RESULT line is decided by the SFU engine's own element probe -- the
+    # same function AppController calls -- so this is the packaged plugin set
+    # answering, not a file listing. A deb/rpm proves its Depends; an
+    # AppImage/snap proves its bundle; a Flatpak proves its runtime.
+    grep -qx 'RESULT: calls can be placed and answered.' "$log" || die \
+        "$label: the engine is compiled in but cannot run -- see the missing_element or gstreamer line above. The package does not carry (or cannot find) the GStreamer plugins the call engine needs."
+    # Belt and braces: the exit status is the engine's own verdict, and a
+    # status that disagrees with the text would mean one of them is lying.
+    [[ "$status" == 0 ]] || die \
+        "$label: --call-media-status reported success but exited $status"
+}
+
 # --- Windows signing state ---------------------------------------------------
 #
 # ONE place decides whether a Windows release is signed, so artifact metadata,

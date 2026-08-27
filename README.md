@@ -670,6 +670,94 @@ sudo apt install ./lightning_<version>_amd64.deb
 sudo dnf install ./lightning-<version>-1.x86_64.rpm
 ```
 
+### The call media engine (GStreamer)
+
+Lightning 0.8.0 shipped **every** Linux package with calling, screen sharing
+and the camera compiled out. The published deb answered
+`call media engine built in: no` and `ldd` named no GStreamer at all. Nothing
+caught it because an engine-less build installs, launches, syncs and behaves
+perfectly, and only refuses calls.
+
+The cause was silence, not a wrong value. The source's `LIGHTNING_ENABLE_WEBRTC`
+defaults to `ON`, but it is only honoured when a pkg-config probe finds
+`gstreamer-1.0`, `gstreamer-webrtc-1.0`, `gstreamer-sdp-1.0`,
+`gstreamer-app-1.0`, `gstreamer-video-1.0` and `gstreamer-rtp-1.0`. No Linux
+build job installed any of them, so CMake set `HAVE_LIGHTNING_WEBRTC` `OFF`,
+said so in one `STATUS` line among hundreds, and every check downstream passed.
+Windows and macOS shipped the same way for months in 2026 for the same reason.
+
+Three things now have to hold, and `tests/test-pipeline-config.py` pins all
+three.
+
+**Build.** Every job that compiles installs the development files:
+`libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+libgstreamer-plugins-bad1.0-dev` on Debian/Ubuntu (deb, AppImage) and
+`gstreamer1-devel gstreamer1-plugins-base-devel
+gstreamer1-plugins-bad-free-devel` on Fedora (rpm). The Flatpak compiles inside
+`org.kde.Sdk//6.9`, which supplies all six modules; the snap compiles nothing —
+it repacks the AppImage job's AppDir.
+
+**Assert.** `configure-build.sh` passes `-DLIGHTNING_ENABLE_WEBRTC=ON` and then
+runs `--call-media-status` on the *staged binary*, failing the build unless it
+reports `call media engine built in: yes`. Naming the option changes nothing
+CMake does; it changes what the script is entitled to assert. The Flatpak
+manifest carries the same guard inline, because it is the one packaging build
+that does not run that script.
+
+**Prove.** Every `validate-<format>.sh` runs `--call-media-status` against the
+*shipped artifact* and judges it through one shared helper
+(`assert_call_media_engine` in `scripts/lib.sh`), requiring both the
+compiled-in line and `RESULT: calls can be placed and answered.` The engine's
+own element probe — the same function `AppController` calls — decides that,
+which is why it also proves each format's plugin story:
+
+| Format | How the plugins arrive |
+|---|---|
+| deb | `Depends:` — `gstreamer1.0-plugins-{base,good,bad}`, `gstreamer1.0-nice`, `gstreamer1.0-pipewire`, `gstreamer1.0-alsa` (`CALL_DEPENDS` in `build-deb.sh`) |
+| rpm | `Requires:` — `gstreamer1-plugins-{base,good,bad-free}`, `libnice-gstreamer1`, `pipewire-gstreamer` (`packaging/rpm/lightning.spec`) |
+| flatpak | the `org.kde.Platform//6.9` runtime, which carries all of them |
+| AppImage | **bundled** into `usr/lib/gstreamer-1.0` plus an AppRun hook setting `GST_PLUGIN_SYSTEM_PATH_1_0` — an AppImage has nobody to depend on |
+| snap | inherits the AppImage's AppDir; `bin/lightning-launch` sets the same variables, because the snap takes only `usr/` and linuxdeploy's AppRun stays behind |
+
+`dpkg-shlibdeps`, RPM's automatic generator and linuxdeploy can see **none** of
+this: GStreamer plugins are `dlopen`'d from a plugin path and appear in no ELF
+`NEEDED` entry. The lists are therefore explicit, and the AppImage's is fatal
+when a name is missing rather than best-effort — it used to be wrapped in an
+`if [ -d ... ]` that skipped silently on every build.
+
+Two elements are load-bearing and invisible to that check, because neither is
+in the engine's required-element list. **`ximagesrc`** is the X11 screen-share
+fallback used when no xdg portal answers; `SfuCallController` probes the
+*running registry* for it, and the AppImage hook and snap launcher **replace**
+the system plugin path — so an unbundled `ximagesrc` is invisible inside those
+two formats, the route refuses, and the user is told to install
+`gst-plugins-good`, which they probably already have and which would change
+nothing. **An audio sink** is the other: `autoaudiosink` resolves to
+`pipewiresink`, `pulsesink` or `alsasink`, but the engine only probes the
+`autodetect` *factories*, which exist whether or not any sink is installed — so
+`--call-media-status` is green on a package that cannot make a sound. Debian
+splits ALSA into `gstreamer1.0-alsa`; Fedora does not (base carries
+`libgstalsa`, good carries `libgstpulseaudio`), which is why only the deb needs
+the extra name.
+
+Two entries in the bundled lists are worth knowing about. `libgstsctp` is named
+nowhere in Lightning: `webrtcbin` loads it itself for the data channel, and
+LiveKit's subscriber offer puts one in media section 0, which under
+`bundle-policy=max-bundle` owns the transport every audio and video section
+rides on — Windows shipped for months able to send and unable to receive
+because of that one file. And `libgstvolume`, `libgstaudiotestsrc`,
+`libgstvideotestsrc` and `libgstapp` are in the engine's own required-element
+list, so an AppImage without them reports the engine unavailable even when it
+is compiled in.
+
+Two limits are deliberate and stay honest. A **Flatpak has no camera**:
+`SfuMediaEngine` opens `v4l2src` on Linux, Flatpak has no camera-only device
+permission, and the alternatives are `--device=all` (every device on the
+machine) or a client change to take a PipeWire node from the portal's Camera
+interface. Audio calls and screen sharing are unaffected. And a **snap needs
+`audio-record`** connected; it is declared, but it is not auto-connected
+everywhere, so a user may have to run `snap connect lightning:audio-record`.
+
 ## Authentication and security
 
 The preferred credential is project 7's short-lived `CI_JOB_TOKEN`. Project 6's

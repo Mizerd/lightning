@@ -216,8 +216,20 @@ build-deb:
       apt-get install -y --no-install-recommends
       build-essential ca-certificates ccache cmake curl debhelper dpkg-dev
       fakeroot file git jq libsecret-1-dev libsqlite3-dev libssl-dev
-      ninja-build patchelf pkg-config qt6-base-dev qt6-declarative-dev
+      ninja-build patchelf pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev
       qt6-multimedia-dev qt6-tools-dev zstd
+    # GStreamer development files for the voice/video call media engine. The
+    # source's LIGHTNING_ENABLE_WEBRTC option is gated on a pkg-config probe of
+    # gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, gstreamer-app-1.0,
+    # gstreamer-video-1.0 and gstreamer-rtp-1.0; without these packages the probe
+    # fails, CMake configures the engine OUT in one STATUS line, and the package
+    # ships a client that refuses every call. That is exactly how 0.8.0 shipped
+    # on every Linux format. configure-build.sh now asserts the staged binary
+    # carries the engine, so removing these fails the BUILD rather than a user.
+    - >-
+      apt-get install -y --no-install-recommends
+      libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      libgstreamer-plugins-bad1.0-dev
     - >-
       curl --fail --show-error --silent --location
       --proto '=https' --tlsv1.2 https://sh.rustup.rs
@@ -251,8 +263,20 @@ build-rpm:
       appstream ca-certificates ccache cmake curl desktop-file-utils
       gcc gcc-c++ git jq libsecret-devel
       ninja-build openssl-devel patchelf pkgconf-pkg-config
-      qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel
+      qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel
       qt6-qtsvg-devel qt6-qttools-devel rpm-build sqlite-devel zstd
+    # GStreamer development files for the voice/video call media engine. The
+    # source's LIGHTNING_ENABLE_WEBRTC option is gated on a pkg-config probe of
+    # gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, gstreamer-app-1.0,
+    # gstreamer-video-1.0 and gstreamer-rtp-1.0; without these packages the probe
+    # fails, CMake configures the engine OUT in one STATUS line, and the package
+    # ships a client that refuses every call. That is exactly how 0.8.0 shipped
+    # on every Linux format. configure-build.sh now asserts the staged binary
+    # carries the engine, so removing these fails the BUILD rather than a user.
+    - >-
+      dnf install -y
+      gstreamer1-devel gstreamer1-plugins-base-devel
+      gstreamer1-plugins-bad-free-devel
     # Fedora's system rust (1.96.1) OOMs compiling matrix-sdk under the 6 GiB
     # runner cap; pin the same rustup toolchain the deb/appimage builds use so
     # every Linux format builds the locked SDK identically.
@@ -318,11 +342,34 @@ build-appimage:
       apt-get install -y --no-install-recommends
       build-essential ca-certificates ccache cmake curl file git jq
       libsecret-1-dev libsqlite3-dev libssl-dev ninja-build patchelf
-      pkg-config qt6-base-dev qt6-declarative-dev qt6-multimedia-dev
+      pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev qt6-multimedia-dev
       qt6-tools-dev qt6-wayland qml6-module-qtmultimedia
       qml6-module-qtquick qml6-module-qtquick-controls
       qml6-module-qtquick-dialogs qml6-module-qtquick-effects
       qml6-module-qtquick-layouts qml6-module-qtquick-window zstd
+    # GStreamer development files for the voice/video call media engine. The
+    # source's LIGHTNING_ENABLE_WEBRTC option is gated on a pkg-config probe of
+    # gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, gstreamer-app-1.0,
+    # gstreamer-video-1.0 and gstreamer-rtp-1.0; without these packages the probe
+    # fails, CMake configures the engine OUT in one STATUS line, and the package
+    # ships a client that refuses every call. That is exactly how 0.8.0 shipped
+    # on every Linux format. configure-build.sh now asserts the staged binary
+    # carries the engine, so removing these fails the BUILD rather than a user.
+    - >-
+      apt-get install -y --no-install-recommends
+      libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      libgstreamer-plugins-bad1.0-dev
+    # ...and the RUNTIME plugins, which the AppImage BUNDLES rather than
+    # depends on (build-appimage.sh stages them into the AppDir before
+    # linuxdeploy runs, so their own libraries are resolved too). The deb and
+    # rpm declare these as package dependencies instead; an AppImage has
+    # nobody to declare them to. The snap inherits this AppDir, so it inherits
+    # this list as well.
+    - >-
+      apt-get install -y --no-install-recommends
+      gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+      gstreamer1.0-plugins-bad gstreamer1.0-nice gstreamer1.0-pipewire
+      gstreamer1.0-alsa
     - >-
       curl --fail --show-error --silent --location
       --proto '=https' --tlsv1.2 https://sh.rustup.rs
@@ -657,11 +704,18 @@ validate-appimage:
     # Base-system set the bundle's excludelist legitimately expects from the
     # host, determined empirically in a clean container (loader-resolved:
     # GLVND, harfbuzz, com_err, gpg-error).
+    # libxdamage1/libxfixes3/libxtst6 are here for ONE staged plugin:
+    # libgstximagesrc, the X11 screen-share fallback. linuxdeploy's excludelist
+    # leaves the X libraries on the host — correctly, since that fallback only
+    # ever runs on an X11 session, where they are always present — so the
+    # validator has to look like such a host or the payload check below
+    # reports a plugin that cannot load on a machine where it would.
     - >-
       apt-get install -y --no-install-recommends
       binutils ca-certificates file libcom-err2 libegl1 libfontconfig1
       libfreetype6 libgl1 libglib2.0-0 libgpg-error0 libharfbuzz0b
-      libopengl0 libx11-6 libxcb1 libxext6 libxkbcommon0 zstd
+      libopengl0 libx11-6 libxcb1 libxdamage1 libxext6 libxfixes3
+      libxkbcommon0 libxtst6 zstd
   script: [./scripts/validate-appimage.sh]
   artifacts:
     when: always
@@ -701,11 +755,18 @@ validate-snap:
     # Base-system libs only (mirrors the AppImage policy); the snap payload
     # bundles Qt itself. No snapd exists in this fleet — validate-snap.sh
     # documents the structural-equivalent validation.
+    # libxdamage1/libxfixes3/libxtst6 are here for ONE staged plugin:
+    # libgstximagesrc, the X11 screen-share fallback. linuxdeploy's excludelist
+    # leaves the X libraries on the host — correctly, since that fallback only
+    # ever runs on an X11 session, where they are always present — so the
+    # validator has to look like such a host or the payload check below
+    # reports a plugin that cannot load on a machine where it would.
     - >-
       apt-get install -y --no-install-recommends
       binutils ca-certificates file libcom-err2 libegl1 libfontconfig1
       libfreetype6 libgl1 libglib2.0-0 libgpg-error0 libharfbuzz0b
-      libopengl0 libx11-6 libxcb1 libxext6 libxkbcommon0
+      libopengl0 libx11-6 libxcb1 libxdamage1 libxext6 libxfixes3
+      libxkbcommon0 libxtst6
       python3 python3-yaml squashfs-tools zstd
   script: [./scripts/validate-snap.sh]
   artifacts:
