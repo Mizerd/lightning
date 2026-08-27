@@ -195,6 +195,75 @@ for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
     LINUXDEPLOY_PLUGIN_ARGS+=(--library "$GST_PLUGIN_SRC/$plugin.so")
 done
 
+# AND THEN COPY THE DEPENDENCIES OURSELVES, because linuxdeploy does not.
+#
+# Measured across pipelines 139 and 140: neither the staged-copy form nor the
+# source-path form of `--library` makes linuxdeploy walk a plugin's own NEEDED
+# list. Both produced an AppImage with all 28 plugins present and
+# libgstsctp-1.0.so.0, libgstallocators-1.0.so.0, libgstnet-1.0.so.0,
+# libgstbadaudio-1.0.so.0, libnice.so.10, libvpx.so.9 and libsrtp2.so.1 all
+# absent — so webrtcbin did not exist and the engine reported
+# `missing_element:webrtcbin`. A complete plugin directory and no calling.
+#
+# So resolve them with the loader itself and copy what is missing. `ldd`
+# answers with the paths the dynamic linker WOULD use, which is the same
+# question the AppImage asks at runtime, and it recurses — so one pass over
+# the staged plugins covers their transitive closure too.
+#
+# WHAT IS DELIBERATELY NOT COPIED: anything already in the AppDir (linuxdeploy
+# put it there and rewrote it), and the base-system set linuxdeploy's own
+# excludelist leaves on the host — glibc and its siblings, the X libraries,
+# ALSA. Bundling those is how an AppImage breaks on a host whose loader
+# disagrees with the build image's.
+gst_dep_copied=0
+gst_dep_skipped=0
+while IFS= read -r dep; do
+    [[ -n "$dep" ]] || continue
+    dep_name="$(basename "$dep")"
+    # Already bundled by linuxdeploy, in either location.
+    [[ -e "$APPDIR/usr/lib/$dep_name" ]] && { gst_dep_skipped=$((gst_dep_skipped+1)); continue; }
+    case "$dep_name" in
+        # The loader, the C/C++ runtime and their siblings: never bundle.
+        ld-linux*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|\
+        libgcc_s.so.*|libstdc++.so.*|libresolv.so.*)
+            gst_dep_skipped=$((gst_dep_skipped+1)); continue ;;
+        # Base system per linuxdeploy's excludelist: X, ALSA, GL, D-Bus.
+        libX*.so.*|libxcb*.so.*|libasound.so.*|libGL*.so.*|libEGL*.so.*|\
+        libdrm.so.*|libgbm.so.*|libdbus-1.so.*|libudev.so.*|libsystemd.so.*)
+            gst_dep_skipped=$((gst_dep_skipped+1)); continue ;;
+    esac
+    cp -Ln "$dep" "$APPDIR/usr/lib/$dep_name" 2>/dev/null &&         gst_dep_copied=$((gst_dep_copied+1))
+done < <(
+    for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
+        ldd "$GST_PLUGIN_SRC/$plugin.so" 2>/dev/null \
+            | awk '/=> \// { print $3 }'
+    done | sort -u
+)
+printf 'GStreamer plugin dependencies: %d copied, %d already present or base system\n' \
+    "$gst_dep_copied" "$gst_dep_skipped"
+# A plugin set this size cannot have zero private dependencies. Zero means the
+# resolution silently produced nothing, which is how this shipped twice.
+[[ "$gst_dep_copied" -gt 0 ]] || \
+    die "resolved no GStreamer plugin dependencies at all — the bundle would ship plugins that cannot load"
+
+# Every staged plugin must now resolve against the AppDir, not against this
+# build image. Asked of the loader with the AppDir as the search path, which
+# is the arrangement the AppImage actually runs in.
+gst_unresolved=""
+for staged_plugin in "$GST_PLUGIN_DEST"/*.so; do
+    [[ -e "$staged_plugin" ]] || continue
+    while IFS= read -r missing; do
+        gst_unresolved+=" $(basename "$staged_plugin"):$missing"
+    done < <(
+        LD_LIBRARY_PATH="$APPDIR/usr/lib" ldd "$staged_plugin" 2>/dev/null \
+            | awk '/not found/ { print $1 }'
+    )
+done
+[[ -z "$gst_unresolved" ]] || \
+    die "staged GStreamer plugins cannot load from the bundle:$gst_unresolved"
+printf 'All %d staged GStreamer plugins resolve against the AppDir\n' \
+    "${#GST_REQUIRED_PLUGINS[@]}"
+
 # linuxdeploy's generated AppRun sources every apprun-hooks/*.sh. Without this
 # hook the plugins are bundled and never found: GStreamer scans its COMPILED-IN
 # system path, which points at the build image.
