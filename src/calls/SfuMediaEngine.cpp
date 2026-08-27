@@ -1195,7 +1195,30 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                // and stalls the PipeWire source — and a stalled screen capture
                // is indistinguishable from a working one downstream, because
                // the rate stage then repeats the last picture at full rate.
-               "%1 name=capsrc ! queue max-size-buffers=4 leaky=downstream "
+               "%1 name=capsrc "
+               // SQUARE PIXELS AT THE SOURCE, and this one is belt and
+               // braces for elements we do not own.
+               //
+               // Pinning the pixel aspect ratio at the CEILING (see `limits`)
+               // is what makes videoscale answer a size ceiling by choosing a
+               // SIZE rather than by emitting a non-square PAR that VP8 and
+               // RTP silently drop. But that pin also makes videoconvertscale
+               // offer the SOURCE an open PAR range, and a source that does
+               // not fixate PAR itself then falls through to
+               // `gst_caps_fixate`, which takes a range's MINIMUM —
+               // 1/2147483647 — and negotiation dies of integer overflow.
+               //
+               // Lightning's own capture element fixates PAR now, and the
+               // Windows log proves `gdiscreencapsrc` and `ksvideosrc` both
+               // DECLARE `pixel-aspect-ratio=(fraction)1/1` already. But
+               // `avfvideosrc` does not appear to, `pipewiresrc` is untested,
+               // and none of the three is testable from here. A FIXED value
+               // in front of the source is not a range, so it cannot be
+               // fixated to a minimum: measured, it rescues a source that
+               // fixates no PAR at all, at every size that fails without it.
+               "! capsfilter caps=\"video/x-raw,"
+               "pixel-aspect-ratio=(fraction)1/1\" "
+               "! queue max-size-buffers=4 leaky=downstream "
                "! videoconvert ! videoscale ! %7 "
                "! %2 "
                "! tee name=t %4"
