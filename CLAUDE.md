@@ -2793,13 +2793,14 @@ of one frozen frame, and screen sharing works. Earlier the same day, from the
 same tester on the pipeline 134 artifact: selecting a MONITOR works with two
 monitors attached, and a window share of File Explorer is correct.
 
-WHAT THAT DOES AND DOES NOT COVER. It closes the two headline defects of this
-lane — the camera has been an open defect since 2026-08-26 and window shares
-were garbling as of pipeline 134. It does NOT cover: a window share of Brave
-or Logitech G Hub specifically (those were the garbled ones and the fix is
-untested against them), a window RESIZED mid-share, closing a shared window,
-the picker's grid rework, the call-UI layout fixes, or anything at all on
-macOS. Do not promote those to tested.
+CONFIRMED LATER THE SAME DAY, on the pipeline 136 build: the camera works,
+and a WINDOW share is correct — right aspect ratio, and resizing the window
+mid-share does not break it. So the three headline defects of this lane are
+all closed on Windows.
+
+WHAT IT STILL DOES NOT COVER: closing a shared window while sharing, the
+picker's grid rework, the call-UI layout fixes, and anything at all on macOS.
+Do not promote those to tested.
 
 STILL WRONG at the time of that confirmation, reported with a screenshot and
 fixed afterwards in `008ccfd` (so ITSELF not yet re-validated): with a share
@@ -2906,7 +2907,8 @@ either.
 OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 
 - ~~**The camera does not work at all**~~ — **FIXED and LIVE-CONFIRMED on
-  Windows 2026-08-27** (`31e6048`). It was never the camera, and "screen share
+  Windows 2026-08-27** (`31e6048`), as is the window share's aspect ratio and
+  resizing a shared window mid-share. It was never the camera, and "screen share
   works on the same publish path" was the clue rather than the puzzle: the
   window share worked because Lightning's OWN capture element stamps PTS from
   ZERO, and every other source stamps the pipeline's RUNNING TIME.
