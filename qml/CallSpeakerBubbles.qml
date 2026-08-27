@@ -78,7 +78,12 @@ Item {
             required property bool micMuted
             required property bool screenSharing
 
-            width: root.bubbleSize + 4
+            // Wide enough for the SPEAKING RING, not just the avatar. The
+            // ring is `bubbleSize + 8` and centred, so a cell of
+            // `bubbleSize + 4` left it 2 px wider than its own cell — which
+            // the ListView's clip then cut off the first and last bubble,
+            // and only while someone was talking.
+            width: root.bubbleSize + 8
             height: strip.height
 
             readonly property bool muted: bubble.micKnown && bubble.micMuted

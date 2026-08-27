@@ -61,6 +61,36 @@ public:
     void close(const QString &callId) override { Q_UNUSED(callId); }
 };
 
+/// Find a named item by walking the VISUAL tree.
+///
+/// `QObject::findChild` cannot reach a `Repeater`'s delegates: they belong to
+/// the delegate model, not to the item they are laid out inside. Every
+/// segment of a SegmentedControl is created that way, so a tab is invisible
+/// to findChild — measured, with a segment carrying a CONSTANT objectName and
+/// still absent from a full `findChildren` dump, so this is not a binding
+/// that failed to evaluate. `childItems()` does list them.
+static QQuickItem *findVisualChild(QObject *root, const QString &name)
+{
+    auto *item = qobject_cast<QQuickItem *>(root);
+    if (!item) {
+        // A Dialog is a Popup, not an Item; start from what it draws.
+        if (QObject *content = root
+                ? root->property("contentItem").value<QObject *>()
+                : nullptr)
+            item = qobject_cast<QQuickItem *>(content);
+    }
+    if (!item)
+        return nullptr;
+    if (item->objectName() == name)
+        return item;
+    const auto children = item->childItems();
+    for (QQuickItem *child : children) {
+        if (QQuickItem *found = findVisualChild(child, name))
+            return found;
+    }
+    return nullptr;
+}
+
 class CallUiContractTest : public QObject
 {
     Q_OBJECT
@@ -112,6 +142,55 @@ private:
         out.replace(QRegularExpression(QStringLiteral("\\s+")),
                     QStringLiteral(" "));
         return out.trimmed();
+    }
+
+    /// One row of `app.groupCall.screenShareSources`, in the shape
+    /// SfuCallController builds it: a window carries a non-zero handle and
+    /// the OWNING APPLICATION beside its caption, a screen carries neither.
+    struct ShareRow {
+        QString name;
+        QString application;
+        quint64 handle;
+    };
+    static QVariantList pickerRows(const QList<ShareRow> &rows)
+    {
+        QVariantList out;
+        int display = 0;
+        for (const ShareRow &row : rows) {
+            out.append(QVariantMap{
+                { QStringLiteral("index"),
+                  row.handle != 0 ? -1 : display++ },
+                { QStringLiteral("windowHandle"), row.handle },
+                { QStringLiteral("name"), row.name },
+                { QStringLiteral("application"), row.application },
+                { QStringLiteral("geometry"), QStringLiteral("1920 x 1080") },
+                { QStringLiteral("primary"), false },
+                { QStringLiteral("current"), false },
+            });
+        }
+        return out;
+    }
+
+    static void clickCentre(QQuickWindow *window, QQuickItem *item)
+    {
+        const QPointF centre =
+            item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          centre.toPoint());
+        QCoreApplication::processEvents();
+    }
+
+    /// Press the delegate at `viewIndex` of a real item view, resolved from
+    /// the item's OWN geometry — a test that assumes a row height measures
+    /// something else the moment the delegate changes shape.
+    static void clickItem(QQuickWindow *window, QQuickItem *view, int viewIndex)
+    {
+        QQuickItem *item = nullptr;
+        QMetaObject::invokeMethod(view, "itemAtIndex",
+                                  Q_RETURN_ARG(QQuickItem *, item),
+                                  Q_ARG(int, viewIndex));
+        QVERIFY2(item != nullptr, "no delegate was created for that row");
+        clickCentre(window, item);
     }
 
 private Q_SLOTS:
@@ -539,24 +618,26 @@ Item {
         }
     }
 
-    // The share picker LOADS, and it classifies a row the same way the
-    // capture does.
+    // The share picker LOADS, it classifies a row the same way the capture
+    // does, and it NAMES a window the way a person can act on.
     //
-    // The picker was reworked from a flat display list into Screens/Windows
-    // groups, which moved every row into a Column wrapper — the kind of
+    // The picker was reworked from a grouped list into a Discord-style GRID
+    // of previews with an Applications/Screens tab pair — the kind of
     // structural change whose failure mode is a binding error that only
     // appears when a person opens the dialog, mid-call, which is the worst
     // possible place to find out.
     //
     // `isWindowRow` is the load-bearing part: the picker uses it to decide
-    // which group a row belongs to and the CONTROLLER uses the same fact —
-    // a non-zero window handle — to decide whether to capture a window or a
-    // display. If those two ever disagreed, the list would say one thing and
+    // which TAB a row belongs to and the CONTROLLER uses the same fact — a
+    // non-zero window handle — to decide whether to capture a window or a
+    // display. If those two ever disagreed, the grid would say one thing and
     // the share would do another.
     //
-    // Rows themselves are NOT exercised here: `sources` is bound to the live
-    // call, so populating it would need a real SFU session, and adding a test
-    // seam to production for it would be worse than the gap.
+    // The label half pins the report this rework came from: "with brave it
+    // listed my tab name but didnt even say brave anywhere". A Chromium
+    // caption is the TAB's title and names no browser, so the OWNING
+    // APPLICATION has to lead — and the resolution, which used to have a
+    // line of its own, must not appear on the face of the tile at all.
     void theSharePickerLoadsAndKnowsAWindowRowFromAScreen()
     {
         AppController controller(AppController::MockBackend);
@@ -591,8 +672,9 @@ ApplicationWindow {
         auto *picker = owner->property("picker").value<QObject *>();
         QVERIFY(picker != nullptr);
 
-        // No call, so nothing to share and no group headers to draw.
+        // No call, so nothing to share and neither tab has anything in it.
         QCOMPARE(picker->property("screenCount").toInt(), 0);
+        QCOMPARE(picker->property("windowCount").toInt(), 0);
 
         // A window row carries a non-zero handle; a display row does not.
         // Both shapes come straight from SfuCallController's own maps.
@@ -611,6 +693,82 @@ ApplicationWindow {
         QVERIFY2(!classify({{QStringLiteral("index"), 1}}),
                  "a row with no handle at all is being treated as a window");
 
+        auto label = [picker](const char *fn, const QVariantMap &row) {
+            QVariant out;
+            const bool called = QMetaObject::invokeMethod(
+                picker, fn, Q_RETURN_ARG(QVariant, out),
+                Q_ARG(QVariant, QVariant::fromValue(row)));
+            return called ? out.toString() : QString();
+        };
+
+        // THE BRAVE CASE. The caption names a tab and no browser, so the
+        // application leads and the caption follows on its own line.
+        const QVariantMap brave{
+            { QStringLiteral("index"), -1 },
+            { QStringLiteral("windowHandle"), quint64(4660) },
+            { QStringLiteral("name"), QStringLiteral("Anthropic Console") },
+            { QStringLiteral("application"), QStringLiteral("Brave Browser") },
+            { QStringLiteral("geometry"), QStringLiteral("3840 x 2160") },
+        };
+        QCOMPARE(label("primaryLabel", brave), QStringLiteral("Brave Browser"));
+        QCOMPARE(label("secondaryLabel", brave),
+                 QStringLiteral("Anthropic Console"));
+
+        // ...and a caption that already says which application it is keeps
+        // ONE line. Repeating it would be noise.
+        const QVariantMap explorer{
+            { QStringLiteral("index"), -1 },
+            { QStringLiteral("windowHandle"), quint64(4661) },
+            { QStringLiteral("name"), QStringLiteral("Windows Explorer") },
+            { QStringLiteral("application"),
+              QStringLiteral("Windows Explorer") },
+            { QStringLiteral("geometry"), QStringLiteral("1600 x 900") },
+        };
+        QCOMPARE(label("primaryLabel", explorer),
+                 QStringLiteral("Windows Explorer"));
+        QCOMPARE(label("secondaryLabel", explorer), QString());
+
+        // A window whose executable could not be read still has to be
+        // nameable: `application` is legitimately empty there.
+        const QVariantMap unknownApp{
+            { QStringLiteral("index"), -1 },
+            { QStringLiteral("windowHandle"), quint64(4662) },
+            { QStringLiteral("name"), QStringLiteral("Untitled - Notepad") },
+            { QStringLiteral("application"), QString() },
+            { QStringLiteral("geometry"), QStringLiteral("800 x 600") },
+        };
+        QCOMPARE(label("primaryLabel", unknownApp),
+                 QStringLiteral("Untitled - Notepad"));
+
+        // A screen is its platform name, and the second line says WHICH
+        // screen it is — never its resolution.
+        const QVariantMap screen{
+            { QStringLiteral("index"), 0 },
+            { QStringLiteral("name"), QStringLiteral("\\\\.\\DISPLAY1") },
+            { QStringLiteral("application"), QString() },
+            { QStringLiteral("geometry"), QStringLiteral("3840 x 2160") },
+            { QStringLiteral("primary"), true },
+            { QStringLiteral("current"), true },
+        };
+        QCOMPARE(label("primaryLabel", screen),
+                 QStringLiteral("\\\\.\\DISPLAY1"));
+        QCOMPARE(label("secondaryLabel", screen), QStringLiteral("This screen"));
+
+        // THE RESOLUTION IS OFF THE FACE OF THE DIALOG — "we dont even need
+        // to tell the user the resolution" — and still reaches a screen
+        // reader, which has no preview to look at.
+        for (const QVariantMap &row : { brave, screen }) {
+            const QString geometry =
+                row.value(QStringLiteral("geometry")).toString();
+            QVERIFY(!geometry.isEmpty());
+            QVERIFY2(!label("primaryLabel", row).contains(geometry),
+                     "the tile's own label is carrying the geometry again");
+            QVERIFY2(!label("secondaryLabel", row).contains(geometry),
+                     "the tile's second line is carrying the geometry again");
+            QVERIFY2(label("accessibleLabel", row).contains(geometry),
+                     "the accessible name dropped the geometry with it");
+        }
+
         for (const QString &warning : warnings) {
             QVERIFY2(!warning.contains(QStringLiteral("Unable to assign"))
                          && !warning.contains(QStringLiteral("is not available"))
@@ -619,18 +777,19 @@ ApplicationWindow {
         }
     }
 
-    // PRESSING A ROW MUST SELECT IT — including a window row under the second
-    // group header.
+    // PRESSING A TILE MUST SELECT IT — including a window tile, which now
+    // lives behind the Applications tab rather than under a group header.
     //
-    // The grouped rework shipped with its rows unclickable and it reached a
-    // user: the picker opened, clicking a window did nothing, and pressing
-    // Share published display 0 because `selected` had never moved off it.
-    // The Windows log says it exactly — three `screen share requested` and
-    // one `screen share publishing node= 0 window= false`.
+    // The grouped rework this replaced shipped with its rows unclickable and
+    // it reached a user: the picker opened, clicking a window did nothing,
+    // and pressing Share published display 0 because `selected` had never
+    // moved off it. The Windows log said it exactly — three
+    // `screen share requested` and one
+    // `screen share publishing node= 0 window= false`.
     //
-    // Everything that existed passed, because nothing had a row to press.
-    // This drives real rows through the real delegate.
-    void pressingARowSelectsItIncludingUnderTheWindowsHeader()
+    // Everything that existed passed, because nothing had a tile to press.
+    // This drives the real tab strip and the real delegate.
+    void pressingATileSelectsItIncludingOnTheApplicationsTab()
     {
         AppController controller(AppController::MockBackend);
         QQmlEngine engine;
@@ -643,8 +802,8 @@ import QtQuick.Controls
 import MatrixClient
 
 ApplicationWindow {
-    width: 700
-    height: 500
+    width: 1100
+    height: 760
     visible: true
     property alias picker: pick
     ScreenSharePicker { id: pick; objectName: "sharePicker" }
@@ -658,49 +817,183 @@ ApplicationWindow {
         auto *picker = owner->property("picker").value<QObject *>();
         QVERIFY(picker != nullptr);
 
-        // Two displays then two windows — the shape the controller builds,
-        // and the one where a header sits between the groups.
-        QVariantList rows;
-        auto row = [](const QString &name, quint64 handle) {
-            return QVariantMap{
-                { QStringLiteral("index"), handle ? -1 : 0 },
-                { QStringLiteral("windowHandle"), handle },
-                { QStringLiteral("name"), name },
-                { QStringLiteral("geometry"), QStringLiteral("100 x 100") },
-                { QStringLiteral("primary"), false },
-                { QStringLiteral("current"), false },
-            };
-        };
-        rows << row(QStringLiteral("Screen A"), 0)
-             << row(QStringLiteral("Screen B"), 0)
-             << row(QStringLiteral("Window A"), 4660)
-             << row(QStringLiteral("Window B"), 4661);
+        // Two displays then two windows — the shape the controller builds.
+        const QVariantList rows = pickerRows({
+            { QStringLiteral("Screen A"), QString(), 0 },
+            { QStringLiteral("Screen B"), QString(), 0 },
+            { QStringLiteral("Window A"), QStringLiteral("Brave Browser"),
+              4660 },
+            { QStringLiteral("Window B"), QStringLiteral("Brave Browser"),
+              4661 },
+        });
         picker->setProperty("sources", rows);
         QMetaObject::invokeMethod(picker, "open");
         QTRY_VERIFY(picker->property("visible").toBool());
         QCoreApplication::processEvents();
 
         QCOMPARE(picker->property("screenCount").toInt(), 2);
+        QCOMPARE(picker->property("windowCount").toInt(), 2);
 
-        auto *list = picker->findChild<QQuickItem *>(QStringLiteral("sourceList"));
-        QVERIFY2(list != nullptr, "the picker's list has no objectName to find");
-        QTRY_COMPARE(list->property("count").toInt(), 4);
+        auto *grid = picker->findChild<QQuickItem *>(
+            QStringLiteral("sourceGrid"));
+        QVERIFY2(grid != nullptr, "the picker's grid has no objectName to find");
 
-        // The LAST row, which lives under the Windows header — the case that
-        // shipped broken. Resolved from the item's own geometry rather than
-        // from an assumed row height, so a header of any size still lands.
-        QQuickItem *item = nullptr;
-        QMetaObject::invokeMethod(list, "itemAtIndex",
-                                  Q_RETURN_ARG(QQuickItem *, item),
-                                  Q_ARG(int, 3));
-        QVERIFY2(item != nullptr, "no delegate was created for the last row");
-        const QPointF centre = item->mapToScene(
-            QPointF(item->width() / 2, item->height() - 10));
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
-                          centre.toPoint());
+        // THE TAB SHOWS ONE KIND. A grid still holding every row would pass
+        // every click assertion below and still be the old list.
+        QTRY_COMPARE(grid->property("count").toInt(), 2);
+        QCOMPARE(picker->property("tab").toString(), QStringLiteral("screens"));
+
+        clickItem(window, grid, 0);
+        QCOMPARE(picker->property("selected").toInt(), 0);
+        clickItem(window, grid, 1);
+        QCOMPARE(picker->property("selected").toInt(), 1);
+
+        // Now the other tab, through the real segment rather than by writing
+        // the property: a tab strip nothing can press is the same defect as a
+        // row nothing can press.
+        auto *applicationsTab = findVisualChild(
+            picker, QStringLiteral("shareTabs_applications"));
+        QVERIFY2(applicationsTab != nullptr,
+                 "the Applications tab has no objectName to find");
+        clickCentre(window, applicationsTab);
+        QTRY_COMPARE(picker->property("tab").toString(),
+                     QStringLiteral("applications"));
+        QTRY_COMPARE(grid->property("count").toInt(), 2);
+
+        // Switching tabs must leave a tile of THIS tab highlighted, or Share
+        // would send something the user cannot see chosen.
+        QCOMPARE(picker->property("selected").toInt(), 2);
+
+        clickItem(window, grid, 1);
+        QCOMPARE(picker->property("selected").toInt(), 3);
+    }
+
+    // THE FILTERED GRID MUST MAP BACK TO THE UNFILTERED SOURCE INDEX.
+    //
+    // `SfuCallController::chooseScreenShareSource(index)` indexes into the
+    // list it BUILT — the whole thing, screens and windows together — and the
+    // grid shows one tab at a time. So a delegate's own index is a DIFFERENT
+    // number from the one the controller needs, and the failure mode is not a
+    // dead control: it is sharing the wrong thing, silently, which is the
+    // worst outcome this dialog has.
+    //
+    // The rows below interleave the two kinds and carry more than one of
+    // each, so a naive `selected = delegateIndex` does not merely land on a
+    // neighbour — on the Screens tab it lands on a WINDOW. Each assertion
+    // therefore also names the row it expects, so a failure reads as "you
+    // shared Window A" rather than as an off-by-one.
+    void theFilteredGridMapsBackToTheUnfilteredSourceIndex()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 1100
+    height: 760
+    visible: true
+    property alias picker: pick
+    ScreenSharePicker { id: pick; objectName: "sharePicker" }
+}
+)"), QUrl(QStringLiteral("qrc:/sharepickermaptest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *window = qobject_cast<QQuickWindow *>(owner.get());
+        QVERIFY(window != nullptr);
+        auto *picker = owner->property("picker").value<QObject *>();
+        QVERIFY(picker != nullptr);
+
+        // 0 screen, 1 window, 2 screen, 3 window, 4 window. Nothing lines up
+        // with a per-tab index anywhere.
+        const QVariantList rows = pickerRows({
+            { QStringLiteral("Screen A"), QString(), 0 },
+            { QStringLiteral("Window A"), QStringLiteral("Brave Browser"),
+              4660 },
+            { QStringLiteral("Screen B"), QString(), 0 },
+            { QStringLiteral("Window B"), QStringLiteral("Brave Browser"),
+              4661 },
+            { QStringLiteral("Window C"), QStringLiteral("Slack"), 4662 },
+        });
+        picker->setProperty("sources", rows);
+        QMetaObject::invokeMethod(picker, "open");
+        QTRY_VERIFY(picker->property("visible").toBool());
         QCoreApplication::processEvents();
 
+        auto *grid = picker->findChild<QQuickItem *>(
+            QStringLiteral("sourceGrid"));
+        QVERIFY(grid != nullptr);
+
+        // Names the row the picker would SHARE, read out of the list this
+        // test handed it — so a failure reads "you shared Window A" instead
+        // of as an off-by-one. (Deliberately not `picker->property("sources")`:
+        // a QML `property var` comes back as a QJSValue whose toList() is
+        // empty, which would make every comparison below vacuous.)
+        auto chosenName = [picker, &rows]() {
+            const int at = picker->property("selected").toInt();
+            if (at < 0 || at >= rows.size())
+                return QStringLiteral("<out of range>");
+            return rows.at(at).toMap().value(QStringLiteral("name")).toString();
+        };
+
+        // SCREENS: view row 1 is source 2. A naive mapping picks source 1,
+        // which is a window.
+        QTRY_COMPARE(grid->property("count").toInt(), 2);
+        clickItem(window, grid, 1);
+        QCOMPARE(chosenName(), QStringLiteral("Screen B"));
+        QCOMPARE(picker->property("selected").toInt(), 2);
+
+        auto *applicationsTab = findVisualChild(
+            picker, QStringLiteral("shareTabs_applications"));
+        QVERIFY(applicationsTab != nullptr);
+        clickCentre(window, applicationsTab);
+        QTRY_COMPARE(grid->property("count").toInt(), 3);
+
+        // APPLICATIONS: view rows 0/1/2 are sources 1/3/4.
+        clickItem(window, grid, 1);
+        QCOMPARE(chosenName(), QStringLiteral("Window B"));
         QCOMPARE(picker->property("selected").toInt(), 3);
+
+        clickItem(window, grid, 2);
+        QCOMPARE(chosenName(), QStringLiteral("Window C"));
+        QCOMPARE(picker->property("selected").toInt(), 4);
+
+        // KEYBOARD, on the same mapping. This is a modal picker and it has to
+        // be operable without a mouse; the arrows walk the VISIBLE tab, so
+        // stepping back from Window C must land on Window B (source 3) and
+        // never on source 1 by arithmetic.
+        QTRY_VERIFY2(grid->hasActiveFocus(),
+                     "the grid never took focus, so the picker cannot be "
+                     "driven from the keyboard");
+        QTest::keyClick(window, Qt::Key_Left);
+        QCoreApplication::processEvents();
+        QCOMPARE(chosenName(), QStringLiteral("Window B"));
+        QCOMPARE(picker->property("selected").toInt(), 3);
+
+        QTest::keyClick(window, Qt::Key_Home);
+        QCoreApplication::processEvents();
+        QCOMPARE(chosenName(), QStringLiteral("Window A"));
+        QCOMPARE(picker->property("selected").toInt(), 1);
+
+        // ...and the other half of the mapping: what Share hands the
+        // controller is `selected` verbatim, never a view index. Source-read
+        // because observing the call needs a live SFU session — but the two
+        // halves together are what make the tile and the share the same
+        // thing.
+        const QString qml = normalized(
+            code(read(QStringLiteral(QML_DIR "/ScreenSharePicker.qml"))));
+        QVERIFY2(!qml.isEmpty(), "ScreenSharePicker.qml did not read");
+        QVERIFY2(qml.contains(QStringLiteral("var chosen = root.selected;")),
+                 "the confirm no longer sends the selected SOURCE index");
+        QVERIFY2(qml.contains(
+                     QStringLiteral("chooseScreenShareSource(chosen)")),
+                 "the confirm no longer hands the controller the chosen index");
     }
 
     // EVERY refusal that reads a node id must know a window carries none.
@@ -2380,6 +2673,395 @@ ApplicationWindow {
         QVERIFY2(!row.contains(QStringLiteral("font.pixelSize: AppTheme.text")),
                  "a member row sets an UNSCALED font size, so it ignores the "
                  "text-size slider every other surface honours");
+    }
+
+    // ── 2026-08-27 Windows layout round ──────────────────────────────────
+    //
+    // Three defects reported from a packaged Windows build ("some button are
+    // sitting on buttons ... in windows there is a lot of cliping"). None of
+    // them is a Windows API difference: the app pins its own Qt Quick style
+    // and ships its own font, so what differs is DISPLAY SCALE — the
+    // maintainer's capture measures at 1.5, which leaves every logical
+    // dimension the same and two thirds as many of them on the screen. Fixed
+    // bands then take a bigger share, and anything sized from a label lands
+    // somewhere else. The three cases below pin the structural half of that,
+    // which is the half a test can hold.
+
+    /// A control row with no implicit width is laid out ON TOP of the
+    /// controls beside it.
+    ///
+    /// CallHeaderBar is hosted three ways and only ONE of them stretches it.
+    /// The collapsed call strip puts it in a Loader inside a RowLayout and
+    /// the full-screen window puts it in a Loader anchored to the bottom
+    /// centre — both READ its implicit size. A Loader adopts the loaded
+    /// item's implicit size, a Rectangle that never sets one reports 0, and
+    /// a RowLayout cell of width 0 puts the NEXT control immediately after
+    /// it — while `bar` (anchors.centerIn) goes on drawing half the control
+    /// row each side of that zero-width point.
+    ///
+    /// `implicitHeight` was already carrying exactly this job for the
+    /// vertical axis, which is why the strip had a sensible height and no
+    /// width at all.
+    ///
+    /// The assertion is geometric rather than a source scan: every control
+    /// must lie inside the box the layout gave the bar. On the unfixed tree
+    /// the hang-up button lands past the trailing item's left edge, by about
+    /// half the control row.
+    void compactCallControlsStayInsideTheBoxTheLayoutGivesThem()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        // Declared BEFORE the item it will host, so the item's own owner is
+        // destroyed FIRST: setParentItem takes QObject ownership too, and a
+        // window torn down ahead of the unique_ptr would delete the tree
+        // out from under it.
+        QQuickWindow window;
+        window.resize(900, 90);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Layouts
+import MatrixClient
+Item {
+    id: outer
+    width: 900
+    height: 90
+    RowLayout {
+        anchors.fill: parent
+        spacing: 8
+        // Stands in for the speaker bubbles: the elastic cell that takes
+        // whatever the controls do not.
+        Item {
+            objectName: "fixtureElastic"
+            Layout.fillWidth: true
+            implicitHeight: 10
+        }
+        CallHeaderBar {
+            objectName: "fixtureCompactDock"
+            previewMode: true
+            placement: "dock"
+            compact: true
+        }
+        // Stands in for the collapse button, which is what the control row
+        // was drawing straight through.
+        Rectangle {
+            objectName: "fixtureTrailing"
+            implicitWidth: 30
+            implicitHeight: 30
+            color: "transparent"
+        }
+    }
+}
+)"), QUrl(QStringLiteral("qrc:/callcompactdocktest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *outer = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY2(outer != nullptr, "the fixture must instantiate");
+
+        outer->setParentItem(window.contentItem());
+        window.show();
+        settle();
+        outer->polish();
+        settle();
+
+        auto *dock =
+            outer->findChild<QQuickItem *>(QStringLiteral("fixtureCompactDock"));
+        QVERIFY(dock != nullptr);
+        auto *trailing =
+            outer->findChild<QQuickItem *>(QStringLiteral("fixtureTrailing"));
+        QVERIFY(trailing != nullptr);
+        QVERIFY2(dock->property("visible").toBool(),
+                 "previewMode no longer shows the bar, so this fixture proves "
+                 "nothing");
+
+        // A layout rearranges on the window's POLISH pass, which is
+        // asynchronous even offscreen — so converge on a laid-out frame
+        // rather than measuring the one that happens to be current.
+        QTRY_VERIFY(dock->width() > 0.0);
+        QVERIFY2(dock->width() > 100.0,
+                 qPrintable(QStringLiteral("the compact control row was given "
+                                           "%1 px by its layout — it reports "
+                                           "no implicit width, so its controls "
+                                           "draw over whatever is beside it")
+                                .arg(dock->width())));
+
+        const qreal trailingLeft =
+            trailing->mapToItem(outer, QPointF(0, 0)).x();
+        for (const auto &name : { "callBarMicButton", "callBarDeafenButton",
+                                  "callBarCameraButton",
+                                  "callBarScreenShareButton",
+                                  "callBarHangUpButton" }) {
+            auto *control = dock->findChild<QQuickItem *>(QLatin1String(name));
+            QVERIFY2(control != nullptr,
+                     qPrintable(QStringLiteral("missing %1")
+                                    .arg(QLatin1String(name))));
+            const qreal left = control->mapToItem(outer, QPointF(0, 0)).x();
+            const qreal right =
+                control->mapToItem(outer, QPointF(control->width(), 0)).x();
+            QVERIFY2(right <= trailingLeft + 0.5,
+                     qPrintable(QStringLiteral("%1 ends at %2, past the "
+                                               "trailing control at %3 — the "
+                                               "compact dock is drawing "
+                                               "through its neighbour")
+                                    .arg(QLatin1String(name))
+                                    .arg(right)
+                                    .arg(trailingLeft)));
+            const qreal dockLeft = dock->mapToItem(outer, QPointF(0, 0)).x();
+            QVERIFY2(left >= dockLeft - 0.5,
+                     qPrintable(QStringLiteral("%1 starts at %2, left of the "
+                                               "bar's own box at %3")
+                                    .arg(QLatin1String(name))
+                                    .arg(left)
+                                    .arg(dockLeft)));
+        }
+    }
+
+    /// The nameplate pill is capped to the tile; the ROW inside it was not.
+    ///
+    /// `anchors.centerIn` sets x and y and nothing else, so the row took its
+    /// full implicit width — the whole unelided name — while the pill behind
+    /// it stopped at the tile's edge. `Layout.fillWidth` on the label then
+    /// had no width to fill against, so it never elided: the name ran out
+    /// past both ends of its own plate, and on the share tile (which clips)
+    /// it was cut off mid-word instead. That is the reported clipping, and
+    /// how soon it shows depends on how wide the platform draws the name.
+    void aTileNameplateNeverOverflowsItsOwnPill()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        // Before the fixture, so the fixture's owner outlives it — see the
+        // note in the compact-dock case.
+        QQuickWindow window;
+        window.resize(400, 220);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+Item {
+    id: outer
+    width: 400
+    height: 220
+    CallParticipantTile {
+        objectName: "fixtureTile"
+        width: 140
+        height: 88
+        compact: true
+        identity: "PA_one"
+        userId: "@bartholomew:mock.local"
+        displayName: "Bartholomew Featherstonehaugh III"
+        micKnown: true
+        micMuted: true
+    }
+    CallShareTile {
+        objectName: "fixtureShare"
+        y: 96
+        width: 140
+        height: 88
+        compact: true
+        shareId: "S1"
+        // No ownerIdentity ON PURPOSE: the label does not need one, and an
+        // identity would activate the tile's VideoOutput, which drags Qt
+        // Multimedia (and its ~1 s first-sink cost) into a layout test.
+        ownerDisplayName: "Bartholomew Featherstonehaugh III"
+    }
+}
+)"), QUrl(QStringLiteral("qrc:/callnameplatetest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *outer = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY2(outer != nullptr, "the fixture must instantiate");
+
+        outer->setParentItem(window.contentItem());
+        window.show();
+        settle();
+        outer->polish();
+        settle();
+
+        const auto check = [&](const char *tileName, const char *plateName,
+                               const char *rowName) {
+            auto *tile =
+                outer->findChild<QQuickItem *>(QLatin1String(tileName));
+            QVERIFY2(tile != nullptr, tileName);
+            auto *plate =
+                tile->findChild<QQuickItem *>(QLatin1String(plateName));
+            QVERIFY2(plate != nullptr,
+                     qPrintable(QStringLiteral("%1 is gone, so this test "
+                                               "measures nothing")
+                                    .arg(QLatin1String(plateName))));
+            auto *row = tile->findChild<QQuickItem *>(QLatin1String(rowName));
+            QVERIFY2(row != nullptr, rowName);
+            // Converge on a laid-out frame: the pill's width comes from the
+            // inner layout's size hints, which settle on a polish pass.
+            QTRY_VERIFY(plate->width() > 0.0 && row->width() > 0.0);
+            QVERIFY2(plate->width() <= tile->width() + 0.5,
+                     qPrintable(QStringLiteral("%1 is %2 wide on a %3 px tile")
+                                    .arg(QLatin1String(plateName))
+                                    .arg(plate->width())
+                                    .arg(tile->width())));
+            QVERIFY2(row->width() > 0.0,
+                     "the nameplate row has no width at all");
+            QVERIFY2(row->width() <= plate->width() + 0.5,
+                     qPrintable(QStringLiteral("the nameplate row is %1 wide "
+                                               "inside a %2 px pill — the name "
+                                               "is running out past its own "
+                                               "plate instead of eliding")
+                                    .arg(row->width())
+                                    .arg(plate->width())));
+        };
+        check("fixtureTile", "callTileNameplate", "callTileNameplateRow");
+        check("fixtureShare", "callShareNameplate", "callShareNameplateRow");
+    }
+
+    /// The spotlight's strip of other surfaces must YIELD height, because
+    /// everything else in that column is fixed.
+    ///
+    /// It asked for a flat 96 px whatever the panel had, and the spotlight
+    /// took what was left. Measured off the maintainer's Windows capture: a
+    /// 335 px call panel spent 96 on the strip and left the shared screen
+    /// 61, so a 16:9 desktop arrived as a 112x61 stamp in a full-width
+    /// letterbox — the strip was the bigger half of the stage.
+    ///
+    /// Below a usable tile the strip becomes the bubble row rather than a
+    /// squeezed version of a shape that no longer works, which is why the
+    /// short case is checked for its MODE as well as its height.
+    ///
+    /// Both halves are pinned, because a policy test that calls the policy
+    /// proves nothing about whether production reaches it: the arithmetic
+    /// here, and the call site by scan.
+    void theSpotlightStripYieldsHeightOnAShortStage()
+    {
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(!stage.isEmpty());
+        const int strip =
+            stage.indexOf(QStringLiteral("objectName: \"callStrip\""));
+        QVERIFY2(strip > 0, "the spotlight strip is gone");
+        // Whitespace-normalized, so a reflow of these wrapped expressions
+        // cannot quietly turn an assertion into a pass.
+        const QString block = normalized(stage.mid(strip, 1600));
+        QVERIFY2(block.contains(
+                     QStringLiteral("Layout.preferredHeight: visible ? "
+                                    "spotlightColumn.stripHeight : 0")),
+                 "the strip no longer asks the stage how much height it may "
+                 "take");
+        QVERIFY2(!block.contains(QStringLiteral("Layout.preferredHeight: 96")),
+                 "the strip is back to a fixed height");
+        QVERIFY2(block.contains(
+                     QStringLiteral("visible: spotlightColumn.stripMode === "
+                                    "\"tiles\"")),
+                 "the tile strip is drawn whatever the stage's height is");
+        // And the tiles follow the band rather than carrying their own
+        // literals, or a shrunken strip clips the tiles it holds.
+        QVERIFY(block.contains(QStringLiteral("spotlightColumn.stripTileHeight")));
+        QVERIFY2(!stage.contains(QStringLiteral("width: active ? 140 : 0")),
+                 "a strip tile is back to a hardcoded width");
+        // The short-stage fallback is REACHED, not merely defined: a policy
+        // with no call site is a comment.
+        const QString whole = normalized(stage);
+        QVERIFY2(whole.contains(
+                     QStringLiteral("objectName: \"callStripBubblesHost\"")),
+                 "the short-stage strip has no host");
+        QVERIFY2(whole.contains(
+                     QStringLiteral("active: spotlightColumn.stripMode !== "
+                                    "\"tiles\"")),
+                 "the bubble strip is not wired to the stage's own policy");
+
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(3000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY2(root != nullptr, "CallStage must instantiate");
+
+        const auto stripFor = [&](int available) {
+            QVariant out;
+            const bool ok = QMetaObject::invokeMethod(
+                root, "stripHeightForStage", Q_RETURN_ARG(QVariant, out),
+                Q_ARG(QVariant, QVariant(available)));
+            return ok ? out.toInt() : -1;
+        };
+        const auto modeFor = [&](int available) {
+            QVariant out;
+            const bool ok = QMetaObject::invokeMethod(
+                root, "stripModeForStage", Q_RETURN_ARG(QVariant, out),
+                Q_ARG(QVariant, QVariant(available)));
+            return ok ? out.toString() : QString();
+        };
+
+        // The stage the maintainer actually had. THE STRIP MUST NOT BE THE
+        // BIGGER HALF OF IT — with the fixed band it was 96 against 61.
+        const int shortStage = 165;
+        const int shortStrip = stripFor(shortStage);
+        QVERIFY2(shortStrip > 0, "stripHeightForStage is not invokable");
+        const int spotlight = shortStage - 8 - shortStrip;
+        QVERIFY2(spotlight > shortStrip,
+                 qPrintable(QStringLiteral("on a %1 px stage the strip takes "
+                                           "%2 and leaves the picture %3")
+                                .arg(shortStage)
+                                .arg(shortStrip)
+                                .arg(spotlight)));
+        QVERIFY2(spotlight > 61,
+                 "the picture is no better off than the fixed 96 px band left "
+                 "it on the maintainer's own capture");
+        // At that size a tile cannot carry an avatar AND a nameplate, so the
+        // strip is the bubble row rather than a broken tile.
+        QCOMPARE(modeFor(shortStage), QStringLiteral("bubbles"));
+
+        // A roomy stage is UNCHANGED — this is a yield, not a redesign.
+        QCOMPARE(modeFor(400), QStringLiteral("tiles"));
+        QCOMPARE(stripFor(400), 96);
+        QCOMPARE(stripFor(1000), 96);
+        // Degenerate sizes (a stage measured before its first layout) must
+        // not produce a zero-height strip that never grows back.
+        QCOMPARE(stripFor(0), 96);
+        QCOMPARE(modeFor(0), QStringLiteral("tiles"));
+        // Wherever the tile strip IS drawn it is a usable one, and it never
+        // takes more than 40% of the stage.
+        for (int available = 120; available <= 900; available += 7) {
+            const int band = stripFor(available);
+            if (modeFor(available) == QStringLiteral("tiles")) {
+                QVERIFY2(band >= 80,
+                         qPrintable(QStringLiteral("a %1 px stage draws a %2 px "
+                                                   "tile strip, which cannot "
+                                                   "carry an avatar and a "
+                                                   "nameplate")
+                                        .arg(available)
+                                        .arg(band)));
+            }
+            QVERIFY2(band <= 96, "the strip is over its own cap");
+            QVERIFY2(available - 8 - band >= band,
+                     qPrintable(QStringLiteral("a %1 px stage gives the strip "
+                                               "%2 and the picture %3")
+                                    .arg(available)
+                                    .arg(band)
+                                    .arg(available - 8 - band)));
+        }
     }
 
 private:

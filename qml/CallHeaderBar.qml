@@ -124,6 +124,24 @@ Rectangle {
                       + (root.compact ? AppTheme.spacing4 : AppTheme.spacing12) * 2
                     : 0
     height: implicitHeight
+    // AN IMPLICIT WIDTH IS NOT OPTIONAL FOR THIS COMPONENT, and its absence
+    // was a real overlap rather than a tidiness point.
+    //
+    // Two of the three placements host this bar in something that READS its
+    // implicit size instead of stretching it: the COLLAPSED strip puts it in
+    // a Loader inside a RowLayout, and the full-screen window puts it in a
+    // Loader anchored to the bottom centre. A Loader adopts the loaded
+    // item's implicit size, a Rectangle's is 0, and a RowLayout cell of
+    // width 0 then places the NEXT control immediately after it — while
+    // `bar` (anchors.centerIn) is centred on that zero-width point and draws
+    // ~110 px each side of it. So the collapsed call strip drew its controls
+    // straight through the collapse button and the speaker bubbles beside
+    // it. `implicitHeight` above was already carrying the same job for the
+    // vertical axis; this is its missing half.
+    implicitWidth: visible
+                   ? bar.implicitWidth
+                     + (root.compact ? 0 : AppTheme.spacing16 * 2)
+                   : 0
     // The dock floats over the stage's canvas, so it paints no field of its
     // own — the pill behind the controls is the surface.
     color: root.dock ? "transparent" : AppTheme.stormInset

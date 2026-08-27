@@ -247,6 +247,14 @@ ColumnLayout {
 
             Label {
                 Layout.fillWidth: true
+                // 1 px preferred, filling: a wrapping paragraph reports the
+                // whole unwrapped sentence as its preferred width, and a
+                // RowLayout too narrow for its children shrinks them in
+                // proportion to that — so this sentence was taking the Reset
+                // button's width away from it, and a squeezed AppButton
+                // draws its label out over its neighbour. Same fix, same
+                // reason, as the per-person volume popup on the call stage.
+                Layout.preferredWidth: 1
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta

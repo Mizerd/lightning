@@ -160,6 +160,58 @@ Rectangle {
                 ? "spotlight" : "grid";
     }
 
+    /// The smallest tile strip worth drawing, and the row of bubbles that
+    /// replaces it when even that will not fit.
+    ///
+    /// A tile carries an avatar AND a nameplate: below an 80 px band (a
+    /// 72 px tile) the 28 px avatar and the plate start to touch, so a
+    /// smaller tile strip is not a smaller version of this — it is a broken
+    /// one. The bubble row is the same information at 44 px, and it is the
+    /// component the COLLAPSED call strip already uses.
+    readonly property int minimumTileStrip: 80
+    readonly property int bubbleStripHeight: 44
+
+    /// What the strip beneath the spotlight is, for a stage of `available`
+    /// px: "tiles" or "bubbles".
+    ///
+    /// THE STRIP MUST NEVER BE THE BIGGER HALF OF THE STAGE. It used to ask
+    /// for a flat 96 px whatever the panel had and the spotlight took what
+    /// was left, so on the maintainer's Windows capture a 335 px call panel
+    /// spent 96 on the strip and left the shared screen 61 — a 16:9 desktop
+    /// arriving as a 112x61 stamp in a full-width letterbox. Display scale
+    /// is what makes this bite: at 150% every number here is unchanged and
+    /// two thirds as many of them fit.
+    ///
+    /// So the strip may have at most 40% of the stage, and when 40% cannot
+    /// pay for a usable tile it becomes the bubble row rather than a squeeze
+    /// of a shape that no longer works. Nothing is lost that has no other
+    /// route: the bubbles carry the same faces, the same speaking ring and
+    /// the same mute/sharing badges, they pin on click exactly as a strip
+    /// tile does, and a dismissed share is still reachable from the header's
+    /// "Show screen share" and from the grid.
+    function stripModeForStage(available) {
+        if (!available || available <= 0)
+            return "tiles";
+        return Math.floor((available - AppTheme.spacing8) * 0.4)
+                >= root.minimumTileStrip ? "tiles" : "bubbles";
+    }
+
+    /// How tall that strip is. 96 is the band this surface has always drawn
+    /// and stays the cap, so a roomy stage is untouched.
+    ///
+    /// A FUNCTION on the stage root rather than an expression buried in the
+    /// spotlight's Loader so it can be exercised directly — but a policy
+    /// test that calls this proves nothing about whether production reaches
+    /// it, so `CallUiContractTest` also pins the call site.
+    function stripHeightForStage(available) {
+        if (!available || available <= 0)
+            return 96;
+        if (root.stripModeForStage(available) !== "tiles")
+            return root.bubbleStripHeight;
+        return Math.min(96,
+                        Math.floor((available - AppTheme.spacing8) * 0.4));
+    }
+
     /// THE way back. "Back to grid" DISMISSES the spotlighted share and drops
     /// the pin; it must never write a layout preference, which is what made
     /// the old exit one-way. Dismissal falls through to the next live share on
@@ -444,6 +496,19 @@ Rectangle {
             }
             Text {
                 Layout.fillWidth: !root.collapsed
+                // A LABEL MUST NOT DECIDE HOW MUCH ROOM THE CONTROLS GET.
+                //
+                // A RowLayout that cannot fit every child shrinks them all in
+                // proportion to their PREFERRED widths, and an item's default
+                // preferred width is its implicit one — so a long title would
+                // take its share of the squeeze out of the collapse button
+                // and the "Show screen share" button beside it, and a
+                // squeezed AppButton draws its label straight across its
+                // neighbour (its content Row is centred and unconstrained).
+                // Asking for 1 px while filling means this text still takes
+                // every spare pixel and yields all of them back first. It
+                // elides, so nothing is lost; a control cannot elide.
+                Layout.preferredWidth: root.collapsed ? implicitWidth : 1
                 text: {
                     var n = root.peopleCount;
                     if (n <= 0)
@@ -499,6 +564,14 @@ Rectangle {
                 active: root.collapsed
                 visible: active
                 Layout.preferredHeight: active ? implicitHeight : 0
+                // A FLOOR, so the squeeze lands on the title and the bubbles
+                // rather than on the controls. A RowLayout too narrow for
+                // its children shrinks them in proportion to their preferred
+                // widths, and this cell's contents cannot elide: the bar's
+                // control row is centred in whatever box it is given and
+                // simply draws outside a box too small for it. The title
+                // beside it elides and the bubble strip scrolls.
+                Layout.minimumWidth: active ? implicitWidth : 0
                 Layout.alignment: Qt.AlignVCenter
                 sourceComponent: CallHeaderBar {
                     objectName: "callStageCollapsedDock"
@@ -587,7 +660,27 @@ Rectangle {
                         && root.effectiveLayout === "spotlight"
                 visible: active
                 sourceComponent: ColumnLayout {
+                    id: spotlightColumn
                     spacing: AppTheme.spacing8
+
+                    // THE STRIP YIELDS TO THE PICTURE — see the policy and
+                    // the measurement on `stripModeForStage`.
+                    //
+                    // `spotlightColumn.height` comes from ABOVE: the Loader
+                    // that hosts this fills the stage, so this reads a height
+                    // the column does not compute, and the strip only ever
+                    // redistributes what the column was already given.
+                    readonly property string stripMode:
+                        root.stripModeForStage(spotlightColumn.height)
+                    readonly property int stripHeight:
+                        root.stripHeightForStage(spotlightColumn.height)
+                    readonly property int stripTileHeight:
+                        spotlightColumn.stripHeight - AppTheme.spacing8
+                    // 16:9-ish, and derived rather than a second literal, so
+                    // a strip that shrinks cannot leave its tiles the shape
+                    // they had at full size.
+                    readonly property int stripTileWidth:
+                        Math.round(spotlightColumn.stripTileHeight * 140 / 88)
 
                     Rectangle {
                         objectName: "callSpotlight"
@@ -643,7 +736,14 @@ Rectangle {
                     Flickable {
                         objectName: "callStrip"
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 96
+                        // Absent, not squeezed, once the stage is too short
+                        // for a legible tile: an invisible child takes no
+                        // height AND no spacing from a layout, so the
+                        // picture gets the whole band back.
+                        visible: spotlightColumn.stripMode === "tiles"
+                        Layout.preferredHeight: visible
+                                                ? spotlightColumn.stripHeight
+                                                : 0
                         contentWidth: stripRow.width
                         contentHeight: height
                         flickableDirection: Flickable.HorizontalFlick
@@ -652,7 +752,13 @@ Rectangle {
 
                         Row {
                             id: stripRow
-                            height: parent.height
+                            // The TILE's height, centred, rather than the
+                            // strip's: the tiles were 88 in a 96 band and
+                            // top-aligned, so the band carried 8 px of dead
+                            // space along its bottom edge. Centring is also
+                            // what keeps them centred once the strip shrinks.
+                            height: spotlightColumn.stripTileHeight
+                            anchors.verticalCenter: parent.verticalCenter
                             spacing: AppTheme.spacing8
 
                             Repeater {
@@ -665,11 +771,18 @@ Rectangle {
                                     required property string trackKey
                                     required property bool local
 
-                                    height: 88
-                                    width: active ? 140 : 0
-                                    active: !root.stageState
-                                            || stripShare.shareId
-                                               !== root.stageState.spotlightShareId
+                                    height: spotlightColumn.stripTileHeight
+                                    width: active
+                                           ? spotlightColumn.stripTileWidth : 0
+                                    // The MODE is part of being wanted: a
+                                    // hidden strip whose delegates still
+                                    // existed would go on holding a video
+                                    // sink per surface for a band nobody can
+                                    // see.
+                                    active: spotlightColumn.stripMode === "tiles"
+                                            && (!root.stageState
+                                                || stripShare.shareId
+                                                   !== root.stageState.spotlightShareId)
                                     visible: active
                                     sourceComponent: CallShareTile {
                                         compact: true
@@ -707,14 +820,16 @@ Rectangle {
                                     required property bool handRaised
                                     required property string connectionQuality
 
-                                    height: 88
-                                    width: active ? 140 : 0
+                                    height: spotlightColumn.stripTileHeight
+                                    width: active
+                                           ? spotlightColumn.stripTileWidth : 0
                                     // Only the person whose CAMERA is on the
                                     // spotlight is removed from the strip.
-                                    active: root.spotlightShareRow >= 0
-                                            || !root.stageState
-                                            || stripPerson.identity
-                                               !== root.stageState.pinnedIdentity
+                                    active: spotlightColumn.stripMode === "tiles"
+                                            && (root.spotlightShareRow >= 0
+                                                || !root.stageState
+                                                || stripPerson.identity
+                                                   !== root.stageState.pinnedIdentity)
                                     visible: active
                                     sourceComponent: CallParticipantTile {
                                         compact: true
@@ -741,6 +856,40 @@ Rectangle {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // ── The same strip, at 44 px ─────────────────────────
+                    //
+                    // What a stage too short for tiles gets instead: the
+                    // bubble row the collapsed call strip already uses, with
+                    // the same faces, the same speaking ring driven by the
+                    // SFU's own levels, and the same mute / sharing badges.
+                    // Clicking one pins that person, exactly as clicking a
+                    // strip tile does.
+                    //
+                    // It is a strip of PEOPLE only, so a second share has no
+                    // tile here — it is still reachable from the header's
+                    // "Show screen share" and from the grid, which is the
+                    // invariant this surface actually holds.
+                    Loader {
+                        objectName: "callStripBubblesHost"
+                        Layout.fillWidth: true
+                        active: spotlightColumn.stripMode !== "tiles"
+                        visible: active
+                        // The COMPONENT's own height, which is 0 while
+                        // nobody has arrived yet — so a connecting call
+                        // reserves no empty band. `bubbleStripHeight` is the
+                        // same number, and it is what the mode decision is
+                        // made against.
+                        Layout.preferredHeight: active ? implicitHeight : 0
+                        sourceComponent: CallSpeakerBubbles {
+                            objectName: "callStripBubbles"
+                            model: root.participantModel
+                            onActivated: identity => {
+                                if (root.stageState)
+                                    root.stageState.pin(identity);
                             }
                         }
                     }

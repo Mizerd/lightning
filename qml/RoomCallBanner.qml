@@ -179,6 +179,14 @@ Rectangle {
         // but a later re-parent would make it costly and silent.
         Loader {
             Layout.fillWidth: true
+            // 1 px preferred, filling. This row holds two labels and a
+            // button, and a RowLayout too narrow for its children shrinks
+            // them all in proportion to their preferred widths — so in a
+            // narrow conversation column the count and the reason were
+            // taking their share of the squeeze out of Join, and a squeezed
+            // AppButton draws its label straight over its neighbour. The
+            // count elides; the button cannot.
+            Layout.preferredWidth: 1
             active: root.participantCount > 0
             visible: active
             sourceComponent: Text {
@@ -234,6 +242,10 @@ Rectangle {
         AppButton {
             objectName: "roomCallJoinButton"
             text: qsTr("Join")
+            // The one child of this row that must never be shrunk: a label
+            // elides, a button smears. With a floor here the whole squeeze
+            // lands on the two texts, which can absorb it.
+            Layout.minimumWidth: implicitWidth
             visible: root.blockReason.length === 0
             enabled: visible
             // This handler was an EMPTY BLOCK with a comment saying no join

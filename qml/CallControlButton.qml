@@ -21,6 +21,16 @@ AbstractButton {
     property string role: "neutral"
     property int diameter: 44
     property int glyphSize: 20
+    /// Corner radius. -1 (the default) is the circle every control on the
+    /// dock is; a caller passes a token when it needs a rounded SQUARE.
+    ///
+    /// It exists for one call site: the per-participant volume control on a
+    /// tile, which sits over video among the square-cornered chrome of the
+    /// tile itself. Everything else about the control — fill, hover, press,
+    /// hairline, focus ring, tooltip, accessible name — is deliberately the
+    /// same treatment as the dock, so a second styling path for "an icon
+    /// button on the call surface" is never opened.
+    property int cornerRadius: -1
     /// Shown on hover/focus AND used as the accessible name.
     ///
     /// There is deliberately no "unavailableReason" property. A DISABLED
@@ -68,7 +78,8 @@ AbstractButton {
     background: Rectangle {
         // min(w,h)/2 rather than w/2: the hang-up control is deliberately
         // wider than the round ones, and w/2 would render it as an ellipse.
-        radius: Math.min(width, height) / 2
+        radius: root.cornerRadius >= 0 ? root.cornerRadius
+                                       : Math.min(width, height) / 2
         color: root._fill
         border.width: root.activeFocus ? 2 : (root.role === "neutral" ? 1 : 0)
         border.color: root.activeFocus ? AppTheme.focusRing

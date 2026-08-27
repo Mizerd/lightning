@@ -166,6 +166,13 @@ Item {
         // which is how "I did not see their screenshare" happened.
         ColumnLayout {
             anchors.centerIn: parent
+            // A WIDTH, so the sentence below has something to elide against.
+            // Centred with no width, the column took its own implicit one —
+            // the whole unwrapped line — and a grid cell narrower than that
+            // simply cut the wording off at both ends, because this tile
+            // clips. Which cells are narrower than the line is a function of
+            // how wide the platform draws it.
+            width: parent.width - AppTheme.spacing16
             spacing: 6
             visible: !videoLoader.visible
             Icon {
@@ -175,7 +182,11 @@ Item {
                 color: AppTheme.stormTextSecondary
             }
             Loader {
-                Layout.alignment: Qt.AlignHCenter
+                // FILLING, not centre-aligned: an aligned cell is not
+                // stretched, so the text would keep its implicit width and
+                // overflow exactly as before. The label centres itself
+                // inside the width it is given instead.
+                Layout.fillWidth: true
                 // A Label whose text can be empty in the state it is created
                 // in belongs behind a Loader — this delegate is instantiated
                 // per share, and a never-laid-out empty Text keeps
@@ -186,6 +197,8 @@ Item {
                     text: qsTr("Waiting for the picture…")
                     color: AppTheme.stormTextSecondary
                     font.pixelSize: 12
+                    elide: Text.ElideRight
+                    horizontalAlignment: Text.AlignHCenter
                 }
             }
         }
@@ -194,6 +207,8 @@ Item {
         // name, always visible. This is the affordance that says "this is a
         // screen, and whose".
         Rectangle {
+            id: namePlate
+            objectName: "callShareNameplate"
             anchors.left: parent.left
             anchors.bottom: parent.bottom
             anchors.margins: root.compact ? 6 : 8
@@ -207,7 +222,18 @@ Item {
 
             RowLayout {
                 id: plate
-                anchors.centerIn: parent
+                objectName: "callShareNameplateRow"
+                // Anchored to the plate's EDGES, not merely centred in it —
+                // see the long note in CallParticipantTile. `centerIn` gave
+                // this row its full implicit width, so "%1's screen" ran out
+                // past both ends of its own pill and was then cut off by the
+                // tile's clip. The label can only elide against a width
+                // somebody gave it.
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 6
+                anchors.rightMargin: 6
                 spacing: 4
                 Icon {
                     Layout.alignment: Qt.AlignVCenter

@@ -484,6 +484,8 @@ Item {
             anchors.margins: root.compact ? 6 : 8
             anchors.rightMargin: root.compact ? 6 : 8
             sourceComponent: Rectangle {
+                id: namePlate
+                objectName: "callTileNameplate"
                 implicitWidth: Math.min(plate.implicitWidth + 12,
                                         surface.width - (root.compact ? 12 : 16))
                 implicitHeight: plate.implicitHeight + 6
@@ -495,7 +497,28 @@ Item {
 
                 RowLayout {
                     id: plate
-                    anchors.centerIn: parent
+                    objectName: "callTileNameplateRow"
+                    // THE CAP ABOVE ONLY BINDS IF THE ROW IS TOLD ABOUT IT.
+                    //
+                    // `centerIn` sets x and y and nothing else, so this row
+                    // took its full IMPLICIT width — the whole unelided name
+                    // — while the pill behind it stopped at the tile's edge.
+                    // `Layout.fillWidth` on the label then had nothing to
+                    // fill against, so it never elided: the name simply ran
+                    // out past both ends of its own plate, and on the share
+                    // tile (which clips) it was cut off mid-word instead.
+                    // Windows only made it visible sooner — the same name is
+                    // a different number of pixels there.
+                    //
+                    // `namePlate.width` comes from the Rectangle's implicit
+                    // width, which reads this row's IMPLICIT width; a Text's
+                    // implicit width does not change when it elides, so this
+                    // is a one-way read and not a loop.
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 6
+                    anchors.rightMargin: 6
                     spacing: 4
                     Loader {
                         active: root.micKnown && root.micMuted
@@ -656,10 +679,26 @@ Item {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.margins: root.compact ? 4 : 6
-            sourceComponent: IconButton {
+            // IT NEEDS A GROUND OF ITS OWN, and that is what it was missing.
+            //
+            // As an `IconButton` this drew a bare glyph — transparent at
+            // rest, a translucent hover wash at best — directly onto a video
+            // frame. Over a bright screen share it read as a stray mark
+            // rather than a control ("make the icon the control user volume
+            // more visible to user give a sqaure backround or something").
+            //
+            // CallControlButton is the treatment the call surface already
+            // has for exactly this: a filled ground, a hairline, real hover
+            // and pressed states, a focus ring and a tooltip that doubles as
+            // the accessible name. The only thing added for this site is a
+            // rounded SQUARE instead of a circle, which is the shape the
+            // maintainer asked for and reads as a control sitting on
+            // content. Tokens throughout — nothing here picks a colour.
+            sourceComponent: CallControlButton {
                 objectName: "callParticipantVolumeButton"
-                size: root.compact ? "sm" : "md"
-                storm: true
+                diameter: root.compact ? 24 : 28
+                glyphSize: root.compact ? 15 : 17
+                cornerRadius: AppTheme.radiusMd
                 // `volume_off` at zero is the honest glyph: a person turned
                 // all the way down is muted FOR THIS DEVICE, and drawing a
                 // speaker with waves would say the opposite. Both names are in
@@ -670,10 +709,9 @@ Item {
                     return root.currentVolumePercent() > 0 ? "volume_up"
                                                            : "volume_off";
                 }
-                Accessible.name: qsTr("Volume for %1").arg(root._label)
-                ToolTip.text: Accessible.name
-                ToolTip.visible: hovered && !volumePopup.visible
-                ToolTip.delay: 600
+                // CallControlButton takes its accessible name FROM the
+                // tooltip, so the two cannot drift apart here.
+                tooltip: qsTr("Volume for %1").arg(root._label)
                 onClicked: root.openVolumeControl()
             }
         }
@@ -858,6 +896,19 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
+                    // A PARAGRAPH IN A ROW WILL EAT THE BUTTON BESIDE IT.
+                    //
+                    // A wrapping Text still reports the whole unwrapped
+                    // sentence as its implicit — therefore its PREFERRED —
+                    // width, which here is roughly 700 px in a 244 px popup.
+                    // A RowLayout that cannot fit its children shrinks them
+                    // in proportion to those preferred widths, so Reset was
+                    // being squeezed to about a fifth of its label, which an
+                    // AppButton draws straight out over the text (its
+                    // content Row is centred and unconstrained). Asking for
+                    // 1 px while filling means the sentence still takes
+                    // every spare pixel and the button keeps its own.
+                    Layout.preferredWidth: 1
                     wrapMode: Text.WordWrap
                     color: AppTheme.stormTextMuted
                     font.pixelSize: AppTheme.textMeta

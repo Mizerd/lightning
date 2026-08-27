@@ -195,7 +195,22 @@ Rectangle {
     opacity: shouldShow ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: 140 } }
 
-    width: 316
+    // 316 is the card's SHAPE, not a promise that three buttons fit in it.
+    //
+    // Every button in the action row is `Layout.fillWidth`, so on a card too
+    // narrow for them the RowLayout shrinks each one below its own label —
+    // and an AppButton draws its label from the centre of whatever width it
+    // is given, so three squeezed buttons write across each other. Ringing
+    // shows three at once (Accept/Join, Decline, Dismiss), which is the
+    // worst case and also the most urgent surface in the app to get wrong.
+    //
+    // Whether they fit is a question about TEXT: it depends on the label,
+    // the font and the platform's own metrics for it, and it changed under
+    // the maintainer without a line of QML changing. So the card asks the
+    // row how much it needs and is never narrower than that. Reading
+    // `actionRow.implicitWidth` is safe — a button's implicit width comes
+    // from its label, never from the width the row hands back.
+    width: Math.max(316, actionRow.implicitWidth + AppTheme.spacing16 * 2)
     implicitHeight: promptColumn.implicitHeight + AppTheme.spacing16 * 2
     height: implicitHeight
     radius: AppTheme.radiusLg
@@ -293,6 +308,7 @@ Rectangle {
         }
 
         RowLayout {
+            id: actionRow
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
             // ── The MatrixRTC ring: JOIN ──
