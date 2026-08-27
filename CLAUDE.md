@@ -26,19 +26,22 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest release: **Lightning 0.8.0**, cut from `83d8427` by project 7
-pipeline **137** on 2026-08-27; notes in `docs/releases/v0.8.0.md`. The
+Latest published release: **Lightning 0.8.0** (`v0.8.0` -> `6f203be`), cut by
+project 7 pipeline **138** on 2026-08-27; notes in
+`docs/releases/v0.8.0.md`. Pipeline **137** was the first attempt and lost
+`build-deb` to two symbols used outside their WebRTC guard — no tag was
+created, which is the package-first design working. The
 application version reads **0.8.0** in `CMakeLists.txt` (both `project()`
 and `APP_VERSION_LABEL`), `rust/Cargo.toml`, `rust/Cargo.lock`, and the
 Rust/HTTP user agent (derived from `CARGO_PKG_VERSION`). The next bump is a
 new release checkpoint and only on Rokas's explicit request (§14).
 
-**CHECK THE PIPELINE BEFORE QUOTING THIS.** The tag and the GitLab Release
-are created by the pipeline AFTER packages publish and verify, so a run that
-failed mid-flight leaves this file claiming a release that does not exist.
-`glab api projects/7/pipelines/137` and
-`git ls-remote --tags origin refs/tags/v0.8.0` are the two answers that
-settle it.
+VERIFIED ANONYMOUSLY, not from job status: the annotated tag peels to
+`6f203be` on both GitLab and GitHub; all 10 package links return 200 under
+curl; the `latest` manifest reports 0.8.0 / `v0.8.0` with `mirror_url` on all
+six artifacts; its Ed25519 signature (`lightning-release-2026a`) VERIFIES and
+two separately tampered copies are REJECTED; the GitHub mirror carries 10
+assets and a deb fetched from it matches the GitLab-signed SHA-256 exactly.
 
 `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to
 **0.18.0** in `rust/Cargo.lock`; UI and base are exact-pinned in
@@ -49,7 +52,7 @@ them incidentally.
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
-| 0.8.0 | `83d8427` | 137, all platforms, `create` | `docs/releases/v0.8.0.md` |
+| 0.8.0 | `6f203be` | 138, 20/20 green (137 lost `build-deb`) | `docs/releases/v0.8.0.md` |
 | 0.7.6 | `b13e346` | 111, **20/20 green first attempt**, 10 assets | `docs/releases/v0.7.6.md` |
 | 0.7.5 | `848a29e` | 110, 18/20 green — mirror wired wrong, mirrored by hand (see below) | `docs/releases/v0.7.5.md` |
 | 0.7.4 | `e8139ed` | not recorded here (105 FAILED, see below) | `docs/releases/v0.7.4.md` |
