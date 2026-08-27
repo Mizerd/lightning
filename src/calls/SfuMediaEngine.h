@@ -34,6 +34,7 @@
 #include <QMutex>
 #include <QObject>
 #include <QPointer>
+#include <QRect>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
@@ -120,8 +121,14 @@ public:
     /// user picked a single window rather than a display. It is the third
     /// mutually exclusive way of saying "capture this": a portal node on
     /// Linux, a display index on Windows/macOS, a window here.
+    /// `captureRect` is the FOURTH, and it exists only for the Linux
+    /// no-portal fallback: a rectangle of the X11 root window, in ROOT
+    /// PIXELS, chosen in Lightning's own picker because there was no portal
+    /// to draw one. Invalid everywhere else, which is how the branches below
+    /// tell the fallback from the portal without a platform flag.
     void publishVideo(const QString &cid, bool screenShare, int nodeId,
-                      int pipewireFd = -1, quint64 windowHandle = 0);
+                      int pipewireFd = -1, quint64 windowHandle = 0,
+                      const QRect &captureRect = {});
     /// The VIDEO publish pipeline, as a gst_parse description.
     ///
     /// Exposed so the SCREEN-SHARE shape — which adds a `tee` and a self-view
@@ -215,8 +222,39 @@ public:
     /// single window was chosen, which routes to Lightning's own capture
     /// element (WindowCaptureSrc.h) because no shippable GStreamer element
     /// can take a window.
+    /// ...and `captureRect`, valid ONLY on the Linux no-portal fallback,
+    /// where it is a rectangle of the X11 root window and routes to
+    /// `ximagesrc`. A portal node and a root rectangle are mutually
+    /// exclusive by construction: the fallback only ever runs because there
+    /// was no portal to grant a node.
     static QString screenShareSource(int nodeId, int pipewireFd,
-                                     quint64 windowHandle = 0);
+                                     quint64 windowHandle = 0,
+                                     const QRect &captureRect = {});
+    /// The element the Linux no-portal fallback captures a display with.
+    ///
+    /// Named in ONE place, like `wincap::windowCaptureSrcName()`, so the
+    /// capability probe, the pipeline description and the tests cannot
+    /// disagree about the spelling — a probe for an element the pipeline
+    /// does not name proves nothing, which is the shape of the sctp defect
+    /// (§16).
+    ///
+    /// INLINE on purpose: `SfuCallController::linuxShareRefusal()` names this
+    /// element in a user-facing sentence and is compiled in builds where
+    /// SfuMediaEngine.cpp is NOT, so an out-of-line definition here would be
+    /// an undefined symbol in every no-WebRTC target. Same hazard as the
+    /// `wincap::available()` accessor in SfuCallController.h.
+    static constexpr const char *x11ScreenCaptureElementName()
+    {
+        return "ximagesrc";
+    }
+    /// Whether `name` is in the RUNNING GStreamer registry.
+    ///
+    /// Deliberately NOT part of the engine's required-element list: a machine
+    /// with no X11 capture plugin must still be able to make ordinary calls,
+    /// so this is an optional capability probed at the moment it is offered.
+    /// Answering it honestly is what stops the fallback picker appearing on a
+    /// system where the pipeline could only fail at PLAYING.
+    static bool elementAvailable(const char *name);
     /// The capture-source fragment for the CAMERA, per platform.
     ///
     /// Exposed for the same reason screenShareSource() is: it decides whether

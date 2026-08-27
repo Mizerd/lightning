@@ -7,6 +7,19 @@
 #include <QGuiApplication>
 #include <QScreen>
 #include <QWindow>
+
+#if defined(Q_OS_LINUX) && defined(LIGHTNING_HAVE_QPA_SCREEN)
+// The ONLY way to obtain a screen's native, root-relative rectangle — the
+// coordinate space the X11 capture element addresses. Private Qt API, taken
+// knowingly: no public accessor exposes it, and the arithmetic alternative is
+// provably wrong in two independent ways (nativeScreenRect() in the header).
+//
+// Compiled on Linux alone, so no Windows or macOS translation unit sees a
+// private Qt header; and gated on the CMake probe, so a Qt packaged without
+// private headers still builds. Without it there is no sound way to get a
+// capture rectangle, and the fallback refuses instead of guessing one.
+#include <qpa/qplatformscreen.h>
+#endif
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -25,6 +38,12 @@
 #include "calls/CallStageState.h"
 #include "calls/RtcController.h"
 #include "calls/ScreenCastPortal.h"
+// UNCONDITIONAL, unlike the HAVE_LIGHTNING_WEBRTC block below: the refusal
+// wording names the capture element, and that sentence exists in builds with
+// no media engine at all. The header forward-declares its GStreamer types
+// rather than including any, and the only member reached from here is a
+// constexpr accessor, so this pulls in no GStreamer and no link dependency.
+#include "calls/SfuMediaEngine.h"
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
 
@@ -33,7 +52,6 @@
 #include <QVideoSink>
 
 #include "calls/CallFrameCryptor.h"
-#include "calls/SfuMediaEngine.h"
 #include "calls/SfuVideoRouter.h"
 #endif
 
@@ -383,18 +401,217 @@ void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
             });
 }
 
+SfuCallController::LinuxShareRoute SfuCallController::linuxShareRoute(
+    bool portalAvailable, const QString &platformName,
+    const QString &sessionType, const QString &waylandDisplay,
+    const QString &x11Display, bool captureElementPresent)
+{
+    // THE PORTAL FIRST, BEFORE EVERY OTHER CLAUSE, and this ordering is the
+    // contract rather than an optimisation. It is what makes sharing safe on
+    // Wayland, it is what a normal KDE or GNOME session uses, and it draws a
+    // picker with previews Lightning cannot draw itself. Everything below is
+    // for a machine that does not have it.
+    if (portalAvailable)
+        return LinuxShareRoute::Portal;
+
+    // WAYLAND REFUSES, AND IT REFUSES BEFORE THE X11 CLAUSES ARE REACHED.
+    //
+    // Not conservatism: there is genuinely no way to capture a Wayland
+    // desktop without the portal, which is the entire reason the portal
+    // exists. The trap is XWayland — a Wayland session hands an app a working
+    // `DISPLAY`, so every X11 clause below would pass and produce a pipeline
+    // that plays perfectly and sends a black rectangle (measured on this
+    // repo's own KDE session: XWayland's root is the full 7680x2160 desktop
+    // extent and 99.999% of its pixels are zero, because native Wayland
+    // windows never touch it). `WAYLAND_DISPLAY` is what tells the two apart
+    // when the platform plugin cannot, so ANY of the three signals is enough.
+    if (platformName.startsWith(QLatin1String("wayland"), Qt::CaseInsensitive)
+        || sessionType.compare(QLatin1String("wayland"), Qt::CaseInsensitive)
+            == 0
+        || !waylandDisplay.isEmpty()) {
+        return LinuxShareRoute::RefuseWaylandNeedsPortal;
+    }
+
+    if (x11Display.isEmpty())
+        return LinuxShareRoute::RefuseNoDisplayServer;
+    // ASKED OF THE RUNNING REGISTRY, never assumed from the platform.
+    // `ximagesrc` ships in gst-plugins-good and is very likely present
+    // wherever the engine is — but "very likely" is how a share reports
+    // success and carries nothing. A missing element is a pipeline that dies
+    // at PLAYING, long after the user has been shown a picker and chosen.
+    if (!captureElementPresent)
+        return LinuxShareRoute::RefuseNoCaptureElement;
+    return LinuxShareRoute::FallbackDisplays;
+}
+
+QString SfuCallController::linuxShareRefusal(LinuxShareRoute route)
+{
+    switch (route) {
+    case LinuxShareRoute::Portal:
+    case LinuxShareRoute::FallbackDisplays:
+        return {};
+    case LinuxShareRoute::RefuseWaylandNeedsPortal:
+        // NAMES THE CAUSE AND THE FIX, which the old wording did neither of.
+        // "Screen sharing isn't available on this desktop" tells a person on
+        // KDE with a broken portal install nothing they can act on, and it is
+        // the one refusal here whose remedy is a single package.
+        return tr("Screen sharing on Wayland needs xdg-desktop-portal, and "
+                  "it isn't responding. Install or start the portal for your "
+                  "desktop — for example xdg-desktop-portal-kde or "
+                  "xdg-desktop-portal-gnome — then try again.");
+    case LinuxShareRoute::RefuseNoCaptureElement:
+        // The element is NAMED FROM ITS ONE DEFINITION, never spelled here.
+        // A refusal that names a different element from the one the probe
+        // asked about, or the pipeline uses, sends the user to install the
+        // wrong thing — and it is the shape of the missing-sctp defect, where
+        // a probe list and a pipeline disagreed about what was needed.
+        return tr("Screen sharing needs GStreamer's %1 element, which isn't "
+                  "installed. Install the gst-plugins-good package and try "
+                  "again.")
+            .arg(QLatin1String(
+                SfuMediaEngine::x11ScreenCaptureElementName()));
+    case LinuxShareRoute::RefuseNoDisplayServer:
+        return tr("Screen sharing isn't available: no display server was "
+                  "found.");
+    }
+    return tr("Screen sharing isn't available on this desktop.");
+}
+
+QRect SfuCallController::validX11CaptureRect(const QRect &nativeGeometry)
+{
+    // NO ARITHMETIC HERE, DELIBERATELY. The rectangle must already be in
+    // native, root-relative pixels; see nativeScreenRect() for why nothing
+    // may be computed from QScreen::geometry() and devicePixelRatio(). All
+    // this does is refuse shapes ximagesrc cannot be given.
+    //
+    // An X11 root rectangle cannot have a negative corner, and ximagesrc's
+    // coordinate properties are UNSIGNED — so a negative origin would not
+    // fail, it would wrap and capture somewhere else entirely. Refusing is
+    // the only honest answer.
+    if (nativeGeometry.width() <= 0 || nativeGeometry.height() <= 0)
+        return {};
+    if (nativeGeometry.x() < 0 || nativeGeometry.y() < 0)
+        return {};
+    return nativeGeometry;
+}
+
+QRect SfuCallController::nativeScreenRect(const QScreen *screen)
+{
+    if (!screen)
+        return {};
+#if defined(Q_OS_LINUX) && defined(LIGHTNING_HAVE_QPA_SCREEN)
+    // THE PLATFORM'S OWN RECTANGLE. See the header for the two independent
+    // reasons QScreen::geometry() and devicePixelRatio() cannot produce one,
+    // both measured on a real two-monitor 4K desktop.
+    //
+    // `handle()` is null while a screen is being torn down, which is a real
+    // state during a monitor hot-unplug — exactly when this is most likely to
+    // be asked. Answering "no rectangle" then is correct: the caller refuses
+    // rather than capturing a guess.
+    const QPlatformScreen *platform = screen->handle();
+    if (!platform)
+        return {};
+    return validX11CaptureRect(platform->geometry());
+#else
+    // Windows and macOS address a display by INDEX through their own capture
+    // elements and never need a root rectangle, so this has no caller there
+    // and no private Qt header is compiled into those builds. On a Linux Qt
+    // built without private headers there is no sound way to obtain one, and
+    // an unsound one shares the wrong screen — so the fallback lists no
+    // display and refuses, which is the honest outcome.
+    Q_UNUSED(screen);
+    return {};
+#endif
+}
+
+QRect SfuCallController::physicalRectForScreenNamed(const QString &name)
+{
+    if (name.isEmpty())
+        return {};
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    for (const QScreen *screen : screens) {
+        if (screen && screen->name() == name)
+            return nativeScreenRect(screen);
+    }
+    return {};
+}
+
+bool SfuCallController::populateLinuxDisplaySources()
+{
+    // DISPLAYS ONLY, AND THAT IS A DECISION RATHER THAN A GAP.
+    //
+    // `ximagesrc` does take an `xid`, so a window list is reachable in
+    // principle — and it is refused for the same reason
+    // `WindowCaptureSrc.h` refuses to crop the screen to a window's
+    // rectangle. Without a compositing manager, reading a window's drawable
+    // returns whatever is STACKED ON TOP of it: another app, a password
+    // prompt, a notification. With one, whether the redirected pixmap is
+    // readable at all depends on the compositor. Neither outcome can be
+    // verified from this machine, and a share that may leak a window the
+    // user did not choose is not a feature. A display list that works is
+    // worth more than a window list that half does.
+    m_screenShareSources.clear();
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    const QWindow *ownWindow = QGuiApplication::focusWindow();
+    const QScreen *ownScreen = ownWindow ? ownWindow->screen() : nullptr;
+    if (!ownScreen)
+        ownScreen = QGuiApplication::primaryScreen();
+    for (int i = 0; i < screens.size(); ++i) {
+        const QScreen *screen = screens.at(i);
+        if (!screen)
+            continue;
+        // THE NATIVE rectangle, which is both what the capture will take and
+        // the only honest thing to put on the row: `QScreen::geometry()`
+        // reports a device-INDEPENDENT size (2560x1440 for a 3840x2160
+        // panel on the measured desktop), and no arithmetic recovers the
+        // real one — see nativeScreenRect().
+        //
+        // A screen whose native rectangle cannot be had is SKIPPED rather
+        // than offered with a guessed one. An unlisted display is a missing
+        // choice; a listed one that captures the wrong region is a share the
+        // user did not consent to.
+        const QRect rect = nativeScreenRect(screen);
+        if (!rect.isValid())
+            continue;
+        // The SAME row shape the Windows picker builds, deliberately: one
+        // picker, one contract. No `windowHandle` key at all, which is how
+        // `ScreenSharePicker.qml` classifies a row as a display.
+        m_screenShareSources.append(QVariantMap{
+            { QStringLiteral("index"), i },
+            // The platform's own name for the output ("DP-1", "HDMI-A-1"),
+            // which is what the desktop's own display settings call it.
+            { QStringLiteral("name"), screen->name() },
+            { QStringLiteral("application"), QString() },
+            { QStringLiteral("geometry"), QStringLiteral("%1 x %2")
+                                              .arg(rect.width())
+                                              .arg(rect.height()) },
+            { QStringLiteral("primary"),
+              screen == QGuiApplication::primaryScreen() },
+            { QStringLiteral("current"), screen == ownScreen },
+        });
+    }
+    return !m_screenShareSources.isEmpty();
+}
+
 void SfuCallController::requestScreenShare()
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (!active() || m_engine.isNull())
         return;
-    if (m_portal.isNull() || !ScreenCastPortal::available()) {
+    const bool portalUsable =
+        !m_portal.isNull() && ScreenCastPortal::available();
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+    // Windows and macOS have no portal to reach, so `available()` answers
+    // "can this platform name a screen at all" and a false here is a machine
+    // with no display. Unchanged.
+    if (!portalUsable) {
         qCWarning(lcSfuCall) << "screen share unavailable portal="
                              << !m_portal.isNull();
         Q_EMIT callFailed(
             tr("Screen sharing isn't available on this desktop."));
         return;
     }
+#endif
     // Already sharing? STOP the old share first rather than opening a second
     // portal session beside it. Two live sessions leave one orphaned — the
     // compositor keeps capturing for a pipeline nothing reads — and the
@@ -513,10 +730,54 @@ void SfuCallController::requestScreenShare()
     }
     Q_EMIT screenShareSourcesAvailable();
 #else
-    // Monitors and windows. Virtual sources are deliberately not offered:
-    // they exist for remote-desktop use and would confuse the picker here.
-    m_portal->requestShare(ScreenCastPortal::Monitor
-                           | ScreenCastPortal::Window);
+    // ONE DECISION, TAKEN BY THE PURE PREDICATE, so the ordering that matters
+    // — portal first, Wayland refused before any X11 clause — is the same
+    // thing a test can hold to account. Nothing below re-derives it.
+    const LinuxShareRoute route = linuxShareRoute(
+        portalUsable, QGuiApplication::platformName(),
+        qEnvironmentVariable("XDG_SESSION_TYPE"),
+        qEnvironmentVariable("WAYLAND_DISPLAY"),
+        qEnvironmentVariable("DISPLAY"),
+        SfuMediaEngine::elementAvailable(
+            SfuMediaEngine::x11ScreenCaptureElementName()));
+    qCInfo(lcSfuCall) << "screen share route=" << static_cast<int>(route);
+    switch (route) {
+    case LinuxShareRoute::Portal:
+        // Monitors and windows. Virtual sources are deliberately not offered:
+        // they exist for remote-desktop use and would confuse the picker
+        // here. The portal draws the dialog, so nothing is enumerated here.
+        m_portal->requestShare(ScreenCastPortal::Monitor
+                               | ScreenCastPortal::Window);
+        return;
+    case LinuxShareRoute::FallbackDisplays:
+        // NO PORTAL ON AN X11 SESSION, so Lightning draws the SAME picker
+        // Windows and macOS get. Before this there was no way to share at all
+        // and no way to choose.
+        if (!populateLinuxDisplaySources()) {
+            Q_EMIT callFailed(tr("No display is available to share."));
+            return;
+        }
+        Q_EMIT screenShareSourcesChanged();
+        // ONE display is not a choice — the user asked to share a screen and
+        // there is exactly one. Same rule as the Windows branch, and the same
+        // reason a dialog offering a single answer is a click that tells
+        // nobody anything.
+        if (m_screenShareSources.size() == 1) {
+            chooseScreenShareSource(0);
+            return;
+        }
+        Q_EMIT screenShareSourcesAvailable();
+        return;
+    case LinuxShareRoute::RefuseWaylandNeedsPortal:
+    case LinuxShareRoute::RefuseNoCaptureElement:
+    case LinuxShareRoute::RefuseNoDisplayServer:
+        // REFUSED WITH THE REASON, and no picker. Offering a dialog here
+        // would be offering a capture that cannot exist — on Wayland
+        // especially, where an X11 fallback would run flawlessly and send a
+        // black rectangle.
+        Q_EMIT callFailed(linuxShareRefusal(route));
+        return;
+    }
 #endif
 #endif
 }
@@ -540,13 +801,38 @@ void SfuCallController::chooseScreenShareSource(int index)
     const int displayIndex = chosen.value(QStringLiteral("index")).toInt();
     const bool isWindow = windowHandle != 0;
 
+    // ON THE LINUX FALLBACK THE CAPTURE IS A RECTANGLE, not an index, because
+    // `ximagesrc` addresses the X11 ROOT WINDOW and a monitor is a region of
+    // it. Resolved from the row's screen NAME and resolved NOW rather than
+    // remembered from when the list was built: a monitor unplugged while the
+    // dialog was open renumbers every display after it, and sharing the
+    // wrong screen is exactly the failure this picker exists to prevent.
+    QRect captureRect;
+    bool displayGone = false;
+#if !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
+    if (!isWindow) {
+        captureRect =
+            physicalRectForScreenNamed(chosen.value(QStringLiteral("name"))
+                                           .toString());
+        displayGone = !captureRect.isValid();
+    }
+#endif
+
     m_screenShareSources.clear();
     Q_EMIT screenShareSourcesChanged();
+    if (displayGone) {
+        qCWarning(lcSfuCall) << "chosen display is no longer connected";
+        Q_EMIT callFailed(tr("That display isn't connected any more."));
+        return;
+    }
+    // THE THREE SOURCE KINDS, exactly one of which is meaningful per share.
     // A display index goes in the node-id slot, which is what
-    // SfuMediaEngine::screenShareSource() reads it as off Linux. No portal
-    // remote exists, hence -1 for the fd. A window carries its handle
-    // instead and the node id is meaningless.
-    if (!startScreenShare(isWindow ? -1 : displayIndex, -1, windowHandle)) {
+    // SfuMediaEngine::screenShareSource() reads it as on Windows and macOS.
+    // No portal remote exists on any of these paths, hence -1 for the fd. A
+    // window carries its handle instead, and the Linux fallback carries its
+    // root rectangle; in each of those two the node id means nothing.
+    if (!startScreenShare(isWindow ? -1 : displayIndex, -1, windowHandle,
+                          captureRect)) {
         Q_EMIT callFailed(isWindow
                               ? tr("Couldn't start sharing that window.")
                               : tr("Couldn't start sharing that display."));
@@ -2077,7 +2363,8 @@ void SfuCallController::setCameraOn(bool on)
 void SfuCallController::toggleCamera() { setCameraOn(!m_cameraOn); }
 
 bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
-                                         quint64 windowHandle)
+                                         quint64 windowHandle,
+                                         const QRect &captureRect)
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (!active() || m_engine.isNull() || !m_client)
@@ -2092,23 +2379,32 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
     // false RIGHT HERE — before a single line was logged, which is why the
     // report was "selecting a window and sharing does nothing" and the log
     // showed three `screen share requested` and not one publish.
-    if (pipewireNodeId < 0 && windowHandle == 0)
+    //
+    // ...AND UNLESS AN X11 ROOT RECTANGLE WAS CHOSEN in the no-portal
+    // fallback, which is the third source kind and carries no node id
+    // either. Its TWIN lives in SfuMediaEngine::publishVideo and the two must
+    // learn each new kind together — last time only the twin was taught about
+    // windows, so a window share returned false right here, before a single
+    // line was logged.
+    if (pipewireNodeId < 0 && windowHandle == 0 && !captureRect.isValid())
         return false;
     if (m_screenSharing)
         stopScreenShare();
     const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    // `window=` is a BOOLEAN, never the handle: an HWND identifies a window
-    // on the user's desktop and its title is theirs, so neither belongs in a
-    // log they may be asked to send.
+    // `window=` and `x11rect=` are BOOLEANS, never the values: an HWND
+    // identifies a window on the user's desktop and its title is theirs, and
+    // a root rectangle carries their monitor layout. Neither belongs in a log
+    // they may be asked to send.
     qCInfo(lcSfuCall) << "screen share publishing node=" << pipewireNodeId
                       << "window=" << (windowHandle != 0)
+                      << "x11rect=" << captureRect.isValid()
                       << "encrypted=" << m_roomEncrypted;
     m_client->sfuAddTrack(cid, QStringLiteral("screen"), 1,
                           SfuMediaEngine::kScreenWidth,
                           SfuMediaEngine::kScreenHeight,
                           true, m_roomEncrypted);
     m_engine->publishVideo(cid, /*screenShare=*/true, pipewireNodeId,
-                           pipewireFd, windowHandle);
+                           pipewireFd, windowHandle, captureRect);
     m_screenCid = cid;
     m_publishedTrackIds.append(cid);
     m_screenSharing = true;
@@ -2122,6 +2418,7 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
     return true;
 #else
     Q_UNUSED(pipewireNodeId); Q_UNUSED(pipewireFd);
+    Q_UNUSED(windowHandle); Q_UNUSED(captureRect);
     return false;
 #endif
 }

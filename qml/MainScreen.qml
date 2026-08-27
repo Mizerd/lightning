@@ -98,8 +98,8 @@ Item {
     // Which display to share, on the platforms with no xdg portal. Declared
     // at the SHELL, not in the call bar: a share can be started from more
     // than one surface and the picker is one dialog either way. It opens
-    // itself from the controller's signal and never opens on Linux, where
-    // the portal shows its own.
+    // itself from the controller's signal, and stays closed on a Linux desktop
+    // that has the portal, because the portal shows its own.
     ScreenSharePicker {
         id: screenSharePicker
         parent: Overlay.overlay

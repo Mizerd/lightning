@@ -2787,6 +2787,313 @@ private Q_SLOTS:
         call.setClient(&client);
         QCOMPARE(call.participantVolume(QStringLiteral("alice")), 100);
     }
+
+    // -----------------------------------------------------------------
+    // 2026-08-27: a screen-share picker for a Linux session with no
+    // xdg-desktop-portal.
+    //
+    // Until this round, `requestScreenShare()` on Linux required the portal
+    // and refused with "Screen sharing isn't available on this desktop"
+    // otherwise — so a desktop whose portal is missing or broken had no way
+    // to share at all and no way to choose. The fallback reuses the SAME
+    // picker Windows and macOS already draw.
+    //
+    // Every clause is decided by one pure function, and it is pure precisely
+    // so these cases can hold it to account without a display server, a
+    // portal or a GStreamer registry. This suite compiles WITHOUT
+    // HAVE_LIGHTNING_WEBRTC, which is the second thing it proves: the policy
+    // carries no media dependency and holds in a build with no engine.
+    // -----------------------------------------------------------------
+
+    // THE PORTAL WINS, ALWAYS, AND FIRST. It is what makes sharing safe on
+    // Wayland, it draws previews Lightning cannot, and it is what the
+    // maintainer's own KDE session uses. This fallback is for its ABSENCE and
+    // must never be able to displace it — so the portal clause is asserted
+    // against every session shape, including the ones that would otherwise
+    // route somewhere else.
+    void theDesktopPortalIsPreferredOverTheFallbackInEverySession()
+    {
+        using Route = SfuCallController::LinuxShareRoute;
+        const auto route = [](const QString &platform, const QString &session,
+                              const QString &wayland, const QString &x11,
+                              bool element) {
+            return SfuCallController::linuxShareRoute(
+                /*portalAvailable=*/true, platform, session, wayland, x11,
+                element);
+        };
+        QCOMPARE(route(QStringLiteral("wayland"), QStringLiteral("wayland"),
+                       QStringLiteral("wayland-0"), QString(), false),
+                 Route::Portal);
+        QCOMPARE(route(QStringLiteral("xcb"), QStringLiteral("x11"), QString(),
+                       QStringLiteral(":0"), true),
+                 Route::Portal);
+        // Even with nothing else working at all, a reachable portal is the
+        // answer: it is the component that would do the capturing.
+        QCOMPARE(route(QString(), QString(), QString(), QString(), false),
+                 Route::Portal);
+        // ...and a portal route says nothing to the user, because nothing has
+        // gone wrong.
+        QVERIFY(SfuCallController::linuxShareRefusal(Route::Portal).isEmpty());
+    }
+
+    // WAYLAND WITH NO PORTAL REFUSES, and refuses with the reason.
+    //
+    // There is genuinely no way to capture a Wayland desktop without the
+    // portal — that is what the portal is FOR. The trap this case exists for
+    // is XWayland: a Wayland session hands every app a working `DISPLAY`, so
+    // an X11 fallback would pass every capability check, build a pipeline
+    // that plays perfectly, and send a BLACK RECTANGLE at the correct
+    // resolution. Measured on this repo's own KDE Wayland session: XWayland's
+    // root window reports the full 7680x2160 desktop extent and 16,588,607 of
+    // its 16,588,800 pixels are zero.
+    //
+    // So each of the three Wayland signals has to be enough ON ITS OWN, and
+    // each is asserted with an X11 display present and the capture element
+    // available — the state that would otherwise route to the picker.
+    void aWaylandSessionWithNoPortalRefusesInsteadOfOfferingAPickerItCannotHonour()
+    {
+        using Route = SfuCallController::LinuxShareRoute;
+        const auto route = [](const QString &platform, const QString &session,
+                              const QString &wayland) {
+            return SfuCallController::linuxShareRoute(
+                /*portalAvailable=*/false, platform, session, wayland,
+                /*x11Display=*/QStringLiteral(":0"),
+                /*captureElementPresent=*/true);
+        };
+        // 1. The platform plugin says so.
+        QCOMPARE(route(QStringLiteral("wayland"), QString(), QString()),
+                 Route::RefuseWaylandNeedsPortal);
+        QCOMPARE(route(QStringLiteral("wayland-egl"), QString(), QString()),
+                 Route::RefuseWaylandNeedsPortal);
+        // 2. The session type says so, while Qt is on xcb — which is exactly
+        //    what an XWayland-hosted Qt app looks like.
+        QCOMPARE(route(QStringLiteral("xcb"), QStringLiteral("wayland"),
+                       QString()),
+                 Route::RefuseWaylandNeedsPortal);
+        QCOMPARE(route(QStringLiteral("xcb"), QStringLiteral("Wayland"),
+                       QString()),
+                 Route::RefuseWaylandNeedsPortal);
+        // 3. Only `WAYLAND_DISPLAY` says so, which is the case where nothing
+        //    else could have told us.
+        QCOMPARE(route(QStringLiteral("xcb"), QStringLiteral("x11"),
+                       QStringLiteral("wayland-0")),
+                 Route::RefuseWaylandNeedsPortal);
+
+        // AND THE WORDS ARE THE POINT. "Screen sharing isn't available on
+        // this desktop" names no cause and offers no action; a person on KDE
+        // with a missing portal package can act on this one.
+        const QString message = SfuCallController::linuxShareRefusal(
+            Route::RefuseWaylandNeedsPortal);
+        QVERIFY(!message.isEmpty());
+        QVERIFY2(message.contains(QStringLiteral("xdg-desktop-portal")),
+                 qPrintable(QStringLiteral("the Wayland refusal does not name "
+                                           "the thing that is missing: %1")
+                                .arg(message)));
+        QVERIFY2(message != QStringLiteral(
+                     "Screen sharing isn't available on this desktop."),
+                 "the Wayland refusal is still the old unactionable sentence");
+    }
+
+    // AN X11 SESSION WITH NO PORTAL GETS THE PICKER. This is the whole
+    // feature: before it, this session could not share at all.
+    void anX11SessionWithNoPortalFallsBackToLightningsOwnPicker()
+    {
+        using Route = SfuCallController::LinuxShareRoute;
+        QCOMPARE(SfuCallController::linuxShareRoute(
+                     /*portalAvailable=*/false, QStringLiteral("xcb"),
+                     QStringLiteral("x11"), /*waylandDisplay=*/QString(),
+                     QStringLiteral(":0"), /*captureElementPresent=*/true),
+                 Route::FallbackDisplays);
+        // A session type nobody set, which is common enough on a bare X
+        // session, must not be the thing that decides.
+        QCOMPARE(SfuCallController::linuxShareRoute(
+                     false, QStringLiteral("xcb"), QString(), QString(),
+                     QStringLiteral(":1"), true),
+                 Route::FallbackDisplays);
+        // Offering a picker is not an error, so it says nothing.
+        QVERIFY(SfuCallController::linuxShareRefusal(Route::FallbackDisplays)
+                    .isEmpty());
+    }
+
+    // A MISSING CAPTURE ELEMENT IS REFUSED HERE, not at PLAYING.
+    //
+    // `ximagesrc` is in gst-plugins-good and is very likely present wherever
+    // the engine is — and "very likely" is how a share reports success and
+    // carries nothing. Refusing after the user has been shown a picker and
+    // made a choice is the worse failure, so the probe is a routing input.
+    void anX11SessionWithoutTheCaptureElementRefusesBeforeOfferingAPicker()
+    {
+        using Route = SfuCallController::LinuxShareRoute;
+        QCOMPARE(SfuCallController::linuxShareRoute(
+                     false, QStringLiteral("xcb"), QStringLiteral("x11"),
+                     QString(), QStringLiteral(":0"),
+                     /*captureElementPresent=*/false),
+                 Route::RefuseNoCaptureElement);
+        const QString message = SfuCallController::linuxShareRefusal(
+            Route::RefuseNoCaptureElement);
+        QVERIFY2(message.contains(QStringLiteral("ximagesrc")),
+                 qPrintable(QStringLiteral("the refusal does not name the "
+                                           "missing element: %1")
+                                .arg(message)));
+
+        // No display server at all is its own answer, and it outranks the
+        // element probe: there is nothing to capture whether or not the
+        // plugin is installed.
+        QCOMPARE(SfuCallController::linuxShareRoute(false, QStringLiteral("xcb"),
+                                                    QString(), QString(),
+                                                    /*x11Display=*/QString(),
+                                                    true),
+                 Route::RefuseNoDisplayServer);
+        QVERIFY(!SfuCallController::linuxShareRefusal(
+                     Route::RefuseNoDisplayServer)
+                     .isEmpty());
+    }
+
+    // A CAPTURE RECTANGLE IS TAKEN FROM THE PLATFORM, NEVER DERIVED.
+    //
+    // This case replaces one that asserted the opposite and pinned a real
+    // defect. It claimed "THE ORIGIN SCALES TOO" and required
+    // `physicalScreenRect(QRect(3072,0,3072,1728), 1.25)` to be
+    // `QRect(3840,0,3840,2160)` — an input Qt never produces and an output
+    // that would have captured the wrong monitor. Both halves were wrong:
+    //
+    //   1. Qt leaves a screen's TOP-LEFT in native pixels and scales only the
+    //      SIZE (`QScreenPrivate::updateGeometry()` builds
+    //      `QRect(nativeGeometry.topLeft(), fromNative(size, factor))`), so
+    //      the real report for that screen is `QRect(3840, 0, 3072, 1728)`
+    //      and multiplying the origin inflates a native number a second time.
+    //   2. `devicePixelRatio()` is a rounded presentation value, not the
+    //      native/logical factor, so the SIZE cannot be recovered from it
+    //      either.
+    //
+    // MEASURED on a real two-monitor 4K desktop, under the `xcb` plugin the
+    // fallback itself runs on:
+    //
+    //   DP-1  geometry (0,0 2560x1440)     dpr 1.5  native (0,0 3840x2160)
+    //   DP-3  geometry (3840,0 2560x1440)  dpr 1.5  native (3840,0 3840x2160)
+    //
+    // The old arithmetic gave DP-3 an origin of 3840 * 1.5 = 5760 for a
+    // monitor that BEGINS at 3840 in a 7680-wide root — 1920 px inside its
+    // neighbour. That is a share of a display the user did not pick, which is
+    // the exact outcome this picker exists to prevent.
+    //
+    // So there is no arithmetic left to test. What remains is the VALIDATOR,
+    // and its job is to refuse rectangles `ximagesrc` cannot be given.
+    // THE CORRECTION ITSELF NEEDS A GUARD.
+    //
+    // The defect being fixed was DERIVING a monitor's capture rectangle:
+    // `QScreen::geometry()` multiplied by `devicePixelRatio()`. That is wrong
+    // twice over — Qt leaves the top-left in NATIVE pixels and scales only
+    // the SIZE, and `devicePixelRatio()` is a rounded presentation value
+    // (measured on a real 2x4K desktop: 2.00 where the true scale was 1.5).
+    // On a scaled multi-monitor X11 session it computed a rectangle 1920 px
+    // inside the NEIGHBOURING display, which is a share of something the user
+    // did not choose.
+    //
+    // Every other case here tests the validator. Reintroducing the derivation
+    // inside these two functions would leave all of them green, so this scans
+    // their bodies instead. A whole-file ban cannot work: the Windows branch
+    // uses `devicePixelRatio()` legitimately, for a resolution LABEL.
+    //
+    // Each slice is PROVEN before it is asserted on — a scan that silently
+    // matched nothing would pass on the very code it exists to catch.
+    void theLinuxCaptureRectangleIsNeverDerivedFromDevicePixelRatio()
+    {
+        QFile file(QStringLiteral(
+            SOURCE_DIR "/src/calls/SfuCallController.cpp"));
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "SfuCallController.cpp is not where this test looks for it");
+        const QString source = QString::fromUtf8(file.readAll());
+
+        // COMMENTS STRIPPED FIRST. The functions below EXPLAIN why
+        // devicePixelRatio() cannot produce this rectangle, so a ban on the
+        // bare token matches the explanation and fails on correct code —
+        // which is exactly what happened when this case was written, and is
+        // the comment-matching trap this repository already records.
+        // Line comments only: there are no block comments in these bodies,
+        // and a naive block stripper is its own hazard.
+        const auto stripComments = [](const QString &in) {
+            QString out;
+            out.reserve(in.size());
+            for (const QString &line : in.split(QLatin1Char('\n'))) {
+                const int at = line.indexOf(QStringLiteral("//"));
+                out += (at >= 0 ? line.left(at) : line);
+                out += QLatin1Char('\n');
+            }
+            return out;
+        };
+        const auto slice = [&source, &stripComments](const QString &from,
+                                                     const QString &to) {
+            const int a = source.indexOf(from);
+            const int b = a >= 0 ? source.indexOf(to, a + from.size()) : -1;
+            return (a >= 0 && b > a) ? stripComments(source.mid(a, b - a))
+                                     : QString();
+        };
+
+        const QString nativeRect =
+            slice(QStringLiteral("QRect SfuCallController::nativeScreenRect"),
+                  QStringLiteral("SfuCallController::physicalRectForScreenNamed"));
+        QVERIFY2(!nativeRect.isEmpty(),
+                 "could not slice nativeScreenRect — this scan would pass "
+                 "without reading anything");
+        QVERIFY2(nativeRect.contains(QStringLiteral("handle()")),
+                 "the nativeScreenRect slice does not contain the code it is "
+                 "meant to be scanning");
+        QVERIFY2(!nativeRect.contains(QStringLiteral("devicePixelRatio")),
+                 "nativeScreenRect derives the rectangle from "
+                 "devicePixelRatio() again — Qt does not scale the origin and "
+                 "the ratio is rounded, so this captures the wrong display");
+
+        const QString populate = slice(
+            QStringLiteral("bool SfuCallController::populateLinuxDisplaySources"),
+            QStringLiteral("void SfuCallController::requestScreenShare"));
+        QVERIFY2(!populate.isEmpty(),
+                 "could not slice populateLinuxDisplaySources");
+        QVERIFY2(populate.contains(QStringLiteral("nativeScreenRect")),
+                 "the populateLinuxDisplaySources slice does not contain the "
+                 "code it is meant to be scanning");
+        QVERIFY2(!populate.contains(QStringLiteral("devicePixelRatio")),
+                 "populateLinuxDisplaySources scales a screen rectangle by "
+                 "devicePixelRatio() again");
+    }
+
+    void aCaptureRectangleIsAcceptedAsTheNativeRectangleOrNotAtAll()
+    {
+        // The two real rectangles above pass through completely unchanged.
+        // Any transformation of them at all is the defect returning.
+        QCOMPARE(SfuCallController::validX11CaptureRect(
+                     QRect(0, 0, 3840, 2160)),
+                 QRect(0, 0, 3840, 2160));
+        QCOMPARE(SfuCallController::validX11CaptureRect(
+                     QRect(3840, 0, 3840, 2160)),
+                 QRect(3840, 0, 3840, 2160));
+        // A vertically stacked second monitor, same rule.
+        QCOMPARE(SfuCallController::validX11CaptureRect(
+                     QRect(0, 2160, 1920, 1080)),
+                 QRect(0, 2160, 1920, 1080));
+
+        // REFUSED RATHER THAN CLAMPED. `ximagesrc`'s coordinate properties
+        // are UNSIGNED, so a negative origin does not fail — it wraps, and
+        // captures somewhere else entirely while reporting success. A screen
+        // left of the origin is an ordinary X11 layout for Qt to report and
+        // an impossible one to hand this element.
+        QVERIFY(!SfuCallController::validX11CaptureRect(
+                     QRect(-1920, 0, 1920, 1080))
+                     .isValid());
+        QVERIFY(!SfuCallController::validX11CaptureRect(
+                     QRect(0, -100, 800, 600))
+                     .isValid());
+        // Degenerate input produces no rectangle rather than an invented one.
+        QVERIFY(!SfuCallController::validX11CaptureRect(QRect(0, 0, 0, 0))
+                     .isValid());
+        QVERIFY(!SfuCallController::validX11CaptureRect(QRect()).isValid());
+
+        // A NULL SCREEN IS NOT A RECTANGLE. `QScreen::handle()` is null while
+        // a screen is torn down — a real state during a monitor hot-unplug,
+        // which is exactly when this is most likely to be asked.
+        QVERIFY(!SfuCallController::nativeScreenRect(nullptr).isValid());
+    }
+
 };
 
 

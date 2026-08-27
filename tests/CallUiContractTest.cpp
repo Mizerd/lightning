@@ -996,7 +996,8 @@ ApplicationWindow {
                  "the confirm no longer hands the controller the chosen index");
     }
 
-    // EVERY refusal that reads a node id must know a window carries none.
+    // EVERY refusal that reads a node id must know the OTHER source kinds
+    // carry none.
     //
     // A window share passes nodeId = -1 and its handle instead. There are TWO
     // guards on that path — SfuCallController::startScreenShare and
@@ -1005,17 +1006,25 @@ ApplicationWindow {
     // anything was logged. The user saw a picker that did nothing and the log
     // showed three `screen share requested` and not one publish.
     //
+    // THE TWINS HAVE SINCE HAD TO LEARN A THIRD KIND: the Linux no-portal
+    // fallback carries an X11 root RECTANGLE and no node id either. Teaching
+    // one guard and not the other reproduces the original defect exactly, on
+    // a different platform, which is why both spellings are pinned here
+    // together rather than in each file's own suite.
+    //
     // Source-scanned because reaching the real guard needs a live SFU
     // session; what is pinned is that neither refusal reads a node id
-    // WITHOUT also asking whether a window was chosen.
+    // WITHOUT also asking whether some other source was chosen.
     void noScreenShareRefusalForgetsThatAWindowCarriesNoNodeId()
     {
         struct Site { const char *file; const char *guard; };
         const Site sites[] = {
             { SRC_DIR "/calls/SfuCallController.cpp",
-              "if (pipewireNodeId < 0 && windowHandle == 0)" },
+              "if (pipewireNodeId < 0 && windowHandle == 0 "
+              "&& !captureRect.isValid())" },
             { SRC_DIR "/calls/SfuMediaEngine.cpp",
-              "if (nodeId < 0 && windowHandle == 0) {" },
+              "if (nodeId < 0 && windowHandle == 0 "
+              "&& !captureRect.isValid()) {" },
         };
         for (const Site &site : sites) {
             const QString src = read(QString::fromUtf8(site.file));
@@ -3154,6 +3163,113 @@ Item {
                                     .arg(band)
                                     .arg(available - 8 - band)));
         }
+    }
+
+    // PRODUCTION HAS TO REACH THE POLICY, which is a separate claim from the
+    // policy being right.
+    //
+    // `call-controller` proves every clause of `linuxShareRoute()` by calling
+    // it. That proves nothing about whether `requestScreenShare()` consults
+    // it — the row-window shipped as a permanent no-op with the policy
+    // covered six ways and the trigger not at all, and the rail's drop was
+    // unreachable through two rounds of passing model tests. This suite
+    // cannot DRIVE the Linux branch (it needs a live call, an engine, and a
+    // portal answer that differs per machine), so it reads the branch
+    // instead.
+    void theLinuxScreenShareBranchActuallyConsultsTheRoutePolicy()
+    {
+        QFile file(QStringLiteral(SRC_DIR "/calls/SfuCallController.cpp"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString source = QString::fromUtf8(file.readAll());
+
+        // Slice out requestScreenShare() itself, and PROVE THE SLICE WORKED
+        // before asserting anything about its contents. A scan that matched
+        // nothing passes silently, which is how a sweep gets written that
+        // holds nothing to account.
+        const int begin =
+            source.indexOf(QStringLiteral("void SfuCallController::"
+                                          "requestScreenShare()"));
+        QVERIFY2(begin > 0, "requestScreenShare() is gone or was renamed");
+        const int end = source.indexOf(
+            QStringLiteral("void SfuCallController::chooseScreenShareSource"),
+            begin);
+        QVERIFY2(end > begin, "could not find the end of requestScreenShare()");
+        const QString body = source.mid(begin, end - begin);
+        QVERIFY2(body.contains(QStringLiteral("screenShareSourcesAvailable")),
+                 "the slice does not contain a line this function is known "
+                 "to have, so it is not the function");
+
+        // THE POLICY IS CONSULTED, and the refusal wording comes from it
+        // rather than being written out again at the call site — two copies
+        // of a message are two messages that drift.
+        QVERIFY2(body.contains(QStringLiteral("linuxShareRoute(")),
+                 "requestScreenShare() does not consult the route policy, so "
+                 "every case that tests the policy tests nothing reachable");
+        QVERIFY2(body.contains(QStringLiteral("linuxShareRefusal(route)")),
+                 "the Linux refusals do not come from the policy");
+        // The fallback reaches the SAME picker Windows and macOS use — one
+        // picker, one contract, and no second implementation to drift.
+        QVERIFY2(body.contains(QStringLiteral("populateLinuxDisplaySources()")),
+                 "the fallback does not populate the shared picker's rows");
+        QVERIFY2(body.contains(QStringLiteral("screenShareSourcesAvailable()")),
+                 "the fallback never opens the picker");
+
+        // THE PORTAL IS STILL ASKED FIRST. Its request must be the answer to
+        // the route rather than something the fallback replaced.
+        QVERIFY2(body.contains(QStringLiteral("m_portal->requestShare(")),
+                 "the portal path is gone from requestScreenShare()");
+        // BOTH MUST BE FOUND BEFORE THEY ARE COMPARED. `indexOf` answers -1
+        // for an absent needle, and -1 is less than every real offset — so
+        // deleting the Portal case entirely would satisfy an ordering
+        // assertion that exists to prove the Portal case comes first. A
+        // vacuous pass is worse than no assertion, because it reads as
+        // coverage.
+        const int portalAt = body.indexOf(QStringLiteral(
+            "LinuxShareRoute::Portal"));
+        const int fallbackAt = body.indexOf(QStringLiteral(
+            "LinuxShareRoute::FallbackDisplays"));
+        QVERIFY2(portalAt >= 0, "the Portal route is not handled at all");
+        QVERIFY2(fallbackAt >= 0, "the fallback route is not handled at all");
+        QVERIFY2(portalAt < fallbackAt,
+                 "the fallback is considered before the portal");
+
+        // AND THE OLD UNCONDITIONAL REFUSAL IS NO LONGER ON THE LINUX PATH.
+        // It used to be the first thing in the function, before any platform
+        // branch, so a missing portal ended the gesture there. It survives
+        // only inside the Windows/macOS guard, where `available()` means
+        // something else entirely.
+        const int oldRefusal = body.indexOf(QStringLiteral(
+            "Screen sharing isn't available on this desktop."));
+        if (oldRefusal >= 0) {
+            const int guard = body.indexOf(QStringLiteral(
+                "#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)"));
+            QVERIFY2(guard >= 0 && guard < oldRefusal,
+                     "the unactionable refusal is reachable on Linux again");
+        }
+
+        // ONE SPELLING OF THE CAPTURE ELEMENT, and it is not here: the
+        // pipeline text belongs to the engine, which is the only place that
+        // knows what a capture looks like. A probe for one name and a
+        // pipeline naming another is the shape of the missing-sctp defect.
+        // NOT IN ANY STRING LITERAL, which is the form that can actually
+        // drift into a pipeline or a user-facing sentence. The previous ban
+        // matched only a literal STARTING with the name, so the refusal
+        // wording "...needs GStreamer's ximagesrc element..." sailed straight
+        // past it — a second spelling of the one name this feature is
+        // supposed to have exactly one of.
+        //
+        // Prose comments naming the element are deliberately still allowed:
+        // they document the branch and cannot be sent to a user or handed to
+        // gst_parse_launch. A quote, then anything but a quote, then the
+        // name, on one line is a literal.
+        const QRegularExpression spelledInAString(
+            QStringLiteral("\"[^\"\n]*ximagesrc"));
+        QVERIFY2(!spelledInAString.match(source).hasMatch(),
+                 "the controller spells the capture element inside a string "
+                 "instead of asking the engine for its name");
+        QVERIFY2(body.contains(QStringLiteral("x11ScreenCaptureElementName()")),
+                 "the element probe does not ask the engine which element it "
+                 "should be probing for");
     }
 
 private:

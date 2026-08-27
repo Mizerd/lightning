@@ -62,6 +62,7 @@
 #include <QHash>
 #include <QObject>
 #include <QPointer>
+#include <QRect>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -82,6 +83,7 @@
 #endif
 
 class MatrixClient;
+class QScreen;
 class RtcController;
 class ScreenCastPortal;
 class SettingsManager;
@@ -286,17 +288,29 @@ public:
     Q_INVOKABLE void toggleDeafened();
     Q_INVOKABLE void setCameraOn(bool on);
     Q_INVOKABLE void toggleCamera();
-    /// Ask the desktop portal for a source and start sharing what the user
-    /// picks. This is the entry point the UI uses: the portal owns the
-    /// picker, so Lightning never enumerates windows itself.
-    Q_INVOKABLE void requestScreenShare();
-    /// The displays a share could capture, on the platforms with no portal.
+    /// Offer the user a source and start sharing what they pick. The one
+    /// entry point the UI uses on every platform.
     ///
-    /// EMPTY ON LINUX, always: the xdg portal owns the picker there, shows
-    /// its own dialog and hands back a node for whatever was chosen. Drawing
-    /// a second picker over it would be two dialogs for one gesture, and
-    /// enumerating displays ourselves on Wayland is exactly what the portal
-    /// exists to stop.
+    /// The desktop portal owns the picker wherever it is reachable, which is
+    /// the preferred path and the only one on Wayland. Where it is not —
+    /// Windows, macOS, and an X11 session with no portal installed —
+    /// Lightning draws its OWN picker over `screenShareSources`. Lightning
+    /// never enumerates WINDOWS on Linux in either case: see
+    /// `LinuxShareRoute` for what the fallback offers and what it refuses.
+    Q_INVOKABLE void requestScreenShare();
+    /// The displays a share could capture, on the platforms and sessions
+    /// with no portal.
+    ///
+    /// EMPTY ON LINUX WHENEVER THE PORTAL IS REACHABLE, which is the normal
+    /// case and the preferred one: the xdg portal owns the picker there,
+    /// shows its own dialog and hands back a node for whatever was chosen.
+    /// Drawing a second picker over it would be two dialogs for one gesture.
+    ///
+    /// It is NOT empty on an X11 session with no portal at all, where the
+    /// alternative was no way to share and no way to choose. See
+    /// `LinuxShareRoute`: that fallback offers DISPLAYS ONLY, and on Wayland
+    /// there is no fallback at all because without the portal there is
+    /// nothing a client is entitled to capture.
     ///
     /// Each entry: {index, name, geometry, primary, current}. `current` is
     /// the display the app is on — what the share would take if the user
@@ -331,8 +345,105 @@ public:
 #endif
     }
     /// Start the share on one of `screenShareSources`. Ignored when the list
-    /// is empty (Linux), where the portal has already chosen.
+    /// is empty — on Linux with a portal, that means the portal has already
+    /// chosen and nothing here has anything to add.
     Q_INVOKABLE void chooseScreenShareSource(int index);
+
+    /// WHERE A LINUX SCREEN SHARE GETS ITS SOURCE.
+    ///
+    /// One decision, as one pure function, because every clause of it is a
+    /// claim about what the machine can honestly capture and each has to be
+    /// testable without that machine. The order is the contract:
+    /// the portal wins whenever it is there, and Wayland refuses BEFORE any
+    /// X11 clause is consulted.
+    enum class LinuxShareRoute {
+        /// xdg-desktop-portal. The preferred path on every Linux session and
+        /// the only safe one on Wayland: the portal draws its own picker, so
+        /// Lightning enumerates nothing and receives a node for exactly what
+        /// the user chose.
+        Portal,
+        /// No portal, X11 session, capture element present: Lightning's own
+        /// picker, offering whole displays.
+        FallbackDisplays,
+        /// No portal, Wayland session. NOTHING can capture here and saying
+        /// so with the reason is the whole value of this state — a client
+        /// that cannot reach the portal on Wayland has no entitlement to the
+        /// screen, by design, and the user's fix is to install or start it.
+        RefuseWaylandNeedsPortal,
+        /// X11, but the capture element is not in the running GStreamer
+        /// registry. Refused HERE rather than at PLAYING, where it would
+        /// look like a share that started and carried nothing.
+        RefuseNoCaptureElement,
+        /// Neither display server is reachable at all.
+        RefuseNoDisplayServer,
+    };
+
+    /// Classify the session. Pure, compiled on every platform, and every
+    /// input passed IN — including the element probe as a plain bool, so
+    /// this carries no GStreamer dependency and holds in a build with no
+    /// media engine at all.
+    ///
+    /// WAYLAND IS DECIDED BEFORE X11 AND DELIBERATELY CATCHES XWAYLAND. A Qt
+    /// app on the `xcb` platform plugin inside a Wayland session has a
+    /// perfectly good `DISPLAY`, and capturing its root window yields a
+    /// black rectangle at the right resolution (measured: 99.999% of pixels
+    /// zero on a KDE Wayland session). `WAYLAND_DISPLAY` being set is what
+    /// distinguishes it, so any one of the three signals is enough.
+    static LinuxShareRoute linuxShareRoute(bool portalAvailable,
+                                           const QString &platformName,
+                                           const QString &sessionType,
+                                           const QString &waylandDisplay,
+                                           const QString &x11Display,
+                                           bool captureElementPresent);
+
+    /// What the user is told for a route that refuses, and empty for one that
+    /// does not.
+    ///
+    /// Separate and pure so the WORDS are held to account by a test. "Screen
+    /// sharing isn't available on this desktop" names no cause and offers no
+    /// action; the Wayland refusal has exactly one useful thing to say and
+    /// must keep saying it.
+    static QString linuxShareRefusal(LinuxShareRoute route);
+
+    /// Accept a NATIVE screen rectangle for use as an X11 capture region, or
+    /// reject it.
+    ///
+    /// Pure, and it deliberately does no arithmetic: the rectangle must
+    /// arrive already in native, root-relative pixels from the platform (see
+    /// `nativeScreenRect`). Everything this function does is refuse the
+    /// shapes `ximagesrc` cannot be given.
+    ///
+    /// Returns an INVALID rect for anything an X11 root rectangle cannot be.
+    /// `ximagesrc`'s coordinate properties are UNSIGNED, so a negative origin
+    /// would not fail — it would wrap and capture somewhere else entirely.
+    static QRect validX11CaptureRect(const QRect &nativeGeometry);
+
+    /// One screen's NATIVE, root-relative rectangle — the coordinate space
+    /// `ximagesrc` addresses — or an invalid rect when it cannot be had.
+    ///
+    /// TAKEN FROM THE PLATFORM, NEVER DERIVED, and the previous revision of
+    /// this code got that wrong twice over. `QScreen::geometry()` cannot be
+    /// converted into a native rectangle by any arithmetic:
+    ///
+    ///   * Qt leaves the TOP-LEFT in native pixels and scales only the SIZE
+    ///     (`QScreenPrivate::updateGeometry()` builds
+    ///     `QRect(nativeGeometry.topLeft(), fromNative(size, factor))`), so
+    ///     scaling the origin inflates a number that was never scaled.
+    ///   * `devicePixelRatio()` is a rounded presentation value, not the
+    ///     native/logical factor, so scaling the SIZE by it is wrong too.
+    ///
+    /// Both measured on a real two-monitor 4K desktop. Under the `xcb`
+    /// plugin Qt reports DP-3 as `QRect(3840,0 2560x1440)` with dpr 1.5 while
+    /// its true rectangle is `QRect(3840,0 3840x2160)`: the old code produced
+    /// an origin of 3840*1.5 = 5760 for a monitor that BEGINS at 3840, which
+    /// lands the capture 1920 px inside the neighbouring display — sharing a
+    /// screen the user did not choose. Under the Wayland plugin the same
+    /// monitors report dpr 2.00 against a true scale of 1.5, so the size was
+    /// wrong as well.
+    ///
+    /// `QScreen::handle()->geometry()` is that rectangle exactly; on XCB it
+    /// comes straight from the XRandR CRTC.
+    static QRect nativeScreenRect(const QScreen *screen);
     /// Abandon the picker without sharing.
     Q_INVOKABLE void cancelScreenShareSelection();
     /// Start sharing a PipeWire node the portal already granted. A negative
@@ -348,9 +459,14 @@ public:
     /// `windowHandle` is a Windows HWND, widened, and non-zero only when the
     /// user picked a single WINDOW rather than a display. It is exclusive
     /// with `pipewireNodeId`, which then means nothing.
+    ///
+    /// `captureRect` is the Linux no-portal fallback's chosen display, as a
+    /// rectangle of the X11 root window in physical pixels. Valid only on
+    /// that path, and exclusive with both of the above.
     Q_INVOKABLE bool startScreenShare(int pipewireNodeId,
                                       int pipewireFd = -1,
-                                      quint64 windowHandle = 0);
+                                      quint64 windowHandle = 0,
+                                      const QRect &captureRect = {});
     Q_INVOKABLE void stopScreenShare();
     Q_INVOKABLE void setHandRaised(bool raised);
     Q_INVOKABLE void toggleHandRaised();
@@ -484,6 +600,21 @@ private Q_SLOTS:
     void retryRetraction();
 
 private:
+    /// Fill `m_screenShareSources` with this session's displays for the Linux
+    /// no-portal fallback. False when there is not one to offer, which is a
+    /// refusal and not an empty picker.
+    bool populateLinuxDisplaySources();
+    /// The physical root rectangle of the screen the platform calls `name`,
+    /// or an invalid rect when no such screen is connected NOW.
+    ///
+    /// Resolved by NAME rather than by the row's index, and re-resolved at
+    /// the moment of the choice rather than remembered from the moment of the
+    /// listing. Both for the same reason: a monitor can be unplugged while
+    /// the dialog is open, after which every index past it means a different
+    /// display — which is how a picker ends up naming one screen and sharing
+    /// another. The same lesson `wincap::displayForDeviceName` records.
+    static QRect physicalRectForScreenNamed(const QString &name);
+
     void setState(State state, const QString &error = QString());
     void teardown(State finalState, const QString &error = QString());
     /// Ask the server to remove our membership, and REMEMBER the attempt so
@@ -619,7 +750,9 @@ private:
     QString m_delayId;
     QString m_ownIdentity;
     /// Populated while the picker is open; cleared when a source is chosen
-    /// or the gesture is abandoned. Never populated on Linux.
+    /// or the gesture is abandoned. On Linux this is populated ONLY on the
+    /// no-portal X11 fallback — with a portal it stays empty, because the
+    /// portal's own dialog is the picker.
     QVariantList m_screenShareSources;
     bool m_withVideo = false;
 

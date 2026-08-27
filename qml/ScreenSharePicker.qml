@@ -5,7 +5,7 @@ import MatrixClient
 
 // Choose what to share, on the platforms that have no portal.
 //
-// WHY THIS EXISTS ONLY OFF LINUX. The xdg desktop portal owns the picker
+// WHY THIS MOSTLY EXISTS OFF LINUX. The xdg desktop portal owns the picker
 // there: it shows its own dialog, the user chooses in it, and Lightning
 // receives a PipeWire node for exactly what was chosen — which is what makes
 // sharing safe on Wayland, and why ScreenCastPortal never enumerates anything
@@ -13,8 +13,11 @@ import MatrixClient
 // a display index or a window handle and nothing was asking the user which
 // one: a share silently took whichever display the app happened to be on.
 //
-// `app.groupCall.screenShareSources` is EMPTY on Linux, always, so this never
-// opens there — two dialogs for one gesture would be worse than none. There
+// On Linux the portal normally owns the picker, so this stays closed — two
+// dialogs for one gesture would be worse than none. It DOES open on a Linux
+// desktop with no portal at all, where `SfuCallController::linuxShareRoute`
+// falls back to listing displays itself; on Wayland without a portal there is
+// no capture path and the controller refuses instead of opening this. There
 // is deliberately NO Linux branch anywhere below: an empty list already
 // produces no dialog.
 //

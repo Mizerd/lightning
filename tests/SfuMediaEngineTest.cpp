@@ -1810,11 +1810,15 @@ private slots:
                  "element, so it cannot be the one that runs");
 
         // And the refusal above it must not reject a window: a handle is a
-        // source in its own right and carries no node id.
-        QVERIFY2(pane.contains(
-                     QStringLiteral("if (nodeId < 0 && windowHandle == 0) {")),
-                 "the no-source refusal still rejects a share that has a "
-                 "window handle but no node id");
+        // source in its own right and carries no node id. THREE kinds now —
+        // a portal node, a window handle and (Linux, no portal) an X11 root
+        // rectangle — and the guard is correct only when it refuses none of
+        // them on its own.
+        QVERIFY2(pane.contains(QStringLiteral(
+                     "if (nodeId < 0 && windowHandle == 0 "
+                     "&& !captureRect.isValid()) {")),
+                 "the no-source refusal rejects a share that carries one of "
+                 "the three source kinds but no node id");
 
         // The element has to be REGISTERED, or naming it in a pipeline
         // description fails at parse time — the same trap the VP8 payloader
@@ -1822,6 +1826,108 @@ private slots:
         QVERIFY2(pane.contains(
                      QStringLiteral("wincap::registerWindowCaptureSrc()")),
                  "the window capture element is never registered");
+    }
+
+    // THE LINUX NO-PORTAL FALLBACK'S CAPTURE, which is the one branch of this
+    // function a Linux test can actually CALL rather than source-scan.
+    //
+    // On a desktop with no xdg-desktop-portal there was previously no way to
+    // share a screen and no way to choose one. The fallback picks a whole
+    // display, and a display under X11 is a RECTANGLE OF THE ROOT WINDOW —
+    // there is no monitor index to pass, so the arithmetic below is the whole
+    // correctness of the feature: get it wrong and the share is offset,
+    // cropped, or of the wrong monitor entirely.
+    void theLinuxNoPortalFallbackCapturesAnX11RootRectangle()
+    {
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+        QSKIP("the X11 fallback branch does not exist off Linux");
+#else
+        // A second monitor at an offset, which is the case that catches an
+        // origin dropped on the floor.
+        const QString source = SfuMediaEngine::screenShareSource(
+            /*nodeId=*/1, /*pipewireFd=*/-1, /*windowHandle=*/0,
+            QRect(100, 50, 1280, 720));
+        QVERIFY2(source.startsWith(QStringLiteral("ximagesrc")),
+                 qPrintable(QStringLiteral("not an X11 capture: %1")
+                                .arg(source)));
+        QVERIFY2(!source.contains(QStringLiteral("pipewiresrc")),
+                 "the fallback still names the portal's element, which is "
+                 "the one thing this session does not have");
+        QVERIFY(source.contains(QStringLiteral("startx=100")));
+        QVERIFY(source.contains(QStringLiteral("starty=50")));
+        // INCLUSIVE, and this is the assertion that would catch the obvious
+        // mistake. Read off the shipped plugin and then measured against it:
+        // `startx=100 endx=1379` negotiates `width=(int)1280`. Writing
+        // `endx = x + width` instead would capture one column too many from
+        // the NEXT monitor, silently.
+        QVERIFY2(source.contains(QStringLiteral("endx=1379")),
+                 qPrintable(QStringLiteral("endx is not the inclusive right "
+                                           "edge: %1").arg(source)));
+        QVERIFY2(source.contains(QStringLiteral("endy=769")),
+                 qPrintable(QStringLiteral("endy is not the inclusive bottom "
+                                           "edge: %1").arg(source)));
+
+        // A DISPLAY AT THE ORIGIN still has to name its edges rather than
+        // leaving them at the element's "0 means the whole screen" default,
+        // which on a multi-monitor root captures every monitor at once.
+        const QString atOrigin = SfuMediaEngine::screenShareSource(
+            0, -1, 0, QRect(0, 0, 1920, 1080));
+        QVERIFY(atOrigin.contains(QStringLiteral("endx=1919")));
+        QVERIFY(atOrigin.contains(QStringLiteral("endy=1079")));
+
+        // THE PORTAL PATH IS UNTOUCHED. This fallback exists only for a
+        // session that has no portal, and it must not be able to displace one
+        // that does — with no rectangle, the source is exactly what it was.
+        const QString portal = SfuMediaEngine::screenShareSource(42, 7);
+        QVERIFY(portal.startsWith(QStringLiteral("pipewiresrc")));
+        QVERIFY(!portal.contains(QStringLiteral("ximagesrc")));
+        QVERIFY(portal.contains(QStringLiteral("fd=7")));
+
+        // EVERY PROPERTY NAME EXISTS. `gst_parse_launch` fails outright on an
+        // unknown property, so a plausible-looking name from the wrong
+        // element family is a screen share that can never start — the
+        // `monitor` versus `monitor-index` lesson, on the element this branch
+        // actually uses. Parsing stops at NULL state, so no X server is
+        // touched and nothing is captured.
+        if (!SfuMediaEngine::elementAvailable(
+                SfuMediaEngine::x11ScreenCaptureElementName())) {
+            QSKIP("ximagesrc is not in this machine's GStreamer registry");
+        }
+        GError *error = nullptr;
+        GstElement *bin = gst_parse_bin_from_description(
+            source.toUtf8().constData(), TRUE, &error);
+        QVERIFY2(bin != nullptr && error == nullptr,
+                 qPrintable(QStringLiteral("the fallback capture does not "
+                                           "parse: %1")
+                                .arg(error ? QString::fromUtf8(error->message)
+                                           : QStringLiteral("unknown"))));
+        if (error)
+            g_error_free(error);
+        if (bin)
+            gst_object_unref(bin);
+#endif
+    }
+
+    // The capability probe behind the fallback, which is what decides whether
+    // the picker is offered at all.
+    //
+    // "ximagesrc ships in gst-plugins-good and is very likely there" is how a
+    // share reports success and carries nothing: the element has to be asked
+    // for, in the RUNNING registry, before the user is shown a picker and
+    // made to choose.
+    void theCaptureElementProbeAsksTheRealRegistry()
+    {
+        QCOMPARE(QLatin1String(SfuMediaEngine::x11ScreenCaptureElementName()),
+                 QLatin1String("ximagesrc"));
+        // Something the engine already REQUIRES, so a false here would mean
+        // no call could be made at all and the probe is what is broken.
+        QVERIFY2(SfuMediaEngine::elementAvailable("videotestsrc"),
+                 "the probe cannot see an element the engine requires, so it "
+                 "would refuse every capability it is asked about");
+        QVERIFY(!SfuMediaEngine::elementAvailable(
+            "lightning-no-such-element-exists"));
+        QVERIFY(!SfuMediaEngine::elementAvailable(nullptr));
+        QVERIFY(!SfuMediaEngine::elementAvailable(""));
     }
 
     void aPackedLiveKitStreamIdResolvesToTheParticipant()

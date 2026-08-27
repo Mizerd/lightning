@@ -227,6 +227,35 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     # FFmpeg backend by default on the pinned nixpkgs qtmultimedia).
     Multimedia
 )
+# QPlatformScreen, for the X11 screen-share fallback's native screen
+# rectangle. OPTIONAL and requested separately: a private module is only
+# defined when it is asked for by name, and a Qt packaged without private
+# headers simply will not have it. The one call site is guarded on
+# LIGHTNING_HAVE_QPA_SCREEN below, so a Qt without it still builds and the
+# fallback refuses honestly rather than capturing a guessed rectangle.
+find_package(Qt6 6.5 QUIET COMPONENTS GuiPrivate)
+# LOUD WHEN IT MATTERS. A Qt without private headers is a legitimate source
+# build, and the fallback refuses honestly there. It is NOT legitimate in a
+# package that means to ship the feature: the X11 picker would list nothing
+# and every no-portal user would be told to install a portal, with no line
+# anywhere saying why. That is precisely the silence that shipped 0.8.0's
+# Linux packages with no media engine, so packaging opts into the same
+# treatment it gets for GStreamer.
+#
+# Debian/Ubuntu: qt6-base-private-dev. Fedora: qt6-qtbase-private-devel.
+# Both carry `qpa/qplatformscreen.h` AND the Qt6GuiPrivate CMake package;
+# the plain -dev packages carry neither (verified in debian:13.6-slim and
+# fedora:44).
+if(LIGHTNING_REQUIRE_WEBRTC AND UNIX AND NOT APPLE
+        AND NOT TARGET Qt6::GuiPrivate)
+    message(FATAL_ERROR
+        "LIGHTNING_REQUIRE_WEBRTC=ON but Qt6::GuiPrivate was not found. The "
+        "X11 screen-share fallback needs QPlatformScreen for a screen's "
+        "native rectangle, and without it this build would list no displays "
+        "when the desktop has no xdg-desktop-portal. Install the Qt private "
+        "development headers (Debian/Ubuntu: qt6-base-private-dev; Fedora: "
+        "qt6-qtbase-private-devel).")
+endif()
 # v0.6.0 checkpoint 11: freedesktop notifications (Linux-first). Optional so
 # non-DBus platforms still build; NotificationManager degrades to a no-op.
 find_package(Qt6 6.5 COMPONENTS DBus)
@@ -977,6 +1006,24 @@ function(_lightning_configure_qml_module target _scope)
         Qt6::Multimedia
         OpenSSL::Crypto
     )
+    # The X11 screen-share fallback needs one thing no public Qt API exposes:
+    # a screen's NATIVE, root-relative rectangle. `QScreen::geometry()` cannot
+    # be converted into one -- Qt leaves its top-left in native pixels and
+    # scales only the SIZE, and `devicePixelRatio()` is a rounded presentation
+    # value rather than the native/logical factor (measured on a real 2x4K
+    # desktop: dpr 2.00 where the true scale was 1.5). `QScreen::handle()`
+    # returns it exactly, and that needs QPlatformScreen's declaration.
+    #
+    # INTERFACE-ONLY: Qt6::GuiPrivate adds private include directories and
+    # links Qt6::Gui. It introduces no new shared library and therefore no
+    # packaging change. Linux only, which is the only platform whose capture
+    # element addresses a rectangle at all -- Windows and macOS take a display
+    # INDEX, so their translation units never see a private Qt header.
+    if(UNIX AND NOT APPLE AND TARGET Qt6::GuiPrivate)
+        target_link_libraries(${target} ${_scope} Qt6::GuiPrivate)
+        target_compile_definitions(${target} ${_scope}
+            LIGHTNING_HAVE_QPA_SCREEN=1)
+    endif()
 
     # Update trust configuration. These are the ONLY values the updater takes
     # from the build; everything else about an update is decided by compiled-in
@@ -2747,6 +2794,19 @@ if(BUILD_TESTING)
     target_include_directories(call-controller-test PRIVATE src)
     target_link_libraries(call-controller-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    # SfuCallController reads a screen's NATIVE rectangle off QPlatformScreen
+    # for the X11 screen-share fallback; see the note in
+    # _lightning_configure_qml_module. Interface target: include paths only.
+    if(UNIX AND NOT APPLE AND TARGET Qt6::GuiPrivate)
+        target_link_libraries(call-controller-test PRIVATE Qt6::GuiPrivate)
+        target_compile_definitions(call-controller-test PRIVATE
+            LIGHTNING_HAVE_QPA_SCREEN=1)
+    endif()
+    # The Linux fallback's regression guard reads the controller's own source:
+    # whether a capture rectangle is DERIVED from devicePixelRatio() is not
+    # observable from the API, and deriving it again is the defect.
+    target_compile_definitions(call-controller-test PRIVATE
+        "SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
     add_test(NAME call-controller COMMAND call-controller-test)
 
     # 2026-08-18 round 2: the ring policy wired to its real owners on a

@@ -137,7 +137,13 @@ sudo apt install ./lightning_0.8.0_amd64.deb            # Debian, Ubuntu, Mint, 
 sudo dnf install ./lightning-0.8.0-1.x86_64.rpm         # Fedora, RHEL
 sudo zypper install ./lightning-0.8.0-1.x86_64.rpm      # openSUSE
 
-chmod +x Lightning-0.8.0-x86_64.AppImage && ./Lightning-0.8.0-x86_64.AppImage
+# The VERSION stays in the pattern; only the suffix is globbed, because some
+# browsers and download managers lower-case .AppImage on the way in. Do not
+# widen it to Lightning-*: with two versions in the same directory the shell
+# expands to both, and the OLDER one becomes the command while the newer
+# becomes its argument — so you would silently run the build you just
+# replaced.
+chmod +x Lightning-0.8.1-x86_64.*pp[Ii]mage && ./Lightning-0.8.1-x86_64.*pp[Ii]mage
 
 flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install --user flathub org.kde.Platform//6.9     # the runtime, once

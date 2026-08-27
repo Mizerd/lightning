@@ -1,12 +1,23 @@
 // Screen capture through xdg-desktop-portal (org.freedesktop.portal.ScreenCast).
 //
-// This is the ONLY way Lightning obtains a screen or window stream. It never
-// touches a framebuffer, never enumerates windows itself, and never asks the
-// compositor directly: the portal shows ITS OWN picker, the user chooses
-// there, and Lightning receives a PipeWire node id for exactly what was
-// chosen. That is what makes screen sharing safe on Wayland, and it is also
-// why there is no Lightning-drawn source picker — drawing one would mean
-// enumerating windows we are not entitled to see.
+// This is the PREFERRED way Lightning obtains a screen or window stream, and
+// on Wayland the only one. It never touches a framebuffer, never enumerates
+// windows itself, and never asks the compositor directly: the portal shows
+// ITS OWN picker, the user chooses there, and Lightning receives a PipeWire
+// node id for exactly what was chosen. That is what makes screen sharing safe
+// on Wayland, and it is why nothing here enumerates windows we are not
+// entitled to see.
+//
+// THERE IS NOW ONE FALLBACK BEHIND IT, and it does not change any of the
+// above. On an X11 session with no portal at all there was previously no way
+// to share and no way to choose, so `SfuCallController::LinuxShareRoute`
+// falls back to Lightning's own picker over `ximagesrc` — DISPLAYS ONLY, and
+// only once this class has reported itself unavailable. On WAYLAND there is
+// deliberately no fallback: without the portal a client is entitled to
+// nothing, and an X11 capture of an XWayland root produces a black rectangle
+// at the correct resolution rather than an error. The portal is consulted
+// first in every case; see `linuxShareRoute()`, where that ordering is the
+// contract.
 //
 // The exchange is a three-step async handshake, each step returning a
 // Request object path whose `Response` signal carries the result:

@@ -1309,8 +1309,28 @@ QString SfuMediaEngine::localScreenStreamId()
     return QStringLiteral("local:screen");
 }
 
+bool SfuMediaEngine::elementAvailable(const char *name)
+{
+    if (!name || !*name)
+        return false;
+    // The registry does not exist until gst_init has run, and asking before
+    // it has answers "absent" for EVERY element — which here would silently
+    // demote a perfectly capable X11 desktop to "no screen sharing". One
+    // entry point, because GST_PLUGIN_PATH is read during gst_init exactly
+    // once and whoever gets there first decides what a packaged build can
+    // see (GstBootstrap.h).
+    if (!lightning::gst::ensureInitialised())
+        return false;
+    GstElementFactory *factory = gst_element_factory_find(name);
+    if (!factory)
+        return false;
+    gst_object_unref(factory);
+    return true;
+}
+
 QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd,
-                                         quint64 windowHandle)
+                                         quint64 windowHandle,
+                                         const QRect &captureRect)
 {
     // `fd` FIRST: the portal's remote is where this node lives, and
     // pipewiresrc resolves `path` against whichever remote it was given.
@@ -1373,6 +1393,7 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd,
     // element's `monitor-index`/`show-cursor` are DIFFERENT names, and using
     // them here would be a pipeline that never builds.
     Q_UNUSED(pipewireFd);
+    Q_UNUSED(captureRect);
     // A SINGLE WINDOW goes to our own element, because nothing shippable
     // takes one: `gdiscreencapsrc` has `monitor` and a crop rectangle and no
     // window property at all, and `d3d11screencapturesrc`, which does, is in
@@ -1392,10 +1413,59 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd,
     // switches avfvideosrc from a camera to a display, and `device-index`
     // selects which display.
     Q_UNUSED(pipewireFd);
+    Q_UNUSED(captureRect);
     return QStringLiteral("avfvideosrc capture-screen=true "
                           "capture-screen-cursor=true device-index=%1")
         .arg(nodeId < 0 ? 0 : nodeId);
 #else
+    // NO PORTAL ON THIS SESSION, so Lightning drew the picker itself and what
+    // the user chose is a RECTANGLE OF THE X11 ROOT WINDOW, not a node id.
+    //
+    // Reached only through
+    // `SfuCallController::LinuxShareRoute::FallbackDisplays`, which requires
+    // an X11 session AND this element in the running registry. It is NOT a
+    // Wayland path and must never become one: measured on this repo's own KDE
+    // Wayland session, XWayland's root window reports the full desktop extent
+    // (7680x2160) and is 99.999% BLACK — 16,588,607 of 16,588,800 pixels are
+    // zero, because native Wayland windows never touch it. An ximagesrc
+    // pipeline there negotiates perfect 4K caps, runs at a clean 30 fps and
+    // sends a black rectangle: healthy counters and nothing shared, which is
+    // the exact failure class this file has already been burned by twice.
+    //
+    // `endx`/`endy` are INCLUSIVE — read off the shipped plugin rather than
+    // assumed (§16), then measured: `startx=100 endx=1379` negotiated
+    // `width=(int)1280`. Qt's `QRect::right()` is `x + width - 1`, which is
+    // that edge exactly, so the famous off-by-one is the CORRECT value here
+    // and not a bug for a later reader to "fix".
+    //
+    // `use-damage=false` is a MEASURED choice, not another blind property.
+    // Both modes deliver 30 buffers in 0.967 s in this repo's dev shell, so
+    // the default costs nothing to leave — but XDamage on a composited root
+    // can report no damage for a window that is in fact being redrawn, and a
+    // stale image pushed at full rate is indistinguishable downstream from a
+    // live one. A fresh XGetImage per frame removes that class outright at no
+    // measured cost in this shape.
+    //
+    // `do-timestamp=true` mirrors the pipewiresrc line below and is INERT on
+    // this element, which is worth recording so nobody chases it: ximagesrc
+    // stamps its own PTS, and `GstBaseSrc` only applies do-timestamp to a
+    // buffer whose PTS is still NONE. Measured — buffers 2 and 3 come out at
+    // EXACTLY 0:00:00.033333333 and 0:00:00.066666666 with the property both
+    // on and off, and a wall-clock stamp would jitter instead. That
+    // zero-based, frame-counter PTS is the property a source in a bin added
+    // to an already-running pipeline must have: a source that stamps pipeline
+    // RUNNING time makes videorate back-fill duplicates across the whole call
+    // age, which is what froze the Windows camera on one frame.
+    if (captureRect.isValid()) {
+        return QStringLiteral("%1 startx=%2 starty=%3 endx=%4 endy=%5 "
+                              "use-damage=false show-pointer=true "
+                              "do-timestamp=true")
+            .arg(QLatin1String(x11ScreenCaptureElementName()))
+            .arg(captureRect.x())
+            .arg(captureRect.y())
+            .arg(captureRect.right())
+            .arg(captureRect.bottom());
+    }
     if (pipewireFd >= 0) {
         return QStringLiteral("pipewiresrc fd=%1 path=%2 do-timestamp=true")
             .arg(pipewireFd).arg(nodeId);
@@ -1427,7 +1497,8 @@ QString SfuMediaEngine::cameraSource()
 
 void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                                   int nodeId, int pipewireFd,
-                                  quint64 windowHandle)
+                                  quint64 windowHandle,
+                                  const QRect &captureRect)
 {
     // The fd belongs to this engine now. It is held for the LIFETIME of the
     // publishing bin and closed by unpublish(), NOT once the element exists:
@@ -1460,12 +1531,21 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         // A WINDOW handle is a source in its own right, so the node-id
         // refusal below must not reject it. Without this a window share fails
         // as "no source" while holding a perfectly good HWND.
-        if (nodeId < 0 && windowHandle == 0) {
+        //
+        // ...AND SO IS AN X11 ROOT RECTANGLE, for the same reason. This guard
+        // has a TWIN in SfuCallController::startScreenShare and the pair must
+        // learn every new source kind together: last time only one of them
+        // was taught about windows, and picking a window returned false
+        // before a single line was logged ("selecting a window and sharing
+        // does nothing"). Three ways of saying "capture this" now, and a
+        // refusal is correct only when NONE of them was given.
+        if (nodeId < 0 && windowHandle == 0 && !captureRect.isValid()) {
             closeFd();
             Q_EMIT failed(QStringLiteral("screen_share_no_source"));
             return;
         }
-        source = screenShareSource(nodeId, pipewireFd, windowHandle);
+        source = screenShareSource(nodeId, pipewireFd, windowHandle,
+                                   captureRect);
     } else {
         // `v4l2src`, NOT `autovideosrc`, and the reason is measured.
         //
