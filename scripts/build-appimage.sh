@@ -172,11 +172,27 @@ for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
     cp "$GST_PLUGIN_SRC/$plugin.so" "$GST_PLUGIN_DEST/"
 done
 
-# Declared to linuxdeploy so their own NEEDED libraries are bundled and their
-# RPATHs rewritten; without this they load on the build image and nowhere else.
-for staged_plugin in "$GST_PLUGIN_DEST"/*.so; do
-    [[ -e "$staged_plugin" ]] || continue
-    LINUXDEPLOY_PLUGIN_ARGS+=(--library "$staged_plugin")
+# Declared to linuxdeploy so their own NEEDED libraries are bundled into
+# usr/lib, where the AppRun's LD_LIBRARY_PATH will find them.
+#
+# THE SOURCE PATH, NOT THE STAGED COPY, and the difference is the whole bug.
+# Handing linuxdeploy a file that is ALREADY inside the AppDir makes it treat
+# the library as deployed and skip it, so it never walks that plugin's own
+# NEEDED list. Pipeline 139 staged all 28 plugins correctly and bundled none
+# of their dependencies: libgstsctp, libgstallocators, libgstnet,
+# libgstbadaudio, libnice, libvpx, libsrtp2 and libasound were all absent, so
+# every interesting plugin failed to load and the engine reported
+# `missing_element:webrtcbin` — an AppImage with a complete plugin directory
+# and no calling. Caught by validate-appimage's launch check, which is exactly
+# what it was added for.
+#
+# linuxdeploy also drops its own copy of each plugin into usr/lib. That is
+# harmless: GStreamer only scans GST_PLUGIN_SYSTEM_PATH_1_0, which the AppRun
+# hook points at usr/lib/gstreamer-1.0, so the copies in usr/lib are never
+# loaded as plugins — they are just the price of getting their dependencies
+# resolved.
+for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
+    LINUXDEPLOY_PLUGIN_ARGS+=(--library "$GST_PLUGIN_SRC/$plugin.so")
 done
 
 # linuxdeploy's generated AppRun sources every apprun-hooks/*.sh. Without this
