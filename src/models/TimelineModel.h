@@ -70,6 +70,7 @@ public:
         RedactedRole,
         ReplyToEventIdRole,
         ReplyToSenderRole,
+        ReplyToSenderIdRole,
         ReplyToPreviewRole,
         ReplyToMediaKeyRole,
         MediaMxcUrlRole,

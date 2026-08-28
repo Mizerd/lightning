@@ -54,6 +54,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QSaveFile>
@@ -3837,4 +3838,46 @@ void AppController::removeAccount(const QString &userId)
     m_accounts->removeAccount(target); // record + secrets
     if (isActive)
         m_lastSessionUserId.clear();
+}
+
+// WHY THIS IS RESOLVED IN C++ RATHER THAN LEFT TO Qt'S FALLBACK.
+//
+// Qt's automatic per-character font fallback is VERSION-DEPENDENT, measured
+// with an identical QPainter probe, the same fonts and the same string: Qt
+// 6.8.2 (Debian's, which the Linux AppImage bundles) drew U+1F600 with
+// colouredPx=0 -- it prefers a MONOCHROME font that claims the codepoint --
+// while Qt 6.11.1 (the dev shell, and every from-source build here) drew
+// colouredPx=2580. Naming the family explicitly gave 4400 on BOTH. So emoji
+// looked correct in a local build and came out monochrome-or-tofu in the
+// packaged one, on the same machine with the same host fonts.
+//
+// It cannot be a QML token: the QML font value type exposes `family` (one
+// string) and NOT `families`, so assigning a list is a LOAD-TIME error -- the
+// first attempt at this fix did exactly that and took four QML suites down.
+// And picking the first family the host actually HAS beats a hard-coded name,
+// because the right face differs per platform and an absent one would degrade
+// silently to the behaviour being fixed.
+QString AppController::emojiFontFamily() const
+{
+    // Resolved once: QFontDatabase::families() is not cheap, and the answer
+    // cannot change while the process runs.
+    static const QString family = [] {
+        // Colour faces first, by platform likelihood. The monochrome Noto Emoji
+        // is last: better than tofu, worse than colour.
+        static const char *const kCandidates[] = {
+            "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji",
+            "Twemoji",          "JoyPixels",         "EmojiOne Color",
+            "Noto Emoji",
+        };
+        const QStringList installed = QFontDatabase::families();
+        for (const char *candidate : kCandidates) {
+            const QString name = QString::fromLatin1(candidate);
+            if (installed.contains(name, Qt::CaseInsensitive))
+                return name;
+        }
+        // Nothing installed: empty, so QML leaves the surface's face alone.
+        // Claiming a font that is not there is worse than the fallback.
+        return QString();
+    }();
+    return family;
 }

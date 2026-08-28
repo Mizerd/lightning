@@ -998,6 +998,25 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     // name was known). Fallback order mirrors senderDisplayName(): member
     // lookup, then the LOCALPART — the complete MXID is never the label.
     case ReplyToSenderRole: {
+        // THE RUST BACKEND ALREADY RESOLVED THIS, from the embedded event's
+        // own profile, and says so by sending the MXID separately. Preferring
+        // it matters because the member lookup below only knows people this
+        // client has SEEN in the room: it returned nothing for the quoted
+        // sender and the localpart fallback then printed "obscurus" beside the
+        // same person's messages rendered as "dim".
+        if (!e.replyToSenderId.isEmpty()) {
+            if (!e.replyToSender.isEmpty()
+                && e.replyToSender != e.replyToSenderId)
+                return e.replyToSender;
+            if (m_client) {
+                const QString display =
+                    m_client->displayNameFor(e.roomId, e.replyToSenderId);
+                if (!display.isEmpty() && display != e.replyToSenderId)
+                    return display;
+            }
+            return matrix::user_lookup::localpartOrUserId(e.replyToSenderId);
+        }
+        // Older backends put the MXID in replyToSender and know no profile.
         if (e.replyToSender.isEmpty())
             return QString();
         if (m_client) {
@@ -1010,6 +1029,15 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         }
         return matrix::user_lookup::localpartOrUserId(e.replyToSender);
     }
+    // The raw MXID behind the quote, for the identity hash only.
+    // MessageDelegate has read `replyToSenderId` since the quote was
+    // redesigned, degrading to a neutral ink while the role did not exist.
+    case ReplyToSenderIdRole:
+        return e.replyToSenderId.isEmpty()
+                   ? (e.replyToSender.contains(QLatin1Char(':'))
+                          ? e.replyToSender
+                          : QString())
+                   : e.replyToSenderId;
     case ReplyToPreviewRole:     return e.replyToPreview;
     case ReplyToMediaKeyRole:    return e.replyToMediaKey;
     case MediaMxcUrlRole:        return e.mediaMxcUrl;
@@ -1222,6 +1250,7 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { RedactedRole,            "redacted" },
         { ReplyToEventIdRole,      "replyToEventId" },
         { ReplyToSenderRole,       "replyToSender" },
+        { ReplyToSenderIdRole,     "replyToSenderId" },
         { ReplyToPreviewRole,      "replyToPreview" },
         { ReplyToMediaKeyRole,      "replyToMediaKey" },
         { MediaMxcUrlRole,         "mediaMxc" },

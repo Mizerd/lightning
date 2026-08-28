@@ -78,10 +78,31 @@ public:
     bool sendTextAsCaption() const { return m_sendTextAsCaption; }
     void setSendTextAsCaption(bool on);
 
+    // HIGHLIGHT ranges, and every one is checked against the text it claims to
+    // cover before it is handed out.
+    //
+    // MentionHighlighter paints whatever offsets it is given, so a ref whose
+    // start/length no longer line up with the composer's text colours an
+    // arbitrary run of words in the accent -- reported against an edit as "its
+    // only part blue". A ref can go stale legitimately (the text is replaced
+    // wholesale by beginEdit or a draft restore, or the user edits in front of
+    // a mention), and no producer can be sure its offsets survive that.
+    //
+    // So this fails closed the way the draft restore already does: a range is
+    // offered only while the slice it names is still exactly the mention's own
+    // display text. Dropping a stale highlight is invisible; painting the wrong
+    // words is not. This is presentation only -- the send path reads
+    // m_mentionRefs directly, so nothing here can change what is sent.
     QVariantList mentionRanges() const
     {
         QVariantList out;
         for (const mention::MentionRef &ref : m_mentionRefs) {
+            if (ref.start < 0 || ref.length <= 0)
+                continue;
+            if (ref.start + ref.length > m_text.length())
+                continue;
+            if (m_text.mid(ref.start, ref.length) != ref.displayText)
+                continue;
             out.append(QVariantMap{
                 { QStringLiteral("start"), ref.start },
                 { QStringLiteral("length"), ref.length },

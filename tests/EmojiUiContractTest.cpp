@@ -66,19 +66,34 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("%1 no longer binds %2").arg(
                          QString::fromLatin1(s.file),
                          QString::fromLatin1(s.glyph))));
-            QVERIFY2(src.contains(QLatin1String("font.families: AppTheme.emojiFontFamilies")),
+            QVERIFY2(src.contains(QLatin1String(
+                         "font.family: app.emojiFontFamily")),
                      qPrintable(QStringLiteral("%1 draws an emoji without naming "
-                                               "AppTheme.emojiFontFamilies").arg(
+                                               "the resolved emoji face").arg(
+                         QString::fromLatin1(s.file))));
+            // `font.families` is a C++ QFont API, NOT a QML font property, so
+            // assigning a list is a LOAD-TIME error rather than a bad render.
+            // The first version of this fix did exactly that and took four QML
+            // suites down with it; a source scan is the only cheap guard.
+            QVERIFY2(!src.contains(QLatin1String("font.families")),
+                     qPrintable(QStringLiteral("%1 assigns font.families, which "
+                                               "does not exist in QML").arg(
                          QString::fromLatin1(s.file))));
         }
-        // And the token itself must exist and lead with a COLOUR face. A list
-        // whose first entry is monochrome would satisfy every check above and
+        // The candidate list lives in C++ and must lead with COLOUR faces: a
+        // monochrome first entry would satisfy every check above and
         // reintroduce the defect.
-        const QString theme = read(QStringLiteral(QML_DIR "/AppTheme.qml"));
-        QVERIFY(theme.contains(QLatin1String("emojiFontFamilies")));
-        QVERIFY(theme.contains(QLatin1String("\"Noto Color Emoji\"")));
-        QVERIFY(theme.contains(QLatin1String("\"Segoe UI Emoji\"")));
-        QVERIFY(theme.contains(QLatin1String("\"Apple Color Emoji\"")));
+        // Derived from QML_DIR so no new compile definition is needed.
+        const QString catalog =
+            read(QStringLiteral(QML_DIR "/../src/app/AppController.cpp"));
+        QVERIFY(!catalog.isEmpty());
+        const int colour = catalog.indexOf(QLatin1String("Noto Color Emoji"));
+        const int mono = catalog.indexOf(QLatin1String("\"Noto Emoji\""));
+        QVERIFY(colour >= 0);
+        QVERIFY(catalog.contains(QLatin1String("Segoe UI Emoji")));
+        QVERIFY(catalog.contains(QLatin1String("Apple Color Emoji")));
+        QVERIFY2(mono < 0 || colour < mono,
+                 "the monochrome fallback must come after the colour faces");
     }
 
     void integrationContract()

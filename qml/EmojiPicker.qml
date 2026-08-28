@@ -437,9 +437,11 @@ AnchoredPopup {
                                 anchors.centerIn: parent
                                 text: cell.emoji
                                 // Named, not left to fallback: Qt 6.8 picks a
-                                // monochrome face over the colour one. See
-                                // AppTheme.emojiFontFamilies.
-                                font.families: AppTheme.emojiFontFamilies
+                                // monochrome face over the colour one.
+                                // Resolved against installed fonts in C++;
+                                // empty when the host has none, which leaves
+                                // the default face exactly as before.
+                                font.family: app.emojiFontFamily || ""
                                 font.pixelSize: AppTheme.emojiGlyphSize
                             }
                             Label {

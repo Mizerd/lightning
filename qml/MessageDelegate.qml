@@ -713,14 +713,15 @@ Item {
     // same deterministic hash the message header below uses, so a person's
     // quote and their own messages agree on one hue.
     //
-    // The key is the raw MXID. `replyToSenderId` is NOT a TimelineModel role
-    // yet — ReplyToSenderRole resolves a DISPLAY NAME, and hashing that
-    // would give the same person a DIFFERENT colour in the quote than on
-    // their own message, which is worse than no colour at all. Reading the
-    // absent role yields undefined (the established degradation pattern in
-    // this file, cf. readReceiptsTotal), userColor("") falls back to the
-    // primary ink, and the quote is neutral-but-legible until the role
-    // lands — at which point it colours itself with no change here.
+    // The key is the raw MXID, and `replyToSenderId` IS a role now (added
+    // 2026-08-28 alongside the Rust backend resolving the quoted sender's
+    // display name from the embedded event's own profile). It has to stay the
+    // MXID rather than ReplyToSenderRole, which resolves a DISPLAY NAME:
+    // hashing that would give the same person a different colour in the quote
+    // than on their own message, which is worse than no colour at all. The
+    // `|| ""` is kept deliberately — on backends that know no id the role is
+    // empty, userColor("") falls back to the primary ink, and the quote stays
+    // neutral-but-legible instead of taking a colour that means nothing.
     readonly property string replySenderKey: model.replyToSenderId || ""
     // Inside an own outgoing bubble the quote sits on saturated accent, so
     // the identity inks — tuned for contrast against surface / card /
@@ -2905,7 +2906,7 @@ Item {
                             text: modelData.key
                             // The reaction key is an emoji; name the face so
                             // Qt 6.8 does not fall back to a monochrome one.
-                            font.families: AppTheme.emojiFontFamilies
+                            font.family: app.emojiFontFamily || ""
                             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             verticalAlignment: Text.AlignVCenter
                         }

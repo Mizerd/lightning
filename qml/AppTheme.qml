@@ -1846,31 +1846,10 @@ QtObject {
         "system-ui",
         "sans-serif"
     ]
-    // THE EMOJI FACE, AND WHY IT HAS TO BE NAMED RATHER THAN LEFT TO FALLBACK.
-    //
-    // Qt's automatic per-character fallback is VERSION-DEPENDENT, measured:
-    // with an identical QPainter probe, the same three fonts and the same
-    // string, Qt 6.8.2 (which the Linux AppImage ships, from Debian) drew
-    // U+1F600 with colouredPx=0 -- it picks a MONOCHROME font that claims the
-    // codepoint in preference to the colour emoji font -- while Qt 6.11.1 (the
-    // dev shell, and every from-source build here) drew colouredPx=2580.
-    // Naming the family explicitly gave colouredPx=4400 on BOTH. That is the
-    // whole difference between emoji looking right in a local build and coming
-    // out monochrome-or-tofu in the packaged one, which is how it was reported.
-    //
-    // These surfaces render EMOJI ONLY, so the list carries no text face: a
-    // Latin fallback at the end would be what Qt 6.8 reaches for first. The
-    // order is by platform likelihood, and nothing here is bundled -- the app
-    // ships no emoji font, so a host with none still shows tofu. Bundling one
-    // is a size decision (~10 MB in EVERY artifact, not just the AppImage).
-    readonly property var    emojiFontFamilies: [
-        "Noto Color Emoji",
-        "Apple Color Emoji",
-        "Segoe UI Emoji",
-        "Twemoji",
-        "JoyPixels",
-        "Noto Emoji"
-    ]
+    // The emoji face is NOT a token here. QML's font value type has `family`
+    // and no `families`, so a fallback LIST cannot be assigned from QML at all
+    // (assigning one is a load-time error). The choice is made in C++ against
+    // fonts the host actually has: AppController::emojiFontFamily.
     // The icon face. Icon.qml hard-coded this string with no token and no
     // fallback list, which is the only raw family literal in the tree that
     // is neither a deliberate preview nor a mirror.

@@ -22,6 +22,11 @@ QString oneLineSummary(const TimelineEvent &event);
 //   - newlines / line+paragraph separators become spaces,
 //   - whitespace runs collapse,
 //   - the result is bounded with a trailing ellipsis.
+// A reply quote is not a room-list row: it sits in a timeline that can be
+// 1500 px wide and its label elides to the width actually available, so the
+// character cap only has to keep a pathological body out of the model.
+inline constexpr int kReplyPreviewMaxChars = 320;
+
 QString normalizePreviewText(const QString &text, int maxChars = 120);
 
 } // namespace matrix::preview

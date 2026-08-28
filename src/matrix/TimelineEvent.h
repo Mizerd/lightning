@@ -147,6 +147,13 @@ struct TimelineEvent {
     QString threadRootId;
     QString replyToEventId;
     QString replyToSender;
+    // The replied-to sender's MXID, kept beside the label. The Rust backend
+    // resolves the display name at the source (the SDK carries the embedded
+    // event's own profile) and sends the id separately, so the quote can be
+    // coloured by the SAME identity hash the message header uses. Backends
+    // that only know the id leave this empty and put the id in replyToSender,
+    // which is the older shape and still resolved below.
+    QString replyToSenderId;
     QString replyToPreview;    // Short preview of the replied-to body, best-effort.
     // 2026-08-18: media-bridge key for an IMAGE reply target (empty
     // otherwise) — the embedded event's media is registered in the Rust

@@ -185,6 +185,8 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
 
     e.replyToEventId = item.value(QStringLiteral("reply_to_event_id")).toString();
     e.replyToSender = item.value(QStringLiteral("reply_to_sender")).toString();
+    e.replyToSenderId =
+        item.value(QStringLiteral("reply_to_sender_id")).toString();
     // The SDK's embedded reply preview is the PLAIN body, which for a
     // Lightning-sent mention contains the matrix.to markdown link verbatim
     // ("[Grok AI](https://matrix.to/#/@…)" rendered raw in the quote —
@@ -193,9 +195,15 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     // overwhelming majority of items) skip the regex pass entirely.
     const QString rawReplyPreview =
         item.value(QStringLiteral("reply_to_preview")).toString();
-    e.replyToPreview = rawReplyPreview.isEmpty()
-        ? rawReplyPreview
-        : matrix::preview::normalizePreviewText(rawReplyPreview);
+    // The cap is the REPLY QUOTE's, not the room list's. normalizePreviewText
+    // defaults to 120, which would undo the wider budget Rust just applied and
+    // put the cut back on a constant instead of on the window; the QML label
+    // elides to the width actually available, so this only bounds the string.
+    e.replyToPreview =
+        rawReplyPreview.isEmpty()
+            ? rawReplyPreview
+            : matrix::preview::normalizePreviewText(
+                  rawReplyPreview, matrix::preview::kReplyPreviewMaxChars);
     e.replyToMediaKey =
         item.value(QStringLiteral("reply_to_media_key")).toString();
     e.threadRootId = item.value(QStringLiteral("thread_root_id")).toString();

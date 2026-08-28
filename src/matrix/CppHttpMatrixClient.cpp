@@ -1,4 +1,5 @@
 #include "matrix/CppHttpMatrixClient.h"
+#include "matrix/EventPreview.h"
 
 #include "app/SettingsManager.h"
 #include "matrix/MediaHelpers.h"
@@ -711,7 +712,7 @@ void CppHttpMatrixClient::enrichReplyPreview(TimelineEvent &e) const
                 ? cachedDisplayName(*roomIt, candidate.sender)
                 : candidate.sender;
             e.replyToSender  = name;
-            e.replyToPreview = matrix::media::previewSnippet(candidate.body);
+            e.replyToPreview = matrix::media::previewSnippet(candidate.body, matrix::preview::kReplyPreviewMaxChars);
             return;
         }
     }

@@ -2876,8 +2876,24 @@ fn event_item_to_json(
             if let Some(reply) = &msg_like.in_reply_to {
                 out["reply_to_event_id"] = reply.event_id.to_string().into();
                 if let TimelineDetails::Ready(embedded) = &reply.event {
-                    out["reply_to_sender"] = embedded.sender.to_string().into();
-                    out["reply_to_preview"] = content_preview(&embedded.content).into();
+                    // THE DISPLAY NAME, because that is what the role means:
+                    // MessageDelegate documents ReplyToSenderRole as resolving
+                    // a display name, and sending the raw MXID put a localpart
+                    // in the quote ("obscurus") beside the same person's own
+                    // messages rendered under their chosen name ("dim").
+                    // Resolved the same way every other sender on this timeline
+                    // is, and the id falls back when the profile is not ready.
+                    out["reply_to_sender_id"] = embedded.sender.to_string().into();
+                    let mut reply_sender = embedded.sender.to_string();
+                    if let TimelineDetails::Ready(profile) = &embedded.sender_profile {
+                        if let Some(name) = &profile.display_name {
+                            if !name.is_empty() {
+                                reply_sender = name.clone();
+                            }
+                        }
+                    }
+                    out["reply_to_sender"] = reply_sender.into();
+                    out["reply_to_preview"] = reply_preview(&embedded.content).into();
                     // 2026-08-18 tester report #2: reply-to-IMAGE quotes
                     // show a thumbnail. The embedded event carries the
                     // FULL media content (encrypted sources included), so
@@ -3690,8 +3706,26 @@ fn thread_latest_kind(content: &TimelineItemContent) -> &'static str {
     }
 }
 
+/// A room-list-sized preview. 80 characters is right for a 300 px row.
 fn content_preview(content: &TimelineItemContent) -> String {
-    const PREVIEW_MAX: usize = 80;
+    content_preview_capped(content, 80)
+}
+
+/// The budget a REPLY QUOTE gets, which is a different surface from a room-list
+/// row: it sits in a timeline that can be 1500 px wide, and the QML label
+/// already elides to whatever width is actually available. Capping it at 80
+/// characters here meant the quote was cut by a constant instead of by the
+/// window -- reported as "text gets cut off from the original message", with
+/// the cut landing mid-word because the old truncation appended nothing at all.
+/// C++ normalises this again (EventPreview::normalizePreviewText) and adds a
+/// real ellipsis, so this only has to be generous enough that the WIDTH is what
+/// bites first, and bounded enough that a pathological body never crosses the
+/// FFI whole.
+fn reply_preview(content: &TimelineItemContent) -> String {
+    content_preview_capped(content, 320)
+}
+
+fn content_preview_capped(content: &TimelineItemContent, max: usize) -> String {
     let text = match content {
         TimelineItemContent::MsgLike(msg_like) => match &msg_like.kind {
             MsgLikeKind::Message(message) => message.body().to_owned(),
@@ -3712,7 +3746,15 @@ fn content_preview(content: &TimelineItemContent) -> String {
         },
         _ => "[event]".to_owned(),
     };
-    text.chars().take(PREVIEW_MAX).collect()
+    // Count in CHARACTERS and mark the cut. `take()` alone stops mid-word and
+    // says nothing, which is what made an 80-char cap read as a rendering bug.
+    if text.chars().count() > max {
+        let mut out: String = text.chars().take(max).collect();
+        out.push('\u{2026}');
+        out
+    } else {
+        text
+    }
 }
 
 /// Safe, coarse UTD reason categories. No crypto internals are exposed.

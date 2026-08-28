@@ -2,6 +2,7 @@
 
 #include "app/SettingsManager.h"
 #include "matrix/MediaHelpers.h"
+#include "matrix/EventPreview.h"
 
 #include <QDateTime>
 #include <QTimeZone>
@@ -392,7 +393,7 @@ void MockMatrixClient::sendReply(const QString &roomId,
     if (auto *target = findEvent(roomId, replyToEventId)) {
         ev.replyToSender  = target->senderDisplayName.isEmpty()
                               ? target->sender : target->senderDisplayName;
-        ev.replyToPreview = matrix::media::previewSnippet(target->body);
+        ev.replyToPreview = matrix::media::previewSnippet(target->body, matrix::preview::kReplyPreviewMaxChars);
     }
     m_timelines[roomId].append(ev);
     Q_EMIT eventAppended(roomId, ev);
@@ -462,7 +463,7 @@ void MockMatrixClient::sendThreadReplyTo(const QString &roomId,
     if (auto *target = findEvent(roomId, inReplyToEventId)) {
         ev.replyToSender  = target->senderDisplayName.isEmpty()
                               ? target->sender : target->senderDisplayName;
-        ev.replyToPreview = matrix::media::previewSnippet(target->body);
+        ev.replyToPreview = matrix::media::previewSnippet(target->body, matrix::preview::kReplyPreviewMaxChars);
     }
     m_timelines[roomId].append(ev);
     Q_EMIT eventAppended(roomId, ev);

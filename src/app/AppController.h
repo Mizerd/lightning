@@ -76,6 +76,12 @@ class AppController : public QObject
     Q_PROPERTY(QString currentRoomId READ currentRoomId WRITE setCurrentRoomId NOTIFY currentRoomIdChanged)
     Q_PROPERTY(bool loggedIn READ loggedIn NOTIFY loggedInChanged)
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
+    // The colour emoji face to NAME on surfaces that draw emoji, or empty when
+    // the host has none. Lives here rather than on EmojiCatalog because it
+    // needs QFontDatabase (Qt6::Gui) and EmojiCatalog is linked against
+    // Qt6::Core alone by its own test target -- the same reason QScreen is
+    // kept out of SettingsManager.
+    Q_PROPERTY(QString emojiFontFamily READ emojiFontFamily CONSTANT)
     // Current application icon for in-app branding surfaces (About, the
     // Appearance preview). Either the embedded default logo resource or a
     // file: URL to the normalized custom icon with a cache-busting revision.
@@ -408,6 +414,7 @@ public:
     QString currentRoomId() const { return m_currentRoomId; }
     bool loggedIn() const;
     QString appVersion() const { return QStringLiteral(APP_VERSION); }
+    QString emojiFontFamily() const;
 
     // Custom application icon (Settings -> Appearance). The picked file's
     // bytes are validated and normalized by appicon::normalizeIconBytes
