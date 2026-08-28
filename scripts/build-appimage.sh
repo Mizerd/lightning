@@ -294,15 +294,31 @@ export GST_PLUGIN_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
 # (139 and 140 are a different failure: those libraries were not bundled at
 # all, and no search path would have helped.)
 #
+# MEASURED ON PIPELINE 141'S OWN ARTIFACT, not inferred. Extracted, its 28
+# plugins and all six libraries the launch reported missing are PRESENT; the
+# plugins carry RUNPATH $ORIGIN, the packed AppRun contains no LD_LIBRARY_PATH
+# at all, and resolving one plugin the way that AppRun arranges it reports
+# 10 dependencies "not found" -- which drops to 0 with usr/lib on the path.
+# Bundled and unreachable, and this line is what reaches them.
+#
+# WHY NOT patchelf --set-rpath '$ORIGIN/..' ON THE PLUGINS, which would leak
+# into no child process: linuxdeploy REWRITES their RUNPATH to $ORIGIN itself
+# (verified on that artifact), so patching before it runs is overwritten, and
+# patching after it runs cannot be packed by it -- `--output appimage`
+# re-runs "Deploying dependencies for existing files" and would reset them.
+# It needs the pack step replaced with a direct appimagetool call. That is a
+# real improvement and an untested restructuring; it is not being made blind
+# in the same round that fixes the defect.
+#
 # THE COST, stated rather than glossed: LD_LIBRARY_PATH is inherited by every
 # child process, so a browser launched for OAuth or a permalink starts with
-# this bundle's glib/gio/dbus ahead of the host's. That is bounded by the
-# copy loop's excludelist -- glibc, libstdc++, libgcc, GL/EGL, drm/gbm and X
-# are deliberately never bundled -- and build-snap.sh:57 already makes the
-# same trade. The surgical alternative is patchelf --set-rpath '$ORIGIN/..'
-# on the staged plugins, which leaks into no child; it needs to run AFTER
-# linuxdeploy has set its own rpath, so it needs a packaging step this script
-# does not have yet. Revisit with a pipeline available to test it.
+# this bundle's glib/gio/dbus ahead of the host's. Bounded by the copy loop's
+# excludelist -- glibc, libstdc++, libgcc, GL/EGL, drm/gbm and X are never
+# bundled -- and build-snap.sh:57 already makes the same trade. The original
+# value is preserved below under the AppImage convention so the client can
+# restore a clean environment for processes it spawns; nothing reads it yet,
+# and that is the follow-up rather than a claim.
+export APPIMAGE_ORIGINAL_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # The plugin registry is a CACHE and GStreamer rewrites it whenever the
 # plugin set changes. An AppImage mount is read-only and its path changes
