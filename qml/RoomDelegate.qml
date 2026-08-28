@@ -334,7 +334,13 @@ Item {
                     text: model.lastMessagePreview
                     color: selected ? AppTheme.selectedText : AppTheme.textMuted
                     opacity: selected ? 0.9 : 1.0
-                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    // The same emoji-capable font the composer and the message body
+                    // take: a preview IS message text, so it hits the identical Qt 6.8
+                    // fallback that renders emoji monochrome. Fourth call site of this
+                    // — each fix hid the next.
+                    font: app.textFontWithEmoji(
+                              AppTheme.uiFont,
+                              AppTheme.scaled(AppTheme.textMeta))
                     elide: Label.ElideRight
                     // Hard one-line guarantee: the summary layer normalizes
                     // newlines away, but a persisted pre-normalization preview
