@@ -1477,10 +1477,33 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd,
             .arg(captureRect.bottom());
     }
     if (pipewireFd >= 0) {
-        return QStringLiteral("pipewiresrc fd=%1 path=%2 do-timestamp=true")
+        // `min-buffers=1`, AND IT IS THE DIFFERENCE BETWEEN SHARING AND NOT.
+        //
+        // gst-plugin-pipewire's DEFAULT_MIN_BUFFERS was 8 up to 1.4.x and is 1
+        // from 1.6. The element asks for SPA_PARAM_Buffers as
+        // RANGE(default, min-buffers, max-buffers), and a compositor's
+        // screencast source caps it low -- KWin 6.6 offers RANGE(3, 2, 4).
+        // PipeWire 1.6 added an explicit "reject impossible range" -EINVAL to
+        // spa_pod_filter_prop() when the two ranges cannot intersect; 1.4.x had
+        // no such check and let it through. So a bundled 1.4.2 element against
+        // a 1.6 daemon asks for at least 8 where at most 4 exist, negotiation
+        // returns -EINVAL, and the daemon reports it verbatim as
+        // "error alloc buffers: Invalid argument" -- which is exactly what the
+        // 0.8.1 AppImage did on a KDE desktop while a from-source build on the
+        // SAME machine worked, because that one loads the host's 1.6 plugin.
+        //
+        // Measured on a live 1.6.6 daemon with a real link: 8 -> 0 buffers and
+        // that error; 5 -> the same error; 4 -> 4 buffers; 1 -> 3 buffers and
+        // STREAMING. Setting it explicitly makes the request version- and
+        // compositor-independent instead of inheriting whichever default the
+        // bundled plugin happens to carry.
+        return QStringLiteral(
+                   "pipewiresrc fd=%1 path=%2 min-buffers=1 do-timestamp=true")
             .arg(pipewireFd).arg(nodeId);
     }
-    return QStringLiteral("pipewiresrc path=%1 do-timestamp=true").arg(nodeId);
+    // Same reasoning as the fd branch above: never inherit the plugin's default.
+    return QStringLiteral("pipewiresrc path=%1 min-buffers=1 do-timestamp=true")
+        .arg(nodeId);
 #endif
 }
 

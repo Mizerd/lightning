@@ -463,15 +463,57 @@ private slots:
 
         // With no remote there is nothing to do but ask the default one — but
         // it must not silently claim a descriptor it does not have.
+        // MIN-BUFFERS IS PINNED, ON BOTH BRANCHES, and it is the difference
+        // between a share starting and dying at negotiation.
+        //
+        // gst-plugin-pipewire's DEFAULT_MIN_BUFFERS was 8 through 1.4.x and is
+        // 1 from 1.6. A compositor caps its screencast buffers low (KWin 6.6
+        // offers RANGE(3, 2, 4)), and PipeWire 1.6 rejects a request whose
+        // minimum exceeds the source's maximum with -EINVAL, surfaced as
+        // "error alloc buffers: Invalid argument". A bundled 1.4.2 element
+        // therefore fails against a 1.6 daemon while the host's own plugin
+        // works -- measured: 8 and 5 fail, 4 and 1 allocate. Inheriting the
+        // default means the bundle's GStreamer version silently decides
+        // whether screen sharing works at all.
+        QVERIFY2(withFd.contains(QStringLiteral("min-buffers=1")),
+                 "the fd branch must pin min-buffers, not inherit the "
+                 "bundled plugin's version-dependent default");
+
         const QString withoutFd = SfuMediaEngine::screenShareSource(42, -1);
+        QVERIFY2(withoutFd.contains(QStringLiteral("min-buffers=1")),
+                 "the no-fd branch must pin min-buffers too");
         QVERIFY(!withoutFd.contains(QStringLiteral("fd=")));
         QVERIFY(withoutFd.contains(QStringLiteral("path=42")));
-        // `min-buffers` was tried as a fix for the one-frame stall and made
-        // it strictly worse — no frame arrived at all — so the default is
-        // deliberately left alone. Pinned so it is not reintroduced blind.
-        QVERIFY2(!withFd.contains(QStringLiteral("min-buffers=")),
-                 "min-buffers was reintroduced; it was measured to make the "
-                 "capture stall completely");
+        // THE OLD BAN ON min-buffers IS RE-SCOPED, NOT OVERRULED, and the
+        // distinction is the point.
+        //
+        // What was refuted: `min-buffers=8`, shipped on reasoning alone as a
+        // fix for the one-frame OPENING STALL, which made it strictly worse —
+        // no frame arrived at all. That result stands.
+        //
+        // What is claimed now is a different value against a different defect,
+        // and it EXPLAINS the old one rather than contradicting it. A
+        // compositor caps its screencast buffers low (KWin 6.6: RANGE(3, 2, 4))
+        // and PipeWire 1.6 rejects a request whose minimum exceeds the source's
+        // maximum. `min-buffers=8` therefore cannot negotiate at all on such a
+        // host — which is exactly "no frame arrived". The old round read a
+        // symptom correctly and attributed it to the property being SET rather
+        // than to the value being too HIGH.
+        //
+        // So the ban keeps its teeth where it earned them: a value above the
+        // ceiling a real source offers stays forbidden. Measured on a live
+        // 1.6.6 daemon: 8 and 5 fail with "error alloc buffers: Invalid
+        // argument", 4 and 1 allocate.
+        for (const QString &banned : { QStringLiteral("min-buffers=5"),
+                                       QStringLiteral("min-buffers=6"),
+                                       QStringLiteral("min-buffers=7"),
+                                       QStringLiteral("min-buffers=8") }) {
+            QVERIFY2(!withFd.contains(banned),
+                     qPrintable(QStringLiteral(
+                         "%1 exceeds the buffer ceiling a compositor offers; "
+                         "it was measured to stop the capture entirely")
+                                    .arg(banned)));
+        }
         // The SECOND property shipped here on reasoning alone, and the second
         // to kill the capture: `keepalive-time` made the share freeze on its
         // FIRST frame and never recover, and the local self-view — tee'd off
