@@ -1,6 +1,7 @@
 #include "matrix/BridgeNetwork.h"
 
 #include <QHash>
+#include <QRegularExpression>
 #include <QStringList>
 
 namespace matrix::bridge {
@@ -111,6 +112,78 @@ QString networkIdForRoom(const QString &directUserId,
 QString labelForNetworkId(const QString &networkId)
 {
     return networkTable().value(networkId.toLower());
+}
+
+namespace {
+
+// "<network>_<remote id>" -> "<remote id>", empty when the localpart is not
+// a recognised ghost (including the bare "<network>bot" shape, which has no
+// remote id).
+QString ghostRemoteId(const QString &localpartIn)
+{
+    QString localpart = localpartIn;
+    if (localpart.startsWith(QLatin1Char('_')))
+        localpart = localpart.mid(1);
+    const int underscore = localpart.indexOf(QLatin1Char('_'));
+    if (underscore <= 0)
+        return {};
+    if (!networkTable().contains(localpart.left(underscore).toLower()))
+        return {};
+    return localpart.mid(underscore + 1);
+}
+
+// A remote id that reads as a phone number is worth showing: "+447791…"
+// beats "WhatsApp contact". Digits with an optional leading '+', at least
+// seven of them — anything shorter or mixed (usernames, UUIDs, base64-ish
+// encodings) is machine identity and is not.
+bool readsAsPhoneNumber(const QString &remoteId)
+{
+    QString digits = remoteId;
+    if (digits.startsWith(QLatin1Char('+')))
+        digits = digits.mid(1);
+    if (digits.size() < 7)
+        return false;
+    for (const QChar c : digits) {
+        if (!c.isDigit())
+            return false;
+    }
+    return true;
+}
+
+} // namespace
+
+DmNamePresentation presentableDmName(const QString &computedName,
+                                     const QString &directUserId)
+{
+    const QString network = networkIdForUserId(directUserId);
+    if (network.isEmpty())
+        return { computedName, {} };
+
+    QString name = computedName.trimmed();
+
+    // The SDK's hero rendering appends the membership count in English
+    // ("Sim, and 2 others"). For a bridged 1:1 the extras are the ghost and
+    // the bridge bot — plumbing, not people — so the suffix is noise by
+    // construction. Only a bridged DM gets this surgery: the string shape is
+    // an SDK implementation detail (exact-pinned matrix-sdk 0.18), and a
+    // native room's "and 2 others" may be describing actual people.
+    static const QRegularExpression heroSuffix(
+        QStringLiteral(",? and \\d+ others?$"));
+    name.remove(heroSuffix);
+
+    // Whatever remains is either a human name (pass it through) or the
+    // ghost id the algorithm degraded to. Both the full "@…:server" form
+    // and the bare localpart appear in practice.
+    const QString asGhost = networkIdForUserId(name);
+    if (!asGhost.isEmpty()) {
+        const QString remote = ghostRemoteId(localpartOf(name, QLatin1Char('@')));
+        if (readsAsPhoneNumber(remote))
+            return { remote, {} };
+        return { {}, labelForNetworkId(network) };
+    }
+    if (name.isEmpty())
+        return { {}, labelForNetworkId(network) };
+    return { name, {} };
 }
 
 } // namespace matrix::bridge

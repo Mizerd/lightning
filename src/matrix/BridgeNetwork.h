@@ -45,4 +45,29 @@ QString networkIdForRoom(const QString &directUserId,
 // "Whatsapp" or "Gvoice" is worse than no badge.
 QString labelForNetworkId(const QString &networkId);
 
+// Presentation repair for a bridged DM's computed name.
+//
+// A ghost localpart is machine identity, never a human name — but it is
+// exactly what the room-naming algorithm degrades to while the ghost's
+// profile has not hydrated ("linkedin___a_co_a_a…"), and the hero summary
+// of a bridged 1:1 additionally counts the bridge plumbing ("Sim, and 2
+// others"). This returns what the row should actually say:
+//
+//   .name        non-empty: show it as-is — the human name with the
+//                membership arithmetic stripped, or the remote phone number
+//                when that is all the ghost id carries and it reads as one.
+//   .networkLabel non-empty (with .name empty): no humane name exists yet;
+//                the caller renders its own "<label> contact" placeholder
+//                (the caller owns the translation).
+//
+// A name that is not a ghost id passes through untouched, and a
+// non-bridged directUserId returns the input unchanged — native Matrix
+// rooms cannot be affected.
+struct DmNamePresentation {
+    QString name;
+    QString networkLabel;
+};
+DmNamePresentation presentableDmName(const QString &computedName,
+                                     const QString &directUserId);
+
 } // namespace matrix::bridge
