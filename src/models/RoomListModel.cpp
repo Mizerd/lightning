@@ -128,7 +128,22 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     const auto &r = m_rooms.at(index.row());
     switch (role) {
     case RoomIdRole:             return r.id;
-    case NameRole:               return r.name;
+    case NameRole: {
+        // Bridged DMs only: repair the ghost-localpart degradation and the
+        // hero arithmetic (see BridgeNetwork::presentableDmName). A native
+        // room's directUserId yields no network and passes through as-is.
+        if (r.isDirect && !r.directUserId.isEmpty()) {
+            const auto dm =
+                matrix::bridge::presentableDmName(r.name, r.directUserId);
+            if (!dm.name.isEmpty())
+                return dm.name;
+            if (!dm.networkLabel.isEmpty())
+                //: A bridged chat partner with no usable name yet;
+                //: %1 is the network, e.g. "WhatsApp contact".
+                return tr("%1 contact").arg(dm.networkLabel);
+        }
+        return r.name;
+    }
     case TopicRole:              return r.topic;
     case AvatarUrlRole:          return effectiveAvatarUrl(r);
     case LastMessagePreviewRole: return r.lastMessagePreview;

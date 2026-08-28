@@ -139,6 +139,65 @@ private slots:
                                             .arg(id)), id);
         }
     }
+
+    // The ghost-name repair (first observed live against a Beeper account,
+    // 2026-08-28): profile-less LinkedIn DMs rendered their ghost localpart
+    // ("linkedin___a_co_a_a…") and a 1:1 Signal chat rendered its bridge
+    // plumbing ("Sim, and 2 others").
+    void bridgedDmNamesAreHumane()
+    {
+        const QString ghost = QStringLiteral("@linkedin_a_co_x9:beeper.local");
+
+        // A hydrated human name passes through untouched.
+        auto dm = presentableDmName(QStringLiteral("Nayara Lanes"), ghost);
+        QCOMPARE(dm.name, QStringLiteral("Nayara Lanes"));
+        QVERIFY(dm.networkLabel.isEmpty());
+
+        // The hero arithmetic is stripped for a bridged DM: the extras are
+        // the ghost and the bridge bot, not people.
+        dm = presentableDmName(QStringLiteral("Sim, and 2 others"),
+                               QStringLiteral("@signal_uuid7:beeper.local"));
+        QCOMPARE(dm.name, QStringLiteral("Sim"));
+        dm = presentableDmName(QStringLiteral("Sim and 1 other"),
+                               QStringLiteral("@signal_uuid7:beeper.local"));
+        QCOMPARE(dm.name, QStringLiteral("Sim"));
+
+        // A ghost localpart is never presented as a name — the caller gets
+        // the network label for its "<label> contact" placeholder. Both the
+        // full user-id form and the bare localpart occur.
+        dm = presentableDmName(QStringLiteral("linkedin_a_co_x9"), ghost);
+        QVERIFY(dm.name.isEmpty());
+        QCOMPARE(dm.networkLabel, QStringLiteral("LinkedIn"));
+        dm = presentableDmName(ghost, ghost);
+        QVERIFY(dm.name.isEmpty());
+        QCOMPARE(dm.networkLabel, QStringLiteral("LinkedIn"));
+
+        // …unless the remote id reads as a phone number, which IS a humane
+        // name for a phone-network chat.
+        dm = presentableDmName(QStringLiteral("@signal_+447700900123:beeper.local"),
+                               QStringLiteral("@signal_+447700900123:beeper.local"));
+        QCOMPARE(dm.name, QStringLiteral("+447700900123"));
+        dm = presentableDmName(QStringLiteral("whatsapp_447700900123"),
+                               QStringLiteral("@whatsapp_447700900123:beeper.local"));
+        QCOMPARE(dm.name, QStringLiteral("447700900123"));
+        // A UUID or username remainder is machine identity, not a phone.
+        dm = presentableDmName(QStringLiteral("@signal_9a2f-4b:beeper.local"),
+                               QStringLiteral("@signal_9a2f-4b:beeper.local"));
+        QVERIFY(dm.name.isEmpty());
+        QCOMPARE(dm.networkLabel, QStringLiteral("Signal"));
+
+        // An empty computed name still yields the placeholder.
+        dm = presentableDmName(QString(), ghost);
+        QVERIFY(dm.name.isEmpty());
+        QCOMPARE(dm.networkLabel, QStringLiteral("LinkedIn"));
+
+        // A NATIVE Matrix DM is untouchable: no network, no surgery — even
+        // when the name happens to contain the hero-suffix shape.
+        dm = presentableDmName(QStringLiteral("Alice, and 2 others"),
+                               QStringLiteral("@alice:example.org"));
+        QCOMPARE(dm.name, QStringLiteral("Alice, and 2 others"));
+        QVERIFY(dm.networkLabel.isEmpty());
+    }
 };
 
 QTEST_APPLESS_MAIN(BridgeNetworkTest)

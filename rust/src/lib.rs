@@ -8843,6 +8843,28 @@ async fn room_name(room: &Room) -> String {
         }
     }
 
+    // A 1:1 DM is named after the person, not the membership arithmetic.
+    // The SDK's hero algorithm counts every joined member, and a bridged DM
+    // (Beeper et al.) always carries at least the ghost AND the bridge bot —
+    // so an unnamed Signal chat with one human rendered as "Sim, and 2
+    // others". When m.direct names exactly one partner and their member
+    // profile is in the store, that profile name IS the room name. A missing
+    // profile falls through to the SDK algorithm unchanged.
+    let direct_targets = room.direct_targets();
+    if direct_targets.len() == 1 {
+        if let Some(target) = direct_targets.iter().next() {
+            if let Ok(user_id) = <&UserId>::try_from(target.as_str()) {
+                if let Ok(Some(member)) = room.get_member_no_sync(user_id).await {
+                    if let Some(name) = member.display_name() {
+                        if !name.is_empty() {
+                            return name.to_owned();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // The SDK's Display impl is the full Matrix room-naming algorithm
     // (explicit name -> canonical alias -> heroes -> member summary) and it
     // renders an unnamed lone-member room as "Empty Room" rather than a bare
