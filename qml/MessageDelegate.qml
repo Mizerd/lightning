@@ -2903,6 +2903,9 @@ Item {
                             Layout.alignment: Qt.AlignVCenter
                             Layout.preferredHeight: AppTheme.scaled(16)
                             text: modelData.key
+                            // The reaction key is an emoji; name the face so
+                            // Qt 6.8 does not fall back to a monochrome one.
+                            font.families: AppTheme.emojiFontFamilies
                             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             verticalAlignment: Text.AlignVCenter
                         }

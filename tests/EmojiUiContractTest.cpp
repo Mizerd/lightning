@@ -33,6 +33,54 @@ private Q_SLOTS:
         QVERIFY(delegate.contains("bigEmoji"));
     }
 
+    // EVERY SURFACE THAT DRAWS AN EMOJI MUST NAME THE FACE.
+    //
+    // Qt's automatic per-character fallback is version-dependent, and the
+    // difference is exactly the one that ships: measured with an identical
+    // QPainter probe, the same fonts and the same string, Qt 6.8.2 (Debian's,
+    // which the Linux AppImage bundles) drew U+1F600 with colouredPx=0 --
+    // preferring a MONOCHROME font that claims the codepoint -- while Qt
+    // 6.11.1 (the dev shell) drew colouredPx=2580. Naming the family gave
+    // colouredPx=4400 on both. Left to fallback, emoji look right in a local
+    // build and come out monochrome or tofu in the packaged one, which is how
+    // it was reported against the 0.8.1 AppImage.
+    //
+    // Asserted per FILE rather than once over the tree: a single global
+    // substring search stays green when one of the three surfaces loses it.
+    void emojiSurfacesNameTheFace()
+    {
+        struct Surface { const char *file; const char *glyph; };
+        const Surface surfaces[] = {
+            { QML_DIR "/EmojiPicker.qml",        "cell.emoji" },
+            { QML_DIR "/QuickReactionStrip.qml", "cell.emojiValue" },
+            { QML_DIR "/MessageDelegate.qml",    "modelData.key" },
+        };
+        for (const Surface &s : surfaces) {
+            const QString src = read(QString::fromLatin1(s.file));
+            QVERIFY2(!src.isEmpty(),
+                     qPrintable(QStringLiteral("could not read %1").arg(
+                         QString::fromLatin1(s.file))));
+            // The glyph binding must still be there, or this case is asserting
+            // a family on a surface that no longer draws an emoji.
+            QVERIFY2(src.contains(QLatin1String(s.glyph)),
+                     qPrintable(QStringLiteral("%1 no longer binds %2").arg(
+                         QString::fromLatin1(s.file),
+                         QString::fromLatin1(s.glyph))));
+            QVERIFY2(src.contains(QLatin1String("font.families: AppTheme.emojiFontFamilies")),
+                     qPrintable(QStringLiteral("%1 draws an emoji without naming "
+                                               "AppTheme.emojiFontFamilies").arg(
+                         QString::fromLatin1(s.file))));
+        }
+        // And the token itself must exist and lead with a COLOUR face. A list
+        // whose first entry is monochrome would satisfy every check above and
+        // reintroduce the defect.
+        const QString theme = read(QStringLiteral(QML_DIR "/AppTheme.qml"));
+        QVERIFY(theme.contains(QLatin1String("emojiFontFamilies")));
+        QVERIFY(theme.contains(QLatin1String("\"Noto Color Emoji\"")));
+        QVERIFY(theme.contains(QLatin1String("\"Segoe UI Emoji\"")));
+        QVERIFY(theme.contains(QLatin1String("\"Apple Color Emoji\"")));
+    }
+
     void integrationContract()
     {
         const QString delegate = read(QStringLiteral(QML_DIR "/MessageDelegate.qml"));

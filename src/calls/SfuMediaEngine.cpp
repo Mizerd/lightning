@@ -479,10 +479,20 @@ bool SfuMediaEngine::runtimeAvailable(QString *whyNot)
     // Same reason and the same moment: an element we compile in has to be in
     // the registry before any pipeline description can name it.
     lightning::wincap::registerWindowCaptureSrc();
-    // Everything the SFU pipelines need. Video and screen capture are
-    // included because an SFU call that cannot carry them is not what this
-    // engine claims to be — a partial probe would let it register and then
-    // fail at the moment the user turns a camera on.
+    // Everything the SFU pipelines need EXCEPT A CAPTURE SOURCE, and that
+    // exception is deliberate but was previously described as its opposite:
+    // this comment used to claim "video and screen capture are included",
+    // which is false — no pipewiresrc, v4l2src or ximagesrc has ever been in
+    // this list. Requiring one would refuse an AUDIO call on a machine that
+    // merely has no camera plugin, which is worse than the honest refusal the
+    // share route already makes at the point of use.
+    //
+    // The cost is real and is the reason this note exists: a bundle whose
+    // capture source is missing, or present but unable to initialise, still
+    // reports "group call (SFU) engine: available". Pipeline 142's AppImage
+    // did exactly that while screen sharing was dead — libpipewire could not
+    // load its own SPA plugins — so a green engine probe is NOT evidence that
+    // a share can start. Whatever asks that question has to ask it elsewhere.
     static const char *const kRequired[] = {
         "webrtcbin",     "nicesrc",       "nicesink",     "dtlssrtpenc",
         "dtlssrtpdec",   "opusenc",       "opusdec",      "rtpopuspay",

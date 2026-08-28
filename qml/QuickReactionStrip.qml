@@ -112,6 +112,7 @@ Item {
                     anchors.centerIn: parent
                     visible: !cell.isMore
                     text: cell.emojiValue
+                    font.families: AppTheme.emojiFontFamilies
                     font.pixelSize: AppTheme.emojiGlyphSize
                 }
                 Icon {

@@ -436,6 +436,10 @@ AnchoredPopup {
                             Label {
                                 anchors.centerIn: parent
                                 text: cell.emoji
+                                // Named, not left to fallback: Qt 6.8 picks a
+                                // monochrome face over the colour one. See
+                                // AppTheme.emojiFontFamilies.
+                                font.families: AppTheme.emojiFontFamilies
                                 font.pixelSize: AppTheme.emojiGlyphSize
                             }
                             Label {
