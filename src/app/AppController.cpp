@@ -3881,3 +3881,31 @@ QString AppController::emojiFontFamily() const
     }();
     return family;
 }
+
+// The composer's font: the UI face first, the colour emoji face behind it.
+//
+// setFamilies() is REAL Qt fallback — the shaper picks per character, so words
+// render in Manrope and emoji in the colour face, in one text run. That is what
+// QML cannot express: its font value type has `family` and no `families`, so a
+// mixed-text surface either names one face for everything or is left to Qt's
+// automatic fallback, which on Qt 6.8 prefers a MONOCHROME font that claims the
+// codepoint. Reported as "emojis look good in catalog but bad when in text box":
+// the picker is single-purpose and a plain family binding fixed it, the composer
+// is not.
+//
+// A QSyntaxHighlighter format was tried first and is kept for its mention ink,
+// but a presentation-only format run is the wrong lever for a FACE change.
+QFont AppController::textFontWithEmoji(int pixelSize) const
+{
+    QFont font;
+    if (pixelSize > 0)
+        font.setPixelSize(pixelSize);
+    const QString emoji = emojiFontFamily();
+    QStringList families{ QStringLiteral("Manrope") };
+    // Empty when the host has no emoji font at all: then this is just the UI
+    // face and behaves exactly as before rather than naming something absent.
+    if (!emoji.isEmpty())
+        families << emoji;
+    font.setFamilies(families);
+    return font;
+}

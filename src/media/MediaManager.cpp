@@ -3,6 +3,8 @@
 #include "matrix/MatrixClient.h"
 #include "models/LinkPreview.h"
 
+#include "app/UrlLauncher.h"
+
 #include <QDesktopServices>
 
 MediaManager::MediaManager(QObject *parent)
@@ -40,12 +42,15 @@ void MediaManager::sendPickedFile(const QString &roomId, const QUrl &fileUrl)
 
 void MediaManager::openExternal(const QUrl &url)
 {
+    // Not QDesktopServices directly: inside an AppImage the spawned browser
+    // would inherit the bundle's LD_LIBRARY_PATH and fail to start. See
+    // lightning::urls::openExternally.
     if (url.isValid())
-        QDesktopServices::openUrl(url);
+        lightning::urls::openExternally(url);
 }
 
 void MediaManager::openWebUrl(const QUrl &url)
 {
     if (matrix::link_preview::isSafeExternalUrl(url))
-        QDesktopServices::openUrl(url);
+        lightning::urls::openExternally(url);
 }

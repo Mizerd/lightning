@@ -72,7 +72,15 @@ void MentionHighlighter::highlightBlock(const QString &text)
     // m_ranges would skip them in exactly the common case.
     if (!m_emojiFamily.isEmpty()) {
         QTextCharFormat emojiFormat;
+        // BOTH APIs, deliberately. setFontFamilies() is the Qt 6 list form and
+        // is what a QTextDocument round-trips, but QQuickTextEdit's layout
+        // consults the SINGULAR FontFamily property when it resolves a run's
+        // face — setting only the list left the composer rendering emoji in
+        // the default face while the picker (a plain font.family binding) was
+        // already correct, which is exactly how this was reported: "good in
+        // catalog, bad in the text box".
         emojiFormat.setFontFamilies({ m_emojiFamily });
+        emojiFormat.setFontFamily(m_emojiFamily);
         // Walk UTF-16 indices, because setFormat() takes them and an astral
         // emoji is a surrogate PAIR — formatting by codepoint index would
         // drift by one for every emoji already passed.

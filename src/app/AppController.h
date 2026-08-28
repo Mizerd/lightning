@@ -54,6 +54,7 @@
 #include "update/UpdateManager.h"
 #include "threads/ThreadManager.h"
 
+#include <QFont>
 #include <QObject>
 #include <QRect>
 #include <QString>
@@ -415,6 +416,19 @@ public:
     bool loggedIn() const;
     QString appVersion() const { return QStringLiteral(APP_VERSION); }
     QString emojiFontFamily() const;
+
+    // A FONT, not a family name, and that is the whole point.
+    //
+    // QML's font value type has `family` (one string) and no `families`, so a
+    // QML surface holding MIXED text cannot express "this face, then the emoji
+    // face". A QFont CAN: setFamilies() is real Qt font fallback, resolved
+    // per character by the shaper. Handing one to a TextArea is therefore the
+    // only way to get colour emoji in the composer without rendering the words
+    // in an emoji face too.
+    //
+    // Takes the pixel size because the composer's size follows the 90-140%
+    // text-size setting; returning a fixed font would freeze it.
+    Q_INVOKABLE QFont textFontWithEmoji(int pixelSize) const;
 
     // Custom application icon (Settings -> Appearance). The picked file's
     // bytes are validated and normalized by appicon::normalizeIconBytes

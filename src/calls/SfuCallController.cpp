@@ -254,6 +254,11 @@ void SfuCallController::setClient(MatrixClient *client)
                 qCWarning(lcSfuCall)
                     << "media key NOT sent index=" << keyIndex
                     << "category=" << category << "delivered=" << delivered;
+                // The recorded set is "who holds this key". A failed send means
+                // they do not, so remembering it would make the retry above see
+                // "unchanged" and skip the redistribution this failure is
+                // exactly the reason for.
+                m_lastKeyTargets.clear();
             });
     connect(m_client, &MatrixClient::loggedOut, this,
             [this] { teardown(State::Ended); });
@@ -1943,10 +1948,21 @@ void SfuCallController::distributeKeyIfNeeded()
     // that reveals nobody new does nothing, and the sessionChanged signal can
     // therefore be connected without fear of a rotation storm.
     const QString targets = mediaKeyTargets();
-    if (targets == m_lastKeyTargets)
+    // WHICH GUARD RETURNED, because the two are completely different states and
+    // silence looked identical for both. "unchanged" means the addressable set
+    // is genuinely the same; "unaddressable" means we still cannot name anyone
+    // in the call, which is the defect worth chasing.
+    if (targets == m_lastKeyTargets) {
+        qCInfo(lcSfuCall) << "media key: no redistribution, set unchanged";
         return;
-    if (targets == QLatin1String("[]"))
+    }
+    if (targets == QLatin1String("[]")) {
+        qCInfo(lcSfuCall) << "media key: no redistribution, nobody addressable"
+                          << "sfuPeers=" << (m_participants.size() > 0
+                                                 ? m_participants.size() - 1
+                                                 : 0);
         return;
+    }
     qCInfo(lcSfuCall) << "media key: addressable set changed, redistributing";
     rotateAndDistributeKey();
 #endif
@@ -1982,15 +1998,38 @@ void SfuCallController::rotateAndDistributeKey()
     // peer we could not address last time is addressable now". An EMPTY set
     // is deliberately not remembered: it means the membership has not been
     // read yet, and recording it would make the retry a no-op forever.
+    const int targetCount = targets == QLatin1String("[]")
+                                ? 0
+                                : static_cast<int>(targets.count(QLatin1Char('{')));
+    const int sfuPeers =
+        m_participants.size() > 0 ? static_cast<int>(m_participants.size()) - 1 : 0;
+    // m_lastKeyTargets IS "who currently holds this key", and it used to lie in
+    // two directions. An empty distribution left the PREVIOUS set recorded, so
+    // the record named devices that do not hold the current index and the retry
+    // above then saw "unchanged" and did nothing. Clearing it on empty makes an
+    // unaddressable round genuinely retryable.
     if (targets != QLatin1String("[]"))
         m_lastKeyTargets = targets;
+    else
+        m_lastKeyTargets.clear();
+    // BOTH COUNTS, because `targets= 0` with one SFU peer and `targets= 0` with
+    // no SFU peers are different defects and were indistinguishable. Counts
+    // only -- no user id, no device id, no identity (section 6).
     qCInfo(lcSfuCall) << "media key distributed index=" << index
-                      << "targets=" << (targets == QLatin1String("[]")
-                                        ? 0 : targets.count(QLatin1Char('{')));
+                      << "targets=" << targetCount
+                      << "sfuPeers=" << sfuPeers
+                      << "unresolved=" << (sfuPeers - targetCount);
     const quint64 op =
         m_client->rtcSendMediaKey(m_roomId, QString::fromUtf8(key.toBase64()),
                                   index, targets);
-    Q_UNUSED(op);
+    // op 0 is the Rust edge refusing the send outright (an empty target list
+    // returns Err before any device is resolved), and it produces NO result
+    // callback -- so without this the failure is invisible AND recorded as a
+    // success. Forget the set so the next membership read can retry it.
+    if (op == 0) {
+        qCWarning(lcSfuCall) << "media key send was not dispatched index=" << index;
+        m_lastKeyTargets.clear();
+    }
 
     m_keyIndex = index;
     m_engine->setOutboundKey(index, key);

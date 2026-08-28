@@ -17,6 +17,8 @@
 #include "storage/AppDataPaths.h"
 
 #include <QDateTime>
+#include "app/UrlLauncher.h"
+
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
@@ -973,7 +975,7 @@ void RustSdkMatrixClient::drainAuthEvents()
                 continue;
             // Open the system browser here so the flow works even if the UI
             // ignores the signal; the signal drives the waiting/cancel state.
-            QDesktopServices::openUrl(QUrl(url));
+            lightning::urls::openExternally(QUrl(url));
             Q_EMIT oauthBrowserUrlReady(url);
             continue;
         }
@@ -1029,7 +1031,7 @@ void RustSdkMatrixClient::drainAuthEvents()
             const QString url = event.value(QStringLiteral("url")).toString();
             if (url.isEmpty())
                 continue;
-            QDesktopServices::openUrl(QUrl(url));
+            lightning::urls::openExternally(QUrl(url));
             Q_EMIT ssoBrowserUrlReady(url);
             continue;
         }

@@ -1260,7 +1260,13 @@ Item {
                             return qsTr("Message %1").arg(root.roomDisplayName())
                         }
                         placeholderTextColor: AppTheme.textMuted
-                        font.pixelSize: AppTheme.scaled(14)
+                        // A whole FONT, not a family: it carries the UI face
+                        // with the colour emoji face behind it, which is real
+                        // Qt per-character fallback. QML's font value type
+                        // cannot express a families list, and Qt 6.8's
+                        // automatic fallback picks a monochrome face — so a
+                        // mixed-text surface has to be given the font.
+                        font: app.textFontWithEmoji(AppTheme.scaled(14))
                         // Vertical padding set EXPLICITLY. This app picks up
                         // the platform Breeze style for TextArea (it even logs
                         // an assignment error from it), so the style's own

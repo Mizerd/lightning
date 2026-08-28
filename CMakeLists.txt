@@ -610,6 +610,8 @@ set(APP_SOURCES
     src/theme/IdentityPalette.h
     src/media/MediaManager.h
     src/media/MediaManager.cpp
+    src/app/UrlLauncher.h
+    src/app/UrlLauncher.cpp
     src/media/MediaBridge.h
     src/media/MediaBridge.cpp
     src/media/PlayableFileWriter.h
@@ -3791,6 +3793,39 @@ if(BUILD_TESTING)
     target_include_directories(mention-tokenizer-test PRIVATE src)
     target_link_libraries(mention-tokenizer-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME mention-tokenizer COMMAND mention-tokenizer-test)
+
+    # The environment a spawned browser inherits. Inside an AppImage that
+    # environment points at the bundle, so xdg-open's browser loads the
+    # bundle's glib ahead of the host's and never starts -- reported as
+    # "clicking links doesn't open them in browser". Asserted on the
+    # environment, because what a browser does with it is not observable.
+    qt_add_executable(url-launcher-test
+        tests/UrlLauncherTest.cpp
+        src/app/UrlLauncher.h
+        src/app/UrlLauncher.cpp
+    )
+    target_include_directories(url-launcher-test PRIVATE src)
+    target_link_libraries(url-launcher-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME url-launcher COMMAND url-launcher-test)
+
+    # The composer's emoji face, asserted on the FORMAT the document ends up
+    # with. Qt's per-character fallback differs by version, so emoji have to be
+    # NAMED; the composer is mixed text, so the face is applied per-range by the
+    # highlighter rather than as a font.family. The first attempt set only the
+    # Qt 6 list API and the composer kept the default face while the picker was
+    # already correct -- a source scan sees the call, only reading the applied
+    # format shows which property the layout honours. Needs Qt6::Gui for
+    # QTextDocument.
+    qt_add_executable(mention-highlighter-emoji-test
+        tests/MentionHighlighterEmojiTest.cpp
+        src/models/MentionHighlighter.h
+        src/models/MentionHighlighter.cpp
+    )
+    target_include_directories(mention-highlighter-emoji-test PRIVATE src)
+    target_link_libraries(mention-highlighter-emoji-test
+        PRIVATE Qt6::Core Qt6::Gui Qt6::Quick Qt6::Test)
+    add_test(NAME mention-highlighter-emoji
+             COMMAND mention-highlighter-emoji-test)
 
     # Legacy Matrix SSO (m.login.sso): the loopback callback listener driven
     # over REAL sockets in both flows, plus AuthManager's discovery/login
