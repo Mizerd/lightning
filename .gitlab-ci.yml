@@ -370,6 +370,20 @@ build-appimage:
       gstreamer1.0-plugins-base gstreamer1.0-plugins-good
       gstreamer1.0-plugins-bad gstreamer1.0-nice gstreamer1.0-pipewire
       gstreamer1.0-alsa
+      libspa-0.2-modules libpipewire-0.3-modules
+    # THE LAST TWO ABOVE ARE NOT PULLED IN BY gstreamer1.0-pipewire, and their
+    # absence is invisible until a share is attempted: libpipewire dlopens its
+    # SPA plugins and PipeWire modules itself, so the bundle got the library and
+    # none of what the library loads. That is the 0.8.0/142 screen-share
+    # failure. build-appimage.sh stages only the subset it needs.
+    #
+    # client.conf comes from pipewire-bin, which is a 55-package install in this
+    # image (libpulse, libroc, libavahi, X libs) for ONE 4 KB file. Downloading
+    # and unpacking it installs nothing.
+    - >-
+      ( cd /tmp && apt-get download pipewire-bin
+      && dpkg-deb -x pipewire-bin_*.deb /opt/pipewire-conf )
+    - test -f /opt/pipewire-conf/usr/share/pipewire/client.conf
     - >-
       curl --fail --show-error --silent --location
       --proto '=https' --tlsv1.2 https://sh.rustup.rs

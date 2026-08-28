@@ -971,6 +971,45 @@ for fmt in ("appimage", "snap"):
         check(lib in job_script,
               f"validate-{fmt} provides the host library {lib} that ximagesrc links")
 
+# THE PIPEWIRE CLIENT STACK. libgstpipewire being staged proved nothing: the
+# plugin registered, built a pipeline, and died at `pw_loop_new: can't make
+# support.system handle` because libpipewire dlopens its OWN SPA plugins and
+# modules from paths compiled in at build time, and reads its module list from a
+# config file it has no fallback for. Screen sharing was dead in 0.8.0 and in
+# pipeline 142 while audio worked BOTH WAYS and video RECEIVE worked, which is
+# what made it look like anything but a missing directory.
+_appimage_src = _strip_shell_comments(_read("scripts", "build-appimage.sh"))
+for _spa_dir in ("support", "videoconvert"):
+    check(_spa_dir in _appimage_src.split("for spa_subdir in ")[1].split(";")[0]
+          if "for spa_subdir in " in _appimage_src else False,
+          f"the AppImage stages the spa-0.2/{_spa_dir} plugin directory")
+# Matched against the LOOP'S OWN LIST, exactly as the ximagesrc case above
+# learned to be: a bare substring search is satisfied by the comment naming it.
+_pw_loop = re.search(r"PW_REQUIRED_MODULES=\((.*?)\)", _appimage_src, re.S)
+check(_pw_loop is not None,
+      "build-appimage declares an explicit PipeWire module list")
+_pw_modules = set(_pw_loop.group(1).split()) if _pw_loop else set()
+# Six of the seven are HARD-REQUIRED: Debian's client.conf lists them without
+# `flags = [ ifexists nofail ]`, so a missing one makes pw_context_new() return
+# NULL rather than degrade.
+for _pw_module in ("libpipewire-module-protocol-native",
+                   "libpipewire-module-client-node",
+                   "libpipewire-module-client-device",
+                   "libpipewire-module-adapter",
+                   "libpipewire-module-metadata",
+                   "libpipewire-module-session-manager"):
+    check(_pw_module in _pw_modules,
+          f"build-appimage stages the required PipeWire module {_pw_module}")
+check("usr/share/pipewire/client.conf" in _appimage_src,
+      "build-appimage stages pipewire client.conf, without which pw_context_new fails")
+for _pw_var in ("SPA_PLUGIN_DIR", "PIPEWIRE_MODULE_DIR", "PIPEWIRE_CONFIG_DIR"):
+    check(f'export {_pw_var}="$APPDIR/' in _appimage_src,
+          f"the AppRun hook exports {_pw_var} so the staged stack is reachable")
+_appimage_job = " ".join(resolve_extends("build-appimage").get("before_script", []))
+for _pw_pkg in ("libspa-0.2-modules", "libpipewire-0.3-modules"):
+    check(_pw_pkg in _appimage_job,
+          f"build-appimage installs {_pw_pkg}, which gstreamer1.0-pipewire does not pull in")
+
 # An installed package must be able to make a SOUND. `autoaudiosink` resolves to
 # pipewiresink, pulsesink or alsasink, and the engine's probe only asks for the
 # `autodetect` FACTORIES -- which exist whether or not any sink is installed --

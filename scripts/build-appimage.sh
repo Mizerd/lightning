@@ -172,6 +172,81 @@ for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
     cp "$GST_PLUGIN_SRC/$plugin.so" "$GST_PLUGIN_DEST/"
 done
 
+# libgstpipewire IS NOT ENOUGH: libpipewire LOADS ITS OWN PLUGINS.
+#
+# Staging the GStreamer plugin and bundling libpipewire-0.3.so.0 gets you an
+# element that registers, builds a pipeline, and then dies the moment it runs:
+#
+#   [E] pw.loop can't make support.system handle: No such file or directory
+#   pipeline error element="capsrc" reason="Failed to connect"
+#
+# That is 0.8.0/142 on the maintainer's KDE desktop: the portal picker appears,
+# a node id and an fd come back, and the capture never starts. libpipewire
+# dlopens SPA plugins and PipeWire modules from paths compiled in at build time
+# (/usr/lib/x86_64-linux-gnu/{spa-0.2,pipewire-0.3}) and reads its module LIST
+# from a config file it has no compiled-in fallback for. All three are staged
+# here and pointed at by the AppRun hook.
+#
+# WHY ONLY SCREEN SHARE BROKE. Audio is autoaudiosrc -> pulsesrc/alsasrc and
+# libpulse is a socket client with no plugin directory of its own; the camera is
+# v4l2src. Screen capture is the one path through libpipewire, which is why
+# audio worked both ways and video RECEIVE worked while sharing was dead.
+#
+# DELIBERATELY NOT THE WHOLE spa-0.2 TREE. Its other subdirectories (alsa,
+# bluez5, aec, filter-graph, avb) need libasound, libfftw3f, liblilv, libmysofa
+# and libebur128, none of which is bundled -- staging them would add libraries
+# that cannot load. support/ is what the reported error names; videoconvert/ is
+# staged because the client.conf below names it in context.spa-libs
+# (video.convert.*) and a video capture is exactly what this feature is.
+SPA_SRC="/usr/lib/x86_64-linux-gnu/spa-0.2"
+PW_MODULE_SRC="/usr/lib/x86_64-linux-gnu/pipewire-0.3"
+for spa_subdir in support videoconvert; do
+    [[ -d "$SPA_SRC/$spa_subdir" ]] || \
+        die "SPA plugin directory $SPA_SRC/$spa_subdir is missing (install libspa-0.2-modules)"
+    mkdir -p "$APPDIR/usr/lib/spa-0.2/$spa_subdir"
+    cp "$SPA_SRC/$spa_subdir"/*.so "$APPDIR/usr/lib/spa-0.2/$spa_subdir/"
+done
+
+# SIX OF THESE SEVEN ARE HARD-REQUIRED, and the reason is in Debian's own
+# client.conf: it lists them WITHOUT `flags = [ ifexists nofail ]`, so a missing
+# one makes pw_context_new() return NULL rather than degrade. Only module-rt
+# carries those flags; without it you lose realtime scheduling and nothing else.
+# The whole directory is deliberately NOT copied -- the rest need libroc,
+# libpulse, libavahi, libsndfile and libssl at load time.
+PW_REQUIRED_MODULES=(
+    libpipewire-module-protocol-native
+    libpipewire-module-client-node
+    libpipewire-module-client-device
+    libpipewire-module-adapter
+    libpipewire-module-metadata
+    libpipewire-module-session-manager
+    libpipewire-module-rt
+)
+mkdir -p "$APPDIR/usr/lib/pipewire-0.3"
+for pw_module in "${PW_REQUIRED_MODULES[@]}"; do
+    [[ -f "$PW_MODULE_SRC/$pw_module.so" ]] || \
+        die "PipeWire module $pw_module.so is missing (install libpipewire-0.3-modules)"
+    cp "$PW_MODULE_SRC/$pw_module.so" "$APPDIR/usr/lib/pipewire-0.3/"
+done
+
+# THE NON-OBVIOUS HALF. With both directories staged and both env vars set but
+# no config, pw_loop_new() succeeds and pw_context_new() then fails with
+# `can't load config client.conf`. libpipewire carries no built-in module list;
+# context.modules comes only from this file. Debian's own copy is shipped rather
+# than a hand-written one so it stays authoritative for the exact libpipewire
+# version bundled beside it.
+PW_CLIENT_CONF=""
+for candidate in /opt/pipewire-conf/usr/share/pipewire/client.conf \
+                 /usr/share/pipewire/client.conf; do
+    [[ -f "$candidate" ]] && { PW_CLIENT_CONF="$candidate"; break; }
+done
+[[ -n "$PW_CLIENT_CONF" ]] || \
+    die "pipewire client.conf not found; screen share would fail at pw_context_new"
+mkdir -p "$APPDIR/usr/share/pipewire"
+cp "$PW_CLIENT_CONF" "$APPDIR/usr/share/pipewire/client.conf"
+printf 'PipeWire client stack staged: %d SPA dirs, %d modules, client.conf from %s\n' \
+    2 "${#PW_REQUIRED_MODULES[@]}" "$PW_CLIENT_CONF"
+
 # Declared to linuxdeploy so their own NEEDED libraries are bundled into
 # usr/lib, where the AppRun's LD_LIBRARY_PATH will find them.
 #
@@ -320,6 +395,18 @@ export GST_PLUGIN_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
 # and that is the follow-up rather than a claim.
 export APPIMAGE_ORIGINAL_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# THE PIPEWIRE CLIENT STACK, staged beside the plugins by this script and
+# invisible to linuxdeploy, which only ever rewrote RUNPATH on what it deployed.
+# Without these three, screen sharing dies at `pw_loop_new` or `pw_context_new`
+# while audio and video RECEIVE keep working -- the exact shape of the 142
+# report. The module dir goes on LD_LIBRARY_PATH too: module-client-node has
+# module-protocol-native as a NEEDED with an absolute Debian DT_RUNPATH, and
+# although config ordering means it is already loaded under its SONAME by then,
+# LD_LIBRARY_PATH is searched before DT_RUNPATH and this costs nothing.
+export SPA_PLUGIN_DIR="$APPDIR/usr/lib/spa-0.2"
+export PIPEWIRE_MODULE_DIR="$APPDIR/usr/lib/pipewire-0.3"
+export PIPEWIRE_CONFIG_DIR="$APPDIR/usr/share/pipewire"
+export LD_LIBRARY_PATH="$APPDIR/usr/lib/pipewire-0.3${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # The plugin registry is a CACHE and GStreamer rewrites it whenever the
 # plugin set changes. An AppImage mount is read-only and its path changes
 # every run, so leaving the registry at its default makes every launch
@@ -413,6 +500,21 @@ if [[ -n "$packed_escaped" ]]; then
 fi
 printf 'Packed AppImage: %d GStreamer plugins, every non-base dependency satisfied from inside the bundle\n' \
     "$packed_plugins"
+
+# AND THE PIPEWIRE CLIENT STACK, in the packed artifact, for the same reason:
+# the plugin being present proved nothing about the library it loads for itself.
+for pw_required in usr/lib/spa-0.2/support/libspa-support.so \
+                   usr/lib/pipewire-0.3/libpipewire-module-protocol-native.so \
+                   usr/lib/pipewire-0.3/libpipewire-module-client-node.so \
+                   usr/share/pipewire/client.conf; do
+    [[ -e "$verify_root/$pw_required" ]] || \
+        die "packed AppImage is missing $pw_required; screen sharing would fail at pw_context_new"
+done
+for pw_hook_var in SPA_PLUGIN_DIR PIPEWIRE_MODULE_DIR PIPEWIRE_CONFIG_DIR; do
+    grep -q "^export $pw_hook_var=\"\$APPDIR/" "$verify_root/apprun-hooks/gstreamer.sh" \
+        || die "packed GStreamer hook does not export $pw_hook_var; screen sharing would fail"
+done
+printf 'Packed AppImage: PipeWire client stack present and pointed at by the hook\n'
 
 write_sha256 "$OUT"
 
