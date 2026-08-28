@@ -237,6 +237,43 @@ private:
     };
 
 private Q_SLOTS:
+    // THE DIRECT MESSAGES TAB MUST SURVIVE A SPACE-LIST REBUILD.
+    //
+    // SpaceManager drops the active scope when it is not a joined Space, which
+    // is right for a Space the account has left. But the rail's selection also
+    // carries TAB SENTINELS -- "@people" and "@orphans" -- and those are not
+    // rooms, so they can never be in the membership set. Checking them the same
+    // way threw the user out of Direct Messages back to Home every time
+    // anything rebuilt the space list, which opening a DM does: reported as
+    // "click on a person to chat, it throws me to home".
+    void tabSentinelsSurviveARebuildThatDropsAMissingSpace()
+    {
+        FakeClient client;
+        SpaceManager spaces;
+        client.roomList = workspace();
+        spaces.setClient(&client);
+
+        for (const QString &sentinel :
+             { SpaceManager::peopleId(), SpaceManager::orphansId() }) {
+            spaces.setActiveSpaceId(sentinel);
+            QCOMPARE(spaces.activeSpaceId(), sentinel);
+            // Any room-list change rebuilds the space list. Opening a DM does
+            // this, which is why the bug fired on a click that never touched
+            // the rail.
+            client.roomList = workspace();
+            client.announce();
+            QCOMPARE(spaces.activeSpaceId(), sentinel);
+        }
+
+        // And the behaviour that check exists for is unchanged: a real Space id
+        // the account is not in is still dropped.
+        spaces.setActiveSpaceId(QStringLiteral("!not-a-space-we-are-in:x"));
+        client.roomList = workspace();
+        client.announce();
+        QVERIFY2(spaces.activeSpaceId().isEmpty(),
+                 "a Space the account is not in must still be dropped");
+    }
+
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());

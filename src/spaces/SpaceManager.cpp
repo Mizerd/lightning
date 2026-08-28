@@ -641,7 +641,17 @@ void SpaceManager::rebuild()
 
     resolveHierarchy(byId);
 
-    if (!m_activeSpaceId.isEmpty() && !m_membership.contains(m_activeSpaceId)) {
+    // ONLY A REAL SPACE ID IS CHECKED AGAINST MEMBERSHIP. The rail's selection
+    // also carries TAB SENTINELS -- "@people" for Direct Messages, "@orphans"
+    // for the rooms in no Space -- and those are not rooms, so they are never
+    // in m_membership. Clearing on that basis dropped the scope back to Home
+    // every time anything rebuilt the space list, which opening a DM does: the
+    // user clicked a person in Direct Messages and was thrown to Home.
+    //
+    // A Matrix room id always starts with '!', so that is the whole test; an
+    // empty id is Home and was already exempt.
+    if (m_activeSpaceId.startsWith(QLatin1Char('!'))
+        && !m_membership.contains(m_activeSpaceId)) {
         m_activeSpaceId.clear();
         Q_EMIT activeSpaceIdChanged();
     }

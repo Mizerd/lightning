@@ -428,7 +428,8 @@ public:
     //
     // Takes the pixel size because the composer's size follows the 90-140%
     // text-size setting; returning a fixed font would freeze it.
-    Q_INVOKABLE QFont textFontWithEmoji(int pixelSize) const;
+    Q_INVOKABLE QFont textFontWithEmoji(const QString &family, int pixelSize,
+                                        bool italic = false) const;
 
     // Custom application icon (Settings -> Appearance). The picked file's
     // bytes are validated and normalized by appicon::normalizeIconBytes

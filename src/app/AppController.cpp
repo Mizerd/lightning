@@ -3895,17 +3895,25 @@ QString AppController::emojiFontFamily() const
 //
 // A QSyntaxHighlighter format was tried first and is kept for its mention ink,
 // but a presentation-only format run is the wrong lever for a FACE change.
-QFont AppController::textFontWithEmoji(int pixelSize) const
+QFont AppController::textFontWithEmoji(const QString &family, int pixelSize,
+                                       bool italic) const
 {
     QFont font;
     if (pixelSize > 0)
         font.setPixelSize(pixelSize);
+    font.setItalic(italic);
+    // The base face comes from the CALLER, so the theme keeps deciding it --
+    // hardcoding one here would silently ignore a themed UI font.
+    QStringList families;
+    if (!family.isEmpty())
+        families << family;
     const QString emoji = emojiFontFamily();
-    QStringList families{ QStringLiteral("Manrope") };
     // Empty when the host has no emoji font at all: then this is just the UI
     // face and behaves exactly as before rather than naming something absent.
     if (!emoji.isEmpty())
         families << emoji;
+    if (families.isEmpty())
+        return font;
     font.setFamilies(families);
     return font;
 }

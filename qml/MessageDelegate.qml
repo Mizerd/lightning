@@ -1813,25 +1813,25 @@ Item {
                                  ? AppTheme.ownBubbleText : AppTheme.text
                         // TextEdit does not inherit the Controls font; the
                         // message body must follow the selected UI family.
-                        font.family: AppTheme.uiFont
-                        // Big-emoji: one uniform size for every 1-3-emoji
-                        // message, 1.25x Element web's 48px bigEmoji per
-                        // the maintainer's preference, slightly reduced in
-                        // compact/thread presentation. All sizes go through
-                        // AppTheme.scaled so the text-size setting applies
-                        // to large emoji too.
-                        font.pixelSize: {
-                            if (bodyLabel.bigEmoji) {
-                                return AppTheme.scaled(
-                                    root.compactMode || root.inThreadPanel
-                                    ? 48 : 60)
-                            }
-                            return AppTheme.scaled(
-                                bodyLabel.isMediaCaption ? 12
-                                : root.compactMode || root.inThreadPanel
-                                ? 13 : AppTheme.fontSizeM)
-                        }
-                        font.italic: model.redacted || model.undecryptable === true
+                        // A whole FONT, so the colour emoji face rides behind the UI
+                        // face as REAL per-character fallback. A sent message is
+                        // RichText and its emoji came out as tofu while the composer
+                        // beside it was already correct: QML cannot express a families
+                        // list, and Qt 6.8's automatic fallback prefers a monochrome
+                        // face that claims the codepoint.
+                        //
+                        // Size and italic are passed through rather than set beside
+                        // this, because assigning the `font` group replaces them.
+                        font: app.textFontWithEmoji(
+                                  AppTheme.uiFont,
+                                  bodyLabel.bigEmoji
+                                      ? AppTheme.scaled(root.compactMode
+                                                        || root.inThreadPanel ? 48 : 60)
+                                      : AppTheme.scaled(
+                                            bodyLabel.isMediaCaption ? 12
+                                            : root.compactMode || root.inThreadPanel
+                                              ? 13 : AppTheme.fontSizeM),
+                                  model.redacted || model.undecryptable === true)
                         // NO lineHeight here, and it is not an oversight.
                         // The design system asks for
                         // AppTheme.lineHeightBody on every wrapping text

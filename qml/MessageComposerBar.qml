@@ -1266,7 +1266,7 @@ Item {
                         // cannot express a families list, and Qt 6.8's
                         // automatic fallback picks a monochrome face — so a
                         // mixed-text surface has to be given the font.
-                        font: app.textFontWithEmoji(AppTheme.scaled(14))
+                        font: app.textFontWithEmoji(AppTheme.uiFont, AppTheme.scaled(14))
                         // Vertical padding set EXPLICITLY. This app picks up
                         // the platform Breeze style for TextArea (it even logs
                         // an assignment error from it), so the style's own
