@@ -42,6 +42,18 @@ class MentionHighlighter : public QSyntaxHighlighter
     // and changes nothing.
     Q_PROPERTY(QColor softColor READ softColor WRITE setSoftColor
                    NOTIFY styleChanged)
+    // THE EMOJI FACE FOR TYPED TEXT, and the composer is why it has to be here.
+    //
+    // Qt's automatic per-character fallback is version-dependent (Qt 6.8 picks
+    // a MONOCHROME font that claims the codepoint where 6.11 picks the colour
+    // one), so emoji have to be NAMED. On a single-purpose label that is just
+    // `font.family`, but the composer is MIXED text -- naming the emoji face on
+    // the whole TextArea would render every letter in it. A QSyntaxHighlighter
+    // is already attached to this exact document for mentions, and a
+    // QTextCharFormat CAN carry font families per range, so the emoji runs get
+    // the face and the words keep theirs.
+    Q_PROPERTY(QString emojiFontFamily READ emojiFontFamily
+                   WRITE setEmojiFontFamily NOTIFY styleChanged)
 
 public:
     explicit MentionHighlighter(QObject *parent = nullptr);
@@ -56,6 +68,8 @@ public:
     void setAccentColor(const QColor &color);
     QColor softColor() const { return m_soft; }
     void setSoftColor(const QColor &color);
+    QString emojiFontFamily() const { return m_emojiFamily; }
+    void setEmojiFontFamily(const QString &family);
 
 Q_SIGNALS:
     void documentChanged();
@@ -68,6 +82,7 @@ protected:
 private:
     QQuickTextDocument *m_quickDocument = nullptr;
     QVariantList m_ranges;
+    QString m_emojiFamily;
     QColor m_accent;
     QColor m_soft;
 };

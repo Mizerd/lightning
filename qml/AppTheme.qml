@@ -1705,8 +1705,11 @@ QtObject {
     // Storm mono headers (§2: .16–.18em, resolved at the ~9.5px header size).
     readonly property real  trackingStorm:     1.6
     // Emoji grid cells shared by the picker body and the quick-react strip.
-    readonly property int   emojiCellSize:  32
-    readonly property int   emojiGlyphSize: 19
+    // Sized for a COLOUR emoji, which is a picture and not a letter: at 19 px
+    // in a 32 px cell the picker read as a grid of specks next to 14 px body
+    // text. Both the picker grid and the quick-reaction strip use these.
+    readonly property int   emojiCellSize:  40
+    readonly property int   emojiGlyphSize: 26
 
     // ---- Layout constraints. ----
     // Maximum width of a timeline message row's content (text, media, mention

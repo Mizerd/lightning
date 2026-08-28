@@ -1487,6 +1487,10 @@ Item {
                             ranges: root.mentionHighlightRanges
                             accentColor: AppTheme.accent
                             softColor: AppTheme.accentSoft
+                            // Named, because Qt 6.8 picks a monochrome face for emoji
+                            // where 6.11 picks the colour one. Per-range, so the words
+                            // around them keep the UI face.
+                            emojiFontFamily: app.emojiFontFamily || ""
                         }
                         }
                     }
