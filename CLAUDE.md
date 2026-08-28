@@ -1560,6 +1560,37 @@ width-invalidation injected anchor calls on every resize into the
 machinery three fixes were reverted from). Incremental unfilling while
 scrolling remains deliberately NOT done.
 
+**`pipewiresrc min-buffers` IS PINNED, AND INHERITING ITS DEFAULT IS A BUG.**
+`gst-plugin-pipewire`'s `DEFAULT_MIN_BUFFERS` was **8** through 1.4.x and is
+**1** from 1.6. The element asks for `SPA_PARAM_Buffers` as
+`RANGE(default, min-buffers, max-buffers)`; KWin 6.6 offers `RANGE(3, 2, 4)` —
+at most FOUR — and PipeWire 1.6 added an explicit "reject impossible range"
+`-EINVAL` when the minimum exceeds the source's maximum, which 1.4.x lacked. So
+the BUNDLED 1.4.2 element against a 1.6 daemon asks for >= 8 where <= 4 exist,
+and the daemon reports `error alloc buffers: Invalid argument`. A from-source
+build on the same machine works, because it loads the HOST's 1.6 plugin —
+which is exactly how it hid. Measured on a live 1.6.6 daemon: 8 and 5 fail,
+4 and 1 allocate; raising the producer's ceiling to 8 makes 8 pass, pinning it
+to the range intersection alone. RULED OUT in the same round, do not
+re-propose: the appimage-run bwrap sandbox, the bundled libpipewire version,
+and a missing SPA plugin. **GENERALISE: a GStreamer element property whose
+DEFAULT changed between the version you develop against and the version you
+bundle is invisible until a package meets a host that disagrees — pin it.**
+
+**QML HAS NO `font.families`.** It is a C++ `QFont` API; the QML font value
+type exposes `family` alone, so assigning a list is a LOAD-TIME error that
+makes the component unavailable and cascades into every parent (it took four
+QML suites down at once). `qmlformat` does NOT catch it — it parses syntax and
+does not check that a property exists. Express a fallback by resolving ONE
+family in C++ against `QFontDatabase::families()`, on a class that already
+links **Qt6::Gui** (`AppController`, not `EmojiCatalog`, whose test target
+links Qt6::Core alone — the same constraint that keeps `QScreen` out of
+`SettingsManager`). Needed because **Qt's automatic per-character fallback is
+version-dependent**: measured, Qt 6.8.2 (Debian's, bundled in the AppImage)
+drew U+1F600 with colouredPx=0, preferring a MONOCHROME font that claims the
+codepoint, where Qt 6.11.1 drew 2580; naming the family gave 4400 on both. That
+is why emoji looked right locally and came out monochrome-or-tofu when packaged.
+
 **THE LINUX PACKAGE JOBS BUILD WITHOUT THE MEDIA ENGINE, and no local tree
 does.** Every machine here has GStreamer, so `HAVE_LIGHTNING_WEBRTC` is ON in
 `build` and in `build-rust` alike. The deb/rpm/flatpak/appimage jobs build
@@ -2351,7 +2382,13 @@ silently before login completes, publishing before `Connected` puts no track
 on the wire, sampling the SFU before a share starts looks like a forwarding
 failure. Suspect the harness first when a measurement indicts something
 distant. One guess (`min-buffers=8`) was shipped without measurement, made
-things strictly worse, and is now pinned against by a test.
+things strictly worse, and was pinned against by a test. **That ban was
+RE-SCOPED on 2026-08-28 and the reason is worth carrying**: `min-buffers=8`
+could never negotiate against a compositor offering at most 4 buffers on a
+PipeWire >= 1.6 daemon, so "no frame arrived" was a real buffer-allocation
+failure, not evidence that the property must never be set. `min-buffers=1` is
+now REQUIRED (§16, pipewiresrc). The old measurement was right; its
+attribution was not.
 
 **2026-08-23 disk + test audit.**
 
@@ -3002,7 +3039,10 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   a desktop capture delivers ON DAMAGE, so the wait is "how long until
   something on the screen changes". THREE properties have now been shipped
   against it without measurement and all three made it worse: `min-buffers=8`
-  and `keepalive-time=100` each killed the capture outright, and `compositor`
+  and `keepalive-time=100` each killed the capture outright (and `min-buffers=8`
+  is now UNDERSTOOD — see the pipewiresrc note in this section: 8 exceeds the
+  buffer ceiling a compositor offers, so on a PipeWire >= 1.6 daemon it cannot
+  negotiate at all; `min-buffers=1` is required and shipped), and `compositor`
   as the rate stage cropped a 3840x2160 desktop to its top-left quarter
   (compositor is NOT a scaler — it paints each input at native size on its
   output canvas). A fourth guess is not acceptable.
