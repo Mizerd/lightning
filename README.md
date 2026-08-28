@@ -335,20 +335,28 @@ interoperability should be verified rather than assumed.
 
 ## Contributing
 
-Issues, focused merge requests, testing and bug reports are welcome. Keep commits
-scoped and run the relevant tests; keep security- and crypto-related changes
-especially focused, with explicit reasoning and tests; never commit credentials,
-provider keys, private stores or real conversations. `CLAUDE.md` documents the
-repository's operating conventions (primarily for coding agents).
+Issues, focused patches, testing and bug reports are welcome.
+[CONTRIBUTING.md](CONTRIBUTING.md) is the full guide — how to send a change, the
+build and test commands, and the security rules. In short: keep commits scoped and
+run the relevant tests; keep security- and crypto-related changes especially
+focused, with explicit reasoning and tests; never commit credentials, provider
+keys, private stores or real conversations. `CLAUDE.md` documents the repository's
+operating conventions (primarily for coding agents).
 
 The canonical repository — the only one that accepts changes, runs releases, and
 is authoritative for provenance — is
-<https://gitlab.smetonis.net/Mizerd/lightning>.
+<https://gitlab.smetonis.net/Mizerd/lightning>. Anyone can clone it, but public
+registration is closed and its issue tracker, merge requests and forks are limited
+to members — so a change arrives either as a patch emailed to the maintainer or as
+a pull request on the mirror. Neither needs an account there.
+
 [github.com/Mizerd/lightning](https://github.com/Mizerd/lightning) is an
-automatically synchronised, **read-only mirror** for discoverability and update
-downloads; merge requests opened there are not seen. Public registration and forks
-may not be enabled on the GitLab instance — contact the maintainer for access.
-Lightning's home is <https://lightning-matrix.org>.
+automatically synchronised, force-pushed **read-only mirror** for discoverability
+and update downloads. A pull request opened there is read as a proposal and
+applied on GitLab, so it closes rather than merges even when the change ships;
+never push to the mirror's own branches, which the next release push overwrites.
+Its issue tracker is open, and is the place to file a bug report without an
+account. Lightning's home is <https://lightning-matrix.org>.
 
 ## Licence
 
