@@ -1708,8 +1708,8 @@ QtObject {
     // Sized for a COLOUR emoji, which is a picture and not a letter: at 19 px
     // in a 32 px cell the picker read as a grid of specks next to 14 px body
     // text. Both the picker grid and the quick-reaction strip use these.
-    readonly property int   emojiCellSize:  40
-    readonly property int   emojiGlyphSize: 26
+    readonly property int   emojiCellSize:  46
+    readonly property int   emojiGlyphSize: 30
 
     // ---- Layout constraints. ----
     // Maximum width of a timeline message row's content (text, media, mention
