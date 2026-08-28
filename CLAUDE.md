@@ -95,6 +95,21 @@ the lightning-deploy pipeline only after packages publish and verify
   reports success while publishing nothing. Pipeline **82** was lost to
   exactly that. Always confirm with
   `glab api projects/7/pipelines/<id>/variables` before trusting a run.
+- **`glab` PICKS ITS SERVER FROM THE CURRENT DIRECTORY, and says
+  `Unauthenticated.` when it picks wrong.** `glab config get host` is
+  **gitlab.com**; this project is on `gitlab.smetonis.net`, and glab only
+  reaches it when it can infer the host from the cwd's git remote. Measured:
+  the same `glab api projects/7/...` call succeeds from `~/git/lightning` or
+  `~/git/lightning-deploy` (only the HOST is inferred — the project id is
+  free) and fails from any directory that is not a git repository. So a call
+  made after `cd`-ing to a scratchpad or `/tmp` to handle an artifact
+  silently changes servers, and the error is a bare `Unauthenticated.` —
+  indistinguishable from an expired token. It has cost a session twice: the
+  second time a whole round of AppImage work was abandoned and handed off as
+  "auth expired, run `glab auth login`" while the token was valid for another
+  four months. **Always `export GITLAB_HOST=gitlab.smetonis.net`**, and
+  before believing a token is dead, re-run the same call from inside
+  `~/git/lightning-deploy`.
 - **A job that consumes a published byte must `needs` its producer.**
   Pipeline **110** published 0.7.5 correctly, created the tag and the
   GitLab release, and then died in `mirror-release-to-github` on
