@@ -7,7 +7,7 @@
 **A native desktop Matrix client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.8.0-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.8.1-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Platform: Linux | Windows | macOS](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-4c8fdc.svg)](#install)
 
 </div>
@@ -47,8 +47,10 @@ to Element Call, including raised hands, per-participant volume, speaking
 indication and mute. On Windows you can share a single **window** rather than a
 whole display, through a GStreamer capture element Lightning ships itself. Windows
 and macOS packages bundle GStreamer, so calling works without installing anything
-alongside them. Calls are live-validated against Element on Linux and on a
-packaged Windows build; **macOS calling is not tested**.
+alongside them. Calls are live-validated against Element on Linux — from the
+AppImage, the rpm and the Flatpak — and on a packaged Windows build; the deb is
+believed to work by inference from the rpm rather than tested, and **macOS
+calling is not tested**.
 
 **Spaces and navigation.** Two navigation layouts, chosen per account. *Classic* is
 one activity-ordered conversation list. *Channels* is a Spaces rail with a Home
@@ -128,14 +130,14 @@ package is code-signed yet:
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-Replace `0.8.0` below with the version you downloaded.
+Replace `0.8.1` below with the version you downloaded.
 
 ### Linux
 
 ```sh
-sudo apt install ./lightning_0.8.0_amd64.deb            # Debian, Ubuntu, Mint, Pop!_OS
-sudo dnf install ./lightning-0.8.0-1.x86_64.rpm         # Fedora, RHEL
-sudo zypper install ./lightning-0.8.0-1.x86_64.rpm      # openSUSE
+sudo apt install ./lightning_0.8.1_amd64.deb            # Debian, Ubuntu, Mint, Pop!_OS
+sudo dnf install ./lightning-0.8.1-1.x86_64.rpm         # Fedora, RHEL
+sudo zypper install ./lightning-0.8.1-1.x86_64.rpm      # openSUSE
 
 # The VERSION stays in the pattern; only the suffix is globbed, because some
 # browsers and download managers lower-case .AppImage on the way in. Do not
@@ -147,10 +149,10 @@ chmod +x Lightning-0.8.1-x86_64.*pp[Ii]mage && ./Lightning-0.8.1-x86_64.*pp[Ii]m
 
 flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install --user flathub org.kde.Platform//6.9     # the runtime, once
-flatpak install --user ./lightning_0.8.0_amd64.flatpak
+flatpak install --user ./lightning_0.8.1_amd64.flatpak
 flatpak run org.lightning_matrix.Lightning
 
-sudo snap install --dangerous ./lightning_0.8.0_amd64.snap
+sudo snap install --dangerous ./lightning_0.8.1_amd64.snap
 ```
 
 The leading `./` matters for `apt` and `dnf`, or they look for a package by that
@@ -171,7 +173,7 @@ deleting the folder removes it.
 
 Windows packages are **not code-signed**, so Windows shows an "unknown publisher"
 SmartScreen warning. Check the hash first
-(`Get-FileHash .\Lightning-0.8.0-<sha>-windows-x86_64.msi -Algorithm SHA256`),
+(`Get-FileHash .\Lightning-0.8.1-<sha>-windows-x86_64.msi -Algorithm SHA256`),
 then choose *More info → Run anyway*. Signing through
 [SignPath Foundation](https://signpath.org/) is planned but has not been applied
 for or granted — see the [code signing policy](docs/code-signing-policy.md).
@@ -323,8 +325,14 @@ Worth stating plainly:
 - Server-side message search covers **unencrypted rooms only**, because a
   homeserver cannot search ciphertext; encrypted rooms search the loaded timeline.
 - Space-restricted join rules are displayed but not editable.
-- Group calls are live-validated against Element on Linux and on a packaged
-  Windows build. **macOS calling has not been tested.**
+- Group calls are live-validated against Element on Linux — AppImage, rpm and
+  Flatpak — and on a packaged Windows build. The **deb has not been tested**: it
+  declares the same GStreamer dependencies as the rpm, so it is expected to
+  behave the same way, but that is reasoning rather than a test. **macOS calling
+  has not been tested.**
+- A first join can occasionally distribute the call's media key before the
+  membership list has been read, and the key then reaches nobody; leaving and
+  rejoining the call fixes it.
 - Windows and macOS packages are **not signed**; the signed update manifest is the
   integrity guarantee on every platform.
 - The macOS build has had **no GUI testing on a Mac** and cannot install its own
