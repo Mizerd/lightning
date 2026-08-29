@@ -659,6 +659,27 @@ AppDialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
+            // ABSENT, NOT DISABLED, where the platform cannot capture what
+            // the computer is playing. A greyed switch invites the question
+            // "why can I not turn this on"; nothing at all is the honest
+            // answer on a build with no loopback element, and the property
+            // is answered by GStreamer at runtime rather than by a platform
+            // macro, because which capture plugin a package ships is a
+            // packaging fact.
+            CheckBox {
+                objectName: "shareAudioCheck"
+                visible: app.groupCall && app.groupCall.shareAudioSupported
+                text: qsTr("Share audio")
+                checked: app.groupCall ? app.groupCall.shareAudioEnabled
+                                       : false
+                onToggled: {
+                    if (app.groupCall)
+                        app.groupCall.shareAudioEnabled = checked;
+                }
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Send what this computer is playing, "
+                                   + "alongside the picture")
+            }
             Item { Layout.fillWidth: true }
             AppButton {
                 storm: root.storm

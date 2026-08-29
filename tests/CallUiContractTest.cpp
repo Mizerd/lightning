@@ -2334,6 +2334,83 @@ ApplicationWindow {
 #endif
     }
 
+    void theSharePickerOffersShareAudioOnlyWhereItCanWork()
+    {
+        // A REAL LOAD, not a source scan. Every other case over this file
+        // reads it as text, and a text scan cannot see the failure that
+        // matters here: a binding to a property that does not exist is a
+        // load-time error which makes the component unavailable and cascades
+        // into every parent. qmlformat cannot see it either -- it parses
+        // syntax and does not check that a property exists.
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 700
+    height: 500
+    property alias picker: pick
+    ScreenSharePicker { id: pick; objectName: "sharePicker" }
+}
+)"), QUrl(QStringLiteral("qrc:/shareaudiopickertest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY2(owner != nullptr, "ScreenSharePicker must instantiate");
+        QCoreApplication::processEvents();
+        auto *picker = owner->property("picker").value<QObject *>();
+        QVERIFY(picker != nullptr);
+
+        // OPEN IT FIRST. `visible` is EFFECTIVE visibility: everything
+        // inside a closed dialog reads false whatever its own binding says,
+        // so asserting against a shut picker measures the dialog, not the
+        // switch. This is the same property that makes a shared busy
+        // indicator latch off under a hidden ancestor.
+        QMetaObject::invokeMethod(picker, "open");
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(picker->property("visible").toBool(), 3000);
+
+        auto *check = picker->findChild<QObject *>(
+            QStringLiteral("shareAudioCheck"));
+        QVERIFY2(check != nullptr, "the share-audio switch is gone");
+
+        // ABSENT where it cannot work, rather than present and disabled: a
+        // greyed switch invites "why can I not turn this on", and the honest
+        // answer on a build with no loopback element is that there is
+        // nothing to offer. Asserted against the controller's own answer, so
+        // this holds on a machine either way rather than only on this one.
+        const bool supported =
+            controller.groupCall()
+                ? controller.groupCall()->shareAudioSupported() : false;
+        // VACUITY IS MADE LOUD. On a machine with no loopback element both
+        // sides of the comparison below are false and the case passes
+        // without measuring anything -- which is precisely what happened
+        // first time round, because the availability probe answered "no"
+        // before GStreamer had been initialised. A skip says so; a pass
+        // would not.
+        if (!supported) {
+            QSKIP("no loopback capture element here, so the visible branch "
+                  "of this case cannot be exercised");
+        }
+        QCOMPARE(check->property("visible").toBool(), supported);
+
+        // And the switch REFLECTS the controller rather than carrying its
+        // own idea of the state -- a checkbox initialised to a literal is
+        // how a setting comes to disagree with what it controls.
+        QCOMPARE(check->property("checked").toBool(),
+                 controller.groupCall()->shareAudioEnabled());
+        controller.groupCall()->setShareAudioEnabled(false);
+        QCoreApplication::processEvents();
+        QVERIFY2(!check->property("checked").toBool(),
+                 "the switch did not follow the controller");
+        controller.groupCall()->setShareAudioEnabled(true);
+    }
+
     void chromeRetiresWithThePointerParkedOverIt()
     {
         // THE REPORTED CASE, and the one every earlier version passed while

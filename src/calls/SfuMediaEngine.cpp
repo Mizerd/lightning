@@ -912,6 +912,18 @@ static QString shareAudioSourceDescription()
         { nullptr, nullptr, nullptr },
     };
 
+    // INITIALISE FIRST. gst_element_factory_find() answers "no such element"
+    // rather than failing when the registry has never been loaded, so asking
+    // before GStreamer is up returns a confident FALSE — and the caller is a
+    // UI that hides the switch on a false. In the running app the engine
+    // bootstraps long before anyone can open the picker, so this was
+    // invisible; a test that asked the question directly got "unsupported"
+    // on a machine with pulsesrc installed, and both branches of its
+    // assertion then held vacuously. Safe to call repeatedly and in any
+    // order, which is exactly why it belongs here rather than at one call
+    // site that happens to be first today.
+    lightning::gst::ensureInitialised();
+
     for (const Candidate *c = kCandidates; c->element; ++c) {
         GstElementFactory *factory = gst_element_factory_find(c->element);
         if (!factory)

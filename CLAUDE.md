@@ -1890,6 +1890,32 @@ the next subsection carries the full confirmed list.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-08-29 — SCREEN SHARE AUDIO REACHES ELEMENT, on Linux.** Confirmed on
+a real desktop into an ENCRYPTED room: Element hears what the sharing
+computer is playing. First time share audio has ever left this client.
+
+The log carries the whole path — `share audio published`, then
+`negotiation needed: offering 2 track(s)` and an answer at **3 sections**
+(the SFU accepting the added track), then TWO independent
+`frames encrypted video=false` counters running side by side, which is the
+microphone and the share audio as two separately encrypted Opus tracks.
+
+NOT covered by that confirmation: Windows (the capture element differs and
+has only been verified to EXIST and to carry a `loopback` Boolean, by
+running the shipped SDK's own gst-inspect under Wine — Wine answers
+metadata questions, not whether WASAPI captures); the RECEIVE direction,
+i.e. whether Lightning plays share audio someone else sends; and whether a
+receiver handles two audio tracks from one participant.
+
+Seen in the same capture and NOT diagnosed: `frames dropped: no key in
+video=false` climbing on the receive side, with `sfu joined others=2`
+against `media key distributed targets=1`. The leading explanation is a
+GHOST MEMBERSHIP from the evening's repeated Ctrl+C exits — the log says
+`no MSC4140 delayed retraction armed — an unclean exit will leave this
+membership until it expires` — which is the mechanism recorded under
+"media key targets=0". Not established, and not attributable to the share
+audio change either way.
+
 **2026-08-27 — THE WINDOWS CAMERA AND THE WINDOWS SCREEN SHARE BOTH WORK.**
 Confirmed on a real packaged Windows build (project 7 pipeline 135, a
 NON-PUBLISHING snapshot from `9f829a3`): the camera sends live video instead
