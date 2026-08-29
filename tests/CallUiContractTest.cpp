@@ -1165,6 +1165,28 @@ ApplicationWindow {
         QVERIFY2(!src.contains(QStringLiteral("fullScreenDockHover")),
                  "the chrome is still held open by a hover on the dock; a "
                  "pointer resting there never leaves on a single monitor");
+
+        // The timer is never TOUCHED -- not stopped, not restarted. What
+        // resets is the count. Re-phasing a timer whose count is already at
+        // its budget retires the chrome again on the very next tick, which is
+        // how tapping the reveal arrow put it straight back to sleep.
+        QVERIFY2(!src.contains(QStringLiteral("fullScreenIdleTimer.restart()")),
+                 "the idle timer is restarted somewhere; the count is what "
+                 "carries the idle budget, so re-phasing alone leaves the "
+                 "chrome retiring on the next tick");
+        // Entering full screen, and tapping the arrow. Both must zero it.
+        QVERIFY2(src.count(QStringLiteral("idleTicks = 0")) >= 2,
+                 "something wakes the chrome without clearing the idle "
+                 "count, so it retires again immediately");
+
+        // Retired chrome must not answer input. Invisible and inert are the
+        // same thing to a pointer resting on it -- and the dock is stacked
+        // OVER the reveal arrow, so a live invisible dock swallowed the tap
+        // meant for the arrow and left no way back at all.
+        QVERIFY2(src.count(QStringLiteral("enabled: !fullScreenSurface.overlaysIdle")) >= 2,
+                 "a faded full-screen surface still accepts clicks: the "
+                 "reveal arrow is unreachable under the invisible dock, and "
+                 "a still click hits a control nobody can see");
     }
 
     void callHeaderBarShowsForALiveCallInItsOwnRoomOnly()

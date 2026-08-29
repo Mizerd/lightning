@@ -1167,10 +1167,15 @@ Rectangle {
                 anchors.right: parent.right
                 anchors.margins: AppTheme.spacing12
                 spacing: AppTheme.spacing8
-                // Fades with the dock rather than disappearing: a control the
-                // user is reaching for must not vanish under the pointer, and
-                // opacity 0 still answers a click the moment hover wakes it.
+                // Fades rather than disappearing, so a control the user is
+                // reaching for does not vanish from under the pointer -- but
+                // retired chrome must not ANSWER a click. It is invisible and
+                // the pointer may be resting on it, and the dock is stacked
+                // over the reveal arrow, so a live one both swallowed the tap
+                // meant for the arrow and let a still click hit a button
+                // nobody could see.
                 opacity: fullScreenSurface.overlaysIdle ? 0 : 1
+                enabled: !fullScreenSurface.overlaysIdle
                 Behavior on opacity {
                     enabled: !AppTheme.reducedMotion
                     NumberAnimation { duration: 180 }
@@ -1224,8 +1229,11 @@ Rectangle {
                     Accessible.name: qsTr("Show call controls")
                     TapHandler {
                         onTapped: {
+                            // The count, not the timer. It is already AT the
+                            // budget, so re-phasing alone retired the chrome
+                            // again on the very next tick.
                             fullScreenSurface.overlaysIdle = false
-                            fullScreenIdleTimer.restart()
+                            fullScreenSurface.idleTicks = 0
                         }
                     }
                 }
@@ -1241,6 +1249,7 @@ Rectangle {
                 active: root.fullScreenActive
                 visible: active
                 opacity: fullScreenSurface.overlaysIdle ? 0 : 1
+                enabled: !fullScreenSurface.overlaysIdle
                 Behavior on opacity {
                     enabled: !AppTheme.reducedMotion
                     NumberAnimation { duration: 180 }
