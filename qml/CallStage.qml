@@ -388,9 +388,31 @@ Rectangle {
 
     /// Movement anywhere over the stage wakes its chrome. Reaching for a
     /// control IS movement, so nothing has to be aimed at blind.
+    ///
+    /// MOVEMENT MEANS THE POSITION CHANGED. `pointChanged` does not: Qt
+    /// re-delivers a hover event at the SAME place whenever what sits under
+    /// the pointer changes, and retiring the chrome is exactly that — the
+    /// overlay goes disabled and the blank-cursor handler comes live. So the
+    /// naive version fed itself: ticks climbed to the budget, the chrome
+    /// hid, the hide re-delivered a hover, the hover reset the count, and the
+    /// chrome came straight back. Measured as
+    ///   TICKS 0:0 1:1 2:2 3:3 4:4 5:5 6:0 7:1 ... idle=0
+    /// with a pointer that had not moved once — the reported "it only goes
+    /// away if I click on another screen", which is simply the case where the
+    /// re-deliveries stop.
+    property real lastPointerX: -1
+    property real lastPointerY: -1
     HoverHandler {
         id: stageHover
-        onPointChanged: root.stageIdleTicks = 0
+        onPointChanged: {
+            const p = stageHover.point.scenePosition;
+            if (Math.abs(p.x - root.lastPointerX) < 1
+                && Math.abs(p.y - root.lastPointerY) < 1)
+                return;
+            root.lastPointerX = p.x;
+            root.lastPointerY = p.y;
+            root.stageIdleTicks = 0;
+        }
     }
 
     /// Put the full-screen window on the monitor the APPLICATION is on.
@@ -1186,10 +1208,20 @@ Rectangle {
             // restarts the count. That is also the "move toward the edge and
             // it reappears" behaviour, since reaching for the controls IS
             // movement.
+            // Same rule, same reason: a re-delivery at the same place is not
+            // movement, and retiring this chrome causes one.
+            property real lastPointerX: -1
+            property real lastPointerY: -1
             HoverHandler {
                 id: fullScreenHover
                 enabled: root.fullScreenActive
                 onPointChanged: {
+                    const p = fullScreenHover.point.scenePosition;
+                    if (Math.abs(p.x - fullScreenSurface.lastPointerX) < 1
+                        && Math.abs(p.y - fullScreenSurface.lastPointerY) < 1)
+                        return;
+                    fullScreenSurface.lastPointerX = p.x;
+                    fullScreenSurface.lastPointerY = p.y;
                     fullScreenSurface.idleTicks = 0;
                     fullScreenSurface.overlaysIdle = false;
                 }

@@ -2334,6 +2334,111 @@ ApplicationWindow {
 #endif
     }
 
+    void chromeRetiresWithThePointerParkedOverIt()
+    {
+        // THE REPORTED CASE, and the one every earlier version passed while
+        // production failed: a pointer that is ON the share and not moving.
+        //
+        // "while my mouse is on screen it still has the ui, only if i click
+        // on another window in another screen they go away" — which is the
+        // shape of a FEEDBACK LOOP, not of a dead timer. Retiring the chrome
+        // changes what sits under the pointer (the overlay goes disabled, the
+        // blank-cursor handler comes live), Qt re-delivers a hover event at
+        // the same position, and a handler that treats `pointChanged` as
+        // movement resets its own count. Measured on the unfixed tree with a
+        // pointer that never moved:
+        //     TICKS 0:0 1:1 2:2 3:3 4:4 5:5 6:0 7:1 8:2 ... idle=0
+        // It climbs to the budget, hides, wakes itself, forever. Clicking
+        // another screen "fixes" it only by stopping the re-deliveries.
+        //
+        // A real window and real mouse events, because NONE of this is
+        // reachable without a pointer -- which is exactly why three previous
+        // versions of this test passed on broken code.
+#ifndef HAVE_LIGHTNING_WEBRTC
+        QSKIP("built without the SFU media engine");
+#else
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+        SfuCallController *call = controller.groupCall();
+        QVERIFY(call);
+        QVariantMap track;
+        track.insert(QStringLiteral("source"), QStringLiteral("screen_share"));
+        track.insert(QStringLiteral("sid"), QStringLiteral("TR_parked"));
+        track.insert(QStringLiteral("muted"), false);
+        QVariantMap sharer;
+        sharer.insert(QStringLiteral("identity"), QStringLiteral("bob"));
+        sharer.insert(QStringLiteral("sid"), QStringLiteral("PA_bob"));
+        sharer.insert(QStringLiteral("tracks"), QVariantList { track });
+        call->ingestParticipantsForTest({ sharer });
+        CallStageState *stage = call->stageState();
+        QVERIFY(stage);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(5000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root);
+        stage->restoreShare(QStringLiteral("TR_parked"));
+
+        QQuickWindow window;
+        window.resize(1200, 800);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(1200, 800));
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window, 5000));
+        window.requestActivate();
+        QCoreApplication::processEvents();
+        QVERIFY2(root->property("spotlightHasSurface").toBool(),
+                 "no spotlight, so nothing draws over a picture and this "
+                 "measures nothing");
+
+        const int budgetMs = root->property("idleTickMs").toInt()
+                             * root->property("idleTicksToHide").toInt();
+
+        // Pointer ONTO the share, once. Never moved again.
+        QTest::mouseMove(&window, QPoint(600, 300));
+        QCoreApplication::processEvents();
+        QVERIFY2(!root->property("stageChromeIdle").toBool(),
+                 "retired before any time passed");
+        QTRY_VERIFY_WITH_TIMEOUT(root->property("stageChromeIdle").toBool(),
+                                 budgetMs + 20000);
+
+        // AND IT MUST STAY RETIRED. Reaching the state is not the claim --
+        // under the feedback loop it reached it too, for a few milliseconds
+        // each cycle, which QTRY_VERIFY duly caught. That is why the first
+        // version of this very test passed on the broken tree. What the
+        // reporter sees is chrome that is THERE, so the assertion is that it
+        // stays gone.
+        for (int i = 0; i < 20; ++i) {
+            QTest::qWait(200);
+            QVERIFY2(root->property("stageChromeIdle").toBool(),
+                     "the chrome woke itself with the pointer parked and "
+                     "unmoved -- a hide that re-delivers a hover event and "
+                     "counts it as movement");
+        }
+
+        // And a REAL move wakes it -- the other half, or the fix could simply
+        // be "never reset" and this would still pass.
+        QTest::mouseMove(&window, QPoint(640, 340));
+        QCoreApplication::processEvents();
+        QVERIFY2(!root->property("stageChromeIdle").toBool(),
+                 "moving the pointer did not bring the controls back");
+
+        // ...and retires again afterwards, so waking is not a latch.
+        QTRY_VERIFY_WITH_TIMEOUT(root->property("stageChromeIdle").toBool(),
+                                 budgetMs + 20000);
+#endif
+    }
+
     void chromeOverAPictureRetiresOnItsOwnTimerInBothPlaces()
     {
         // THE TEST THAT WAS MISSING, and its absence is the whole reason this
