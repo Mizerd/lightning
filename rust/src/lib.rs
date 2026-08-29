@@ -8099,12 +8099,110 @@ async fn run_classic_sync(
     let callback_client = client.clone();
     let callback_events = Arc::clone(&events);
     let callback_first = Arc::clone(&first_response);
-    let sync = client.sync_with_callback(settings, move |_response| {
+    // Classic sync v2 populates NO recency information by itself: the SDK's
+    // recency_stamp is written only by the simplified-sliding-sync response
+    // processor, and LatestEventValue only for rooms registered with the
+    // lazy Latest Events API — which the sliding path registers from its
+    // room-list diffs and this path therefore cannot rely on. Without help,
+    // every ordering stamp is 0 and the room list sorts arbitrarily (first
+    // observed live against Beeper, whose server takes the fallback).
+    //
+    // Two mechanisms, with distinct jobs:
+    //
+    //  * ORDERING comes from the sync responses themselves. Every response
+    //    carries each updated room's new timeline events, and the initial
+    //    full-state response carries a recent window for every room — so
+    //    harvesting the newest origin_server_ts per room gives every room
+    //    a truthful recency stamp, unbounded by any cap, and a room that
+    //    wakes up after months re-stamps itself on the response that wakes
+    //    it. The stamp map overrides the payload's last_activity_ms
+    //    whenever it knows better.
+    //
+    //  * PREVIEWS come from the Latest Events API, which stays bounded by
+    //    the shared cap exactly as on the sliding path. Classic iteration
+    //    order is arbitrary where sliding sync's was recency-ordered, so
+    //    rooms with unread activity claim the cap first, and when the cap
+    //    is full a waking room evicts the stalest watched room rather than
+    //    being refused — the cap bounds SDK computation, it must not
+    //    freeze the set chosen in the first minute forever.
+    let callback_watched: Arc<tokio::sync::Mutex<BTreeSet<OwnedRoomId>>> =
+        Arc::new(tokio::sync::Mutex::new(BTreeSet::new()));
+    let callback_stamps: Arc<tokio::sync::Mutex<HashMap<OwnedRoomId, u64>>> =
+        Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+    let sync = client.sync_with_callback(settings, move |response| {
         let client = callback_client.clone();
         let events = Arc::clone(&callback_events);
         let first_response = Arc::clone(&callback_first);
+        let watched = Arc::clone(&callback_watched);
+        let stamps = Arc::clone(&callback_stamps);
         async move {
-            enqueue_rooms(&events, &client).await;
+            {
+                let mut stamps = stamps.lock().await;
+                for (room_id, update) in &response.rooms.joined {
+                    let mut newest = 0u64;
+                    for event in &update.timeline.events {
+                        if let Ok(Some(ts)) = event
+                            .raw()
+                            .get_field::<UInt>("origin_server_ts")
+                        {
+                            newest = newest.max(u64::from(ts));
+                        }
+                    }
+                    if newest > 0 {
+                        let entry = stamps.entry(room_id.clone()).or_default();
+                        *entry = (*entry).max(newest);
+                    }
+                }
+            }
+            let latest_events = client.latest_events().await;
+            {
+                let mut watched = watched.lock().await;
+                let stamps = stamps.lock().await;
+                let joined: Vec<Room> = client
+                    .rooms()
+                    .into_iter()
+                    .filter(|room| matches!(room.state(), matrix_sdk::RoomState::Joined))
+                    .collect();
+                for room in joined.iter()
+                    .filter(|room| room.num_unread_notifications() > 0)
+                {
+                    if !watched.contains(room.room_id())
+                        && watched.len() >= LATEST_EVENT_WATCH_CAP
+                    {
+                        // Evict the stalest watched room, but only for a
+                        // genuinely fresher one — churn for a tie helps
+                        // nobody.
+                        let incoming =
+                            stamps.get(room.room_id()).copied().unwrap_or(0);
+                        let oldest = watched
+                            .iter()
+                            .min_by_key(|id| {
+                                stamps.get(*id).copied().unwrap_or(0)
+                            })
+                            .cloned();
+                        if let Some(oldest) = oldest {
+                            if incoming
+                                > stamps.get(&oldest).copied().unwrap_or(0)
+                            {
+                                latest_events.forget_room(&oldest).await;
+                                watched.remove(&oldest);
+                            } else {
+                                continue;
+                            }
+                        }
+                    }
+                    watch_latest_event(&latest_events, &mut watched, room.room_id())
+                        .await;
+                }
+                for room in &joined {
+                    watch_latest_event(&latest_events, &mut watched, room.room_id())
+                        .await;
+                }
+            }
+            {
+                let stamps = stamps.lock().await;
+                enqueue_rooms_stamped(&events, &client, Some(&stamps)).await;
+            }
             let spaces = SpaceService::new(client.clone()).await;
             enqueue_spaces(&events, &spaces, &client).await;
             enqueue(&events, json!({ "type": "room_list_sync_state", "state": "running" }));
@@ -8442,11 +8540,34 @@ async fn room_payload(room: &Room) -> serde_json::Value {
 }
 
 async fn enqueue_rooms(events: &Arc<Mutex<VecDeque<String>>>, client: &Client) {
+    enqueue_rooms_stamped(events, client, None).await;
+}
+
+/// `stamps`: response-harvested recency (classic sync only — see
+/// run_classic_sync). It overrides a payload's last_activity_ms when it
+/// knows a NEWER time; a payload whose own stamp is fresher (a live latest
+/// event) always wins, so the two sources can only improve on each other.
+async fn enqueue_rooms_stamped(
+    events: &Arc<Mutex<VecDeque<String>>>,
+    client: &Client,
+    stamps: Option<&HashMap<OwnedRoomId, u64>>,
+) {
     let mut out = Vec::new();
     for room in client.rooms() {
         if matches!(room.state(), matrix_sdk::RoomState::Joined
             | matrix_sdk::RoomState::Invited | matrix_sdk::RoomState::Knocked) {
-            out.push(room_payload(&room).await);
+            let mut payload = room_payload(&room).await;
+            if let Some(stamps) = stamps {
+                if let Some(&stamp) = stamps.get(room.room_id()) {
+                    let existing = payload["last_activity_ms"]
+                        .as_u64()
+                        .unwrap_or(0);
+                    if stamp > existing {
+                        payload["last_activity_ms"] = json!(stamp);
+                    }
+                }
+            }
+            out.push(payload);
         }
     }
     enqueue(events, json!({ "type": "room_list_reset", "rooms": out }));
