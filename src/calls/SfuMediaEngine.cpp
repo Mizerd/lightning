@@ -887,6 +887,18 @@ static QString shareAudioSourceDescription()
     // wasapi is the older one and is still staged, so it stays as a fallback.
     static const Candidate kCandidates[] = {
 #if defined(Q_OS_WIN)
+        // MEASURED against the SHIPPED plugin, not assumed: the GStreamer
+        // 1.28.5 MinGW SDK was installed under Wine and inspected, from an
+        // installer whose SHA-256 matches the pin in the packaging repo's
+        // Dockerfile byte for byte. Both elements resolve; `loopback` is a
+        // Boolean on both, DEFAULT FALSE, so it has to be set explicitly;
+        // `low-latency` is a Boolean on wasapi2src. Both are "changeable
+        // only in NULL or READY", which is satisfied because they are set at
+        // parse time, before the bin is ever brought up.
+        //
+        // What that does NOT establish is that the capture produces audio on
+        // real Windows hardware — Wine answers questions about metadata, not
+        // about WASAPI.
         { "wasapi2src", "loopback",
           "wasapi2src loopback=true low-latency=true" },
         { "wasapisrc", "loopback", "wasapisrc loopback=true" },
