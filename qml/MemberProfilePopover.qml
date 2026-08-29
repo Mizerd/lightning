@@ -445,7 +445,21 @@ Popup {
                 id: banner
                 objectName: "profileBanner"
                 width: parent.width
-                height: 64
+                // 3:1 — THE RATIO THE CROPPER ACTUALLY PRODUCES.
+                //
+                // This was a flat 64, which at this card's width is about
+                // 4.6:1. A banner cropped to 3:1 then met PreserveAspectCrop
+                // in a wider box and was cropped a SECOND time, so the region
+                // the user chose was not the region they got: they picked a
+                // strip and the card kept a thinner slice out of the middle
+                // of it. Deriving the height from the width means the crop
+                // rectangle and the visible rectangle are the same rectangle.
+                //
+                // ImageCropDialog.aspect is the source of that 3.0; if the
+                // banner ratio ever changes, it changes in one place and
+                // this follows, because ProfileBannerManager's own copy of
+                // the number is what the crop dialog is handed.
+                height: Math.round(width / 3)
                 // Storm 2g banner: stormSelection → stormPanel at 120°.
                 property color c1: AppTheme.stormSelection
                 property color c2: AppTheme.stormPanel
@@ -635,18 +649,20 @@ Popup {
                         Label {
                             objectName: "profileDisplayName"
                             Layout.fillWidth: true
-                            // A FLOOR, so the badge beside it cannot squeeze
-                            // the name away. A RowLayout that cannot fit
-                            // every child shrinks them all in proportion to
-                            // their PREFERRED widths, and a display name's
-                            // implicit width is much larger than a short
-                            // badge pill's — so the name absorbed nearly the
-                            // whole squeeze and rendered as "Roma…" beside a
-                            // fully drawn "idea master". The person's name is
-                            // the primary identity on a card that is ABOUT
-                            // them; decoration yields to it, not the reverse.
-                            Layout.minimumWidth: Math.min(
-                                implicitWidth, AppTheme.scaled(140))
+                            // NO minimum width here, deliberately.
+                            //
+                            // A floor was tried and it is what made the card
+                            // burst its own edges: a Qt Quick Layout whose
+                            // children's MINIMUMS exceed the parent does not
+                            // shrink them, it OVERFLOWS — so the Message
+                            // button hung outside the panel and the banner
+                            // stretched to the overflowing content width.
+                            //
+                            // The name gets its room the other way instead:
+                            // Message moved out of this row entirely (see
+                            // below), so the name and the badge have the
+                            // whole line rather than competing with a
+                            // fixed-width control for it.
                             text: root.visibleName
                             // The identity ink, hashed from the MXID exactly
                             // as the timeline sender name and the avatar disc
@@ -725,77 +741,102 @@ Popup {
                     }
 
                     Label {
+                        objectName: "profileUserId"
                         Layout.fillWidth: true
                         text: root.userId
                         color: AppTheme.stormTextMuted
                         font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.fontMonoXS
-                        elide: Label.ElideMiddle
+                        // WRAPPED, not middle-elided. Eliding cut the middle
+                        // out of the homeserver — "@test:mat…tonis.net" — so
+                        // the one string on this card that has to be exact,
+                        // because it is what you copy and what identifies the
+                        // person, was the one being mangled. Two short lines
+                        // cost less than an unusable id.
+                        //
+                        // WrapAnywhere rather than word wrap: an mxid has no
+                        // spaces, so word wrapping cannot break it at all.
+                        wrapMode: Text.WrapAnywhere
+                        maximumLineCount: 2
+                        elide: Label.ElideRight
                     }
                 }
 
-                // Primary Message action — AppButton has no icon slot or a
-                // parametrized radius, so this mirrors its accent styling
-                // locally with the chat_bubble icon the spec asks for.
-                AbstractButton {
-                    id: messageButton
-                    text: qsTr("Message")
-                    visible: !root.isOwn && app.conversations.supported
-                    Layout.alignment: Qt.AlignTop
-                    // Sized to its own content now that it shares the row
-                    // with the identity block instead of filling it.
-                    implicitWidth: messageContent.implicitWidth
-                                   + 2 * AppTheme.spacing12
-                    implicitHeight: 32
-                    hoverEnabled: true
-                    focusPolicy: Qt.TabFocus
-                    Accessible.role: Accessible.Button
-                    Accessible.name: qsTr("Start or open a direct message with %1")
-                                     .arg(root.visibleName)
-                    onClicked: root.startOrOpenDm()
+            }
+            // Primary Message action — AppButton has no icon slot or a
+            // MOVED OUT OF THE IDENTITY ROW.
+            //
+            // Sharing one line with the display name and the badge is what
+            // truncated the name to "RomanticAnimeG…" on a 296px card, and
+            // the floor added to stop that made the row overflow instead —
+            // the button hung outside the panel and the banner stretched to
+            // the overflowing width. A full-width action under the identity
+            // is also what Sable and Discord do, and it gives the name the
+            // whole line without any minimum-width fight.
+            // parametrized radius, so this mirrors its accent styling
+            // locally with the chat_bubble icon the spec asks for.
+            AbstractButton {
+                id: messageButton
+                text: qsTr("Message")
+                visible: !root.isOwn && app.conversations.supported
+                // Centred on the identity block rather than pinned to
+                // its top: the block grew a second id line and a badge
+                // row, and AlignTop left this button visibly high beside
+                // them. The chip row below is aligned the same way.
+                Layout.fillWidth: true
+                // Sized to its own content now that it shares the row
+                // with the identity block instead of filling it.
+                implicitWidth: messageContent.implicitWidth
+                               + 2 * AppTheme.spacing12
+                implicitHeight: 32
+                hoverEnabled: true
+                focusPolicy: Qt.TabFocus
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Start or open a direct message with %1")
+                                 .arg(root.visibleName)
+                onClicked: root.startOrOpenDm()
 
-                    // Spacer-centred: a control
-                    // stretches its contentItem to the full button width, so
-                    // anchors.centerIn on the layout is a no-op and the
-                    // icon+label would sit hard against the left edge.
-                    // Storm §3.9 primary: THE one bolt fill on this surface.
-                    // boltInk is the ink on that fill (Storm: deep canvas
-                    // navy; legacy: accentText) — stays readable once bolt
-                    // routes to each legacy theme's own accent.
-                    contentItem: RowLayout {
-                        id: messageContent
-                        spacing: AppTheme.spacing6
-                        Item { Layout.fillWidth: true }
-                        Icon {
-                            name: "chat_bubble"
-                            size: 16
-                            color: AppTheme.boltInk
-                        }
-                        Label {
-                            text: messageButton.text
-                            color: AppTheme.boltInk
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textBody
-                            font.weight: AppTheme.weightStrong
-                        }
-                        Item { Layout.fillWidth: true }
+                // Spacer-centred: a control
+                // stretches its contentItem to the full button width, so
+                // anchors.centerIn on the layout is a no-op and the
+                // icon+label would sit hard against the left edge.
+                // Storm §3.9 primary: THE one bolt fill on this surface.
+                // boltInk is the ink on that fill (Storm: deep canvas
+                // navy; legacy: accentText) — stays readable once bolt
+                // routes to each legacy theme's own accent.
+                contentItem: RowLayout {
+                    id: messageContent
+                    spacing: AppTheme.spacing6
+                    Item { Layout.fillWidth: true }
+                    Icon {
+                        name: "chat_bubble"
+                        size: 16
+                        color: AppTheme.boltInk
                     }
-                    background: Rectangle {
-                        radius: AppTheme.radiusMd
-                        color: !messageButton.enabled ? AppTheme.stormInset
-                               : messageButton.down ? Qt.darker(AppTheme.bolt, 1.12)
-                               : messageButton.hovered ? Qt.darker(AppTheme.bolt, 1.05)
-                               : AppTheme.bolt
+                    Label {
+                        text: messageButton.text
+                        color: AppTheme.boltInk
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textBody
+                        font.weight: AppTheme.weightStrong
                     }
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: -2
-                        radius: AppTheme.radiusMd + 2
-                        color: "transparent"
-                        border.width: 2
-                        border.color: AppTheme.focusRing
-                        visible: messageButton.visualFocus
-                    }
+                    Item { Layout.fillWidth: true }
+                }
+                background: Rectangle {
+                    radius: AppTheme.radiusMd
+                    color: !messageButton.enabled ? AppTheme.stormInset
+                           : messageButton.down ? Qt.darker(AppTheme.bolt, 1.12)
+                           : messageButton.hovered ? Qt.darker(AppTheme.bolt, 1.05)
+                           : AppTheme.bolt
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -2
+                    radius: AppTheme.radiusMd + 2
+                    color: "transparent"
+                    border.width: 2
+                    border.color: AppTheme.focusRing
+                    visible: messageButton.visualFocus
                 }
             }
 
@@ -856,12 +897,23 @@ Popup {
             // a fixed row would clip a long homeserver name, and a clipped
             // domain is a misleading one.
             Flow {
+                id: chipRow
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
+                // ONE HEIGHT FOR EVERY CHIP IN THIS ROW.
+                //
+                // A Flow lays its children out top-aligned, and the two kinds
+                // here disagree: StatusChip is max(chipHeight, content+4)
+                // while ProfileChipButton is chipHeight+6. That few-pixel
+                // difference is what read as "Share and the three dots are
+                // not centred" — they were not misaligned horizontally, they
+                // were shorter neighbours hanging off a common top edge.
+                readonly property int uniformHeight: AppTheme.chipHeight + 6
 
                 // The homeserver half of their address. Informational only —
                 // there is nothing to do with it that this card can do.
                 StatusChip {
+                    height: chipRow.uniformHeight
                     visible: root.homeserver.length > 0
                     storm: true
                     tone: "neutral"
@@ -874,6 +926,7 @@ Popup {
                 // control, so naming the outcome is what keeps "Share" from
                 // being a second name for something the user cannot see.
                 ProfileChipButton {
+                    height: chipRow.uniformHeight
                     objectName: "profileShareButton"
                     iconName: "link"
                     label: qsTr("Share")
@@ -944,18 +997,21 @@ Popup {
                 // the room's REAL power levels, and a decorative badge must
                 // never compete with them.
                 StatusChip {
+                    height: chipRow.uniformHeight
                     visible: root.role === "administrator" || root.role === "creator"
                     storm: true
                     tone: "accent"
                     label: qsTr("Administrator")
                 }
                 StatusChip {
+                    height: chipRow.uniformHeight
                     visible: root.role === "moderator"
                     storm: true
                     tone: "info"
                     label: qsTr("Moderator")
                 }
                 StatusChip {
+                    height: chipRow.uniformHeight
                     visible: root.isOwn
                     storm: true
                     tone: "neutral"
@@ -968,6 +1024,7 @@ Popup {
                 // nickname to set, and this card has never rendered a
                 // disabled placeholder for something with no backend.
                 ProfileChipButton {
+                    height: chipRow.uniformHeight
                     objectName: "profileOverflowButton"
                     iconName: "more_horiz"
                     label: ""
@@ -983,6 +1040,17 @@ Popup {
                     AppMenu {
                         id: profileOverflowMenu
                         menuWidth: 240
+                        // BOUNDED, so a person you share many rooms with does
+                        // not produce a menu taller than the screen. Qt's
+                        // Menu scrolls its own content once a height is set;
+                        // without one it grows without limit and the rows at
+                        // the bottom become unreachable.
+                        //
+                        // The list itself is capped in Rust at
+                        // MAX_MUTUAL_ROOMS, so this is the second of two
+                        // bounds rather than the only one — 100 or 1000
+                        // shared rooms reach QML as at most that cap.
+                        height: Math.min(implicitHeight, 420)
 
                         // ── Rooms in common, the way Sable lists them ──────
                         //
@@ -992,6 +1060,12 @@ Popup {
                         // and an empty section would assert the stronger one.
                         MenuSectionLabel {
                             objectName: "profileMutualRoomsHeader"
+                            // Matched to AppMenuItem's own left padding.
+                            // Dropped straight into a Menu the label has none
+                            // of its own, so the heading sat hard against the
+                            // panel edge while the rows under it were inset.
+                            leftPadding: AppTheme.menuItemPadding + 6
+                            rightPadding: AppTheme.menuItemPadding
                             visible: !root.isOwn
                                      && app.roomInfo.mutualRooms.length > 0
                             // A hidden label must take no space either: a

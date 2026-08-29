@@ -312,14 +312,19 @@ void SettingsSessionTest::previewDefaultsAndEncryptedOff()
     // keep. UNENCRYPTED previews load automatically since 2026-08-29, at the
     // maintainer's explicit request; the switch is in Privacy & security.
     // GIF animation of already-received media stays ON.
-    QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
+    QCOMPARE(settings.loadPreviewsInEncryptedRooms(), true);
     QCOMPARE(settings.autoLoadLinkPreviews(), true);
     QCOMPARE(settings.animateGifPreviews(), true);
 
+    // Driven AWAY from the default and back: writing the value it already
+    // holds is a correct no-op that emits nothing.
     QSignalSpy spy(&settings,
                    &SettingsManager::loadPreviewsInEncryptedRoomsChanged);
-    settings.setLoadPreviewsInEncryptedRooms(true);
+    settings.setLoadPreviewsInEncryptedRooms(false);
     QCOMPARE(spy.count(), 1);
+    QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
+    settings.setLoadPreviewsInEncryptedRooms(true);
+    QCOMPARE(spy.count(), 2);
     QCOMPARE(settings.loadPreviewsInEncryptedRooms(), true);
 }
 

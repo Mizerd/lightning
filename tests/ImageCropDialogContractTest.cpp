@@ -364,6 +364,45 @@ private Q_SLOTS:
         }
         QCOMPARE(checked, int(std::size(kUntouched)));
     }
+    // WHAT YOU CROP IS WHAT YOU SEE.
+    //
+    // ImageCropDialog crops a banner to 3:1. Every surface that DISPLAYS a
+    // banner therefore has to be 3:1 too, or PreserveAspectCrop takes a
+    // second bite out of the region the user already chose — they pick a
+    // strip and the card keeps a thinner slice from the middle of it.
+    // Reported as "the image doesn't fit in my banner; the cropper should let
+    // me select the full region that will be visible".
+    //
+    // The member card was a flat 64px (about 4.6:1 at its width) and the
+    // Space settings preview a flat 120px. Both derive it now.
+    void everyBannerSurfaceUsesTheRatioTheCropperProduces()
+    {
+        struct Surface { const char *file; const char *what; };
+        const Surface surfaces[] = {
+            { "MemberProfilePopover.qml", "the member profile card" },
+            { "SpaceSettingsDialog.qml",  "the Space settings preview" },
+            { "SettingsScreen.qml",       "your own banner preview" },
+        };
+        for (const Surface &s : surfaces) {
+            const QString src = read(QString::fromLatin1(s.file));
+            QVERIFY2(!src.isEmpty(), s.file);
+            QVERIFY2(src.contains(QStringLiteral("width / 3")),
+                     qPrintable(QStringLiteral("%1 (%2) does not derive its "
+                                               "banner height from the 3:1 the "
+                                               "cropper produces, so it crops "
+                                               "the chosen region again")
+                                    .arg(QString::fromLatin1(s.file),
+                                         QString::fromLatin1(s.what))));
+        }
+
+        // And the dialog itself must still BE 3:1, or the rule above is
+        // pinned against the wrong number.
+        const QString dialog = read(QStringLiteral("ImageCropDialog.qml"));
+        QVERIFY(!dialog.isEmpty());
+        QVERIFY2(dialog.contains(QStringLiteral("role === \"banner\" ? 3.0 : 1.0")),
+                 "the crop aspect changed; every surface above pins 3:1");
+    }
+
 };
 
 QTEST_APPLESS_MAIN(ImageCropDialogContractTest)

@@ -673,21 +673,31 @@ private Q_SLOTS:
         // maintainer's explicit request). The tradeoff is unchanged and the
         // switch to turn it off is in Privacy & security.
         QCOMPARE(settings.autoLoadLinkPreviews(), true);
-        // ENCRYPTED rooms stay OFF, and this half is the one that matters:
-        // the fetch is client-side, so an automatic preview hands the
-        // reader's IP address and read timing to any host a sender links —
-        // and in an encrypted room the very fact that a link was followed is
-        // information the room was meant to keep. Flipping this default too
-        // would be a different decision from the one that was asked for.
-        QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
+        // BOTH default ON since 2026-08-29, at the maintainer's explicit
+        // and repeated request: previews load by default and the only
+        // control is the switch in Privacy & security.
+        //
+        // The tradeoff is recorded rather than dropped. The fetch is
+        // client-side, so an automatic preview hands the reader's IP address
+        // and read timing to any host a sender links — and in an ENCRYPTED
+        // room the fact that a link was followed at all is information the
+        // room was otherwise keeping. That is why this half was held back
+        // when the unencrypted one flipped, and why turning it on was a
+        // second, separate decision.
+        QCOMPARE(settings.loadPreviewsInEncryptedRooms(), true);
         QCOMPARE(settings.animateGifPreviews(), true);
 
+        // Toggled AWAY from the default and back. Writing the value it
+        // already holds is a no-op that emits nothing — which is correct, and
+        // is why this drives it off first rather than on.
         QSignalSpy encryptedChanged(
             &settings, &SettingsManager::loadPreviewsInEncryptedRoomsChanged);
-        settings.setLoadPreviewsInEncryptedRooms(true);
-        QCOMPARE(encryptedChanged.count(), 1);
-        QCOMPARE(settings.loadPreviewsInEncryptedRooms(), true);
         settings.setLoadPreviewsInEncryptedRooms(false);
+        QCOMPARE(encryptedChanged.count(), 1);
+        QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
+        settings.setLoadPreviewsInEncryptedRooms(true);
+        QCOMPARE(encryptedChanged.count(), 2);
+        QCOMPARE(settings.loadPreviewsInEncryptedRooms(), true);
     }
 };
 

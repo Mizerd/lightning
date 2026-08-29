@@ -51,6 +51,27 @@ Item {
     // height still takes its implicit one, so the standalone form is
     // unchanged.
     implicitHeight: root._count > 0 ? root.bubbleSize + 10 : 0
+    // An implicit WIDTH too, for the same reason as the height above.
+    //
+    // This component only ever had a height, because its one host filled it
+    // (`Layout.fillWidth: true` on the collapsed strip) and a filling child
+    // never needs an implicit width. Placed in the stage header beside a
+    // spotlight it does NOT fill — so it took width 0 and drew nothing at
+    // all, which is the "call bubbles should be here" report: the host was
+    // active and the component was invisible.
+    //
+    // Content width, capped: a large call must not push the title and the
+    // controls out of the header. Past the cap the strip scrolls, which it
+    // already supports — it is a ListView, and truncating instead would put
+    // a second, disagreeing count next to the header's.
+    implicitWidth: root._count > 0
+        ? Math.min(root._count * (root.bubbleSize + AppTheme.spacing6),
+                   root.maxImplicitWidth)
+        : 0
+    /// How wide this strip may get before it starts scrolling. A host that
+    /// fills (the collapsed strip) overrides the width anyway and never
+    /// consults this.
+    property int maxImplicitWidth: 220
     visible: root._count > 0
 
     ListView {

@@ -2255,13 +2255,13 @@ Item {
                     // this one sits in every text row in the timeline.
                     Loader {
                         objectName: "previewRestoreLoader"
-                        // The view's own hovered-row key, which is what the
-                        // action bar already uses — there is no per-delegate
-                        // `hovered`, and adding a second hover notion would
-                        // let two rows disagree about which one is hovered.
+                        // ALWAYS shown while dismissed, not only on hover.
+                        // Hover-gating it meant the card was "just gone for
+                        // that session" — the reader had no way to know a
+                        // preview was ever there, let alone that it could
+                        // come back. It is one muted line; that is a small
+                        // price for the state being reversible at all.
                         active: root.previewDismissed
-                                && root.timelineView
-                                && root.timelineView.hoveredActionsKey === root.actionKey
                         visible: active
                         Layout.alignment: Qt.AlignLeft
                         Layout.preferredHeight: active ? implicitHeight : 0

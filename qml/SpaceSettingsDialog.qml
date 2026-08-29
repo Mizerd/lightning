@@ -579,7 +579,12 @@ AppDialog {
 
                                 Rectangle {
                                     Layout.fillWidth: true
-                                    implicitHeight: 120
+                                    // 3:1 — the ratio ImageCropDialog crops a
+                                    // banner to. A flat height here re-cropped
+                                    // the image inside the region the user had
+                                    // already chosen, so the preview did not
+                                    // show what was saved.
+                                    implicitHeight: Math.round(width / 3)
                                     radius: AppTheme.radiusMd
                                     clip: true
                                     color: AppTheme.stormPanel

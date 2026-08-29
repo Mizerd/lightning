@@ -384,9 +384,30 @@ Rectangle {
                 // the source.
                 readonly property bool channelsLayout:
                     app.settings && app.settings.roomNavigationLayout === 1
+                // A SPACE view gets People back.
+                //
+                // Channels dropped People and Rooms because its tabs were
+                // that split — true at Home and in Direct Messages, where the
+                // chip would either match nothing or restate the view. It
+                // stopped being true when a Space view gained a People group
+                // (the DMs with that Space's members): the group is gated on
+                // this very filter, so without the chip there was no way to
+                // ask for it and it could never appear. Reported as "there is
+                // no people filter, when im in a space".
+                //
+                // Rooms is deliberately NOT added back: a Space view without
+                // the People filter already shows exactly its rooms, so the
+                // chip would restate the view it is in.
+                readonly property bool spaceView:
+                    app.spaceChannels
+                    && app.spaceChannels.viewKind === "space"
                 model: channelsLayout
-                       ? [ { label: qsTr("All"), value: 0 },
-                           { label: qsTr("Unreads"), value: 3 } ]
+                       ? (spaceView
+                          ? [ { label: qsTr("All"), value: 0 },
+                              { label: qsTr("People"), value: 1 },
+                              { label: qsTr("Unreads"), value: 3 } ]
+                          : [ { label: qsTr("All"), value: 0 },
+                              { label: qsTr("Unreads"), value: 3 } ])
                        : [ { label: qsTr("All"), value: 0 },
                            { label: qsTr("People"), value: 1 },
                            { label: qsTr("Rooms"), value: 2 },
