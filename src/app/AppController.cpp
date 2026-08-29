@@ -182,6 +182,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_railLayout = std::make_unique<RailLayoutStore>(m_settings.get(), this);
     m_railEntries = std::make_unique<RailEntryModel>(this);
     m_mediaVisibility = std::make_unique<MediaVisibilityStore>(this);
+    // Persistence is account-scoped, so this also loads whatever the account
+    // that is active right now had hidden.
+    m_mediaVisibility->setSettings(m_settings.get());
     m_banners = std::make_unique<ProfileBannerManager>(this);
     m_bio = std::make_unique<ProfileBioManager>(this);
     // A fixed local table, so it needs no client and no session: it is
@@ -1142,12 +1145,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             &AppController::retireOwnDisplayNameWrite);
     connect(m_client.get(), &MatrixClient::loggedOut, this,
             &AppController::retireOwnAvatarWrite);
-    // Hidden-image state is per SESSION and per ACCOUNT: what one account's
-    // reader hid says nothing about the next account's rooms, and
-    // detachSession() (the account switch) emits this too, which makes the
-    // clear idempotent rather than duplicated.
+    // Hidden-image state is per ACCOUNT: what one account's reader hid says
+    // nothing about the next account's rooms, and detachSession() (the
+    // account switch) emits this too, which makes the reset idempotent
+    // rather than duplicated.
+    //
+    // resetForSession(), NOT clear(): the list is persisted now, and clear()
+    // writes. Using it here would erase the account's saved hidden images on
+    // its own sign-out — the opposite of what persisting them is for.
     connect(m_client.get(), &MatrixClient::loggedOut, this, [this] {
-        m_mediaVisibility->clear();
+        m_mediaVisibility->resetForSession();
     });
     connect(m_client.get(), &MatrixClient::errorOccurred,
             this, &AppController::errorReported);
@@ -3904,6 +3911,11 @@ void AppController::switchToAccount(const QString &userId)
     // be ANNOUNCED — it cannot be discovered.
     if (m_shortcuts)
         m_shortcuts->reload();
+    // Hidden images are per account and cached in memory for the same reason
+    // shortcuts are, so the switch has to be ANNOUNCED here too — it cannot
+    // be discovered.
+    if (m_mediaVisibility)
+        m_mediaVisibility->reloadForAccount();
     if (!m_client->restoreSession()) {
         qCWarning(lcApp) << "account switch restore failed"
                          << "slug=" << matrix::app_data::safeUserSlug(target);

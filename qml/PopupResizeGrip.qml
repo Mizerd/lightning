@@ -39,6 +39,9 @@ import MatrixClient
 // until the drag threshold is crossed, and HoverHandler consumes nothing, so a
 // plain click still lands on the field — only an actual drag resizes.
 //
+// Once the threshold IS crossed the grab is held for the whole gesture; see
+// `grabPermissions` below for why that is not the same statement.
+//
 // POINTER AND TOUCH ONLY. DragHandler accepts touch, so a tap-drag works, but
 // there is deliberately no keyboard path: resizing is a convenience, the
 // default size is always usable, and a key-driven resize would need its own
@@ -110,6 +113,20 @@ Item {
     DragHandler {
         id: dragHandler
         target: null
+        // ONCE THE DRAG IS OURS, NOBODY MAY TAKE IT.
+        //
+        // The default permissions include ApprovesTakeOverByAnything, so the
+        // timeline Flickable underneath could take the grab away mid-resize.
+        // That is the reported "resizing still drags the chat up and down and
+        // stops the resize a lot": the chat scrolled because it had stolen
+        // the pointer, and the resize stopped for the same reason. Dropping
+        // every Approves* bit keeps the grab for the whole gesture.
+        //
+        // The CanTakeOverFrom* bits are kept: crossing the drag threshold
+        // must still be able to take the press from the field underneath,
+        // which is what makes the enlarged hit area safe (see the header).
+        grabPermissions: PointerHandler.CanTakeOverFromItems
+                         | PointerHandler.CanTakeOverFromHandlersOfDifferentType
         onActiveChanged: {
             if (!grip.popup)
                 return

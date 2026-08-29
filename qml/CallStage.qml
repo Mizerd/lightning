@@ -230,6 +230,21 @@ Rectangle {
                 >= root.minimumTileStrip ? "tiles" : "bubbles";
     }
 
+    /// Are the participant faces drawn in the HEADER rather than in a strip
+    /// under the spotlight?
+    ///
+    /// During a screen share the strip cost up to 96 px of picture for a row
+    /// of faces, on the surface where height is worth the most. In the header
+    /// they sit opposite the controls and cost the share nothing. Collapsed
+    /// is unchanged — there is no spotlight to protect and the one-line strip
+    /// IS the header.
+    ///
+    /// Exactly one of the two hosts may be active: this property is what both
+    /// read, so they cannot disagree and draw the same faces twice.
+    readonly property bool bubblesInHeader:
+        !root.collapsed && !root.fullScreenActive
+        && root.effectiveLayout === "spotlight"
+
     /// How tall that strip is. 96 is the band this surface has always drawn
     /// and stays the cap, so a roomy stage is untouched.
     ///
@@ -583,11 +598,22 @@ Rectangle {
             // a second row of the same faces above it was a redundant strip
             // that cost a whole line of the message list.
             Loader {
+                objectName: "callHeaderBubblesHost"
+                // Collapsed the strip fills; beside a spotlight it takes only
+                // what the faces need, so the title keeps the rest.
                 Layout.fillWidth: root.collapsed
                 Layout.preferredHeight: active ? implicitHeight : 0
-                active: root.collapsed
+                Layout.alignment: Qt.AlignVCenter
+                active: root.collapsed || root.bubblesInHeader
                 visible: active
-                sourceComponent: CallSpeakerBubbles {}
+                sourceComponent: CallSpeakerBubbles {
+                    objectName: "callHeaderBubbles"
+                    model: root.participantModel
+                    onActivated: identity => {
+                        if (root.stageState)
+                            root.stageState.pin(identity);
+                    }
+                }
             }
 
             // THE control surface, collapsed AND expanded.
@@ -804,6 +830,7 @@ Rectangle {
                         // height AND no spacing from a layout, so the
                         // picture gets the whole band back.
                         visible: spotlightColumn.stripMode === "tiles"
+                                 && !root.bubblesInHeader
                         Layout.preferredHeight: visible
                                                 ? spotlightColumn.stripHeight
                                                 : 0
@@ -940,6 +967,7 @@ Rectangle {
                         objectName: "callStripBubblesHost"
                         Layout.fillWidth: true
                         active: spotlightColumn.stripMode !== "tiles"
+                                && !root.bubblesInHeader
                         visible: active
                         // The COMPONENT's own height, which is 0 while
                         // nobody has arrived yet — so a connecting call
@@ -1058,11 +1086,41 @@ Rectangle {
                 running: root.fullScreenActive
                 onTriggered: fullScreenSurface.overlaysIdle = true
             }
+            // Discord's rule, not merely "hide after a while": the chrome
+            // also comes back when the pointer approaches the EDGE it lives
+            // on, so you can reach for it without waving the mouse in the
+            // middle of someone's screen share.
+            //
+            // `point.position` is in this item's coordinates, so the bands
+            // are measured against its own height — a fraction rather than a
+            // fixed pixel count, because a 4K stage and a 720p one need
+            // different reach.
+            property real edgeReach: Math.max(72, height * 0.12)
             HoverHandler {
+                id: fullScreenHover
                 enabled: root.fullScreenActive
                 onPointChanged: {
+                    const y = point.position.y
+                    const nearBottom = y >= fullScreenSurface.height
+                                       - fullScreenSurface.edgeReach
+                    const nearTop = y <= fullScreenSurface.edgeReach
+                    if (nearBottom || nearTop) {
+                        // Held open while the pointer is in the band: the
+                        // timer is not restarted, it is stopped, so the
+                        // chrome cannot retire under a hand reaching for it.
+                        fullScreenIdleTimer.stop()
+                        fullScreenSurface.overlaysIdle = false
+                        return
+                    }
                     fullScreenSurface.overlaysIdle = false
                     fullScreenIdleTimer.restart()
+                }
+                onHoveredChanged: {
+                    // The pointer left the surface entirely: nothing is
+                    // being reached for, so let it retire on the timer
+                    // rather than staying open forever.
+                    if (!hovered && root.fullScreenActive)
+                        fullScreenIdleTimer.restart()
                 }
             }
             // Leaving full screen must not strand the overlays hidden: the
@@ -1125,6 +1183,51 @@ Rectangle {
                     glyphSize: 18
                     tooltip: qsTr("Exit full screen (Esc)")
                     onClicked: root.exitFullScreen()
+                }
+            }
+
+            // The handle that says the chrome is still there.
+            //
+            // Without it a retired dock is indistinguishable from a call that
+            // has no controls at all — the user asked for "a small arrow at
+            // the bottom", which is exactly Discord's affordance. It is the
+            // INVERSE of the dock: visible only while the dock is hidden, and
+            // clicking it brings everything back for people who would rather
+            // click than hover.
+            Loader {
+                objectName: "callFullScreenRevealHandle"
+                anchors.bottom: parent.bottom
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottomMargin: AppTheme.spacing8
+                active: root.fullScreenActive
+                        && fullScreenSurface.overlaysIdle
+                visible: active
+                opacity: active ? 1 : 0
+                Behavior on opacity {
+                    enabled: !AppTheme.reducedMotion
+                    NumberAnimation { duration: 180 }
+                }
+                sourceComponent: Rectangle {
+                    implicitWidth: 44
+                    implicitHeight: 20
+                    radius: height / 2
+                    color: Qt.alpha(AppTheme.stormPanel, 0.72)
+                    border.width: 1
+                    border.color: Qt.alpha(AppTheme.stormBorder, 0.72)
+                    Icon {
+                        anchors.centerIn: parent
+                        name: "expand_less"
+                        size: 16
+                        color: AppTheme.stormTextSecondary
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Show call controls")
+                    TapHandler {
+                        onTapped: {
+                            fullScreenSurface.overlaysIdle = false
+                            fullScreenIdleTimer.restart()
+                        }
+                    }
                 }
             }
 

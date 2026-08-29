@@ -1,5 +1,8 @@
 #include "stickers/StickerPackManager.h"
 
+#include <QFileInfo>
+#include <QTimer>
+
 #include "matrix/MatrixClient.h"
 #include "stickers/StickerImageModel.h"
 #include "stickers/StickerPackModel.h"
@@ -87,10 +90,34 @@ void StickerPackManager::setActiveRoomId(const QString &roomId)
     if (m_activeRoomId == roomId)
         return;
     m_activeRoomId = roomId;
-    // MARK stale only. Fetching here would issue a global-account-data read
-    // plus a bounded /state read on every room the user walks through.
-    if (m_snapshotRoomId != roomId)
-        m_stale = true;
+    if (m_snapshotRoomId == roomId)
+        return;
+    m_stale = true;
+
+    // FETCH FOR THE ROOM THE USER IS IN, coalesced.
+    //
+    // This used to mark stale and wait for the picker to be opened, which
+    // meant "Add to this room's stickers" was absent on a message until you
+    // had opened the picker in that room once — reported as the action simply
+    // not being there. The old comment framed the cost as "a read on every
+    // room the user walks through"; that is one read per room ENTERED, which
+    // is what opening a room already costs several of. The rule it was
+    // borrowing — the room-list call glyph — is about issuing a request PER
+    // ROW of a list, which this is not.
+    //
+    // Coalesced through a zero-interval single-shot timer so walking a list
+    // of rooms with the keyboard fires once for the room you land on, not
+    // once per room you pass through.
+    if (!m_activeRoomFetch) {
+        m_activeRoomFetch = new QTimer(this);
+        m_activeRoomFetch->setSingleShot(true);
+        m_activeRoomFetch->setInterval(0);
+        connect(m_activeRoomFetch, &QTimer::timeout, this, [this] {
+            if (!m_activeRoomId.isEmpty())
+                refreshIfStale();
+        });
+    }
+    m_activeRoomFetch->start();
 }
 
 void StickerPackManager::setSelectedPackId(const QString &id)
@@ -186,6 +213,33 @@ void StickerPackManager::sendToThread(const QString &roomId,
                           row.mimetype, static_cast<quint64>(qMax(0, row.width)),
                           static_cast<quint64>(qMax(0, row.height)),
                           static_cast<quint64>(qMax<qint64>(0, row.size)));
+}
+
+void StickerPackManager::uploadSticker(const QUrl &fileUrl,
+                                       const QString &shortcode)
+{
+    // Single-flight, exactly like every other pack write here: two racing
+    // writes to one account-data event means the loser's result is reported
+    // over the winner's.
+    if (!m_client || m_saveOp != 0 || !available())
+        return;
+    // A LOCAL file only. The picker hands back file://; anything else (an
+    // http URL, an empty value) is refused here rather than passed to the
+    // FFI to interpret.
+    const QString path = fileUrl.isLocalFile() ? fileUrl.toLocalFile()
+                                               : QString{};
+    if (path.isEmpty())
+        return;
+    const quint64 opId = m_nextOpId++;
+    m_saveOp = opId;
+    m_saveScope = QStringLiteral("account");
+    // The BODY doubles as the shortcode seed when none is given, matching
+    // saveSticker below — Rust sanitizes it to MSC2545's alphabet either way.
+    const QString seed = shortcode.trimmed().isEmpty()
+        ? QFileInfo(path).completeBaseName()
+        : shortcode.trimmed();
+    m_client->uploadStickerToUserPack(seed, seed, path, opId);
+    emitStateChanged();
 }
 
 void StickerPackManager::saveSticker(const QString &url, const QString &body,

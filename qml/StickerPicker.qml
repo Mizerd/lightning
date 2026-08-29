@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -171,6 +172,32 @@ AnchoredPopup {
                 visible: picker.stickers.loading
                 implicitWidth: 18
                 implicitHeight: 18
+            }
+            // ADD A STICKER FROM THIS COMPUTER.
+            //
+            // The only way to create a pack from nothing: every other route
+            // into one needs a sticker somebody already sent you, so an
+            // account with no packs had no way in at all.
+            FileDialog {
+                id: stickerFileDialog
+                title: qsTr("Choose a sticker")
+                nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif)")]
+                // Straight to the pack: a sticker is used at whatever size it
+                // was made, so there is nothing for a crop step to decide.
+                // The bytes are sniffed and bounded in Rust.
+                onAccepted: picker.stickers.uploadSticker(selectedFile, "")
+            }
+            IconButton {
+                objectName: "stickerAddButton"
+                storm: true
+                size: "md"
+                iconName: "add"
+                enabled: picker.stickers.available && !picker.stickers.saving
+                Accessible.name: qsTr("Add a sticker from this computer")
+                ToolTip.text: qsTr("Add a sticker")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                onClicked: stickerFileDialog.open()
             }
             IconButton {
                 storm: true

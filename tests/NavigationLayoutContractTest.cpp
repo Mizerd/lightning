@@ -1101,15 +1101,38 @@ private slots:
         const QString store =
             readSrc(QStringLiteral("media/MediaVisibilityStore.cpp"));
         QVERIFY(!store.isEmpty());
-        for (const QString &banned : { QStringLiteral("MatrixClient"),
-                                       QStringLiteral("SettingsManager"),
-                                       QStringLiteral("QSettings") }) {
-            QVERIFY2(!store.contains(banned),
-                     qPrintable(QStringLiteral("the hidden-image store reaches ")
-                                + banned + QStringLiteral(", so it is not the "
-                                                          "local session state "
-                                                          "it claims to be")));
-        }
+        // The ban is on the MATRIX side, not on local storage.
+        //
+        // It used to include SettingsManager, pinning the store as
+        // session-only. Two users reported that as a bug — hiding an image
+        // does not survive a restart — so it is persisted now, LOCALLY and
+        // account-scoped, in the same class as a collapsed rail folder.
+        // What must never happen is the part this case was really protecting:
+        // the state reaching the account or any other client. There is no
+        // Matrix standard for it, so writing one would put a key only
+        // Lightning can read into someone's account.
+        QVERIFY2(!store.contains(QStringLiteral("MatrixClient")),
+                 "the hidden-image store reaches the Matrix client, so it is "
+                 "no longer purely local rendering state");
+        QVERIFY2(!store.contains(QStringLiteral("AccountData"))
+                     && !store.contains(QStringLiteral("account_data")),
+                 "hidden images are being written to Matrix account data");
+        // And the persistence that IS allowed must stay account-scoped: the
+        // setter it calls has no global fallback, unlike appearanceValue.
+        const QString settings =
+            readSrc(QStringLiteral("app/SettingsManager.cpp"));
+        QVERIFY(!settings.isEmpty());
+        const int at = settings.indexOf(
+            QStringLiteral("void SettingsManager::setHiddenMediaKeys"));
+        QVERIFY2(at >= 0, "the hidden-media setter is gone");
+        const int end = settings.indexOf(QStringLiteral("\n}\n"), at);
+        QVERIFY(end > at);
+        const QString body = settings.mid(at, end - at);
+        QVERIFY2(body.contains(QStringLiteral("slugForSavedAccount")),
+                 "hidden images are not scoped to the account that hid them");
+        QVERIFY2(!body.contains(QStringLiteral("appearanceValue")),
+                 "hidden images use the mirroring accessor, so one account "
+                 "would inherit another's");
         // Hide is offered while visible, Show is the placeholder's action, and
         // the already-hidden row is not offered a second Hide control.
         QVERIFY(clean.contains(QStringLiteral(

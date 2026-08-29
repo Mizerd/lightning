@@ -2239,6 +2239,52 @@ Item {
                                          : linkPreviewComponent
                     }
 
+                    // Undo for a dismissed preview, where the card WAS.
+                    //
+                    // Dismissal is session-only and already had an undo, but
+                    // it lived in the message context menu and nobody found
+                    // it — the report was that an X'd preview is "gone for
+                    // good". A collapsed card leaves no trace to aim at, so
+                    // the affordance has to be here.
+                    //
+                    // Revealed on HOVER so it costs the row nothing at rest:
+                    // it reserves no height when hidden, which is the whole
+                    // point of dismissing the card. A Loader, not a hidden
+                    // Label — a Label born holding "" keeps
+                    // ItemObservesViewport for its whole life (§16), and
+                    // this one sits in every text row in the timeline.
+                    Loader {
+                        objectName: "previewRestoreLoader"
+                        // The view's own hovered-row key, which is what the
+                        // action bar already uses — there is no per-delegate
+                        // `hovered`, and adding a second hover notion would
+                        // let two rows disagree about which one is hovered.
+                        active: root.previewDismissed
+                                && root.timelineView
+                                && root.timelineView.hoveredActionsKey === root.actionKey
+                        visible: active
+                        Layout.alignment: Qt.AlignLeft
+                        Layout.preferredHeight: active ? implicitHeight : 0
+                        sourceComponent: Label {
+                            objectName: "previewRestoreInline"
+                            text: qsTr("Show preview")
+                            color: AppTheme.stormTextMuted
+                            font.pixelSize: AppTheme.textMeta
+                            font.underline: restoreHover.hovered
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("Show the link preview again")
+                            HoverHandler {
+                                id: restoreHover
+                                cursorShape: Qt.PointingHandCursor
+                            }
+                            TapHandler {
+                                onTapped: app.linkPreviews.restorePreviewForEvent(
+                                    root.timelineView ? root.timelineView.roomId : "",
+                                    root.actionKey)
+                            }
+                        }
+                    }
+
                     // Upload progress for an outgoing attachment. The
                     // figures are the SDK send queue's own MediaUpload
                     // reports, carried on the local echo's send state, so
@@ -2935,23 +2981,36 @@ Item {
                         anchors.centerIn: parent
                         spacing: 5
                         Label {
+                            objectName: "reactionEmoji"
                             visible: !reactionChip.customEmojiReaction
                             Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredHeight: AppTheme.scaled(16)
+                            Layout.preferredHeight: AppTheme.scaled(20)
                             text: reactionChip.customEmojiReaction
                                   ? "" : modelData.key
                             // The reaction key is an emoji; name the face so
                             // Qt 6.8 does not fall back to a monochrome one.
                             font.family: app.emojiFontFamily || ""
-                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                            // Sized like the inline emoji in a message body,
+                            // not like the count beside it: a reaction IS an
+                            // emoji, and drawing it at meta-text size made it
+                            // the smallest glyph on the row. The COUNT keeps
+                            // meta size, so the chip still reads as a chip.
+                            //
+                            // The chip's own implicitHeight is
+                            // max(scaled(22), row + 6), so it follows this
+                            // rather than clipping it.
+                            font.pixelSize: AppTheme.scaled(18)
                             verticalAlignment: Text.AlignVCenter
                         }
                         Image {
                             id: customEmojiImage
                             visible: reactionChip.customEmojiReaction
                             Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredHeight: AppTheme.scaled(16)
-                            Layout.preferredWidth: AppTheme.scaled(16)
+                            // Matched to the unicode glyph beside it, or a
+                            // custom-emoji reaction would read as a different
+                            // size from an ordinary one on the same row.
+                            Layout.preferredHeight: AppTheme.scaled(20)
+                            Layout.preferredWidth: AppTheme.scaled(20)
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true
@@ -4691,6 +4750,22 @@ Item {
             Connections {
                 target: app.mediaBridge
                 enabled: imageBox.usesBridge
+                function onMediaRetryable(cacheKey) {
+                    // THE STUCK-IMAGE FIX. A transient failure (a timeout,
+                    // a dropped fetch) marks the key; 60 s later the bridge
+                    // sweeps the mark and emits this so the surface can ask
+                    // again. Avatars and list thumbnails listened; TIMELINE
+                    // IMAGES DID NOT — so a failed image sat on its fallback
+                    // until something happened to rebuild the binding, which
+                    // in a quiet room means an app restart. That is the
+                    // reported "small images in inactive rooms get stuck
+                    // loading forever, fixed by restarting".
+                    //
+                    // Bounded by construction: the bridge re-arms the mark on
+                    // a failed attempt, so this cannot hammer the backend.
+                    if (cacheKey === imageBox.bridgeCacheKey)
+                        imageBox.refreshBridgeSource()
+                }
                 function onMediaCached(cacheKey) {
                     if (cacheKey === imageBox.bridgeCacheKey)
                         imageBox.bridgeSource = app.mediaBridge.cachedSource(cacheKey)
@@ -5123,6 +5198,14 @@ Item {
                     if (cacheKey === stickerBox.bridgeCacheKey)
                         stickerBox.bridgeFailed = true
                 }
+                function onMediaRetryable(cacheKey) {
+                    // Same recovery channel the image box uses: a swept
+                    // transient mark must reach every surface that renders
+                    // bridge bytes, or that surface sits on its fallback
+                    // until something rebuilds the binding.
+                    if (cacheKey === stickerBox.bridgeCacheKey)
+                        stickerBox.refreshBridgeSource()
+                }
             }
             readonly property string resolvedSource:
                 usesBridge ? bridgeSource
@@ -5344,6 +5427,13 @@ Item {
                 function onMediaFetchFailed(cacheKey, category) {
                     if (cacheKey === videoBox.bridgeCacheKey)
                         videoBox.bridgeFailed = true
+                }
+                function onMediaRetryable(cacheKey) {
+                    // The third and last bridge-backed surface in this
+                    // delegate. All three now hear the swept mark; before
+                    // this only Avatar and MediaListThumbnail did.
+                    if (cacheKey === videoBox.bridgeCacheKey)
+                        videoBox.refreshBridgeSource()
                 }
                 // A video with NO declared size (every Lightning-sent
                 // video before the send-metadata fix) is never prefetched,

@@ -14,6 +14,9 @@
 //     not reduced-motion.
 #include <QtTest/QtTest>
 
+#include <QTemporaryDir>
+
+
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -130,6 +133,31 @@ private:
     }
 
 private Q_SLOTS:
+    // ISOLATE THE SETTINGS STORE BEFORE ANYTHING TOUCHES IT.
+    //
+    // These cases construct a real AppController, which constructs a real
+    // SettingsManager, which is a default QSettings — so it resolves its file
+    // from the APPLICATION IDENTITY. A test binary that adopts the app's own
+    // identity therefore reads and writes the developer's real configuration.
+    // That was harmless only while nothing in this suite wrote anything;
+    // hidden-image state is persisted now, so it is not harmless any more.
+    //
+    // Two guards, and BOTH are needed. XDG_CONFIG_HOME must be set here, in
+    // initTestCase, because QStandardPaths caches the resolved location on
+    // first use and a later qputenv is silently ignored. And the identity is
+    // deliberately NOT the application's, so that even if the cache has
+    // already been primed the file cannot be the real one — the same shape
+    // SettingsSessionTest already uses.
+    void initTestCase()
+    {
+        QVERIFY(m_configHome.isValid());
+        qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+        QCoreApplication::setOrganizationName(
+            QStringLiteral("MatrixClientTests"));
+        QCoreApplication::setApplicationName(
+            QStringLiteral("media-placeholder-qml-test"));
+    }
+
     // Known Matrix dimensions reserve the exact bounded aspect box before
     // any bytes arrive, with a visible image skeleton — and the outer
     // geometry is identical to the final display box, so the swap-in cannot
@@ -744,6 +772,10 @@ private Q_SLOTS:
         QCOMPARE(store.hiddenCount(), 0);
         QVERIFY(!store.isHidden(QString()));
     }
+
+
+private:
+    QTemporaryDir m_configHome;
 };
 
 QTEST_MAIN(MediaPlaceholderQmlTest)

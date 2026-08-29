@@ -391,6 +391,19 @@ private Q_SLOTS:
         QVERIFY(!namesOf(f.model).contains(QStringLiteral("People")));
 
         f.client.deliverRoster(1, kWork, { kAda });
+
+        // BEHIND THE FILTER. The group used to be pinned under every Space
+        // view whether or not anyone asked for people, which is the opposite
+        // of a filter — so under All and under Rooms it must be absent even
+        // with a complete roster in hand.
+        f.model.setFilterMode(0);   // All
+        QVERIFY2(!namesOf(f.model).contains(QStringLiteral("People")),
+                 "People is pinned to the Space view instead of filtered");
+        f.model.setFilterMode(2);   // Rooms
+        QVERIFY2(!namesOf(f.model).contains(QStringLiteral("People")),
+                 "the Rooms filter still listed people");
+
+        f.model.setFilterMode(1);   // People
         QTRY_VERIFY2(namesOf(f.model).contains(QStringLiteral("People")),
                      "the Space view never grew a People group");
         const QStringList names = namesOf(f.model);
@@ -428,6 +441,7 @@ private Q_SLOTS:
         f.build();
         f.select(kWork);
         f.client.deliverRoster(1, kWork, { kAda });
+        f.model.setFilterMode(1);   // People
         QTRY_VERIFY(namesOf(f.model).contains(QStringLiteral("People")));
 
         FakeClient next;

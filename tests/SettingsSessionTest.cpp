@@ -1,4 +1,5 @@
 #include "app/SettingsManager.h"
+#include "media/MediaVisibilityStore.h"
 #include "storage/SecretStore.h"
 
 #include <QHash>
@@ -99,6 +100,7 @@ private Q_SLOTS:
     void switchingAccountsReAnnouncesTheRoomListFilter();
     void uiFontPersistsPerAccountAndValidates();
     void loginHomeserverPrefillIsAccountIndependent();
+    void hiddenImagesPersistPerAccountAndSurviveSigningOut();
     // v0.6.7.
     void pickerSizeIsWhitelistedBoundedAndForgettable();
     void freshProfileDefaultsToMatrixOrg();
@@ -303,11 +305,15 @@ void SettingsSessionTest::themeChangeEmitsSignal()
 void SettingsSessionTest::previewDefaultsAndEncryptedOff()
 {
     SettingsManager settings;
-    // Privacy default: BOTH link-preview switches OFF (the fetch is
-    // client-side and would expose the reader's IP to a sender-chosen host);
+    // ENCRYPTED-room previews stay OFF, and this is the half that matters:
+    // the fetch is client-side, so an automatic preview hands the reader's IP
+    // and read timing to a sender-chosen host — and in an encrypted room the
+    // very fact that a link was followed is information the room was meant to
+    // keep. UNENCRYPTED previews load automatically since 2026-08-29, at the
+    // maintainer's explicit request; the switch is in Privacy & security.
     // GIF animation of already-received media stays ON.
     QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
-    QCOMPARE(settings.autoLoadLinkPreviews(), false);
+    QCOMPARE(settings.autoLoadLinkPreviews(), true);
     QCOMPARE(settings.animateGifPreviews(), true);
 
     QSignalSpy spy(&settings,
@@ -806,6 +812,75 @@ void SettingsSessionTest::windowGeometryRoundTripsAndRefusesAnUnrestorableSize()
         SettingsManager reopened;
         QCOMPARE(reopened.initialWindowGeometry(), QRect(-1920, -120, 900, 700));
         QVERIFY(!reopened.initialWindowMaximized());
+    }
+}
+
+// Hidden images survive a restart, are scoped to the ACCOUNT, and — the part
+// that is easy to get catastrophically wrong — are NOT erased by signing out.
+//
+// clear() is the user's "Show all hidden images" and it persists an empty
+// list. The sign-out path called it back when this state was session-only;
+// leaving that call in place after adding persistence would have wiped the
+// account's hidden images on its own sign-out. resetForSession() exists as a
+// separate verb for exactly that reason.
+void SettingsSessionTest::hiddenImagesPersistPerAccountAndSurviveSigningOut()
+{
+    const QString key = QStringLiteral("$evt-persist:example.org");
+
+    // No account resolves yet, so the storage is inert BY DESIGN — asserted
+    // rather than assumed, because a fixture that silently persists nothing
+    // would make everything below pass for the wrong reason.
+    {
+        SettingsManager settings;
+        QVERIFY(settings.activeAccountUserId().isEmpty());
+        MediaVisibilityStore store;
+        store.setSettings(&settings);
+        store.hide(key);
+        QVERIFY(store.isHidden(key));
+        QVERIFY2(settings.hiddenMediaKeys().isEmpty(),
+                 "hidden images were stored with no account to scope them to");
+    }
+
+    // Give it an account the way the login flow would.
+    const QString userId = QStringLiteral("@alice:example.org");
+    {
+        QSettings seed;
+        seed.setValue(QStringLiteral("accounts/alice_example.org/userId"),
+                      userId);
+        seed.setValue(QStringLiteral("accounts/active"), userId);
+        seed.sync();
+        QCOMPARE(seed.status(), QSettings::NoError);
+    }
+
+    {
+        SettingsManager settings;
+        QCOMPARE(settings.activeAccountUserId(), userId);
+        MediaVisibilityStore store;
+        store.setSettings(&settings);
+        store.hide(key);
+        QVERIFY2(settings.hiddenMediaKeys().contains(key),
+                 "hiding did not persist");
+
+        // Sign-out drops it from THIS session and keeps it on disk.
+        store.resetForSession();
+        QVERIFY(!store.isHidden(key));
+        QVERIFY2(settings.hiddenMediaKeys().contains(key),
+                 "signing out ERASED the account's hidden images");
+    }
+
+    // The restart.
+    {
+        SettingsManager settings;
+        MediaVisibilityStore store;
+        store.setSettings(&settings);
+        QVERIFY2(store.isHidden(key),
+                 "the image did not stay hidden across a restart");
+
+        // "Show all hidden images" is a real reset that leaves no row behind.
+        store.clear();
+        QVERIFY(!store.isHidden(key));
+        QVERIFY2(settings.hiddenMediaKeys().isEmpty(),
+                 "Show all hidden images left the stored list behind");
     }
 }
 

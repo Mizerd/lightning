@@ -187,6 +187,22 @@ public:
     // A miss must NEVER be filled in with a guess: no fabricated name (the
     // localpart fallback every surface already shares is the honest answer)
     // and no avatar at all, because a wrong face is worse than none.
+    /// Rooms the signed-in account and `userId` are BOTH joined to, for the
+    /// profile card's overflow menu.
+    ///
+    /// Reads only what the store already holds — it issues NO request per
+    /// room, which is the same rule that governs the room-list call glyph.
+    /// The honest cost is that a room whose members were never synced is not
+    /// listed; under-reporting beats a card that costs a /state per room
+    /// every time it opens.
+    Q_INVOKABLE void requestMutualRooms(const QString &userId);
+    /// The last answer, for the user it was asked about. Empty until one
+    /// arrives, and cleared when a different user is asked about, so a card
+    /// can never show the previous person's rooms.
+    Q_PROPERTY(QVariantList mutualRooms READ mutualRooms
+               NOTIFY mutualRoomsChanged)
+    QVariantList mutualRooms() const { return m_mutualRooms; }
+
     Q_INVOKABLE QVariantMap memberFor(const QString &userId) const;
     // The same lookup against an EXPLICIT room, because the caller that
     // needs this most is not the Room Information panel: `roomId` here
@@ -352,6 +368,7 @@ public:
     static constexpr qlonglong kMaxSettableLevel = 100;
 
 Q_SIGNALS:
+    void mutualRoomsChanged();
     void roomIdChanged();
     void membersChanged();
     void editStateChanged();
@@ -411,6 +428,9 @@ private Q_SLOTS:
     void onLoggedOut();
 
 private:
+    QVariantList m_mutualRooms;
+    QString m_mutualRoomsUser;
+    quint64 m_mutualRoomsOp = 0;
     void clearSnapshot();
     void moderate(const QString &userId, const QString &reason,
                   const QString &op);

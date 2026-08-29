@@ -1161,6 +1161,46 @@ private Q_SLOTS:
         QVERIFY(thread.contains(QStringLiteral("applyThreadFormat")));
     }
 
+    // Every surface that renders BRIDGE bytes must hear mediaRetryable.
+    //
+    // THE DEFECT THIS PINS: a transient failure (a timeout, a dropped fetch)
+    // marks the key, and 60 s later MediaBridge sweeps the mark and emits
+    // mediaRetryable so the surface can ask again. Avatar.qml and
+    // MediaListThumbnail.qml listened. The THREE bridge-backed surfaces in
+    // MessageDelegate — the image, the sticker and the video box — did not,
+    // so a failed image sat on its fallback until something rebuilt the
+    // binding, which in a quiet room means restarting the app. Reported as
+    // "small images in relatively inactive rooms get stuck loading forever;
+    // it gets fixed when you restart".
+    void everyBridgeBackedSurfaceHearsTheRetryableSweep()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!delegate.isEmpty());
+
+        // A surface is bridge-backed exactly when it marks itself failed on
+        // mediaFetchFailed. Derived from the source rather than hard-coded,
+        // so a FOURTH such surface is covered without editing this test.
+        const int failedHandlers =
+            delegate.count(QStringLiteral("function onMediaFetchFailed("));
+        QVERIFY2(failedHandlers >= 3,
+                 qPrintable(QStringLiteral("expected the bridge-backed "
+                                           "surfaces, found %1")
+                                .arg(failedHandlers)));
+        const int retryHandlers =
+            delegate.count(QStringLiteral("function onMediaRetryable("));
+        QCOMPARE(retryHandlers, failedHandlers);
+
+        // And the two surfaces that always had it keep it.
+        for (const QString &file : { QStringLiteral("Avatar.qml"),
+                                     QStringLiteral("MediaListThumbnail.qml") }) {
+            const QString src = read(file);
+            QVERIFY(!src.isEmpty());
+            QVERIFY2(src.contains(QStringLiteral("onMediaRetryable")),
+                     qPrintable(file + QStringLiteral(" lost its recovery "
+                                                      "channel")));
+        }
+    }
+
 };
 
 QTEST_MAIN(QmlBindingContractTest)

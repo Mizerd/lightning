@@ -518,6 +518,18 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(enabled);
         Q_UNUSED(opId);
     }
+    // Upload a LOCAL image file and add it to this account's own pack.
+    // The ONLY way to create a pack from nothing: every other route needs an
+    // mxc that already exists, so a user with no packs and nobody sending
+    // them stickers had no way in. Reports on stickerPackAddFinished.
+    virtual void uploadStickerToUserPack(const QString &shortcode,
+                                         const QString &body,
+                                         const QString &localPath,
+                                         quint64 opId)
+    {
+        Q_UNUSED(shortcode); Q_UNUSED(body); Q_UNUSED(localPath);
+        Q_UNUSED(opId);
+    }
     // Add one image to this account's own im.ponies.user_emotes pack.
     // Reports on stickerPackAddFinished.
     virtual void addStickerToUserPack(const QString &shortcode,
@@ -633,6 +645,12 @@ public:
     virtual void setOwnAvatar(const QString &localPath, quint64 opId)
     { Q_UNUSED(localPath); Q_UNUSED(opId); }
     virtual void clearOwnAvatar(quint64 opId) { Q_UNUSED(opId); }
+    // Rooms this account and `userId` are BOTH joined to. Reads only cached
+    // membership and issues no request, so a room whose members were never
+    // synced is not listed — see the Rust side for why that under-reporting
+    // is the right failure. Returns 0 when the backend cannot answer.
+    virtual quint64 fetchMutualRooms(const QString &userId)
+    { Q_UNUSED(userId); return 0; }
     // v0.5.12: client-side URL preview (Rust validates and fetches the target;
     // the client never does). Backends without support return 0.
     virtual bool supportsUrlPreview() const { return false; }
@@ -1283,6 +1301,10 @@ Q_SIGNALS:
     // the same empty-error convention as ownDisplayNameChanged. The PATH is
     // never carried back: a home directory contains the user's name.
     void ownAvatarChanged(quint64 opId, bool ok, const QString &error);
+    // Answer to fetchMutualRooms. `rooms` carries maps of
+    // roomId/name/avatarUrl/isDirect — presentation-safe values only.
+    void mutualRoomsReceived(quint64 opId, const QString &userId,
+                             const QVariantList &rooms);
     // v0.5.11: URL-preview result. `fields` carries only whitelisted
     // OpenGraph values (title, description, siteName, imageMxc, imageMime,
     // imageWidth, imageHeight, imageSize) — never the requested URL.

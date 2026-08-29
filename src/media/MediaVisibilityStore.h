@@ -12,19 +12,28 @@
 // the same class of thing as a collapsed folder: a statement about this
 // screen.
 //
-// SESSION-ONLY, deliberately. Three reasons, in order of weight:
+// PERSISTED LOCALLY since 2026-08-29, after two testers reported the opposite
+// as a bug ("hiding images is not persisting between sessions"). The three
+// reasons this class was session-only are worth keeping, because two of them
+// were arguments against the WRONG kind of persistence and the third was a
+// real objection that is now answered:
 //
-//  * There is no Matrix standard for it. Persisting it would mean inventing an
-//    account-data key only Lightning could read — which is exactly what this
-//    project refuses to put in someone's account — or a local database of
-//    event ids that no other client would ever agree with.
-//  * A hidden image the user has forgotten about is content they cannot find.
-//    There is no list of hidden media and no discoverable "unhide everything",
-//    so a flag that outlived the session would quietly remove pictures from a
-//    room with no way back except by scrolling to each one.
-//  * Element's own behaviour was not verified here, so inventing durable
-//    storage to match a guess would be worse than a clean session-local
-//    implementation that says so.
+//  * "No Matrix standard for it." Still true, and still the reason nothing is
+//    written to ACCOUNT DATA. This is a local preference in the same class as
+//    a collapsed rail folder, which is also persisted locally and which no
+//    other client is expected to agree with.
+//  * "A hidden image the user has forgotten about is content they cannot
+//    find." That was the real objection, and it is answered rather than
+//    ignored: Settings -> Privacy & security shows how many images are hidden
+//    and offers a single Show-all. Without that surface this state must NOT
+//    outlive the session.
+//  * "Element's behaviour was not verified." Two users have now reported
+//    Element persisting it, which is better evidence than the guess this
+//    comment was avoiding.
+//
+// Storage is STRICTLY account-scoped with no global fallback: what you chose
+// not to look at is your choice from your account, and another account on the
+// same machine must never inherit it.
 //
 // The state lives HERE and not in a QML delegate because a timeline delegate is
 // destroyed and recreated as the user scrolls: a flag inside one would be lost
@@ -34,6 +43,8 @@
 // Keyed by the row's media identity (`mediaKey`, which on the Rust backend IS
 // the event id once the event is remote), so it survives delegate recycling,
 // room switches and re-entry for as long as the session lasts.
+class SettingsManager;
+
 class MediaVisibilityStore : public QObject
 {
     Q_OBJECT
@@ -51,6 +62,19 @@ public:
     /// a statement about the next one's rooms.
     Q_INVOKABLE void clear();
 
+    /// Attach persistence. Loads this account's hidden list immediately.
+    /// Without a settings object the store behaves exactly as it used to —
+    /// session-only — which is what every test fixture gets.
+    void setSettings(SettingsManager *settings);
+    /// Drop the in-memory set WITHOUT writing. This is the SIGN-OUT path:
+    /// the account's saved list must survive its own sign-out, so clear(),
+    /// which persists, would be a data-loss bug here.
+    void resetForSession();
+    /// Re-read for the account that is active NOW. Called on sign-in and on
+    /// an account switch: the list is per account, so carrying the previous
+    /// one over would hide images this account never hid.
+    void reloadForAccount();
+
     int hiddenCount() const { return int(m_hidden.size()); }
 
     /// Bounded, because the key set grows with every hide and nothing outside
@@ -67,6 +91,9 @@ Q_SIGNALS:
     void hiddenCountChanged();
 
 private:
+    void persist();
+
+    SettingsManager *m_settings = nullptr;
     QSet<QString> m_hidden;
     /// Insertion order, for the cap's eviction. A QSet has none.
     QStringList m_order;

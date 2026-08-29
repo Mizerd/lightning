@@ -5598,6 +5598,26 @@ pub unsafe extern "C" fn mx_rust_get_user_profile(
 ///
 /// Result event: own_display_name_result { op_id, lifecycle, ok, error }.
 /// The name never comes back — C++ already holds what it submitted.
+/// Rooms this account and `user_id` are BOTH joined to.
+///
+/// Reads only the store's cached membership — it issues no request, so a
+/// room whose members were never synced is not listed. That under-reporting
+/// is deliberate; see profile::mutual_rooms.
+///
+/// Result event: mutual_rooms_result { op_id, lifecycle, user_id, rooms[] }.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_mutual_rooms(
+    ptr: *mut c_void,
+    user_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let user = unsafe { cstr_arg(user_id) }?;
+        profile::mutual_rooms(bridge, user, op_id).map(|_| String::new())
+    })
+}
+
 /// Upload and set the account's OWN avatar from a local file path.
 ///
 /// Result event: own_avatar_result { op_id, lifecycle, ok, error }.

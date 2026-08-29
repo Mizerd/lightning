@@ -705,6 +705,31 @@ constexpr int kVolumeDefault = 100;
 constexpr int kVolumeMax = 200;
 } // namespace
 
+QStringList SettingsManager::hiddenMediaKeys() const
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return {};
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/hiddenMedia");
+    return m_store->value(key).toStringList();
+}
+
+void SettingsManager::setHiddenMediaKeys(const QStringList &keys)
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return;
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/hiddenMedia");
+    // An empty list REMOVES the key rather than storing an empty value, so
+    // "show everything again" is a real reset and leaves no row behind.
+    if (keys.isEmpty())
+        m_store->remove(key);
+    else
+        m_store->setValue(key, keys);
+}
+
 int SettingsManager::callParticipantVolume(const QString &userId) const
 {
     const QString slug = slugForSavedAccount(activeAccountUserId());
@@ -1457,13 +1482,20 @@ bool SettingsManager::notificationsEnabled() const
 
 bool SettingsManager::autoLoadLinkPreviews() const
 {
-    // Privacy default (2026-08-12): OFF. A preview is fetched by this client,
-    // directly from the linked site — not through the homeserver's preview
-    // proxy — so automatic loading would hand the user's IP address and read
-    // timing to any host a sender chooses to link. Previews stay a deliberate
-    // action: either the user turns this on, or they use a message's
-    // "Load link preview". An account that already stored a value keeps it.
-    return m_store->value(kPreviewsUnencrypted, false).toBool();
+    // Default ON for UNENCRYPTED rooms (2026-08-29, at the maintainer's
+    // explicit request after living with the old default).
+    //
+    // The tradeoff has NOT changed and is worth restating rather than
+    // quietly dropping: a preview is fetched by this client, directly from
+    // the linked site and not through the homeserver's preview proxy, so
+    // automatic loading hands the user's IP address and read timing to any
+    // host a sender chooses to link. The switch to turn it back off is in
+    // Settings -> Privacy & security, and an account that already stored a
+    // value keeps it — flipping a default must never overwrite a choice
+    // somebody already made.
+    //
+    // ENCRYPTED rooms are deliberately NOT changed: see below.
+    return m_store->value(kPreviewsUnencrypted, true).toBool();
 }
 
 void SettingsManager::setAutoLoadLinkPreviews(bool v)

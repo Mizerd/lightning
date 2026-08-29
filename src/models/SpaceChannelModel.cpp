@@ -778,6 +778,17 @@ int SpaceChannelModel::appendSpacePeople(QVector<Row> &rows,
     // which is what makes a scope safe to apply at all.
     if (!m_spaces)
         return 0;
+    // BEHIND THE FILTER, not pinned to the bottom of every Space view.
+    //
+    // The group shipped unconditionally and sat under the channel list all
+    // the time, which is not what "the people filter should show that
+    // Space's people" asked for — it asked for a filter, and a permanent
+    // strip is the opposite of one. filterMode is the same closed set the
+    // Classic chips write (0 All, 1 People, 2 Rooms, 3 Unreads), so People
+    // shows them, Rooms hides them, and All keeps a Space view about its
+    // channels.
+    if (m_filterMode != 1)   // People — the same closed set filterAdmits uses
+        return 0;
     const QString spaceId = m_scopeSpaceId;
     if (!SpaceManager::isRealSpaceId(spaceId)
         || !m_spaces->spaceRosterKnown(spaceId)) {

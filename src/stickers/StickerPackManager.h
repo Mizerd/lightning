@@ -7,6 +7,9 @@
 #include "stickers/StickerPackModel.h"
 
 #include <QObject>
+
+class QTimer;
+#include <QUrl>
 #include <QQmlEngine>
 #include <QSet>
 #include <QString>
@@ -126,6 +129,16 @@ public:
     Q_INVOKABLE void sendToThread(const QString &roomId, const QString &rootId,
                                   const QVariantMap &image);
 
+    // Upload a LOCAL image file and add it to this account's own pack.
+    //
+    // THE ONLY WAY TO CREATE A PACK FROM NOTHING. saveSticker below needs an
+    // mxc that already exists, so an account with no packs and nobody sending
+    // it stickers could never get one. `fileUrl` is a file:// URL from a
+    // picker; anything else is refused here rather than handed to the FFI.
+    // `shortcode` may be empty — Rust derives and sanitizes one.
+    Q_INVOKABLE void uploadSticker(const QUrl &fileUrl,
+                                   const QString &shortcode);
+
     // "Add to my stickers" — write one image into this account's own
     // `im.ponies.user_emotes`. `shortcode` may be empty; Rust derives one.
     Q_INVOKABLE void saveSticker(const QString &url, const QString &body,
@@ -221,6 +234,7 @@ Q_SIGNALS:
                                 bool enabled);
 
 private:
+    QTimer *m_activeRoomFetch = nullptr;
     void onPacksReceived(quint64 opId, const QString &roomId,
                          bool roomCanManage, const QVariantList &packs);
     void onSaveFinished(quint64 opId, bool ok, const QString &category,

@@ -87,6 +87,10 @@ const MAX_IMAGES_PER_PACK: usize = 512;
 /// characters and bytes are the same thing here.
 const MAX_SHORTCODE_CHARS: usize = 64;
 
+/// A sticker is a small picture. Refused before the file is read, so an
+/// accidental 4K screenshot never reaches memory or the homeserver.
+const MAX_STICKER_UPLOAD_BYTES: u64 = 4 * 1024 * 1024;
+
 /// A body is the sticker's alt text — a label.
 const MAX_BODY_CHARS: usize = 160;
 
@@ -958,6 +962,94 @@ pub(crate) fn send_sticker(
 /// taken by a DIFFERENT url gets a numeric suffix (`cat`, `cat-2`, `cat-3`),
 /// so a name collision never overwrites an existing image.
 #[allow(clippy::too_many_arguments)]
+/// Upload a LOCAL image file and add it to this account's own pack.
+///
+/// This is the only way to BOOTSTRAP a pack. Every other route into one —
+/// "add to my stickers" on a sticker somebody sent — needs an mxc that
+/// already exists, so a user with no packs and nobody sending them stickers
+/// had no way in at all. Reported as "i dont have any sticker packs to test
+/// it".
+///
+/// Uploads first, then reuses `add_to_user_pack_inner`, so the pack write,
+/// the dedupe, the shortcode collision handling and the cap are ONE
+/// implementation shared with the save path rather than a second copy.
+///
+/// The MIME is sniffed from the bytes, never taken from the file name, and
+/// the sniffer is the shared one — so this cannot accept a format the rest of
+/// the client refuses, and it refuses SVG.
+pub(crate) fn upload_to_user_pack(
+    bridge: &RustClient,
+    op_id: u64,
+    shortcode: String,
+    body: String,
+    local_path: String,
+) -> Result<(), String> {
+    // Checked before the file is read, so an absurd file is refused without
+    // being pulled into memory.
+    let metadata = std::fs::metadata(&local_path)
+        .map_err(|_| "sticker file is not readable".to_owned())?;
+    if !metadata.is_file() {
+        return Err("sticker path is not a regular file".to_owned());
+    }
+    if metadata.len() == 0 || metadata.len() > MAX_STICKER_UPLOAD_BYTES {
+        return Err("sticker file size is out of range".to_owned());
+    }
+    let requested = sanitize_shortcode(&shortcode);
+    let body = one_line(&body, MAX_BODY_CHARS);
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+
+    bridge.spawn_room_action(async move {
+        let outcome = async {
+            let data = tokio::fs::read(&local_path)
+                .await
+                .map_err(|_| "read_failed".to_owned())?;
+            let mime_str = crate::rooms::sniff_image_mime(&data)
+                .ok_or_else(|| "unsupported_image".to_owned())?;
+            let mime: mime::Mime = mime_str
+                .parse()
+                .map_err(|_| "unsupported_image".to_owned())?;
+            let size = data.len() as u64;
+            let upload = client
+                .media()
+                .upload(&mime, data, None)
+                .await
+                .map_err(|_| "upload_failed".to_owned())?;
+            let url = upload.content_uri.to_string();
+            // Dimensions are left at 0: the pack entry's `info` is advisory,
+            // and decoding an image in the bridge purely to fill it would add
+            // an image decoder to a path that does not need one. Clients size
+            // a sticker from the picture itself.
+            add_to_user_pack_inner(
+                &client, requested, url, body, mime_str.to_owned(), 0, 0, size,
+            )
+            .await
+        }
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, category, shortcode) = match outcome {
+            Ok(code) => (true, String::new(), code),
+            Err(category) => (false, category, String::new()),
+        };
+        enqueue(
+            &events,
+            json!({
+                "type": "sticker_pack_add_result",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "ok": ok,
+                "error": category,
+                "shortcode": shortcode,
+            }),
+        );
+    });
+    Ok(())
+}
+
 pub(crate) fn add_to_user_pack(
     bridge: &RustClient,
     op_id: u64,

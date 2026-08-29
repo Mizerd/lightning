@@ -3657,6 +3657,50 @@ Item {
                                     enabled: app.gif.starredStore.count > 0
                                     onClicked: starredGifsClearConfirm.open()
                                 }
+
+                                // ── Hidden images ──────────────────────────
+                                //
+                                // THIS SURFACE IS WHAT MAKES PERSISTING THEM
+                                // DEFENSIBLE. Hiding used to be session-only
+                                // partly because a hidden image the user has
+                                // forgotten about is content they cannot
+                                // find: there was no list and no discoverable
+                                // way to undo it in bulk. Now that the flag
+                                // outlives the session, the count and a
+                                // single Show-all have to exist.
+                                Label {
+                                    text: qsTr("Hidden images")
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                    Layout.topMargin: AppTheme.spacing4
+                                }
+                                Label {
+                                    objectName: "hiddenMediaSummaryLabel"
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textMeta
+                                    // Branched rather than a %n plural: a
+                                    // "(s)" source string renders its
+                                    // parenthesis literally without a loaded
+                                    // translation.
+                                    text: app.mediaVisibility.hiddenCount === 0
+                                        ? qsTr("You have not hidden any images. Hiding one affects only what you see, and nothing is sent.")
+                                        : (app.mediaVisibility.hiddenCount === 1
+                                           ? qsTr("1 image is hidden on this device for this account.")
+                                           : qsTr("%1 images are hidden on this device for this account.")
+                                             .arg(app.mediaVisibility.hiddenCount))
+                                }
+                                AppButton {
+                                    objectName: "showAllHiddenMediaButton"
+                                    storm: true
+                                    text: qsTr("Show all hidden images")
+                                    enabled: app.mediaVisibility.hiddenCount > 0
+                                    onClicked: app.mediaVisibility.clear()
+                                }
                             }
                         }
                     }

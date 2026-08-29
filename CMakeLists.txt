@@ -1457,6 +1457,8 @@ if(BUILD_TESTING)
         tests/SettingsSessionTest.cpp
         src/app/SettingsManager.h
         src/app/SettingsManager.cpp
+        src/media/MediaVisibilityStore.h
+        src/media/MediaVisibilityStore.cpp
         src/storage/SecretStore.h
         src/storage/AppDataPaths.cpp
         src/storage/PortableMode.cpp

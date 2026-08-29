@@ -578,6 +578,19 @@ public:
     // 0..200. Above 100 is real amplification, as Discord allows: the
     // GStreamer `volume` element takes a linear factor and 2.0 is legal.
     // Clipping above 100 is the user's own choice and is theirs to hear.
+    // Which images this account has hidden in the timeline.
+    //
+    // STRICTLY account-scoped with NO global fallback, for the same reason
+    // the per-person call volume is: what you chose not to look at is your
+    // choice from your account, and another account signing in on this
+    // machine must not inherit it. appearanceValue would mirror it into a
+    // shared fallback and do exactly that.
+    //
+    // Stored as a plain list of media keys. Bounded by the caller
+    // (MediaVisibilityStore's cap), so the store cannot grow without end.
+    QStringList hiddenMediaKeys() const;
+    void setHiddenMediaKeys(const QStringList &keys);
+
     /// This account's playback volume for one person, 0..200. 100 when unset.
     Q_INVOKABLE int callParticipantVolume(const QString &userId) const;
     /// Persists it. Setting exactly 100 REMOVES the key rather than storing

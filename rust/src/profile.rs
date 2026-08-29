@@ -314,3 +314,80 @@ pub(crate) fn clear_own_avatar(bridge: &RustClient, op_id: u64) -> Result<(), St
     });
     Ok(())
 }
+
+
+/// How many mutual rooms to report. A profile card lists a handful; a user
+/// sharing hundreds of rooms would otherwise build a menu nobody can use.
+const MAX_MUTUAL_ROOMS: usize = 24;
+
+/// Rooms this account and `user_id` are BOTH joined to.
+///
+/// Reads ONLY what the store already holds: `get_member_no_sync` never issues
+/// a request, which is the whole reason it is used here. CLAUDE.md's standing
+/// rule is that a profile/room-list surface must not be allowed to ask —
+/// `read_membership_events` falls back to a full `/state` for any room whose
+/// membership is not cached, which is the normal state of every idle room, so
+/// the obvious implementation would issue one `/state` PER ROOM every time a
+/// profile card opened.
+///
+/// The honest cost of that choice: a room the client has not synced members
+/// for is not listed. Under-reporting is the right failure here — a card that
+/// silently costs a request per room is worse than one that lists fewer rooms.
+///
+/// DMs are included and marked, so the caller can present them apart from
+/// ordinary rooms the way Sable does.
+pub(crate) fn mutual_rooms(
+    bridge: &RustClient,
+    user_id: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let target = matrix_sdk::ruma::UserId::parse(user_id.as_str())
+        .map_err(|_| "invalid user id".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let mut rooms: Vec<serde_json::Value> = Vec::new();
+        for room in client.joined_rooms() {
+            if rooms.len() >= MAX_MUTUAL_ROOMS {
+                break;
+            }
+            // A cached read. `Ok(None)` means "not a member as far as the
+            // store knows"; an Err means the store could not answer, and
+            // both are skipped rather than guessed at.
+            let joined = matches!(
+                room.get_member_no_sync(&target).await,
+                Ok(Some(ref m))
+                    if m.membership()
+                        == &matrix_sdk::ruma::events::room::member::MembershipState::Join
+            );
+            if !joined {
+                continue;
+            }
+            rooms.push(json!({
+                "room_id": room.room_id().to_string(),
+                "name": room.cached_display_name()
+                    .map(|n| n.to_string())
+                    .unwrap_or_default(),
+                "avatar_url": room.avatar_url().map(|u| u.to_string())
+                    .unwrap_or_default(),
+                "is_direct": room.is_direct().await.unwrap_or(false),
+            }));
+        }
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(
+            &events,
+            json!({
+                "type": "mutual_rooms_result",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "user_id": user_id,
+                "rooms": rooms,
+            }),
+        );
+    });
+    Ok(())
+}

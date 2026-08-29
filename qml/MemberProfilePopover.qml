@@ -972,10 +972,57 @@ Popup {
                     iconName: "more_horiz"
                     label: ""
                     accessibleName: qsTr("More actions")
-                    onClicked: profileOverflowMenu.popup(0, height + 2)
+                    onClicked: {
+                        // Asked for on OPEN, not on every card build: the
+                        // answer reads only cached membership, but the
+                        // request still crosses the FFI and nothing needs it
+                        // until the menu is actually shown.
+                        app.roomInfo.requestMutualRooms(root.userId)
+                        profileOverflowMenu.popup(0, height + 2)
+                    }
                     AppMenu {
                         id: profileOverflowMenu
-                        menuWidth: 200
+                        menuWidth: 240
+
+                        // ── Rooms in common, the way Sable lists them ──────
+                        //
+                        // Absent rather than shown empty: the list reads only
+                        // what the store already holds (no request per room),
+                        // so "none known" and "none" are not the same thing
+                        // and an empty section would assert the stronger one.
+                        MenuSectionLabel {
+                            objectName: "profileMutualRoomsHeader"
+                            visible: !root.isOwn
+                                     && app.roomInfo.mutualRooms.length > 0
+                            // A hidden label must take no space either: a
+                            // Menu lays rows out in a ListView that honours
+                            // each item's own height regardless of `visible`.
+                            height: visible ? implicitHeight : 0
+                            text: qsTr("Rooms in common")
+                        }
+                        Repeater {
+                            model: root.isOwn ? [] : app.roomInfo.mutualRooms
+                            delegate: AppMenuItem {
+                                required property var modelData
+                                objectName: "profileMutualRoom"
+                                text: modelData.name.length > 0
+                                    ? modelData.name : modelData.roomId
+                                iconName: modelData.isDirect
+                                    ? "person" : "tag"
+                                onTriggered: {
+                                    root.close()
+                                    app.openRoom(modelData.roomId)
+                                }
+                            }
+                        }
+                        // AppMenuSeparator, not a bare MenuSeparator: the
+                        // app one already collapses its height when hidden,
+                        // which a plain one does not.
+                        AppMenuSeparator {
+                            visible: !root.isOwn
+                                     && app.roomInfo.mutualRooms.length > 0
+                        }
+
                         AppMenuItem {
                             objectName: "profileCopyIdButton"
                             text: qsTr("Copy user ID")

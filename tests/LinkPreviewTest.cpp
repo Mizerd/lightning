@@ -669,10 +669,16 @@ private Q_SLOTS:
         fresh.sync();
         SettingsManager settings;
 
-        // Privacy default: BOTH preview switches are OFF. The preview fetch is
-        // client-side, so an automatic one would expose the reader's IP address
-        // to any host a sender links.
-        QCOMPARE(settings.autoLoadLinkPreviews(), false);
+        // UNENCRYPTED previews load automatically (changed 2026-08-29 at the
+        // maintainer's explicit request). The tradeoff is unchanged and the
+        // switch to turn it off is in Privacy & security.
+        QCOMPARE(settings.autoLoadLinkPreviews(), true);
+        // ENCRYPTED rooms stay OFF, and this half is the one that matters:
+        // the fetch is client-side, so an automatic preview hands the
+        // reader's IP address and read timing to any host a sender links —
+        // and in an encrypted room the very fact that a link was followed is
+        // information the room was meant to keep. Flipping this default too
+        // would be a different decision from the one that was asked for.
         QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
         QCOMPARE(settings.animateGifPreviews(), true);
 

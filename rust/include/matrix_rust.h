@@ -576,6 +576,19 @@ char *mx_rust_get_user_profile(void *client,
  * is empty when the server said nothing usable (including a timeout).
  */
 /*
+ * Rooms this account and `user_id` are BOTH joined to. Reads only cached
+ * membership and issues NO request, so a room whose members were never
+ * synced is not listed — deliberate under-reporting, because the obvious
+ * implementation costs one /state per room every time a profile opens.
+ *
+ * Result: {"type":"mutual_rooms_result","op_id",…,"user_id",
+ *          "rooms":[{"room_id","name","avatar_url","is_direct"}]}
+ */
+char *mx_rust_mutual_rooms(void *client,
+                           const char *user_id,
+                           uint64_t op_id);
+
+/*
  * Upload and set the signed-in account's OWN avatar from a local file path.
  * The MIME type is sniffed from the bytes, never from the file name, and SVG
  * is refused. Bounded at the same ceiling as the room-avatar path.
@@ -778,6 +791,18 @@ char *mx_rust_stickers_set_room_pack_enabled(void *client,
  * where `category` is "duplicate" (that exact mxc is already in the pack),
  * "pack_full", or a coarse room-error class.
  */
+/*
+ * Upload a LOCAL image file and add it to this account's own pack. This is
+ * the only way to create a pack from nothing — every other route needs an
+ * mxc that already exists. Bounded at 4 MiB, MIME sniffed from the bytes,
+ * SVG refused. Same result event as the save path.
+ */
+char *mx_rust_stickers_upload_to_user_pack(void *client,
+                                           const char *shortcode,
+                                           const char *body,
+                                           const char *local_path,
+                                           uint64_t op_id);
+
 char *mx_rust_stickers_add_to_user_pack(void *client,
                                         const char *shortcode,
                                         const char *url,

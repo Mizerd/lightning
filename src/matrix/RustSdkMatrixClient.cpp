@@ -2436,6 +2436,30 @@ void RustSdkMatrixClient::setStickerRoomPackEnabled(const QString &roomId,
     }
 }
 
+void RustSdkMatrixClient::uploadStickerToUserPack(
+    const QString &shortcode, const QString &body, const QString &localPath,
+    quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || localPath.isEmpty()) {
+        Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"),
+                                      QString());
+        return;
+    }
+    const QByteArray code = shortcode.toUtf8();
+    const QByteArray alt = body.toUtf8();
+    const QByteArray path = localPath.toUtf8();
+    const QString result = takeRustString(mx_rust_stickers_upload_to_user_pack(
+        m_rustHandle, code.constData(), alt.constData(), path.constData(),
+        opId));
+    if (!result.isEmpty()) {
+        // A literal tag only: the rejection can carry the PATH back, and a
+        // home directory contains the user's name.
+        qCWarning(lcRust) << "sticker upload rejected";
+        Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"),
+                                      QString());
+    }
+}
+
 void RustSdkMatrixClient::addStickerToUserPack(
     const QString &shortcode, const QString &url, const QString &body,
     const QString &mimetype, quint64 width, quint64 height, quint64 size,
@@ -5274,6 +5298,21 @@ void RustSdkMatrixClient::clearOwnAvatar(quint64 opId)
     }
 }
 
+quint64 RustSdkMatrixClient::fetchMutualRooms(const QString &userId)
+{
+    if (!m_rustHandle || !m_loggedIn || userId.isEmpty())
+        return 0;
+    const quint64 op = nextOpId();
+    const QByteArray payload = userId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_mutual_rooms(m_rustHandle, payload.constData(), op));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "mutual-rooms request rejected";
+        return 0;
+    }
+    return op;
+}
+
 quint64 RustSdkMatrixClient::fetchUrlPreview(const QString &url)
 {
     // Scheme allow-list is enforced again in Rust; this early check keeps
@@ -7712,6 +7751,28 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             opId(),
             event.value(QStringLiteral("ok")).toBool(),
             event.value(QStringLiteral("error")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("mutual_rooms_result")) {
+        QVariantList rooms;
+        const QJsonArray arr =
+            event.value(QStringLiteral("rooms")).toArray();
+        for (const QJsonValue &v : arr) {
+            const QJsonObject o = v.toObject();
+            QVariantMap row;
+            row.insert(QStringLiteral("roomId"),
+                       o.value(QStringLiteral("room_id")).toString());
+            row.insert(QStringLiteral("name"),
+                       o.value(QStringLiteral("name")).toString());
+            row.insert(QStringLiteral("avatarUrl"),
+                       o.value(QStringLiteral("avatar_url")).toString());
+            row.insert(QStringLiteral("isDirect"),
+                       o.value(QStringLiteral("is_direct")).toBool(false));
+            rooms.append(row);
+        }
+        Q_EMIT mutualRoomsReceived(
+            opId(), event.value(QStringLiteral("user_id")).toString(), rooms);
         return true;
     }
 

@@ -40,6 +40,18 @@ void RoomInfoController::setClient(MatrixClient *client)
                 this, &RoomInfoController::onPowerMatrixFinished);
         connect(m_client, &MatrixClient::inviteUserFinished,
                 this, &RoomInfoController::onInviteUserFinished);
+        connect(m_client, &MatrixClient::mutualRoomsReceived, this,
+                [this](quint64 opId, const QString &userId,
+                       const QVariantList &rooms) {
+            // Matched on the op AND the user: a late answer for the person
+            // whose card was closed must never populate the next one.
+            if (opId == 0 || opId != m_mutualRoomsOp
+                || userId != m_mutualRoomsUser)
+                return;
+            m_mutualRoomsOp = 0;
+            m_mutualRooms = rooms;
+            Q_EMIT mutualRoomsChanged();
+        });
         // The sync poke, NOT membersChanged (review H1): this controller
         // REFETCHES on the signal, and membersChanged also fires for the
         // snapshots its own fetches deliver — the pending-op guard is
@@ -811,6 +823,22 @@ void RoomInfoController::onInviteUserFinished(quint64 opId,
 QVariantList RoomInfoController::filterMembers(const QString &needle) const
 {
     return visibleMembers(needle, QString(), false);
+}
+
+void RoomInfoController::requestMutualRooms(const QString &userId)
+{
+    // Cleared FIRST and announced, so a card that opens on a new person
+    // never shows the previous person's rooms while the answer is in
+    // flight. An empty list is the honest "not known yet" state.
+    if (!m_mutualRooms.isEmpty()) {
+        m_mutualRooms.clear();
+        Q_EMIT mutualRoomsChanged();
+    }
+    m_mutualRoomsUser = userId;
+    m_mutualRoomsOp = 0;
+    if (!m_client || userId.isEmpty())
+        return;
+    m_mutualRoomsOp = m_client->fetchMutualRooms(userId);
 }
 
 QVariantMap RoomInfoController::memberFor(const QString &userId) const

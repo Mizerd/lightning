@@ -504,6 +504,44 @@ private slots:
         QCOMPARE(QGuiApplication::clipboard()->text(),
                  QStringLiteral("@dave:mock.local"));
     }
+
+    // Rooms in common, as Sable lists them — and ABSENT rather than shown
+    // empty when none are known.
+    //
+    // That distinction is the point: the list reads only membership the
+    // store already holds, because asking would cost one /state per room
+    // every time a card opened (the rule that governs the room-list call
+    // glyph). So "no rooms known" and "no rooms in common" are different
+    // claims, and an empty section would assert the stronger one.
+    void mutualRoomsAreAbsentUntilAnyAreKnown()
+    {
+        QMetaObject::invokeMethod(m_root, "openFor",
+                                  Q_ARG(QVariant, QStringLiteral("@dave:mock.local")),
+                                  Q_ARG(QVariant, QStringLiteral("Dave")),
+                                  Q_ARG(QVariant, QStringLiteral("joined")),
+                                  Q_ARG(QVariant, QStringLiteral("")),
+                                  Q_ARG(QVariant, false));
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        QTRY_VERIFY(popover->property("opened").toBool());
+
+        // The mock backend answers no mutual rooms, so the header must not
+        // be drawn and no room row may exist.
+        auto *header = find(QStringLiteral("profileMutualRoomsHeader"));
+        if (header)
+            QVERIFY2(!header->property("visible").toBool(),
+                     "the section claims rooms in common that are not known");
+        QVERIFY2(find(QStringLiteral("profileMutualRoom")) == nullptr,
+                 "a mutual-room row exists with no mutual rooms");
+
+        // Opening the overflow must ASK, or the list can never populate.
+        QFile popoverSrc(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
+        QVERIFY(popoverSrc.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(popoverSrc.readAll());
+        QVERIFY(!src.isEmpty());
+        QVERIFY2(src.contains(QStringLiteral("requestMutualRooms")),
+                 "the overflow never asks for the rooms it means to list");
+    }
 };
 
 int main(int argc, char *argv[])

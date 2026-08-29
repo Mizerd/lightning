@@ -303,6 +303,9 @@ public:
     void setStickerRoomPackEnabled(const QString &roomId,
                                    const QString &stateKey, bool enabled,
                                    quint64 opId) override;
+    void uploadStickerToUserPack(const QString &shortcode, const QString &body,
+                                 const QString &localPath,
+                                 quint64 opId) override;
     void addStickerToUserPack(const QString &shortcode, const QString &url,
                               const QString &body, const QString &mimetype,
                               quint64 width, quint64 height, quint64 size,
@@ -371,6 +374,7 @@ public:
     void setOwnDisplayName(const QString &name, quint64 opId) override;
     void setOwnAvatar(const QString &localPath, quint64 opId) override;
     void clearOwnAvatar(quint64 opId) override;
+    quint64 fetchMutualRooms(const QString &userId) override;
     bool supportsUrlPreview() const override { return true; }
     quint64 fetchUrlPreview(const QString &url) override;
     bool supportsGifProvider() const override { return true; }
