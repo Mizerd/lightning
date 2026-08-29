@@ -7,7 +7,7 @@
 **A native desktop Matrix client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.8.1-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.8.2-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Platform: Linux | Windows | macOS](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-4c8fdc.svg)](#install)
 
 </div>
@@ -73,14 +73,17 @@ encryption store, switching in place; only the active one syncs.
 and waveforms; encrypted attachments throughout; voice messages (MSC3245) with a
 live waveform, in rooms and threads; a two-provider GIF browser (GIPHY and KLIPY)
 that sends real Matrix media and never sends a provider anything but your search
-term; a local emoji picker; drag-and-drop; and link previews with encrypted-room
-privacy controls, off by default.
+term; a local emoji picker; MSC2545 sticker packs — your own, a room's, and
+packs subscribed from elsewhere — with a browser and save-to-pack; JPEG XL
+alongside the usual formats; drag-and-drop; and link previews, which load
+automatically and stay separately controllable for encrypted rooms.
 
 **Desktop.** Eleven WCAG-AA themes and an editor for your own, which you can name,
 keep and share as a block of text. Ten languages, switchable without a restart,
 including right-to-left Arabic. Native notifications with per-room modes written to your
 account's server push rules, close-to-tray, resizable and hideable panes, a quick
-switcher (Ctrl-K), and keyboard navigation throughout.
+switcher (Ctrl-K), rebindable shortcuts, native spell checking in the composer,
+your own imported fonts, and keyboard navigation throughout.
 
 **Updates.** Settings → Updates checks for a new release and, where the package
 format allows, installs it. An Ed25519-signed manifest fixes the filename, size
@@ -130,14 +133,14 @@ package is code-signed yet:
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-Replace `0.8.1` below with the version you downloaded.
+Replace `0.8.2` below with the version you downloaded.
 
 ### Linux
 
 ```sh
-sudo apt install ./lightning_0.8.1_amd64.deb            # Debian, Ubuntu, Mint, Pop!_OS
-sudo dnf install ./lightning-0.8.1-1.x86_64.rpm         # Fedora, RHEL
-sudo zypper install ./lightning-0.8.1-1.x86_64.rpm      # openSUSE
+sudo apt install ./lightning_0.8.2_amd64.deb            # Debian, Ubuntu, Mint, Pop!_OS
+sudo dnf install ./lightning-0.8.2-1.x86_64.rpm         # Fedora, RHEL
+sudo zypper install ./lightning-0.8.2-1.x86_64.rpm      # openSUSE
 
 # The VERSION stays in the pattern; only the suffix is globbed, because some
 # browsers and download managers lower-case .AppImage on the way in. Do not
@@ -145,14 +148,14 @@ sudo zypper install ./lightning-0.8.1-1.x86_64.rpm      # openSUSE
 # expands to both, and the OLDER one becomes the command while the newer
 # becomes its argument — so you would silently run the build you just
 # replaced.
-chmod +x Lightning-0.8.1-x86_64.*pp[Ii]mage && ./Lightning-0.8.1-x86_64.*pp[Ii]mage
+chmod +x Lightning-0.8.2-x86_64.*pp[Ii]mage && ./Lightning-0.8.2-x86_64.*pp[Ii]mage
 
 flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install --user flathub org.kde.Platform//6.9     # the runtime, once
-flatpak install --user ./lightning_0.8.1_amd64.flatpak
+flatpak install --user ./lightning_0.8.2_amd64.flatpak
 flatpak run org.lightning_matrix.Lightning
 
-sudo snap install --dangerous ./lightning_0.8.1_amd64.snap
+sudo snap install --dangerous ./lightning_0.8.2_amd64.snap
 ```
 
 The leading `./` matters for `apt` and `dnf`, or they look for a package by that
@@ -173,7 +176,7 @@ deleting the folder removes it.
 
 Windows packages are **not code-signed**, so Windows shows an "unknown publisher"
 SmartScreen warning. Check the hash first
-(`Get-FileHash .\Lightning-0.8.1-<sha>-windows-x86_64.msi -Algorithm SHA256`),
+(`Get-FileHash .\Lightning-0.8.2-<sha>-windows-x86_64.msi -Algorithm SHA256`),
 then choose *More info → Run anyway*. Signing through
 [SignPath Foundation](https://signpath.org/) is planned but has not been applied
 for or granted — see the [code signing policy](docs/code-signing-policy.md).
