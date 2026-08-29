@@ -2334,6 +2334,138 @@ ApplicationWindow {
 #endif
     }
 
+    void chromeOverAPictureRetiresOnItsOwnTimerInBothPlaces()
+    {
+        // THE TEST THAT WAS MISSING, and its absence is the whole reason this
+        // shipped broken twice.
+        //
+        // The previous version delivered ticks to the timer BY HAND and
+        // asserted the handler did the right thing with them. That proves the
+        // policy and says nothing about whether production ever runs it --
+        // the failure recorded three times already in this repository, now
+        // four. Here nothing is driven: a real share is ingested, the real
+        // spotlight resolves, and the assertion waits for the REAL timer.
+        //
+        // It also covers BOTH surfaces. Only the full-screen window was fixed
+        // the first time, and the reporter was watching a spotlight inside
+        // the application window, where no idle machinery existed at all.
+        //
+        // UNFIXED TREE: the spotlight half FAILS -- stageChromeIdle does not
+        // exist and the overlay never retires.
+#ifndef HAVE_LIGHTNING_WEBRTC
+        QSKIP("built without the SFU media engine");
+#else
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        SfuCallController *call = controller.groupCall();
+        QVERIFY(call);
+
+        QVariantMap track;
+        track.insert(QStringLiteral("source"), QStringLiteral("screen_share"));
+        track.insert(QStringLiteral("sid"), QStringLiteral("TR_share_idle"));
+        track.insert(QStringLiteral("muted"), false);
+        QVariantMap sharer;
+        sharer.insert(QStringLiteral("identity"), QStringLiteral("bob"));
+        sharer.insert(QStringLiteral("sid"), QStringLiteral("PA_bob"));
+        sharer.insert(QStringLiteral("tracks"), QVariantList { track });
+        call->ingestParticipantsForTest({ sharer });
+        QCOMPARE(call->shareModel()->rowCount(), 1);
+
+        CallStageState *stage = call->stageState();
+        QVERIFY(stage);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(5000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY2(root != nullptr, "CallStage must instantiate");
+        root->setWidth(1200);
+        root->setHeight(800);
+
+        const QString key = QStringLiteral("TR_share_idle");
+        stage->restoreShare(key);
+        settle();
+        QCOMPARE(stage->spotlightShareId(), key);
+        QVERIFY2(root->property("spotlightHasSurface").toBool(),
+                 "no spotlight surface, so nothing draws over a picture and "
+                 "this test would pass without measuring anything");
+
+        // 1. THE SPOTLIGHT, in the application window. The reported case.
+        QVERIFY2(!root->property("stageChromeIdle").toBool(),
+                 "the overlay is retired before any time has passed");
+        const int budgetMs = root->property("idleTickMs").toInt()
+                             * root->property("idleTicksToHide").toInt();
+        QVERIFY2(budgetMs >= 2000 && budgetMs <= 6000,
+                 "the idle budget is outside the few seconds asked for");
+        // Generous, deliberately. What is being measured is that the chrome
+        // retires WITHOUT anyone driving it, not how promptly -- and offscreen
+        // window creation can stall the loop for seconds, which failed this
+        // at budget + 4 s while the code was correct.
+        QTRY_VERIFY_WITH_TIMEOUT(root->property("stageChromeIdle").toBool(),
+                                 budgetMs + 20000);
+
+        // Movement wakes it. The count is what production resets, so that is
+        // what is reset here -- the pointer itself cannot be moved offscreen.
+        root->setProperty("stageIdleTicks", 0);
+        QVERIFY2(!root->property("stageChromeIdle").toBool(),
+                 "the overlay stayed retired after the idle count cleared, "
+                 "so nothing can bring it back");
+
+        // 2. THE FULL-SCREEN WINDOW, on its own timer, same rule.
+        stage->setFullScreen(true);
+        settle();
+        QVERIFY(root->property("fullScreenActive").toBool());
+        auto *surface = root->findChild<QQuickItem *>(
+            QStringLiteral("fullScreenSurface"));
+        QVERIFY2(surface != nullptr, "the full-screen surface is gone");
+        QVERIFY2(!surface->property("overlaysIdle").toBool(),
+                 "the full-screen chrome is retired before any time passes");
+        QTRY_VERIFY_WITH_TIMEOUT(surface->property("overlaysIdle").toBool(),
+                                 budgetMs + 20000);
+
+        stage->setFullScreen(false);
+        settle();
+
+        // Pinned, not inherited: with the count left wherever the previous
+        // steps put it this would depend on how long settle() happened to
+        // pump, and a timing-dependent assertion is worse than none.
+        root->setProperty("stageIdleTicks", 0);
+        QVERIFY(!root->property("stageChromeIdle").toBool());
+
+        // 3. THE POINTER. A cursor handler must participate ONLY while it is
+        //    blanking: one that names Qt.ArrowCursor the rest of the time is
+        //    still an authority on the cursor over that whole surface, and
+        //    flattens the pointing hand every button under it asks for.
+        for (const char *name : { "callSpotlightCursor",
+                                  "callFullScreenCursor" }) {
+            auto *cursor = root->findChild<QObject *>(
+                QString::fromLatin1(name));
+            QVERIFY2(cursor != nullptr,
+                     qPrintable(QStringLiteral("no cursor handler %1: the "
+                                               "pointer never hides")
+                                    .arg(QString::fromLatin1(name))));
+            QCOMPARE(cursor->property("cursorShape").toInt(),
+                     int(Qt::BlankCursor));
+            QVERIFY2(!cursor->property("enabled").toBool(),
+                     qPrintable(QStringLiteral("%1 is live while the chrome "
+                                               "is up, so it overrides the "
+                                               "cursor of every control "
+                                               "beneath it")
+                                    .arg(QString::fromLatin1(name))));
+        }
+#endif
+    }
+
     void fullScreenIsItsOwnWindowThatEscapeLeaves()
     {
         // "add an option to full screen screen share so it takes full

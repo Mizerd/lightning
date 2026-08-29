@@ -273,6 +273,29 @@ Rectangle {
         root.stageState.clearPin();
     }
 
+    // ── Chrome that gets out of the way ──────────────────────────────────
+    //
+    // IDLE MEANS THE POINTER HAS NOT MOVED. Not that it left the window —
+    // that reading is right on two monitors, where tabbing away moves the
+    // pointer out, and leaves the controls on screen forever for anyone with
+    // one monitor, because the pointer simply rests inside the share.
+    //
+    // There are TWO surfaces that draw over a picture and both must obey it:
+    // the spotlight's own overlay in the application window, and the
+    // full-screen window's chrome. Fixing only the second is why this was
+    // reported still broken — the reporter was watching a spotlight, not a
+    // full-screen share.
+    readonly property int idleTickMs: 500
+    readonly property int idleTicksToHide: 6   // 6 x 500 ms = 3 s
+
+    /// Ticks since the pointer last moved over the stage's own spotlight.
+    /// The full-screen window keeps its own count: a HoverHandler sees only
+    /// the window it is in, and the two are never live at once anyway.
+    property int stageIdleTicks: 0
+    readonly property bool stageChromeIdle:
+        root.spotlightHasSurface && !root.fullScreenActive
+        && root.stageIdleTicks >= root.idleTicksToHide
+
     // ── Full screen ──────────────────────────────────────────────────────
     //
     // The focused surface on a whole screen, in its own window — Discord's
@@ -349,6 +372,25 @@ Rectangle {
         } else if (fullScreenWindow.visible) {
             fullScreenWindow.hide();
         }
+    }
+
+    // Never stopped and never restarted: what resets is the COUNT. A timer
+    // re-phased while its count sits at the budget retires the chrome again
+    // on the very next tick.
+    Timer {
+        id: stageIdleTimer
+        objectName: "stageIdleTimer"
+        interval: root.idleTickMs
+        repeat: true
+        running: root.spotlightHasSurface && !root.fullScreenActive
+        onTriggered: root.stageIdleTicks += 1
+    }
+
+    /// Movement anywhere over the stage wakes its chrome. Reaching for a
+    /// control IS movement, so nothing has to be aimed at blind.
+    HoverHandler {
+        id: stageHover
+        onPointChanged: root.stageIdleTicks = 0
     }
 
     /// Put the full-screen window on the monitor the APPLICATION is on.
@@ -774,6 +816,20 @@ Rectangle {
                             sourceComponent: focusedSurface
                         }
 
+                        // The pointer goes too. Scoped to the picture rather
+                        // than the whole stage: a blank cursor over the strip
+                        // or the header would just look broken.
+                        HoverHandler {
+                            objectName: "callSpotlightCursor"
+                            // ENABLED ONLY WHILE BLANKING. A handler that
+                            // names Qt.ArrowCursor the rest of the time is
+                            // still an authority on the cursor, and would
+                            // flatten the pointing hand every button under
+                            // it asks for.
+                            enabled: root.stageChromeIdle
+                            cursorShape: Qt.BlankCursor
+                        }
+
                         RowLayout {
                             anchors.top: parent.top
                             anchors.right: parent.right
@@ -792,6 +848,17 @@ Rectangle {
                             visible: parent.height
                                      >= root.spotlightOverlayHeight
                                         + AppTheme.spacing8
+                            // Retires with the rest of the chrome. Inert as
+                            // well as invisible: the pointer may be resting
+                            // on it when it goes, and an invisible control
+                            // that answers a click is worse than a visible
+                            // one that does.
+                            opacity: root.stageChromeIdle ? 0 : 1
+                            enabled: !root.stageChromeIdle
+                            Behavior on opacity {
+                                enabled: !AppTheme.reducedMotion
+                                NumberAnimation { duration: 180 }
+                            }
 
                             CallControlButton {
                                 objectName: "callFullScreenButton"
@@ -1108,6 +1175,12 @@ Rectangle {
                     if (fullScreenSurface.idleTicks >= fullScreenSurface.idleTicksToHide)
                         fullScreenSurface.overlaysIdle = true;
                 }
+            }
+            HoverHandler {
+                objectName: "callFullScreenCursor"
+                enabled: root.fullScreenActive
+                         && fullScreenSurface.overlaysIdle
+                cursorShape: Qt.BlankCursor
             }
             // Movement — anywhere over the share — brings it back at once and
             // restarts the count. That is also the "move toward the edge and
