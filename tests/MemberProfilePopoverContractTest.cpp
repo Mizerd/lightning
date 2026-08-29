@@ -9,6 +9,8 @@
 
 #include <QtTest/QtTest>
 
+#include <limits>
+
 #include <QClipboard>
 #include <QFile>
 #include <QGuiApplication>
@@ -563,11 +565,43 @@ private slots:
             const qreal contentCentre = content->y() + content->height() / 2.0;
             QVERIFY2(qAbs(itemCentre - contentCentre) < 1.5,
                      qPrintable(QStringLiteral(
-                         "%1 content is off centre: item h=%2 centre=%3, "
-                         "content y=%4 h=%5 centre=%6")
+                         "%1 content is off centre vertically: item h=%2 "
+                         "centre=%3, content y=%4 h=%5 centre=%6")
                              .arg(name).arg(item->height()).arg(itemCentre)
                              .arg(content->y()).arg(content->height())
                              .arg(contentCentre)));
+
+            // HORIZONTALLY, MEASURED ON THE PAINTED CHILDREN.
+            //
+            // Comparing the contentItem's centre to the button's is VACUOUS:
+            // a Control stretches its contentItem across the full available
+            // width, so that centre always matches while the children inside
+            // it are packed at x=0. This case passed twice against a button
+            // whose dots were visibly left of centre, which is exactly the
+            // shape of a measurement that cannot fail.
+            //
+            // So it measures the union of the CHILDREN — the icon and the
+            // label — which is what a reader actually sees.
+            qreal minX = std::numeric_limits<qreal>::max();
+            qreal maxX = std::numeric_limits<qreal>::lowest();
+            const auto kids = content->childItems();
+            for (QQuickItem *kid : kids) {
+                if (!kid->isVisible() || kid->width() <= 0)
+                    continue;
+                const QPointF topLeft = kid->mapToItem(item, QPointF(0, 0));
+                minX = qMin(minX, topLeft.x());
+                maxX = qMax(maxX, topLeft.x() + kid->width());
+            }
+            QVERIFY2(maxX > minX,
+                     qPrintable(name + QStringLiteral(" has no painted content")));
+            const qreal paintedCentreX = (minX + maxX) / 2.0;
+            const qreal itemCentreX = item->width() / 2.0;
+            QVERIFY2(qAbs(itemCentreX - paintedCentreX) < 1.5,
+                     qPrintable(QStringLiteral(
+                         "%1 content is off centre horizontally: item w=%2 "
+                         "centre=%3, painted %4..%5 centre=%6")
+                             .arg(name).arg(item->width()).arg(itemCentreX)
+                             .arg(minX).arg(maxX).arg(paintedCentreX)));
         }
     }
 

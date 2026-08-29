@@ -346,9 +346,26 @@ Popup {
         focusPolicy: Qt.TabFocus
         Accessible.role: Accessible.Button
         Accessible.name: accessibleName.length > 0 ? accessibleName : label
-        contentItem: Row {
-            id: chipRow
-            spacing: AppTheme.spacing2
+        // CENTRED IN A WRAPPER, not laid out directly as the contentItem.
+        //
+        // A Control STRETCHES its contentItem across the whole available
+        // width, and a Row lays its children from x=0 — so with an
+        // implicitWidth of `content + 2 * chipPaddingH` the button was wider
+        // than its content, the content hugged the left edge and all the
+        // slack collected on the right. On the round overflow button that is
+        // the three dots sitting left of centre in their circle.
+        //
+        // It also defeats the obvious measurement: comparing the contentItem's
+        // centre to the button's centre always matched, because the stretched
+        // Row's centre IS the button's centre. What is off-centre is the Row's
+        // CHILDREN inside it, which is what the test measures now.
+        contentItem: Item {
+            implicitWidth: chipRow.implicitWidth
+            implicitHeight: chipRow.implicitHeight
+            Row {
+                id: chipRow
+                anchors.centerIn: parent
+                spacing: AppTheme.spacing2
             Icon {
                 visible: chipButton.iconName.length > 0
                 name: chipButton.iconName
@@ -364,6 +381,7 @@ Popup {
                 font.weight: AppTheme.weightBold
                 color: AppTheme.stormLink
                 anchors.verticalCenter: parent.verticalCenter
+                }
             }
         }
         background: Rectangle {
@@ -1097,21 +1115,32 @@ Popup {
                         // what the store already holds (no request per room),
                         // so "none known" and "none" are not the same thing
                         // and an empty section would assert the stronger one.
-                        MenuSectionLabel {
-                            objectName: "profileMutualRoomsHeader"
-                            // Matched to AppMenuItem's own left padding.
-                            // Dropped straight into a Menu the label has none
-                            // of its own, so the heading sat hard against the
-                            // panel edge while the rows under it were inset.
-                            leftPadding: AppTheme.menuItemPadding + 6
-                            rightPadding: AppTheme.menuItemPadding
-                            visible: !root.isOwn
-                                     && app.roomInfo.mutualRooms.length > 0
-                            // A hidden label must take no space either: a
-                            // Menu lays rows out in a ListView that honours
-                            // each item's own height regardless of `visible`.
-                            height: visible ? implicitHeight : 0
-                            text: qsTr("Rooms in common")
+                        // A LOADER, not a Label with a height binding.
+                        //
+                        // A hidden row must take no space — a Menu lays its
+                        // rows out in a ListView that honours each item's own
+                        // height whatever `visible` says — but doing that as
+                        // `height: visible ? implicitHeight : 0` binds height
+                        // to implicitHeight on a Label, and a Label's implicit
+                        // height depends on the width it was given, so Qt
+                        // reported a binding loop on every open. A Loader has
+                        // no size of its own when inactive, which is the same
+                        // outcome without the cycle.
+                        Loader {
+                            active: !root.isOwn
+                                    && app.roomInfo.mutualRooms.length > 0
+                            visible: active
+                            sourceComponent: MenuSectionLabel {
+                                objectName: "profileMutualRoomsHeader"
+                                // Matched to AppMenuItem's own left padding.
+                                // Dropped straight into a Menu the label has
+                                // none of its own, so the heading sat hard
+                                // against the panel edge while the rows under
+                                // it were inset.
+                                leftPadding: AppTheme.menuItemPadding + 6
+                                rightPadding: AppTheme.menuItemPadding
+                                text: qsTr("Rooms in common")
+                            }
                         }
                         Repeater {
                             model: root.isOwn ? [] : app.roomInfo.mutualRooms
