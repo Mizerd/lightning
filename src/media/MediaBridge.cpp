@@ -88,6 +88,15 @@ bool previewBytesMatchMime(const QByteArray &bytes, const QString &mimetype)
     if (mimetype == QLatin1String("image/webp"))
         return bytes.size() >= 12 && bytes.startsWith("RIFF")
             && bytes.mid(8, 4) == QByteArrayLiteral("WEBP");
+    // JPEG XL. Container form first: a container's payload starts with the bare
+    // codestream signature, so the short test would mis-match it.
+    if (mimetype == QLatin1String("image/jxl")) {
+        return bytes.startsWith(
+                   QByteArrayLiteral("\x00\x00\x00\x0CJXL \r\n\x87\n"))
+            || bytes.startsWith(QByteArrayLiteral("\xff\x0a"));
+    }
+    // Unknown mime stays FALSE: this function is fail-closed by design, so an
+    // unrecognised type is refused rather than trusted.
     return false;
 }
 } // namespace
@@ -169,6 +178,44 @@ bool MediaBridge::supported() const
 bool MediaBridge::isAvatarClassKey(const QString &cacheKey)
 {
     return cacheKey.startsWith(QLatin1String("mxc:"));
+}
+
+bool MediaBridge::looksLikeMarkupOrCompressed(const QByteArray &bytes)
+{
+    // CLAUDE.md §6 keeps SVG out of the inline preview/media paths. The
+    // declared mimetype cannot carry that rule on its own: a sticker pack is
+    // ROOM STATE any member can write, and MSC2545 lets an entry omit
+    // `mimetype` entirely — which stickers.rs deliberately allows, so a pack
+    // from a future client does not go invisible. So the BYTES decide here,
+    // the same argument the A/V sniff above already makes.
+    //
+    // Every raster format this client accepts opens with binary magic, so no
+    // legitimate image-class payload can begin with `<` or with gzip. That
+    // makes this refusal cheap AND free of false positives, rather than a
+    // list of SVG's spellings (`<svg`, `<?xml`, `<!DOCTYPE`, a comment first)
+    // that a hostile file only has to differ from.
+    qsizetype i = 0;
+    // UTF-8 BOM, then leading whitespace: both are legal before an XML
+    // declaration and neither changes what the payload is.
+    if (bytes.size() >= 3 && static_cast<unsigned char>(bytes.at(0)) == 0xEF
+        && static_cast<unsigned char>(bytes.at(1)) == 0xBB
+        && static_cast<unsigned char>(bytes.at(2)) == 0xBF)
+        i = 3;
+    // Explicit, not std::isspace: that is locale-dependent and takes an int
+    // whose negative values are UB for a signed char.
+    const auto isXmlSpace = [](char c) {
+        return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+    };
+    while (i < bytes.size() && isXmlSpace(bytes.at(i)))
+        ++i;
+    if (i < bytes.size() && bytes.at(i) == '<')
+        return true;
+    // SVGZ: Qt's SVG handler decompresses gzip, so refusing only the plain
+    // spelling would leave the same file reachable under another name.
+    if (bytes.size() >= 2 && static_cast<unsigned char>(bytes.at(0)) == 0x1F
+        && static_cast<unsigned char>(bytes.at(1)) == 0x8B)
+        return true;
+    return false;
 }
 
 bool MediaBridge::looksLikeAvContainer(const QByteArray &bytes)
@@ -1283,7 +1330,8 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     // image-decode path. Permanent category — the server will keep
     // answering the same way.
     if ((request.kind == 1 || request.kind == 2)
-        && looksLikeAvContainer(bytes)) {
+        && (looksLikeAvContainer(bytes)
+            || looksLikeMarkupOrCompressed(bytes))) {
         ++m_statFailed;
         qCWarning(lcMedia,
                   "ready %s rejected: thumbnail payload sniffs as A/V "

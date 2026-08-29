@@ -374,6 +374,9 @@ private:
     // thumbnail results with the parent's mimetype anyway — so the bytes,
     // not the label, decide whether the payload may enter the image path.
     static bool looksLikeAvContainer(const QByteArray &bytes);
+    /// True when the payload opens as markup (SVG and friends) or as gzip
+    /// (SVGZ). Image-class results are refused on this: see the definition.
+    static bool looksLikeMarkupOrCompressed(const QByteArray &bytes);
     static QString sanitizedFileName(const QString &name);
     void writeSaveFile(const QUrl &destination, const QByteArray &bytes,
                        const QString &mediaKey);
