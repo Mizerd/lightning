@@ -1080,6 +1080,69 @@ ApplicationWindow {
                 != nullptr);
     }
 
+    // The full-screen idle timer MUST NEVER BE STOPPED.
+    //
+    // That is the whole defect, stated as an invariant. The first version
+    // stopped it while the pointer sat in the reveal band so the dock could
+    // not retire under a hand reaching for it — and the band IS the bottom
+    // edge, which is the edge the pointer leaves through to reach the
+    // taskbar. With no leave event after that the timer stays stopped
+    // forever and the chrome never hides again, which is exactly what a
+    // full-screen share looked like: controls sitting over it permanently.
+    //
+    // Part runtime, part source, and honest about which is which: the timer
+    // object is read live (its repeat and interval are real property reads),
+    // while "nobody calls stop() on it" can only be asserted against the
+    // source. Driving the retirement end-to-end would need a fabricated live
+    // share, since fullScreenActive requires a spotlight surface.
+    void theFullScreenIdleTimerIsNeverStopped()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(5000));
+        auto *stage = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(stage != nullptr);
+
+        auto *surface = stage->findChild<QQuickItem *>(
+            QStringLiteral("fullScreenSurface"));
+        QVERIFY2(surface != nullptr, "the full-screen surface is gone");
+        // Shown when full screen opens; only the timer may change that.
+        QCOMPARE(surface->property("overlaysIdle").toBool(), false);
+
+        auto *timer = surface->findChild<QObject *>(
+            QStringLiteral("fullScreenIdleTimer"));
+        QVERIFY2(timer != nullptr, "the idle timer is gone");
+        QVERIFY2(timer->property("interval").toInt() > 0,
+                 "the idle timer has no interval, so it can never fire");
+        QVERIFY2(timer->property("repeat").toBool(),
+                 "the idle timer fires once; after any interruption the "
+                 "chrome can never retire again");
+
+        const QString src = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(!src.isEmpty());
+        QVERIFY2(!src.contains(QStringLiteral("fullScreenIdleTimer.stop()")),
+                 "the idle timer is stopped somewhere; a stop with no "
+                 "guaranteed restart is what left the controls on screen "
+                 "over a full-screen share");
+        // Held open by a LIVE hover read rather than a latched flag, which is
+        // the other half of not getting stuck.
+        QVERIFY2(src.contains(QStringLiteral("fullScreenDockHover.hovered")),
+                 "the chrome is held open by something other than a live "
+                 "hover read");
+    }
+
     void callHeaderBarShowsForALiveCallInItsOwnRoomOnly()
     {
         AppController controller(AppController::MockBackend);

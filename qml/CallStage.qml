@@ -1067,6 +1067,7 @@ Rectangle {
 
         Item {
             id: fullScreenSurface
+            objectName: "fullScreenSurface"
             anchors.fill: parent
 
             // ── Full-screen overlays retire when the pointer is still ──────
@@ -1080,47 +1081,41 @@ Rectangle {
             // without consuming anything, so the overlays it wakes are still
             // clickable and nothing below them loses an event.
             property bool overlaysIdle: false
+            // THE TIMER IS NEVER STOPPED. It repeats, and only onTriggered
+            // decides whether to retire the chrome.
+            //
+            // The first version stopped it while the pointer sat in the
+            // reveal band, so the dock could not retire under a hand reaching
+            // for it. That is how it got STUCK ON SCREEN: the band is the
+            // bottom edge, the pointer leaves through the bottom edge to
+            // reach the taskbar, and if no leave event follows the timer stays
+            // stopped forever and the dock never hides again — a full-screen
+            // share with the controls sitting over it permanently.
+            //
+            // A repeating timer plus a LIVE hover read cannot latch: if the
+            // pointer is gone the read is false and the chrome retires on the
+            // next tick, whatever events did or did not arrive.
             Timer {
                 id: fullScreenIdleTimer
+                objectName: "fullScreenIdleTimer"
                 interval: 3000
+                repeat: true
                 running: root.fullScreenActive
-                onTriggered: fullScreenSurface.overlaysIdle = true
+                onTriggered: {
+                    if (!fullScreenDockHover.hovered)
+                        fullScreenSurface.overlaysIdle = true;
+                }
             }
-            // Discord's rule, not merely "hide after a while": the chrome
-            // also comes back when the pointer approaches the EDGE it lives
-            // on, so you can reach for it without waving the mouse in the
-            // middle of someone's screen share.
-            //
-            // `point.position` is in this item's coordinates, so the bands
-            // are measured against its own height — a fraction rather than a
-            // fixed pixel count, because a 4K stage and a 720p one need
-            // different reach.
-            property real edgeReach: Math.max(72, height * 0.12)
+            // Any movement brings the chrome back — which is also the "move
+            // toward the edge and it reappears" behaviour asked for, since
+            // reaching for the bottom of the screen IS movement.
             HoverHandler {
                 id: fullScreenHover
                 enabled: root.fullScreenActive
-                onPointChanged: {
-                    const y = point.position.y
-                    const nearBottom = y >= fullScreenSurface.height
-                                       - fullScreenSurface.edgeReach
-                    const nearTop = y <= fullScreenSurface.edgeReach
-                    if (nearBottom || nearTop) {
-                        // Held open while the pointer is in the band: the
-                        // timer is not restarted, it is stopped, so the
-                        // chrome cannot retire under a hand reaching for it.
-                        fullScreenIdleTimer.stop()
-                        fullScreenSurface.overlaysIdle = false
-                        return
-                    }
-                    fullScreenSurface.overlaysIdle = false
-                    fullScreenIdleTimer.restart()
-                }
+                onPointChanged: fullScreenSurface.overlaysIdle = false
                 onHoveredChanged: {
-                    // The pointer left the surface entirely: nothing is
-                    // being reached for, so let it retire on the timer
-                    // rather than staying open forever.
-                    if (!hovered && root.fullScreenActive)
-                        fullScreenIdleTimer.restart()
+                    if (hovered)
+                        fullScreenSurface.overlaysIdle = false;
                 }
             }
             // Leaving full screen must not strand the overlays hidden: the
@@ -1245,6 +1240,10 @@ Rectangle {
                     enabled: !AppTheme.reducedMotion
                     NumberAnimation { duration: 180 }
                 }
+                // The hover the idle timer reads: on the DOCK, so the chrome
+                // is held open only while the pointer is genuinely on it.
+                // A live read, never a latched flag.
+                HoverHandler { id: fullScreenDockHover }
                 sourceComponent: CallHeaderBar {
                     objectName: "callFullScreenDock"
                     placement: "dock"
