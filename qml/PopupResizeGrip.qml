@@ -54,9 +54,32 @@ Item {
 
     // The AnchoredPopup this grip resizes.
     property var popup
-    // Centre of the arcs, measured from this item's top-left. Sits at the
-    // panel's corner-radius centre so the arcs run parallel to the border.
+    // How far the GRAB area reaches BEYOND the popup's own corner.
+    //
+    // Measured 2026-08-28: the popup's item rect ends exactly at the visible
+    // panel edge, and a press one pixel outside it is "outside" — Popup's
+    // CloseOnPressOutside fires AND, because the picker is deliberately not
+    // modal (ecb2604: a grabbed overlay is what stopped the timeline
+    // scrolling), the same press keeps walking down to the chat, which then
+    // flicks with the drag. That is the reported "resizing the picker grabs
+    // the chat behind it": the grip is the one affordance that invites the
+    // pointer onto the popup's outermost edge, so a 1-3px overshoot along the
+    // top or left edge is a miss with visible consequences.
+    //
+    // A grab band that straddles the edge is what every window manager gives a
+    // resize corner. Defaults to 0 so a host that has not opted in is
+    // unchanged; the host must ALSO move the item out by the same amount and
+    // make sure that band is still inside the popup's item rect, or the press
+    // is outside and this buys nothing (asserted by the host's own suite).
+    property real grabMargin: 0
+
+    // Centre of the arcs, measured from the POPUP CORNER — not from this
+    // item's origin, which sits `grabMargin` further out. Sits at the panel's
+    // corner-radius centre so the arcs run parallel to the border.
     property real arcCentre: 18
+    // Where the arcs are actually drawn, in this item's own coordinates. The
+    // mark must not move when the grab band grows.
+    readonly property real drawCentre: arcCentre + grabMargin
     property real outerRadius: 15
     property real strokeWidth: 2.5
     // Segment count: enough that the round caps overlap into a smooth curve.
@@ -70,8 +93,8 @@ Item {
     readonly property bool engaged: gripHover.hovered || dragHandler.active
 
     objectName: "popupResizeGrip"
-    width: 28
-    height: 28
+    width: 28 + grabMargin
+    height: 28 + grabMargin
     z: 20
     Accessible.role: Accessible.Grip
     Accessible.name: qsTr("Resize")
@@ -130,8 +153,8 @@ Item {
             antialiasing: true
             color: AppTheme.bolt
             opacity: grip.engaged ? 1 : 0.9
-            x: grip.arcCentre + Math.cos(angle) * grip.outerRadius - width / 2
-            y: grip.arcCentre + Math.sin(angle) * grip.outerRadius - height / 2
+            x: grip.drawCentre + Math.cos(angle) * grip.outerRadius - width / 2
+            y: grip.drawCentre + Math.sin(angle) * grip.outerRadius - height / 2
             rotation: angle * 180 / Math.PI + 90
             Behavior on opacity { NumberAnimation { duration: 120 } }
         }

@@ -130,10 +130,45 @@ AnchoredPopup {
     // so it transfers between them despite their different proportions.
     widthFraction: 0.38
     heightFraction: 0.64
-    minWidth: 300
-    minHeight: 320
+    // Plus the grab band, so the CONTENT floor is exactly what it was before
+    // the band existed — the minimum is documented as "three grid columns and
+    // the footer legible", and the band is not content.
+    minWidth: 300 + gripGrab
+    minHeight: 320 + gripGrab
     sizeSettingsKey: "picker"
     padding: AppTheme.spacingS
+
+    // ── The resize grab band (2026-08-28) ───────────────────────────────
+    //
+    // Reported: "resizing the picker grabs the chat behind it". Measured with
+    // real QTest presses over a real Flickable: the leak begins at the popup's
+    // item rect. A press ONE pixel outside it closes the picker (CloseOnPress-
+    // Outside) AND keeps walking down to the chat, which then flicks with the
+    // drag — because the picker is deliberately not modal (ecb2604: the
+    // grabbed overlay is what stopped the timeline scrolling, and that must
+    // stay fixed). Inside the rect nothing leaks: zero presses behind at every
+    // offset tested, and the resize works.
+    //
+    // The grip is the one affordance that invites the pointer onto that
+    // outermost edge, so along the top and left edges a 1-3px overshoot is a
+    // miss with visible consequences. Moving the grip OUTWARD was tried and
+    // MEASURED NOT TO WORK — a press outside the item rect never reaches the
+    // child at all, the popup machinery takes it first — so the band has to be
+    // inside the rect instead. That is what the insets buy: the popup's item
+    // stays the same size, the PANEL is laid out `gripGrab` in from its top and
+    // left, and the difference is a transparent band that is still "inside" the
+    // popup for both hit-testing and the close policy.
+    //
+    // The bottom and right are deliberately NOT inset: that corner is pinned to
+    // the composer and cannot be dragged, so a band there would only eat clicks.
+    readonly property real gripGrab: 8
+    leftInset: gripGrab
+    topInset: gripGrab
+    // Insets move the BACKGROUND only; contentItem is still laid out from the
+    // popup item's own edge, so without this the content would sit flush
+    // against the panel border on those two sides.
+    leftPadding: padding + gripGrab
+    topPadding: padding + gripGrab
     // Modal, like its peer the emoji picker. Both float over the timeline
     // from the same composer anchor and share one remembered size, so they
     // should not disagree about what a press does: outside, it closes the
@@ -332,6 +367,7 @@ AnchoredPopup {
     background: Item {
         Rectangle {
             id: pickerPanel
+            objectName: "gifPickerPanel"
             anchors.fill: parent
             color: AppTheme.stormPanel
             border.color: AppTheme.stormBorder
@@ -351,6 +387,12 @@ AnchoredPopup {
             // every real control still sees the press first.
             MouseArea {
                 anchors.fill: parent
+                // Reach back over the inset band. The band is inside the
+                // popup's item — so the close policy leaves it alone — but
+                // outside this Rectangle, and an unsunk band would leak a
+                // press to the chat exactly as the popup's outside does.
+                anchors.leftMargin: -picker.leftInset
+                anchors.topMargin: -picker.topInset
                 acceptedButtons: Qt.AllButtons
             }
         }
@@ -477,13 +519,25 @@ AnchoredPopup {
             }
         }
 
-        // ── The single nav row: sources, a divider, then your own lists.
+        // ── The single nav row: sources at the left, then your own lists,
+        // pushed to the RIGHT edge behind a divider.
         // Two SegmentedControls rather than one four-entry control, purely so
         // the divider can sit between the groups; both are bound to the same
         // `picker.tab`, so exactly one segment across the pair is ever
         // selected. (Adding separator support to the shared SegmentedControl
         // would have changed a component the Room Information tabs and the
         // Settings layout selector also use.)
+        //
+        // The two groups are separated by a FILLER, and neither control fills.
+        // Layout.fillWidth defaults to TRUE for a Layout-derived child, and
+        // SegmentedControl IS a RowLayout — so both strips were silently
+        // filling, splitting the surplus between them, each soaking its own
+        // share up in its own trailing filler. That is why "Saved | Recent"
+        // sat marooned in the middle of the row rather than at either end.
+        // Turning fillWidth off on both and giving the surplus to one filler
+        // is the same idiom SegmentedControl already uses internally, and it
+        // holds at every picker width — the picker is resizable, so a fixed
+        // offset could not.
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -492,6 +546,7 @@ AnchoredPopup {
                 id: providerTabs
                 objectName: "gifProviderTabs"
                 storm: true
+                Layout.fillWidth: false
                 // cfgRevision re-evaluates enabled/tip after a key refresh;
                 // unavailable providers are disabled with an explanation —
                 // never a bare "(off)" suffix.
@@ -512,6 +567,13 @@ AnchoredPopup {
                 onActivated: (value) => picker.selectTab(value)
             }
 
+            // The surplus lives here, and only here: everything after it is
+            // flush with the row's right edge.
+            Item {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+            }
+
             Rectangle {
                 Layout.preferredWidth: 1
                 Layout.preferredHeight: 18
@@ -523,7 +585,7 @@ AnchoredPopup {
                 id: listTabs
                 objectName: "gifListTabs"
                 storm: true
-                Layout.fillWidth: true
+                Layout.fillWidth: false
                 // Neither list needs a key or a network request, so both are
                 // always enabled — including when no provider is configured
                 // at all.
@@ -1031,6 +1093,7 @@ AnchoredPopup {
     // in these coordinates; a fixed top offset drifted over the chip rows
     // whenever the header stack's height changed) ─────────────────────
     Item {
+        objectName: "gifStateOverlay"
         x: grid.x
         y: grid.y
         width: grid.width
@@ -1050,6 +1113,7 @@ AnchoredPopup {
         }
         Label {
             id: overlayText
+            objectName: "gifStateOverlayText"
             anchors.centerIn: parent
             width: parent.width - AppTheme.spacingL * 2
             horizontalAlignment: Text.AlignHCenter
@@ -1138,18 +1202,21 @@ AnchoredPopup {
         }
     }
 
-    // The corner ornament that resizes the picker. Seated on the panel's own
-    // corner via negative margins, so it displaces nothing in the header.
+    // The corner ornament that resizes the picker. Seated on the POPUP ITEM's
+    // corner via negative margins, so it displaces nothing in the header and
+    // its grab band covers the inset strip outside the visible panel.
     PopupResizeGrip {
         popup: picker
-        // Concentric with the panel's corner: its centre is the corner-radius
-        // centre, measured from this item's own origin at the panel corner.
+        // The grab band. The item starts at the popup's own corner, which is
+        // `gripGrab` outside the panel; arcCentre stays measured from the
+        // PANEL corner so the mark does not move.
+        grabMargin: picker.gripGrab
         arcCentre: AppTheme.radiusLg + 6
         outerRadius: AppTheme.radiusLg + 2
         anchors.left: parent.left
         anchors.top: parent.top
-        anchors.leftMargin: -picker.padding
-        anchors.topMargin: -picker.padding
+        anchors.leftMargin: -picker.leftPadding
+        anchors.topMargin: -picker.topPadding
     }
 
     } // contentItem Item

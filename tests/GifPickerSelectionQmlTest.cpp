@@ -1059,12 +1059,20 @@ private Q_SLOTS:
         QVERIFY(qAbs((picker->property("y").toReal()
                       + picker->property("height").toReal()) + gap) < 1.5);
 
-        // Below the component minimum is refused (GifPicker pins 300 x 320).
+        // Below the component minimum is refused. Read from the picker's own
+        // minWidth/minHeight rather than hardcoded: the claim under test is
+        // "the floor is honoured", and the floor legitimately moves when the
+        // popup's item carries chrome the panel does not (2026-08-28: the
+        // resize grab band, which is inset from the visible panel so a press
+        // aimed at the corner grip cannot land outside the popup).
+        const qreal floorW = picker->property("minWidth").toReal();
+        const qreal floorH = picker->property("minHeight").toReal();
+        QVERIFY(floorW > 0 && floorH > 0);
         QVERIFY(QMetaObject::invokeMethod(picker, "resizeTo",
                                           Q_ARG(QVariant, 50),
                                           Q_ARG(QVariant, 50)));
-        QCOMPARE(picker->property("width").toReal(), 300.0);
-        QCOMPARE(picker->property("height").toReal(), 320.0);
+        QCOMPARE(picker->property("width").toReal(), floorW);
+        QCOMPARE(picker->property("height").toReal(), floorH);
 
         // Wider than the anchor is refused — "no further than the text box".
         QVERIFY(QMetaObject::invokeMethod(picker, "resizeTo",

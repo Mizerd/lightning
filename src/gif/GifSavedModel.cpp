@@ -1,5 +1,6 @@
 #include "gif/GifSavedModel.h"
 
+#include "gif/GifResultModel.h"
 #include "gif/GifStoredModel.h"
 
 GifSavedModel::GifSavedModel(GifStoredModel *local, GifStoredModel *provider,
@@ -18,6 +19,15 @@ GifSavedModel::GifSavedModel(GifStoredModel *local, GifStoredModel *provider,
             this, &GifSavedModel::countChanged);
     connect(this, &QAbstractItemModel::modelReset,
             this, &GifSavedModel::countChanged);
+}
+
+QHash<int, QByteArray> GifSavedModel::roleNames() const
+{
+    // The ONE table both sources answer with — see the header for the Qt
+    // version difference this exists to close. Taken from GifResultModel
+    // itself rather than from a source model, so it is right even before a
+    // source has been added and cannot drift toward one source's idea of it.
+    return GifResultModel().roleNames();
 }
 
 int GifSavedModel::count() const

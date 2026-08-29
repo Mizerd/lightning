@@ -83,6 +83,41 @@ public:
     GifSavedModel(GifStoredModel *local, GifStoredModel *provider,
                   QObject *parent = nullptr);
 
+    // 2026-08-28 (LIVE BUG, packaged builds only): the shared role table,
+    // stated EXPLICITLY rather than inherited.
+    //
+    // QConcatenateTablesProxyModel does NOT forward its sources' role names on
+    // every Qt this project ships against. Measured, same probe, same source
+    // models:
+    //
+    //   Qt 6.11.1 (nix dev shell — every local build and every local test):
+    //     roleNames() = the sources' 15 GifResultModel roles + Qt's 6 defaults
+    //   Qt 6.8.2 (debian:13.6-slim — the deb/rpm/flatpak/AppImage build base):
+    //     roleNames() = Qt's 6 defaults, and NOTHING else
+    //
+    // GifPicker.qml's grid delegate declares `required property string
+    // provider` and twelve more, all resolved BY NAME through roleNames(). A
+    // required property the model cannot supply makes QQmlDelegateModel refuse
+    // to build the delegate at all — so on a packaged build the Saved tab
+    // rendered zero tiles while count() was right, and because count() was
+    // right the picker's "No saved GIFs yet" overlay stayed empty too: an
+    // entirely blank panel that said nothing, which is exactly what the
+    // 2026-08-28 report showed. Recent and the provider grids were unaffected
+    // because they are plain GifStoredModel/GifResultModel instances answering
+    // their own table.
+    //
+    // data() was never affected — the base class forwards the numeric role
+    // as given — so every C++ path (count, get(), the star's store lookups)
+    // kept working, which is why no test and no C++ assertion could see it.
+    //
+    // Answering GifResultModel's table here is correct on BOTH Qt versions and
+    // is not merely a workaround: it is the invariant this class already
+    // depends on for role forwarding to mean anything (see the note above on
+    // why the numeric role may be forwarded unremapped — both sources answer
+    // this identical table). Stating it makes that dependency enforceable, and
+    // GifCollectionsTest/GifSavedTabQmlTest pin it against both sources.
+    QHash<int, QByteArray> roleNames() const override;
+
     int count() const;
     // Row -> the same QVariantMap the single models answer with. Out-of-range
     // rows answer an empty map (never a neighbouring row).
