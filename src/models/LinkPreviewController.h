@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -82,12 +83,44 @@ public:
     Q_INVOKABLE void retry(const QString &itemKey);
     Q_INVOKABLE void retryForEvent(const QString &roomId,
                                    const QString &stableEventId);
+
+    // The reader dismissed this row's preview card: it collapses and the row
+    // reclaims the space. Purely local rendering state — nothing is sent,
+    // edited or redacted, and the linkified URL stays in the message body.
+    //
+    // Keyed per (room, event) and NEVER per URL. The result cache m_urls is
+    // shared across messages by URL, so a per-URL dismissal would collapse
+    // every card carrying that URL anywhere in the timeline, including rows
+    // ABOVE the reader — the one way this control could actually displace
+    // someone. Per-event keying makes the only moving row the one the reader
+    // just clicked.
+    //
+    // Dismissal is also checked BEFORE the auto-load dispatch, so dismissing
+    // a card while automatic loading is on is durable for the session rather
+    // than being re-fetched the next time the row is rebuilt.
+    Q_INVOKABLE void dismissPreview(const QString &itemKey);
+    Q_INVOKABLE void dismissPreviewForEvent(const QString &roomId,
+                                            const QString &stableEventId);
+    // Undo. Grants nothing on its own: it clears the dismissal and lets the
+    // ordinary policy decide again, so a preview that was never consented to
+    // comes back as the consent gate rather than as a fetch.
+    Q_INVOKABLE void restorePreview(const QString &itemKey);
+    Q_INVOKABLE void restorePreviewForEvent(const QString &roomId,
+                                            const QString &stableEventId);
+    Q_INVOKABLE bool isPreviewDismissed(const QString &itemKey) const;
     Q_INVOKABLE void clear();
+
+    /// Bounded, because nothing outside this class prunes the set. At the cap
+    /// the OLDEST dismissal is released rather than the newest refused —
+    /// MediaVisibilityStore::kMaxHidden's rule, for its reason: refusing to
+    /// dismiss what the reader just asked to dismiss is the worse failure.
+    static constexpr int kMaxDismissed = 4096;
     Q_INVOKABLE QString linkifiedBody(const QString &body) const;
 
     // Test hooks.
     void setUrlCacheLimit(int limit) { m_urlCacheLimit = limit; }
     int cachedUrlCount() const { return m_urls.size(); }
+    int dismissedCount() const { return int(m_dismissed.size()); }
 
 Q_SIGNALS:
     void supportedChanged();
@@ -118,6 +151,11 @@ private:
                                 const QString &stableEventId);
     void evictIfNeeded();
     QVariantMap stateFor(const ItemEntry &item) const;
+    // Drop a dismissal WITHOUT announcing it. Used where the caller is about
+    // to return the row's fresh state anyway (an edit that changed the URL),
+    // so emitting previewChanged() would re-enter previewForEvent() from the
+    // delegate's own handler while it is still inside this call.
+    void forgetDismissal(const QString &itemKey);
 
     MatrixClient *m_client = nullptr;
     // Fail closed. A preview fetch is client-side and exposes the reader's IP
@@ -131,6 +169,18 @@ private:
     QList<QString> m_urlOrder;            // insertion order for eviction
     QHash<quint64, QString> m_inflight;   // opId -> URL
     QHash<QString, QStringList> m_urlItems; // URL -> interested item keys
+
+    // Dismissed rows. Deliberately NOT a flag on ItemEntry: previewFor()
+    // wipes m_items wholesale when it overflows kMaxTrackedItems, and a
+    // blanket reset would silently un-dismiss every card at once. This set
+    // follows MediaVisibilityStore's contract instead — at the cap the OLDEST
+    // dismissal is released rather than the newest being refused, because
+    // refusing to dismiss what the reader just asked to dismiss is the worse
+    // failure. Session-only, like every other piece of this controller's
+    // state: cleared on sign-out and on a client swap.
+    QSet<QString> m_dismissed;
+    QList<QString> m_dismissedOrder; // insertion order; a QSet has none
+
     int m_urlCacheLimit = 256;
     static constexpr int kMaxTrackedItems = 4096;
 };

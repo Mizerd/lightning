@@ -1122,6 +1122,45 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("&& root.mediaRowBody")));
     }
 
+    // BOTH composers must claim the editor ShortcutOverride, and both must
+    // get the id from the registry rather than from a list of their own.
+    //
+    // THE DEFECT THIS PINS: the thread composer had no override at all, so
+    // Ctrl+B inside a thread reply was not Bold -- it reached the window and
+    // toggled the conversation list mid-sentence. The room composer had
+    // claimed its overrides since the design shell landed, which is why the
+    // same key did two different things depending on which box had focus.
+    void bothComposersClaimTheEditorOverrideThroughTheRegistry()
+    {
+        const QString bar = read(QStringLiteral("MessageComposerBar.qml"));
+        const QString thread = read(QStringLiteral("ThreadPanel.qml"));
+        QVERIFY(!bar.isEmpty());
+        QVERIFY(!thread.isEmpty());
+
+        for (const QString &src : { bar, thread }) {
+            QVERIFY2(src.contains(QStringLiteral("Keys.onShortcutOverride")),
+                     "a composer that never accepts the override can only "
+                     "watch its format keys reach the window");
+            QVERIFY2(src.contains(QStringLiteral("editorActionForKey")),
+                     "the id must come from the registry, which is what "
+                     "carries the EditorContext flag");
+        }
+
+        // The registry is the ONE place that knows which actions are
+        // editor-context. A composer re-listing them is the duplicate that
+        // let the two boxes drift apart in the first place.
+        for (const QString &src : { bar, thread }) {
+            QVERIFY2(!src.contains(QStringLiteral("\"composer.italic\"")),
+                     "hand-listed editor ids are back; a seventh editor "
+                     "shortcut would work in one composer and not the other");
+        }
+
+        // The thread box must APPLY it, not merely swallow it: accepting the
+        // override without handling the press would turn Ctrl+B into a key
+        // that does nothing at all, which is worse than the original bug.
+        QVERIFY(thread.contains(QStringLiteral("applyThreadFormat")));
+    }
+
 };
 
 QTEST_MAIN(QmlBindingContractTest)

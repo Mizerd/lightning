@@ -291,6 +291,21 @@ QString ShortcutRegistry::sequenceFor(const QString &actionId) const
     return {};
 }
 
+QString ShortcutRegistry::editorActionForKey(int key, int modifiers) const
+{
+    const QString seq = sequenceFromKeyEvent(key, modifiers);
+    if (seq.isEmpty())
+        return {};
+    // m_resolved holds the CURRENT binding, so a rebound Bold is matched at
+    // its new sequence and a stale default is never matched at its old one.
+    for (int i = 0; i < m_actions.size(); ++i) {
+        if (m_actions.at(i).context == EditorContext
+            && m_resolved.at(i) == seq)
+            return m_actions.at(i).id;
+    }
+    return {};
+}
+
 QString ShortcutRegistry::defaultSequenceFor(const QString &actionId) const
 {
     const Action *a = find(actionId);

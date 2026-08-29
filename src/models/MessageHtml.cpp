@@ -3,7 +3,10 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QStringView>
+#include <QTextBoundaryFinder>
 #include <QUrl>
+
+#include <algorithm>
 
 namespace {
 
@@ -347,6 +350,161 @@ bool containsCodeBlock(const QString &html)
     return false;
 }
 
+
+// ---- Inline emoji sizing (markEmoji) ------------------------------------
+
+struct CodepointRange {
+    char32_t lo;
+    char32_t hi;
+};
+
+// Emoji_Presentation=Yes: the codepoints a conforming shaper draws as a
+// PICTURE with no variation selector. This is the set that may be enlarged,
+// and it is deliberately the narrow one — "1" and "#" and "(c)" are Emoji=Yes
+// too, and blowing a digit up to 1.5x because a keycap exists somewhere in
+// Unicode would be a rendering bug, not a feature.
+constexpr CodepointRange kEmojiPresentation[] = {
+    {0x231Au, 0x231Bu},   {0x23E9u, 0x23ECu},   {0x23F0u, 0x23F0u},
+    {0x23F3u, 0x23F3u},   {0x25FDu, 0x25FEu},   {0x2614u, 0x2615u},
+    {0x2648u, 0x2653u},   {0x267Fu, 0x267Fu},   {0x2693u, 0x2693u},
+    {0x26A1u, 0x26A1u},   {0x26AAu, 0x26ABu},   {0x26BDu, 0x26BEu},
+    {0x26C4u, 0x26C5u},   {0x26CEu, 0x26CEu},   {0x26D4u, 0x26D4u},
+    {0x26EAu, 0x26EAu},   {0x26F2u, 0x26F3u},   {0x26F5u, 0x26F5u},
+    {0x26FAu, 0x26FAu},   {0x26FDu, 0x26FDu},   {0x2705u, 0x2705u},
+    {0x270Au, 0x270Bu},   {0x2728u, 0x2728u},   {0x274Cu, 0x274Cu},
+    {0x274Eu, 0x274Eu},   {0x2753u, 0x2755u},   {0x2757u, 0x2757u},
+    {0x2795u, 0x2797u},   {0x27B0u, 0x27B0u},   {0x27BFu, 0x27BFu},
+    {0x2B1Bu, 0x2B1Cu},   {0x2B50u, 0x2B50u},   {0x2B55u, 0x2B55u},
+    {0x1F004u, 0x1F004u}, {0x1F0CFu, 0x1F0CFu}, {0x1F18Eu, 0x1F18Eu},
+    {0x1F191u, 0x1F19Au}, {0x1F1E6u, 0x1F1FFu}, {0x1F201u, 0x1F201u},
+    {0x1F21Au, 0x1F21Au}, {0x1F22Fu, 0x1F22Fu}, {0x1F232u, 0x1F236u},
+    {0x1F238u, 0x1F23Au}, {0x1F250u, 0x1F251u}, {0x1F300u, 0x1F320u},
+    {0x1F32Du, 0x1F335u}, {0x1F337u, 0x1F37Cu}, {0x1F37Eu, 0x1F393u},
+    {0x1F3A0u, 0x1F3CAu}, {0x1F3CFu, 0x1F3D3u}, {0x1F3E0u, 0x1F3F0u},
+    {0x1F3F4u, 0x1F3F4u}, {0x1F3F8u, 0x1F43Eu}, {0x1F440u, 0x1F440u},
+    {0x1F442u, 0x1F4FCu}, {0x1F4FFu, 0x1F53Du}, {0x1F54Bu, 0x1F54Eu},
+    {0x1F550u, 0x1F567u}, {0x1F57Au, 0x1F57Au}, {0x1F595u, 0x1F596u},
+    {0x1F5A4u, 0x1F5A4u}, {0x1F5FBu, 0x1F64Fu}, {0x1F680u, 0x1F6C5u},
+    {0x1F6CCu, 0x1F6CCu}, {0x1F6D0u, 0x1F6D2u}, {0x1F6D5u, 0x1F6D7u},
+    {0x1F6DCu, 0x1F6DFu}, {0x1F6EBu, 0x1F6ECu}, {0x1F6F4u, 0x1F6FCu},
+    {0x1F7E0u, 0x1F7EBu}, {0x1F7F0u, 0x1F7F0u}, {0x1F90Cu, 0x1F93Au},
+    {0x1F93Cu, 0x1F945u}, {0x1F947u, 0x1F9FFu}, {0x1FA70u, 0x1FA7Cu},
+    {0x1FA80u, 0x1FA89u}, {0x1FA8Fu, 0x1FAC6u}, {0x1FACEu, 0x1FADCu},
+    {0x1FADFu, 0x1FAE9u}, {0x1FAF0u, 0x1FAF8u},
+};
+
+constexpr char32_t kZwj        = 0x200Du;
+constexpr char32_t kVs16       = 0xFE0Fu;
+constexpr char32_t kKeycap     = 0x20E3u;
+
+bool inRanges(const CodepointRange *ranges, size_t count, char32_t cp)
+{
+    const auto *end = ranges + count;
+    const auto *hit = std::lower_bound(
+        ranges, end, cp,
+        [](const CodepointRange &r, char32_t v) { return r.hi < v; });
+    return hit != end && cp >= hit->lo;
+}
+
+bool isEmojiPresentation(char32_t cp)
+{
+    return inRanges(kEmojiPresentation, std::size(kEmojiPresentation), cp);
+}
+
+bool isSkinToneModifier(char32_t cp) { return cp >= 0x1F3FBu && cp <= 0x1F3FFu; }
+bool isRegionalIndicator(char32_t cp) { return cp >= 0x1F1E6u && cp <= 0x1F1FFu; }
+bool isTagCharacter(char32_t cp) { return cp >= 0xE0020u && cp <= 0xE007Fu; }
+
+// The BROAD test, used only to decide whether a body is "nothing but emoji"
+// (see markEmoji). It must be a superset of everything the narrow test
+// accepts AND of everything EmojiCatalog's catalogue lookup accepts, because
+// a cluster this misses while the catalogue counts it would let a big-emoji
+// body be enlarged twice. It covers Emoji=Yes characters that carry no
+// default emoji presentation — a bare U+2764 HEAVY BLACK HEART is in the
+// catalogue and is not in the table above. CJK and kana are deliberately
+// OUTSIDE the band: they are letters, and a three-character Japanese message
+// must not read as an emoji-only one.
+bool couldCarryEmoji(char32_t cp)
+{
+    return cp == 0x00A9u || cp == 0x00AEu
+        || (cp >= 0x2000u && cp <= 0x2BFFu)
+        || cp == 0x3030u || cp == 0x303Du
+        || cp == 0x3297u || cp == 0x3299u
+        || (cp >= 0xFE00u && cp <= 0xFE0Fu)
+        || (cp >= 0x1F000u && cp <= 0x1FAFFu)
+        || isTagCharacter(cp);
+}
+
+// Does this grapheme cluster render as a picture? Narrow by design: it is
+// what gets enlarged.
+bool clusterIsEmoji(const QList<char32_t> &cps)
+{
+    if (cps.isEmpty())
+        return false;
+    bool sawVs16 = false;
+    for (char32_t cp : cps) {
+        if (cp == kKeycap || isRegionalIndicator(cp) || isSkinToneModifier(cp)
+            || isEmojiPresentation(cp))
+            return true;
+        if (cp == kVs16)
+            sawVs16 = true;
+    }
+    // An explicit U+FE0F asks for emoji presentation on a base that does not
+    // default to it (U+2764 U+FE0F, U+2708 U+FE0F). Qualified on the base
+    // being a symbol so a selector after a letter cannot resize a word.
+    return sawVs16 && couldCarryEmoji(cps.first());
+}
+
+bool clusterCouldBeEmoji(const QList<char32_t> &cps)
+{
+    for (char32_t cp : cps) {
+        if (couldCarryEmoji(cp) || cp == kZwj)
+            return true;
+    }
+    return false;
+}
+
+bool clusterIsWhitespace(const QList<char32_t> &cps)
+{
+    for (char32_t cp : cps) {
+        if (cp > 0x10FFFFu)
+            return false;
+        if (!QChar::isSpace(static_cast<char32_t>(cp)))
+            return false;
+    }
+    return !cps.isEmpty();
+}
+
+// One O(n) gate over the whole body. An ASCII message — most of them — leaves
+// here without allocating anything or building a boundary finder.
+bool mayHoldEmoji(const QString &html)
+{
+    for (const QChar c : html) {
+        const char16_t u = c.unicode();
+        if (u >= 0xD800u && u <= 0xDBFFu) // a high surrogate: any SMP char
+            return true;
+        if (u == 0x00A9u || u == 0x00AEu)
+            return true;
+        if (u >= 0x2000u && u <= 0x3299u)
+            return true;
+        if (u >= 0xFE00u && u <= 0xFE0Fu)
+            return true;
+    }
+    return false;
+}
+
+// Is html[i] the start of a character entity? Returns its end (past the ';')
+// or -1. Entities are ATOMIC here for the same reason they are in
+// markRoomMention: splitting "&amp;" corrupts the markup, and can even
+// manufacture a tag.
+qsizetype entityEnd(const QString &html, qsizetype i)
+{
+    const qsizetype semi = html.indexOf(QLatin1Char(';'), i + 1);
+    if (semi < 0 || semi - i > 10)
+        return -1;
+    return semi + 1;
+}
+
 } // namespace
 
 QString MessageHtml::sanitize(
@@ -523,7 +681,14 @@ QString MessageHtml::sanitize(
         if (anchorEmitted.takeLast())
             out += QLatin1String("</a>");
     }
-    return out;
+    // Inline emoji sizing is the LAST step, over output this function has
+    // already made safe. It is applied here rather than at each render site
+    // so the formatted path and the segmented code-block path cannot drift;
+    // the one non-render consumer of this output
+    // (TimelineModel::sanitizedHtmlForEvent -> MessageComposer::beginEdit ->
+    // mention::refsFromSanitizedHtml) matches only mention anchors and strips
+    // inner tags, so the span never reaches an outgoing formatted_body.
+    return markEmoji(out);
 }
 
 QList<MessageHtml::Segment> MessageHtml::segments(
@@ -773,5 +938,154 @@ QString MessageHtml::markRoomMention(const QString &safeHtml,
         out += ch;
         ++i;
     }
+    return out;
+}
+
+QString MessageHtml::markEmoji(const QString &safeHtml)
+{
+    // The style is a compile-time constant of ours. `x-large` is Qt's
+    // FontSizeAdjustment +2, i.e. the 1.5 rung of its 0.7/0.8/1.0/1.2/1.5/
+    // 2.0/2.4 ladder — the one scale-RELATIVE lever this renderer offers
+    // (`em` and `%` are silently ignored by Qt's CSS parser; see the header).
+    static const QString kOpen =
+        QStringLiteral("<span style=\"font-size:x-large\">");
+    static const QString kClose = QStringLiteral("</span>");
+    // A hostile body cannot make this grow without bound: each run costs a
+    // fixed 43 characters and there are at most this many of them.
+    static constexpr int kMaxRuns = 256;
+    // A body of 1-3 emoji sequences is the big-emoji row, already rendered at
+    // 48/60 px by the delegate. Enlarging it again would take it past 90.
+    static constexpr int kBigEmojiMaxSequences = 3;
+
+    if (safeHtml.isEmpty() || !mayHoldEmoji(safeHtml))
+        return safeHtml;
+
+    struct Run {
+        qsizetype start = 0;
+        qsizetype end = 0;
+    };
+    QList<Run> runs;
+    int emojiish = 0;      // clusters that could be part of an emoji-only body
+    int nonEmojiish = 0;   // anything else that is not whitespace
+
+    const qsizetype n = safeHtml.size();
+    qsizetype i = 0;
+    int codeDepth = 0;
+    QList<char32_t> cps;
+
+    while (i < n) {
+        if (safeHtml.at(i) == QLatin1Char('<')) {
+            // Copy-through territory: track code spans exactly as
+            // markRoomMention does, so an emoji in a code sample stays the
+            // size of the characters around it.
+            const qsizetype gt = safeHtml.indexOf(QLatin1Char('>'), i);
+            const qsizetype end = gt < 0 ? n : gt + 1;
+            const QString lower = safeHtml.mid(i, end - i).toLower();
+            if (lower.startsWith(QLatin1String("<code"))
+                || lower.startsWith(QLatin1String("<pre")))
+                ++codeDepth;
+            else if (lower.startsWith(QLatin1String("</code"))
+                     || lower.startsWith(QLatin1String("</pre")))
+                codeDepth = qMax(0, codeDepth - 1);
+            i = end;
+            continue;
+        }
+
+        qsizetype lt = safeHtml.indexOf(QLatin1Char('<'), i);
+        if (lt < 0)
+            lt = n;
+        // Walk this text run by GRAPHEME cluster: one ZWJ family, one flag,
+        // one keycap and one tone variant are each a single picture, and
+        // splitting them would wrap half a glyph.
+        QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme,
+                                   safeHtml.constData() + i, lt - i);
+        qsizetype cursor = i;
+        qsizetype runStart = -1;
+        const auto closeRun = [&](qsizetype at) {
+            if (runStart < 0)
+                return;
+            // Past the cap the run is dropped rather than merged into a
+            // neighbour: a body that hits it is pathological, and a wrong
+            // span is worse than a missing one.
+            if (runs.size() < kMaxRuns)
+                runs.append(Run{runStart, at});
+            runStart = -1;
+        };
+        while (cursor < lt) {
+            // An entity is atomic and is never an emoji here: "&#128522;" is
+            // markup for one, not the character itself, and re-encoding it
+            // would mean decoding sender text and writing it back out.
+            if (safeHtml.at(cursor) == QLatin1Char('&')) {
+                const qsizetype ee = entityEnd(safeHtml, cursor);
+                if (ee > 0 && ee <= lt) {
+                    closeRun(cursor);
+                    ++nonEmojiish;
+                    cursor = ee;
+                    continue;
+                }
+            }
+            finder.setPosition(cursor - i);
+            qsizetype next = finder.toNextBoundary();
+            next = next < 0 ? lt : i + next;
+            if (next <= cursor)
+                next = cursor + 1;
+            if (next > lt)
+                next = lt;
+
+            cps.clear();
+            for (qsizetype k = cursor; k < next; ++k) {
+                const QChar c = safeHtml.at(k);
+                if (c.isHighSurrogate() && k + 1 < next
+                    && safeHtml.at(k + 1).isLowSurrogate()) {
+                    cps.append(QChar::surrogateToUcs4(c, safeHtml.at(k + 1)));
+                    ++k;
+                } else {
+                    cps.append(char32_t(c.unicode()));
+                }
+            }
+
+            if (clusterIsWhitespace(cps)) {
+                // Whitespace ENDS a run rather than joining it: a space at
+                // 1.5x is a wider space, and the gap between two emoji is
+                // not part of either picture.
+                closeRun(cursor);
+            } else if (clusterCouldBeEmoji(cps)) {
+                ++emojiish;
+                if (codeDepth == 0 && clusterIsEmoji(cps)) {
+                    if (runStart < 0)
+                        runStart = cursor;
+                } else {
+                    closeRun(cursor);
+                }
+            } else {
+                ++nonEmojiish;
+                closeRun(cursor);
+            }
+            cursor = next;
+        }
+        closeRun(lt);
+        i = lt;
+    }
+
+    if (runs.isEmpty())
+        return safeHtml;
+    // The big-emoji suppression. `emojiish` is the BROAD test on purpose (see
+    // couldCarryEmoji): it is a superset of both this file's narrow test and
+    // EmojiCatalog's catalogue lookup, so where the two detectors disagree
+    // the disagreement can only suppress — never enlarge a 60 px glyph again.
+    if (nonEmojiish == 0 && emojiish >= 1 && emojiish <= kBigEmojiMaxSequences)
+        return safeHtml;
+
+    QString out;
+    out.reserve(safeHtml.size() + runs.size() * (kOpen.size() + kClose.size()));
+    qsizetype copied = 0;
+    for (const Run &run : std::as_const(runs)) {
+        out += QStringView(safeHtml).mid(copied, run.start - copied);
+        out += kOpen;
+        out += QStringView(safeHtml).mid(run.start, run.end - run.start);
+        out += kClose;
+        copied = run.end;
+    }
+    out += QStringView(safeHtml).mid(copied);
     return out;
 }

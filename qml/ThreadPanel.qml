@@ -1339,6 +1339,11 @@ Rectangle {
                             objectName: "threadComposerInput"
                             placeholderText: qsTr("Reply in thread")
                             placeholderTextColor: AppTheme.textMuted
+                            // Declared and deliberately empty; the room
+                            // composer carries the full rationale. Neither
+                            // Qt.ImhNoPredictiveText nor Qt.ImhSensitiveData
+                            // may ever appear on a message composer.
+                            inputMethodHints: Qt.ImhNone
                             wrapMode: TextArea.Wrap
                             enabled: app.thread.state === ThreadController.Ready
                             // The card carries the chrome; the field itself
@@ -1354,8 +1359,152 @@ Rectangle {
                                 if (app.thread.text !== text)
                                     app.thread.text = text
                                 panel.updateThreadMentionState()
+                                threadSpellTimer.restart()
                             }
-                            onCursorPositionChanged: panel.updateThreadMentionState()
+                            onCursorPositionChanged: {
+                                panel.updateThreadMentionState()
+                                threadSpellTimer.restart()
+                            }
+                            onWidthChanged: threadSpellTimer.restart()
+
+                            // Spell underlines; see the room composer for the
+                            // reasoning behind drawing them.
+                            Timer {
+                                id: threadSpellTimer
+                                objectName: "threadSpellTimer"
+                                interval: 150
+                                repeat: false
+                                onTriggered: panel.refreshThreadSpellUnderlines()
+                            }
+                            Repeater {
+                                objectName: "threadSpellUnderlines"
+                                model: panel.threadSpellUnderlines
+                                delegate: Rectangle {
+                                    objectName: "threadSpellUnderline"
+                                    required property var modelData
+                                    x: modelData.x
+                                    y: modelData.y
+                                    width: modelData.w
+                                    height: 2
+                                    radius: 1
+                                    color: Qt.alpha(AppTheme.danger, 0.85)
+                                }
+                            }
+
+                            // Right-click editing menu, which this composer
+                            // did not have at all. Ours for the same reason
+                            // the room composer's is ours: TextEdit's own
+                            // Paste is text-only, so a copied image pasted
+                            // through the context menu sent its source LINK
+                            // while Ctrl+V sent the picture. It also carries
+                            // the spelling rows.
+                            MouseArea {
+                                anchors.fill: parent
+                                acceptedButtons: Qt.RightButton
+                                onClicked: (mouse) => {
+                                    threadComposerInput.forceActiveFocus()
+                                    panel.prepareThreadSpellMenu(mouse.x,
+                                                                 mouse.y)
+                                    threadComposerEditMenu.popup()
+                                }
+                            }
+                            AppMenu {
+                                id: threadComposerEditMenu
+                                objectName: "threadComposerEditMenu"
+                                menuWidth: AppTheme.menuWidthFlyout
+                                AppMenuItem {
+                                    objectName: "threadSpellSuggestion0"
+                                    visible: panel.threadSpellMenuSuggestions.length > 0
+                                    text: visible
+                                          ? panel.threadSpellMenuSuggestions[0] : ""
+                                    onTriggered: panel.applyThreadSpellSuggestion(
+                                                     panel.threadSpellMenuSuggestions[0])
+                                }
+                                AppMenuItem {
+                                    objectName: "threadSpellSuggestion1"
+                                    visible: panel.threadSpellMenuSuggestions.length > 1
+                                    text: visible
+                                          ? panel.threadSpellMenuSuggestions[1] : ""
+                                    onTriggered: panel.applyThreadSpellSuggestion(
+                                                     panel.threadSpellMenuSuggestions[1])
+                                }
+                                AppMenuItem {
+                                    objectName: "threadSpellSuggestion2"
+                                    visible: panel.threadSpellMenuSuggestions.length > 2
+                                    text: visible
+                                          ? panel.threadSpellMenuSuggestions[2] : ""
+                                    onTriggered: panel.applyThreadSpellSuggestion(
+                                                     panel.threadSpellMenuSuggestions[2])
+                                }
+                                AppMenuItem {
+                                    objectName: "threadSpellSuggestion3"
+                                    visible: panel.threadSpellMenuSuggestions.length > 3
+                                    text: visible
+                                          ? panel.threadSpellMenuSuggestions[3] : ""
+                                    onTriggered: panel.applyThreadSpellSuggestion(
+                                                     panel.threadSpellMenuSuggestions[3])
+                                }
+                                AppMenuItem {
+                                    objectName: "threadSpellSuggestion4"
+                                    visible: panel.threadSpellMenuSuggestions.length > 4
+                                    text: visible
+                                          ? panel.threadSpellMenuSuggestions[4] : ""
+                                    onTriggered: panel.applyThreadSpellSuggestion(
+                                                     panel.threadSpellMenuSuggestions[4])
+                                }
+                                AppMenuItem {
+                                    objectName: "threadSpellAdd"
+                                    visible: panel.threadSpellMenuWord !== ""
+                                    text: qsTr("Add to dictionary")
+                                    onTriggered: app.spell.addToDictionary(
+                                                     panel.threadSpellMenuWord)
+                                }
+                                AppMenuItem {
+                                    objectName: "threadSpellIgnore"
+                                    visible: panel.threadSpellMenuWord !== ""
+                                    text: qsTr("Ignore")
+                                    onTriggered: app.spell.ignoreWord(
+                                                     panel.threadSpellMenuWord)
+                                }
+                                AppMenuSeparator {
+                                    visible: panel.threadSpellMenuWord !== ""
+                                }
+                                AppMenuItem {
+                                    text: qsTr("Cut")
+                                    enabled: threadComposerInput.selectedText.length > 0
+                                    onTriggered: threadComposerInput.cut()
+                                }
+                                AppMenuItem {
+                                    text: qsTr("Copy")
+                                    enabled: threadComposerInput.selectedText.length > 0
+                                    onTriggered: threadComposerInput.copy()
+                                }
+                                AppMenuItem {
+                                    objectName: "threadComposerPasteItem"
+                                    text: qsTr("Paste")
+                                    onTriggered: {
+                                        if (!app.thread.pasteFromClipboard())
+                                            threadComposerInput.paste()
+                                    }
+                                }
+                                AppMenuSeparator {}
+                                AppMenuItem {
+                                    text: qsTr("Select all")
+                                    enabled: threadComposerInput.length > 0
+                                    onTriggered: threadComposerInput.selectAll()
+                                }
+                            }
+                            // Qt sends a ShortcutOverride to the FOCUS ITEM
+                            // before dispatching a shortcut; accepting it
+                            // turns that shortcut back into an ordinary key
+                            // press delivered below. Claimed ONLY for what
+                            // this box handles, so Ctrl+K and Ctrl+Q still
+                            // reach the window from inside a thread reply.
+                            Keys.onShortcutOverride: (event) => {
+                                if (app.shortcuts.editorActionForKey(
+                                        event.key, event.modifiers) !== "")
+                                    event.accepted = true
+                            }
                             Keys.onPressed: (event) => {
                                 // Mention popup gets first refusal of the
                                 // navigation keys while it is open.
@@ -1378,6 +1527,21 @@ Rectangle {
                                         threadMentionPopup.close()
                                         event.accepted = true; return
                                     }
+                                }
+                                // Editor formatting, ahead of the plain-key
+                                // branches below: every editor binding carries
+                                // Ctrl, so none of them can collide with the
+                                // bare Return/Escape/Backspace cases. Nothing
+                                // the registry does not recognise is accepted.
+                                var threadFormatAction =
+                                    app.shortcuts.editorActionForKey(
+                                        event.key, event.modifiers)
+                                if (threadFormatAction !== "") {
+                                    event.accepted = true
+                                    panel.applyThreadFormat(
+                                        threadFormatAction.substring(
+                                            "composer.".length))
+                                    return
                                 }
                                 if ((event.key === Qt.Key_Return
                                      || event.key === Qt.Key_Enter)
@@ -1512,6 +1676,30 @@ Rectangle {
                                 threadEmojiPicker.close()
                                 threadGifPicker.anchorItem = threadMiniComposer
                                 threadGifPicker.open()
+                            }
+                        }
+                        // Stickers (MSC2545). See the room composer's own
+                        // button for why the glyph is `emoji_symbols`: the
+                        // bundled icon font is a SUBSET and there is no
+                        // sticker glyph in it.
+                        IconButton {
+                            objectName: "threadStickerButton"
+                            implicitWidth: 24; implicitHeight: 24
+                            radius: AppTheme.radiusControl
+                            iconName: "emoji_symbols"
+                            iconSize: 16
+                            visible: app.stickers.available
+                            enabled: app.thread.state === ThreadController.Ready
+                            Accessible.name: qsTr("Insert a sticker")
+                            ToolTip.text: qsTr("Sticker")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: {
+                                threadEmojiPicker.close()
+                                threadGifPicker.close()
+                                threadStickerPicker.anchorItem =
+                                    threadMiniComposer
+                                threadStickerPicker.open()
                             }
                         }
                         // v0.7 thread parity: voice capture, using the same
@@ -1926,6 +2114,108 @@ Rectangle {
         }
     }
 
+    // ---- Spell checking, identical to the room composer -----------------
+    //
+    // The thread composer has historically lagged the room one; it does not
+    // here. The rationale for drawing rectangles instead of using
+    // QTextCharFormat::SpellCheckUnderline is written out once, in
+    // MessageComposerBar.qml — read it there before changing either copy.
+    readonly property bool threadSpellActive: app.spell !== null
+                                              && app.spell !== undefined
+                                              && app.spell.available
+                                              && app.spell.enabled
+    property var threadSpellUnderlines: []
+    property string threadSpellMenuWord: ""
+    property int threadSpellMenuStart: -1
+    property int threadSpellMenuLength: 0
+    property var threadSpellMenuSuggestions: []
+
+    function refreshThreadSpellUnderlines() {
+        if (!panel.threadSpellActive
+            || threadComposerInput.text.length === 0) {
+            if (panel.threadSpellUnderlines.length > 0)
+                panel.threadSpellUnderlines = []
+            return
+        }
+        var ranges = app.spell.misspelledRanges(
+            threadComposerInput.text,
+            threadComposerInput.cursorPosition,
+            app.thread.mentionRanges)
+        var out = []
+        for (var i = 0; i < ranges.length; ++i) {
+            var start = ranges[i].start
+            var end = start + ranges[i].length
+            var p = start
+            var guard = 0
+            while (p < end && guard++ < 64) {
+                var head = threadComposerInput.positionToRectangle(p)
+                var q = end
+                var tail = threadComposerInput.positionToRectangle(q)
+                if (tail.y !== head.y) {
+                    while (q > p + 1
+                           && threadComposerInput.positionToRectangle(q).y
+                              !== head.y)
+                        --q
+                    tail = threadComposerInput.positionToRectangle(q)
+                }
+                var w = tail.x - head.x
+                if (w > 0)
+                    out.push({ x: head.x,
+                               y: head.y + head.height - 2,
+                               w: w })
+                p = q
+            }
+        }
+        panel.threadSpellUnderlines = out
+    }
+
+    function prepareThreadSpellMenu(mx, my) {
+        panel.threadSpellMenuWord = ""
+        panel.threadSpellMenuStart = -1
+        panel.threadSpellMenuLength = 0
+        panel.threadSpellMenuSuggestions = []
+        if (!panel.threadSpellActive)
+            return
+        var hit = app.spell.wordAt(threadComposerInput.text,
+                                   threadComposerInput.positionAt(mx, my))
+        if (!hit || hit.word === "")
+            return
+        var wrong = app.spell.misspelledRanges(threadComposerInput.text, -1,
+                                               app.thread.mentionRanges)
+        var rejected = false
+        for (var i = 0; i < wrong.length; ++i) {
+            if (wrong[i].start === hit.start) {
+                rejected = true
+                break
+            }
+        }
+        if (!rejected)
+            return
+        panel.threadSpellMenuWord = hit.word
+        panel.threadSpellMenuStart = hit.start
+        panel.threadSpellMenuLength = hit.length
+        panel.threadSpellMenuSuggestions =
+            app.spell.suggestions(hit.word).slice(0, 5)
+    }
+
+    function applyThreadSpellSuggestion(replacement) {
+        if (panel.threadSpellMenuStart < 0 || replacement === undefined
+            || replacement === "")
+            return
+        var at = panel.threadSpellMenuStart
+        threadComposerInput.remove(at, at + panel.threadSpellMenuLength)
+        threadComposerInput.insert(at, replacement)
+        threadComposerInput.cursorPosition = at + replacement.length
+        threadComposerInput.forceActiveFocus()
+    }
+
+    Connections {
+        target: app.spell
+        function onDictionaryChanged() {
+            panel.refreshThreadSpellUnderlines()
+        }
+    }
+
     function insertThreadMention(userId, displayName) {
         var newCursor = app.thread.insertMention(
             userId, displayName, panel.threadMentionTokenStart,
@@ -2008,6 +2298,46 @@ Rectangle {
     function onThreadGifPicked(result) {
         app.gifSend.sendToThread(app.thread.roomId, app.thread.rootEventId,
                                  result)
+    }
+
+    StickerPicker {
+        id: threadStickerPicker
+        target: "thread"
+        onStickerChosen: (image) => panel.onThreadStickerPicked(image)
+        onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
+    }
+
+    // Send the chosen pack sticker into THIS thread (captured room + root).
+    // There is deliberately NO room-send fallback: a thread sticker that
+    // cannot reach its thread must fail rather than land in the main
+    // timeline (CLAUDE.md §8). The SDK attaches the m.thread relation.
+    function onThreadStickerPicked(image) {
+        app.stickers.sendToThread(app.thread.roomId, app.thread.rootEventId,
+                                  image)
+    }
+
+    // Markdown formatting in the THREAD composer. Before this the thread box
+    // handled no editor shortcut at all, so Ctrl+B here was not "Bold" — it
+    // fell through to the window and toggled the conversation list while the
+    // user was typing a reply. The room composer had claimed its overrides
+    // since the design shell landed; this box never did.
+    //
+    // MessageComposer::toggleFormat is a PURE text transform (declared const,
+    // documented as such, writes no member), so calling it with the thread's
+    // own text and selection is correct and is the reason there is no second
+    // implementation of the markdown rules here. Do not copy them.
+    function applyThreadFormat(format) {
+        var result = app.composer.toggleFormat(format,
+                                               threadComposerInput.text,
+                                               threadComposerInput.selectionStart,
+                                               threadComposerInput.selectionEnd)
+        threadComposerInput.text = result.text
+        // The two-way sync above only fires for a CHANGE, and the assignment
+        // has already made them equal, so app.thread.text is set explicitly
+        // rather than left to onTextChanged.
+        app.thread.text = result.text
+        threadComposerInput.select(result.selectionStart, result.selectionEnd)
+        threadComposerInput.forceActiveFocus()
     }
 
     function sendComposerText() {

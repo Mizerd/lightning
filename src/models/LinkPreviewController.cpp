@@ -2,6 +2,7 @@
 
 #include "matrix/MatrixClient.h"
 #include "models/LinkPreview.h"
+#include "models/MessageHtml.h"
 
 #include <QLoggingCategory>
 
@@ -16,7 +17,14 @@ LinkPreviewController::LinkPreviewController(QObject *parent)
 
 QString LinkPreviewController::linkifiedBody(const QString &body) const
 {
-    return matrix::link_preview::linkifiedMessageHtml(body);
+    // This is the timeline's RENDER path for a message with no formatted
+    // body, and the counterpart of MessageHtml::sanitize() for one that has
+    // it. Inline emoji are enlarged here for the same reason and by the same
+    // function, so the two paths cannot show the same emoji at two sizes.
+    // linkifiedMessageHtml() escapes everything it does not build itself, so
+    // what markEmoji() receives is already safe.
+    return MessageHtml::markEmoji(
+        matrix::link_preview::linkifiedMessageHtml(body));
 }
 
 void LinkPreviewController::setClient(MatrixClient *client)
@@ -78,6 +86,21 @@ QVariantMap LinkPreviewController::previewFor(const QString &itemKey,
     if (item.url.isEmpty())
         return { { QStringLiteral("state"), QStringLiteral("none") } };
 
+    // Dismissed rows resolve to "none" so the card's Loader deactivates and
+    // the row reclaims the space — see dismissPreview(). Checked BEFORE the
+    // dispatch below, so a dismissal also stops an automatic re-fetch when
+    // the row is rebuilt; and the url/host are still reported so the row can
+    // offer to bring the preview back without re-parsing the body.
+    if (m_dismissed.contains(itemKey)) {
+        return {
+            { QStringLiteral("state"), QStringLiteral("none") },
+            { QStringLiteral("dismissed"), true },
+            { QStringLiteral("url"), item.url },
+            { QStringLiteral("host"),
+              matrix::link_preview::sanitizedHost(item.url) },
+        };
+    }
+
     const bool autoAllowed =
         item.encrypted ? m_allowEncrypted : m_autoLoadUnencrypted;
     const bool known = m_urls.contains(item.url);
@@ -115,6 +138,13 @@ QVariantMap LinkPreviewController::previewForEvent(const QString &roomId,
         && (existing->url != canonicalUrl || existing->encrypted != roomEncrypted)) {
         m_urlItems[existing->url].removeAll(key);
         m_items.erase(existing);
+        // The row now points somewhere else (an edit changed the link, or the
+        // room's encryption flag moved). Consent is already dropped with the
+        // entry, and a dismissal has to go the same way for the same reason:
+        // the reader dismissed a preview OF THE OLD URL, and that says nothing
+        // about the new one. Silent, because previewFor() is about to return
+        // the fresh state to this very caller.
+        forgetDismissal(key);
     }
     return previewFor(key, body, roomEncrypted);
 }
@@ -161,6 +191,58 @@ void LinkPreviewController::retryForEvent(const QString &roomId,
                                           const QString &stableEventId)
 {
     retry(ownershipKey(roomId, stableEventId));
+}
+
+void LinkPreviewController::dismissPreview(const QString &itemKey)
+{
+    if (itemKey.isEmpty() || m_dismissed.contains(itemKey))
+        return;
+    m_dismissed.insert(itemKey);
+    m_dismissedOrder.append(itemKey);
+    // At the cap the OLDEST dismissal is released, never the newest refused
+    // (MediaVisibilityStore's rule, and for its reason). The released row is
+    // announced on its own key so its card comes back live.
+    while (m_dismissedOrder.size() > kMaxDismissed) {
+        const QString evicted = m_dismissedOrder.takeFirst();
+        if (m_dismissed.remove(evicted))
+            Q_EMIT previewChanged(evicted);
+    }
+    Q_EMIT previewChanged(itemKey);
+}
+
+void LinkPreviewController::dismissPreviewForEvent(const QString &roomId,
+                                                   const QString &stableEventId)
+{
+    dismissPreview(ownershipKey(roomId, stableEventId));
+}
+
+void LinkPreviewController::restorePreview(const QString &itemKey)
+{
+    if (itemKey.isEmpty() || !m_dismissed.remove(itemKey))
+        return;
+    m_dismissedOrder.removeAll(itemKey);
+    // Deliberately does NOT set consented: undoing a dismissal must not also
+    // be an agreement to contact the site. previewFor() re-applies the
+    // ordinary policy, so an unconsented row returns to the consent gate.
+    Q_EMIT previewChanged(itemKey);
+}
+
+void LinkPreviewController::restorePreviewForEvent(const QString &roomId,
+                                                   const QString &stableEventId)
+{
+    restorePreview(ownershipKey(roomId, stableEventId));
+}
+
+bool LinkPreviewController::isPreviewDismissed(const QString &itemKey) const
+{
+    return !itemKey.isEmpty() && m_dismissed.contains(itemKey);
+}
+
+void LinkPreviewController::forgetDismissal(const QString &itemKey)
+{
+    if (itemKey.isEmpty() || !m_dismissed.remove(itemKey))
+        return;
+    m_dismissedOrder.removeAll(itemKey);
 }
 
 void LinkPreviewController::dispatch(const QString &url)
@@ -306,6 +388,10 @@ void LinkPreviewController::clear()
     m_urlOrder.clear();
     m_inflight.clear();
     m_urlItems.clear();
+    // What one account's reader dismissed is not a statement about the next
+    // account's rooms; this is reached from onLoggedOut() and setClient().
+    m_dismissed.clear();
+    m_dismissedOrder.clear();
 }
 
 void LinkPreviewController::onLoggedOut()

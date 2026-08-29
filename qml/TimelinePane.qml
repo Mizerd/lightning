@@ -1804,6 +1804,22 @@ Rectangle {
                 rightMargin: AppTheme.spacingM + avatarGutter
 
                 // Auto-scroll to end on new events when already near the bottom.
+                // Read defensively: several timeline suites construct this
+                // pane without an `app` context property, and an undefined
+                // read here would take the whole wheel handler down rather
+                // than merely un-animating it.
+                readonly property bool smoothScrollingEnabled: {
+                    // Explicitly coerced, never handed through raw. A stub `app.settings`
+                    // that does not carry this property yields UNDEFINED, and assigning
+                    // undefined to a bool is a QML warning — which the GIF picker suites
+                    // correctly treat as a failure. Defaulting to TRUE also keeps the
+                    // shipped feel for any surface whose settings object is incomplete.
+                    if (typeof app === "undefined" || !app || !app.settings)
+                        return true
+                    var v = app.settings.smoothScrolling
+                    return v === undefined ? true : !!v
+                }
+
                 property bool stickToBottom: true
 
                 // ── Bottom-follow ownership ──────────────────────────────
@@ -4238,6 +4254,32 @@ Rectangle {
                                 timeline.stickToBottom = false
                             timeline.diagNoteEvent(true)
                             scrollSettleTimer.restart()
+                        } else if (event.angleDelta.y !== 0
+                                   && !timeline.smoothScrollingEnabled) {
+                            // Smooth scrolling OFF: land the notch at once.
+                            // The DISTANCE is unchanged — notchDistance() is
+                            // the same value the glide integrates toward and
+                            // it honours the configured wheel speed, so this
+                            // is the same travel without the animation, not a
+                            // different scroll speed.
+                            //
+                            // notchDistance() is the ONLY stateless call on
+                            // this controller: wheelTargetY() and
+                            // pixelTargetY() both MUTATE its single shared
+                            // motion state as a side effect, which is why the
+                            // pixel branch above cancels first and why this
+                            // one must not borrow either of them.
+                            timeline.cancelWheelMotion()
+                            var per = app.timelineScroll.notchDistance(
+                                timeline.height)
+                            var jump = -(event.angleDelta.y / 120.0) * per
+                            timeline.contentY = Math.max(
+                                minY, Math.min(maxY, timeline.contentY + jump))
+                            timeline.updateStickAndPaginate(canMove)
+                            if (event.angleDelta.y > 0 && canMove)
+                                timeline.stickToBottom = false
+                            timeline.diagNoteEvent(true)
+                            scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0) {
                             app.timelineScroll.wheelNotch(
                                 -event.angleDelta.y, timeline.contentY,
@@ -5976,11 +6018,21 @@ Rectangle {
                         title: qsTr("Choose a banner image")
                         fileMode: FileDialog.OpenFile
                         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp)") ]
+                        // The picker CHOOSES; the crop dialog decides what is
+                        // uploaded, and refuses anything that is not one of
+                        // the five raster formats before it is rendered.
+                        onAccepted: spaceBannerCrop.openFor(selectedFile)
+                    }
+                    ImageCropDialog {
+                        id: spaceBannerCrop
+                        role: "banner"
                         // The URL crosses as-is; the manager converts
                         // it. Stripping "file://" here produced "/C:/..."
                         // on Windows.
-                        onAccepted: app.banners.setRoomBanner(
-                            spaceHome.spaceId, selectedFile.toString())
+                        onCropped: function (file) {
+                            app.banners.setRoomBanner(
+                                spaceHome.spaceId, file.toString())
+                        }
                     }
 
                     // Every banner control in ONE cluster, on a scrim.
@@ -6413,11 +6465,18 @@ Rectangle {
                             title: qsTr("Choose Space avatar")
                             fileMode: FileDialog.OpenFile
                             nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
+                            onAccepted: spaceAvatarCrop.openFor(selectedFile)
+                        }
+                        ImageCropDialog {
+                            id: spaceAvatarCrop
+                            role: "avatar"
                             // Same permission-gated backend as a room's own
                             // avatar — a Space IS a Matrix room, so this is
                             // m.room.avatar either way and Lightning invents
                             // no Space-specific storage.
-                            onAccepted: app.roomInfo.setRoomAvatar(selectedFile)
+                            onCropped: function (file) {
+                                app.roomInfo.setRoomAvatar(file)
+                            }
                         }
                         ColumnLayout {
                             id: settingsCol

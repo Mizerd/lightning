@@ -130,6 +130,52 @@ struct Segment {
 // is left alone — a literal @room in a code sample is a string, not a ping.
 QString markRoomMention(const QString &safeHtml, const QString &color);
 
+// Enlarges the inline emoji inside ALREADY-SAFE rich text, Element/Discord
+// style, so a picture in a sentence reads as a picture instead of as a
+// character. Applied to sanitize()'s output and to the linkified plain body,
+// which are the two things the timeline actually renders.
+//
+// WHY A CSS KEYWORD AND NOT `1.5em` OR A PIXEL SIZE. Measured against Qt
+// 6.11's rich-text engine with a QTextDocument + QImage probe:
+//   * `font-size:1.5em` and `font-size:150%` are IGNORED — Qt's CSS parser
+//     takes lengths in px/pt/pc/in/cm/mm only, so a relative unit silently
+//     renders at the base size. The first attempt used `em` and changed
+//     nothing at all;
+//   * an absolute `font-size:24px` DOES work, but it is absolute: the body
+//     is 14 px normally, 13 px in compact/thread rows, 12 px on a media
+//     caption and up to 20 px at the 140% text-size setting, so one pixel
+//     constant would make the emoji shrink relative to the text on every
+//     surface but one — and MessageHtml is not told which size it is
+//     writing for;
+//   * the CSS KEYWORDS route through QTextFormat::FontSizeAdjustment, whose
+//     ladder is 0.7/0.8/1.0/1.2/1.5/2.0/2.4 applied to the resolved size.
+//     `x-large` is that 1.5 step: it follows the base size, the text-size
+//     slider and compact mode for free, and it is the only scale-RELATIVE
+//     lever this renderer offers.
+// The reference client this was measured against sits at ~1.7x its own text;
+// 1.5 is the nearest rung below (the next is 2.0, which is past it), and it
+// is the rung that costs the least line height — see below.
+//
+// LINE HEIGHT, measured, because the timeline is unforgiving about reflow.
+// A taller run grows a line only when the emoji face's ascent/descent exceed
+// the UI face's. Noto Color Emoji quantizes to even pixel sizes, so with
+// Manrope the cost of `x-large` is +0 px at the default 14 px body, +1 px at
+// 15 px and +2 px at 13 and 20 px; a two-line paragraph measured 68.0 px with
+// and without the emoji at 14 px. Against a 6-8 px taller glyph that is at or
+// under what the glyph itself requires.
+//
+// SUPPRESSED for an emoji-only body of 1-3 sequences: those already render at
+// 48/60 px through bodyLabel.bigEmoji, and enlarging them again would take
+// them to ~90 px. The test here is deliberately BROADER than the catalogue's
+// (any cluster carrying a symbol codepoint counts), so a disagreement between
+// the two detectors can only ever suppress, never double-apply.
+//
+// Every byte it emits is a compile-time constant of ours. It parses no
+// attribute, copies every tag through untouched, treats entities as atomic
+// and leaves <code>/<pre> alone — an emoji in a code sample is a character in
+// a string. Nothing from event content reaches the style.
+QString markEmoji(const QString &safeHtml);
+
 // Splits a formatted body into ordered segments. A body with no code block
 // returns exactly ONE RichText segment whose text IS sanitize()'s output —
 // that equality is by construction (the fast path calls sanitize on the

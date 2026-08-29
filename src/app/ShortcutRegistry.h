@@ -159,6 +159,21 @@ public:
     /// time it is open.
     Q_INVOKABLE QString sequenceFromKeyEvent(int key, int modifiers) const;
 
+    /// The EditorContext action id this key press resolves to, or empty.
+    ///
+    /// This lives here rather than in each composer because the registry is
+    /// what KNOWS which actions are editor-context — it carries the flag.
+    /// Both composers previously would have had to repeat a hand-written
+    /// list of ids, and a seventh editor shortcut added to the table would
+    /// then work in whichever composer someone remembered to update. One
+    /// derivation, exactly like the sequence lookup above.
+    ///
+    /// A composer uses this for TWO things and must use it for both: to
+    /// decide whether to accept the ShortcutOverride (claiming only what it
+    /// really handles, so Ctrl+K and Ctrl+Q still reach the window), and
+    /// then to apply the format on the ordinary key press that follows.
+    Q_INVOKABLE QString editorActionForKey(int key, int modifiers) const;
+
     /// PortableText round-trip. Returns an empty string when Qt cannot parse
     /// the input at all, which is the caller's signal to refuse rather than
     /// to store something that reads back as nothing.

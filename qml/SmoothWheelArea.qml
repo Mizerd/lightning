@@ -95,16 +95,81 @@ WheelHandler {
         return null
     }
 
-    // Bottom bound of the vertical scroll range. All current callers are
-    // plain (non-rotated) Flickables, so this is simply the content minus
-    // the viewport, floored at zero (content shorter than the viewport).
+    // ── Axis ────────────────────────────────────────────────────────────
+    //
+    // This component was vertical-only until the 2026-08-28 sticker round,
+    // and putting it on a HORIZONTAL view was strictly WORSE than leaving it
+    // off: every bound below is derived from contentHeight/height, which on a
+    // horizontal ListView are equal, so `maxContentY` is 0 — and because
+    // onWheel still ends in `event.accepted = true`, the view would swallow
+    // every wheel event and never move. That is the same failure shape as the
+    // `parent as Flickable` bug recorded above, reached from a different
+    // direction, so it is worth naming rather than discovering twice.
+    //
+    // "auto" is the default and cannot change any existing caller: it only
+    // reads horizontal when the vertical axis has NO overflow at all (where
+    // the old behaviour was to accept the event and do nothing) AND the
+    // horizontal axis has some. Set it explicitly on a view whose orientation
+    // is known — clearer at the call site, and immune to a transient layout
+    // pass where the content has not been measured yet.
+    //
+    //     ListView { orientation: ListView.Horizontal
+    //                SmoothWheelArea { axis: "horizontal" } }
+    property string axis: "auto"
+    readonly property bool horizontal:
+        axis === "horizontal"
+        || (axis === "auto" && scrollTarget !== null
+            && scrollTarget.contentHeight <= scrollTarget.height + 0.5
+            && scrollTarget.contentWidth > scrollTarget.width + 0.5)
+
+    // The scrolled axis's extent, so the notch distance and the per-frame
+    // ceiling are measured against the axis actually moving.
+    readonly property real viewportExtent: scrollTarget
+        ? (horizontal ? scrollTarget.width : scrollTarget.height) : 0
+    function scrollPosition() {
+        var t = root.scrollTarget
+        if (!t)
+            return 0
+        return root.horizontal ? t.contentX : t.contentY
+    }
+    function setScrollPosition(value) {
+        var t = root.scrollTarget
+        if (!t)
+            return
+        if (root.horizontal)
+            t.contentX = value
+        else
+            t.contentY = value
+    }
+
+    // Far bound of the scroll range: the content minus the viewport, floored
+    // at zero (content shorter than the viewport). The names keep their `Y`
+    // for every existing caller and for the contract test that pins them;
+    // they mean "along the scrolled axis", which is Y unless `horizontal`.
     readonly property real minContentY: 0
-    readonly property real maxContentY:
-        Math.max(0, (scrollTarget ? scrollTarget.contentHeight : 0)
-                     - (scrollTarget ? scrollTarget.height : 0))
+    readonly property real maxContentY: horizontal
+        ? Math.max(0, (scrollTarget ? scrollTarget.contentWidth : 0)
+                       - (scrollTarget ? scrollTarget.width : 0))
+        : Math.max(0, (scrollTarget ? scrollTarget.contentHeight : 0)
+                       - (scrollTarget ? scrollTarget.height : 0))
 
     // Local, fully independent glide state — see the header note above.
     // Never read or written by anything outside this instance.
+    // Read defensively: several suites load this component with no `app`
+    // context property at all, and an undefined read there would make the
+    // whole area inert rather than merely un-animated.
+    readonly property bool smoothScrollingEnabled: {
+        // Explicitly coerced, never handed through raw. A stub `app.settings`
+        // that does not carry this property yields UNDEFINED, and assigning
+        // undefined to a bool is a QML warning — which the GIF picker suites
+        // correctly treat as a failure. Defaulting to TRUE also keeps the
+        // shipped feel for any surface whose settings object is incomplete.
+        if (typeof app === "undefined" || !app || !app.settings)
+            return true
+        var v = app.settings.smoothScrolling
+        return v === undefined ? true : !!v
+    }
+
     property real glideTargetY: 0
     property int glideDirection: 0   // -1 up, +1 down, 0 idle/just-reset
 
@@ -136,15 +201,28 @@ WheelHandler {
         var lo = root.minContentY
         var hi = root.maxContentY
 
-        if (event.pixelDelta.y !== 0) {
+        // A mouse has ONE wheel and reports it on the Y axis, so a HORIZONTAL
+        // view has to answer a vertical wheel or it cannot be scrolled with a
+        // mouse at all. An x delta — a tilt wheel, or shift+wheel, which Qt
+        // reports on x — is taken only when y carries nothing, and only on a
+        // horizontal view: a vertical pane must not start scrolling sideways.
+        var pixels = event.pixelDelta.y !== 0
+            ? event.pixelDelta.y
+            : (root.horizontal ? event.pixelDelta.x : 0)
+        var angle = event.angleDelta.y !== 0
+            ? event.angleDelta.y
+            : (root.horizontal ? event.angleDelta.x : 0)
+
+        if (pixels !== 0) {
             // High-resolution touchpad / precision wheel: apply the
             // platform's own delta directly, exactly like
             // TimelineScrollController::pixelTargetY — no coalesced glide
             // fights native momentum. Cancel any in-flight notch glide
             // first, same reason pixelTargetY() calls cancel().
             root.stopGlide()
-            t.contentY = root.clampY(t.contentY - event.pixelDelta.y, lo, hi)
-        } else if (event.angleDelta.y !== 0) {
+            root.setScrollPosition(
+                root.clampY(root.scrollPosition() - pixels, lo, hi))
+        } else if (angle !== 0) {
             // Discrete mouse-wheel notch. Reuse the SAME per-notch
             // distance the timeline uses (TimelineScrollController::
             // notchDistance — a pure read, honours the user's configured
@@ -154,16 +232,27 @@ WheelHandler {
             // continuous local glide instead of restarting per notch.
             var controller = (typeof app !== "undefined" && app)
                               ? app.timelineScroll : null
-            var per = controller ? controller.notchDistance(t.height) : 120.0
-            var deltaPixels = -(event.angleDelta.y / 120.0) * per
+            var per = controller
+                      ? controller.notchDistance(root.viewportExtent) : 120.0
+            var deltaPixels = -(angle / 120.0) * per
             var dir = deltaPixels > 0 ? 1 : (deltaPixels < 0 ? -1 : 0)
-            if (dir !== 0) {
+            // Smooth scrolling OFF: land the whole notch immediately. The
+            // DISTANCE is unchanged — this is not a different scroll speed,
+            // it is the same movement without the glide, so a reader who
+            // turns it off still travels exactly as far per notch. The
+            // pixel-delta branch above is already instantaneous, so a
+            // touchpad is unaffected either way.
+            if (dir !== 0 && !root.smoothScrollingEnabled) {
+                root.stopGlide()
+                root.setScrollPosition(
+                    root.clampY(root.scrollPosition() + deltaPixels, lo, hi))
+            } else if (dir !== 0) {
                 // Same-direction extension while a glide is already
                 // running continues from its (still in-flight) target;
                 // a reversal or a fresh gesture redirects from the live
                 // position — identical policy to wheelTargetY().
                 var base = (root.ticker.running && dir === root.glideDirection)
-                           ? root.glideTargetY : t.contentY
+                           ? root.glideTargetY : root.scrollPosition()
                 var newTarget = root.clampY(base + deltaPixels, lo, hi)
                 root.glideTargetY = newTarget
                 root.glideDirection = dir
@@ -194,18 +283,20 @@ WheelHandler {
             }
             var controller = (typeof app !== "undefined" && app)
                               ? app.timelineScroll : null
-            var remaining = root.glideTargetY - t.contentY
+            var remaining = root.glideTargetY - root.scrollPosition()
             if (!controller || Math.abs(remaining) <= 0.5) {
-                t.contentY = root.clampY(root.glideTargetY,
-                                         root.minContentY, root.maxContentY)
+                root.setScrollPosition(
+                    root.clampY(root.glideTargetY,
+                                root.minContentY, root.maxContentY))
                 root.glideDirection = 0
                 stop()
                 return
             }
-            t.contentY = root.clampY(
-                t.contentY + controller.motionStep(remaining, interval,
-                                                   t.height),
-                root.minContentY, root.maxContentY)
+            root.setScrollPosition(root.clampY(
+                root.scrollPosition()
+                    + controller.motionStep(remaining, interval,
+                                            root.viewportExtent),
+                root.minContentY, root.maxContentY))
         }
     }
 

@@ -206,10 +206,18 @@ private Q_SLOTS:
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
+        // Ctrl+C, not Escape. validationError refuses a MODIFIER-LESS
+        // sequence before it ever consults the reserved table, so binding a
+        // global action to bare Escape returns the modifier error and this
+        // case passed its !isEmpty() check while testing nothing about
+        // reservation. Esc is reserved AND modifier-less, so it is refused
+        // twice over and cannot reach this branch at all; a reserved
+        // sequence that carries a modifier is the only way in.
         const QString error = registry.setBinding(QStringLiteral("app.quit"),
-                                                  QStringLiteral("Escape"));
+                                                  QStringLiteral("Ctrl+C"));
         QVERIFY(!error.isEmpty());
-        QVERIFY(error.contains(QStringLiteral("Esc")));
+        QVERIFY(error.contains(QStringLiteral("Ctrl+C")));
+        QVERIFY(error.contains(QStringLiteral("Copy")));
         QCOMPARE(registry.sequenceFor(QStringLiteral("app.quit")),
                  QStringLiteral("Ctrl+Q"));
     }
@@ -440,6 +448,78 @@ private Q_SLOTS:
             QVERIFY(name.startsWith("shortcut"));
         QVERIFY(roles.values().contains(QByteArray("shortcutId")));
         QVERIFY(roles.values().contains(QByteArray("shortcutCurrent")));
+    }
+
+    // ── The editor-context lookup both composers share ──────────────────
+
+    // NAIVE IMPLEMENTATION THIS CATCHES: each composer carrying its own
+    // hand-written list of editor action ids. That is what the QML did, and
+    // the THREAD composer had no list at all -- so Ctrl+B inside a thread
+    // reply fell through to the window and toggled the conversation list
+    // while the user was typing. Driving it from the registry's own
+    // EditorContext flag is what makes one list impossible to forget.
+    void editorActionForKeyAnswersEveryEditorBindingAndNothingElse()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+
+        QCOMPARE(registry.editorActionForKey(Qt::Key_B, Qt::ControlModifier),
+                 QStringLiteral("composer.bold"));
+        QCOMPARE(registry.editorActionForKey(Qt::Key_I, Qt::ControlModifier),
+                 QStringLiteral("composer.italic"));
+
+        // Every EditorContext row in the table must be reachable, so adding a
+        // seventh one cannot silently go unhandled in either composer.
+        int editorRows = 0;
+        for (int row = 0; row < registry.rowCount(); ++row) {
+            const QModelIndex idx = registry.index(row, 0);
+            if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                != int(ShortcutRegistry::EditorContext))
+                continue;
+            ++editorRows;
+            const QString id =
+                registry.data(idx, ShortcutRegistry::IdRole).toString();
+            const QString seq =
+                registry.data(idx, ShortcutRegistry::CurrentSequenceRole)
+                    .toString();
+            const QKeySequence parsed =
+                QKeySequence::fromString(seq, QKeySequence::PortableText);
+            QVERIFY2(parsed.count() == 1,
+                     qPrintable(QStringLiteral("unparseable: ") + seq));
+            const int combo = parsed[0].toCombined();
+            const int key = combo & ~int(Qt::KeyboardModifierMask);
+            const int mods = combo & int(Qt::KeyboardModifierMask);
+            QCOMPARE(registry.editorActionForKey(key, mods), id);
+        }
+        QVERIFY2(editorRows > 0, "no EditorContext rows -- the sweep is inert");
+
+        // A GLOBAL binding must NOT resolve here, or the composer would claim
+        // the ShortcutOverride for Ctrl+K and swallow the quick switcher
+        // while the message box has focus.
+        QVERIFY(registry.editorActionForKey(Qt::Key_K, Qt::ControlModifier)
+                    .isEmpty());
+        QVERIFY(registry.editorActionForKey(Qt::Key_Q, Qt::ControlModifier)
+                    .isEmpty());
+        // A bare letter is typing, never a format.
+        QVERIFY(registry.editorActionForKey(Qt::Key_B, Qt::NoModifier)
+                    .isEmpty());
+    }
+
+    // The lookup must follow a REBIND. Reading the default table instead
+    // would leave the old sequence working and the new one dead.
+    void editorActionForKeyFollowsARebind()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QString error =
+            registry.setBinding(QStringLiteral("composer.bold"),
+                                QStringLiteral("Ctrl+Alt+B"));
+        QCOMPARE(error, QString());
+        QCOMPARE(registry.editorActionForKey(
+                     Qt::Key_B, Qt::ControlModifier | Qt::AltModifier),
+                 QStringLiteral("composer.bold"));
+        QVERIFY(registry.editorActionForKey(Qt::Key_B, Qt::ControlModifier)
+                    .isEmpty());
     }
 
 private:
