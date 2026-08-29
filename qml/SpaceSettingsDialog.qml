@@ -345,21 +345,37 @@ AppDialog {
                             title: qsTr("Choose space avatar")
                             fileMode: FileDialog.OpenFile
                             nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)")]
+                            // The picker CHOOSES; the crop dialog decides what
+                            // is uploaded, and is the gate that refuses a
+                            // non-raster file before anything renders it.
+                            onAccepted: spaceAvatarCrop.openFor(selectedFile)
+                        }
+                        ImageCropDialog {
+                            id: spaceAvatarCrop
+                            role: "avatar"
                             // m.room.avatar, exactly as a room's own avatar —
                             // Lightning invents no Space-specific storage.
-                            onAccepted: app.roomInfo.setRoomAvatar(selectedFile)
+                            onCropped: function (file) {
+                                app.roomInfo.setRoomAvatar(file)
+                            }
                         }
                         FileDialog {
                             id: spaceBannerFile
                             title: qsTr("Choose a banner image")
                             fileMode: FileDialog.OpenFile
                             nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp)")]
+                            onAccepted: spaceBannerCrop.openFor(selectedFile)
+                        }
+                        ImageCropDialog {
+                            id: spaceBannerCrop
+                            role: "banner"
                             // The URL crosses as-is; the manager converts it.
                             // Stripping "file://" here produced "/C:/…" on
                             // Windows.
-                            onAccepted: app.banners.setRoomBanner(
-                                            root.spaceId,
-                                            selectedFile.toString())
+                            onCropped: function (file) {
+                                app.banners.setRoomBanner(root.spaceId,
+                                                          file.toString())
+                            }
                         }
 
                         MenuSectionLabel { text: qsTr("Profile") }

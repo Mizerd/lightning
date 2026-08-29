@@ -69,6 +69,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 mod banner;
+mod bio;
 mod calls;
 mod discover;
 mod gifs;
@@ -77,6 +78,7 @@ mod oauth;
 mod pinned;
 mod search;
 mod sso;
+mod stickers;
 mod uia;
 mod presence;
 mod profile;
@@ -5596,6 +5598,36 @@ pub unsafe extern "C" fn mx_rust_get_user_profile(
 ///
 /// Result event: own_display_name_result { op_id, lifecycle, ok, error }.
 /// The name never comes back — C++ already holds what it submitted.
+/// Upload and set the account's OWN avatar from a local file path.
+///
+/// Result event: own_avatar_result { op_id, lifecycle, ok, error }.
+/// The path never comes back — C++ already holds it, and a home directory
+/// carries the user's name.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_own_avatar(
+    ptr: *mut c_void,
+    local_path: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let path = unsafe { cstr_arg(local_path) }?;
+        profile::set_own_avatar(bridge, path, op_id).map(|_| String::new())
+    })
+}
+
+/// Clear the account's own avatar. Same result event as the setter.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_clear_own_avatar(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        profile::clear_own_avatar(bridge, op_id).map(|_| String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_display_name(
     ptr: *mut c_void,
@@ -5646,6 +5678,46 @@ pub unsafe extern "C" fn mx_rust_set_profile_banner(
     })
 }
 
+/// Profile biographies (MSC4440 over MSC4133 extended profile fields).
+///
+/// Reads `m.biography`, falling back to `gay.fomx.biography` — MSC4440's own
+/// unstable prefix, and the key Sable writes today. Result event:
+/// `profile_bio { op_id, lifecycle, user_id, bio, supported }`, where
+/// `supported: false` means the homeserver does not implement extended profile
+/// fields at all. That renders as NOTHING, never as "this user has no bio".
+///
+/// Only PLAIN TEXT crosses: a bio is remote free text, and rendering the
+/// MSC's optional HTML representation would fetch remote media of the profile
+/// owner's choosing for every viewer. See the module header in `bio.rs`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_fetch_profile_bio(
+    ptr: *mut c_void,
+    user_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let user_id = unsafe { cstr_arg(user_id) }?;
+        bio::fetch_profile_bio(bridge, op_id, user_id).map(|_| String::new())
+    })
+}
+
+/// Set this account's bio, under BOTH the stable and the MSC4440 unstable
+/// field names. EMPTY (or whitespace-only) text clears both. Result event:
+/// `profile_bio_set { op_id, lifecycle, ok, bio, category }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_profile_bio(
+    ptr: *mut c_void,
+    text: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let text = unsafe { cstr_arg(text) }?;
+        bio::set_own_profile_bio(bridge, op_id, text).map(|_| String::new())
+    })
+}
+
 /// Read a room's (or Space's) banner and whether this account may change it.
 /// Result event: `room_banner { op_id, lifecycle, room_id, mxc, can_set }`.
 #[no_mangle]
@@ -5676,6 +5748,158 @@ pub unsafe extern "C" fn mx_rust_set_room_banner(
         let room_id = unsafe { cstr_arg(room_id) }?;
         let path = unsafe { cstr_arg(local_path) }?;
         banner::set_room_banner(bridge, op_id, room_id, path).map(|_| String::new())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Stickers and image packs (MSC2545)
+// ---------------------------------------------------------------------------
+
+/// Read every image pack available to this account and answer with one
+/// `sticker_packs { op_id, lifecycle, room_id, packs[] }` snapshot.
+///
+/// `room_id` may be empty. When it is set, that room's OWN
+/// `im.ponies.room_emotes` packs are included — MSC2545 makes a room's packs
+/// available inside that room without any opt-in, and `im.ponies.emote_rooms`
+/// is what makes them available elsewhere.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_stickers_fetch_packs(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        stickers::fetch_packs(bridge, op_id, room_id).map(|_| String::new())
+    })
+}
+
+/// Send one `m.sticker`. An empty `thread_root_id` targets the room timeline;
+/// otherwise the SDK attaches the `m.thread` relation itself.
+///
+/// `url` must be a plain `mxc://` — the media a pack holds. Refused otherwise,
+/// so a caller can never put an http URL on the wire.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn mx_rust_stickers_send(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    thread_root_id: *const c_char,
+    url: *const c_char,
+    body: *const c_char,
+    mimetype: *const c_char,
+    width: u64,
+    height: u64,
+    size: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let thread_root_id = unsafe { cstr_arg(thread_root_id) }?;
+        let url = unsafe { cstr_arg(url) }?;
+        let body = unsafe { cstr_arg(body) }?;
+        let mimetype = unsafe { cstr_arg(mimetype) }?;
+        stickers::send_sticker(
+            bridge, room_id, thread_root_id, url, body, mimetype, width, height,
+            size,
+        )
+        .map(|_| String::new())
+    })
+}
+
+/// Add one image to a ROOM's `im.ponies.room_emotes` pack. Answers on the
+/// SAME `sticker_pack_add_result` event as the user-pack path, so a caller
+/// has one place to report from.
+///
+/// ROOM STATE, so it is POWER-LEVEL GATED: the room's own required level for
+/// `im.ponies.room_emotes`, asked of the SDK. `category` is "forbidden" when
+/// this account may not write it, "duplicate" when that exact mxc is already
+/// in the pack, "pack_full" at the size cap, or a coarse room-error class.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn mx_rust_stickers_add_to_room_pack(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    state_key: *const c_char,
+    shortcode: *const c_char,
+    url: *const c_char,
+    body: *const c_char,
+    mimetype: *const c_char,
+    width: u64,
+    height: u64,
+    size: u64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let state_key = unsafe { cstr_arg(state_key) }?;
+        let shortcode = unsafe { cstr_arg(shortcode) }?;
+        let url = unsafe { cstr_arg(url) }?;
+        let body = unsafe { cstr_arg(body) }?;
+        let mimetype = unsafe { cstr_arg(mimetype) }?;
+        stickers::add_to_room_pack(
+            bridge, op_id, room_id, state_key, shortcode, url, body, mimetype,
+            width, height, size,
+        )
+        .map(|_| String::new())
+    })
+}
+
+/// Turn one ROOM pack on or off in `im.ponies.emote_rooms` — "use this room's
+/// stickers everywhere". Answers with
+/// `sticker_pack_rooms_set { op_id, lifecycle, ok, category, room_id,
+/// state_key, enabled }`.
+///
+/// ACCOUNT DATA, so no power level is involved: it records the reader's own
+/// choice. A room's packs are always usable INSIDE that room whatever this
+/// says.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_stickers_set_room_pack_enabled(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    state_key: *const c_char,
+    enabled: bool,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let state_key = unsafe { cstr_arg(state_key) }?;
+        stickers::set_room_pack_enabled(bridge, op_id, room_id, state_key, enabled)
+            .map(|_| String::new())
+    })
+}
+
+/// "Steal" a sticker into `im.ponies.user_emotes`. Answers with
+/// `sticker_pack_add_result { op_id, lifecycle, ok, category, shortcode }`.
+///
+/// `category` is `duplicate` when that exact mxc is already in the pack,
+/// `pack_full` at the size cap, or a coarse room-error class.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn mx_rust_stickers_add_to_user_pack(
+    ptr: *mut c_void,
+    shortcode: *const c_char,
+    url: *const c_char,
+    body: *const c_char,
+    mimetype: *const c_char,
+    width: u64,
+    height: u64,
+    size: u64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let shortcode = unsafe { cstr_arg(shortcode) }?;
+        let url = unsafe { cstr_arg(url) }?;
+        let body = unsafe { cstr_arg(body) }?;
+        let mimetype = unsafe { cstr_arg(mimetype) }?;
+        stickers::add_to_user_pack(
+            bridge, op_id, shortcode, url, body, mimetype, width, height, size,
+        )
+        .map(|_| String::new())
     })
 }
 

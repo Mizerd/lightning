@@ -286,6 +286,27 @@ public:
     bool supportsProfileBanners() const override { return true; }
     void fetchProfileBanner(const QString &userId, quint64 opId) override;
     void setProfileBanner(const QString &localPath, quint64 opId) override;
+    bool supportsProfileBios() const override { return true; }
+    void fetchProfileBio(const QString &userId, quint64 opId) override;
+    void setProfileBio(const QString &text, quint64 opId) override;
+    bool supportsStickerPacks() const override { return true; }
+    void fetchStickerPacks(const QString &roomId, quint64 opId) override;
+    void sendSticker(const QString &roomId, const QString &rootId,
+                     const QString &url, const QString &body,
+                     const QString &mimetype, quint64 width, quint64 height,
+                     quint64 size) override;
+    void addStickerToRoomPack(const QString &roomId, const QString &stateKey,
+                              const QString &shortcode, const QString &url,
+                              const QString &body, const QString &mimetype,
+                              quint64 width, quint64 height, quint64 size,
+                              quint64 opId) override;
+    void setStickerRoomPackEnabled(const QString &roomId,
+                                   const QString &stateKey, bool enabled,
+                                   quint64 opId) override;
+    void addStickerToUserPack(const QString &shortcode, const QString &url,
+                              const QString &body, const QString &mimetype,
+                              quint64 width, quint64 height, quint64 size,
+                              quint64 opId) override;
     bool supportsRoomBanners() const override { return true; }
     void fetchRoomBanner(const QString &roomId, quint64 opId) override;
     void setRoomBanner(const QString &roomId, const QString &localPath,
@@ -348,6 +369,8 @@ public:
     quint64 fetchUserProfile(const QString &userId) override;
     bool supportsOwnProfileEditing() const override { return true; }
     void setOwnDisplayName(const QString &name, quint64 opId) override;
+    void setOwnAvatar(const QString &localPath, quint64 opId) override;
+    void clearOwnAvatar(quint64 opId) override;
     bool supportsUrlPreview() const override { return true; }
     quint64 fetchUrlPreview(const QString &url) override;
     bool supportsGifProvider() const override { return true; }

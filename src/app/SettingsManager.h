@@ -51,10 +51,21 @@ class SettingsManager : public QObject
                    NOTIFY roomFilterModeChanged)
     Q_PROPERTY(int textScale READ textScale WRITE setTextScale
                    NOTIFY textScaleChanged)
-    // v0.7: bundled UI font family (per-account with global fallback, like
-    // the rest of Appearance). Values are clamped to uiFontChoices().
+    // UI font family (per-account with global fallback, like the rest of
+    // Appearance). Stored VERBATIM after a syntactic check and nothing more:
+    // this class is linked against Qt6::Core alone by ~20 test targets, so it
+    // cannot ask QFontDatabase whether a family exists and must not pretend
+    // to. FontManager (Qt6::Gui) resolves the name against the host and falls
+    // back to the bundled face when it is missing — WITHOUT rewriting this
+    // value, so a font that is uninstalled and reinstalled comes back.
     Q_PROPERTY(QString uiFont READ uiFont WRITE setUiFont
                    NOTIFY uiFontChanged)
+    // The monospace family (code blocks, keycaps, Matrix identifiers). Same
+    // storage and same resolution rules as uiFont; a separate setting because
+    // "the face I read prose in" and "the face I read code in" are different
+    // choices and always have been.
+    Q_PROPERTY(QString monoFont READ monoFont WRITE setMonoFont
+                   NOTIFY monoFontChanged)
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
     Q_PROPERTY(bool startMinimized READ startMinimized WRITE setStartMinimized NOTIFY startMinimizedChanged)
     // Custom application icon (Settings -> Appearance). Device-global like
@@ -234,6 +245,14 @@ class SettingsManager : public QObject
     // person, and the global value is what the logged-out shell uses.
     Q_PROPERTY(bool reducedMotion READ reducedMotion WRITE setReducedMotion
                    NOTIFY reducedMotionChanged)
+
+    // Smooth scrolling. SEPARATE from reducedMotion on purpose: that setting
+    // is an accessibility one covering every animation in the shell, and a
+    // reader who simply wants the wheel to land where the OS says should not
+    // have to turn the whole design's motion off to get it. Default ON, which
+    // is the behaviour every build so far has had.
+    Q_PROPERTY(bool smoothScrolling READ smoothScrolling WRITE setSmoothScrolling
+                   NOTIFY smoothScrollingChanged)
     // Clock format for every timestamp Lightning renders: 0 = follow the
     // system locale (the previous, fixed behaviour), 1 = 12-hour, 2 =
     // 24-hour. Per account with a global fallback.
@@ -366,8 +385,25 @@ public:
     int textScale() const;
     QString uiFont() const;
     void setUiFont(const QString &family);
-    // The curated selectable UI families (bundled, OFL).
+    QString monoFont() const;
+    void setMonoFont(const QString &family);
+    // The curated selectable UI families (bundled, OFL). Still the list the
+    // picker shows FIRST; it is no longer the only thing that may be stored.
     Q_INVOKABLE static QStringList uiFontChoices();
+    // A family name this class is willing to persist: trimmed, non-empty,
+    // bounded, and free of control characters and of the punctuation that
+    // would let a name mean something to a markup or style parser downstream.
+    // Returns the accepted name, or empty when the input is refused. It is
+    // deliberately NOT a "does this font exist" test — see the property.
+    static QString acceptableFontFamily(const QString &family);
+
+    // File names (basenames only) of the fonts the user imported by hand.
+    // DEVICE-GLOBAL, not per-account: an application font is process-wide and
+    // is registered before any account restores, exactly like the custom app
+    // icon. The files live in FontManager's own app-data directory; nothing
+    // here is ever a path the user typed.
+    QStringList importedFontFiles() const;
+    void setImportedFontFiles(const QStringList &fileNames);
     void setTextScale(int percent);
 
     QString language() const;
@@ -520,6 +556,8 @@ public:
     bool showProfileChangeEvents() const;
     void setShowProfileChangeEvents(bool v);
     bool reducedMotion() const;
+    bool smoothScrolling() const;
+    void setSmoothScrolling(bool v);
 
     // ── Call volumes ──────────────────────────────────────────────────
     //
@@ -791,6 +829,8 @@ Q_SIGNALS:
     void roomFilterModeChanged();
     void textScaleChanged();
     void uiFontChanged();
+    void monoFontChanged();
+    void importedFontFilesChanged();
     void languageChanged();
     void startMinimizedChanged();
     void customAppIconEnabledChanged();
@@ -821,6 +861,7 @@ Q_SIGNALS:
     void showMembershipEventsChanged();
     void showProfileChangeEventsChanged();
     void reducedMotionChanged();
+    void smoothScrollingChanged();
     void microphoneGainChanged();
     /// One person's stored volume changed. Carries the USER ID.
     void callParticipantVolumeChanged(const QString &userId, int percent);

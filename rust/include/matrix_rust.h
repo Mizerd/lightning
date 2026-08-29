@@ -575,6 +575,20 @@ char *mx_rust_get_user_profile(void *client,
  * "error"} — `error` carries only the server's own sanitized sentence, and
  * is empty when the server said nothing usable (including a timeout).
  */
+/*
+ * Upload and set the signed-in account's OWN avatar from a local file path.
+ * The MIME type is sniffed from the bytes, never from the file name, and SVG
+ * is refused. Bounded at the same ceiling as the room-avatar path.
+ *
+ * Result event: {"type":"own_avatar_result","op_id",…,"ok","error"}.
+ */
+char *mx_rust_set_own_avatar(void *client,
+                             const char *local_path,
+                             uint64_t op_id);
+
+/* Clear the account's own avatar. Same result event as the setter. */
+char *mx_rust_clear_own_avatar(void *client, uint64_t op_id);
+
 char *mx_rust_set_display_name(void *client,
                                const char *name,
                                unsigned long long op_id);
@@ -628,6 +642,34 @@ char *mx_rust_set_profile_banner(void *client,
                                  const char *local_path,
                                  unsigned long long op_id);
 /*
+ * Profile biographies (MSC4440 over MSC4133 extended profile fields).
+ *
+ * READ prefers the stable "m.biography" and falls back to
+ * "gay.fomx.biography" — MSC4440's own unstable prefix, and the key Sable
+ * writes today — so a bio written in either is visible here. Answers as
+ *   {"type":"profile_bio","op_id",…,"user_id","bio","supported":bool}
+ * `supported:false` means the homeserver does not implement extended profile
+ * fields AT ALL, which is a different fact from "this user has not written a
+ * bio" and must render as nothing rather than as an error.
+ *
+ * The value is always PLAIN TEXT, bounded and stripped of control characters
+ * in Rust. MSC4440 permits an HTML representation and Lightning deliberately
+ * neither renders nor authors one: a bio is remote free text, and the MSC's
+ * own example embeds an <img src="mxc://…"> that would be fetched by every
+ * viewer of the card.
+ */
+char *mx_rust_fetch_profile_bio(void *client,
+                                const char *user_id,
+                                unsigned long long op_id);
+/*
+ * Set this account's bio, under BOTH field names. EMPTY (or whitespace-only)
+ * text clears both. Answers as
+ *   {"type":"profile_bio_set","op_id",…,"ok","bio","category"}.
+ */
+char *mx_rust_set_profile_bio(void *client,
+                              const char *text,
+                              unsigned long long op_id);
+/*
  * Read a room's (or Space's) banner and whether this account may change it.
  * Answers as
  *   {"type":"room_banner","op_id",…,"room_id","mxc","can_set":bool}
@@ -650,6 +692,101 @@ char *mx_rust_set_room_banner(void *client,
                               const char *room_id,
                               const char *local_path,
                               unsigned long long op_id);
+/*
+ * Stickers and custom emoji — MSC2545 image packs (`im.ponies.*`).
+ *
+ * Read every pack this account can use and answer with ONE snapshot:
+ *   {"type":"sticker_packs","op_id",…,"room_id",
+ *    "packs":[{"id","display_name","avatar_url","attribution",
+ *              "source":"user"|"room","room_id","state_key",
+ *              "images":[{"shortcode","url","body","mimetype",
+ *                         "width","height","size",
+ *                         "is_emoticon","is_sticker"}]}]}
+ *
+ * `room_id` may be EMPTY. When set, that room's own `im.ponies.room_emotes`
+ * packs are included: MSC2545 makes a room's packs available inside that room
+ * with no opt-in, and `im.ponies.emote_rooms` is what makes them available
+ * elsewhere.
+ *
+ * Everything in a pack is remote, author-chosen content and is validated in
+ * Rust before it crosses: a non-`mxc://` url is DROPPED (an https url on a
+ * picker tile is a tracking beacon that fires once per listing), a DECLARED
+ * mimetype outside the five raster types is refused (image/svg+xml above all
+ * — CLAUDE.md §6), and shortcodes/bodies/names are bounded and stripped of
+ * control characters. They are LABELS on the C++ side, never rich text.
+ */
+char *mx_rust_stickers_fetch_packs(void *client,
+                                   const char *room_id,
+                                   unsigned long long op_id);
+/*
+ * Send one `m.sticker`. An EMPTY `thread_root_id` targets the room timeline;
+ * otherwise the SDK's thread-aware send attaches the `m.thread` relation
+ * itself — Lightning builds no relation by hand (CLAUDE.md §8).
+ *
+ * `url` must be a plain `mxc://`: a pack image is already Matrix media, so
+ * there is nothing to upload. Refused otherwise, so no caller can put an http
+ * URL on the wire. Reports failure on the ordinary timeline send path.
+ */
+char *mx_rust_stickers_send(void *client,
+                            const char *room_id,
+                            const char *thread_root_id,
+                            const char *url,
+                            const char *body,
+                            const char *mimetype,
+                            unsigned long long width,
+                            unsigned long long height,
+                            unsigned long long size);
+/*
+ * Add one image to a ROOM's `im.ponies.room_emotes` pack. Answers on the SAME
+ * "sticker_pack_add_result" event as the user-pack path.
+ *
+ * ROOM STATE, so POWER-LEVEL GATED on the room's own required level for that
+ * event type, asked of the SDK — never a role label. `category` is
+ * "forbidden" when this account may not write it.
+ */
+char *mx_rust_stickers_add_to_room_pack(void *client,
+                                        const char *room_id,
+                                        const char *state_key,
+                                        const char *shortcode,
+                                        const char *url,
+                                        const char *body,
+                                        const char *mimetype,
+                                        unsigned long long width,
+                                        unsigned long long height,
+                                        unsigned long long size,
+                                        unsigned long long op_id);
+/*
+ * Turn one ROOM pack on or off in `im.ponies.emote_rooms` — "use this room's
+ * stickers everywhere". Answers as
+ *   {"type":"sticker_pack_rooms_set","op_id",…,"ok","category",
+ *    "room_id","state_key","enabled"}
+ *
+ * ACCOUNT DATA, so no power level is involved: it records the reader's own
+ * choice. A room's packs are always usable INSIDE that room whatever this
+ * holds, which is why turning one off does not remove it from its own room.
+ */
+char *mx_rust_stickers_set_room_pack_enabled(void *client,
+                                             const char *room_id,
+                                             const char *state_key,
+                                             bool enabled,
+                                             unsigned long long op_id);
+/*
+ * Add one image to this account's own `im.ponies.user_emotes` pack ("save
+ * this sticker"). Read-modify-write against the SERVER copy, never the store,
+ * so a concurrent edit from another device is not clobbered. Answers as
+ *   {"type":"sticker_pack_add_result","op_id",…,"ok","category","shortcode"}
+ * where `category` is "duplicate" (that exact mxc is already in the pack),
+ * "pack_full", or a coarse room-error class.
+ */
+char *mx_rust_stickers_add_to_user_pack(void *client,
+                                        const char *shortcode,
+                                        const char *url,
+                                        const char *body,
+                                        const char *mimetype,
+                                        unsigned long long width,
+                                        unsigned long long height,
+                                        unsigned long long size,
+                                        unsigned long long op_id);
 /*
  * v0.5.12: secure client-side HTTPS preview. Rust validates DNS and every
  * redirect, blocks local/private destinations, bounds responses and parses

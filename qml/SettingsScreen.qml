@@ -25,6 +25,17 @@ Item {
     // v0.7.2: whether the sanitized E2EE recovery diagnostics are expanded.
     property bool showRecoveryDiagnostics: false
 
+    // FontManager, or null when this shell is loaded without it.
+    //
+    // `fonts` is a CONTEXT property installed by main.cpp, and ten QML suites
+    // load this file with an engine that has only `app`. Referencing an
+    // unresolved name in QML throws a ReferenceError, and `visible: false` on
+    // the card does NOT prevent its bindings being created — so every
+    // reference goes through this one guarded alias rather than through
+    // `fonts` directly.
+    readonly property var fontManager:
+        (typeof fonts !== "undefined") ? fonts : null
+
     // ── SPEC 1v: client-side settings search (no new C++ index) ───────────
     // Declarative {title, keywords, section, breadcrumb, control?} entries.
     // Indexed by SECTION KEY, not layout position — Privacy & security is
@@ -60,6 +71,12 @@ Item {
           section: "appearance", breadcrumb: qsTr("Appearance") },
         { title: qsTr("Font"), keywords: qsTr("font family typeface"),
           section: "appearance", breadcrumb: qsTr("Appearance") },
+        { title: qsTr("Code font"),
+          keywords: qsTr("code font monospace mono fixed width typeface"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Font") },
+        { title: qsTr("Your own fonts"),
+          keywords: qsTr("import font file ttf otf install custom typeface"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Font") },
         { title: qsTr("Language"), keywords: qsTr("language locale"),
           section: "appearance", breadcrumb: qsTr("Appearance") },
         { title: qsTr("Show room activity"),
@@ -82,6 +99,11 @@ Item {
           section: "appearance",
           breadcrumb: qsTr("Appearance · Motion and time"),
           control: "reducedMotion" },
+        { title: qsTr("Smooth scrolling"),
+          keywords: qsTr("smooth scrolling scroll wheel glide animation instant jumpy mouse"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Motion and time"),
+          control: "smoothScrolling" },
         { title: qsTr("Clock"),
           keywords: qsTr("clock 24 hour time format am pm timestamp"),
           section: "appearance",
@@ -1038,6 +1060,14 @@ Item {
                                         Accessible.name: qsTr("Reduce motion")
                                         onToggled: app.settings.reducedMotion =
                                             !app.settings.reducedMotion
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineSmoothScrolling_" + resultRow.index
+                                        visible: resultRow.modelData.control === "smoothScrolling"
+                                        checked: app.settings.smoothScrolling
+                                        Accessible.name: qsTr("Smooth scrolling")
+                                        onToggled: app.settings.smoothScrolling =
+                                            !app.settings.smoothScrolling
                                     }
                                     AppSwitch {
                                         objectName: "settingsSearchInlineSpaceBanners_" + resultRow.index
@@ -2201,6 +2231,267 @@ Item {
                                        + "IDs, icons, and emoji keep their own fonts.")
                         }
 
+                        // ── Any font the machine has, plus imported files ──
+                        //
+                        // The cards above preview the five bundled faces,
+                        // which is what most people want and the only set
+                        // guaranteed present. This card is the rest: every
+                        // family QFontDatabase reports, the fixed-pitch subset
+                        // for code, and the small store of fonts imported by
+                        // hand.
+                        //
+                        // Both combos read `fonts.stored…Family` — the value
+                        // the user CHOSE — and not the resolved one. A font
+                        // that is uninstalled must keep showing as the
+                        // selection with a line saying it is missing; showing
+                        // the fallback instead would look exactly like the
+                        // setting having reset itself, and re-installing the
+                        // font would then be a mystery.
+                        SettingsCard {
+                            objectName: "systemFontCard"
+                            visible: root.fontManager !== null
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+
+                                Label {
+                                    text: qsTr("Interface font")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                AppComboBox {
+                                    id: systemUiFontCombo
+                                    objectName: "systemUiFontCombo"
+                                    storm: true
+                                    Layout.fillWidth: true
+                                    model: root.fontManager ? root.fontManager.uiFamilies : []
+                                    Accessible.name: qsTr("Interface font family")
+                                    // A combo NEVER binds currentIndex — see
+                                    // AppComboBox: indexOfValue() is -1 at
+                                    // creation time and clamping that to 0
+                                    // makes the control lie about the stored
+                                    // value.
+                                    Component.onCompleted:
+                                        syncToValue(root.fontManager ? root.fontManager.storedUiFamily : "")
+                                    onModelChanged:
+                                        syncToValue(root.fontManager ? root.fontManager.storedUiFamily : "")
+                                    Connections {
+                                        target: root.fontManager
+                                        function onSelectionChanged() {
+                                            systemUiFontCombo.syncToValue(
+                                                root.fontManager.storedUiFamily)
+                                        }
+                                    }
+                                    onActivated: root.fontManager.setUiFamily(currentText)
+                                }
+                                Label {
+                                    objectName: "uiFontMissingNotice"
+                                    visible: root.fontManager && !root.fontManager.uiFamilyAvailable
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textMeta
+                                    // Deliberately says the choice is KEPT.
+                                    text: root.fontManager
+                                        ? qsTr("\u201C%1\u201D is not installed on this "
+                                               + "computer, so Lightning is drawing %2 "
+                                               + "instead. Your choice is kept — install "
+                                               + "the font and it comes back.")
+                                              .arg(root.fontManager.storedUiFamily)
+                                              .arg(root.fontManager.uiFamily)
+                                        : ""
+                                }
+
+                                Label {
+                                    text: qsTr("Code font")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                AppComboBox {
+                                    id: monoFontCombo
+                                    objectName: "monoFontCombo"
+                                    storm: true
+                                    Layout.fillWidth: true
+                                    model: root.fontManager ? root.fontManager.monospaceFamilies : []
+                                    Accessible.name: qsTr("Monospace font family")
+                                    Component.onCompleted:
+                                        syncToValue(root.fontManager ? root.fontManager.storedMonospaceFamily : "")
+                                    onModelChanged:
+                                        syncToValue(root.fontManager ? root.fontManager.storedMonospaceFamily : "")
+                                    Connections {
+                                        target: root.fontManager
+                                        function onSelectionChanged() {
+                                            monoFontCombo.syncToValue(
+                                                root.fontManager.storedMonospaceFamily)
+                                        }
+                                    }
+                                    onActivated: root.fontManager.setMonospaceFamily(currentText)
+                                }
+                                Label {
+                                    objectName: "monoFontMissingNotice"
+                                    visible: root.fontManager && !root.fontManager.monospaceFamilyAvailable
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: root.fontManager
+                                        ? qsTr("\u201C%1\u201D is not installed, so code "
+                                               + "is drawn in %2. Your choice is kept.")
+                                              .arg(root.fontManager.storedMonospaceFamily)
+                                              .arg(root.fontManager.monospaceFamily)
+                                        : ""
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("The code font is used for code blocks, "
+                                               + "keyboard shortcuts and Matrix "
+                                               + "identifiers.")
+                                }
+                            }
+                        }
+
+                        SettingsCard {
+                            objectName: "importedFontCard"
+                            visible: root.fontManager !== null
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    text: qsTr("Your own fonts")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    // Says plainly what happens to the file,
+                                    // because "Lightning copied my font" is
+                                    // surprising if nobody mentions it.
+                                    text: qsTr("Load a TrueType or OpenType file that is "
+                                               + "not installed system-wide. Lightning "
+                                               + "keeps its own copy, so moving or "
+                                               + "deleting the original changes nothing. "
+                                               + "Only fonts you pick here are ever "
+                                               + "loaded.")
+                                }
+                                Repeater {
+                                    model: root.fontManager ? root.fontManager.importedFonts : []
+                                    RowLayout {
+                                        id: importedRow
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing8
+                                        Label {
+                                            Layout.fillWidth: true
+                                            elide: Text.ElideRight
+                                            color: importedRow.modelData.available
+                                                   ? AppTheme.stormText
+                                                   : AppTheme.stormTextMuted
+                                            font.pixelSize: AppTheme.textBody
+                                            // The FAMILIES, never the file
+                                            // name: the name is a hash and
+                                            // means nothing to a reader.
+                                            text: importedRow.modelData.available
+                                                  ? importedRow.modelData.families.join(", ")
+                                                  : qsTr("Unavailable — the file is gone")
+                                        }
+                                        AppButton {
+                                            storm: true
+                                            text: qsTr("Remove")
+                                            Accessible.name: qsTr("Remove this imported font")
+                                            onClicked: root.fontManager.removeImportedFont(
+                                                           importedRow.modelData.fileName)
+                                        }
+                                    }
+                                }
+                                Label {
+                                    objectName: "fontImportError"
+                                    visible: root.fontManager && root.fontManager.lastImportError.length > 0
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormDanger
+                                    font.pixelSize: AppTheme.textMeta
+                                    // One sentence per machine category, so a
+                                    // refusal says which rule it broke. The
+                                    // category is a constant from C++; the
+                                    // rejected file name is deliberately not
+                                    // shown back.
+                                    text: {
+                                        if (!root.fontManager) return ""
+                                        switch (root.fontManager.lastImportError) {
+                                        case "unsupported_extension":
+                                            return qsTr("Only .ttf and .otf font files "
+                                                        + "can be loaded.")
+                                        case "not_a_font":
+                                            return qsTr("That file is not a font.")
+                                        case "too_large":
+                                            return qsTr("That file is too large to load "
+                                                        + "as a font.")
+                                        case "empty":
+                                            return qsTr("That file is empty.")
+                                        case "not_a_file":
+                                        case "unreadable":
+                                            return qsTr("That file could not be read.")
+                                        case "not_a_local_file":
+                                            return qsTr("Only a file on this computer can "
+                                                        + "be loaded.")
+                                        case "already_imported":
+                                            return qsTr("That font is already loaded.")
+                                        case "store_full":
+                                            return qsTr("Remove one of your loaded fonts "
+                                                        + "first — Lightning keeps at "
+                                                        + "most %1.")
+                                                       .arg(root.fontManager.importedFontLimit)
+                                        case "rejected_by_font_database":
+                                            return qsTr("That font file could not be "
+                                                        + "read as a font.")
+                                        case "copy_failed":
+                                        case "no_store":
+                                            return qsTr("Lightning could not save a copy "
+                                                        + "of that font.")
+                                        default:
+                                            return root.fontManager.lastImportError.length > 0
+                                                   ? qsTr("That font could not be loaded.")
+                                                   : ""
+                                        }
+                                    }
+                                }
+                                AppButton {
+                                    objectName: "importFontButton"
+                                    storm: true
+                                    text: qsTr("Load a font file…")
+                                    onClicked: fontFileDialog.open()
+                                }
+                                FileDialog {
+                                    id: fontFileDialog
+                                    title: qsTr("Choose a font file")
+                                    fileMode: FileDialog.OpenFile
+                                    nameFilters: [
+                                        qsTr("Fonts (*.ttf *.otf)")
+                                    ]
+                                    onAccepted: root.fontManager.importFontFile(selectedFile)
+                                }
+                            }
+                        }
+
                         // Panel visibility. Mirrors Ctrl+B / Ctrl+Shift+B, so
                         // a panel someone hides by shortcut can always be
                         // found again without knowing the shortcut.
@@ -2578,6 +2869,21 @@ Item {
                                     onToggled: app.settings.reducedMotion = checked
                                     Accessible.description: qsTr(
                                         "Shorten or remove interface animations")
+                                }
+                                // SEPARATE from Reduce motion on purpose:
+                                // that one is an accessibility setting over
+                                // every animation in the shell, and someone
+                                // who just wants the wheel to land where the
+                                // OS says should not have to switch the whole
+                                // design's motion off to get it.
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "smoothScrollingCheck"
+                                    text: qsTr("Smooth scrolling")
+                                    checked: app.settings.smoothScrolling
+                                    onToggled: app.settings.smoothScrolling = checked
+                                    Accessible.description: qsTr(
+                                        "Glide the view when you turn the mouse wheel. Turning this off moves the same distance instantly.")
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -3120,13 +3426,19 @@ Item {
                                         lineHeightMode: Text.ProportionalHeight
                                         color: AppTheme.stormTextSecondary
                                         font.pixelSize: AppTheme.textMeta
+                                        // Names the control that actually
+                                        // exists. The old copy pointed at a
+                                        // per-message “Load link preview”
+                                        // action that was never built — the
+                                        // real gesture is the “Show” button
+                                        // on the message's own link card.
                                         text: qsTr("Loading a preview contacts the linked website "
                                                    + "directly — not through your homeserver — and "
                                                    + "may reveal your IP address and request "
                                                    + "timing to a site the sender chose. No "
                                                    + "JavaScript is executed. Both switches are "
-                                                   + "off by default; leave them off and use each "
-                                                   + "message's “Load link preview” action to "
+                                                   + "off by default; leave them off and use the "
+                                                   + "“Show” button on each message's link card to "
                                                    + "decide one at a time.")
                                     }
                                 }
@@ -3850,6 +4162,246 @@ Item {
                                         }
                                     }
                                 }
+                                // ── Your own profile picture.
+                                //
+                                // The account had a banner editor and NO way
+                                // to change its avatar at all — the whole
+                                // own-avatar path (FFI, client, controller)
+                                // did not exist. Every other display image in
+                                // the app goes through the crop dialog, and
+                                // so does this one.
+                                ColumnLayout {
+                                    objectName: "ownAvatarSection"
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+                                    visible: app.canEditOwnAvatar()
+
+                                    Label {
+                                        text: qsTr("Profile picture")
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightStrong
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing12
+                                        Avatar {
+                                            objectName: "ownAvatarPreview"
+                                            size: AppTheme.scaled(64)
+                                            // Read from the SAME account
+                                            // record the identity card above
+                                            // reads, not a second derivation:
+                                            // the write path re-fetches the
+                                            // profile on success, so the
+                                            // server stays the authority and
+                                            // both surfaces update together.
+                                            mxc: accountIdentityCard.accountRecord
+                                                 && accountIdentityCard.accountRecord.avatarUrl
+                                                 ? accountIdentityCard.accountRecord.avatarUrl : ""
+                                            name: accountIdentityCard.accountDisplayName
+                                            colorKey: app.accounts
+                                                ? (app.accounts.activeUserId || "") : ""
+                                        }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: AppTheme.spacing8
+                                            RowLayout {
+                                                spacing: AppTheme.spacing8
+                                                AppButton {
+                                                    objectName: "chooseOwnAvatarButton"
+                                                    storm: true
+                                                    kind: "primary"
+                                                    text: app.ownAvatarBusy
+                                                        ? qsTr("Uploading…")
+                                                        : qsTr("Change picture")
+                                                    enabled: !app.ownAvatarBusy
+                                                    onClicked: ownAvatarFileDialog.open()
+                                                }
+                                                AppButton {
+                                                    objectName: "removeOwnAvatarButton"
+                                                    storm: true
+                                                    text: qsTr("Remove")
+                                                    // !! rather than a bare
+                                                    // `a && b` chain: that
+                                                    // yields null when `a` is
+                                                    // null, and assigning
+                                                    // null to a bool is a QML
+                                                    // warning.
+                                                    visible: !!(accountIdentityCard.accountRecord
+                                                             && accountIdentityCard.accountRecord.avatarUrl
+                                                             && accountIdentityCard.accountRecord.avatarUrl.length > 0)
+                                                    enabled: !app.ownAvatarBusy
+                                                    onClicked: app.clearOwnAvatar()
+                                                }
+                                            }
+                                            Label {
+                                                Layout.fillWidth: true
+                                                wrapMode: Text.WordWrap
+                                                text: qsTr("You choose which part of the image to use.")
+                                                color: AppTheme.stormTextMuted
+                                                font.pixelSize: AppTheme.textMeta
+                                            }
+                                        }
+                                    }
+                                    Label {
+                                        objectName: "ownAvatarError"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        visible: app.ownAvatarError.length > 0
+                                        text: app.ownAvatarError
+                                        color: AppTheme.stormDanger
+                                        font.pixelSize: AppTheme.textMeta
+                                    }
+                                    FileDialog {
+                                        id: ownAvatarFileDialog
+                                        title: qsTr("Choose a profile picture")
+                                        nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)")]
+                                        onAccepted: ownAvatarCrop.openFor(selectedFile)
+                                    }
+                                    ImageCropDialog {
+                                        id: ownAvatarCrop
+                                        role: "avatar"
+                                        // The URL crosses as-is; the
+                                        // controller converts it. Stripping
+                                        // "file://" here produced "/C:/..."
+                                        // on Windows, per the banner path.
+                                        onCropped: function (file) {
+                                            app.submitOwnAvatar(file)
+                                        }
+                                    }
+                                }
+
+                                // ── Your own bio (MSC4133 extended profile).
+                                // You could READ everyone's bio and write
+                                // nobody's, including your own, because the
+                                // manager shipped with no editor anywhere.
+                                //
+                                // Hidden when the BACKEND cannot write the
+                                // field at all, disclosed-but-disabled when
+                                // the HOMESERVER is the one that cannot —
+                                // the same split the profile banner above
+                                // already makes, for the same reason: a
+                                // control that cannot work is worse than no
+                                // control, but a server limitation is the
+                                // user's to know about.
+                                ColumnLayout {
+                                    objectName: "ownBioSection"
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+                                    visible: !!(app.bio && app.bio.available)
+
+                                    Label {
+                                        text: qsTr("About you")
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightStrong
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        text: qsTr("A short note about yourself. Anyone who opens your profile can read it.")
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.textMeta
+                                    }
+                                    ScrollView {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: AppTheme.scaled(96)
+                                        clip: true
+                                        TextArea {
+                                            id: ownBioField
+                                            objectName: "ownBioField"
+                                            // The stored value is the source
+                                            // of truth; the field follows it
+                                            // unless the user is editing.
+                                            // Assigning `text` imperatively
+                                            // would destroy that binding, so
+                                            // the sync goes the other way.
+                                            property bool dirty: false
+                                            text: app.bio ? app.bio.ownBio : ""
+                                            onTextChanged: if (activeFocus) dirty = true
+                                            enabled: !!(app.bio && app.bio.supported
+                                                     && !app.bio.busy)
+                                            wrapMode: TextArea.Wrap
+                                            placeholderText: qsTr("Say something about yourself")
+                                            placeholderTextColor: AppTheme.stormTextMuted
+                                            color: AppTheme.stormText
+                                            font.pixelSize: AppTheme.scaled(13)
+                                            background: Rectangle {
+                                                radius: AppTheme.radiusSm
+                                                color: AppTheme.stormInset
+                                                border.width: 1
+                                                border.color: ownBioField.activeFocus
+                                                    ? AppTheme.bolt
+                                                    : AppTheme.stormBorder
+                                            }
+                                        }
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing8
+                                        Label {
+                                            objectName: "ownBioCounter"
+                                            // Counted in CHARACTERS, matching
+                                            // the Rust bound, which takes
+                                            // chars() and never a byte slice.
+                                            text: qsTr("%1 / %2")
+                                                .arg(ownBioField.text.length)
+                                                .arg(app.bio ? app.bio.maxLength : 0)
+                                            color: (app.bio && ownBioField.text.length > app.bio.maxLength)
+                                                ? AppTheme.stormDanger : AppTheme.stormTextMuted
+                                            font.pixelSize: AppTheme.textMeta
+                                        }
+                                        Item { Layout.fillWidth: true }
+                                        AppButton {
+                                            objectName: "saveOwnBioButton"
+                                            storm: true
+                                            kind: "primary"
+                                            text: app.bio && app.bio.busy
+                                                ? qsTr("Saving…") : qsTr("Save")
+                                            enabled: !!(app.bio && app.bio.supported
+                                                     && !app.bio.busy
+                                                     && ownBioField.text.length <= app.bio.maxLength)
+                                            onClicked: {
+                                                app.bio.setOwnBio(ownBioField.text)
+                                                ownBioField.dirty = false
+                                            }
+                                        }
+                                        AppButton {
+                                            objectName: "clearOwnBioButton"
+                                            storm: true
+                                            text: qsTr("Clear")
+                                            visible: !!(app.bio && app.bio.ownBio.length > 0)
+                                            enabled: !!(app.bio && app.bio.supported
+                                                     && !app.bio.busy)
+                                            onClicked: {
+                                                app.bio.clearOwnBio()
+                                                ownBioField.dirty = false
+                                            }
+                                        }
+                                    }
+                                    Label {
+                                        objectName: "ownBioUnsupportedNote"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        // DISCLOSED rather than hidden: the
+                                        // field is a server capability, and
+                                        // silently disabling the box would
+                                        // read as the app being broken.
+                                        visible: !!(app.bio && !app.bio.supported)
+                                        text: qsTr("Your homeserver does not support profile bios yet.")
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.textMeta
+                                    }
+                                    Label {
+                                        objectName: "ownBioError"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        visible: !!(app.bio && app.bio.lastError.length > 0)
+                                        text: app.bio ? app.bio.lastError : ""
+                                        color: AppTheme.stormDanger
+                                        font.pixelSize: AppTheme.textMeta
+                                    }
+                                }
                                 AppButton {
                                     storm: true
                                     text: qsTr("Open Privacy & security")
@@ -4046,12 +4598,24 @@ Item {
                                     id: bannerFileDialog
                                     title: qsTr("Choose a banner image")
                                     nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)")]
+                                    // The picker CHOOSES; the crop dialog
+                                    // decides what is published, and refuses
+                                    // anything that is not one of the five
+                                    // raster formats before it is rendered.
+                                    onAccepted: ownBannerCrop.openFor(
+                                        selectedFile)
+                                }
+                                ImageCropDialog {
+                                    id: ownBannerCrop
+                                    role: "banner"
                                     // The URL goes across as-is;
                                     // ProfileBannerManager converts it.
                                     // Stripping "file://" here produced
                                     // "/C:/..." on Windows.
-                                    onAccepted: app.banners.setOwnBanner(
-                                        selectedFile.toString())
+                                    onCropped: function (file) {
+                                        app.banners.setOwnBanner(
+                                            file.toString())
+                                    }
                                 }
                             }
                         }

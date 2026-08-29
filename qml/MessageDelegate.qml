@@ -793,6 +793,12 @@ Item {
     // request (unencrypted rooms with auto-load on); encrypted rooms stay in
     // "requires_action" until the explicit Load action.
     property var preview: ({ state: "none" })
+    // The reader dismissed this row's card. The controller reports it
+    // alongside state "none" (which collapses the Loader and gives the row
+    // its space back), so the only surface that still needs to know is the
+    // context menu's undo.
+    readonly property bool previewDismissed:
+        root.preview ? root.preview.dismissed === true : false
     readonly property bool roomEncrypted:
         root.timelineView ? root.timelineView.roomEncrypted === true : false
     function refreshPreview() {
@@ -2896,19 +2902,80 @@ Item {
                     ToolTip.visible: reactionHover.hovered
                                      && reactionChip.reactorSummary.length > 0
                     ToolTip.delay: 300
+                    // A reaction key is ordinarily a Unicode emoji, but
+                    // MSC2545 clients (Cinny, and Sable after it) react with
+                    // a CUSTOM emoji by putting the pack image's own mxc URI
+                    // in the key — read out of Sable's Reaction.tsx, not
+                    // guessed. Lightning renders one so those reactions are
+                    // legible rather than appearing as a raw "mxc://…"
+                    // string, which is what happened before.
+                    //
+                    // The key is remote text chosen by whoever reacted, so
+                    // only a syntactically plain mxc takes the image branch
+                    // and it is fetched through the ordinary MediaBridge —
+                    // never as an arbitrary URL, and never as rich text.
+                    readonly property bool customEmojiReaction:
+                        typeof modelData.key === "string"
+                        && modelData.key.startsWith("mxc://")
+                        && modelData.key.length > 6
+                    // The shortcode when this account happens to hold a pack
+                    // carrying that image; "" otherwise, which is the common
+                    // case because packs are only read when a surface asks
+                    // for them. Never the raw mxc: an accessible label that
+                    // reads a media id aloud names nothing.
+                    readonly property string customEmojiName: {
+                        if (!reactionChip.customEmojiReaction)
+                            return ""
+                        var rev = app.stickers.revision
+                        var code = app.stickers.shortcodeForUrl(modelData.key)
+                        return code.length > 0 ? code : qsTr("custom emoji")
+                    }
                     RowLayout {
                         id: reactionRow
                         anchors.centerIn: parent
                         spacing: 5
                         Label {
+                            visible: !reactionChip.customEmojiReaction
                             Layout.alignment: Qt.AlignVCenter
                             Layout.preferredHeight: AppTheme.scaled(16)
-                            text: modelData.key
+                            text: reactionChip.customEmojiReaction
+                                  ? "" : modelData.key
                             // The reaction key is an emoji; name the face so
                             // Qt 6.8 does not fall back to a monochrome one.
                             font.family: app.emojiFontFamily || ""
                             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             verticalAlignment: Text.AlignVCenter
+                        }
+                        Image {
+                            id: customEmojiImage
+                            visible: reactionChip.customEmojiReaction
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredHeight: AppTheme.scaled(16)
+                            Layout.preferredWidth: AppTheme.scaled(16)
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            cache: true
+                            // Re-resolve through a counter the binding READS.
+                            // Assigning `source` from the cache handler would
+                            // destroy the binding and freeze this chip on the
+                            // first image it ever loaded.
+                            property int resolveTick: 0
+                            source: {
+                                var _tick = resolveTick
+                                return (reactionChip.customEmojiReaction
+                                        && app.mediaBridge.supported)
+                                    ? app.mediaBridge.mxcImageSource(
+                                          modelData.key, 64)
+                                    : ""
+                            }
+                            Connections {
+                                target: app.mediaBridge
+                                enabled: reactionChip.customEmojiReaction
+                                function onMediaCached(cacheKey) {
+                                    if (cacheKey.endsWith(":" + modelData.key))
+                                        customEmojiImage.resolveTick++
+                                }
+                            }
                         }
                         Label {
                             Layout.alignment: Qt.AlignVCenter
@@ -2934,9 +3001,12 @@ Item {
                                        root.eventIdForActions(), modelData.key)
                     }
                     Accessible.role: Accessible.Button
+                    readonly property string accessibleKey:
+                        reactionChip.customEmojiReaction
+                            ? reactionChip.customEmojiName : modelData.key
                     Accessible.name: modelData.byMe
-                        ? qsTr("Reaction %1, %2, selected").arg(modelData.key).arg(modelData.count)
-                        : qsTr("Reaction %1, %2").arg(modelData.key).arg(modelData.count)
+                        ? qsTr("Reaction %1, %2, selected").arg(reactionChip.accessibleKey).arg(modelData.count)
+                        : qsTr("Reaction %1, %2").arg(reactionChip.accessibleKey).arg(modelData.count)
                     // The same information the hover tooltip carries, so a
                     // keyboard/AT user is not the only one who cannot find
                     // out who reacted. Empty when the senders are unknown —
@@ -3560,6 +3630,82 @@ Item {
             // v0.7: unified media action — every media row
             // offers Save from the same menu (cards keep
             // their inline affordances too).
+            // "Add to my stickers" — Sable's own idea (its PR #107), and
+            // the only client that has it; Cinny, Nheko, FluffyChat, NeoChat
+            // and Element all keep pack editing in settings.
+            //
+            // What it does: writes this sticker's mxc into THIS account's
+            // im.ponies.user_emotes pack. No re-upload and no transcoding —
+            // a pack holds a plain mxc, so the media is already exactly what
+            // the pack needs. Taken from Sable: the destination pack, the
+            // dedupe by mxc, and usage ["sticker"].
+            //
+            // Where Lightning diverges DELIBERATELY (this is our choice, not
+            // Sable parity): the shortcode is derived from the sticker's
+            // BODY and sanitized to MSC2545's own [a-zA-Z0-9-_] alphabet,
+            // where Sable uses `sticker-$eventId` — illegal under the MSC
+            // twice over, and unusable in another client's :shortcode:
+            // completion. A name collision gets a numeric suffix, a
+            // duplicate mxc is refused in Rust rather than merely hidden in
+            // the UI, and the read-modify-write reads the SERVER copy so a
+            // concurrent edit from another device is not clobbered.
+            //
+            // NOT gated on "is it already saved": that would need the
+            // account's pack to have been fetched, and greying the row out
+            // because nothing LOOKED is the worse lie (the same reasoning as
+            // the rail's Invite row). A duplicate is refused authoritatively
+            // and says so. An ENCRYPTED sticker carries an EncryptedFile and
+            // no mxc at all, so it structurally cannot go in a pack —
+            // canSave() answers false and the row is genuinely absent.
+            AppMenuItem {
+                objectName: "saveStickerMenuItem"
+                iconName: "star"
+                text: qsTr("Add to my stickers")
+                visible: model.isSticker === true
+                         && (model.mediaMxc || "").length > 0
+                         && app.stickers.available
+                enabled: visible && app.stickers.canSave(model.mediaMxc || "")
+                onTriggered: app.stickers.saveSticker(
+                    model.mediaMxc || "", model.body || "",
+                    model.mediaMimetype || "",
+                    model.mediaWidth || 0, model.mediaHeight || 0,
+                    model.mediaSize || 0)
+            }
+            // The same sticker, into the ROOM's own pack rather than this
+            // account's. This is MSC2545's one write that is ROOM STATE, so
+            // unlike the row above it is POWER-LEVEL GATED — Rust asks the
+            // SDK for the room's real required level for
+            // `im.ponies.room_emotes` and refuses without sending anything
+            // when this account lacks it.
+            //
+            // Offered ONLY when a snapshot for THIS room actually reported
+            // the permission. That is the opposite decision from the row
+            // above, and deliberately: a room-state write the server will
+            // refuse is worth not offering, and offering it would be a claim
+            // about permission that nothing has checked. Unknown therefore
+            // means absent, not greyed out — and the row above still works,
+            // so the action is never the only way to save a sticker.
+            AppMenuItem {
+                objectName: "saveStickerToRoomMenuItem"
+                iconName: "workspaces"
+                text: qsTr("Add to this room's stickers")
+                visible: model.isSticker === true
+                         && (model.mediaMxc || "").length > 0
+                         && app.stickers.available
+                         // canSaveToRoom is a plain function call, so the
+                         // binding establishes no dependency of its own —
+                         // reading `revision` is what re-evaluates it when a
+                         // snapshot lands (the PresenceManager idiom).
+                         && (app.stickers.revision >= 0)
+                         && app.stickers.canSaveToRoom(
+                                app.currentRoomId, model.mediaMxc || "")
+                enabled: visible
+                onTriggered: app.stickers.saveStickerToRoom(
+                    app.currentRoomId, model.mediaMxc || "",
+                    model.body || "", model.mediaMimetype || "",
+                    model.mediaWidth || 0, model.mediaHeight || 0,
+                    model.mediaSize || 0)
+            }
             AppMenuItem {
                 objectName: "saveMediaMenuItem"
                 iconName: "download"
@@ -3598,6 +3744,26 @@ Item {
                 visible: root.mediaHideable
                 enabled: visible
                 onTriggered: root.setMediaHidden(!root.mediaHidden)
+            }
+
+            // Undo for the preview X. It lives in the menu rather than as an
+            // on-row placeholder because nothing is actually lost when a
+            // preview is dismissed — the link itself is still in the message
+            // body, linkified and clickable — so spending timeline geometry
+            // on a "preview hidden" stand-in would defeat the whole point of
+            // reclaiming the space.
+            //
+            // Restoring grants nothing: it clears the dismissal and lets the
+            // ordinary policy decide again, so a link that was never
+            // consented to comes back as the consent gate, not as a fetch.
+            AppMenuItem {
+                objectName: "restoreLinkPreviewMenuItem"
+                iconName: "link"
+                text: qsTr("Show link preview")
+                visible: root.previewDismissed
+                enabled: visible
+                onTriggered: app.linkPreviews.restorePreviewForEvent(
+                                 root.previewRoomId, root.actionKey)
             }
             AppMenuItem {
                 objectName: "copyImageMenuItem"
@@ -3912,6 +4078,28 @@ Item {
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: app.media.openWebUrl(directMedia.p.url)
             }
+            // Same dismissal as the ordinary card. This component is only
+            // ever built for a LOADED direct-media preview, so there is no
+            // state to gate on here.
+            IconButton {
+                id: directDismissButton
+                objectName: "linkPreviewDismissButton"
+                z: 3
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 2
+                size: "sm"
+                iconName: "close"
+                opacity: directMediaHover.hovered || directDismissButton.hovered
+                         || directDismissButton.activeFocus ? 1.0 : 0.5
+                Accessible.name: qsTr("Dismiss link preview")
+                ToolTip.text: qsTr("Dismiss preview")
+                ToolTip.visible: directDismissButton.hovered
+                ToolTip.delay: 400
+                onClicked: app.linkPreviews.dismissPreviewForEvent(
+                               root.previewRoomId, root.actionKey)
+            }
+            HoverHandler { id: directMediaHover }
         }
     }
 
@@ -3922,6 +4110,9 @@ Item {
             objectName: "linkPreviewCard"
             readonly property var p: root.preview
             readonly property string st: p.state || "none"
+            // Only a preview that is actually on screen can be dismissed;
+            // see the X below for why the consent gate is excluded.
+            readonly property bool dismissible: st === "loaded" || st === "failed"
             readonly property string previewAnimation:
                 p.isGif === true && app.settings.gifAutoplay !== 2
                 ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
@@ -3984,6 +4175,38 @@ Item {
                 onClicked: app.media.openWebUrl(card.p.url)
             }
 
+            // Dismiss (X). Offered only once a preview has actually been
+            // SHOWN — loaded, or failed and sitting there as noise. It is
+            // deliberately absent from the consent gate: the gate is a
+            // question, not a preview, and every control there is pinned by
+            // LinkPreviewQmlTest::onlyTheButtonConsents to be inert so that
+            // nothing but the Show button can agree to contact the site.
+            //
+            // Overlaid rather than laid out, so it costs the card no height
+            // and cannot disturb the monotonic reservedH latch below. The
+            // column's right margin widens to match, which changes wrapping
+            // only — never the height reserved for a gate or a skeleton.
+            IconButton {
+                id: previewDismissButton
+                objectName: "linkPreviewDismissButton"
+                visible: card.dismissible
+                enabled: visible
+                z: 3
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 2
+                size: "sm"
+                iconName: "close"
+                opacity: cardHover.hovered || previewDismissButton.hovered
+                         || previewDismissButton.activeFocus ? 1.0 : 0.5
+                Accessible.name: qsTr("Dismiss link preview")
+                ToolTip.text: qsTr("Dismiss preview")
+                ToolTip.visible: previewDismissButton.hovered
+                ToolTip.delay: 400
+                onClicked: app.linkPreviews.dismissPreviewForEvent(
+                               root.previewRoomId, root.actionKey)
+            }
+
             ColumnLayout {
                 id: cardCol
                 anchors.left: parent.left
@@ -3992,7 +4215,10 @@ Item {
                 anchors.topMargin: AppTheme.spacingS
                 anchors.bottomMargin: AppTheme.spacingS
                 anchors.leftMargin: AppTheme.spacingM
-                anchors.rightMargin: AppTheme.spacingS
+                // Room for the overlaid X, so a title never runs under it.
+                anchors.rightMargin: card.dismissible
+                                     ? AppTheme.spacingS + 24
+                                     : AppTheme.spacingS
                 spacing: 4
 
                 // Consent / privacy gate (encrypted rooms, or auto-load off).

@@ -32,13 +32,30 @@ public:
     void setEnabled(bool enabled);
     bool enabled() const { return m_icon != nullptr; }
 
-    // Reflected in the tooltip. The tray icon itself is not repainted: an
-    // overlay drawn per unread change is a per-message rasterization for a
-    // number the tooltip already carries honestly.
-    void setUnreadCount(int count);
+    // The account's unread state, in the tooltip AND as a badge on the icon.
+    //
+    // The badge was declined once, on the grounds that "an overlay drawn per
+    // unread change is a per-message rasterization for a number the tooltip
+    // already carries". That objection is answered rather than overruled:
+    // the icon is repainted only when the DISPLAYED badge changes, and what
+    // is displayed is one character (1-9, then "9+", then a plain dot), so a
+    // busy room that goes from 40 to 41 unread repaints nothing at all.
+    //
+    // `anyUnread` is separate from `count` because a homeserver may report
+    // that a room has unread messages without saying how many, and a room
+    // the user marked unread by hand has no count by construction. A dot in
+    // that case is the same conservative claim the room list makes; a
+    // fabricated "1" would not be.
+    void setUnread(int count, bool anyUnread);
     // Shown beside the count so the tooltip identifies the account this
     // window belongs to when several are running.
     void setAccountLabel(const QString &label);
+
+    // What the badge would SAY for a given state: empty for no badge at all,
+    // "\u2022" for the countless dot, otherwise "1".."9" or "9+". Public and
+    // static so the repaint rule — repaint only when this string changes —
+    // is testable on a machine with no system tray at all.
+    static QString badgeLabel(int count, bool anyUnread);
 
 Q_SIGNALS:
     // The user clicked the icon; bring the window back.
@@ -46,8 +63,10 @@ Q_SIGNALS:
 
 private:
     void refreshTooltip();
+    void refreshIcon();
 
     QSystemTrayIcon *m_icon = nullptr;
     int m_unread = 0;
+    bool m_anyUnread = false;
     QString m_account;
 };

@@ -31,15 +31,23 @@ inline constexpr int kNormalizedEdge = 512;
 struct NormalizeResult {
     bool ok = false;
     // Stable machine category on failure: "empty", "too_large_bytes",
-    // "unsupported_format", "svg_rejected", "decode_failed",
-    // "too_small", "too_large_dimensions". Empty on success.
+    // "unsupported_format", "svg_rejected", "format_not_decodable",
+    // "decode_failed", "too_small", "too_large_dimensions". Empty on success.
+    //
+    // "format_not_decodable" and "decode_failed" are deliberately different
+    // answers: the first means this BUILD has no plugin for a format the bytes
+    // plainly are (Qt image formats are dlopen'd, so the set is a packaging
+    // property — JPEG XL is reachable on Linux and on no other platform), the
+    // second means the bytes are broken.
     QString category;
     QImage image; // 512x512 ARGB32 with circular alpha when ok
 };
 
 // Sniffs the raster format from magic bytes. Returns the canonical Qt
-// format name ("png", "jpeg", "webp", "bmp", "gif") or an empty string
-// when the bytes are not an accepted static raster format.
+// format name ("png", "jpeg", "webp", "bmp", "gif", "jxl") or an empty
+// string when the bytes are not an accepted static raster format.
+// Delegates to lightning::imagefmt::sniffRasterQtFormat after refusing
+// markup, so this and every other sniffer in the tree share one table.
 QString sniffedRasterFormat(const QByteArray &bytes);
 
 // Full pipeline: sniff -> bounded decode -> center-crop -> scale ->

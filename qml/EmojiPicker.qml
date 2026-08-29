@@ -116,6 +116,38 @@ AnchoredPopup {
         if (closeAfterSelection) close()
     }
 
+    // MSC2545 custom emoji, REACTION MODE ONLY.
+    //
+    // A custom-emoji reaction is an ordinary m.reaction whose KEY is the pack
+    // image's own mxc URI — the convention Cinny established and Sable
+    // inherited (read out of Sable's Reaction.tsx and its editor output, not
+    // inferred). MessageDelegate renders a chip with that key as an image.
+    //
+    // Deliberately NOT offered in composer mode: inserting an mxc into the
+    // message box would put a bare URI in the body. Sending a custom emoji
+    // INSIDE a message needs `formatted_body` carrying
+    // `<img data-mx-emoticon …>`, which Lightning's HTML sanitizer does not
+    // yet allow through on the RECEIVE side — so it would send messages it
+    // could not itself display. That half is deferred, on purpose.
+    //
+    // It also does NOT call recordUse(): the recents bucket is the Unicode
+    // catalogue's, and an mxc is not one of its emoji.
+    readonly property bool customEmojiOffered:
+        mode === "reaction" && app.stickers.available
+    readonly property var customEmoji: {
+        // findEmoticons() is a plain call, so the binding establishes no
+        // dependency of its own; reading `revision` is what re-evaluates it
+        // when a snapshot lands (the PresenceManager idiom).
+        var _live = app.stickers.revision
+        return picker.customEmojiOffered
+            ? app.stickers.findEmoticons("", 32) : []
+    }
+    function chooseCustom(url) {
+        if (!url || url.indexOf("mxc://") !== 0) return
+        emojiChosen(url)
+        if (closeAfterSelection) close()
+    }
+
     // v0.7: the single shared skin-tone popup (one per picker, positioned
     // at the requesting cell on demand — never one per grid cell).
     function openTonePopupFor(cellItem, baseEmoji) {
@@ -160,6 +192,12 @@ AnchoredPopup {
         previewEmoji = ""
         previewName = ""
         previewCell = null
+        // Reaction mode only: read this account's MSC2545 packs so the custom
+        // emoji strip has something in it. refreshIfStale() is a no-op when a
+        // snapshot for this room is already in hand, so opening the picker
+        // repeatedly costs nothing — and composer mode never asks at all.
+        if (picker.customEmojiOffered)
+            app.stickers.refreshIfStale()
         Qt.callLater(search.forceActiveFocus)
     }
 
@@ -351,6 +389,83 @@ AnchoredPopup {
             ColumnLayout {
                 anchors.fill: parent
                 spacing: AppTheme.spacing6
+
+                // ── Custom emoji from this account's MSC2545 packs ──
+                // Reaction mode only, and only when a pack actually holds
+                // emoticons: an empty strip under a heading reads as broken.
+                MenuSectionLabel {
+                    Layout.fillWidth: true
+                    visible: picker.customEmoji.length > 0
+                    text: qsTr("Custom emoji")
+                }
+                ListView {
+                    id: customEmojiStrip
+                    objectName: "customEmojiStrip"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 32
+                    visible: picker.customEmoji.length > 0
+                    orientation: ListView.Horizontal
+                    clip: true
+                    spacing: AppTheme.spacing4
+                    model: picker.customEmoji
+                    boundsBehavior: Flickable.StopAtBounds
+                    // The shared wheel component, on its HORIZONTAL axis —
+                    // see qml/SmoothWheelArea.qml. Declared as a DIRECT child
+                    // so `scrollTarget` walks up to this ListView; a handler
+                    // one level deeper attaches to the content item instead
+                    // and would be inert while looking correct.
+                    SmoothWheelArea { axis: "horizontal" }
+
+                    delegate: AbstractButton {
+                        id: customCell
+                        required property var modelData
+                        width: 28
+                        height: 28
+                        hoverEnabled: true
+                        focusPolicy: Qt.TabFocus
+                        Accessible.role: Accessible.Button
+                        // The shortcode is remote text: a plain label and a
+                        // plain tooltip, never markup.
+                        Accessible.name: customCell.modelData.shortcode
+                        ToolTip.text: ":" + customCell.modelData.shortcode + ":"
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 400
+                        background: Rectangle {
+                            anchors.fill: parent
+                            radius: AppTheme.radiusControl
+                            color: (customCell.down || customCell.hovered)
+                                   ? AppTheme.hover : "transparent"
+                            border.width: customCell.visualFocus ? 2 : 0
+                            border.color: AppTheme.focusRing
+                        }
+                        contentItem: Image {
+                            id: customCellImage
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            cache: true
+                            // A counter the binding READS — never an
+                            // imperative source assignment, which would
+                            // destroy the binding.
+                            property int resolveTick: 0
+                            source: {
+                                var _tick = resolveTick
+                                return app.mediaBridge.supported
+                                    ? app.mediaBridge.mxcImageSource(
+                                          customCell.modelData.url, 64)
+                                    : ""
+                            }
+                            Connections {
+                                target: app.mediaBridge
+                                function onMediaCached(cacheKey) {
+                                    if (cacheKey.endsWith(
+                                            ":" + customCell.modelData.url))
+                                        customCellImage.resolveTick++
+                                }
+                            }
+                        }
+                        onClicked: picker.chooseCustom(customCell.modelData.url)
+                    }
+                }
 
                 MenuSectionLabel {
                     Layout.fillWidth: true

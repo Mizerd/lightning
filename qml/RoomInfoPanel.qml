@@ -144,7 +144,18 @@ Rectangle {
         title: qsTr("Choose room avatar")
         fileMode: FileDialog.OpenFile
         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
-        onAccepted: app.roomInfo.setRoomAvatar(selectedFile)
+        // The picker CHOOSES; it never uploads. Every display image in this
+        // app goes through the one crop dialog first, which is also the gate
+        // that refuses an SVG before anything renders it (CLAUDE.md §6).
+        onAccepted: avatarCrop.openFor(selectedFile)
+    }
+
+    ImageCropDialog {
+        id: avatarCrop
+        role: "avatar"
+        // The cropped temp file is a local path, exactly what this sink
+        // already took — so the sink is unchanged.
+        onCropped: function (file) { app.roomInfo.setRoomAvatar(file) }
     }
 
     ColumnLayout {

@@ -234,7 +234,22 @@ Dialog {
         title: qsTr("Choose a room picture")
         fileMode: FileDialog.OpenFile
         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
-        onAccepted: root.roomAvatarPath = selectedFile.toString()
+        onAccepted: avatarCrop.openFor(selectedFile)
+    }
+
+    ImageCropDialog {
+        id: avatarCrop
+        role: "avatar"
+        // `roomAvatarPath` is applied by ConversationController AFTER the
+        // room exists, so what is stored here has to survive until then —
+        // ImageCropper keeps the last few written crops for exactly that.
+        //
+        // Second effect, and it is a security one: the preview below binds an
+        // Image straight to this path. It used to be the user's RAW chosen
+        // file, so a file named .png that was really an SVG reached Qt's
+        // loader; now it can only ever be bytes the cropper sniffed, decoded
+        // and re-encoded itself (CLAUDE.md §6).
+        onCropped: function (file) { root.roomAvatarPath = file.toString() }
     }
 
     background: Rectangle {

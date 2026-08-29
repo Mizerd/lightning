@@ -20,6 +20,11 @@ constexpr auto kRoomNavLayout       = "ui/roomNavigationLayout";
 constexpr auto kRoomFilterMode      = "ui/roomFilterMode";
 constexpr auto kTextScale           = "ui/textScale";
 constexpr auto kUiFont              = "ui/uiFont";
+constexpr auto kMonoFont            = "ui/monoFont";
+// Device-global (written to m_store directly, never through
+// setAppearanceValue): the fonts it names are registered process-wide before
+// any account is restored.
+constexpr auto kImportedFonts       = "ui/importedFonts";
 constexpr auto kLanguage            = "ui/language";
 constexpr auto kStartMinimized      = "ui/startMinimized";
 constexpr auto kCustomAppIcon       = "ui/customAppIconEnabled";
@@ -59,6 +64,7 @@ constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
 constexpr auto kShowMembership      = "timeline/showMembershipEvents";
 constexpr auto kShowProfileChanges  = "timeline/showProfileChangeEvents";
 constexpr auto kReducedMotion       = "ui/reducedMotion";
+constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
 constexpr auto kClockFormat         = "ui/clockFormat";
 constexpr auto kEnterNewline        = "composer/enterInsertsNewline";
 constexpr auto kTextAsCaption       = "composer/textAsCaption";
@@ -466,6 +472,7 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT roomFilterModeChanged();
     Q_EMIT textScaleChanged();
     Q_EMIT uiFontChanged();
+    Q_EMIT monoFontChanged();
     // Also account-scoped: the switched-to account has its own answer.
     Q_EMIT verificationWarningDismissedChanged();
 }
@@ -796,31 +803,112 @@ void SettingsManager::setTheme(Theme t)
 QStringList SettingsManager::uiFontChoices()
 {
     // The curated bundled UI families (all OFL, all shipped as variable
-    // fonts in data/fonts). Manrope stays the default; JetBrains Mono,
-    // Material Symbols, and emoji fallback are never selectable here.
+    // fonts in data/fonts). Manrope stays the default. This is the list the
+    // picker offers FIRST — since fonts became user-selectable it is no
+    // longer the set of values that may be stored, and it deliberately still
+    // excludes JetBrains Mono (its own setting), Material Symbols (an icon
+    // subset) and the emoji fallback (not a text face).
     return { QStringLiteral("Manrope"), QStringLiteral("Inter"),
              QStringLiteral("IBM Plex Sans"), QStringLiteral("Source Sans 3"),
              QStringLiteral("Plus Jakarta Sans") };
 }
 
+QString SettingsManager::acceptableFontFamily(const QString &family)
+{
+    const QString trimmed = family.trimmed();
+    // 96 is far above any real family name and far below anything that could
+    // bloat the config.
+    if (trimmed.isEmpty() || trimmed.size() > 96)
+        return {};
+    for (const QChar c : trimmed) {
+        if (c.category() == QChar::Other_Control
+            || c.category() == QChar::Other_Surrogate
+            || c.isNonCharacter())
+            return {};
+        // A family name ends up in a QML `font.family` and, on other
+        // surfaces, inside generated markup. None of these can appear in a
+        // real font name, and refusing them here means no downstream reader
+        // has to be the one that gets the escaping right.
+        static const QString banned = QStringLiteral("<>\"'&;{}\\/");
+        if (banned.contains(c))
+            return {};
+    }
+    return trimmed;
+}
+
 QString SettingsManager::uiFont() const
 {
+    // Returned VERBATIM when it is syntactically sound, installed or not.
+    // Resolution against the host belongs to FontManager, which falls back
+    // without touching this value.
     const QString stored =
         appearanceValue(kUiFont, QStringLiteral("Manrope")).toString();
-    // An unknown stored family (newer build, corruption) falls back to the
-    // default instead of asking the platform for an arbitrary font.
-    return uiFontChoices().contains(stored) ? stored
-                                            : QStringLiteral("Manrope");
+    const QString accepted = acceptableFontFamily(stored);
+    return accepted.isEmpty() ? QStringLiteral("Manrope") : accepted;
 }
 
 void SettingsManager::setUiFont(const QString &family)
 {
-    const QString next = uiFontChoices().contains(family)
-        ? family : QStringLiteral("Manrope");
+    const QString accepted = acceptableFontFamily(family);
+    const QString next =
+        accepted.isEmpty() ? QStringLiteral("Manrope") : accepted;
     if (uiFont() == next)
         return;
     setAppearanceValue(kUiFont, next);
     Q_EMIT uiFontChanged();
+}
+
+QString SettingsManager::monoFont() const
+{
+    const QString stored =
+        appearanceValue(kMonoFont, QStringLiteral("JetBrains Mono")).toString();
+    const QString accepted = acceptableFontFamily(stored);
+    return accepted.isEmpty() ? QStringLiteral("JetBrains Mono") : accepted;
+}
+
+void SettingsManager::setMonoFont(const QString &family)
+{
+    const QString accepted = acceptableFontFamily(family);
+    const QString next =
+        accepted.isEmpty() ? QStringLiteral("JetBrains Mono") : accepted;
+    if (monoFont() == next)
+        return;
+    setAppearanceValue(kMonoFont, next);
+    Q_EMIT monoFontChanged();
+}
+
+QStringList SettingsManager::importedFontFiles() const
+{
+    // Bounded and de-duplicated on the way out. The NAMES are validated by
+    // FontManager (it generated them); this only refuses a list that is
+    // absurd on its face.
+    QStringList out;
+    const QStringList stored = m_store->value(QLatin1String(kImportedFonts))
+                                   .toStringList();
+    for (const QString &name : stored) {
+        if (name.isEmpty() || name.size() > 128 || out.contains(name))
+            continue;
+        out.append(name);
+        if (out.size() >= 64)
+            break;
+    }
+    return out;
+}
+
+void SettingsManager::setImportedFontFiles(const QStringList &fileNames)
+{
+    QStringList next;
+    for (const QString &name : fileNames) {
+        if (name.isEmpty() || name.size() > 128 || next.contains(name))
+            continue;
+        next.append(name);
+        if (next.size() >= 64)
+            break;
+    }
+    if (next == importedFontFiles())
+        return;
+    m_store->setValue(QLatin1String(kImportedFonts), next);
+    Q_EMIT importedFontFilesChanged();
 }
 
 int SettingsManager::messageLayout() const
@@ -1782,6 +1870,21 @@ void SettingsManager::setReducedMotion(bool v)
         return;
     setAppearanceValue(kReducedMotion, v);
     Q_EMIT reducedMotionChanged();
+}
+
+bool SettingsManager::smoothScrolling() const
+{
+    // Default TRUE: this is the behaviour every build so far has shipped, so
+    // an absent key must not silently change how the wheel feels.
+    return appearanceValue(kSmoothScrolling, true).toBool();
+}
+
+void SettingsManager::setSmoothScrolling(bool v)
+{
+    if (smoothScrolling() == v)
+        return;
+    setAppearanceValue(kSmoothScrolling, v);
+    Q_EMIT smoothScrollingChanged();
 }
 
 int SettingsManager::clockFormat() const

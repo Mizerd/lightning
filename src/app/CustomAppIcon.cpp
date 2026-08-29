@@ -1,5 +1,7 @@
 #include "app/CustomAppIcon.h"
 
+#include "media/ImageFormatSupport.h"
+
 #include <QBuffer>
 #include <QImageReader>
 #include <QPainter>
@@ -23,17 +25,10 @@ QString sniffedRasterFormat(const QByteArray &bytes)
         ++first;
     if (first < bytes.size() && bytes.at(first) == '<')
         return {};
-    if (bytes.startsWith("\x89PNG\r\n\x1a\n"))
-        return QStringLiteral("png");
-    if (u(0) == 0xFF && u(1) == 0xD8 && u(2) == 0xFF)
-        return QStringLiteral("jpeg");
-    if (bytes.startsWith("RIFF") && bytes.mid(8, 4) == "WEBP")
-        return QStringLiteral("webp");
-    if (bytes.startsWith("BM"))
-        return QStringLiteral("bmp");
-    if (bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a"))
-        return QStringLiteral("gif");
-    return {};
+    // ONE table, shared with ForwardController and mirrored by the Rust
+    // bridge's rooms::sniff_image_mime — see media/ImageFormatSupport.h. The
+    // copy that used to live here drifted from the others by one format.
+    return lightning::imagefmt::sniffRasterQtFormat(bytes);
 }
 
 NormalizeResult normalizeIconBytes(const QByteArray &bytes)
@@ -57,6 +52,16 @@ NormalizeResult normalizeIconBytes(const QByteArray &bytes)
     const QString format = sniffedRasterFormat(bytes);
     if (format.isEmpty()) {
         result.category = QStringLiteral("unsupported_format");
+        return result;
+    }
+    // IDENTIFIED, AND THIS BUILD STILL CANNOT DRAW IT. Distinct from
+    // "decode_failed", which means corrupt bytes: this is a packaging fact
+    // (a Qt image format is a dlopen'd plugin, so the set differs between a
+    // Linux package and a Windows one — JPEG XL exists on one and not the
+    // other). Saying "decode failed" for a perfectly good file would send the
+    // user hunting a corruption that is not there.
+    if (!lightning::imagefmt::canDecode(format)) {
+        result.category = QStringLiteral("format_not_decodable");
         return result;
     }
 

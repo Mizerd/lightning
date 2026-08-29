@@ -439,6 +439,20 @@ public:
     {
         Q_UNUSED(localPath); Q_UNUSED(opId);
     }
+    // Profile bios (MSC4440 over MSC4133). Same capability gate as banners:
+    // a backend that cannot read extended profile fields simply has no bio,
+    // and the card renders nothing rather than an empty block.
+    virtual bool supportsProfileBios() const { return false; }
+    virtual void fetchProfileBio(const QString &userId, quint64 opId)
+    {
+        Q_UNUSED(userId); Q_UNUSED(opId);
+    }
+    // EMPTY (or whitespace-only) text clears the bio. Reports on
+    // profileBioSet. The text is PLAIN, never HTML — see rust/src/bio.rs.
+    virtual void setProfileBio(const QString &text, quint64 opId)
+    {
+        Q_UNUSED(text); Q_UNUSED(opId);
+    }
     // Room / Space banners. Lightning's own state event — Matrix specifies
     // no room banner at all — so a backend that cannot send an arbitrary
     // state event simply has none, and the surface is not offered.
@@ -452,6 +466,69 @@ public:
                                quint64 opId)
     {
         Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(opId);
+    }
+
+    // ---- Stickers and custom emoji: MSC2545 image packs ----------------
+    //
+    // A backend that cannot read global account data and arbitrary room
+    // state has no packs, and the sticker button is not offered at all — the
+    // honest refusal, rather than an empty picker that looks broken.
+    virtual bool supportsStickerPacks() const { return false; }
+    // Read every pack available to this account; `roomId` may be empty (then
+    // the active room's own packs are not included). One snapshot answers on
+    // stickerPacksReceived.
+    virtual void fetchStickerPacks(const QString &roomId, quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(opId);
+    }
+    // Send one m.sticker. An EMPTY rootId targets the room timeline; a
+    // non-empty one is a real m.thread reply, built by the SDK (§8). `url`
+    // must be a plain mxc:// — a pack image is already Matrix media.
+    virtual void sendSticker(const QString &roomId, const QString &rootId,
+                             const QString &url, const QString &body,
+                             const QString &mimetype, quint64 width,
+                             quint64 height, quint64 size)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(rootId); Q_UNUSED(url); Q_UNUSED(body);
+        Q_UNUSED(mimetype); Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(size);
+    }
+    // Add one image to a ROOM's im.ponies.room_emotes pack. Reports on the
+    // SAME stickerPackAddFinished signal as the user-pack path. ROOM STATE,
+    // so POWER-LEVEL GATED in Rust on the room's own required level —
+    // category "forbidden" when this account may not write it.
+    virtual void addStickerToRoomPack(const QString &roomId,
+                                      const QString &stateKey,
+                                      const QString &shortcode,
+                                      const QString &url, const QString &body,
+                                      const QString &mimetype, quint64 width,
+                                      quint64 height, quint64 size,
+                                      quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(shortcode);
+        Q_UNUSED(url); Q_UNUSED(body); Q_UNUSED(mimetype); Q_UNUSED(width);
+        Q_UNUSED(height); Q_UNUSED(size); Q_UNUSED(opId);
+    }
+    // Turn one ROOM pack on or off in im.ponies.emote_rooms ("use this
+    // room's stickers everywhere"). ACCOUNT DATA, so no power level is
+    // involved. Reports on stickerPackRoomsSet.
+    virtual void setStickerRoomPackEnabled(const QString &roomId,
+                                           const QString &stateKey,
+                                           bool enabled, quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(enabled);
+        Q_UNUSED(opId);
+    }
+    // Add one image to this account's own im.ponies.user_emotes pack.
+    // Reports on stickerPackAddFinished.
+    virtual void addStickerToUserPack(const QString &shortcode,
+                                      const QString &url, const QString &body,
+                                      const QString &mimetype, quint64 width,
+                                      quint64 height, quint64 size,
+                                      quint64 opId)
+    {
+        Q_UNUSED(shortcode); Q_UNUSED(url); Q_UNUSED(body);
+        Q_UNUSED(mimetype); Q_UNUSED(width); Q_UNUSED(height);
+        Q_UNUSED(size); Q_UNUSED(opId);
     }
     // v0.7 "follow account default": drop this room's user-defined push
     // rules so the account's rules decide again. Success reports on the
@@ -549,6 +626,13 @@ public:
     // including for a synchronous refusal, so the caller never hangs.
     virtual void setOwnDisplayName(const QString &name, quint64 opId)
     { Q_UNUSED(name); Q_UNUSED(opId); }
+    // Set the own AVATAR from a local file path, or clear it. Same contract
+    // as setOwnDisplayName above: void command, caller-owned op id, answers
+    // exactly once on ownAvatarChanged including for a synchronous refusal.
+    // The MIME is sniffed from the bytes in Rust; the extension is a claim.
+    virtual void setOwnAvatar(const QString &localPath, quint64 opId)
+    { Q_UNUSED(localPath); Q_UNUSED(opId); }
+    virtual void clearOwnAvatar(quint64 opId) { Q_UNUSED(opId); }
     // v0.5.12: client-side URL preview (Rust validates and fetches the target;
     // the client never does). Backends without support return 0.
     virtual bool supportsUrlPreview() const { return false; }
@@ -1195,6 +1279,10 @@ Q_SIGNALS:
     // the wording for that case rather than inventing a server message.
     // The name itself is never carried back: the caller already holds it.
     void ownDisplayNameChanged(quint64 opId, bool ok, const QString &error);
+    // Terminal answer for setOwnAvatar()/clearOwnAvatar(). Same shape and
+    // the same empty-error convention as ownDisplayNameChanged. The PATH is
+    // never carried back: a home directory contains the user's name.
+    void ownAvatarChanged(quint64 opId, bool ok, const QString &error);
     // v0.5.11: URL-preview result. `fields` carries only whitelisted
     // OpenGraph values (title, description, siteName, imageMxc, imageMime,
     // imageWidth, imageHeight, imageSize) — never the requested URL.
@@ -1266,12 +1354,40 @@ Q_SIGNALS:
                                const QString &mxc, bool supported);
     void profileBannerSet(quint64 opId, bool ok, const QString &mxc,
                           const QString &category);
+    // A user's profile bio, as PLAIN TEXT. `supported` false means the
+    // HOMESERVER does not do extended profile fields — a different fact from
+    // "this user has not written one", and the reason an absent bio is never
+    // reported as an error.
+    void profileBioReceived(quint64 opId, const QString &userId,
+                            const QString &bio, bool supported);
+    void profileBioSet(quint64 opId, bool ok, const QString &bio,
+                       const QString &category);
     // A room's banner, and whether THIS account may change it — the room's
     // own required power level for the event, asked of the SDK.
     void roomBannerReceived(quint64 opId, const QString &roomId,
                             const QString &mxc, bool canSet);
     void roomBannerSet(quint64 opId, const QString &roomId, bool ok,
                        const QString &mxc, const QString &category);
+    // One MSC2545 snapshot: every pack this account can use, already
+    // validated and bounded in Rust. `packs` is a list of QVariantMaps; see
+    // StickerPackModel for the row shape. An EMPTY list is a legitimate
+    // answer ("no packs"), not a failure.
+    // `roomCanManage` is whether THIS account may write
+    // `im.ponies.room_emotes` in `roomId` — reported for the ROOM rather than
+    // per pack, because a room with no pack yet has no pack row to carry it
+    // and its first pack could otherwise never be created. False when the
+    // room is unknown or the membership could not be read: an unknown
+    // permission is never presented as permission.
+    void stickerPacksReceived(quint64 opId, const QString &roomId,
+                              bool roomCanManage, const QVariantList &packs);
+    // The result of saving a sticker into im.ponies.user_emotes. `category`
+    // is "duplicate", "pack_full", or a coarse room-error class.
+    void stickerPackAddFinished(quint64 opId, bool ok, const QString &category,
+                                const QString &shortcode);
+    // The result of turning a room's pack on or off globally.
+    void stickerPackRoomsSet(quint64 opId, bool ok, const QString &category,
+                             const QString &roomId, const QString &stateKey,
+                             bool enabled);
     // Publishing the local user's own presence failed (coarse category).
     // Informational: PresenceManager uses it only for bounded diagnostics.
     void presencePublishFailed(const QString &category);

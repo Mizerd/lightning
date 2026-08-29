@@ -183,6 +183,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_railEntries = std::make_unique<RailEntryModel>(this);
     m_mediaVisibility = std::make_unique<MediaVisibilityStore>(this);
     m_banners = std::make_unique<ProfileBannerManager>(this);
+    m_bio = std::make_unique<ProfileBioManager>(this);
+    // A fixed local table, so it needs no client and no session: it is
+    // decoration, not Matrix state (see ProfileBadges).
+    m_badges = std::make_unique<ProfileBadges>(this);
+    // The cropper stages its preview through the SAME in-memory token store
+    // the composer uses, so QML never points an Image at a user-chosen
+    // file:// path — which is what would let an .svg render (CLAUDE.md §6).
+    m_imageCrop.setStagedImages(&m_stagedImages);
 
     m_client       = makeClient(backend, m_settings.get(), this);
     m_accounts     = std::make_unique<AccountManager>(m_settings.get(), this);
@@ -196,6 +204,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Clipboard images never become files, so their bytes are registered
     // here for the composer chip to preview. One store, both composers.
     m_composer->attachments()->setStagedImages(&m_stagedImages);
+
+    // The composer's spell checker, resolved against the SYSTEM locale
+    // rather than the UI language: a user reading Lightning in English still
+    // types Lithuanian, and it is the keyboard that decides which dictionary
+    // is the right one. Resolving costs one dlopen (Linux) or one
+    // CoCreateInstance (Windows) and answers "unavailable" honestly when the
+    // machine has no dictionary; `--spell-status` prints what happened.
+    m_spell.initialize();
 
     // System tray. Created only while the user has asked for it — an icon in
     // somebody's tray for a feature they never turned on is noise — and only
@@ -316,6 +332,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_gif          = std::make_unique<GifSearchController>(this);
     m_gif->setTransport(m_gifTransport.get());
     m_gifSend      = std::make_unique<GifSendController>(this);
+    m_stickers     = std::make_unique<StickerPackManager>(this);
     m_gifSend->setRecentModel(m_gif->recent());
     // v0.6.6: a local-favorite send reads the stored bytes straight off
     // disk by content hash — no network, no MatrixClient::gifDownload().
@@ -397,6 +414,20 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_threadScroll   = std::make_unique<TimelineScrollController>(this);
 
     m_crypto->setBackendName(backendName());
+
+    // A typing notification is the one live, present-tense fact the server
+    // forwards about somebody else, and it CONTRADICTS a cached "offline"
+    // (a homeserver with presence switched off answers 200 "offline" for
+    // everyone, so the refusal latch never fires). PresenceManager
+    // WITHDRAWS the contradicted claim; it never promotes anyone to online.
+    connect(m_client.get(), &MatrixClient::typingChanged, this,
+            [this](const QString &roomId) {
+        if (!m_presence || MatrixClient::isThreadTimelineId(roomId))
+            return;
+        const QStringList typists = m_client->typingUsersFor(roomId);
+        for (const QString &userId : typists)
+            m_presence->noteTyping(userId);
+    });
 
     // v0.6.0 checkpoint 11: native notifications. Every appended remote
     // event (any room, incl. thread-timeline copies which are filtered by
@@ -596,6 +627,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         }
         m_knownInvites = current;
     });
+    // The tray badge follows the SAME TWO signals the room list does, so it
+    // can never disagree with what the window shows. Recomputing is a walk
+    // over a local snapshot with no I/O in it, and the icon is only
+    // rasterised when the displayed badge actually changes.
+    m_trayUnreadCoalesce.setSingleShot(true);
+    m_trayUnreadCoalesce.setInterval(0);
+    connect(&m_trayUnreadCoalesce, &QTimer::timeout, this,
+            &AppController::refreshTrayUnread);
+    connect(m_client.get(), &MatrixClient::roomsChanged, this,
+            [this] { m_trayUnreadCoalesce.start(); });
+    connect(m_client.get(), &MatrixClient::roomUpdated, this,
+            [this](const QString &) { m_trayUnreadCoalesce.start(); });
 
     m_spaces->setClient(m_client.get());
     m_threads->setClient(m_client.get());
@@ -794,6 +837,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_composer->setClient(m_client.get());
     m_mentionSuggestions->setClient(m_client.get());
     m_banners->setClient(m_client.get());
+    m_bio->setClient(m_client.get());
     m_media->setClient(m_client.get());
     m_conversations->setClient(m_client.get());
     m_discovery->setClient(m_client.get());
@@ -845,6 +889,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_linkPreviews->setClient(m_client.get());
     m_gifTransport->setClient(m_client.get());
     m_gifSend->setClient(m_client.get());
+    m_stickers->setClient(m_client.get());
 
     // Link-preview policy follows the persisted settings live. The
     // encrypted-room setting defaults to OFF (privacy) in SettingsManager.
@@ -1029,6 +1074,32 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         m_accounts->updateProfile(userId, displayName, avatarUrl);
     });
     // v0.7.4: the terminal answer for one own-display-name write.
+    connect(m_client.get(), &MatrixClient::ownAvatarChanged, this,
+            [this](quint64 opId, bool ok, const QString &error) {
+        // Same op-id guard as the display name: the payload carries no
+        // path, so the id is the only thing distinguishing this answer
+        // from a previous account's.
+        if (opId == 0 || opId != m_avatarOp)
+            return;
+        m_avatarOp = 0;
+        if (!ok) {
+            m_avatarError = error.isEmpty()
+                ? tr("The picture could not be saved. Please try again.")
+                : error;
+            Q_EMIT ownAvatarStateChanged();
+            return;
+        }
+        m_avatarError.clear();
+        Q_EMIT ownAvatarStateChanged();
+        // Re-fetch rather than writing the new mxc locally: sync does not
+        // carry the account's own profile, and the SERVER is the authority
+        // on what it stored.
+        const QString uid = m_client ? m_client->currentUserId() : QString{};
+        if (!uid.isEmpty())
+            m_client->fetchUserProfile(uid);
+        Q_EMIT ownAvatarSaved();
+    });
+
     connect(m_client.get(), &MatrixClient::ownDisplayNameChanged, this,
             [this](quint64 opId, bool ok, const QString &error) {
         // Drop anything that is not the write this controller is waiting
@@ -1069,6 +1140,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // than duplicated.
     connect(m_client.get(), &MatrixClient::loggedOut, this,
             &AppController::retireOwnDisplayNameWrite);
+    connect(m_client.get(), &MatrixClient::loggedOut, this,
+            &AppController::retireOwnAvatarWrite);
     // Hidden-image state is per SESSION and per ACCOUNT: what one account's
     // reader hid says nothing about the next account's rooms, and
     // detachSession() (the account switch) emits this too, which makes the
@@ -1858,6 +1931,10 @@ RailEntryModel *AppController::railEntries() const
 { return m_railEntries.get(); }
 ProfileBannerManager *AppController::banners() const
 { return m_banners.get(); }
+ProfileBioManager *AppController::bio() const
+{ return m_bio.get(); }
+ProfileBadges *AppController::badges() const
+{ return m_badges.get(); }
 AuthManager *AppController::auth() const { return m_auth.get(); }
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
@@ -2269,6 +2346,13 @@ void AppController::setCurrentRoomId(const QString &roomId)
     // needs the answer for the room the user is reading, and the previous
     // room's list must not survive the switch.
     m_pinned->setRoomId(roomId);
+    // MSC2545 packs: the ROOM's own packs belong in the snapshot, so the
+    // sticker picker has to know which room it is opening over. This MARKS
+    // the snapshot stale and issues NO request — a refresh costs a
+    // /state read per room pack, and CLAUDE.md §16's room-list lesson is
+    // that a surface which refreshes itself on navigation issues one
+    // request per room. The picker asks when it opens.
+    m_stickers->setActiveRoomId(roomId);
     // v0.7.x room upgrades follow the ACTIVE room too: the banner sits above
     // the open timeline, and a failed Continue from the previous room must
     // not follow the user into this one.
@@ -2719,6 +2803,13 @@ void AppController::copyImageBytesToClipboard(const QString &mediaKey,
         identified = QStringLiteral("image/webp");
     else if (starts("BM", 2))
         identified = QStringLiteral("image/bmp");
+    // JPEG XL. The ISOBMFF CONTAINER is tested before the bare codestream:
+    // a container's own payload begins with the codestream signature, so the
+    // short test first would mis-report a container as a bare stream.
+    // Verified against real cjxl 0.12.0 output.
+    else if (starts("\x00\x00\x00\x0CJXL \r\n\x87\n", 12)
+             || starts("\xff\x0a", 2))
+        identified = QStringLiteral("image/jxl");
     if (identified.isEmpty()) {
         Q_EMIT copyImageFinished(false, tr("This isn't a copyable image."));
         return;
@@ -3350,8 +3441,37 @@ void AppController::refreshTrayState()
 {
     m_tray.setEnabled(m_settings && m_settings->closeToTray()
                       && TrayIcon::platformSupportsTray());
-    if (m_tray.enabled())
+    if (m_tray.enabled()) {
         m_tray.setAccountLabel(m_lastSessionUserId);
+        // A tray turned on while messages are already waiting must open with
+        // its badge, so the state is pushed here as well as on every change.
+        refreshTrayUnread();
+    }
+}
+
+void AppController::refreshTrayUnread()
+{
+    if (!m_tray.enabled() || !m_client)
+        return;
+    // ONE derivation, from the snapshot the client already holds. There is no
+    // account-wide unread total anywhere else in the application to reuse
+    // (RoomListModel exposes per-row values, SpaceManager sums a Space's own
+    // children), and the fields read here — RoomInfo::unreadCount,
+    // hasUnreadMessages, markedUnread — are the very fields every one of
+    // those surfaces reads. Nothing is fetched: rooms() is a local snapshot.
+    int total = 0;
+    bool anyUnread = false;
+    for (const RoomInfo &room : m_client->rooms()) {
+        // Invites are not messages. They already have their own notification
+        // and their own row; counting one as an unread message would be a
+        // claim the state does not make.
+        if (room.membership != RoomInfo::Joined)
+            continue;
+        total += qMax(0, room.unreadCount);
+        if (room.unreadCount > 0 || room.hasUnreadMessages || room.markedUnread)
+            anyUnread = true;
+    }
+    m_tray.setUnread(total, anyUnread);
 }
 
 void AppController::onLoggedOut()
@@ -3367,6 +3487,10 @@ void AppController::onLoggedOut()
     // to clear cannot leave image bytes in memory across a sign-out or an
     // account switch.
     m_stagedImages.clear();
+    // A cropped picture is derived from a file the OUTGOING account's user
+    // chose. Its temp copies go with the session, exactly like the staged
+    // bytes above.
+    m_imageCrop.clearSession();
     Q_EMIT currentRoomIdChanged();
     if (m_accountSwitching) {
         // The old session was detached locally as part of a switch; stay on
@@ -3463,6 +3587,7 @@ void AppController::clearCrossAccountCaches()
     m_sessionDevicesFailed = false;
     Q_EMIT sessionDevicesChanged();
     retireOwnDisplayNameWrite();
+    retireOwnAvatarWrite();
     m_verificationFlowId.clear();
     m_verificationOtherUser.clear();
     m_verificationOtherDevice.clear();
@@ -3536,6 +3661,63 @@ QString AppController::ownDisplayNameUnavailableReason() const
     if (!m_client->supportsOwnProfileEditing())
         return tr("This backend cannot change your display name.");
     return {};
+}
+
+bool AppController::canEditOwnAvatar() const
+{
+    return m_client && m_client->supportsOwnProfileEditing();
+}
+
+bool AppController::submitOwnAvatar(const QUrl &fileUrl)
+{
+    // Single-flight, for the same reason the display name is: two writes
+    // racing for one control means the loser's answer lands last.
+    if (m_avatarOp != 0)
+        return false;
+    if (!canEditOwnAvatar()) {
+        m_avatarError = tr("This account cannot change its picture here.");
+        Q_EMIT ownAvatarStateChanged();
+        return false;
+    }
+    // A LOCAL file only. The crop dialog hands back a file:// URL; anything
+    // else (an http URL, an empty value) is refused here rather than handed
+    // to the FFI to interpret.
+    const QString path = fileUrl.isLocalFile() ? fileUrl.toLocalFile()
+                                               : QString{};
+    if (path.isEmpty()) {
+        m_avatarError = tr("That image could not be read.");
+        Q_EMIT ownAvatarStateChanged();
+        return false;
+    }
+    m_avatarOp = ++m_avatarOpCounter;
+    m_avatarError.clear();
+    Q_EMIT ownAvatarStateChanged();
+    m_client->setOwnAvatar(path, m_avatarOp);
+    return true;
+}
+
+bool AppController::clearOwnAvatar()
+{
+    if (m_avatarOp != 0)
+        return false;
+    if (!canEditOwnAvatar()) {
+        m_avatarError = tr("This account cannot change its picture here.");
+        Q_EMIT ownAvatarStateChanged();
+        return false;
+    }
+    m_avatarOp = ++m_avatarOpCounter;
+    m_avatarError.clear();
+    Q_EMIT ownAvatarStateChanged();
+    m_client->clearOwnAvatar(m_avatarOp);
+    return true;
+}
+
+void AppController::dismissOwnAvatarError()
+{
+    if (m_avatarError.isEmpty())
+        return;
+    m_avatarError.clear();
+    Q_EMIT ownAvatarStateChanged();
 }
 
 bool AppController::dispatchOwnDisplayName(const QString &name)
@@ -3623,6 +3805,18 @@ void AppController::retireOwnDisplayNameWrite()
     m_displayNameOp = 0;
     m_displayNameError.clear();
     Q_EMIT ownDisplayNameStateChanged();
+}
+
+void AppController::retireOwnAvatarWrite()
+{
+    // Retired alongside the display-name write for the same reason: an
+    // in-flight op that outlives its account would otherwise leave the next
+    // account's control disabled with nothing coming to re-enable it.
+    if (m_avatarOp == 0 && m_avatarError.isEmpty())
+        return;
+    m_avatarOp = 0;
+    m_avatarError.clear();
+    Q_EMIT ownAvatarStateChanged();
 }
 
 void AppController::dismissOwnDisplayNameError()

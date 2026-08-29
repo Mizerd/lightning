@@ -7,6 +7,7 @@
 #endif
 #include "i18n/LocalizationManager.h"
 #include "app/BackendSelection.h"
+#include "app/FontManager.h"
 #include "app/StartupChecks.h"
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
 #include "app/ScreenshotDemoController.h"  // demo CLI validation (dev builds only)
@@ -15,10 +16,12 @@
 #include "gif/GifBuildKeys.h"
 #include "gif/GifProviderSelfTest.h"
 #include "app/StormBandPainter.h"
+#include "media/ImageFormatSupport.h"
 #include "media/MediaImageProvider.h"
 #include "media/StagedImageProvider.h"
 #include "app/GuiStallTracer.h"
 #include "media/VaapiLogGate.h"
+#include "text/SpellChecker.h"
 #include "storage/AppDataPaths.h"
 #include "storage/PortableMode.h"
 
@@ -30,10 +33,12 @@
 #include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QDir>
+#include <QSet>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QIcon>
+#include <QLibraryInfo>
 #include <QQmlApplicationEngine>
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
 #include <QQuickWindow>   // headless --demo-capture (dev builds only)
@@ -239,6 +244,8 @@ struct PreflightResult {
         RunGifStatus,  // --gif-status: print provider-configured booleans
         RunGifSelfTest, // --gif-selftest: bounded live provider request
         RunCallMediaStatus, // --call-media-status: probe the media engines
+        RunImageFormatStatus, // --image-format-status: probe the image decoders
+        RunSpellStatus, // --spell-status: probe the platform spell checker
     };
     Action action = Continue;
     // Compile-time default (Rust when the SDK backend is built, else HTTP). A
@@ -330,6 +337,20 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                       engine is available. Names the first missing\n"
                 "                       GStreamer element when it is not. No network,\n"
                 "                       no GUI, no window.\n"
+                "  --image-format-status\n"
+                "                       Print which image formats this build can decode\n"
+                "                       and whether that covers what Lightning accepts,\n"
+                "                       then exit. Exit 0 only when every required\n"
+                "                       format has a decoder. Qt image formats are\n"
+                "                       dlopen'd plugins, so this is a property of the\n"
+                "                       PACKAGE, not of the source. No network, no GUI.\n"
+                "  --spell-status       Print whether this build found the platform's own\n"
+                "                       spell checker, which dictionary it resolved and a\n"
+                "                       one-word check, then exit. Exit 0 only when a\n"
+                "                       dictionary answered. The backend is a runtime\n"
+                "                       dlopen (Linux) or COM object (Windows), so this is\n"
+                "                       a property of the MACHINE, not of the source. No\n"
+                "                       network, no GUI.\n"
                 "  --gif-status         Print 'GIPHY/KLIPY configured: yes|no' and exit.\n"
                 "                       Booleans only; never prints keys. No network.\n"
                 "  --gif-selftest       As --gif-status plus a bounded live trending\n"
@@ -467,6 +488,14 @@ PreflightResult preflightParse(int argc, char *argv[])
 #endif
         if (a == QLatin1String("--call-media-status")) {
             r.action = PreflightResult::RunCallMediaStatus;
+            return r;
+        }
+        if (a == QLatin1String("--image-format-status")) {
+            r.action = PreflightResult::RunImageFormatStatus;
+            return r;
+        }
+        if (a == QLatin1String("--spell-status")) {
+            r.action = PreflightResult::RunSpellStatus;
             return r;
         }
         if (a == QLatin1String("--gif-status")) {
@@ -661,6 +690,115 @@ void installVaapiLogGate()
 
 } // namespace
 
+/// `--image-format-status`: ask the RUNNING BUILD which image formats it can
+/// decode, and say plainly whether that covers what Lightning accepts.
+///
+/// The same shape, and the same reason, as `--call-media-status`. A Qt image
+/// format is a dlopen'd plugin, so what a build decodes is decided by
+/// packaging: every Linux package up to 0.8.0 shipped exactly libqgif, libqico
+/// and libqjpeg while the client's own byte sniffers accepted image/webp — it
+/// accepted, forwarded and re-uploaded a format it could not draw, and no
+/// check anywhere looked. A file listing in the build job cannot answer this
+/// (a plugin present is not a plugin that loads, the sctp lesson), and the dev
+/// shell cannot either: it reports 92 formats because the maintainer's system
+/// profile carries kimageformats, not because this repository ships it.
+///
+/// Exit 0 only when every REQUIRED format decodes. Optional formats — JPEG XL
+/// today — are reported and never fail the check, because they are genuinely
+/// unavailable on Windows and macOS (no Qt JXL plugin exists, and neither
+/// Fedora's mingw64 repository nor Homebrew packages KDE's kimageformats).
+static int printImageFormatStatus()
+{
+    namespace ifmt = lightning::imagefmt;
+    QTextStream out(stdout);
+
+    // The paths first: when the answer is "the plugins are not where I look",
+    // these are the lines that say so.
+    out << "qt version: " << QLatin1String(qVersion()) << "\n";
+    // EVERY search path, not just the compiled-in prefix. Printing
+    // QLibraryInfo::PluginsPath alone is actively misleading, and it misled me
+    // while writing this: in the dev shell that single path holds exactly
+    // libqgif/libqico/libqjpeg — the shipped AppImage's three — beside a
+    // "decodable formats (92)" line, because the other 89 arrive from OTHER
+    // entries in libraryPaths(). A transcript that names one directory and
+    // reports decoders from another cannot be used to diagnose the very defect
+    // this flag exists for. Qt searches all of these, so all of them are
+    // printed, in order.
+    out << "plugin path (compiled-in): "
+        << QLibraryInfo::path(QLibraryInfo::PluginsPath) << "\n";
+    // Only the search paths that actually CONTAIN an imageformats directory,
+    // each with the plugin files in it. The full libraryPaths() list is the
+    // honest input but not a readable answer — in the nix dev shell it is 115
+    // entries, one per package in the shell, because a packaged artifact has
+    // two or three and a developer shell has one of everything. What a reader
+    // needs is which directories supplied the decoders, so that is what is
+    // printed, together with the total so nothing looks hidden.
+    const QStringList libraryPaths = QCoreApplication::libraryPaths();
+    int dirsWithPlugins = 0;
+    QString pluginLines;
+    {
+        QTextStream ps(&pluginLines);
+        // Deduplicated: libraryPaths() legitimately repeats an entry (the
+        // compiled-in prefix is both the default and, here, the head of
+        // QT_PLUGIN_PATH), and the same directory listed twice reads as a bug
+        // in the report rather than as a fact about Qt.
+        QSet<QString> seen;
+        for (const QString &path : libraryPaths) {
+            QDir dir(path + QStringLiteral("/imageformats"));
+            if (!dir.exists())
+                continue;
+            const QString canonical = dir.canonicalPath();
+            if (seen.contains(canonical))
+                continue;
+            seen.insert(canonical);
+            const QStringList files =
+                dir.entryList(QDir::Files, QDir::Name);
+            if (files.isEmpty())
+                continue;
+            ++dirsWithPlugins;
+            ps << "  " << dir.path() << " (" << files.size() << "): "
+               << files.join(QLatin1Char(' ')) << "\n";
+        }
+    }
+    out << "plugin search paths: " << libraryPaths.size() << " searched, "
+        << dirsWithPlugins << " containing image-format plugins\n";
+    out << pluginLines;
+
+    QStringList decodable(ifmt::decodableQtFormats().begin(),
+                          ifmt::decodableQtFormats().end());
+    decodable.sort();
+    out << "decodable formats (" << decodable.size() << "): "
+        << decodable.join(QLatin1Char(' ')) << "\n";
+
+    int n = 0;
+    const ifmt::RasterFormat *table = ifmt::rasterFormats(&n);
+    for (int i = 0; i < n; ++i) {
+        const bool ok = ifmt::canDecode(QString::fromLatin1(table[i].qtFormat));
+        out << (table[i].required ? "required " : "optional ")
+            << QLatin1String(table[i].mime) << ": "
+            << (ok ? QStringLiteral("decodable")
+                   : QStringLiteral("NOT DECODABLE (no plugin in this build)"))
+            << "\n";
+    }
+
+    const QStringList missingRequired = ifmt::undecodable(/*requiredOnly=*/true);
+    const QStringList missingAny = ifmt::undecodable(/*requiredOnly=*/false);
+    if (!missingRequired.isEmpty()) {
+        out << "\nRESULT: this build ACCEPTS image formats it cannot decode: "
+            << missingRequired.join(QStringLiteral(", ")) << "\n";
+        return 1;
+    }
+    if (!missingAny.isEmpty()) {
+        out << "\nRESULT: every required format decodes; not available on this "
+               "platform: "
+            << missingAny.join(QStringLiteral(", ")) << "\n";
+        return 0;
+    }
+    out << "\nRESULT: every image format Lightning accepts can be decoded by "
+           "this build.\n";
+    return 0;
+}
+
 #ifdef HAVE_LIGHTNING_WEBRTC
 /// `--call-media-status`: probe both media engines the way a real launch does.
 ///
@@ -840,6 +978,76 @@ int main(int argc, char *argv[])
                "(configured without GStreamer).\n";
         return 1;
 #endif
+    }
+    if (pf.action == PreflightResult::RunImageFormatStatus) {
+        // A QCoreApplication is enough and is what makes this askable of EVERY
+        // packaged artifact. QImageReader resolves its plugins through
+        // QFactoryLoader over QCoreApplication::libraryPaths() — no QPA
+        // platform plugin, no display, no window. Measured: a bare
+        // QCoreApplication probe lists all 92 formats in the dev shell,
+        // kimg_jxl.so included.
+        //
+        // Deliberately NOT a QGuiApplication forced to offscreen: the Windows
+        // package stages only qwindows.dll, so forcing offscreen there would
+        // qFatal on a platform plugin that is not in the bundle — turning the
+        // one command that reports packaging into a packaging-dependent
+        // command.
+        QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
+        QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
+        QCoreApplication probeApp(argc, argv);
+        return printImageFormatStatus();
+    }
+    if (pf.action == PreflightResult::RunSpellStatus) {
+        // THE CHECK THAT ASKS THE SHIPPED ARTIFACT WHETHER THE FEATURE WORKS.
+        //
+        // Nothing about spell checking is decided at build time on any
+        // platform: Linux resolves libenchant-2 with dlopen and Windows
+        // creates a COM object, and either can be absent on a machine whose
+        // package is otherwise perfect. That is the exact shape of defect
+        // this project has paid for twice (a Windows/macOS package with no
+        // media engine; an AppImage whose staged plugins could not dlopen),
+        // and the lesson recorded both times is that the check has to run
+        // the artifact and ask.
+        //
+        // A QCoreApplication is enough: no QPA plugin, no display, no window.
+        QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
+        QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
+        QCoreApplication spellProbeApp(argc, argv);
+        SpellChecker checker;
+        checker.initialize();
+        QTextStream out(stdout);
+        out << "spell checker available: "
+            << (checker.available() ? "yes" : "no") << "\n";
+        if (!checker.available()) {
+            out << "\nRESULT: this machine has no dictionary Lightning can "
+                   "reach, so the composer will not underline anything.\n";
+            return 1;
+        }
+        out << "backend: " << checker.backendName() << "\n"
+            << "dictionary: " << checker.language() << "\n";
+        // A deliberately misspelled word, so the output distinguishes "a
+        // dictionary loaded" from "a dictionary loaded and answers". A
+        // backend that says every word is correct is indistinguishable from
+        // no backend at all in the composer.
+        const QVariantList wrong =
+            checker.misspelledRanges(QStringLiteral("teh"));
+        out << "sample check (\"teh\"): "
+            << (wrong.isEmpty() ? "accepted (suspicious)" : "rejected")
+            << "\n";
+        if (wrong.isEmpty()) {
+            out << "\nRESULT: a dictionary loaded but accepted a misspelling; "
+                   "treat spell checking as not working.\n";
+            return 1;
+        }
+        // The suggestion call is exercised too, deliberately. It is the one
+        // that hands memory back across the boundary — a string list the
+        // backend then frees, or a COM enumerator it releases — so a wrong
+        // signature shows up here rather than under a user's right-click.
+        const QStringList ideas = checker.suggestions(QStringLiteral("teh"));
+        out << "sample suggestions: " << ideas.size() << "\n";
+        out << "\nRESULT: spell checking works in this build on this "
+               "machine.\n";
+        return 0;
     }
     if (pf.action == PreflightResult::RunGifStatus) {
         // Booleans only; no Qt application or network needed.
@@ -1052,6 +1260,21 @@ int main(int argc, char *argv[])
     // the desktop-file name (app_id "lightning" ↔ lightning.desktop); X11
     // matches WM_CLASS ("matrix-client") through StartupWMClass.
     QGuiApplication::setDesktopFileName(QStringLiteral("lightning"));
+
+    // ONE LINE IN THE LOG when this build accepts an image format it cannot
+    // draw. Warn, not debug: the failure it names is otherwise a blank box in
+    // a timeline with no diagnostic anywhere, which is how every Linux package
+    // up to 0.8.0 shipped without a WebP decoder. `--image-format-status`
+    // prints the same finding without starting the UI. Names format strings
+    // only — never a file, a room or a payload.
+    {
+        const QStringList missing = lightning::imagefmt::undecodable(true);
+        if (!missing.isEmpty())
+            qWarning("image decoders missing from this build: %s — these "
+                     "formats are accepted by Lightning and will not render. "
+                     "Run matrix-client --image-format-status for detail.",
+                     qUtf8Printable(missing.join(QStringLiteral(", "))));
+    }
     QGuiApplication::setWindowIcon(QIcon::fromTheme(
         QStringLiteral("lightning"),
         QIcon(QStringLiteral(
@@ -1194,18 +1417,32 @@ int main(int argc, char *argv[])
     }
 #endif
 
-    // v0.7: the selected UI font applies before the first frame and follows
-    // the setting live (font choices are validated inside SettingsManager;
-    // mono/icon/emoji font roles are never affected).
+    // Fonts. The user may pick any family the host has and may import a font
+    // file by hand; FontManager owns both, and owns the resolution of a
+    // stored family against what this machine actually has.
+    //
+    // ORDER MATTERS HERE. loadImportedFonts() registers the user's imported
+    // faces with QFontDatabase, and it must run BEFORE the window font is
+    // applied — otherwise a UI font that IS an imported family resolves as
+    // missing on the very launch that stored it, and the first frame draws
+    // the fallback.
+    FontManager fontManager(controller.settings());
+    fontManager.loadImportedFonts();
+
+    // The selected UI font applies before the first frame and follows the
+    // setting live. It is FontManager's RESOLVED family: a stored family the
+    // host no longer has renders as the bundled face, and the stored value is
+    // left alone so re-installing the font brings it back. Mono is pushed
+    // into AppTheme from Main.qml; icon and emoji roles are never affected.
     const auto applyUiFont = [](const QString &family) {
         QFont font(family);
         font.setPixelSize(14);
         QGuiApplication::setFont(font);
     };
-    applyUiFont(controller.settings()->uiFont());
-    QObject::connect(controller.settings(), &SettingsManager::uiFontChanged,
-                     &app, [&controller, applyUiFont] {
-                         applyUiFont(controller.settings()->uiFont());
+    applyUiFont(fontManager.uiFamily());
+    QObject::connect(&fontManager, &FontManager::selectionChanged,
+                     &app, [&fontManager, applyUiFont] {
+                         applyUiFont(fontManager.uiFamily());
                      });
 
     // UI language, applied BEFORE the engine loads so the first frame is
@@ -1225,6 +1462,12 @@ int main(int argc, char *argv[])
                      &LocalizationManager::retranslateRequested,
                      &engine, [&engine] { engine.retranslate(); });
     engine.rootContext()->setContextProperty("app", &controller);
+    // Fonts are their own context property rather than a member of the
+    // controller: FontManager holds no MatrixClient, no network object and no
+    // session state, and keeping it off the controller is what keeps that
+    // true. Main.qml guards the name with `typeof`, so a QML test harness
+    // that does not install it still loads.
+    engine.rootContext()->setContextProperty("fonts", &fontManager);
     // v0.5.9: serve decrypted media images from the in-memory bridge cache.
     // The engine takes ownership of the provider; the bridge outlives it.
     engine.addImageProvider(QStringLiteral("lightning-media"),

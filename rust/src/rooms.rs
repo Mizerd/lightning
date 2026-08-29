@@ -51,7 +51,11 @@ use crate::{enqueue, RustClient};
 const MEMBER_SNAPSHOT_CAP: usize = 500;
 
 /// Avatar uploads are small; refuse anything larger before reading it.
-const MAX_AVATAR_BYTES: u64 = 8 * 1024 * 1024;
+///
+/// `pub(crate)` so the OWN-avatar path in `profile.rs` enforces the same
+/// ceiling rather than carrying a second copy of the number that could drift
+/// away from this one.
+pub(crate) const MAX_AVATAR_BYTES: u64 = 8 * 1024 * 1024;
 
 pub(crate) fn require_client(bridge: &RustClient) -> Result<matrix_sdk::Client, String> {
     bridge
@@ -96,6 +100,15 @@ pub(crate) fn classify_room_error(message: &str) -> &'static str {
 /// Sniff a raster-image MIME type from magic bytes. Used for avatar upload
 /// and clipboard data so a mislabelled extension cannot spoof the type.
 /// Pure and unit-tested.
+///
+/// This IDENTIFIES; it does not promise the GUI can draw the result. Qt image
+/// formats are dlopen'd plugins, so what a build decodes is a packaging fact
+/// that differs per platform (JPEG XL is reachable on Linux and on neither
+/// Windows nor macOS — Qt has never shipped a JXL plugin and the only one that
+/// exists, KDE's kimageformats, is packaged for neither). Deciding what THIS
+/// build can render belongs to `lightning::imagefmt::canDecode` on the C++
+/// side, which asks QImageReader; the mirror of this table lives in
+/// `src/media/ImageFormatSupport.h`.
 pub(crate) fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     if bytes.len() < 12 {
         return None;
@@ -108,6 +121,23 @@ pub(crate) fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
         Some("image/gif")
     } else if bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
         Some("image/webp")
+    // JPEG XL, both shapes. VERIFIED against real `cjxl` output rather than
+    // read off a spec summary:
+    //   ISOBMFF container: 00 00 00 0C "JXL " 0D 0A 87 0A, then "ftypjxl "
+    //   bare codestream:   FF 0A            (lossy and `-d 0` lossless alike)
+    // The container test comes FIRST and is 12 bytes, so it cannot be reached
+    // by the two-byte codestream test. Note bytes[4..8] here is "JXL ", not
+    // "ftyp", so nothing that keys on the ISO BMFF brand can mistake a .jxl
+    // for an MP4.
+    //
+    // The codestream signature is two bytes, which is weak — no weaker than
+    // the "BM" below, and the cost of a false positive is a payload declared
+    // image/jxl that a decoder then refuses, never a wrong decode.
+    } else if bytes.starts_with(&[0x00, 0x00, 0x00, 0x0C, b'J', b'X', b'L', b' ', 0x0D, 0x0A, 0x87, 0x0A])
+    {
+        Some("image/jxl")
+    } else if bytes.starts_with(&[0xFF, 0x0A]) {
+        Some("image/jxl")
     } else if bytes.starts_with(b"BM") {
         Some("image/bmp")
     } else {
@@ -3462,6 +3492,24 @@ mod tests {
         let mut webp = b"RIFF\x00\x00\x00\x00WEBP".to_vec();
         webp.extend_from_slice(&[0; 4]);
         assert_eq!(sniff_image_mime(&webp), Some("image/webp"));
+
+        // JPEG XL. Both byte strings below are the real first bytes emitted by
+        // `cjxl` (libjxl 0.11) on a 32x32 PNG: the container form, and the
+        // bare codestream form that `cjxl` produces by default and with -d 0.
+        let mut jxl_box =
+            b"\x00\x00\x00\x0cJXL \x0d\x0a\x87\x0a\x00\x00\x00\x14ftypjxl ".to_vec();
+        jxl_box.extend_from_slice(&[0; 4]);
+        assert_eq!(sniff_image_mime(&jxl_box), Some("image/jxl"));
+
+        let mut jxl_stream = vec![0xFF, 0x0A, 0x47, 0x06];
+        jxl_stream.extend_from_slice(&[0; 8]);
+        assert_eq!(sniff_image_mime(&jxl_stream), Some("image/jxl"));
+
+        // A JPEG must not be read as a JPEG XL codestream and vice versa: the
+        // two share only their first byte.
+        let mut not_jxl = vec![0xFF, 0xD8, 0xFF, 0x0A];
+        not_jxl.extend_from_slice(&[0; 8]);
+        assert_eq!(sniff_image_mime(&not_jxl), Some("image/jpeg"));
 
         assert_eq!(sniff_image_mime(b"plain text, not an image"), None);
         assert_eq!(sniff_image_mime(b"tiny"), None);

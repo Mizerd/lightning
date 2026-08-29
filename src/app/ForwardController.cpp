@@ -7,6 +7,7 @@
 #include <QSize>
 
 #include "matrix/MatrixClient.h"
+#include "media/ImageFormatSupport.h"
 #include "media/MediaBridge.h"
 
 ForwardController::ForwardController(QObject *parent)
@@ -277,31 +278,23 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
     // implied to be safe.
     // Identify from MAGIC BYTES, not from QImageReader::format(): that is
     // plugin-backed, and WebP lives in qtimageformats, which the packaged
-    // DEB/RPM/AppImage builds do not necessarily carry. A build without it
-    // would refuse ordinary WebP content as unidentifiable — the exact class
-    // of defect this gate was corrected for once already, arriving through a
-    // different door and invisible in the dev shell.
+    // DEB/RPM/AppImage builds did not carry at all until 2026-08-28. A build
+    // without it would refuse ordinary WebP content as unidentifiable — the
+    // exact class of defect this gate was corrected for once already, arriving
+    // through a different door and invisible in the dev shell.
     //
-    // These five signatures are deliberately the same set
-    // rooms::sniff_image_mime accepts, so the C++ and Rust gates cannot
-    // disagree about what is acceptable.
-    QString identified;
-    {
-        const auto starts = [&bytes](const char *magic, int len) {
-            return bytes.size() >= len && std::memcmp(bytes.constData(), magic, len) == 0;
-        };
-        if (starts("\x89PNG\r\n\x1a\n", 8))
-            identified = QStringLiteral("image/png");
-        else if (starts("\xff\xd8\xff", 3))
-            identified = QStringLiteral("image/jpeg");
-        else if (starts("GIF87a", 6) || starts("GIF89a", 6))
-            identified = QStringLiteral("image/gif");
-        else if (bytes.size() >= 12 && starts("RIFF", 4)
-                 && std::memcmp(bytes.constData() + 8, "WEBP", 4) == 0)
-            identified = QStringLiteral("image/webp");
-        else if (starts("BM", 2))
-            identified = QStringLiteral("image/bmp");
-    }
+    // The signatures now live in lightning::imagefmt::sniffRaster, ONE table
+    // shared with the app-icon path and mirrored by rooms::sniff_image_mime,
+    // so the C++ and Rust gates cannot disagree about what is acceptable. The
+    // copy that used to sit here is gone rather than kept in sync by hand.
+    //
+    // IDENTIFICATION IS NOT DECODABILITY, and this call site deliberately does
+    // not consult the decoder. A forward re-uploads the ORIGINAL BYTES with a
+    // truthful type; drawing them is the receiving client's problem. So a
+    // JPEG XL forwards correctly from a Windows build that cannot display it,
+    // which is the honest outcome — refusing there would destroy a working
+    // path to protect a preview nobody asked for.
+    const QString identified = lightning::imagefmt::sniffRasterMime(bytes);
 
     if (!identified.isEmpty()) {
         mime = identified;

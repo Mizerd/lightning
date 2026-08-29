@@ -430,14 +430,32 @@ ApplicationWindow {
         property: "textScale"
         value: app.settings ? app.settings.textScale / 100 : 1
     }
-    // v0.7: the selected UI font follows the per-account Appearance
-    // setting. Controls inherit through the window font; explicit
-    // AppTheme.uiFont bindings cover non-inheriting text items.
+    // The selected UI font follows the per-account Appearance setting.
+    // Controls inherit through the window font; explicit AppTheme.uiFont
+    // bindings cover non-inheriting text items.
+    //
+    // The value is FontManager's RESOLVED family, not the raw setting: the
+    // user may have chosen a system font that has since been uninstalled, or
+    // an imported one whose file is gone, and this token must never carry a
+    // family the host cannot draw. FontManager falls back to the bundled face
+    // WITHOUT rewriting the stored choice, so re-installing the font brings
+    // it back on its own.
     Binding {
         target: AppTheme
         property: "uiFont"
-        value: app.settings && app.settings.uiFont.length > 0
-               ? app.settings.uiFont : "Manrope"
+        // `typeof` and not a plain truth test: `fonts` is a CONTEXT
+        // property, and several QML suites load this shell without one.
+        // Referencing an unresolved name throws a ReferenceError and kills
+        // the binding; `typeof` on it does not.
+        value: (typeof fonts !== "undefined" && fonts)
+               ? fonts.uiFamily : "Manrope"
+    }
+    // Same contract for the code/monospace face.
+    Binding {
+        target: AppTheme
+        property: "monoFont"
+        value: (typeof fonts !== "undefined" && fonts)
+               ? fonts.monospaceFamily : "JetBrains Mono"
     }
     font.family: AppTheme.uiFont
 
@@ -668,7 +686,17 @@ ApplicationWindow {
         id: pinNotice
         objectName: "pinActionNotice"
         property string message: ""
-        function show(text) { message = text; visible = true; pinNoticeTimer.restart() }
+        // Whether this notice is reporting a FAILURE. Every original caller
+        // is an error report and passes nothing, so an omitted argument
+        // stays danger — the sticker round is the first non-failure user of
+        // this banner and passes false explicitly.
+        property bool danger: true
+        function show(text, isDanger) {
+            message = text
+            danger = (isDanger === undefined) ? true : !!isDanger
+            visible = true
+            pinNoticeTimer.restart()
+        }
         visible: false
         parent: Overlay.overlay
         anchors.horizontalCenter: parent.horizontalCenter
@@ -677,7 +705,8 @@ ApplicationWindow {
         z: 1000
         radius: AppTheme.radiusLg
         color: AppTheme.stormPanel
-        border.color: AppTheme.stormDanger
+        border.color: pinNotice.danger ? AppTheme.stormDanger
+                                       : AppTheme.stormBorder
         border.width: 1
         width: Math.min(pinNoticeLabel.implicitWidth + AppTheme.spacing16 * 2,
                         window.width - AppTheme.spacing16 * 2)
@@ -732,6 +761,65 @@ ApplicationWindow {
             function onPinActionFinished(roomId, eventId, pin, ok, message) {
                 if (!ok && message.length > 0)
                     pinNotice.show(message)
+            }
+        }
+        // "Add to my stickers": the message context menu has closed by the
+        // time the account-data write answers, so the outcome is reported
+        // here, on the same transient notice.
+        //
+        // SUCCESS is reported, unlike a pin — nothing visible changes when a
+        // sticker lands in your pack (the pack is only seen inside the
+        // picker), so a silent success is indistinguishable from a dead
+        // menu item. The shortcode the image actually got is named, because
+        // it may carry a numeric suffix the user did not ask for.
+        Connections {
+            target: app.stickers
+            function onSaveFinished(ok, category, shortcode, scope) {
+                // Two destinations report here — this account's own pack and
+                // the ROOM's — and a notice that could not tell them apart
+                // would tell the user their sticker went somewhere it did
+                // not.
+                var toRoom = scope === "room"
+                if (ok) {
+                    if (toRoom) {
+                        pinNotice.show(
+                            shortcode.length > 0
+                                ? qsTr("Added to this room's stickers as :%1:")
+                                    .arg(shortcode)
+                                : qsTr("Added to this room's stickers"), false)
+                    } else {
+                        pinNotice.show(
+                            shortcode.length > 0
+                                ? qsTr("Saved to your stickers as :%1:")
+                                    .arg(shortcode)
+                                : qsTr("Saved to your stickers"), false)
+                    }
+                } else if (category === "duplicate") {
+                    // Not an error: the sticker IS in the pack, which is what
+                    // the user wanted. Saying "failed" here would send them
+                    // looking for a problem that does not exist.
+                    pinNotice.show(
+                        toRoom
+                            ? qsTr("That sticker is already in this room's stickers")
+                            : qsTr("That sticker is already in your stickers"),
+                        false)
+                } else if (category === "pack_full") {
+                    pinNotice.show(
+                        toRoom
+                            ? qsTr("This room's sticker pack is full.")
+                            : qsTr("Your sticker pack is full. Remove some "
+                                   + "stickers in another client to add more."),
+                        true)
+                } else if (category === "forbidden") {
+                    // Only the ROOM write can be refused this way: it is a
+                    // state event and the room decides who may send it.
+                    pinNotice.show(
+                        qsTr("You do not have permission to change this "
+                             + "room's stickers."), true)
+                } else {
+                    pinNotice.show(
+                        qsTr("The sticker could not be saved."), true)
+                }
             }
         }
         // v0.7.x forwarding: a forwarded ATTACHMENT is a direct upload, not

@@ -2289,6 +2289,31 @@ void RustSdkMatrixClient::setProfileBanner(const QString &localPath,
     }
 }
 
+void RustSdkMatrixClient::fetchProfileBio(const QString &userId, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || userId.isEmpty())
+        return;
+    const QByteArray target = userId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_fetch_profile_bio(m_rustHandle, target.constData(), opId));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "profile bio request rejected";
+}
+
+void RustSdkMatrixClient::setProfileBio(const QString &text, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle)
+        return;
+    // The text is never logged: it is prose the user wrote about themselves.
+    const QByteArray payload = text.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_set_profile_bio(m_rustHandle, payload.constData(), opId));
+    if (!result.isEmpty()) {
+        Q_EMIT profileBioSet(opId, false, QString(),
+                             QStringLiteral("rejected"));
+    }
+}
+
 void RustSdkMatrixClient::fetchRoomBanner(const QString &roomId, quint64 opId)
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
@@ -2313,6 +2338,121 @@ void RustSdkMatrixClient::setRoomBanner(const QString &roomId,
     if (!result.isEmpty()) {
         Q_EMIT roomBannerSet(opId, roomId, false, QString(),
                              QStringLiteral("rejected"));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stickers and custom emoji (MSC2545 image packs)
+// ---------------------------------------------------------------------------
+
+void RustSdkMatrixClient::fetchStickerPacks(const QString &roomId, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle)
+        return;
+    // An EMPTY room id is legitimate: it asks for the globally available
+    // packs only. Rust skips the active-room step in that case.
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_stickers_fetch_packs(m_rustHandle, room.constData(), opId));
+    if (!result.isEmpty()) {
+        // A rejection at the edge still has to ANSWER, or a picker that
+        // opened on it waits forever for a snapshot that will never arrive.
+        //
+        // An empty list is the HONEST shape here rather than a lost read:
+        // the Rust entry point can only refuse for a null handle, a
+        // non-UTF-8 argument, or no logged-in session, and the first and
+        // third are already excluded by the guard above. So reaching this
+        // line means there is no session, and an account with no session
+        // genuinely has no packs. It is not the "a failed read must keep the
+        // last known list" case — that one is a request that was ACCEPTED
+        // and then failed, which answers through the poll event and never
+        // through here.
+        qCWarning(lcRust) << "sticker pack request rejected";
+        Q_EMIT stickerPacksReceived(opId, roomId, false, QVariantList());
+    }
+}
+
+void RustSdkMatrixClient::sendSticker(const QString &roomId,
+                                      const QString &rootId,
+                                      const QString &url, const QString &body,
+                                      const QString &mimetype, quint64 width,
+                                      quint64 height, quint64 size)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty() || url.isEmpty())
+        return;
+    // Neither the mxc nor the body is logged: the body is the sticker's own
+    // alt text, which a pack author chose, and an mxc identifies media.
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray root = rootId.toUtf8();
+    const QByteArray mxc = url.toUtf8();
+    const QByteArray alt = body.toUtf8();
+    const QByteArray mime = mimetype.toUtf8();
+    const QString result = takeRustString(mx_rust_stickers_send(
+        m_rustHandle, room.constData(), root.constData(), mxc.constData(),
+        alt.constData(), mime.constData(), width, height, size));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "sticker send rejected";
+        Q_EMIT errorOccurred(tr("The sticker could not be sent."));
+    }
+}
+
+void RustSdkMatrixClient::addStickerToRoomPack(
+    const QString &roomId, const QString &stateKey, const QString &shortcode,
+    const QString &url, const QString &body, const QString &mimetype,
+    quint64 width, quint64 height, quint64 size, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty() || url.isEmpty())
+        return;
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray key = stateKey.toUtf8();
+    const QByteArray code = shortcode.toUtf8();
+    const QByteArray mxc = url.toUtf8();
+    const QByteArray alt = body.toUtf8();
+    const QByteArray mime = mimetype.toUtf8();
+    const QString result = takeRustString(mx_rust_stickers_add_to_room_pack(
+        m_rustHandle, room.constData(), key.constData(), code.constData(),
+        mxc.constData(), alt.constData(), mime.constData(), width, height,
+        size, opId));
+    if (!result.isEmpty()) {
+        Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"),
+                                      QString());
+    }
+}
+
+void RustSdkMatrixClient::setStickerRoomPackEnabled(const QString &roomId,
+                                                    const QString &stateKey,
+                                                    bool enabled, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray key = stateKey.toUtf8();
+    const QString result =
+        takeRustString(mx_rust_stickers_set_room_pack_enabled(
+            m_rustHandle, room.constData(), key.constData(), enabled, opId));
+    if (!result.isEmpty()) {
+        Q_EMIT stickerPackRoomsSet(opId, false, QStringLiteral("rejected"),
+                                   roomId, stateKey, enabled);
+    }
+}
+
+void RustSdkMatrixClient::addStickerToUserPack(
+    const QString &shortcode, const QString &url, const QString &body,
+    const QString &mimetype, quint64 width, quint64 height, quint64 size,
+    quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || url.isEmpty())
+        return;
+    const QByteArray code = shortcode.toUtf8();
+    const QByteArray mxc = url.toUtf8();
+    const QByteArray alt = body.toUtf8();
+    const QByteArray mime = mimetype.toUtf8();
+    const QString result = takeRustString(mx_rust_stickers_add_to_user_pack(
+        m_rustHandle, code.constData(), mxc.constData(), alt.constData(),
+        mime.constData(), width, height, size, opId));
+    if (!result.isEmpty()) {
+        Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"),
+                                      QString());
     }
 }
 
@@ -5090,6 +5230,50 @@ void RustSdkMatrixClient::setOwnDisplayName(const QString &name, quint64 opId)
     }
 }
 
+void RustSdkMatrixClient::setOwnAvatar(const QString &localPath, quint64 opId)
+{
+    // Posted, never emitted inline — identical reasoning to the display-name
+    // path above: the caller records the op id AFTER this returns, so a
+    // synchronous emit would arrive before there is anything to match it.
+    const auto refuse = [this, opId] {
+        QMetaObject::invokeMethod(this, [this, opId] {
+            Q_EMIT ownAvatarChanged(opId, false, QString());
+        }, Qt::QueuedConnection);
+    };
+    if (!m_rustHandle || !m_loggedIn || localPath.isEmpty()) {
+        refuse();
+        return;
+    }
+    const QByteArray payload = localPath.toUtf8();
+    const QString result = takeRustString(mx_rust_set_own_avatar(
+        m_rustHandle, payload.constData(), opId));
+    if (!result.isEmpty()) {
+        // A literal tag only. The rejection can carry the PATH back, and a
+        // home directory contains the user's name.
+        qCWarning(lcRust) << "own-avatar write rejected";
+        refuse();
+    }
+}
+
+void RustSdkMatrixClient::clearOwnAvatar(quint64 opId)
+{
+    const auto refuse = [this, opId] {
+        QMetaObject::invokeMethod(this, [this, opId] {
+            Q_EMIT ownAvatarChanged(opId, false, QString());
+        }, Qt::QueuedConnection);
+    };
+    if (!m_rustHandle || !m_loggedIn) {
+        refuse();
+        return;
+    }
+    const QString result =
+        takeRustString(mx_rust_clear_own_avatar(m_rustHandle, opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "own-avatar clear rejected";
+        refuse();
+    }
+}
+
 quint64 RustSdkMatrixClient::fetchUrlPreview(const QString &url)
 {
     // Scheme allow-list is enforced again in Rust; this early check keeps
@@ -7026,6 +7210,24 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("category")).toString());
         return true;
     }
+    if (type == QLatin1String("profile_bio")) {
+        Q_EMIT profileBioReceived(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("user_id")).toString(),
+            event.value(QStringLiteral("bio")).toString(),
+            event.value(QStringLiteral("supported")).toBool(false));
+        return true;
+    }
+    if (type == QLatin1String("profile_bio_set")) {
+        Q_EMIT profileBioSet(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("bio")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
     if (type == QLatin1String("room_banner")) {
         Q_EMIT roomBannerReceived(
             static_cast<quint64>(
@@ -7043,6 +7245,99 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("ok")).toBool(false),
             event.value(QStringLiteral("mxc")).toString(),
             event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+    if (type == QLatin1String("sticker_packs")) {
+        // Every field below was validated and bounded in rust/src/stickers.rs
+        // (mxc-only urls, an allowlisted declared mimetype, control
+        // characters stripped, lengths and counts capped). Nothing is
+        // re-derived here; this is a transcription, deliberately, so there is
+        // exactly ONE place that decides what a pack may contain.
+        QVariantList packs;
+        const QJsonArray rawPacks =
+            event.value(QStringLiteral("packs")).toArray();
+        packs.reserve(rawPacks.size());
+        for (const QJsonValue &packValue : rawPacks) {
+            const QJsonObject pack = packValue.toObject();
+            QVariantMap entry;
+            entry.insert(QStringLiteral("id"),
+                         pack.value(QStringLiteral("id")).toString());
+            entry.insert(QStringLiteral("displayName"),
+                         pack.value(QStringLiteral("display_name")).toString());
+            entry.insert(QStringLiteral("avatarUrl"),
+                         pack.value(QStringLiteral("avatar_url")).toString());
+            entry.insert(QStringLiteral("attribution"),
+                         pack.value(QStringLiteral("attribution")).toString());
+            entry.insert(QStringLiteral("source"),
+                         pack.value(QStringLiteral("source")).toString());
+            entry.insert(QStringLiteral("roomId"),
+                         pack.value(QStringLiteral("room_id")).toString());
+            entry.insert(QStringLiteral("stateKey"),
+                         pack.value(QStringLiteral("state_key")).toString());
+            entry.insert(
+                QStringLiteral("enabledGlobally"),
+                pack.value(QStringLiteral("enabled_globally")).toBool());
+            entry.insert(QStringLiteral("canManage"),
+                         pack.value(QStringLiteral("can_manage")).toBool());
+            QVariantList images;
+            const QJsonArray rawImages =
+                pack.value(QStringLiteral("images")).toArray();
+            images.reserve(rawImages.size());
+            for (const QJsonValue &imageValue : rawImages) {
+                const QJsonObject image = imageValue.toObject();
+                QVariantMap row;
+                row.insert(QStringLiteral("shortcode"),
+                           image.value(QStringLiteral("shortcode")).toString());
+                row.insert(QStringLiteral("url"),
+                           image.value(QStringLiteral("url")).toString());
+                row.insert(QStringLiteral("body"),
+                           image.value(QStringLiteral("body")).toString());
+                row.insert(QStringLiteral("mimetype"),
+                           image.value(QStringLiteral("mimetype")).toString());
+                row.insert(QStringLiteral("width"),
+                           static_cast<int>(
+                               image.value(QStringLiteral("width")).toDouble(0)));
+                row.insert(QStringLiteral("height"),
+                           static_cast<int>(
+                               image.value(QStringLiteral("height")).toDouble(0)));
+                row.insert(QStringLiteral("size"),
+                           static_cast<qlonglong>(
+                               image.value(QStringLiteral("size")).toDouble(0)));
+                row.insert(QStringLiteral("isEmoticon"),
+                           image.value(QStringLiteral("is_emoticon")).toBool());
+                row.insert(QStringLiteral("isSticker"),
+                           image.value(QStringLiteral("is_sticker")).toBool());
+                images.append(row);
+            }
+            entry.insert(QStringLiteral("images"), images);
+            packs.append(entry);
+        }
+        Q_EMIT stickerPacksReceived(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("room_can_manage")).toBool(false),
+            packs);
+        return true;
+    }
+    if (type == QLatin1String("sticker_pack_rooms_set")) {
+        Q_EMIT stickerPackRoomsSet(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("category")).toString(),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("state_key")).toString(),
+            event.value(QStringLiteral("enabled")).toBool(false));
+        return true;
+    }
+    if (type == QLatin1String("sticker_pack_add_result")) {
+        Q_EMIT stickerPackAddFinished(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("category")).toString(),
+            event.value(QStringLiteral("shortcode")).toString());
         return true;
     }
     if (type == QLatin1String("presence_batch")) {
@@ -7414,6 +7709,17 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         // bounded in Rust; empty means it said nothing usable. The name is
         // deliberately absent from the payload.
         Q_EMIT ownDisplayNameChanged(
+            opId(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("error")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("own_avatar_result")) {
+        // Same convention as own_display_name_result: `error` is the
+        // server's own sanitized sentence, empty when it said nothing
+        // usable. The path is deliberately absent from the payload.
+        Q_EMIT ownAvatarChanged(
             opId(),
             event.value(QStringLiteral("ok")).toBool(),
             event.value(QStringLiteral("error")).toString());

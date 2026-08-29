@@ -236,7 +236,15 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("app.roomInfo.setRoomTopic(")));
         QVERIFY(block.contains(QStringLiteral("app.roomInfo.removeRoomAvatar()")));
         QVERIFY(pane.contains(QStringLiteral("id: spaceAvatarDialog")));
-        QVERIFY(pane.contains(QStringLiteral("onAccepted: app.roomInfo.setRoomAvatar(selectedFile)")));
+        // The picker now hands its result to the shared crop dialog and the
+        // upload happens on its way OUT, so the chosen file is no longer
+        // uploaded verbatim. Both halves are asserted: the picker must reach
+        // the cropper, and the cropper must still reach the shared room
+        // backend — which is what this case is about. The wiring itself is
+        // pinned in full by `image-crop-contract`.
+        QVERIFY(pane.contains(QStringLiteral("onAccepted: spaceAvatarCrop.openFor(selectedFile)")));
+        QVERIFY(pane.contains(QStringLiteral("id: spaceAvatarCrop")));
+        QVERIFY(pane.contains(QStringLiteral("app.roomInfo.setRoomAvatar(file)")));
     }
 
     void editsAreGatedOnTheRealPerEventPermission()

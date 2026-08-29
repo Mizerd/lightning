@@ -66,13 +66,13 @@ use crate::{enqueue, RustClient};
 /// The access token is read from the SDK, used for one request, and never
 /// logged, stored, or returned. Revisit when ruma wires the stable feature in:
 /// this becomes a straight swap back to `ruma::api::client::profile`.
-mod profile_field {
+pub(crate) mod profile_field {
     use matrix_sdk::Client;
 
     /// Coarse outcome. The BODY of a successful read is the caller's problem;
     /// what matters here is telling "the server answered" apart from "the
     /// server does not know this endpoint".
-    pub(super) struct Answer {
+    pub(crate) struct Answer {
         pub status: u16,
         pub body: String,
     }
@@ -111,7 +111,7 @@ mod profile_field {
         Ok(Answer { status, body: body.chars().take(65_536).collect() })
     }
 
-    pub(super) async fn get(
+    pub(crate) async fn get(
         client: &Client,
         user_id: &str,
         field: &str,
@@ -121,7 +121,7 @@ mod profile_field {
         run(client, client.http_client().get(url).timeout(timeout)).await
     }
 
-    pub(super) async fn set(
+    pub(crate) async fn set(
         client: &Client,
         user_id: &str,
         field: &str,
@@ -146,7 +146,37 @@ mod profile_field {
         .await
     }
 
-    pub(super) async fn delete(
+    /// Set a field whose value is a JSON OBJECT rather than a string.
+    ///
+    /// `set` above serialises the value as a JSON string, which is right for
+    /// `m.banner_url` (an mxc URI) and wrong for anything structured. MSC4440's
+    /// biography is an extensible-events object, so it needs this. Same request,
+    /// same bounds, same transport — only the body shape differs, and it is
+    /// still built with serde so neither the field name nor the value can
+    /// inject JSON.
+    pub(crate) async fn set_json(
+        client: &Client,
+        user_id: &str,
+        field: &str,
+        value: &serde_json::Value,
+        timeout: std::time::Duration,
+    ) -> Result<Answer, String> {
+        let url = endpoint(client, user_id, field)?;
+        let body = serde_json::to_vec(&serde_json::json!({ field: value }))
+            .map_err(|_| "invalid_value".to_owned())?;
+        run(
+            client,
+            client
+                .http_client()
+                .put(url)
+                .timeout(timeout)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body),
+        )
+        .await
+    }
+
+    pub(crate) async fn delete(
         client: &Client,
         user_id: &str,
         field: &str,
@@ -202,7 +232,7 @@ fn banner_from_body(field: &str, body: &str) -> Option<String> {
 /// homeserver that fully supports extended profiles reported itself
 /// unsupported the moment a user had no banner — which hid the entire
 /// feature for everyone on it.
-fn is_unsupported(error: &str) -> bool {
+pub(crate) fn is_unsupported(error: &str) -> bool {
     let lowered = error.to_ascii_lowercase();
     lowered.contains("m_unrecognized")
         || lowered.contains("unrecognized")

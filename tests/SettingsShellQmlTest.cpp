@@ -20,6 +20,7 @@
 #include <QSignalSpy>
 
 #include "app/AppController.h"
+#include "profile/ProfileBioManager.h"
 #include "app/SettingsManager.h"
 #include "auth/AuthManager.h"
 #include "gif/GifSearchController.h"
@@ -862,6 +863,49 @@ private slots:
             }
         }
         m_controller->settings()->setTheme(SettingsManager::Theme(original));
+        QCoreApplication::processEvents();
+    }
+
+    // THE DEFECT THIS PINS: Settings > Account carried a Profile BANNER
+    // editor and no way at all to change your profile PICTURE or to write
+    // your own bio. You could read everyone else's bio and edit nobody's,
+    // including your own, because the own-avatar path did not exist end to
+    // end (no FFI, no client method, no controller command) and the bio
+    // manager shipped with no editor anywhere.
+    //
+    // It navigates to the section rather than reading the .qml as text: a
+    // source scan cannot tell whether a control is REACHABLE, and these
+    // blocks sit inside the account section's own loader.
+    void accountSectionOffersAPictureAndABioEditor()
+    {
+        m_controller->showSettingsSection(QStringLiteral("account"));
+        QCoreApplication::processEvents();
+
+        QQuickItem *avatarSection = nullptr;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (avatarSection = item("ownAvatarSection")) != nullptr, 3000);
+        QVERIFY2(item("chooseOwnAvatarButton") != nullptr,
+                 "no way to change your own profile picture");
+        QVERIFY2(item("ownAvatarPreview") != nullptr,
+                 "the picture control shows no preview of what is set");
+
+        QVERIFY2(item("ownBioSection") != nullptr,
+                 "no way to write your own bio");
+        auto *bioField = item("ownBioField");
+        QVERIFY2(bioField != nullptr, "the bio section has no editor");
+        QVERIFY2(item("saveOwnBioButton") != nullptr,
+                 "the bio can be typed but never saved");
+
+        // The editor must FOLLOW the stored value rather than being written
+        // imperatively — an imperative assignment to `text` would destroy
+        // that binding and leave the box showing a bio the account no
+        // longer has.
+        QCOMPARE(bioField->property("text").toString(),
+                 m_controller->bio() ? m_controller->bio()->ownBio()
+                                     : QString());
+
+        // Restore the shell for the cases that follow.
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
         QCoreApplication::processEvents();
     }
 

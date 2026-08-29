@@ -864,6 +864,25 @@ impl TimelineRegistry {
     /// thread-focused timeline so the SDK owns any thread relation).
     /// Contents that already carry an `m.reference` relation (poll response
     /// / poll end) are left untouched by the SDK's thread-aware send.
+    /// 2026-08 stickers round: `stickers::send_sticker` builds an
+    /// `m.sticker` content and needs exactly this routing — the SDK's own
+    /// thread handling included, since matrix-sdk-ui attaches the `m.thread`
+    /// relation to a Sticker content in `Timeline::send` and Lightning must
+    /// never build that relation by hand (CLAUDE.md §8).
+    pub(crate) fn send_content(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+        thread_root_id: String,
+        content: AnyMessageLikeEventContent,
+        failure_category: &'static str,
+    ) -> Result<(), String> {
+        self.send_content_to_timeline(
+            runtime, client, room_id, thread_root_id, content, failure_category,
+        )
+    }
+
     fn send_content_to_timeline(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,

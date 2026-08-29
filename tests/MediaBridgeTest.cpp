@@ -1538,6 +1538,58 @@ private Q_SLOTS:
         QCOMPARE(cached.count(), 2);
     }
 
+    // CLAUDE.md §6: SVG must not reach an inline preview/media path.
+    //
+    // THE HOLE THIS CLOSES: a sticker pack is ROOM STATE any member can
+    // write, and MSC2545 lets an entry omit `mimetype` — which stickers.rs
+    // allows on purpose so a pack from a future client stays visible. The
+    // declared type therefore cannot carry the rule, and the existing sniff
+    // refused A/V containers ONLY, so SVG bytes under an absent (or lying)
+    // mimetype reached the image decode path.
+    void thumbPayloadSniffingRejectsSvgAndItsCompressedSpelling()
+    {
+        const QByteArray plainSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\"/>";
+        const QByteArray xmlFirst =
+            "<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\"/>";
+        const QByteArray bomAndSpace =
+            QByteArray("\xef\xbb\xbf", 3) + "\n\t  <svg/>";
+        const QByteArray doctypeFirst = "<!DOCTYPE svg><svg/>";
+        const QByteArray commentFirst = "<!-- hello --><svg/>";
+        const QByteArray svgz = QByteArray("\x1f\x8b", 2) + QByteArray(30, '\x08');
+
+        int n = 0;
+        for (const QByteArray &payload : { plainSvg, xmlFirst, bomAndSpace,
+                                           doctypeFirst, commentFirst, svgz }) {
+            FakeClient client;
+            MediaBridge bridge;
+            bridge.setClient(&client);
+            QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+            QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+            const QString ev = QStringLiteral("$svg%1").arg(n++);
+
+            bridge.mediaSource(ev, QStringLiteral("thumb"));
+            // image/png is a LIE, which is the point: the bytes decide.
+            client.succeed(client.fetches.at(0).opId, payload,
+                           QStringLiteral("image/png"));
+            QCOMPARE(cached.count(), 0);
+            QCOMPARE(failed.count(), 1);
+            QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("rejected"));
+            QVERIFY(bridge.cachedBytes(QStringLiteral("thumb:") + ev).isEmpty());
+        }
+
+        // A real raster still passes, or the guard is just an outage. PNG
+        // magic is binary and cannot collide with the markup test.
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+        bridge.mediaSource(QStringLiteral("$png"), QStringLiteral("thumb"));
+        QByteArray png = QByteArray("\x89PNG\r\n\x1a\n", 8) + QByteArray(16, 'p');
+        client.succeed(client.fetches.at(0).opId, png,
+                       QStringLiteral("image/png"));
+        QCOMPARE(cached.count(), 1);
+    }
+
     // Room switch drops QUEUED speculative prefetches (their delegates are
     // gone); queued interactive work and in-flight ops are untouched.
     void droppedSpeculativeQueueEntriesNeverDispatch()

@@ -1857,7 +1857,13 @@ QtObject {
     // fallback list, which is the only raw family literal in the tree that
     // is neither a deliberate preview nor a mirror.
     readonly property string iconFont:         "Material Symbols Rounded"
-    readonly property string monoFont:         "JetBrains Mono"
+    // The monospace face. A PROPERTY, not a constant, for the same reason
+    // uiFont is one: Main.qml pushes the persisted per-account selection in
+    // here. The default stays the bundled JetBrains Mono, and what Main.qml
+    // pushes is FontManager's RESOLVED answer — a family the host does not
+    // have never reaches this token, so a missing font degrades to the
+    // bundled face instead of to whatever Qt would substitute.
+    property string monoFont:                  "JetBrains Mono"
     readonly property var    monoFontFamilies: [
         "JetBrains Mono",
         "Fira Mono",

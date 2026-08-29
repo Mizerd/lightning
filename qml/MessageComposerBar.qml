@@ -118,16 +118,12 @@ Item {
     // The override must be claimed only for combinations we actually handle:
     // accepting everything would make this box swallow Ctrl+K, Ctrl+Q and
     // every other global shortcut while it has focus.
+    // The registry answers this: it carries the EditorContext flag, so a
+    // seventh editor shortcut is picked up here and in the THREAD composer
+    // without either file being edited. The list of ids that used to live
+    // here was a second copy of that flag.
     function _composerFormatFor(key, modifiers) {
-        var seq = app.shortcuts.sequenceFromKeyEvent(key, modifiers)
-        if (seq === "") return ""
-        var ids = ["composer.bold", "composer.italic", "composer.strike",
-                   "composer.code", "composer.list", "composer.quote"]
-        for (var i = 0; i < ids.length; ++i) {
-            if (app.shortcuts.sequenceFor(ids[i]) === seq)
-                return ids[i]
-        }
-        return ""
+        return app.shortcuts.editorActionForKey(key, modifiers)
     }
     function applyFormat(format) {
         var result = app.composer.toggleFormat(format, input.text,
@@ -291,6 +287,132 @@ Item {
         function onMentionRangesChanged() { root.refreshMentionHighlight() }
     }
 
+    // ---- Spell checking -------------------------------------------------
+    //
+    // WHY THE UNDERLINE IS DRAWN HERE AND NOT BY THE HIGHLIGHTER. The obvious
+    // route is `QTextCharFormat::SpellCheckUnderline` through the
+    // MentionHighlighter that is already attached to this document. It does
+    // not work in Qt Quick: `QTextCharFormat::fontUnderline()` is
+    // `underlineStyle() == SingleUnderline`, and the scene graph's text node
+    // builds its decorations from the glyph run's boolean underline flag —
+    // so any style other than SingleUnderline paints NOTHING, and even a
+    // single underline would be drawn in the text's own colour rather than
+    // the format's underline colour. Two Rectangles per misspelling are
+    // fewer moving parts than either of those facts, and they are pixels we
+    // control on every platform.
+    //
+    // Second reason, recorded so it is not "simplified" away: a QTextDocument
+    // may carry only ONE QSyntaxHighlighter. QSyntaxHighlighter's
+    // applyFormatChanges() CLEARS every format range outside the preedit area
+    // before writing its own, so a second highlighter attached for spelling
+    // would silently erase the mention ink (and vice versa, depending on
+    // which ran last).
+    readonly property bool spellActive: app.spell !== null
+                                        && app.spell !== undefined
+                                        && app.spell.available
+                                        && app.spell.enabled
+    // [{x, y, w}] in `input`'s own coordinates. The rectangles are children
+    // of the TextArea, so they scroll with a long draft for free.
+    property var spellUnderlines: []
+    // The word the context menu was opened on, and nothing else: cleared on
+    // every open so a stale suggestion can never be applied to new text.
+    property string spellMenuWord: ""
+    property int spellMenuStart: -1
+    property int spellMenuLength: 0
+    property var spellMenuSuggestions: []
+
+    function refreshSpellUnderlines() {
+        if (!root.spellActive || input.text.length === 0) {
+            if (root.spellUnderlines.length > 0)
+                root.spellUnderlines = []
+            return
+        }
+        // The caret position is passed so the word being typed is not
+        // underlined mid-word, and the composer's own re-anchored mention
+        // ranges are passed so a member's display name is never "misspelled".
+        var ranges = app.spell.misspelledRanges(input.text,
+                                                input.cursorPosition,
+                                                app.composer.mentionRanges)
+        var out = []
+        for (var i = 0; i < ranges.length; ++i) {
+            var start = ranges[i].start
+            var end = start + ranges[i].length
+            var p = start
+            var guard = 0
+            // One iteration for a word on one line, which is every word that
+            // is not longer than the field. The guard bounds the pathological
+            // case rather than trusting the geometry.
+            while (p < end && guard++ < 64) {
+                var head = input.positionToRectangle(p)
+                var q = end
+                var tail = input.positionToRectangle(q)
+                if (tail.y !== head.y) {
+                    while (q > p + 1
+                           && input.positionToRectangle(q).y !== head.y)
+                        --q
+                    tail = input.positionToRectangle(q)
+                }
+                var w = tail.x - head.x
+                if (w > 0)
+                    out.push({ x: head.x,
+                               y: head.y + head.height - 2,
+                               w: w })
+                p = q
+            }
+        }
+        root.spellUnderlines = out
+    }
+
+    // Fills spellMenu* for the word under the pointer, or clears them when
+    // there is no misspelled word there. Called before the menu opens, so the
+    // rows' `visible` bindings are already correct when it appears.
+    function prepareSpellMenu(mx, my) {
+        root.spellMenuWord = ""
+        root.spellMenuStart = -1
+        root.spellMenuLength = 0
+        root.spellMenuSuggestions = []
+        if (!root.spellActive)
+            return
+        var hit = app.spell.wordAt(input.text, input.positionAt(mx, my))
+        if (!hit || hit.word === "")
+            return
+        // Only a word the dictionary actually REJECTS gets a menu. Offering
+        // "did you mean" on a correctly spelled word is the kind of thing
+        // that makes people turn a checker off.
+        var wrong = app.spell.misspelledRanges(input.text, -1,
+                                               app.composer.mentionRanges)
+        var rejected = false
+        for (var i = 0; i < wrong.length; ++i) {
+            if (wrong[i].start === hit.start) {
+                rejected = true
+                break
+            }
+        }
+        if (!rejected)
+            return
+        root.spellMenuWord = hit.word
+        root.spellMenuStart = hit.start
+        root.spellMenuLength = hit.length
+        root.spellMenuSuggestions = app.spell.suggestions(hit.word).slice(0, 5)
+    }
+
+    function applySpellSuggestion(replacement) {
+        if (root.spellMenuStart < 0 || replacement === undefined
+            || replacement === "")
+            return
+        var at = root.spellMenuStart
+        input.remove(at, at + root.spellMenuLength)
+        input.insert(at, replacement)
+        input.cursorPosition = at + replacement.length
+        input.forceActiveFocus()
+    }
+
+    Connections {
+        target: app.spell
+        // Adding or ignoring a word makes every drawn underline stale.
+        function onDictionaryChanged() { root.refreshSpellUnderlines() }
+    }
+
     function insertMention(userId, displayName) {
         var newCursor = app.composer.insertMention(userId, displayName,
                                                    root.mentionTokenStart,
@@ -385,6 +507,30 @@ Item {
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
 
+    // MSC2545 stickers. Its OWN picker, not a tab on the emoji one — see the
+    // header of qml/StickerPicker.qml for why.
+    function openStickerPicker() {
+        emojiPicker.close()
+        gifPicker.close()
+        stickerPicker.anchorItem = composerCard
+        stickerPicker.open()
+    }
+
+    StickerPicker {
+        id: stickerPicker
+        target: "room"
+        onStickerChosen: (image) => root.onStickerPicked(image)
+        onClosed: Qt.callLater(input.forceActiveFocus)
+    }
+
+    // Send the chosen pack sticker as a real m.sticker, captured to the room
+    // that is open RIGHT NOW. A pack image is already Matrix media, so there
+    // is nothing to download and nothing to upload: the mxc goes straight
+    // into the event and the SDK owns the send, the local echo and Retry.
+    function onStickerPicked(image) {
+        app.stickers.sendToRoom(app.currentRoomId, image)
+    }
+
     // Download → validate → send the chosen GIF as Matrix media, captured to
     // THIS room so a later room switch cannot reroute it.
     function onGifPicked(result) {
@@ -463,6 +609,13 @@ Item {
             visible: root.compactInputRow && app.gif.available
             onTriggered: root.openGifPicker()
         }
+        AppMenuItem {
+            objectName: "composerLegacyStickerMenuItem"
+            iconName: "emoji_symbols"
+            text: qsTr("Sticker…")
+            visible: root.compactInputRow && app.stickers.available
+            onTriggered: root.openStickerPicker()
+        }
     }
 
     // Rust-backend attach menu (v0.7): files plus poll creation. The
@@ -497,6 +650,13 @@ Item {
             text: qsTr("GIF…")
             visible: root.compactInputRow && app.gif.available
             onTriggered: root.openGifPicker()
+        }
+        AppMenuItem {
+            objectName: "composerStickerMenuItem"
+            iconName: "emoji_symbols"
+            text: qsTr("Sticker…")
+            visible: root.compactInputRow && app.stickers.available
+            onTriggered: root.openStickerPicker()
         }
     }
     CreatePollDialog {
@@ -1310,6 +1470,33 @@ Item {
                         // declared and one that is emergent, and every
                         // remaining explanation for the reported offset is a
                         // field taller than the line inside it.
+                        // INPUT METHOD HINTS: DECLARED, AND DELIBERATELY EMPTY.
+                        //
+                        // `Qt.ImhNoPredictiveText` is the flag that turns the
+                        // platform's own prediction, autocorrect and IME
+                        // learning OFF, and `Qt.ImhSensitiveData` does the
+                        // same thing by a different name (it also tells the
+                        // platform not to remember what was typed). Neither
+                        // belongs on a message composer, and neither was ever
+                        // set here — this line exists so that stays true on
+                        // purpose rather than by accident, and
+                        // ComposerSpellContractTest fails the build if either
+                        // appears on either composer.
+                        //
+                        // Qt.ImhNone is also the default, so this changes no
+                        // behaviour today. What it cannot do is conjure
+                        // Windows 11's hardware-keyboard text suggestions:
+                        // those are delivered through a Text Services
+                        // Framework text store, and Qt's Windows platform
+                        // plugin implements IMM32 instead (qtbase 6.11's
+                        // src/plugins/platforms/windows has no TSF file at
+                        // all and qwindowsinputcontext.cpp is entirely Imm*
+                        // and WM_IME_*). CJK/IME composition, dead keys and
+                        // the on-screen keyboard all work through that path;
+                        // Latin word suggestions do not exist for any Qt
+                        // application. Spell checking is Lightning's own,
+                        // through app.spell.
+                        inputMethodHints: Qt.ImhNone
                         verticalAlignment: TextEdit.AlignVCenter
                         wrapMode: TextArea.Wrap
                         enabled: app.currentRoomId !== ""
@@ -1318,13 +1505,18 @@ Item {
                             if (app.composer.text !== text) app.composer.text = text
                             root.refreshFormatState()
                             root.updateMentionState()
+                            spellTimer.restart()
                         }
                         onSelectionStartChanged: root.refreshFormatState()
                         onSelectionEndChanged: root.refreshFormatState()
                         onCursorPositionChanged: {
                             root.refreshFormatState()
                             root.updateMentionState()
+                            spellTimer.restart()
                         }
+                        // A reflow moves every rectangle; the ranges are
+                        // unchanged but their geometry is not.
+                        onWidthChanged: spellTimer.restart()
                         Keys.onReturnPressed: (event) => {
                             // While the mention popup is open, Return picks the
                             // highlighted member instead of sending.
@@ -1405,8 +1597,12 @@ Item {
                         MouseArea {
                             anchors.fill: parent
                             acceptedButtons: Qt.RightButton
-                            onClicked: {
+                            onClicked: (mouse) => {
                                 input.forceActiveFocus()
+                                // Resolved BEFORE the menu opens, so every
+                                // spelling row's `visible` binding is already
+                                // settled when it appears.
+                                root.prepareSpellMenu(mouse.x, mouse.y)
                                 composerEditMenu.popup()
                             }
                         }
@@ -1414,6 +1610,65 @@ Item {
                             id: composerEditMenu
                             objectName: "composerEditMenu"
                             menuWidth: AppTheme.menuWidthFlyout
+                            // Spelling rows first, because they are what the
+                            // right-click was FOR when there is a squiggle
+                            // under the pointer. Written out rather than
+                            // generated: five fixed rows have no model-reset
+                            // or insertion-order behaviour to reason about,
+                            // and a hidden AppMenuItem already takes no
+                            // height (see AppMenu's own contract).
+                            AppMenuItem {
+                                objectName: "composerSpellSuggestion0"
+                                visible: root.spellMenuSuggestions.length > 0
+                                text: visible ? root.spellMenuSuggestions[0] : ""
+                                onTriggered: root.applySpellSuggestion(
+                                                 root.spellMenuSuggestions[0])
+                            }
+                            AppMenuItem {
+                                objectName: "composerSpellSuggestion1"
+                                visible: root.spellMenuSuggestions.length > 1
+                                text: visible ? root.spellMenuSuggestions[1] : ""
+                                onTriggered: root.applySpellSuggestion(
+                                                 root.spellMenuSuggestions[1])
+                            }
+                            AppMenuItem {
+                                objectName: "composerSpellSuggestion2"
+                                visible: root.spellMenuSuggestions.length > 2
+                                text: visible ? root.spellMenuSuggestions[2] : ""
+                                onTriggered: root.applySpellSuggestion(
+                                                 root.spellMenuSuggestions[2])
+                            }
+                            AppMenuItem {
+                                objectName: "composerSpellSuggestion3"
+                                visible: root.spellMenuSuggestions.length > 3
+                                text: visible ? root.spellMenuSuggestions[3] : ""
+                                onTriggered: root.applySpellSuggestion(
+                                                 root.spellMenuSuggestions[3])
+                            }
+                            AppMenuItem {
+                                objectName: "composerSpellSuggestion4"
+                                visible: root.spellMenuSuggestions.length > 4
+                                text: visible ? root.spellMenuSuggestions[4] : ""
+                                onTriggered: root.applySpellSuggestion(
+                                                 root.spellMenuSuggestions[4])
+                            }
+                            AppMenuItem {
+                                objectName: "composerSpellAdd"
+                                visible: root.spellMenuWord !== ""
+                                text: qsTr("Add to dictionary")
+                                onTriggered: app.spell.addToDictionary(
+                                                 root.spellMenuWord)
+                            }
+                            AppMenuItem {
+                                objectName: "composerSpellIgnore"
+                                visible: root.spellMenuWord !== ""
+                                text: qsTr("Ignore")
+                                onTriggered: app.spell.ignoreWord(
+                                                 root.spellMenuWord)
+                            }
+                            AppMenuSeparator {
+                                visible: root.spellMenuWord !== ""
+                            }
                             AppMenuItem {
                                 text: qsTr("Cut")
                                 enabled: input.selectedText.length > 0
@@ -1485,6 +1740,38 @@ Item {
                         // The card is the visual container: the field itself
                         // is borderless and transparent — no inner pill.
                         background: Rectangle { color: "transparent" }
+
+                        // Spell underlines. Coalesced behind one short timer
+                        // rather than recomputed per keystroke: the geometry
+                        // pass calls positionToRectangle per misspelling and
+                        // there is no point running it between two letters of
+                        // the same word.
+                        Timer {
+                            id: spellTimer
+                            objectName: "composerSpellTimer"
+                            interval: 150
+                            repeat: false
+                            onTriggered: root.refreshSpellUnderlines()
+                        }
+                        Repeater {
+                            objectName: "composerSpellUnderlines"
+                            model: root.spellUnderlines
+                            delegate: Rectangle {
+                                objectName: "composerSpellUnderline"
+                                required property var modelData
+                                x: modelData.x
+                                y: modelData.y
+                                width: modelData.w
+                                height: 2
+                                radius: 1
+                                // The conventional colour for this, and the
+                                // only place in the composer that uses it —
+                                // it marks nothing destructive, so it is the
+                                // ink alone at reduced weight rather than a
+                                // danger surface.
+                                color: Qt.alpha(AppTheme.danger, 0.85)
+                            }
+                        }
 
                         // Inline mention chips over the semantic ranges the
                         // composer re-anchors on every edit.
@@ -1599,6 +1886,36 @@ Item {
                             visible: gifButton.visualFocus
                         }
                         onClicked: root.openGifPicker()
+                    }
+
+                    // Stickers (MSC2545 image packs).
+                    //
+                    // The glyph is `emoji_symbols` because the bundled
+                    // Material Symbols font is a SUBSET and regenerating it
+                    // needs the network (scripts/generate-icon-font.sh), so
+                    // there is no sticker glyph to reach for — every name in
+                    // Icon.qml's map is already spoken for somewhere. This
+                    // one is used nowhere else in the composer row (its only
+                    // other use is the emoji picker's Symbols category), so
+                    // it collides with nothing on this surface. Swap it the
+                    // next time the subset can be rebuilt.
+                    IconButton {
+                        id: stickerButton
+                        objectName: "composerStickerButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        // Narrow window: moves into the attach menu, exactly
+                        // like emoji and GIF.
+                        visible: !root.compactInputRow && app.stickers.available
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: AppTheme.radiusControl
+                        iconName: "emoji_symbols"
+                        iconSize: 20
+                        enabled: app.currentRoomId !== ""
+                        Accessible.name: qsTr("Insert a sticker")
+                        ToolTip.text: qsTr("Sticker")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.openStickerPicker()
                     }
 
                     // v0.7: voice capture. Idle: the designed mic slot.

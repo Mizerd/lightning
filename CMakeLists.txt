@@ -423,6 +423,8 @@ set(APP_SOURCES
     src/app/CustomAppIcon.cpp
     src/app/CustomThemeStore.h
     src/app/CustomThemeStore.cpp
+    src/app/FontManager.h
+    src/app/FontManager.cpp
     src/app/StormBandPainter.h
     src/app/StormBandPainter.cpp
     src/app/RoomInfoController.h
@@ -601,6 +603,16 @@ set(APP_SOURCES
     src/gif/MatrixGifTransport.h
     src/gif/MatrixGifTransport.cpp
 
+    # MSC2545 image packs: stickers and custom emoji.
+    src/stickers/StickerPack.h
+    src/stickers/StickerPack.cpp
+    src/stickers/StickerPackModel.h
+    src/stickers/StickerPackModel.cpp
+    src/stickers/StickerImageModel.h
+    src/stickers/StickerImageModel.cpp
+    src/stickers/StickerPackManager.h
+    src/stickers/StickerPackManager.cpp
+
     src/notifications/NotificationManager.h
     src/notifications/NotificationManager.cpp
     src/notifications/FallbackAvatar.h
@@ -628,10 +640,16 @@ set(APP_SOURCES
     src/spaces/RailEntryModel.cpp
     src/profile/ProfileBannerManager.h
     src/profile/ProfileBannerManager.cpp
+    src/profile/ProfileBioManager.h
+    src/profile/ProfileBioManager.cpp
+    src/profile/ProfileBadges.h
+    src/profile/ProfileBadges.cpp
     src/media/StagedImageStore.h
     src/media/StagedImageStore.cpp
     src/media/StagedImageProvider.h
     src/media/StagedImageProvider.cpp
+    src/media/ImageCropper.h
+    src/media/ImageCropper.cpp
     src/media/MediaPlaybackController.h
     src/media/MediaPlaybackController.cpp
     src/media/VideoPosterExtractor.h
@@ -753,6 +771,7 @@ set(APP_QML_FILES
     # dialogs with grey stock buttons, body-text-grey progress bars and
     # spinners, and a scrollbar that never saw a Lightning colour.
     qml/AppDialog.qml
+    qml/ImageCropDialog.qml
     qml/AppProgressBar.qml
     qml/AppBusyIndicator.qml
     qml/AppScrollBar.qml
@@ -823,6 +842,7 @@ set(APP_QML_FILES
     qml/ThemeEditorDialog.qml
     qml/ColorPickerPanel.qml
     qml/GifPicker.qml
+    qml/StickerPicker.qml
     qml/QuickSwitcher.qml
     qml/ImageViewerOverlay.qml
     qml/AccountMenu.qml
@@ -992,7 +1012,7 @@ function(_lightning_configure_qml_module target _scope)
     # bare filename, not the "models/HeaderName.h" path used by quoted
     # includes elsewhere. Add each subdirectory holding a QML-registered type
     # so that angle-bracket lookup resolves.
-    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update src/calls src/theme)
+    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update src/calls src/theme src/stickers)
     # Build-only GIF key header (may be keyless); include path only, no values.
     target_include_directories(${target} ${_scope} "${LIGHTNING_GENERATED_DIR}")
 
@@ -1492,6 +1512,27 @@ if(BUILD_TESTING)
     target_include_directories(custom-app-icon-test PRIVATE src)
     target_link_libraries(custom-app-icon-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Test)
+
+    # User-selectable and user-importable fonts. The link list is part of the
+    # assertion: FontManager sees Qt, SettingsManager and the app-data paths
+    # and NOTHING ELSE — no MatrixClient, no network, nothing that could hand
+    # it a path chosen by anybody but the person at the keyboard.
+    qt_add_executable(font-manager-test
+        tests/FontManagerTest.cpp
+        src/app/FontManager.h
+        src/app/FontManager.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(font-manager-test PRIVATE src)
+    target_compile_definitions(font-manager-test PRIVATE
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(font-manager-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME font-manager COMMAND font-manager-test)
     add_test(NAME custom-app-icon COMMAND custom-app-icon-test)
 
     # The VAAPI texture-export warning gate: pass-through window, storm
@@ -2015,6 +2056,21 @@ if(BUILD_TESTING)
     set_tests_properties(gif-picker-selection-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # 2026-08-28 tester round: the Saved tab's PROVIDER half rendered for the
+    # first time (every earlier saved-tab test cleared favorites and covered
+    # only the local byte store), the empty-state copy asserted as visible,
+    # a real press-drag on the resize grip over a real Flickable, and the
+    # nav row's right-aligned list tabs asserted as geometry at two widths.
+    qt_add_executable(gif-saved-tab-qml-test
+        tests/GifSavedTabQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(gif-saved-tab-qml-test)
+    target_link_libraries(gif-saved-tab-qml-test PRIVATE Qt6::Test)
+    add_test(NAME gif-saved-tab-qml COMMAND gif-saved-tab-qml-test)
+    set_tests_properties(gif-saved-tab-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.7: authenticated startup lifecycle — the Boot/RestoringSession
     # state, the never-instantiate-login guarantee for valid sessions, the
     # genuine no-account and failed-restore login states.
@@ -2406,6 +2462,28 @@ if(BUILD_TESTING)
     target_include_directories(pinned-messages-test PRIVATE src)
     target_link_libraries(pinned-messages-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME pinned-messages COMMAND pinned-messages-test)
+
+    # MSC2545 stickers and custom emoji: StickerPackManager policy — snapshot
+    # ingestion and usage narrowing, the selection rules, canSave (plain mxc
+    # only, never gated on data nobody fetched), the send destination and the
+    # no-room-fallback thread rule, bounded emoticon lookup, and generation
+    # isolation across sign-out.
+    qt_add_executable(sticker-packs-test
+        tests/StickerPacksTest.cpp
+        src/stickers/StickerPack.h
+        src/stickers/StickerPack.cpp
+        src/stickers/StickerPackModel.h
+        src/stickers/StickerPackModel.cpp
+        src/stickers/StickerImageModel.h
+        src/stickers/StickerImageModel.cpp
+        src/stickers/StickerPackManager.h
+        src/stickers/StickerPackManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(sticker-packs-test PRIVATE src)
+    target_link_libraries(sticker-packs-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME sticker-packs COMMAND sticker-packs-test)
 
     # v0.7.x room upgrades: the banner-and-link contract. An unknown
     # successor stays Unknown (never "inaccessible"), a joined one navigates
@@ -3206,6 +3284,16 @@ if(BUILD_TESTING)
         src/models/LinkPreview.cpp
         src/models/LinkPreviewController.h
         src/models/LinkPreviewController.cpp
+        # Not a link-preview dependency, despite the name of the class that
+        # pulls it in: LinkPreviewController::linkifiedBody() is the TIMELINE
+        # BODY renderer for a message with no formatted_body (MessageDelegate
+        # binds bodyLabel.text to it), and it sizes inline emoji through
+        # MessageHtml::markEmoji for the same reason sanitize() does — so the
+        # two body paths cannot show one emoji at two sizes. MessageHtml is
+        # Qt6::Core only, so this adds no library to a target that links
+        # Qt6::Core alone.
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
         src/app/SettingsManager.h
         src/app/SettingsManager.cpp
         src/storage/SecretStore.h
@@ -3445,6 +3533,32 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME profile-banner COMMAND profile-banner-test)
 
+    # Profile bios (MSC4440 over MSC4133) + the decorative badge table. Same
+    # honesty as banners: "no bio", "not asked yet" and "this server has no
+    # extended profiles" are three different facts that all render as nothing,
+    # and only the third stops the client asking.
+    qt_add_executable(profile-bio-badge-test
+        tests/ProfileBioBadgeTest.cpp
+        src/profile/ProfileBioManager.h
+        src/profile/ProfileBioManager.cpp
+        src/profile/ProfileBadges.h
+        src/profile/ProfileBadges.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(profile-bio-badge-test PRIVATE src)
+    target_link_libraries(profile-bio-badge-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME profile-bio-badge COMMAND profile-bio-badge-test)
+
     # v0.6.1: E2EE diagnostics redaction — never reveals full ids, stable for
     # correlation.
     qt_add_executable(e2ee-diagnostics-test
@@ -3466,6 +3580,33 @@ if(BUILD_TESTING)
         SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(icon-chrome-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME icon-chrome COMMAND icon-chrome-test)
+
+    # 0.8.x: the crop/adjust pre-step every display-image upload goes through.
+    # The maths is pure and lives in `imagecrop::`; this proves the rectangle,
+    # the cap and the FORMAT HONESTY (bytes are the format they are named) and
+    # that an SVG is refused by magic before anything decodes it.
+    qt_add_executable(image-crop-test
+        tests/ImageCropTest.cpp
+        src/media/ImageCropper.h
+        src/media/ImageCropper.cpp
+        src/media/StagedImageStore.h
+        src/media/StagedImageStore.cpp
+    )
+    target_include_directories(image-crop-test PRIVATE src)
+    target_link_libraries(image-crop-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME image-crop COMMAND image-crop-test)
+
+    # 0.8.x: the wiring contract — ONE crop dialog, every display-image upload
+    # site routed through it, and the sites deliberately left alone (chat
+    # attachments, Save-As, the local app icon) still left alone.
+    qt_add_executable(image-crop-contract-test
+        tests/ImageCropDialogContractTest.cpp
+    )
+    target_compile_definitions(image-crop-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(image-crop-contract-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME image-crop-contract COMMAND image-crop-contract-test)
 
     # v0.7: desktop-integration contract (launcher entry, hicolor icons,
     # install rules, Qt identity wiring).
@@ -3889,6 +4030,18 @@ if(BUILD_TESTING)
     target_link_libraries(message-html-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME message-html COMMAND message-html-test)
 
+    # Inline emoji sizing (MessageHtml::markEmoji): what a body renders as
+    # when it carries an emoji, including the big-emoji suppression and the
+    # code-span exclusion. Behavioural, not a source scan.
+    qt_add_executable(message-emoji-size-test
+        tests/MessageEmojiSizeTest.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+    )
+    target_include_directories(message-emoji-size-test PRIVATE src)
+    target_link_libraries(message-emoji-size-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME message-emoji-size COMMAND message-emoji-size-test)
+
     # Shared control system: rendered proof that AppButton kinds,
     # SegmentedControl, AppTextField, and the AppComboBox popup are flat,
     # token-driven, and theme-tracking — no Fusion bevels or gradients.
@@ -4111,6 +4264,83 @@ if(BUILD_TESTING)
     target_compile_definitions(updates-ui-contract-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME updates-ui-contract COMMAND updates-ui-contract-test)
+
+    # tests/ShortcutRegistryTest.cpp shipped with the rebindable-shortcuts
+    # feature in cca3011 and was NEVER REGISTERED HERE, so its 19 cases have
+    # never been built or run once. Found while fixing the thread composer's
+    # Ctrl+B: the suite that covers conflict refusal, reserved sequences and
+    # global-vs-editor shadowing was dead the whole time that code shipped.
+    qt_add_executable(shortcut-registry-test
+        tests/ShortcutRegistryTest.cpp
+        src/app/ShortcutRegistry.h
+        src/app/ShortcutRegistry.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(shortcut-registry-test PRIVATE src)
+    target_link_libraries(shortcut-registry-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME shortcut-registry COMMAND shortcut-registry-test)
+
+    # 2026-08-28: when a rail folder exists and when it stops existing. The
+    # deletion rule Rokas asked for ("if a folder is empty, delete it") is a
+    # fact about the STORE and never about what the rail managed to render,
+    # and the same suite pins the drag defect that was manufacturing empty
+    # folders: a reorder named every folder row in its atomic write, which
+    # emptied every COLLAPSED folder it passed.
+    qt_add_executable(rail-folder-lifecycle-test
+        tests/RailFolderLifecycleTest.cpp
+        src/spaces/RailLayoutStore.h
+        src/spaces/RailLayoutStore.cpp
+        src/spaces/RailEntryModel.h
+        src/spaces/RailEntryModel.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(rail-folder-lifecycle-test PRIVATE src)
+    target_link_libraries(rail-folder-lifecycle-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME rail-folder-lifecycle COMMAND rail-folder-lifecycle-test)
+
+    # 2026-08-28: the People list scoped to the selected Space — the Space
+    # roster SpaceManager fetches, the Classic list's DM scope, and the
+    # Channels Space view's People group. The fail directions are opposite in
+    # the two layouts and that is the point of the suite.
+    qt_add_executable(space-people-scope-test
+        tests/SpacePeopleScopeTest.cpp
+        src/models/RoomListModel.h
+        src/models/RoomListModel.cpp
+        src/models/SpaceChannelModel.h
+        src/models/SpaceChannelModel.cpp
+        src/models/DirectAvatarResolver.h
+        src/models/DirectAvatarResolver.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/spaces/RailLayoutStore.h
+        src/spaces/RailLayoutStore.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(space-people-scope-test PRIVATE src)
+    target_link_libraries(space-people-scope-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME space-people-scope COMMAND space-people-scope-test)
+
 endif()
 
 # ----------------------------------------------------------------------
@@ -4166,3 +4396,88 @@ endforeach()
 install(FILES data/icons/lightning.svg
     DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
     RENAME lightning.svg)
+
+# Dismissing a link preview: per-(room,event) keying so one click can never
+# collapse a card above the reader, the dismissal checked before the auto-load
+# dispatch, undo that grants no consent, and the bounded oldest-released set.
+# Appended (rather than placed beside link-preview-test) purely to avoid
+# colliding with concurrent edits elsewhere in this file.
+if(BUILD_TESTING)
+    qt_add_executable(link-preview-dismiss-test
+        tests/LinkPreviewDismissTest.cpp
+        src/models/LinkPreview.h
+        src/models/LinkPreview.cpp
+        src/models/LinkPreviewController.h
+        src/models/LinkPreviewController.cpp
+        # linkifiedBody() renders the timeline body, so the controller pulls
+        # in MessageHtml; it is Qt6::Core only and adds no library here.
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(link-preview-dismiss-test PRIVATE src)
+    target_link_libraries(link-preview-dismiss-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME link-preview-dismiss COMMAND link-preview-dismiss-test)
+endif()
+
+# ---------------------------------------------------------------------------
+# Composer spell checking (2026-08-28).
+#
+# Appended rather than added to APP_SOURCES because that list is consumed
+# above (APP_LIB_SOURCES is deliberately blanked once the shared test library
+# has taken it), and because this file is shared with concurrent work: an
+# append cannot disturb a list another round is editing.
+#
+# Both consumers get the sources: the application, and the shared test
+# library every C++/QML test target links. The testlib only exists when tests
+# are enabled, hence the TARGET guard.
+# ---------------------------------------------------------------------------
+set(LIGHTNING_SPELL_SOURCES
+    src/text/SpellBackend.h
+    src/text/SpellBackend.cpp
+    src/text/SpellChecker.h
+    src/text/SpellChecker.cpp
+)
+target_sources(matrix-client PRIVATE ${LIGHTNING_SPELL_SOURCES})
+if(TARGET lightning-app-testlib)
+    target_sources(lightning-app-testlib PRIVATE ${LIGHTNING_SPELL_SOURCES})
+endif()
+
+# Composer spell checking + the tray badge (2026-08-28). Deliberately a
+# STANDALONE target rather than one linking lightning-app-testlib: everything
+# under test here is pure — a tokenizer, a policy, and a static label rule —
+# and the link list is part of the assertion. SpellChecker sees Qt and its own
+# backend interface and nothing else; nothing that could hand it a network, a
+# room, or a message it was not given.
+if(BUILD_TESTING)
+    qt_add_executable(composer-spell-test
+        tests/ComposerSpellTest.cpp
+        src/text/SpellChecker.h
+        src/text/SpellChecker.cpp
+        src/text/SpellBackend.h
+        src/text/SpellBackend.cpp
+        src/app/TrayIcon.h
+        src/app/TrayIcon.cpp
+    )
+    target_include_directories(composer-spell-test PRIVATE src)
+    target_compile_definitions(composer-spell-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(composer-spell-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+    add_test(NAME composer-spell COMMAND composer-spell-test)
+endif()
+
+# The spell underline against the PRODUCTION composer, not against the policy
+# behind it. Offscreen, like every other QML suite here.
+if(BUILD_TESTING)
+    qt_add_executable(composer-spell-qml-test
+        tests/ComposerSpellQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(composer-spell-qml-test)
+    target_link_libraries(composer-spell-qml-test PRIVATE Qt6::Test)
+    add_test(NAME composer-spell-qml COMMAND composer-spell-qml-test)
+    set_tests_properties(composer-spell-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()

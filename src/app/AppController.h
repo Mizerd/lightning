@@ -22,9 +22,15 @@
 #include "crypto/CryptoManager.h"
 #include "crypto/QrImageProvider.h"
 #include "app/TrayIcon.h"
+#include "text/SpellChecker.h"
+
+#include <QTimer>
 #include "profile/ProfileBannerManager.h"
+#include "profile/ProfileBadges.h"
+#include "profile/ProfileBioManager.h"
 #include "media/MediaBridge.h"
 #include "media/StagedImageStore.h"
+#include "media/ImageCropper.h"
 #include "media/MediaPlaybackController.h"
 #include "media/MediaManager.h"
 #include "media/VoiceRecorder.h"
@@ -34,6 +40,7 @@
 #include "models/LinkPreviewController.h"
 #include "gif/GifSearchController.h"
 #include "gif/GifSendController.h"
+#include "stickers/StickerPackManager.h"
 #include "gif/MatrixGifTransport.h"
 #include "models/PaginationController.h"
 #include "models/QuickSwitcherModel.h"
@@ -152,6 +159,13 @@ class AppController : public QObject
                NOTIFY ownDisplayNameStateChanged)
     Q_PROPERTY(QString ownDisplayNameError READ ownDisplayNameError
                NOTIFY ownDisplayNameStateChanged)
+    // Own AVATAR write state. Deliberately a SEPARATE op and error from the
+    // display name: they are two independent requests and one failing must
+    // not blank the other's message.
+    Q_PROPERTY(bool ownAvatarBusy READ ownAvatarBusy
+               NOTIFY ownAvatarStateChanged)
+    Q_PROPERTY(QString ownAvatarError READ ownAvatarError
+               NOTIFY ownAvatarStateChanged)
 
     // v0.5.0-prep+10: redacted Rust SDK device id (e.g. "GAOT...GBSK")
     // so Settings can show which Lightning session is running without
@@ -229,6 +243,16 @@ class AppController : public QObject
     // Profile banners (MSC4427 / MSC4133), read and written under both
     // the stable and the Commet field names.
     Q_PROPERTY(ProfileBannerManager* banners READ banners CONSTANT)
+    // Profile bios (MSC4440 / MSC4133), read and written under both the
+    // stable and the MSC's unstable field names. Plain text only.
+    Q_PROPERTY(ProfileBioManager* bio READ bio CONSTANT)
+    /// Decorative thank-you badges beside a name. A fixed local table — no
+    /// Matrix state, no permission, no verification claim. See ProfileBadges.
+    Q_PROPERTY(ProfileBadges* badges READ badges CONSTANT)
+    /// Crop / adjust for every display-image upload (avatars and banners).
+    /// See ImageCropper: it is a PRE-STEP that writes a cropped temp file,
+    /// so every upload sink keeps the local-path contract it already had.
+    Q_PROPERTY(ImageCropper* imageCrop READ imageCrop CONSTANT)
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
     Q_PROPERTY(AccountManager* accounts READ accounts CONSTANT)
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
@@ -241,6 +265,12 @@ class AppController : public QObject
     Q_PROPERTY(TimelineModel* timeline READ timeline CONSTANT)
     Q_PROPERTY(QAbstractItemModel* timelineView READ timelineView CONSTANT)
     Q_PROPERTY(MessageComposer* composer READ composer CONSTANT)
+    /// The composer's spell checker. Typed QObject* rather than
+    /// SpellChecker* on purpose: it needs no QML type registration to be
+    /// used from QML, and every method QML calls on it is Q_INVOKABLE.
+    /// Never null — an unavailable platform reports `available: false`, and
+    /// QML draws nothing rather than being handed a null object.
+    Q_PROPERTY(QObject* spell READ spellChecker CONSTANT)
     // v0.7 outgoing @-mentions: the current-room member suggestion model
     // shared by the room and thread composer mention popups.
     // Whether this session actually has a system tray to close INTO. QML
@@ -356,6 +386,9 @@ class AppController : public QObject
     // v0.6.1: multi-provider client-side GIF browser (app.gif) + send pipeline.
     Q_PROPERTY(GifSearchController* gif READ gif CONSTANT)
     Q_PROPERTY(GifSendController* gifSend READ gifSend CONSTANT)
+    // MSC2545 image packs: the sticker picker's controller, custom-emoji
+    // lookup, and the m.sticker send / "add to my stickers" paths.
+    Q_PROPERTY(StickerPackManager* stickers READ stickers CONSTANT)
     // Application updates (app.updateManager). Deliberately owns no Matrix
     // state: it is constructed once, never re-created on sign-in or account
     // switch, and nothing about it is account-scoped. See docs/updates.md.
@@ -498,6 +531,9 @@ public:
     RailLayoutStore *railLayout() const;
     RailEntryModel *railEntries() const;
     ProfileBannerManager *banners() const;
+    ProfileBioManager *bio() const;
+    ProfileBadges *badges() const;
+    ImageCropper *imageCrop() { return &m_imageCrop; }
     AuthManager *auth() const;
     AccountManager *accounts() const;
     RoomListModel *roomList() const;
@@ -630,6 +666,7 @@ public:
     GifSearchController *gif() const { return m_gif.get(); }
     lightning::update::UpdateManager *updateManager() const { return m_updateManager.get(); }
     GifSendController *gifSend() const { return m_gifSend.get(); }
+    StickerPackManager *stickers() const { return m_stickers.get(); }
     TimelineScrollController *timelineScroll() const { return m_timelineScroll.get(); }
     TimelineScrollController *threadScroll() const { return m_threadScroll.get(); }
     SecretStore *secretStore() const { return m_secretStore.get(); }
@@ -751,6 +788,19 @@ public Q_SLOTS:
     // to remove the field rather than to store an empty name.
     Q_INVOKABLE bool clearOwnDisplayName();
     Q_INVOKABLE void dismissOwnDisplayNameError();
+
+    bool ownAvatarBusy() const { return m_avatarOp != 0; }
+    QString ownAvatarError() const { return m_avatarError; }
+    // True when this backend can write the account's own avatar at all.
+    // Mirrors canEditOwnDisplayName: a control that cannot work is worse
+    // than no control, so QML hides the whole block on false.
+    Q_INVOKABLE bool canEditOwnAvatar() const;
+    // Returns true when a write was DISPATCHED. The path is a LOCAL FILE
+    // (the crop dialog's output); Rust sniffs its MIME from the bytes and
+    // refuses anything that is not a raster image it accepts.
+    Q_INVOKABLE bool submitOwnAvatar(const QUrl &fileUrl);
+    Q_INVOKABLE bool clearOwnAvatar();
+    Q_INVOKABLE void dismissOwnAvatarError();
 
     // v0.7. Fully remove one saved account from this device: if it is the
     // active account this performs a real (server) logout, otherwise it
@@ -953,6 +1003,7 @@ public Q_SLOTS:
             : QStringLiteral("image://lightning-qr/") + m_verificationQrToken;
     }
     bool trayAvailable() const { return TrayIcon::platformSupportsTray(); }
+    QObject *spellChecker() { return &m_spell; }
     QRect restorableWindowGeometry() const { return m_restorableWindowGeometry; }
     bool verificationQrScanned() const { return m_verificationQrScanned; }
     bool verificationQrConfirming() const { return m_verificationQrConfirming; }
@@ -1000,6 +1051,8 @@ Q_SIGNALS:
     void initialSyncDoneChanged();
     void accountSwitchingChanged();
     void ownDisplayNameStateChanged();
+    void ownAvatarStateChanged();
+    void ownAvatarSaved();
     // Server-CONFIRMED success. The editor closes on this and on nothing
     // else: renaming to the value the account record already held emits no
     // accountsChanged at all (SettingsManager::updateAccountProfile writes
@@ -1115,6 +1168,9 @@ private:
     // in flight. The counter is separate from the backend's own op ids on
     // purpose — this is a caller-owned id, like PresenceManager's.
     quint64 m_displayNameOp = 0;
+    quint64 m_avatarOp = 0;
+    quint64 m_avatarOpCounter = 0;
+    QString m_avatarError;
     quint64 m_displayNameOpCounter = 0;
     QString m_displayNameError;
     // Dispatch helper shared by the set and clear paths, so the op id is
@@ -1132,6 +1188,7 @@ private:
     // makes a late answer stale, so the next account's editor can never
     // take it as its own.
     void retireOwnDisplayNameWrite();
+    void retireOwnAvatarWrite();
     // v0.7 add-account mode: the account to return to when an add-account
     // login fails or the user presses Back. Entering the login screen while
     // a session is active sets it; success with a new account clears it.
@@ -1151,6 +1208,8 @@ private:
     std::unique_ptr<RailLayoutStore> m_railLayout;
     std::unique_ptr<RailEntryModel> m_railEntries;
     std::unique_ptr<ProfileBannerManager> m_banners;
+    std::unique_ptr<ProfileBioManager> m_bio;
+    std::unique_ptr<ProfileBadges> m_badges;
     bool m_shuttingDown = false;
     // Development-only screenshot/demo mode (never true in a release build; the
     // compile option that enables beginScreenshotDemo cannot coexist with a
@@ -1243,6 +1302,7 @@ private:
     std::unique_ptr<GifSearchController> m_gif;
     std::unique_ptr<lightning::update::UpdateManager> m_updateManager;
     std::unique_ptr<GifSendController> m_gifSend;
+    std::unique_ptr<StickerPackManager> m_stickers;
     std::unique_ptr<TimelineScrollController> m_timelineScroll;
     std::unique_ptr<TimelineScrollController> m_threadScroll;
 
@@ -1252,7 +1312,21 @@ private:
     // point that drops both, and every flow-ending path calls it.
     QrCodeStore m_qrCodeStore;
     StagedImageStore m_stagedImages;
+    ImageCropper m_imageCrop;
     TrayIcon m_tray;
+    SpellChecker m_spell;
+    // Pushes the account's unread state onto the tray. It READS the room
+    // snapshot the client already holds and asks the server for nothing —
+    // the same rule the room-list call glyph is held to, because a tray
+    // badge that refreshed itself would issue one request per room per
+    // rebuild.
+    void refreshTrayUnread();
+    // COALESCED, for the same reason RoomListModel coalesces its own
+    // reconcile through a zero-interval single shot: `roomUpdated` fires per
+    // room and `MatrixClient::rooms()` returns the whole snapshot BY VALUE,
+    // so reacting to each one directly would copy every RoomInfo in the
+    // account once per delivered event. One pass per event-loop turn.
+    QTimer m_trayUnreadCoalesce;
     void refreshTrayState();
     // Computed once in the constructor; see restorableWindowGeometry().
     QRect m_restorableWindowGeometry;

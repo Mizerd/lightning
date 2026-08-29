@@ -603,8 +603,14 @@ void SettingsSessionTest::uiFontPersistsPerAccountAndValidates()
     QCOMPARE(settings.uiFont(), QStringLiteral("Inter"));
     QCOMPARE(fontSpy.count(), 1);
 
-    // An unknown family never persists — the default applies instead.
+    // A family this build does not bundle DOES persist now: fonts became
+    // user-selectable from everything the host has installed, and this class
+    // (Qt6::Core only, by ~20 test targets) cannot ask whether a font exists.
+    // FontManager resolves the name and falls back without rewriting it.
     settings.setUiFont(QStringLiteral("Comic Sans MS"));
+    QCOMPARE(settings.uiFont(), QStringLiteral("Comic Sans MS"));
+    // What still never persists is a name that is not a name.
+    settings.setUiFont(QStringLiteral("evil\"; color:red }"));
     QCOMPARE(settings.uiFont(), QStringLiteral("Manrope"));
 
     settings.setUiFont(QStringLiteral("Plus Jakarta Sans"));
