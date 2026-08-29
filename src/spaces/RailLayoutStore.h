@@ -169,6 +169,11 @@ private:
 
     const Layout &load() const;
     void save(const Layout &layout);
+    /// Removes every folder this write EMPTIED — one whose `spaceIds` is now
+    /// empty and was not empty in the layout that was loaded. Never touches a
+    /// folder that was created empty, and never judges emptiness by what the
+    /// rail managed to render (see the implementation for why both matter).
+    Layout dropEmptiedFolders(const Layout &layout) const;
     static QString makeFolderId(const Layout &layout);
 
     SettingsManager *m_settings = nullptr;

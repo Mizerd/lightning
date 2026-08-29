@@ -128,6 +128,11 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
         // room change AND guarantees the hierarchy is resolved first.
         connect(m_spaces, &SpaceManager::spacesChanged, this,
                 &SpaceChannelModel::scheduleRebuild);
+        // A roster arriving is the only thing that can make the Space view's
+        // People group appear (or, on an account change, vanish). It is not a
+        // room change, so nothing else here would notice it.
+        connect(m_spaces, &SpaceManager::spaceRosterChanged, this,
+                &SpaceChannelModel::scheduleRebuild);
     }
     if (m_client) {
         connect(m_client, &QObject::destroyed, this, [this] {
@@ -748,7 +753,65 @@ int SpaceChannelModel::buildSpace(QVector<Row> &rows,
         }
         shown += appendGroup(rows, header, children);
     }
+    shown += appendSpacePeople(rows, byId);
     return shown;
+}
+
+int SpaceChannelModel::appendSpacePeople(QVector<Row> &rows,
+                                         const QHash<QString, RoomInfo> &byId)
+{
+    // THE SPACE'S PEOPLE — the DMs you have with people who are in this
+    // Space. Not the Space's children: a DM cannot be one, and this group
+    // makes no such claim. It answers the question the People chip answers in
+    // Classic, in the layout that has no chips.
+    //
+    // THIS ONE FAILS CLOSED, and that is the opposite of the Classic rule on
+    // purpose. Classic REMOVES DMs from a list that already shows them, so an
+    // unknown roster must leave them alone; here the group ADDS them to a
+    // view that has none, so an unknown roster must add nothing. Fail the
+    // other way and every Space would list every DM until its roster landed.
+    // `SpaceManager::directScope` returns 1 only for a complete roster, so
+    // this needs no separate load-state branch — but the reason it does not
+    // is exactly that, and not an oversight.
+    //
+    // Every DM stays reachable in the Direct Messages tab whatever this does,
+    // which is what makes a scope safe to apply at all.
+    if (!m_spaces)
+        return 0;
+    const QString spaceId = m_scopeSpaceId;
+    if (!SpaceManager::isRealSpaceId(spaceId)
+        || !m_spaces->spaceRosterKnown(spaceId)) {
+        return 0;
+    }
+    QVector<Row> people;
+    for (auto it = byId.constBegin(); it != byId.constEnd(); ++it) {
+        const RoomInfo &info = *it;
+        if (info.isSpace || !info.isDirect)
+            continue;
+        // Joined only. A DM INVITE lives in the People tab's Invites group —
+        // it is an action on an account, not a member of a Space, and the
+        // invite-passes-every-filter rule inside appendGroup would drag one
+        // in here regardless of whose DM it is.
+        if (info.membership != RoomInfo::Joined)
+            continue;
+        QStringList peers = info.directUserIds;
+        if (peers.isEmpty() && !info.directUserId.isEmpty())
+            peers.append(info.directUserId);
+        if (m_spaces->directScope(spaceId, peers) != 1)
+            continue;
+        people.append(roomRow(info));
+    }
+    if (people.isEmpty())
+        return 0;
+    std::sort(people.begin(), people.end(), [](const Row &a, const Row &b) {
+        const int cmp = a.name.compare(b.name, Qt::CaseInsensitive);
+        return cmp != 0 ? cmp < 0 : a.id < b.id;
+    });
+    Row header;
+    header.id = spacePeopleGroupId();
+    header.kind = GroupKind;
+    header.name = tr("People");
+    return appendGroup(rows, header, people);
 }
 
 void SpaceChannelModel::rebuild()

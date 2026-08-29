@@ -4,9 +4,10 @@
 // The store half is pure over a model snapshot, which is the point: the rail
 // can be rearranged, filed and reloaded without a homeserver, a ListView or a
 // gesture. What those cases pin is the behaviour a user would notice — a new
-// Space does not barge into a hand-made order, a folder that empties does not
-// vanish, deleting a folder puts its Spaces back where the folder was, and a
-// pseudo row can never be dragged or filed.
+// Space does not barge into a hand-made order, a folder the user empties goes
+// away with the write that emptied it (RailFolderLifecycleTest owns the rest
+// of that rule), deleting a folder puts its Spaces back where the folder was,
+// and a pseudo row can never be dragged or filed.
 //
 // The gesture half lives in RailEntryModel, which is exactly why it is
 // testable at all: the preview reorder, the reorder-versus-group decision and
@@ -258,7 +259,16 @@ private Q_SLOTS:
                  (QStringList{ QStringLiteral("[Work]"), QStringLiteral("!c:x") }));
     }
 
-    void aSpaceIsInAtMostOneFolderAndAnEmptyFolderStays()
+    // 2026-08-28: the second half of this case is INVERTED, on Rokas's
+    // explicit request — "if a Space folder is empty, delete it". It used to
+    // assert that an emptied folder stays, on the reasoning that a place the
+    // user made should not vanish under them. What it actually produced was a
+    // rail full of empty tiles, because the drag path emptied folders the
+    // user never touched (see
+    // aCollapsedFolderSurvivesAReorderDragThatNeverShowedIt in
+    // RailFolderLifecycleTest). The first half — a Space is in at most one
+    // folder — is untouched and is why this case exists at all.
+    void aSpaceIsInAtMostOneFolderAndAnEmptiedFolderGoes()
     {
         SettingsManager settings;
         RailLayoutStore store(&settings);
@@ -271,13 +281,16 @@ private Q_SLOTS:
         store.setSpaceFolder(QStringLiteral("!a:x"), play);
         QCOMPARE(store.folderOf(QStringLiteral("!a:x")), play);
 
-        // The now-empty folder is still there: it is a place the user made,
-        // and one that vanished when its last Space left would be a bug.
+        // Work held a Space and now holds none, so the write that emptied it
+        // took it with it. Play was created empty and NEVER filled, so it
+        // stays: "New folder…" makes one for the user to drag Spaces into,
+        // and deleting it before they can is the action failing, not a
+        // cleanup. (Play is non-empty here anyway — !a:x just moved in.)
         const QVariantList arranged = store.arrange(withPseudo({
             space(QStringLiteral("!a:x"), QStringLiteral("A")),
         }));
         QCOMPARE(idsOf(arranged).mid(2),
-                 (QStringList{ QStringLiteral("[Work]"), QStringLiteral("[Play]"),
+                 (QStringList{ QStringLiteral("[Play]"),
                                QStringLiteral("!a:x") }));
     }
 

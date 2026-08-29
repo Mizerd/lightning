@@ -155,6 +155,47 @@ public:
         const QHash<QString, RoomInfo> &byId) const;
     Q_INVOKABLE QVariantList addableRooms(const QString &spaceId,
                                           const QString &filter) const;
+
+    // ---- The Space's PEOPLE ------------------------------------------------
+    //
+    // "Who is in this Space" is one question with no cheap local answer. A
+    // Space's rooms are known; their MEMBERS are not — RoomInfo::members is
+    // only populated for rooms whose roster was actually fetched, so deriving
+    // this from the child rooms would make the answer depend on which rooms
+    // the user happened to open, and asking every child room for its roster
+    // is one /members request per room (and CLAUDE.md records that a
+    // membership read falls back to a full /state for an idle room).
+    //
+    // So the roster is the SPACE ROOM's own joined-and-invited membership,
+    // which is Element's reading of the same question and costs ONE bounded
+    // request per Space per session, fired when the Space is selected. The
+    // honest limitation: somebody who is in a room inside the Space but has
+    // not joined the Space room itself is not "in the Space" by this rule.
+
+    /// True once a COMPLETE roster for `spaceId` has arrived. False while one
+    /// is unfetched, in flight, failed, or truncated by the snapshot cap — a
+    /// partial roster is not a smaller truth, it is a different one, and a
+    /// caller that filtered on it would hide conversations at random.
+    Q_INVOKABLE bool spaceRosterKnown(const QString &spaceId) const;
+    /// Whether `userId` is a joined or invited member of the Space room.
+    /// Always false for an unknown roster; ask spaceRosterKnown() first.
+    Q_INVOKABLE bool spaceHasMember(const QString &spaceId,
+                                    const QString &userId) const;
+    /// The one place the People scope is decided, so the two layouts cannot
+    /// drift: 1 = this DM belongs to the Space's people, 0 = it does not,
+    /// -1 = UNKNOWN (no complete roster, or the DM names no peer at all).
+    /// The two callers choose their own fail direction for -1, because they
+    /// need opposite ones: Classic REMOVES DMs from a list that shows them,
+    /// Channels ADDS them to a view that has none.
+    int directScope(const QString &spaceId, const QStringList &peerIds) const;
+    /// Requests the roster for `spaceId` once per Space per client. A no-op
+    /// for a pseudo id, a non-Space, an already-known or in-flight roster, or
+    /// a backend that cannot answer.
+    void ensureSpaceRoster(const QString &spaceId);
+    /// Whether `spaceId` is a real Space room id rather than a pseudo rail
+    /// selection ("", "@orphans", "@people"). Every People-scope rule keys on
+    /// this: a pseudo selection is a view of everything and scopes nothing.
+    static bool isRealSpaceId(const QString &spaceId);
     // Sends the real m.space.child state event through the backend. The
     // authoritative hierarchy update arrives via sync (roomsChanged →
     // rebuild); childAddFinished only reports the send outcome.
@@ -180,11 +221,22 @@ Q_SIGNALS:
                              bool ok);
     void childSuggestedFinished(const QString &spaceId, const QString &roomId,
                                 bool suggested, bool ok);
+    /// A complete roster for `spaceId` arrived (or was dropped on an account
+    /// change). Both room-list models re-filter on it; nothing else should
+    /// need it.
+    void spaceRosterChanged(const QString &spaceId);
 
 private Q_SLOTS:
     void rebuild();
+    /// One member snapshot. Ignores every op this manager did not issue, and
+    /// records only a COMPLETE, successful, non-truncated roster.
+    void onRoomMembersReceived(quint64 opId, const QString &roomId,
+                               const QVariantMap &snapshot);
 
 private:
+    /// Forgets every roster and every in-flight request, and announces the
+    /// ones that were known so a filter built on them re-opens.
+    void dropSpaceRosters();
     struct SpaceEntry {
         RoomInfo info;              // The Space room itself.
         QStringList childRoomIds;   // TRANSITIVE member rooms, ordered.
@@ -216,6 +268,12 @@ private:
     QSet<QString> m_orphanRoomIds;          // Rooms not in any Space.
     int m_homeUnreadTotal = 0;
     int m_homeHighlightTotal = 0;
+    // The Space rosters (see the People block above). `m_spaceMembers` holds
+    // only COMPLETE ones — a truncated or failed snapshot is never recorded,
+    // so "known" and "usable" are the same fact. `m_rosterRequested` is the
+    // once-per-Space-per-client guard; both are cleared with the client.
+    QHash<QString, QSet<QString>> m_spaceMembers;
+    QSet<QString> m_rosterRequested;
     // v0.7: pending m.space.child sends, opId → (spaceId, roomId).
     QHash<quint64, QPair<QString, QString>> m_pendingChildAdds;
     QHash<quint64, QPair<QString, QString>> m_pendingChildRemovals;

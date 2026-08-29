@@ -727,8 +727,23 @@ void RailEntryModel::commitReorder(const QString &dragged)
             continue;
         if (rowIsFolder(i)) {
             topLevel.append(entryId);
-            if (!members.contains(entryId))
-                members.insert(entryId, {});
+            // DELIBERATELY NO EMPTY PLACEHOLDER HERE. applyArrangement takes
+            // a named folder's list as the WHOLE truth about that folder, and
+            // only a folder LEFT OUT keeps what it holds — the store says so
+            // and RailLayoutTest pins it. Naming every folder row therefore
+            // handed a COLLAPSED folder (whose members the rail never
+            // rendered, so nothing can ever append to its key) an empty list
+            // on every reorder drag, which emptied it: its Spaces fell out to
+            // the end of the rail and an empty tile was left behind. The same
+            // line destroyed a stored member id that had not resolved yet in
+            // an OPEN folder, which is the case the store's
+            // "ignored rather than cleaned up eagerly" rule exists for.
+            //
+            // Leaving it out loses nothing: a member the drag moved somewhere
+            // else is named in `topLevel` or in another folder's list, and
+            // applyArrangement removes it from the unrendered folder anyway.
+            // A key appears below only when a member row was actually placed
+            // in it, which is exactly "the folders the caller rendered".
             continue;
         }
         const QString owner = owners.at(i);

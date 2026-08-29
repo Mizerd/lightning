@@ -236,8 +236,14 @@ Item {
                 case 2:
                     return qsTr("Nothing in this list matches " + "\"%1\".").arg(app.roomList.searchQuery);
                 default:
+                    // 2026-08-28: People is SCOPED to the selected Space —
+                    // the DMs with people who are in it — so the old
+                    // "whichever Space is selected" is no longer true and
+                    // would send a user looking for a chat that is one click
+                    // away at Home. In a Space the line names the scope; at
+                    // Home it says what the list is.
                     if (app.roomList.filterMode === 1)
-                        return qsTr("Direct messages appear here, " + "whichever Space is selected.");
+                        return roomListEmptyState.inSpace ? qsTr("No direct messages with people in " + "this Space. All of them are under “All rooms”.") : qsTr("Direct messages appear here.");
                     if (app.roomList.filterMode === 3)
                         return qsTr("Rooms with unread messages " + "appear here.");
                     return roomListEmptyState.inSpace ? qsTr("Rooms added to this Space will " + "show up here.") : qsTr("Start a direct message, or find " + "a room to join.");

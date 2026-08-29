@@ -357,11 +357,18 @@ private slots:
                  "which string selects which");
     }
 
-    // A DIRECT MESSAGE IS IN EXACTLY ONE VIEW: its own tab. Two earlier
-    // designs put it in "Rooms" with every other unparented room, and then in
-    // a "Direct messages" group every view had to carry so a scope could not
-    // delete the only place it lived. Both are bans now, in the model AND in
-    // the builder that would have to reintroduce them.
+    // A DIRECT MESSAGE IS NEVER A SPACE'S CHILD, and the account-wide list of
+    // them lives in exactly one view: its own tab. Two earlier designs put a
+    // DM in "Rooms" with every other unparented room, and then in a "Direct
+    // messages" group every view had to carry so a scope could not delete the
+    // only place it lived. Both are bans, in the model AND in the builder
+    // that would have to reintroduce them.
+    //
+    // 2026-08-28: a Space view DOES now carry a People group — the DMs with
+    // people who are IN that Space, which is a claim about the Space's
+    // membership and not about its children. It is a separate group id, so
+    // the bans below still say what they always said: the ACCOUNT-WIDE list
+    // (`directsGroupId`) is the DM tab's and nowhere else's.
     void aDirectMessageIsOnlyInTheDirectMessagesTab()
     {
         QString model = withoutComments(
@@ -395,6 +402,31 @@ private slots:
         QVERIFY2(!spaceBody.contains(QStringLiteral("directsGroupId")),
                  "the account-wide Direct messages group is back inside a "
                  "Space's own view");
+        // ...but the Space view DOES build the SPACE-SCOPED People group, and
+        // it is a different list under a different id. Anchored on the call
+        // rather than on a position in the file, and the negative below is
+        // the one that carries the rule: the two ids must never be the same
+        // group, or collapsing one collapses the other and a Space would show
+        // every DM the account has. (SpacePeopleScopeTest is what proves the
+        // group actually appears; this only keeps the two lists apart.)
+        //
+        // Anchored between TWO expressions, not on a window: `spaceBody` runs
+        // to the end of the file, so looking for the call there also finds
+        // the DEFINITION and passes with the call deleted — mutation-checked,
+        // and it did exactly that on the first attempt.
+        const int appendPeople = model.indexOf(
+            QStringLiteral("int SpaceChannelModel::appendSpacePeople"));
+        QVERIFY2(appendPeople > space,
+                 "the Space People builder is gone, or moved above the Space "
+                 "builder where this scan cannot see the call");
+        QVERIFY2(model.mid(space, appendPeople - space)
+                     .contains(QStringLiteral("appendSpacePeople(")),
+                 "a Space view no longer builds its People group, so the "
+                 "People filter is scoped in Classic and absent in Channels");
+        QVERIFY2(!model.mid(people, space - people)
+                      .contains(QStringLiteral("spacePeopleGroupId")),
+                 "the Space-scoped People group leaked into the account-wide "
+                 "Direct Messages tab");
         // ...and only the People builder makes one.
         QVERIFY(model.mid(people, space - people)
                     .contains(QStringLiteral("directsGroupId")));

@@ -24,8 +24,11 @@ void SpaceManager::setClient(MatrixClient *client)
             m_pendingChildAdds.clear(); // account isolation
             m_pendingChildRemovals.clear();
             m_pendingChildSuggests.clear();
+            dropSpaceRosters();
             rebuild();
         });
+        connect(m_client, &MatrixClient::roomMembersReceived,
+                this, &SpaceManager::onRoomMembersReceived);
         connect(m_client, &MatrixClient::spaceChildFinished,
                 this, [this](quint64 opId, const QString &spaceId,
                              const QString &roomId, bool ok) {
@@ -59,7 +62,161 @@ void SpaceManager::setClient(MatrixClient *client)
     m_pendingChildAdds.clear();
     m_pendingChildRemovals.clear();
     m_pendingChildSuggests.clear();
+    // A roster is an ANSWER ABOUT ONE ACCOUNT. Carrying one across a client
+    // swap would scope the next account's People list by the previous
+    // account's Space membership.
+    dropSpaceRosters();
     rebuild();
+    // The selection survives a client swap (the rail restores it), so the
+    // roster for wherever the user already is has to be asked for again.
+    ensureSpaceRoster(m_activeSpaceId);
+}
+
+void SpaceManager::setActiveSpaceId(const QString &spaceId)
+{
+    if (m_activeSpaceId == spaceId)
+        return;
+    m_activeSpaceId = spaceId;
+    // Selecting a Space is the one moment that justifies asking who is in it:
+    // it is a user action, it happens once per Space per session, and it is
+    // the same shape as AppController hydrating a room's roster on first
+    // open. Nothing here waits for the answer.
+    ensureSpaceRoster(m_activeSpaceId);
+    Q_EMIT activeSpaceIdChanged();
+}
+
+bool SpaceManager::isRealSpaceId(const QString &spaceId)
+{
+    // "" is All rooms, "@…" are the pseudo rail selections. A real Matrix
+    // room id starts with '!' and nothing else can.
+    return spaceId.startsWith(QLatin1Char('!'));
+}
+
+void SpaceManager::dropSpaceRosters()
+{
+    const QStringList had = m_spaceMembers.keys();
+    m_spaceMembers.clear();
+    m_rosterRequested.clear();
+    for (const QString &spaceId : had)
+        Q_EMIT spaceRosterChanged(spaceId);
+}
+
+void SpaceManager::ensureSpaceRoster(const QString &spaceId)
+{
+    if (!m_client || !isRealSpaceId(spaceId))
+        return;
+    if (m_rosterRequested.contains(spaceId))
+        return;
+    const quint64 opId = m_client->requestRoomMembers(spaceId);
+    // Record it ONLY when the dispatch actually went out. A synchronous
+    // rejection — no SDK handle yet, a backend with no member support —
+    // returns 0 and never answers, and marking it here would leave the Space
+    // permanently "asked" and its People list permanently unscoped.
+    if (opId == 0)
+        return;
+    m_rosterRequested.insert(spaceId);
+}
+
+void SpaceManager::onRoomMembersReceived(quint64 opId, const QString &roomId,
+                                         const QVariantMap &snapshot)
+{
+    Q_UNUSED(opId);
+    // KEYED ON THE ROOM, NOT ON THE OP, and deliberately.
+    //
+    // The op map every other pending-request table here uses answers "did I
+    // ask this?", which is the right question when the ANSWER is scoped to
+    // the asker — a send result, an edit outcome. A roster is not: "who is in
+    // room X" has one answer whoever asked for it, and the member panel or a
+    // mention completion fetching the same Space's roster is the same fact
+    // arriving for free.
+    //
+    // It also closes an ordering hazard the op map would have. The op id only
+    // exists AFTER requestRoomMembers returns, so a backend that emitted
+    // synchronously would deliver into an empty table — the answer dropped,
+    // the Space marked as asked, and its People list unscoped for the whole
+    // session. Every backend here is asynchronous (MockMatrixClient says so
+    // in a comment, for this exact reason), which makes that a property of
+    // today's clients rather than of this code.
+    //
+    // What it does NOT accept is a room nobody asked about: `m_rosterRequested`
+    // only ever holds Spaces this manager requested through a dispatch that
+    // actually went out.
+    if (!m_rosterRequested.contains(roomId))
+        return;
+    // The Rust bridge answers a member request TWICE under one op: a
+    // cache-only `partial` snapshot first, then the synced roster. The
+    // partial one is a subset by construction, so recording it would publish
+    // an incomplete roster as a complete one — and every DM whose peer was
+    // missing from it would disappear from the Space until the real answer
+    // landed.
+    if (snapshot.value(QStringLiteral("partial")).toBool())
+        return;
+    const QString spaceId = roomId;
+
+    if (!snapshot.value(QStringLiteral("ok")).toBool()) {
+        // Un-mark, so selecting the Space again retries rather than failing
+        // closed for the whole session.
+        m_rosterRequested.remove(spaceId);
+        return;
+    }
+    if (snapshot.value(QStringLiteral("truncated")).toBool()) {
+        // The bridge caps a roster at 500 active members and says so. A
+        // capped list cannot answer "is this person in the Space" — the
+        // people it dropped are indistinguishable from the people who are
+        // not there — so the roster stays UNKNOWN and both layouts fall back
+        // to their unscoped behaviour. Deliberately still marked as
+        // requested: asking again would return the same cap.
+        return;
+    }
+    QSet<QString> members;
+    for (const QVariant &value :
+         snapshot.value(QStringLiteral("members")).toList()) {
+        const QVariantMap entry = value.toMap();
+        const QString membership =
+            entry.value(QStringLiteral("membership")).toString();
+        // Joined and invited are "in the Space"; banned members are in the
+        // snapshot too and are emphatically not.
+        if (membership != QLatin1String("joined")
+            && membership != QLatin1String("invited")) {
+            continue;
+        }
+        const QString userId = entry.value(QStringLiteral("userId")).toString();
+        if (!userId.isEmpty())
+            members.insert(userId);
+    }
+    m_spaceMembers.insert(spaceId, members);
+    Q_EMIT spaceRosterChanged(spaceId);
+}
+
+bool SpaceManager::spaceRosterKnown(const QString &spaceId) const
+{
+    return m_spaceMembers.contains(spaceId);
+}
+
+bool SpaceManager::spaceHasMember(const QString &spaceId,
+                                  const QString &userId) const
+{
+    const auto it = m_spaceMembers.constFind(spaceId);
+    return it != m_spaceMembers.constEnd() && it->contains(userId);
+}
+
+int SpaceManager::directScope(const QString &spaceId,
+                              const QStringList &peerIds) const
+{
+    if (!isRealSpaceId(spaceId))
+        return -1;
+    const auto it = m_spaceMembers.constFind(spaceId);
+    if (it == m_spaceMembers.constEnd())
+        return -1;
+    if (peerIds.isEmpty())
+        return -1;   // no peer to judge: unknown, never "not in the Space"
+    for (const QString &peer : peerIds) {
+        if (!peer.isEmpty() && it->contains(peer))
+            return 1;
+    }
+    // A group DM belongs to the Space if ANY of its people do. Requiring all
+    // of them would drop a conversation from the Space over one outsider.
+    return 0;
 }
 
 int SpaceManager::rowCount(const QModelIndex &parent) const
@@ -151,14 +308,6 @@ QHash<int, QByteArray> SpaceManager::roleNames() const
         { ParentSpaceIdRole, "parentSpaceId" },
         { ChildSpaceCountRole, "childSpaceCount" },
     };
-}
-
-void SpaceManager::setActiveSpaceId(const QString &spaceId)
-{
-    if (m_activeSpaceId == spaceId)
-        return;
-    m_activeSpaceId = spaceId;
-    Q_EMIT activeSpaceIdChanged();
 }
 
 QVariantList SpaceManager::allSpaces() const

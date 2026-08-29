@@ -89,8 +89,9 @@ void RailLayoutStore::save(const Layout &layout)
 {
     if (!m_settings)
         return;
+    const Layout next = dropEmptiedFolders(layout);
     QJsonArray folders;
-    for (const Folder &folder : layout.folders) {
+    for (const Folder &folder : next.folders) {
         QJsonObject entry;
         entry.insert(QStringLiteral("id"), folder.id);
         entry.insert(QStringLiteral("name"), folder.name);
@@ -102,15 +103,63 @@ void RailLayoutStore::save(const Layout &layout)
     QJsonObject object;
     object.insert(QStringLiteral("folders"), folders);
     object.insert(QStringLiteral("order"),
-                  QJsonArray::fromStringList(layout.order));
+                  QJsonArray::fromStringList(next.order));
     object.insert(QStringLiteral("expanded"),
-                  QJsonArray::fromStringList(layout.expanded));
+                  QJsonArray::fromStringList(next.expanded));
     m_settings->setAppearanceValue(
         kLayoutKey, QString::fromUtf8(
                         QJsonDocument(object).toJson(QJsonDocument::Compact)));
-    m_cache = layout;
+    m_cache = next;
     m_loaded = true;
     Q_EMIT layoutChanged();
+}
+
+RailLayoutStore::Layout
+RailLayoutStore::dropEmptiedFolders(const Layout &layout) const
+{
+    // A folder the user emptied goes away with the write that emptied it.
+    // Three things about that sentence are load-bearing.
+    //
+    // EMPTY MEANS `spaceIds` IS EMPTY IN THE STORE, never "the rail drew no
+    // members in it". The rendered members are the stored ids INTERSECTED
+    // with the Spaces the account currently knows about, and during a sync,
+    // an account switch or a cold start that intersection is legitimately
+    // empty for a folder that is full. Deleting on the rendered count would
+    // wipe a hand-made arrangement on every slow start, which is the same
+    // trap `load()` refuses when it keeps ids that no longer resolve.
+    //
+    // ONLY A FOLDER THAT WAS NON-EMPTY BEFORE THIS WRITE. "New folder…"
+    // deliberately creates an empty one for the user to drag Spaces into
+    // (SpacesRail.qml), and deleting it before they can is not a cleanup, it
+    // is the action failing. So this removes what a write EMPTIED, and never
+    // what a write CREATED empty.
+    //
+    // HERE, not in each mutator. Every path that can take a member out of a
+    // folder ends in save() — unfile, re-file, the grouping drop, and the
+    // one atomic applyArrangement a finished drag produces — so this is the
+    // one place that covers them all, including the next one somebody adds.
+    if (!m_loaded)
+        return layout;   // nothing was loaded, so nothing was emptied
+    Layout next = layout;
+    for (int i = next.folders.size() - 1; i >= 0; --i) {
+        if (!next.folders.at(i).spaceIds.isEmpty())
+            continue;
+        const QString id = next.folders.at(i).id;
+        bool hadMembers = false;
+        for (const Folder &before : m_cache.folders) {
+            if (before.id != id)
+                continue;
+            hadMembers = !before.spaceIds.isEmpty();
+            break;
+        }
+        if (!hadMembers)
+            continue;
+        next.folders.removeAt(i);
+        // The folder id is also a top-level entry; leaving it in `order`
+        // would keep a slot for a folder nothing can render.
+        next.order.removeAll(id);
+    }
+    return next;
 }
 
 QString RailLayoutStore::makeFolderId(const Layout &layout)
@@ -652,8 +701,12 @@ QVariantList RailLayoutStore::arrange(const QVariantList &spaces) const
                 });
             }
         }
-        // An empty folder still renders: it is a place the user made, and one
-        // that vanished when its last Space moved out would be a bug report.
+        // A folder with no members here still renders, and after
+        // dropEmptiedFolders() that means one of exactly two things: it was
+        // created empty and has not been filled yet, or its members are ids
+        // that have not resolved to Spaces YET. The second is the reason this
+        // cannot be the place emptiness is judged — a cold start would delete
+        // every folder in the rail before the first sync landed.
         QVariantMap entry;
         entry.insert(QStringLiteral("kind"), QStringLiteral("folder"));
         entry.insert(QStringLiteral("entryId"), folder->id);

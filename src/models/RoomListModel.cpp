@@ -96,6 +96,17 @@ void RoomListModel::setSpaceManager(SpaceManager *spaces)
         });
         connect(m_spaces, &SpaceManager::spacesChanged,
                 this, &RoomListModel::refresh);
+        // A Space's roster arriving changes which DMs the People scope
+        // admits. Only the ACTIVE Space can move a row — the filter reads no
+        // other — so a roster for anywhere else costs nothing here.
+        connect(m_spaces, &SpaceManager::spaceRosterChanged, this,
+                [this](const QString &spaceId) {
+            if (!m_spaces || spaceId != m_spaces->activeSpaceId())
+                return;
+            ++m_filterGeneration;
+            Q_EMIT filterGenerationChanged();
+            reconcileRooms();
+        });
     }
     refresh();
 }
@@ -302,27 +313,39 @@ bool RoomListModel::passesScopeFilter(const RoomInfo &r) const
     if (!m_spaces) return true;
     const QString active = m_spaces->activeSpaceId();
     if (active.isEmpty()) return true; // "All rooms"
-    // A DIRECT MESSAGE IS NEVER SCOPED BY A SPACE — in any filter.
+    // A DIRECT MESSAGE IS NEVER A SPACE'S CHILD, so it is scoped by the
+    // Space's PEOPLE or not at all.
     //
-    // A DM is not a room in a Space. Matrix has no notion of one belonging to
-    // a Space unless somebody adds it as an m.space.child, which essentially
-    // nobody does, so scoping DMs by the selected Space hid every one of them
-    // in every Space. That was reported first as "the people tab in
-    // spaces/rooms isnt populated".
+    // Matrix has no notion of a DM belonging to a Space unless somebody adds
+    // it as an m.space.child, which essentially nobody does. Scoping DMs by
+    // the hierarchy therefore hid every one of them in every Space — reported
+    // as "the people tab in spaces/rooms isnt populated" — and exempting only
+    // the People CHIP fixed that list while breaking a bigger one, because
+    // All then showed FEWER rooms than People did. Both of those failures
+    // came from asking the wrong question of a DM. The right one, and
+    // Element's, is whether the person you are talking to is IN this Space,
+    // and SpaceManager::directScope is the single place it is answered.
     //
-    // Exempting only the People chip fixed that list and broke a bigger one:
-    // All then showed FEWER rooms than People did, which makes "All" a lie.
-    // So the exemption belongs to the DM, not to the chip. Rooms still has no
-    // DMs in it — passesFilter excludes them there by their own isDirect —
-    // and All, People and Unreads all show them.
+    // WHAT AN UNKNOWN ROSTER MEANS HERE. This is a REMOVAL filter over a list
+    // that already shows the row, so unknown must FAIL OPEN: while the roster
+    // is unfetched, in flight, truncated or failed, every DM stays exactly
+    // where it was. A list that empties itself while it waits for an answer
+    // is the original bug wearing a timer. Because the answer is applied in
+    // the SCOPE predicate rather than in the People case, All stays exactly
+    // People plus Rooms whichever way the roster lands.
     //
-    // Scoping DMs by the Space's MEMBERSHIP instead (Element's reading: DMs
-    // with people who are in this Space) would need that Space's roster, and
-    // this predicate runs on every row of every model update — a lazily
-    // fetched roster would make the list's contents depend on load state and
-    // flicker as it arrived.
-    if (r.isDirect)
-        return true;
+    // Applies to real Spaces only. "@orphans" and "@people" are views, not
+    // containers, and they keep showing every DM.
+    if (r.isDirect) {
+        if (!SpaceManager::isRealSpaceId(active))
+            return true;
+        // directUserIds is the authoritative m.direct target list; the
+        // singular field is the fallback for backends that only fill it.
+        QStringList peers = r.directUserIds;
+        if (peers.isEmpty() && !r.directUserId.isEmpty())
+            peers.append(r.directUserId);
+        return m_spaces->directScope(active, peers) != 0;
+    }
     return m_spaces->includesRoom(active, r.id);
 }
 

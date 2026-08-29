@@ -19,9 +19,16 @@
 // This is Sable's model, matched deliberately. The rail carries Home, a
 // People tab and then every Space; picking one decides WHICH of the three
 // views this model produces. A Space shows its own direct child rooms and its
-// subspaces as sibling folders — never DMs, because Matrix gives no way for a
-// DM to be a Space's child, so a DM under a Space heading would be a claim
-// the state does not make.
+// subspaces as sibling folders. It never shows a DM as a CHILD of the Space,
+// because Matrix gives no way for a DM to be one and a DM under a Space
+// folder would be a claim the state does not make.
+//
+// 2026-08-28: it does show a Space's PEOPLE — a group of the DMs you have
+// with people who are in that Space, which is a claim about the Space's
+// membership rather than about its children, and is what the Classic layout's
+// People chip means once it is scoped. It appears only once that Space's
+// roster is a complete, known fact, and every DM remains in the People tab
+// whatever it does. See `appendSpacePeople`.
 //
 // This replaced a design in which every view was the same list narrowed by a
 // scope: Home listed every joined Space's folder AND a Direct messages group
@@ -224,6 +231,12 @@ public:
     /// Space's child, so a DM can never appear under a Space heading.
     static QString directsGroupId() { return QStringLiteral("@directs"); }
     static QString roomsGroupId() { return QStringLiteral("@rooms"); }
+    /// The People group inside a SPACE view: the DMs you have with people who
+    /// are in that Space. A different group from `directsGroupId()`, and it
+    /// has to be — the two are collapsed independently, and one of them is a
+    /// scope while the other is the complete list.
+    static QString spacePeopleGroupId()
+    { return QStringLiteral("@space-people"); }
 
     /// The rail selection that means Direct Messages. Shared with
     /// SpaceManager, which owns the pseudo rail rows — one definition, or the
@@ -304,6 +317,12 @@ private:
     int buildHome(QVector<Row> &rows, const QList<RoomInfo> &allRooms);
     int buildPeople(QVector<Row> &rows, const QList<RoomInfo> &allRooms);
     int buildSpace(QVector<Row> &rows, const QHash<QString, RoomInfo> &byId);
+    /// The Space view's People group — DMs with members of the selected
+    /// Space. Adds nothing at all until that Space's roster is a complete,
+    /// known fact; see the implementation for why this fails the opposite way
+    /// from the Classic list's scope.
+    int appendSpacePeople(QVector<Row> &rows,
+                          const QHash<QString, RoomInfo> &byId);
     /// Shared by all three: one room's Row.
     Row roomRow(const RoomInfo &info) const;
 
