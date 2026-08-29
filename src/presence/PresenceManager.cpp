@@ -43,6 +43,10 @@ PresenceManager::PresenceManager(QObject *parent)
     connect(&m_burstTimer, &QTimer::timeout,
             this, &PresenceManager::burstRound);
 
+    m_typingTimer.setSingleShot(true);
+    connect(&m_typingTimer, &QTimer::timeout,
+            this, &PresenceManager::pruneTypingEvidence);
+
     m_publishTimer.setInterval(kPublishIntervalMs);
     connect(&m_publishTimer, &QTimer::timeout,
             this, [this]() { publishTick(true); });
@@ -174,6 +178,74 @@ void PresenceManager::noteActivity(const QString &userId)
     m_burstTimer.start();
 }
 
+void PresenceManager::noteTyping(const QString &userId)
+{
+    // The local user is answered from what THIS client publishes, so its own
+    // typing says nothing new. Only watched users are recorded: nothing else
+    // is ever polled, so nothing else has a cached claim to contradict, and
+    // this keeps the map bounded by what is on screen.
+    if (userId.isEmpty() || isOwnUser(userId) || !m_watched.contains(userId))
+        return;
+    const bool wasWithholding = typingContradicts(userId);
+    m_typingSince.insert(userId, m_clock.elapsed());
+    if (!m_typingTimer.isActive())
+        m_typingTimer.start(int(qMax<qint64>(1, m_typingWindowMs)));
+    if (typingContradicts(userId) != wasWithholding) {
+        // A dot already drawn repaints only on this signal.
+        ++m_revision;
+        Q_EMIT revisionChanged();
+    }
+    // Typing is the strongest hint available that the poll answer is about
+    // to change, so ask — which is what makes a withheld dot a brief gap on
+    // a healthy server rather than a lasting absence. noteActivity owns the
+    // watched/active/syncing guards and the debounce.
+    noteActivity(userId);
+}
+
+bool PresenceManager::typingContradicts(const QString &userId) const
+{
+    const auto it = m_typingSince.constFind(userId);
+    if (it == m_typingSince.constEnd())
+        return false;
+    // Expired but not yet pruned: the read must not depend on a timer
+    // having run.
+    if (m_clock.elapsed() - it.value() >= m_typingWindowMs)
+        return false;
+    const auto cached = m_cache.constFind(userId);
+    // ONLY "offline" is contradicted. "unavailable" is the server's own
+    // idle heuristic and typing while marked away is ordinary; an unknown
+    // user has no claim to withdraw.
+    return cached != m_cache.constEnd()
+        && cached->state == QLatin1String("offline");
+}
+
+void PresenceManager::pruneTypingEvidence()
+{
+    const qint64 now = m_clock.elapsed();
+    bool withheldSomething = false;
+    qint64 nextDueAt = -1;
+    for (auto it = m_typingSince.begin(); it != m_typingSince.end(); ) {
+        const qint64 expiresAt = it.value() + m_typingWindowMs;
+        if (expiresAt <= now) {
+            const auto cached = m_cache.constFind(it.key());
+            if (cached != m_cache.constEnd()
+                && cached->state == QLatin1String("offline"))
+                withheldSomething = true;
+            it = m_typingSince.erase(it);
+            continue;
+        }
+        if (nextDueAt < 0 || expiresAt < nextDueAt)
+            nextDueAt = expiresAt;
+        ++it;
+    }
+    if (nextDueAt >= 0)
+        m_typingTimer.start(int(qMax<qint64>(1, nextDueAt - now)));
+    if (withheldSomething) {
+        ++m_revision;
+        Q_EMIT revisionChanged();
+    }
+}
+
 void PresenceManager::unwatch(const QString &userId)
 {
     auto it = m_watched.find(userId);
@@ -182,6 +254,9 @@ void PresenceManager::unwatch(const QString &userId)
     if (--it.value() <= 0) {
         m_watched.erase(it);
         m_burstPending.remove(userId);
+        // Nothing renders this user any more, so the evidence has nothing
+        // left to withhold from.
+        m_typingSince.remove(userId);
     }
 }
 
@@ -221,6 +296,10 @@ QString PresenceManager::stateFor(const QString &userId) const
         if (!own.isEmpty())
             return own;
     }
+    // A live typing notification withdraws a contradicted "offline"; the
+    // answer becomes unknown, which renders nothing.
+    if (typingContradicts(userId))
+        return {};
     const auto it = m_cache.constFind(userId);
     return it == m_cache.constEnd() ? QString() : it->state;
 }
@@ -240,6 +319,10 @@ QVariantMap PresenceManager::infoFor(const QString &userId) const
             };
         }
     }
+    // The card formats its whole sentence from this map, so the withdrawal
+    // has to reach it too — an empty map is how this class says "unknown".
+    if (typingContradicts(userId))
+        return {};
     const auto it = m_cache.constFind(userId);
     if (it == m_cache.constEnd())
         return {};
@@ -576,6 +659,10 @@ void PresenceManager::clearSession()
     m_cache.clear();
     m_inFlight.clear();
     m_burstPending.clear();
+    // Typing evidence names the previous account's contacts, exactly like
+    // the watched set below.
+    m_typingSince.clear();
+    m_typingTimer.stop();
     m_pollOrder.clear();
     m_pollCursor = 0;
     m_forbiddenBatches = 0;

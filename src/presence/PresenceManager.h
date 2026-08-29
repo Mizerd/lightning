@@ -92,6 +92,21 @@ public:
     // assertion. Re-poll a watched sender promptly; only the server answer
     // may change the rendered state.
     void noteActivity(const QString &userId);
+    // A live typing notification about a WATCHED user. It is the one
+    // present-tense, server-forwarded fact this client receives about
+    // somebody else, and it CONTRADICTS a cached "offline": a homeserver
+    // with presence switched off answers 200 with "offline" for everybody
+    // rather than refusing, so the refusal latch never fires and the dot is
+    // confidently wrong forever (the same defect ownPublishedState() already
+    // records for the local user, which reached nobody else).
+    //
+    // The contradicted claim is WITHDRAWN, never replaced. The state becomes
+    // unknown, and unknown renders nothing — promoting it to "online" would
+    // be the same fabrication in the other direction, since typing proves
+    // activity and presence is a state the server owns. Only "offline" is
+    // withdrawn: "unavailable" is a soft idle heuristic and someone typing
+    // while marked away is ordinary, not a contradiction.
+    void noteTyping(const QString &userId);
 
     // "online" / "unavailable" / "offline", or "" when unknown.
     Q_INVOKABLE QString stateFor(const QString &userId) const;
@@ -110,6 +125,10 @@ public:
     // untestable at those scales (review L7).
     void setIdleThresholdForTest(qint64 ms) { m_idleAfterMs = ms; }
     void setPublishIntervalForTest(int ms) { m_publishTimer.setInterval(ms); }
+    // The real typing-evidence window is 35 s; that it EXPIRES is untestable
+    // at that scale. Deliberately not reset by clearSession() — it is a
+    // harness value, not session state.
+    void setTypingEvidenceWindowForTest(qint64 ms) { m_typingWindowMs = ms; }
 
 Q_SIGNALS:
     void supportedChanged();
@@ -153,6 +172,13 @@ private:
     // — must not blind presence for everyone).
     static constexpr int kForbiddenLatchThreshold = 2;
     static constexpr int kForbiddenLatchMinBatch = 2;
+    // How long one typing notification keeps contradicting a cached
+    // "offline". Long enough to cover a poll round (30 s) plus its answer,
+    // short enough that a stale contradiction cannot outlive the typing it
+    // came from by much. Withholding is the conservative direction — it
+    // renders nothing — so erring slightly long costs an absent dot, never
+    // a wrong one.
+    static constexpr qint64 kTypingEvidenceMs = 35000;
 
     void pollRound(const char *kind, const QStringList &userIds);
     // Opt-in diagnostic (env LIGHTNING_PRESENCE_TRACE, read ONCE at
@@ -174,6 +200,15 @@ private:
     // this client is not publishing and therefore does not know.
     QString ownPublishedState() const;
     bool isOwnUser(const QString &userId) const;
+    // True while live typing evidence contradicts what the cache holds for
+    // this user. Pure read: stateFor()/infoFor() are QML-binding safe.
+    bool typingContradicts(const QString &userId) const;
+    // Drops expired evidence and ANNOUNCES it. applyBatch only bumps the
+    // revision when a polled VALUE changes, and on a presence-disabled
+    // server the cached value is "offline" throughout — so without this the
+    // withheld dot would never come back until an unrelated update happened
+    // along.
+    void pruneTypingEvidence();
 
     MatrixClient *m_client = nullptr;
     SettingsManager *m_settings = nullptr;
@@ -185,9 +220,15 @@ private:
     QStringList m_pollOrder;
     int m_pollCursor = 0;
 
+    // userId -> m_clock time of the most recent typing notification.
+    // Bounded by the WATCHED set (nothing else is ever recorded), which is
+    // bounded by what is on screen.
+    QHash<QString, qint64> m_typingSince;
+
     QTimer m_pollTimer;
     QTimer m_burstTimer;
     QTimer m_publishTimer;
+    QTimer m_typingTimer;
     QElapsedTimer m_clock;
 
     quint64 m_nextOpId = 1;
@@ -203,6 +244,7 @@ private:
     // When focus was LOST (only meaningful while m_appActive is false).
     qint64 m_inactiveSinceMs = 0;
     qint64 m_idleAfterMs = kIdleAfterMs;
+    qint64 m_typingWindowMs = kTypingEvidenceMs;
     int m_lastPublished = -1;
     // The user disabled sharing while the session was not live; the final
     // offline is owed and flushed on the next Syncing edge (review M3).

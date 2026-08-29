@@ -17,7 +17,7 @@ use std::sync::Arc;
 use matrix_sdk::ruma::api::error::ErrorBody;
 use serde_json::json;
 
-use crate::rooms::require_client;
+use crate::rooms::{require_client, sniff_image_mime, MAX_AVATAR_BYTES};
 use crate::{enqueue, RustClient};
 
 /// The profile write rides the room-action pool, which sign-out joins.
@@ -207,4 +207,110 @@ mod tests {
         let long = "x".repeat(500);
         assert_eq!(sanitize_error_message(&long).chars().count(), 200);
     }
+}
+
+
+/// Upload and set the signed-in account's OWN avatar.
+///
+/// `Account::upload_avatar` both uploads the media and writes `avatar_url`,
+/// which is why nothing here touches the profile endpoint directly — the same
+/// reason this module implements no display-name request of its own.
+///
+/// The MIME is SNIFFED from the bytes, never taken from the file name: the
+/// path arrives from a file picker and an extension is a claim, not evidence.
+/// `sniff_image_mime` is shared with the room-avatar path so the two cannot
+/// accept different sets of formats, and it refuses SVG.
+///
+/// The path is never logged. It is a user's own filesystem, and a home
+/// directory carries their name.
+pub(crate) fn set_own_avatar(
+    bridge: &RustClient,
+    local_path: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    // Checked BEFORE the file is read, so an absurd file is refused without
+    // being pulled into memory first.
+    let metadata = std::fs::metadata(&local_path)
+        .map_err(|_| "avatar file is not readable".to_owned())?;
+    if !metadata.is_file() {
+        return Err("avatar path is not a regular file".to_owned());
+    }
+    if metadata.len() == 0 || metadata.len() > MAX_AVATAR_BYTES {
+        return Err("avatar file size is out of range".to_owned());
+    }
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = async {
+            let data = tokio::fs::read(&local_path)
+                .await
+                .map_err(|_| "read_failed".to_owned())?;
+            let mime_str =
+                sniff_image_mime(&data).ok_or_else(|| "unsupported_image".to_owned())?;
+            let mime: mime::Mime =
+                mime_str.parse().map_err(|_| "unsupported_image".to_owned())?;
+            client
+                .account()
+                .upload_avatar(&mime, data)
+                .await
+                .map(|_| ())
+                .map_err(|err| server_error_message(&err))
+        }
+        .await;
+        // A completion that outlived its session must never be reported.
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, error) = match result {
+            Ok(()) => (true, String::new()),
+            Err(err) => (false, err),
+        };
+        enqueue(
+            &events,
+            json!({
+                "type": "own_avatar_result",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "ok": ok,
+                "error": error,
+            }),
+        );
+    });
+    Ok(())
+}
+
+/// Clear the account's avatar. `None` is the SDK's "remove it" argument.
+pub(crate) fn clear_own_avatar(bridge: &RustClient, op_id: u64) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = tokio::time::timeout(
+            DISPLAY_NAME_REQUEST_TIMEOUT,
+            client.account().set_avatar_url(None),
+        )
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, error) = match result {
+            Ok(Ok(())) => (true, String::new()),
+            Ok(Err(err)) => (false, server_error_message(&err)),
+            Err(_) => (false, String::new()),
+        };
+        enqueue(
+            &events,
+            json!({
+                "type": "own_avatar_result",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "ok": ok,
+                "error": error,
+            }),
+        );
+    });
+    Ok(())
 }

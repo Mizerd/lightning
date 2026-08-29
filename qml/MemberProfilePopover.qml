@@ -4,19 +4,40 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.6.5 (SPEC 1p): reusable member profile popover — content redesign only.
-// Presentation (centred-modal Popup, `openFor()` contract) is unchanged
-// (R12): callers still do `parent: Overlay.overlay; anchors.centerIn: parent`.
-// Shows the member's avatar, display name, full Matrix ID, membership/role,
-// real Matrix presence (dot + status line, v0.7.x — unknown renders
-// nothing), and the member's real power level (v0.7.x — rendered as its
-// number when the room uses an unconventional value, changeable only to
-// levels the viewer may actually set),
-// and offers Start/Open Direct Message (existing DMs are reused,
-// never silently duplicated) + Copy ID. Deliberately OMITS call/videocam, a
-// Verified chip, the SHARED-rooms section, View full profile, and Ignore —
-// none of those have a real backend today, and this component never
-// renders a disabled placeholder in their place.
+// The member profile card. Presentation (centred-modal Popup, the
+// `openFor()` contract) is unchanged since v0.6.5: callers still do
+// `parent: Overlay.overlay; anchors.centerIn: parent`.
+//
+// Shows the member's banner and avatar, their display name in their own
+// identity ink, the full Matrix ID, their BIO (MSC4440 over MSC4133, plain
+// text only), a chip row (homeserver, Share, membership carrying the shared
+// presence dot, the room's real power-level chips), the Message primary, an
+// overflow menu, and the room-scoped moderation surface.
+//
+// 2026-08-28 rework, three things worth knowing before editing:
+//
+//   * THE STANDALONE PRESENCE LINE IS GONE. The dot is the indicator and it
+//     carries its own sentence on hover (PresenceDot.statusText), so the
+//     state is formatted in exactly one place in the application. The one
+//     fact a dot structurally cannot report — presence KNOWN to be
+//     unavailable, where the dot renders nothing and nothing is
+//     indistinguishable from "not answered yet" — rides the membership chip.
+//   * THE BIO IS REMOTE FREE TEXT. Text.PlainText, always, on top of the
+//     bounding, control-stripping and markup-stripping rust/src/bio.rs
+//     already does. Never StyledText, never RichText, never a link target
+//     (§6): MSC4440's own example embeds an <img src="mxc://…">, which a
+//     rich renderer would fetch for every viewer of the card.
+//   * THE BADGE IS DECORATION. ProfileBadges is a fixed local table; a badge
+//     is a thank-you, is the same for every viewer, is not Matrix state, and
+//     is neither a moderation nor a verification signal. It carries none of
+//     their vocabulary and its accessible description says so in words.
+//
+// Still deliberately OMITTED, because none has a backend and this component
+// never renders a disabled placeholder: call/videocam, a Verified chip, the
+// shared-rooms count, View full profile, and Set Nickname (Lightning has no
+// per-user local nickname to set). A Mutual Rooms chip is NOT offered for a
+// measured reason: the client holds no roster for a room it has not opened,
+// so a count would cost one /members request per joined room on every open.
 Popup {
     id: root
     modal: true
@@ -127,6 +148,48 @@ Popup {
     // NOTE: Accessible attaches to the contentItem below — Popup itself is
     // not an Item, and attaching here only logs a warning at load.
 
+    // Fill in what the CALLER did not know, from the room's own roster.
+    //
+    // The reported defect: clicking a `mention:` link in a message body
+    // opened a card with no picture and an MXID where the display name
+    // should be, while clicking the same person's avatar one line above was
+    // correct — because that call site happens to pass senderDisplayName and
+    // senderAvatarMxc and the mention path has only a user id to give. There
+    // are five call sites and every one of them had to remember; resolving
+    // HERE is what stops the sixth getting it wrong.
+    //
+    // Nothing is fabricated. A user the roster does not hold — someone who
+    // has left, or a room whose members were never fetched — keeps an empty
+    // display name, and `visibleName` falls back to the localpart exactly as
+    // every other surface does. The avatar stays EMPTY rather than being
+    // guessed at: Avatar draws its identity-inked initials, and a wrong face
+    // is worse than no face.
+    function _fillFromRoster() {
+        if (userId.length === 0)
+            return
+        if (displayName.length > 0 && avatarMxc.length > 0
+            && membership.length > 0)
+            return
+        if (!app.roomInfo)
+            return
+        // The ROOM the reader is in, explicitly — `app.roomInfo.roomId`
+        // follows whatever surface last pointed it somewhere and may be a
+        // Space rather than this room.
+        var row = app.roomInfo.memberFor(userId, app.currentRoomId)
+        if (!row || !row.userId)
+            return
+        if (displayName.length === 0)
+            displayName = row.displayName || ""
+        if (avatarMxc.length === 0)
+            avatarMxc = row.avatarUrl || ""
+        if (membership.length === 0)
+            membership = row.membership || ""
+        // `role` is deliberately NOT derived here. The room's real power
+        // level is already rendered by the role block below, from
+        // RoomInfoController's own reading of it; a second derivation of the
+        // same fact is how the two come to disagree.
+    }
+
     function openFor(member) {
         userId = member.userId || ""
         displayName = member.displayName || ""
@@ -134,6 +197,7 @@ Popup {
         role = member.role || ""
         avatarMxc = member.avatarUrl || ""
         isOwn = member.isOwn === true
+        _fillFromRoster()
         modAction = ""
         modError = ""
         roleError = ""
@@ -191,34 +255,127 @@ Popup {
         root.opened && root.userId !== "" && app.presence
             ? app.presence.unavailable : false
 
-    // v0.7.x Matrix presence status line. Pure reads re-evaluated on
-    // PresenceManager's revision; unknown presence yields "" and the label
-    // collapses — never a placeholder.
-    readonly property string presenceLine: {
-        if (!root.opened || root.userId === "" || !app.presence)
+    // The presence SENTENCE is no longer formatted here: it belongs to
+    // PresenceDot, which is the component that shows the state, and the
+    // status line that used to sit beside the avatar is gone. One derivation,
+    // one wording, and a card that says a thing once. The dot carries it on
+    // hover (`PresenceDot.statusText`), and the membership chip carries the
+    // one fact the dot structurally cannot — see `presenceUnavailable`.
+
+    // --- Derived facts the card renders --------------------------------
+
+    // The homeserver half of the address. Pure string work; no lookup.
+    readonly property string homeserver: {
+        var i = root.userId.indexOf(":")
+        return i >= 0 && i + 1 < root.userId.length
+               ? root.userId.slice(i + 1) : ""
+    }
+
+    readonly property string membershipLabel:
+        root.membership === "invited" ? qsTr("Invited")
+        : root.membership === "joined" ? qsTr("Member")
+        : root.membership === "banned" ? qsTr("Banned")
+        : root.membership
+
+    // The bio (MSC4440 over MSC4133). "" covers three different facts that
+    // look identical on a card — no bio, not asked yet, and a homeserver
+    // without extended profile fields — and all three render as NOTHING.
+    // An absent field answers M_NOT_FOUND, which is a server working
+    // correctly, so it is never reported as an error.
+    //
+    // A pure read re-evaluated on the manager's revision; the ASKING is a
+    // side effect and happens on the open edge, never inside this binding.
+    readonly property string bioText: {
+        if (!root.opened || root.userId === "" || !app.bio)
             return ""
-        var rev = app.presence.revision // re-evaluation dependency
-        var info = app.presence.infoFor(root.userId)
-        if (!info || info.state === undefined)
-            return ""
-        if (info.state === "online")
-            return qsTr("Online")
-        if (info.state === "unavailable")
-            return qsTr("Away")
-        if (info.state !== "offline")
-            return ""
-        var ago = info.lastActiveAgoMs
-        if (ago === undefined || ago < 0)
-            return qsTr("Offline")
-        var mins = Math.floor(ago / 60000)
-        if (mins < 1)
-            return qsTr("Offline — active just now")
-        if (mins < 60)
-            return qsTr("Offline — active %1 min ago").arg(mins)
-        var hours = Math.floor(mins / 60)
-        if (hours < 24)
-            return qsTr("Offline — active %1 h ago").arg(hours)
-        return qsTr("Offline — active %1 d ago").arg(Math.floor(hours / 24))
+        var rev = app.bio.revision   // re-evaluation dependency
+        return app.bio.bioFor(root.userId)
+    }
+
+    // Decorative thank-you badge. A fixed local table, identical for every
+    // viewer, and NOT Matrix state, a permission, or a verification claim.
+    readonly property string badgeLabel:
+        app.badges && root.userId !== ""
+            ? app.badges.labelFor(root.userId) : ""
+    readonly property string badgeDescription:
+        app.badges && root.userId !== ""
+            ? app.badges.descriptionFor(root.userId) : ""
+
+    // --- Clipboard actions ---------------------------------------------
+
+    function _copy(text, notice) {
+        if (!text || text.length === 0)
+            return
+        idClipboard.text = text
+        idClipboard.selectAll()
+        idClipboard.copy()
+        // Cleared immediately: a permalink or an id must not sit in a live
+        // item (the RoomsPanel / SpacesRail convention).
+        idClipboard.text = ""
+        copiedNotice.text = notice
+        copiedNotice.visible = true
+        copiedTimer.restart()
+    }
+
+    function copyUserId() {
+        root._copy(root.userId, qsTr("Matrix ID copied"))
+    }
+
+    // The PUBLIC matrix.to profile link — never an authenticated media URL
+    // and never a client-internal identifier. Percent-encoded exactly as
+    // MentionTokenizer::matrixToUrl encodes it, so a link copied here and a
+    // mention pill sent from the composer are the same string.
+    function copyProfileLink() {
+        if (root.userId.length === 0)
+            return
+        root._copy("https://matrix.to/#/" + encodeURIComponent(root.userId),
+                   qsTr("Profile link copied"))
+    }
+
+    // One chip-shaped button, so Share and the overflow cannot drift apart.
+    // AbstractButton rather than a Control: the chip vocabulary is a pill
+    // with a soft tint, and the stock control padding fights it.
+    component ProfileChipButton: AbstractButton {
+        id: chipButton
+        property string iconName: ""
+        property string label: ""
+        property string accessibleName: ""
+        implicitWidth: chipRow.implicitWidth + 2 * AppTheme.chipPaddingH
+        implicitHeight: AppTheme.chipHeight + 6
+        hoverEnabled: true
+        focusPolicy: Qt.TabFocus
+        Accessible.role: Accessible.Button
+        Accessible.name: accessibleName.length > 0 ? accessibleName : label
+        contentItem: Row {
+            id: chipRow
+            spacing: AppTheme.spacing2
+            Icon {
+                visible: chipButton.iconName.length > 0
+                name: chipButton.iconName
+                size: AppTheme.textMicro + 3
+                color: AppTheme.stormLink
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+                visible: chipButton.label.length > 0
+                text: chipButton.label
+                font.family: AppTheme.uiFont
+                font.pixelSize: AppTheme.textMicro
+                font.weight: AppTheme.weightBold
+                color: AppTheme.stormLink
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+        background: Rectangle {
+            radius: AppTheme.chipRadius
+            color: (chipButton.hovered || chipButton.down)
+                   ? Qt.alpha(AppTheme.stormLink, 0.24)
+                   : Qt.alpha(AppTheme.stormLink, 0.14)
+            border.width: 1
+            border.color: chipButton.visualFocus
+                          ? AppTheme.focusRing
+                          : Qt.alpha(AppTheme.stormLink, 0.32)
+        }
     }
 
     // v0.6.5 (R14): this popover is already centred-modal (R12) — the
@@ -255,8 +412,16 @@ Popup {
     // inside a binding. ProfileBannerManager deduplicates per user per
     // session, so reopening the same card costs nothing.
     onOpenedChanged: {
-        if (opened && userId.length > 0 && app.banners)
+        if (!opened || userId.length === 0)
+            return
+        if (app.banners)
             app.banners.request(userId)
+        // Same discipline: asking is a SIDE EFFECT, so it happens on the
+        // edge and never in the `bioText` binding. ProfileBioManager
+        // deduplicates per user per session, so reopening costs nothing,
+        // and it refuses outright on a server without extended profiles.
+        if (app.bio)
+            app.bio.request(userId)
     }
 
     contentItem: ColumnLayout {
@@ -427,12 +592,17 @@ Popup {
                 // is open (the userId gate), so a closed popover holds no
                 // polling reference.
                 PresenceDot {
+                    objectName: "profileAvatarPresenceDot"
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
                     anchors.margins: 2
                     dotSize: 12
                     ring: AppTheme.stormPanel
                     userId: root.opened ? root.userId : ""
+                    // The bubble on the avatar IS the status now — the line
+                    // of prose that used to sit under the name is gone, so
+                    // this dot has to be able to say what it means.
+                    hoverStatus: true
                 }
             }
         }
@@ -445,67 +615,334 @@ Popup {
             Layout.bottomMargin: AppTheme.spacing16
             spacing: AppTheme.spacing8
 
-            Label {
-                Layout.fillWidth: true
-                text: root.visibleName
-                // The identity ink, hashed from the MXID exactly as the
-                // timeline sender name and the avatar disc are. This
-                // popover is ABOUT one person; rendering their name in the
-                // same grey as the panel chrome threw away the one colour
-                // the app already knows is theirs.
-                color: AppTheme.userColor(root.userId)
-                font.family: AppTheme.menuFont
-                font.pixelSize: AppTheme.textTitle
-                font.weight: AppTheme.weightBold
-                elide: Label.ElideRight
-            }
-            Label {
-                Layout.fillWidth: true
-                text: root.userId
-                color: AppTheme.stormTextMuted
-                font.family: AppTheme.monoFont
-                font.pixelSize: AppTheme.fontMonoXS
-                elide: Label.ElideMiddle
-            }
-            // One row for both: a real presence state when the server
-            // answered, and the restrained disclosure when we know it
-            // never will. The state wins if we somehow hold one — a
-            // known answer is always more informative than "unavailable".
-            Label {
-                Layout.fillWidth: true
-                visible: text.length > 0
-                text: root.presenceLine.length > 0 ? root.presenceLine
-                    : root.presenceUnavailable ? qsTr("Presence unavailable")
-                    : ""
-                color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.textBody
-                elide: Label.ElideRight
-                Accessible.role: Accessible.StaticText
-                Accessible.name: text
-            }
-
+            // --- Identity row -------------------------------------------
+            // Name (+ decorative badge) and MXID on the left, the primary
+            // Message action on the right — the Sable reference's shape, and
+            // it buys the card back the vertical band the old full-width
+            // action row spent.
             RowLayout {
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing8
-                Label {
-                    visible: root.membership.length > 0
-                    text: root.membership === "invited" ? qsTr("Invited")
-                        : root.membership === "joined" ? qsTr("Member")
-                        : root.membership === "banned" ? qsTr("Banned")
-                        : root.membership
-                    // Reading text on the panel rides the muted ink —
-                    // faint stays reserved for decorative mono (AA note in
-                    // AppTheme).
-                    color: AppTheme.stormTextMuted
-                    font.pixelSize: AppTheme.textBody
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacing2
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing6
+
+                        Label {
+                            objectName: "profileDisplayName"
+                            Layout.fillWidth: true
+                            // A FLOOR, so the badge beside it cannot squeeze
+                            // the name away. A RowLayout that cannot fit
+                            // every child shrinks them all in proportion to
+                            // their PREFERRED widths, and a display name's
+                            // implicit width is much larger than a short
+                            // badge pill's — so the name absorbed nearly the
+                            // whole squeeze and rendered as "Roma…" beside a
+                            // fully drawn "idea master". The person's name is
+                            // the primary identity on a card that is ABOUT
+                            // them; decoration yields to it, not the reverse.
+                            Layout.minimumWidth: Math.min(
+                                implicitWidth, AppTheme.scaled(140))
+                            text: root.visibleName
+                            // The identity ink, hashed from the MXID exactly
+                            // as the timeline sender name and the avatar disc
+                            // are. This popover is ABOUT one person;
+                            // rendering their name in the same grey as the
+                            // panel chrome threw away the one colour the app
+                            // already knows is theirs.
+                            color: AppTheme.userColor(root.userId)
+                            font.family: AppTheme.menuFont
+                            font.pixelSize: AppTheme.textTitle
+                            font.weight: AppTheme.weightBold
+                            elide: Label.ElideRight
+                        }
+
+                        // --- Thank-you badge (decorative, local) ----------
+                        // A fixed local table (ProfileBadges), the same for
+                        // every viewer, tinted to the holder's OWN identity
+                        // ink so it introduces no colour whose meaning a
+                        // reader has to learn. It is NOT a verification or
+                        // moderation signal and carries none of their
+                        // vocabulary — no shield, no check, no lock, no trust
+                        // palette — and the accessible description says so in
+                        // words rather than leaving the treatment to imply it.
+                        //
+                        // A Loader, not a `visible: false` Rectangle: almost
+                        // nobody has a badge, and a Label born holding "" keeps
+                        // ItemObservesViewport for its whole life (§16).
+                        Loader {
+                            active: root.badgeLabel.length > 0
+                            visible: active
+                            // The badge is what gives way now. Capped so a
+                            // long label cannot reclaim the name's floor, and
+                            // its text elides rather than overflowing — a
+                            // pill cannot elide on its own.
+                            Layout.maximumWidth: AppTheme.scaled(160)
+                            sourceComponent: Rectangle {
+                                readonly property color ink:
+                                    AppTheme.userColor(root.userId)
+                                implicitWidth: Math.min(
+                                    badgeText.implicitWidth + 2 * AppTheme.spacing6,
+                                    AppTheme.scaled(160))
+                                implicitHeight: Math.max(
+                                    AppTheme.chipHeight,
+                                    badgeText.implicitHeight + 2 * AppTheme.spacing2)
+                                radius: AppTheme.chipRadius
+                                // The sanctioned soft-chip treatment: the ink
+                                // at 14% with a 32% border, so the pill can
+                                // never drift from the ink it is made of.
+                                color: Qt.alpha(ink, 0.14)
+                                border.width: 1
+                                border.color: Qt.alpha(ink, 0.32)
+                                Label {
+                                    id: badgeText
+                                    anchors.centerIn: parent
+                                    width: Math.min(implicitWidth,
+                                                    parent.width - 2 * AppTheme.spacing6)
+                                    elide: Label.ElideRight
+                                    horizontalAlignment: Text.AlignHCenter
+                                    text: root.badgeLabel
+                                    color: parent.ink
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.textMicro
+                                    font.weight: AppTheme.weightStrong
+                                    textFormat: Text.PlainText
+                                }
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: root.badgeLabel
+                                Accessible.description: root.badgeDescription
+                                ToolTip.text: root.badgeDescription
+                                ToolTip.visible: badgeHover.hovered
+                                                 && root.badgeDescription.length > 0
+                                ToolTip.delay: 300
+                                HoverHandler { id: badgeHover }
+                            }
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: root.userId
+                        color: AppTheme.stormTextMuted
+                        font.family: AppTheme.monoFont
+                        font.pixelSize: AppTheme.fontMonoXS
+                        elide: Label.ElideMiddle
+                    }
                 }
-                // Outline chips (§1 yellow discipline): the bolt fill on
-                // this surface belongs to the Message primary alone.
-                // Two different powers rendered as one grey pill. The
-                // chip vocabulary now has six families; bolt stays reserved
-                // for the Message primary below (§1 yellow discipline), so
-                // these take the link and info tones rather than the accent
-                // fill.
+
+                // Primary Message action — AppButton has no icon slot or a
+                // parametrized radius, so this mirrors its accent styling
+                // locally with the chat_bubble icon the spec asks for.
+                AbstractButton {
+                    id: messageButton
+                    text: qsTr("Message")
+                    visible: !root.isOwn && app.conversations.supported
+                    Layout.alignment: Qt.AlignTop
+                    // Sized to its own content now that it shares the row
+                    // with the identity block instead of filling it.
+                    implicitWidth: messageContent.implicitWidth
+                                   + 2 * AppTheme.spacing12
+                    implicitHeight: 32
+                    hoverEnabled: true
+                    focusPolicy: Qt.TabFocus
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Start or open a direct message with %1")
+                                     .arg(root.visibleName)
+                    onClicked: root.startOrOpenDm()
+
+                    // Spacer-centred: a control
+                    // stretches its contentItem to the full button width, so
+                    // anchors.centerIn on the layout is a no-op and the
+                    // icon+label would sit hard against the left edge.
+                    // Storm §3.9 primary: THE one bolt fill on this surface.
+                    // boltInk is the ink on that fill (Storm: deep canvas
+                    // navy; legacy: accentText) — stays readable once bolt
+                    // routes to each legacy theme's own accent.
+                    contentItem: RowLayout {
+                        id: messageContent
+                        spacing: AppTheme.spacing6
+                        Item { Layout.fillWidth: true }
+                        Icon {
+                            name: "chat_bubble"
+                            size: 16
+                            color: AppTheme.boltInk
+                        }
+                        Label {
+                            text: messageButton.text
+                            color: AppTheme.boltInk
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textBody
+                            font.weight: AppTheme.weightStrong
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+                    background: Rectangle {
+                        radius: AppTheme.radiusMd
+                        color: !messageButton.enabled ? AppTheme.stormInset
+                               : messageButton.down ? Qt.darker(AppTheme.bolt, 1.12)
+                               : messageButton.hovered ? Qt.darker(AppTheme.bolt, 1.05)
+                               : AppTheme.bolt
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: -2
+                        radius: AppTheme.radiusMd + 2
+                        color: "transparent"
+                        border.width: 2
+                        border.color: AppTheme.focusRing
+                        visible: messageButton.visualFocus
+                    }
+                }
+            }
+
+            // --- Bio card (MSC4440 over MSC4133) ------------------------
+            // Free text a REMOTE user wrote about themselves. PLAIN TEXT
+            // ONLY, always: the value is bounded, control-stripped and
+            // markup-stripped in Rust, and rendered with Text.PlainText here,
+            // so no bio can become a link target, an image fetch or rich
+            // content (§6). A user with no bio, a user we have not asked
+            // about yet and a homeserver without extended profile fields all
+            // render as NOTHING — there is no empty card and no error, and
+            // an absent field (M_NOT_FOUND) is not a failure.
+            //
+            // A Loader rather than `visible:`, for the same reason as the
+            // badge: a Label born holding "" never loses ItemObservesViewport.
+            Loader {
+                Layout.fillWidth: true
+                active: root.bioText.length > 0
+                visible: active
+                sourceComponent: Rectangle {
+                    implicitHeight: bioLabel.implicitHeight + 2 * AppTheme.spacing12
+                    radius: AppTheme.radiusMd
+                    color: AppTheme.stormInset
+                    border.width: 1
+                    border.color: AppTheme.stormBorder
+                    Label {
+                        // NOT `bioText` — that is the popover property this
+                        // reads, and one identifier for two things in the
+                        // same expression is a bug waiting to be written.
+                        id: bioLabel
+                        objectName: "profileBioText"
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: AppTheme.spacing12
+                        anchors.rightMargin: AppTheme.spacing12
+                        text: root.bioText
+                        // NEVER StyledText or RichText. See above.
+                        textFormat: Text.PlainText
+                        wrapMode: Text.Wrap
+                        color: AppTheme.stormTextSecondary
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textBody
+                        // A second bound, on top of Rust's: a bio the far end
+                        // stored before anyone bounded it must not be able to
+                        // make this card taller than the window.
+                        maximumLineCount: 12
+                        elide: Text.ElideRight
+                    }
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: qsTr("Bio")
+                    Accessible.description: root.bioText
+                }
+            }
+
+            // --- Chip row -----------------------------------------------
+            // Facts and light actions, wrapping rather than eliding: at 296px
+            // a fixed row would clip a long homeserver name, and a clipped
+            // domain is a misleading one.
+            Flow {
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing6
+
+                // The homeserver half of their address. Informational only —
+                // there is nothing to do with it that this card can do.
+                StatusChip {
+                    visible: root.homeserver.length > 0
+                    storm: true
+                    tone: "neutral"
+                    iconName: "alternate_email"
+                    label: root.homeserver
+                }
+
+                // The PUBLIC matrix.to profile link. It copies, and the
+                // notice says so out loud — this card has no other link
+                // control, so naming the outcome is what keeps "Share" from
+                // being a second name for something the user cannot see.
+                ProfileChipButton {
+                    objectName: "profileShareButton"
+                    iconName: "link"
+                    label: qsTr("Share")
+                    accessibleName: qsTr("Copy profile link")
+                    onClicked: root.copyProfileLink()
+                }
+
+                // Membership, carrying the presence dot the way the reference
+                // does. The dot is the SHARED component, so the state, the
+                // colours, the watch lifecycle and the wording are the same
+                // ones every other surface uses; unknown presence hides the
+                // dot and leaves the chip reading plain membership.
+                Rectangle {
+                    visible: root.membershipLabel.length > 0
+                    implicitWidth: membershipRow.implicitWidth
+                                   + 2 * AppTheme.chipPaddingH
+                    implicitHeight: Math.max(AppTheme.chipHeight,
+                                             membershipRow.implicitHeight
+                                             + 2 * AppTheme.spacing2)
+                    radius: AppTheme.chipRadius
+                    color: Qt.alpha(AppTheme.stormTextMuted, 0.14)
+                    border.width: 1
+                    border.color: Qt.alpha(AppTheme.stormTextMuted, 0.32)
+                    Row {
+                        id: membershipRow
+                        anchors.centerIn: parent
+                        spacing: AppTheme.spacing6
+                        PresenceDot {
+                            id: chipPresenceDot
+                            anchors.verticalCenter: parent.verticalCenter
+                            dotSize: 10
+                            ring: "transparent"
+                            userId: root.opened ? root.userId : ""
+                            hoverStatus: true
+                        }
+                        Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.membershipLabel
+                            color: AppTheme.stormTextMuted
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMicro
+                            font.weight: AppTheme.weightStrong
+                            textFormat: Text.PlainText
+                        }
+                    }
+                    // The one disclosure the dot cannot make: when presence
+                    // is KNOWN to be unavailable the dot renders nothing, and
+                    // nothing is indistinguishable from "not answered yet".
+                    // It rides the chip because the chip is always there.
+                    ToolTip.text: chipPresenceDot.statusText.length > 0
+                                  ? chipPresenceDot.statusText
+                                  : qsTr("Presence unavailable")
+                    ToolTip.visible: membershipHover.hovered
+                                     && (chipPresenceDot.statusText.length > 0
+                                         || root.presenceUnavailable)
+                    ToolTip.delay: 300
+                    HoverHandler { id: membershipHover }
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: root.membershipLabel
+                    Accessible.description:
+                        chipPresenceDot.statusText.length > 0
+                        ? chipPresenceDot.statusText
+                        : (root.presenceUnavailable
+                           ? qsTr("Presence unavailable") : "")
+                }
+
+                // Administrator / Moderator keep their own tones: they are
+                // the room's REAL power levels, and a decorative badge must
+                // never compete with them.
                 StatusChip {
                     visible: root.role === "administrator" || root.role === "creator"
                     storm: true
@@ -518,134 +955,63 @@ Popup {
                     tone: "info"
                     label: qsTr("Moderator")
                 }
-                Label {
+                StatusChip {
                     visible: root.isOwn
-                    text: qsTr("(you)")
-                    color: AppTheme.stormTextMuted
-                    font.pixelSize: AppTheme.textBody
+                    storm: true
+                    tone: "neutral"
+                    label: qsTr("You")
                 }
-                Item { Layout.fillWidth: true }
-            }
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: AppTheme.spacing8
-
-                // Primary Message action — AppButton has no icon slot or a
-                // parametrized radius, so this mirrors its accent styling
-                // locally with the chat_bubble icon the spec asks for.
-                AbstractButton {
-                    id: messageButton
-                    text: qsTr("Message")
-                    visible: !root.isOwn && app.conversations.supported
-                    Layout.fillWidth: true
-                    implicitHeight: 32
-                    hoverEnabled: true
-                    focusPolicy: Qt.TabFocus
-                    Accessible.role: Accessible.Button
-                    Accessible.name: qsTr("Start or open a direct message with %1")
-                                     .arg(root.displayName.length > 0
-                                          ? root.displayName : root.userId)
-                    // Spacer-centred (the copyIdButton idiom): a control
-                    // stretches its contentItem to the full button width, so
-                    // anchors.centerIn on the layout is a no-op and the
-                    // icon+label would sit hard against the left edge.
-                    // Storm §3.9 primary: THE one bolt fill on this surface.
-                    // boltInk is the ink on that fill (Storm: deep canvas
-                    // navy; legacy: accentText) — stays readable once bolt
-                    // routes to each legacy theme's own accent.
-                    contentItem: RowLayout {
-                        spacing: AppTheme.spacing6
-                        Item { Layout.fillWidth: true }
-                        Icon { name: "chat_bubble"; size: 16; color: AppTheme.boltInk }
-                        Label {
-                            text: qsTr("Message")
-                            color: AppTheme.boltInk
-                            font.family: AppTheme.menuFont
-                            font.pixelSize: 13
-                            font.weight: AppTheme.weightBold
+                // Overflow. It carries only actions that REALLY exist — the
+                // account-wide ignore and the id copy. There is no "Set
+                // Nickname" row because Lightning has no per-user local
+                // nickname to set, and this card has never rendered a
+                // disabled placeholder for something with no backend.
+                ProfileChipButton {
+                    objectName: "profileOverflowButton"
+                    iconName: "more_horiz"
+                    label: ""
+                    accessibleName: qsTr("More actions")
+                    onClicked: profileOverflowMenu.popup(0, height + 2)
+                    AppMenu {
+                        id: profileOverflowMenu
+                        menuWidth: 200
+                        AppMenuItem {
+                            objectName: "profileCopyIdButton"
+                            text: qsTr("Copy user ID")
+                            Accessible.description:
+                                qsTr("Copy Matrix ID %1").arg(root.userId)
+                            iconName: "content_copy"
+                            onTriggered: root.copyUserId()
                         }
-                        Item { Layout.fillWidth: true }
-                    }
-                    background: Rectangle {
-                        radius: AppTheme.radiusTile
-                        color: !messageButton.enabled ? AppTheme.stormInset
-                               : messageButton.down ? Qt.darker(AppTheme.bolt, 1.12)
-                               : messageButton.hovered ? Qt.darker(AppTheme.bolt, 1.05)
-                               : AppTheme.bolt
-                    }
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: -4
-                        radius: AppTheme.radiusTile + 4
-                        color: "transparent"
-                        border.width: 2
-                        border.color: AppTheme.bolt
-                        visible: messageButton.visualFocus
-                    }
-                    onClicked: root.startOrOpenDm()
-                }
-                AbstractButton {
-                    id: copyIdButton
-                    objectName: "profileCopyIdButton"
-                    text: qsTr("Copy ID")
-                    // When Message is unavailable (own profile, or a backend
-                    // without DM support) the lone icon square would orphan
-                    // hard-left — expand into a labelled, row-filling button
-                    // so the action row keeps its designed weight.
-                    readonly property bool expanded: !messageButton.visible
-                    Layout.fillWidth: expanded
-                    implicitWidth: expanded ? copyIdContent.implicitWidth + 28
-                                            : 32
-                    implicitHeight: 32
-                    hoverEnabled: true
-                    focusPolicy: Qt.TabFocus
-                    Accessible.role: Accessible.Button
-                    Accessible.name: qsTr("Copy Matrix ID %1").arg(root.userId)
-                    // Storm §3.9 secondary: stormBorderStrong outline,
-                    // stormTextSecondary ink (mock 2g outline squares).
-                    contentItem: RowLayout {
-                        id: copyIdContent
-                        spacing: AppTheme.spacing6
-                        Item { Layout.fillWidth: true }
-                        Icon {
-                            name: "content_copy"
-                            size: 16
-                            color: AppTheme.stormTextSecondary
+                        AppMenuItem {
+                            objectName: "profileIgnoreButton"
+                            visible: !root.isOwn && app.moderation.supported
+                            // A write is already in flight; offering a second
+                            // one would race the first.
+                            enabled: !app.moderation.busy
+                            danger: !root.userIgnored
+                            text: root.userIgnored ? qsTr("Unignore user")
+                                                   : qsTr("Ignore user")
+                            // The SCOPE, which the row's two words cannot
+                            // carry: m.ignored_user_list is account-wide, not
+                            // this room. The old full-width button said so in
+                            // its accessible name and that must not be lost
+                            // to the move into a menu.
+                            Accessible.description: root.userIgnored
+                                ? qsTr("Stop ignoring %1 in every room")
+                                  .arg(root.visibleName)
+                                : qsTr("Ignore %1 in every room")
+                                  .arg(root.visibleName)
+                            iconName: "block"
+                            onTriggered: {
+                                root.ignoreNotice = ""
+                                if (root.userIgnored)
+                                    app.moderation.unignoreUser(root.userId)
+                                else
+                                    app.moderation.ignoreUser(root.userId)
+                            }
                         }
-                        Label {
-                            visible: copyIdButton.expanded
-                            text: copyIdButton.text
-                            color: AppTheme.stormTextSecondary
-                            font.family: AppTheme.menuFont
-                            font.pixelSize: 13
-                            font.weight: AppTheme.weightBold
-                        }
-                        Item { Layout.fillWidth: true }
-                    }
-                    background: Rectangle {
-                        radius: AppTheme.radiusTile
-                        color: (copyIdButton.hovered || copyIdButton.down)
-                               ? AppTheme.stormSelection : "transparent"
-                        border.width: 1
-                        border.color: AppTheme.stormBorderStrong
-                    }
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: -4
-                        radius: AppTheme.radiusTile + 4
-                        color: "transparent"
-                        border.width: 2
-                        border.color: AppTheme.bolt
-                        visible: copyIdButton.visualFocus
-                    }
-                    onClicked: {
-                        idClipboard.text = root.userId
-                        idClipboard.selectAll()
-                        idClipboard.copy()
-                        idClipboard.text = ""
-                        copiedNotice.visible = true
-                        copiedTimer.restart()
                     }
                 }
             }
@@ -834,78 +1200,21 @@ Popup {
                 }
             }
 
-            // v0.7.x: account-wide ignore. Visually separate from the
-            // room-scoped moderation row above — ignoring needs no power
-            // level and applies to every room. One click, reversible.
-            ColumnLayout {
-                visible: !root.isOwn && app.moderation.supported
-                         && root.modAction === ""
+            // v0.7.x: account-wide ignore. The ACTION lives in the chip
+            // row's overflow menu now; what stays here is its report, which
+            // has to be on the card itself — a menu closes the moment the row
+            // is chosen, so a notice living inside it would never be read.
+            Label {
+                visible: root.ignoreNotice.length > 0 && root.modAction === ""
                 Layout.fillWidth: true
-                spacing: AppTheme.spacing6
-
-                AbstractButton {
-                    id: ignoreButton
-                    objectName: "profileIgnoreButton"
-                    Layout.fillWidth: true
-                    implicitHeight: 32
-                    hoverEnabled: true
-                    focusPolicy: Qt.TabFocus
-                    enabled: !app.moderation.busy
-                    Accessible.role: Accessible.Button
-                    Accessible.name: root.userIgnored
-                        ? qsTr("Stop ignoring %1").arg(root.visibleName)
-                        : qsTr("Ignore %1 everywhere").arg(root.visibleName)
-                    contentItem: RowLayout {
-                        spacing: AppTheme.spacing6
-                        Item { Layout.fillWidth: true }
-                        Icon {
-                            name: root.userIgnored ? "visibility" : "visibility_off"
-                            size: 16
-                            color: root.userIgnored ? AppTheme.stormTextSecondary
-                                                    : AppTheme.danger
-                        }
-                        Label {
-                            text: root.userIgnored ? qsTr("Stop ignoring")
-                                                   : qsTr("Ignore")
-                            color: root.userIgnored ? AppTheme.stormTextSecondary
-                                                    : AppTheme.danger
-                            font.family: AppTheme.menuFont
-                            font.pixelSize: 13
-                            font.weight: AppTheme.weightBold
-                        }
-                        Item { Layout.fillWidth: true }
-                    }
-                    background: Rectangle {
-                        radius: AppTheme.radiusTile
-                        color: (ignoreButton.hovered || ignoreButton.down)
-                               ? (root.userIgnored ? AppTheme.stormSelection
-                                                   : AppTheme.stormDangerSoft)
-                               : "transparent"
-                        border.width: 1
-                        border.color: root.userIgnored
-                                      ? AppTheme.stormBorderStrong
-                                      : AppTheme.stormDangerBorder
-                    }
-                    onClicked: {
-                        root.ignoreNotice = ""
-                        if (root.userIgnored)
-                            app.moderation.unignoreUser(root.userId)
-                        else
-                            app.moderation.ignoreUser(root.userId)
-                    }
-                }
-                Label {
-                    visible: root.ignoreNotice.length > 0
-                    Layout.fillWidth: true
-                    text: root.ignoreNotice
-                    color: root.ignoreNoticeError ? AppTheme.danger
-                                                  : AppTheme.stormTextMuted
-                    font.pixelSize: AppTheme.textMeta
-                    lineHeight: AppTheme.lineHeightBody
-                    lineHeightMode: Text.ProportionalHeight
-                    wrapMode: Text.Wrap
-                    Accessible.name: text
-                }
+                text: root.ignoreNotice
+                color: root.ignoreNoticeError ? AppTheme.danger
+                                              : AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textMeta
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                wrapMode: Text.Wrap
+                Accessible.name: text
             }
 
             // Inline confirm surface: reason (optional) + Confirm/Cancel.
@@ -1042,7 +1351,10 @@ Popup {
             Label {
                 id: copiedNotice
                 visible: false
-                text: qsTr("Matrix ID copied")
+                // Set by _copy(): the notice NAMES what went to the
+                // clipboard, which is what keeps a chip labelled "Share"
+                // from being a control whose effect the user cannot see.
+                text: ""
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
                 Accessible.name: text

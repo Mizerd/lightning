@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import MatrixClient
 
 // v0.7.x Matrix presence: the one shared presence indicator. Anchor it to
@@ -17,7 +18,14 @@ import MatrixClient
 // room for prose, so the only thing it could do with that knowledge is
 // paint a fourth colour, which is a fabricated indicator by another name.
 // The disclosure belongs where there is space for a sentence — the member
-// profile popover.
+// profile popover, which puts it on the membership chip beside this dot.
+//
+// 2026-08-28: the dot also owns `statusText`, THE presence sentence, and
+// shows it on hover where a surface opts in (`hoverStatus`). The member
+// profile card used to render its own copy of that sentence as a standalone
+// line; formatting the same three states in two places is how two surfaces
+// come to disagree about what "offline" means, and the line said in words
+// what the dot beside it already said in colour.
 Rectangle {
     id: dot
 
@@ -51,6 +59,48 @@ Rectangle {
     readonly property string presenceState:
         userId !== "" && presenceService && presenceService.revision >= 0
             ? presenceService.stateFor(userId) : ""
+
+    // THE presence sentence, and the only one in the application. It used to
+    // live in MemberProfilePopover as a standalone text line beside the dot,
+    // which meant the same three states were formatted in two places and the
+    // card said in words what the dot beside it already said in colour. The
+    // words now belong to the dot, and every surface that shows the dot gets
+    // the same wording for free.
+    //
+    // "" when the state is unknown — an unanswered lookup, a backend without
+    // presence, or a server that answered nothing believable. Unknown renders
+    // nothing at all, here as everywhere: never a fabricated Offline.
+    readonly property string statusText: {
+        if (userId === "" || !presenceService)
+            return ""
+        var rev = presenceService.revision   // re-evaluation dependency
+        var info = presenceService.infoFor(userId)
+        if (!info || info.state === undefined)
+            return ""
+        if (info.state === "online")
+            return qsTr("Online")
+        if (info.state === "unavailable")
+            return qsTr("Away")
+        if (info.state !== "offline")
+            return ""
+        var ago = info.lastActiveAgoMs
+        if (ago === undefined || ago < 0)
+            return qsTr("Offline")
+        var mins = Math.floor(ago / 60000)
+        if (mins < 1)
+            return qsTr("Offline \u2014 active just now")
+        if (mins < 60)
+            return qsTr("Offline \u2014 active %1 min ago").arg(mins)
+        var hours = Math.floor(mins / 60)
+        if (hours < 24)
+            return qsTr("Offline \u2014 active %1 h ago").arg(hours)
+        return qsTr("Offline \u2014 active %1 d ago").arg(Math.floor(hours / 24))
+    }
+
+    // Opt-in, because a HoverHandler on every dot in a long room list is a
+    // cost paid by every row for a sentence nobody hovers a 10px disc to
+    // read. The surfaces that are ABOUT one person turn it on.
+    property bool hoverStatus: false
 
     // The watch reference currently held, so a userId change (delegate
     // reuse) releases the old user before claiming the new one.
@@ -118,4 +168,23 @@ Rectangle {
         border.width: _offline ? Math.max(1, Math.round(dot.dotSize * 0.2)) : 0
         border.color: AppTheme.presenceOffline
     }
+
+    // The dot is 10-12px and carries its meaning in colour and form alone,
+    // which a reader who cannot separate the two hues has no way to decode.
+    // The tooltip is that reader's route to the same fact, and it is why the
+    // popover no longer needs a line of prose next to the avatar.
+    HoverHandler {
+        id: statusHover
+        enabled: dot.hoverStatus && dot.visible
+    }
+    ToolTip.text: dot.statusText
+    ToolTip.visible: dot.hoverStatus && statusHover.hovered
+                     && dot.statusText.length > 0
+    ToolTip.delay: 300
+    // Only enters the accessibility tree where it is the ONLY carrier of the
+    // status — a decorative dot on a room row would otherwise add a node per
+    // row saying nothing the row does not already say.
+    Accessible.role: Accessible.StaticText
+    Accessible.ignored: !dot.hoverStatus || dot.statusText.length === 0
+    Accessible.name: dot.statusText
 }

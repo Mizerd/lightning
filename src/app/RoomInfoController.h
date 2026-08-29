@@ -171,6 +171,32 @@ public:
     // Case-insensitive member filter over the loaded snapshot; returns the
     // same map shape as `members`.
     Q_INVOKABLE QVariantList filterMembers(const QString &needle) const;
+    // ONE member of the loaded snapshot, by exact user id, in the same map
+    // shape as `members`. EMPTY when this user is not in the room's roster —
+    // which is the ordinary answer for a mention of somebody who has left,
+    // and for every room whose roster has not been fetched.
+    //
+    // It exists because a caller may hold nothing but a user id. A mention
+    // link in a message body is exactly that: clicking it used to open a
+    // profile card with no picture and an MXID where the display name should
+    // be, while clicking the same person's avatar one line above worked,
+    // because THAT call site happened to pass the two fields. Resolving in
+    // the surface rather than at each of the five call sites is what stops
+    // the sixth getting it wrong too.
+    //
+    // A miss must NEVER be filled in with a guess: no fabricated name (the
+    // localpart fallback every surface already shares is the honest answer)
+    // and no avatar at all, because a wrong face is worse than none.
+    Q_INVOKABLE QVariantMap memberFor(const QString &userId) const;
+    // The same lookup against an EXPLICIT room, because the caller that
+    // needs this most is not the Room Information panel: `roomId` here
+    // follows whatever surface last pointed this controller somewhere, and
+    // that may be a Space's settings rather than the room the reader is
+    // looking at. A SEPARATE overload rather than a defaulted argument, for
+    // the reason filterMembers gives above — a defaulted parameter QML must
+    // pass fails SILENTLY.
+    Q_INVOKABLE QVariantMap memberFor(const QString &userId,
+                                      const QString &roomId) const;
     // 2026-08-26 Space settings: the same filter plus a membership facet and
     // an A-to-Z option. A SEPARATE overload rather than defaulted arguments,
     // because a defaulted parameter QML must pass fails SILENTLY (the

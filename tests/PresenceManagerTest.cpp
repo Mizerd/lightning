@@ -150,6 +150,14 @@ private Q_SLOTS:
     // client publishes, never from the server's echo.
     void ownPresenceComesFromWhatThisClientPublishes();
 
+    // 2026-08-28: a live typing notification WITHDRAWS a contradicted
+    // "offline". Presence and typing come from different sources and can
+    // legitimately disagree; when they do, the poll is the unreliable half.
+    void typingWithdrawsAContradictedOfflineWithoutFabricatingOnline();
+    void typingNeverTouchesOnlineAwayOrAnUnknownUser();
+    void typingEvidenceExpiresAndTheDotComesBackOnItsOwn();
+    void typingRepollsTheUserAndSignsOutWithTheSession();
+
 private:
     // Drives the manager to a live session and returns the fake's baseline
     // request count (the edge may or may not have polled, depending on the
@@ -1135,6 +1143,159 @@ void PresenceManagerTest::ownPresenceComesFromWhatThisClientPublishes()
     // Somebody else is never answered from the local publication.
     QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
              QString());
+}
+
+// A homeserver with presence switched off answers 200 with "offline" for
+// EVERY user rather than refusing, so the give-up latch never fires (a
+// successful answer is not a refusal) and every remote contact reads as a
+// confident "Offline" forever. A typing notification is the one live,
+// present-tense, server-forwarded fact about that user this client receives,
+// and it says the offline is wrong.
+//
+// The claim is WITHDRAWN, never replaced: the state becomes unknown, and
+// unknown renders nothing — the rule this class has followed from the start.
+// Reporting "online" would be the same fabrication in the other direction.
+void PresenceManagerTest::typingWithdrawsAContradictedOfflineWithoutFabricatingOnline()
+{
+    FakePresenceClient client;
+    SettingsManager settings;
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+    goSyncing(client);
+
+    const QString alice = QStringLiteral("@alice:example.org");
+    presence.watch(alice);
+    QTRY_VERIFY(!client.requests.isEmpty());
+    Q_EMIT client.presenceReceived(client.requests.last().opId,
+                                   { okEntry(alice, QStringLiteral("offline")) });
+    QCOMPARE(presence.stateFor(alice), QStringLiteral("offline"));
+    QVERIFY(!presence.infoFor(alice).isEmpty());
+
+    QSignalSpy revisions(&presence, &PresenceManager::revisionChanged);
+    presence.noteTyping(alice);
+
+    // Withdrawn, not overwritten, and not promoted.
+    QCOMPARE(presence.stateFor(alice), QString());
+    QVERIFY2(presence.stateFor(alice) != QStringLiteral("online"),
+             "typing proves activity, never a presence state");
+    // infoFor is what a card formats its sentence from, so the withdrawal
+    // has to reach it too — an empty map is how this class says "unknown".
+    QVERIFY(presence.infoFor(alice).isEmpty());
+    // ...and the surfaces are told, or a dot already drawn never repaints.
+    QCOMPARE(revisions.count(), 1);
+}
+
+void PresenceManagerTest::typingNeverTouchesOnlineAwayOrAnUnknownUser()
+{
+    FakePresenceClient client;
+    SettingsManager settings;
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+    goSyncing(client);
+
+    const QString alice = QStringLiteral("@alice:example.org");
+    const QString bob = QStringLiteral("@bob:example.org");
+    const QString carol = QStringLiteral("@carol:example.org");
+    presence.watch(alice);
+    presence.watch(bob);
+    QTRY_VERIFY(!client.requests.isEmpty());
+    Q_EMIT client.presenceReceived(
+        client.requests.last().opId,
+        { okEntry(alice, QStringLiteral("online")),
+          okEntry(bob, QStringLiteral("unavailable")) });
+
+    presence.noteTyping(alice);
+    presence.noteTyping(bob);
+    presence.noteTyping(carol);
+
+    // A server that says "online" is not contradicted by anything.
+    QCOMPARE(presence.stateFor(alice), QStringLiteral("online"));
+    // "unavailable" is a soft state a server sets on its own idle
+    // heuristics; someone typing while marked away is ordinary, not a
+    // contradiction, and demoting it to unknown would lose information.
+    QCOMPARE(presence.stateFor(bob), QStringLiteral("unavailable"));
+    // A user with no cached answer renders nothing either way — typing must
+    // not invent a state for somebody nobody has asked about.
+    QCOMPARE(presence.stateFor(carol), QString());
+
+    // The local user is answered from what THIS client publishes, so its own
+    // typing says nothing new and must not disturb it.
+    Q_EMIT client.presenceReceived(client.requests.last().opId,
+                                   { okEntry(client.self,
+                                             QStringLiteral("offline")) });
+    presence.noteTyping(client.self);
+    QCOMPARE(presence.stateFor(client.self), QStringLiteral("online"));
+}
+
+// The evidence has to expire and ANNOUNCE that it expired: applyBatch only
+// bumps the revision when a polled VALUE changes, and on a presence-disabled
+// server the cached value is "offline" throughout — so nothing else would
+// ever repaint the dot that was withheld.
+void PresenceManagerTest::typingEvidenceExpiresAndTheDotComesBackOnItsOwn()
+{
+    FakePresenceClient client;
+    SettingsManager settings;
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+    // The real window is 35 s; the CONTRACT that it expires is untestable at
+    // that scale.
+    presence.setTypingEvidenceWindowForTest(60);
+    presence.setClient(&client);
+    goSyncing(client);
+
+    const QString alice = QStringLiteral("@alice:example.org");
+    presence.watch(alice);
+    QTRY_VERIFY(!client.requests.isEmpty());
+    Q_EMIT client.presenceReceived(client.requests.last().opId,
+                                   { okEntry(alice, QStringLiteral("offline")) });
+
+    presence.noteTyping(alice);
+    QCOMPARE(presence.stateFor(alice), QString());
+
+    QSignalSpy revisions(&presence, &PresenceManager::revisionChanged);
+    QTRY_COMPARE_WITH_TIMEOUT(presence.stateFor(alice),
+                              QStringLiteral("offline"), 3000);
+    QVERIFY2(revisions.count() >= 1,
+             "the expiry must announce itself, or the withheld dot never "
+             "comes back until an unrelated update happens along");
+}
+
+void PresenceManagerTest::typingRepollsTheUserAndSignsOutWithTheSession()
+{
+    FakePresenceClient client;
+    SettingsManager settings;
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+    goSyncing(client);
+
+    const QString alice = QStringLiteral("@alice:example.org");
+    presence.watch(alice);
+    QTRY_VERIFY(!client.requests.isEmpty());
+    Q_EMIT client.presenceReceived(client.requests.last().opId,
+                                   { okEntry(alice, QStringLiteral("offline")) });
+    const int before = client.requests.size();
+
+    // Typing is the strongest hint available that a poll answer is about to
+    // change, so it asks — which is what makes the withheld dot a brief gap
+    // on a healthy server rather than a lasting absence.
+    presence.noteTyping(alice);
+    QTRY_VERIFY(client.requests.size() > before);
+    QVERIFY(client.requests.last().userIds.contains(alice));
+
+    // Typing evidence names the previous account's contacts, exactly like
+    // the watched set.
+    QCOMPARE(presence.stateFor(alice), QString());
+    Q_EMIT client.loggedOut();
+    presence.watch(alice);
+    goSyncing(client);
+    QTRY_VERIFY(!client.requests.isEmpty());
+    Q_EMIT client.presenceReceived(client.requests.last().opId,
+                                   { okEntry(alice, QStringLiteral("offline")) });
+    QCOMPARE(presence.stateFor(alice), QStringLiteral("offline"));
 }
 
 QTEST_MAIN(PresenceManagerTest)

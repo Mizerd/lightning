@@ -813,6 +813,58 @@ QVariantList RoomInfoController::filterMembers(const QString &needle) const
     return visibleMembers(needle, QString(), false);
 }
 
+QVariantMap RoomInfoController::memberFor(const QString &userId) const
+{
+    return memberFor(userId, m_roomId);
+}
+
+QVariantMap RoomInfoController::memberFor(const QString &userId,
+                                          const QString &roomId) const
+{
+    if (userId.isEmpty())
+        return {};
+
+    // 1. The loaded roster snapshot, when it is THIS room's. It is the
+    //    richest answer — membership and power level as well as the name and
+    //    the face — and it is exact: Matrix localparts are case-SENSITIVE,
+    //    so guessing at equivalence between two ids is how one person's card
+    //    gets another person's face.
+    if (!roomId.isEmpty() && roomId == m_roomId) {
+        for (const QVariant &value : m_members) {
+            const QVariantMap row = value.toMap();
+            if (row.value(QStringLiteral("userId")).toString() == userId)
+                return row;
+        }
+    }
+
+    // 2. The client's own per-room member cache. This matters more than it
+    //    looks: the snapshot above only exists once somebody has OPENED Room
+    //    Information for this room, and the caller this lookup exists for —
+    //    a mention link clicked in the timeline — normally has not. The cache
+    //    is the SAME derivation the mention chips, reply headers and thread
+    //    summaries already resolve through, so a card cannot disagree with
+    //    the pill that was clicked to open it.
+    if (!m_client || roomId.isEmpty())
+        return {};
+    const QString name = m_client->displayNameFor(roomId, userId);
+    const QString avatar = m_client->avatarMxcFor(roomId, userId);
+    // Both answer with the USER ID itself when they know nothing. That is
+    // not a display name, and storing it as one would defeat the shared
+    // localpart fallback and put an MXID where a name belongs — which is
+    // precisely the defect this lookup exists to fix.
+    const QString resolved = name == userId ? QString() : name;
+    if (resolved.isEmpty() && avatar.isEmpty())
+        return {};
+    // Deliberately NO membership and NO power level: this source does not
+    // know them, and an absent key is how a caller finds that out. Inventing
+    // "joined" here would put a Member chip on somebody who has left.
+    return QVariantMap{
+        { QStringLiteral("userId"), userId },
+        { QStringLiteral("displayName"), resolved },
+        { QStringLiteral("avatarUrl"), avatar },
+    };
+}
+
 QVariantList RoomInfoController::filterMembers(const QString &needle,
                                                const QString &membership,
                                                bool alphabetical) const
