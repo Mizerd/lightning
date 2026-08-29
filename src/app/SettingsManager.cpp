@@ -37,6 +37,12 @@ constexpr auto kPreferredEmojiTone  = "emoji/preferredTone";
 constexpr auto kPreviewsUnencrypted = "previews/autoLoadUnencrypted";
 constexpr auto kPreviewsEncrypted   = "previews/loadInEncryptedRooms";
 constexpr auto kPreviewsAnimateGifs = "previews/animateGifs";
+// Screen-share quality. GLOBAL, not per-account: it describes what this
+// computer can afford to encode, which does not change with who is signed
+// in. Both are clamped on read as well as write — the store is a file a user
+// can edit, and an out-of-range value would reach a GStreamer caps string.
+constexpr auto kShareMaxHeight      = "calls/shareMaxHeight";
+constexpr auto kShareFps            = "calls/shareFps";
 constexpr auto kSharePresence = "presence/shareOwn";
 constexpr auto kSpacesRailVisible = "shell/spacesRailVisible";
 constexpr auto kSpaceBannersVisible = "shell/spaceBannersVisible";
@@ -1478,6 +1484,58 @@ void SettingsManager::setRoomNotificationMode(const QString &roomId, int mode)
 bool SettingsManager::notificationsEnabled() const
 {
     return m_store->value(kNotifications, true).toBool();
+}
+
+namespace {
+/// The offered ceilings, and the ONLY values accepted. A stored number is
+/// snapped to the nearest of these rather than trusted: a hand-edited config
+/// carrying 4320 would ask the encoder for 8K on every frame.
+int snapShareHeight(int v)
+{
+    if (v <= 900)
+        return 720;
+    if (v <= 1260)
+        return 1080;
+    return 1440;
+}
+int snapShareFps(int v)
+{
+    if (v <= 22)
+        return 15;
+    if (v <= 45)
+        return 30;
+    return 60;
+}
+} // namespace
+
+int SettingsManager::shareMaxHeight() const
+{
+    // 1080 by default: what the share has always sent, so an existing user
+    // sees no change until they choose one.
+    return snapShareHeight(m_store->value(kShareMaxHeight, 1080).toInt());
+}
+
+void SettingsManager::setShareMaxHeight(int v)
+{
+    const int snapped = snapShareHeight(v);
+    if (shareMaxHeight() == snapped)
+        return;
+    m_store->setValue(kShareMaxHeight, snapped);
+    Q_EMIT shareQualityChanged();
+}
+
+int SettingsManager::shareFps() const
+{
+    return snapShareFps(m_store->value(kShareFps, 30).toInt());
+}
+
+void SettingsManager::setShareFps(int v)
+{
+    const int snapped = snapShareFps(v);
+    if (shareFps() == snapped)
+        return;
+    m_store->setValue(kShareFps, snapped);
+    Q_EMIT shareQualityChanged();
 }
 
 bool SettingsManager::autoLoadLinkPreviews() const

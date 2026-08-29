@@ -666,6 +666,75 @@ AppDialog {
             // is answered by GStreamer at runtime rather than by a platform
             // macro, because which capture plugin a package ships is a
             // packaging fact.
+            // Quality, where Discord puts it: in the dialog you are about to
+            // share from. Both feed the encoder's cost directly — the share
+            // is a 4K capture downscaled on the CPU and encoded by four VP8
+            // threads competing with whatever is being shared, so a game at
+            // 1440p60 and one at 720p30 are not the same machine.
+            Label {
+                text: qsTr("Quality")
+                color: AppTheme.stormTextSecondary
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+            }
+            AppComboBox {
+                id: shareResCombo
+                objectName: "shareResolutionCombo"
+                storm: root.storm
+                implicitWidth: 110
+                textRole: "label"
+                valueRole: "value"
+                model: [
+                    { label: qsTr("720p"), value: 720 },
+                    { label: qsTr("1080p"), value: 1080 },
+                    { label: qsTr("1440p"), value: 1440 }
+                ]
+                Accessible.name: qsTr("Screen share resolution")
+                // NEVER bind currentIndex: indexOfValue() is -1 at creation
+                // time, and clamping that to 0 makes the control lie about
+                // the stored value.
+                // The model's labels come from qsTr(), so a language change
+                // re-evaluates it and AppComboBox re-syncs to its LAST synced
+                // value — which `onActivated` alone never updates, so the
+                // control would silently revert to the old choice while the
+                // setting behind it was correct. Same shape and same fix as
+                // wheelSpeedCombo in SettingsScreen.
+                Component.onCompleted: syncToValue(app.settings.shareMaxHeight)
+                onActivated: {
+                    app.settings.shareMaxHeight = currentValue;
+                    syncToValue(app.settings.shareMaxHeight);
+                }
+                Connections {
+                    target: app.settings
+                    function onShareQualityChanged() {
+                        shareResCombo.syncToValue(app.settings.shareMaxHeight);
+                    }
+                }
+            }
+            AppComboBox {
+                id: shareFpsCombo
+                objectName: "shareFpsCombo"
+                storm: root.storm
+                implicitWidth: 100
+                textRole: "label"
+                valueRole: "value"
+                model: [
+                    { label: qsTr("15 fps"), value: 15 },
+                    { label: qsTr("30 fps"), value: 30 },
+                    { label: qsTr("60 fps"), value: 60 }
+                ]
+                Accessible.name: qsTr("Screen share frame rate")
+                Component.onCompleted: syncToValue(app.settings.shareFps)
+                onActivated: {
+                    app.settings.shareFps = currentValue;
+                    syncToValue(app.settings.shareFps);
+                }
+                Connections {
+                    target: app.settings
+                    function onShareQualityChanged() {
+                        shareFpsCombo.syncToValue(app.settings.shareFps);
+                    }
+                }
+            }
             CheckBox {
                 objectName: "shareAudioCheck"
                 visible: app.groupCall && app.groupCall.shareAudioSupported

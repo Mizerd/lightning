@@ -59,8 +59,32 @@ public:
     /// the publish pipelines use. Declared to the SFU in AddTrack: a video
     /// track with no size and no layer leaves it to infer the shape of the
     /// track, and it infers three-layer simulcast.
+    // The DEFAULT share ceiling. Still constants because they are what the
+    // SFU is told at AddTrack time when nothing has chosen otherwise; the
+    // live values are the two members below, set from settings before a
+    // share publishes.
     static constexpr int kScreenWidth = 1920;
     static constexpr int kScreenHeight = 1080;
+
+    /// What a screen share may send: a scanline ceiling (720/1080/1440) and
+    /// a frame rate (15/30/60).
+    ///
+    /// BOTH are encoder cost. A share is a 4K capture downscaled on the CPU,
+    /// converted, and encoded by four VP8 threads, all competing with
+    /// whatever the user is actually sharing — a game, most usefully. These
+    /// exist so that cost is the user's choice rather than a constant, which
+    /// is what Discord offers and for the same reason.
+    void setShareQuality(int maxHeight, int fps);
+
+    /// The share's caps ceiling and encoder stage for a chosen height and
+    /// rate. STATIC AND PURE so the arithmetic is testable without a live
+    /// peer — every caps defect this lane has had was invisible to the tests
+    /// that existed, because the string was only ever built inside a
+    /// function that needed one.
+    static QString shareLimitsCaps(int maxHeight, int fps);
+    static QString shareEncoderStage(int maxHeight, int fps);
+    int shareMaxHeight() const { return m_shareMaxHeight; }
+    int shareFps() const { return m_shareFps; }
     static constexpr int kCameraWidth = 1280;
     static constexpr int kCameraHeight = 720;
 
@@ -534,6 +558,8 @@ private:
     Peer m_subscriber;
     bool m_active = false;
     bool m_testSources = false;
+    int m_shareMaxHeight = kScreenHeight;
+    int m_shareFps = 30;
     /// Bumped on every start/stop so a late callback is discarded.
     std::atomic<quint64> m_generation{0};
     /// Read from a GStreamer streaming thread in pad-added: a remote track

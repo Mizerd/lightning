@@ -2438,9 +2438,19 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
                       << "window=" << (windowHandle != 0)
                       << "x11rect=" << captureRect.isValid()
                       << "encrypted=" << m_roomEncrypted;
+    // THE QUALITY IS CHOSEN BEFORE THE TRACK IS DECLARED. AddTrack carries
+    // the single VideoLayer's real dimensions, and rust/src/sfu.rs is
+    // explicit that declaring a shape we do not publish leaves the SFU
+    // forwarding something that does not describe the track. Setting the
+    // engine's quality AFTER this call left every non-1080p choice declaring
+    // 1920x1080 while sending 1280x720 or 2560x1440.
+    m_engine->setShareQuality(m_settings ? m_settings->shareMaxHeight()
+                                         : SfuMediaEngine::kScreenHeight,
+                              m_settings ? m_settings->shareFps() : 30);
+    const int shareH = m_engine->shareMaxHeight();
+    const int shareW = (shareH * 16) / 9;
     m_client->sfuAddTrack(cid, QStringLiteral("screen"), 1,
-                          SfuMediaEngine::kScreenWidth,
-                          SfuMediaEngine::kScreenHeight,
+                          shareW, shareH,
                           true, m_roomEncrypted);
     m_engine->publishVideo(cid, /*screenShare=*/true, pipewireNodeId,
                            pipewireFd, windowHandle, captureRect);

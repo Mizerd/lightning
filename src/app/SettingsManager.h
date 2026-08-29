@@ -119,6 +119,11 @@ class SettingsManager : public QObject
     // publishes presence wherever the server enables it); disclosed and
     // switchable under Privacy & security. Viewing OTHERS' presence is
     // passive (reads against the user's own homeserver) and has no toggle.
+    // Screen-share quality. Global to the computer, not the account.
+    Q_PROPERTY(int shareMaxHeight READ shareMaxHeight WRITE setShareMaxHeight
+                   NOTIFY shareQualityChanged)
+    Q_PROPERTY(int shareFps READ shareFps WRITE setShareFps
+                   NOTIFY shareQualityChanged)
     Q_PROPERTY(bool sharePresence READ sharePresence
                    WRITE setSharePresence NOTIFY sharePresenceChanged)
     // Shell layout. Device-level, not per-account: it describes this
@@ -496,11 +501,21 @@ public:
 
     // v0.5.11: link-preview policy (see Q_PROPERTY block).
     bool autoLoadLinkPreviews() const;
+
     void setAutoLoadLinkPreviews(bool v);
     bool loadPreviewsInEncryptedRooms() const;
     void setLoadPreviewsInEncryptedRooms(bool v);
     bool animateGifPreviews() const;
     void setAnimateGifPreviews(bool v);
+    /// Screen-share ceiling, in scanlines: 720, 1080 or 1440. Width follows
+    /// from 16:9, and the source is never upscaled, so a smaller screen
+    /// still sends its own size under a larger ceiling.
+    int shareMaxHeight() const;
+    void setShareMaxHeight(int v);
+    /// Screen-share frame rate: 15, 30 or 60.
+    int shareFps() const;
+    void setShareFps(int v);
+
     bool sharePresence() const;
     bool spacesRailVisible() const;
     bool spaceBannersVisible() const;
@@ -854,6 +869,7 @@ Q_SIGNALS:
     void callDevicePreferenceChanged();
     void roomNotificationModeChanged(const QString &roomId);
     void autoLoadLinkPreviewsChanged();
+    void shareQualityChanged();
     void loadPreviewsInEncryptedRoomsChanged();
     void animateGifPreviewsChanged();
     void sharePresenceChanged();

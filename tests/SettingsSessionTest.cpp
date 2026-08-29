@@ -92,6 +92,7 @@ private Q_SLOTS:
     void unknownStoredThemeFallsBackToSystem();
     void themeChangeEmitsSignal();
     void previewDefaultsAndEncryptedOff();
+    void shareQualityDefaultsPersistAndSnap();
     void roomActivityDefaultsEnabledAndPersists();
     void wheelSpeedDefaultsToFastPersistsAndFallsBack();
     void gifPolicyDefaultsPersistAndClamp();
@@ -301,6 +302,64 @@ void SettingsSessionTest::themeChangeEmitsSignal()
     // Setting the same value again must not re-emit.
     settings.setTheme(SettingsManager::PurpleDuskTheme);
     QCOMPARE(spy.count(), 1);
+}
+
+void SettingsSessionTest::shareQualityDefaultsPersistAndSnap()
+{
+    SettingsManager settings;
+
+    // The defaults are what the share has always sent, so an existing user
+    // sees no change until they choose something.
+    QCOMPARE(settings.shareMaxHeight(), 1080);
+    QCOMPARE(settings.shareFps(), 30);
+
+    // SNAPPED ON READ as well as on write. The store is a file a user can
+    // edit, and an out-of-range value would reach a GStreamer caps string --
+    // 4320 would ask the encoder for 8K on every frame, 0 would negotiate
+    // nothing at all.
+    QSettings raw;
+    raw.setValue(QStringLiteral("calls/shareMaxHeight"), 4320);
+    raw.setValue(QStringLiteral("calls/shareFps"), 240);
+    raw.sync();
+    SettingsManager reread;
+    QCOMPARE(reread.shareMaxHeight(), 1440);
+    QCOMPARE(reread.shareFps(), 60);
+
+    raw.setValue(QStringLiteral("calls/shareMaxHeight"), 0);
+    raw.setValue(QStringLiteral("calls/shareFps"), -5);
+    raw.sync();
+    SettingsManager rereadLow;
+    QCOMPARE(rereadLow.shareMaxHeight(), 720);
+    QCOMPARE(rereadLow.shareFps(), 15);
+
+    // Round trip, and the signal fires once per real change.
+    //
+    // A FRESH manager on a KNOWN value: the raw writes above went into the
+    // same store this test's first `settings` reads, so it is already
+    // holding 720 by now and asserting a change to 720 would be asserting a
+    // correct no-op. Getting that wrong is how a test comes to blame the
+    // code for its own setup.
+    raw.setValue(QStringLiteral("calls/shareMaxHeight"), 1080);
+    raw.setValue(QStringLiteral("calls/shareFps"), 30);
+    raw.sync();
+    SettingsManager fresh;
+    QSignalSpy spy(&fresh, &SettingsManager::shareQualityChanged);
+    SettingsManager &settingsRt = fresh;
+    settingsRt.setShareMaxHeight(720);
+    QCOMPARE(settingsRt.shareMaxHeight(), 720);
+    QCOMPARE(spy.count(), 1);
+    // Writing the value it already holds announces nothing.
+    settingsRt.setShareMaxHeight(720);
+    QCOMPARE(spy.count(), 1);
+    // ...and an out-of-set value that SNAPS to the value already held is
+    // also a no-op, which is the case a naive guard misses.
+    settingsRt.setShareMaxHeight(800);
+    QCOMPARE(settingsRt.shareMaxHeight(), 720);
+    QCOMPARE(spy.count(), 1);
+
+    settingsRt.setShareFps(60);
+    QCOMPARE(settingsRt.shareFps(), 60);
+    QCOMPARE(spy.count(), 2);
 }
 
 void SettingsSessionTest::previewDefaultsAndEncryptedOff()

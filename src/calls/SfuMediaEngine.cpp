@@ -952,6 +952,16 @@ bool SfuMediaEngine::shareAudioAvailable()
     return !shareAudioSourceDescription().isEmpty();
 }
 
+void SfuMediaEngine::setShareQuality(int maxHeight, int fps)
+{
+    // Snapped, never trusted: these cross from settings and a bad value
+    // would reach the caps string. A ceiling of 0 negotiates nothing at all.
+    m_shareMaxHeight = (maxHeight <= 900) ? 720
+                     : (maxHeight <= 1260) ? 1080
+                                           : 1440;
+    m_shareFps = (fps <= 22) ? 15 : (fps <= 45) ? 30 : 60;
+}
+
 void SfuMediaEngine::publishShareAudio(const QString &cid)
 {
     if (!ensurePeer(Target::Publisher) || cid.isEmpty())
@@ -1293,6 +1303,58 @@ void SfuMediaEngine::applyPublisherMsid(GstPad *sinkPad, const QString &cid)
     // `track.mediaStreamTrack.id`, which the browser writes into the SDP for
     // it. Setting the pad's msid to the same cid reproduces that by hand.
     g_object_set(sinkPad, "msid", cid.toUtf8().constData(), nullptr);
+}
+
+/// The share's caps ceiling, as a string, for a chosen height and rate.
+///
+/// STATIC AND PURE so it can be tested. Its neighbours videoPipelineDescription()
+/// and videoRateStage() are static for the same reason, and the record on this
+/// lane is that all three caps defects it has had were invisible to every test
+/// that existed at the time — because the string was only ever built inside a
+/// function that needs a live peer.
+QString SfuMediaEngine::shareLimitsCaps(int maxHeight, int fps)
+{
+    // Width follows the height at 16:9, and BOTH STAY RANGES so videoscale
+    // still refuses to upscale: a 1280x800 window publishes at its own size
+    // under a 1440 ceiling. `pixel-aspect-ratio` stays FIXED at 1/1, because
+    // a field left un-fixated is taken to its minimum by gst_caps_fixate —
+    // for PAR that is 1/2147483647, which kills videoscale with an integer
+    // overflow.
+    //
+    // 60 fps ABOVE THE SOURCE'S DECLARED max-framerate IS FINE, measured
+    // rather than reasoned: the portal's real caps are
+    // `framerate=0/1, max-framerate=59/1`, and a fixed 60/1 behind
+    // `videorate` negotiates cleanly — videorate's src pad comes out at
+    // `framerate=(fraction)60/1` with `max-framerate=59/1` still alongside
+    // it and nothing reports not-negotiated. Checked because picking 60
+    // would otherwise have broken sharing outright, and three caps
+    // properties have shipped on this lane on reasoning alone and each made
+    // things worse.
+    const int shareH = maxHeight;
+    const int shareW = (shareH * 16) / 9;
+    return QStringLiteral("video/x-raw,width=(int)[1,%1],"
+                          "height=(int)[1,%2],"
+                          "framerate=(fraction)%3/1,"
+                          "pixel-aspect-ratio=(fraction)1/1")
+        .arg(QString::number(shareW), QString::number(shareH),
+             QString::number(fps));
+}
+
+/// The share's encoder stage, whose bitrate follows the picture and whose
+/// keyframe interval follows the rate. Static and pure, for the same reason.
+QString SfuMediaEngine::shareEncoderStage(int maxHeight, int fps)
+{
+    const int shareH = maxHeight;
+    const int shareW = (shareH * 16) / 9;
+    const double shareScale = (double(shareW) * shareH * fps)
+                            / (1920.0 * 1080.0 * 30.0);
+    const int shareBitrate =
+        std::clamp(int(3000000.0 * shareScale), 800000, 6000000);
+    return QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
+                          "cpu-used=4 static-threshold=100 "
+                          "keyframe-max-dist=%2 "
+                          "end-usage=cbr target-bitrate=%1")
+        .arg(QString::number(shareBitrate), QString::number(2 * fps));
 }
 
 QString SfuMediaEngine::videoRateStage(bool screenShare)
@@ -1878,30 +1940,18 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     //
     // Every one of those negotiated cleanly from a source declaring no PAR of
     // its own, which is what Lightning's own window capture element does.
+    // The share ceiling and rate are the USER'S, not constants. Width
+    // follows the height at 16:9 and both remain RANGES, so the "never
+    // upscaled" property above is unchanged: a 1280x800 window still
+    // publishes at its own size under a 1440 ceiling.
     const QString limits = screenShare
-        ? QStringLiteral("video/x-raw,width=(int)[1,1920],"
-                         "height=(int)[1,1080],"
-                         "framerate=(fraction)30/1,"
-                         "pixel-aspect-ratio=(fraction)1/1")
+        ? shareLimitsCaps(m_shareMaxHeight, m_shareFps)
         : QStringLiteral("video/x-raw,width=(int)[1,1280],"
                          "height=(int)[1,720],"
                          "framerate=(fraction)30/1,"
                          "pixel-aspect-ratio=(fraction)1/1");
-
-    // Screen content is text-heavy and mostly static, so the trades differ
-    // from a camera's on every axis:
-    //   * static-threshold skips macroblocks that did not change, which on a
-    //     desktop is most of the frame most of the time. On a camera it
-    //     would smear real motion, so it stays 0 there.
-    //   * a longer keyframe distance spends the budget on legible text
-    //     rather than on periodic full frames.
-    //   * cpu-used trades encoder effort for headroom, which 1080p needs and
-    //     720p does not.
     const QString encoder = screenShare
-        ? QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
-                         "cpu-used=4 static-threshold=100 "
-                         "keyframe-max-dist=60 "
-                         "end-usage=cbr target-bitrate=3000000")
+        ? shareEncoderStage(m_shareMaxHeight, m_shareFps)
         : QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
                          "cpu-used=2 static-threshold=0 "
                          "keyframe-max-dist=30 "

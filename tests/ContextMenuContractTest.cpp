@@ -374,6 +374,52 @@ private Q_SLOTS:
         QVERIFY(!block.contains(QStringLiteral("Pin to favourites")));
     }
 
+    void everyPreviewRestoreUsesTheKeyTheDismissalUsed()
+    {
+        // A dismissed preview is remembered under an ownership key built
+        // from a ROOM ID and the event's action key. Restoring it looks that
+        // key up -- and looking up a key nobody dismissed is not an error,
+        // it is a silent no-op. So a restore that computes its room id
+        // differently from the dismissal produces a button that does
+        // nothing, with no warning anywhere.
+        //
+        // That shipped: the inline "Show preview" passed the VIEW's roomId
+        // while dismissal, lookup and the context menu's undo all pass
+        // `previewRoomId` (app.currentRoomId). Reported as "this button does
+        // nothing".
+        const QString src = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!src.isEmpty());
+
+        // Anchored on the CALL, not on a fixed window after a name: a
+        // comment inside the call has moved a fixed-offset scan past its
+        // target four times in this repository.
+        // EVERY verb that keys the same store, not just restore. Dismiss,
+        // request, retry and the lookup all build the ownership key the same
+        // way, and flipping ANY of them to the view's roomId reintroduces
+        // the identical silent no-op. A contract that covered only the one
+        // that broke would be a contract about history.
+        static const QRegularExpression call(
+            QStringLiteral("(?:dismiss|restore|request|retry|)"
+                           "[Pp]reviewForEvent\\s*\\(([^)]*)\\)"));
+        auto it = call.globalMatch(src);
+        int found = 0;
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            ++found;
+            const QString args = m.captured(1);
+            QVERIFY2(args.contains(QStringLiteral("previewRoomId")),
+                     qPrintable(QStringLiteral(
+                         "a preview restore keys on something other than "
+                         "previewRoomId, so it can never find the dismissal "
+                         "it is meant to undo: %1").arg(args.simplified())));
+        }
+        // found > 0, or a renamed function turns this into a scan that
+        // passes by matching nothing.
+        // An EXACT count, not a floor: a floor is satisfied by the sites
+        // that already pass while a new one slips in unchecked.
+        QCOMPARE(found, 6);
+    }
+
     void copyRoomLinkAndLeaveRoomAreSignalRouted()
     {
         const QString delegate = read(QStringLiteral("RoomDelegate.qml"));

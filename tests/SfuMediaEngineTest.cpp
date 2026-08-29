@@ -2303,6 +2303,78 @@ private slots:
     // suite runs on Linux: the same shape as
     // `aChosenWindowRoutesToTheWindowCaptureElement` above, for the same
     // reason.
+    void shareCapsAndBitrateAreRightAtEveryOfferedQuality()
+    {
+        // ALL NINE COMBINATIONS, against the real derivation rather than a
+        // hardcoded copy of the expected string. The two existing caps cases
+        // in this file build their own "[1,1920]"/"[1,1080]" literals, so
+        // they cannot see a regression in this arithmetic.
+        struct Row { int h; int fps; int w; };
+        const QList<Row> rows = {
+            { 720, 15, 1280 },  { 720, 30, 1280 },  { 720, 60, 1280 },
+            { 1080, 15, 1920 }, { 1080, 30, 1920 }, { 1080, 60, 1920 },
+            { 1440, 15, 2560 }, { 1440, 30, 2560 }, { 1440, 60, 2560 },
+        };
+        for (const Row &r : rows) {
+            const QString caps = SfuMediaEngine::shareLimitsCaps(r.h, r.fps);
+
+            // RANGES, or videoscale would upscale a small window to the
+            // ceiling — the "never upscaled" property the pipeline depends
+            // on.
+            QVERIFY2(caps.contains(QStringLiteral("width=(int)[1,%1]")
+                                       .arg(r.w)),
+                     qPrintable(QStringLiteral("wrong width range at %1p%2: "
+                                               "%3").arg(r.h).arg(r.fps)
+                                    .arg(caps)));
+            QVERIFY2(caps.contains(QStringLiteral("height=(int)[1,%1]")
+                                       .arg(r.h)),
+                     qPrintable(caps));
+            // FIXED framerate, never a range: a range including 0/1 leaves
+            // vp8enc no rate to plan against.
+            QVERIFY2(caps.contains(QStringLiteral("framerate=(fraction)%1/1")
+                                       .arg(r.fps)),
+                     qPrintable(caps));
+            // FIXED PAR: an un-fixated PAR is taken to 1/2147483647 and
+            // overflows videoscale.
+            QVERIFY2(caps.contains(
+                         QStringLiteral("pixel-aspect-ratio=(fraction)1/1")),
+                     qPrintable(caps));
+            // ASCII digits. The caps go to a C parser, so a localised digit
+            // would not parse at all.
+            for (QChar c : caps) {
+                QVERIFY2(!c.isDigit() || (c >= QLatin1Char('0')
+                                          && c <= QLatin1Char('9')),
+                         "a non-ASCII digit reached the caps string");
+            }
+
+            const QString enc = SfuMediaEngine::shareEncoderStage(r.h, r.fps);
+            // The keyframe interval is in FRAMES and must track the rate, or
+            // 60 frames means 2 s at 30 fps and 4 s at 15.
+            QVERIFY2(enc.contains(QStringLiteral("keyframe-max-dist=%1")
+                                      .arg(2 * r.fps)),
+                     qPrintable(enc));
+            // And the bitrate stays inside the band. The ceiling matters:
+            // there is no congestion control on this lane, and end-usage=cbr
+            // pads to hit whatever it is told.
+            static const QRegularExpression rate(
+                QStringLiteral("target-bitrate=(\\d+)"));
+            const QRegularExpressionMatch m = rate.match(enc);
+            QVERIFY2(m.hasMatch(), qPrintable(enc));
+            const int bitrate = m.captured(1).toInt();
+            QVERIFY2(bitrate >= 800000 && bitrate <= 6000000,
+                     qPrintable(QStringLiteral("bitrate %1 out of band at "
+                                               "%2p%3").arg(bitrate)
+                                    .arg(r.h).arg(r.fps)));
+        }
+
+        // 1080p30 is the reference and must be unchanged from what shipped,
+        // or every existing share silently changes quality.
+        QVERIFY(SfuMediaEngine::shareEncoderStage(1080, 30)
+                    .contains(QStringLiteral("target-bitrate=3000000")));
+        QVERIFY(SfuMediaEngine::shareLimitsCaps(1080, 30)
+                    .contains(QStringLiteral("width=(int)[1,1920]")));
+    }
+
     void shareAudioIsOfferedOnlyWhenSomethingCanActuallyCaptureIt()
     {
         // The availability answer must come from the SHIPPED plugin set, not

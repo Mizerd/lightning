@@ -2278,9 +2278,19 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                             }
                             TapHandler {
+                                // `previewRoomId`, THE SAME KEY THE DISMISSAL
+                                // USED. Dismissal, lookup and the context
+                                // menu's undo all key on
+                                // `app.currentRoomId`; this one reached for
+                                // the view's own roomId instead, so it
+                                // computed an ownership key nobody had
+                                // dismissed and restorePreview() found
+                                // nothing to restore. The button was inert
+                                // from the day it shipped, and silently so —
+                                // restoring a key that is not there is not an
+                                // error, it is a no-op.
                                 onTapped: app.linkPreviews.restorePreviewForEvent(
-                                    root.timelineView ? root.timelineView.roomId : "",
-                                    root.actionKey)
+                                    root.previewRoomId, root.actionKey)
                             }
                         }
                     }

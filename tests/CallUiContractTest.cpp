@@ -20,12 +20,14 @@
 #include <memory>
 
 #include "app/AppController.h"
+#include "app/SettingsManager.h"
 #include "auth/AuthManager.h"
 #include "calls/CallController.h"
 #include "calls/CallMediaBackend.h"
 #include "calls/CallShareModel.h"
 #include "calls/CallStageState.h"
 #include "calls/SfuCallController.h"
+#include "calls/SfuMediaEngine.h"
 #include "matrix/CallSignal.h"
 #include "matrix/MockMatrixClient.h"
 
@@ -2331,6 +2333,64 @@ ApplicationWindow {
         QCOMPARE(call->shareModel()->rowCount(), 0);
         QVERIFY2(!call->isRoutingVideoTo(key),
                  "the route outlived the share it belonged to");
+#endif
+    }
+
+    void theTwoShareQualityLaddersCannotDisagree()
+    {
+        // THE SNAPPING EXISTS TWICE: once in SettingsManager, which refuses
+        // to store a value outside the offered set, and once in
+        // SfuMediaEngine::setShareQuality, which refuses to put one into a
+        // caps string. Neither can be deleted -- the settings store is
+        // hand-editable and the engine is reachable from a test double --
+        // but two ladders that disagree mean the UI shows one quality and
+        // the encoder uses another, silently.
+        //
+        // So they are pinned against each other rather than each against a
+        // literal, which is what makes this catch a change to EITHER.
+#ifndef HAVE_LIGHTNING_WEBRTC
+        QSKIP("built without the SFU media engine");
+#else
+        SettingsManager settings;
+        SfuMediaEngine engine;
+
+        // Values around and between every boundary, plus the absurd ones a
+        // hand-edited config could carry.
+        const QList<int> heights = { -100, 0, 1, 480, 719, 720, 721, 900,
+                                     901, 1080, 1081, 1260, 1261, 1440,
+                                     1441, 2160, 4320 };
+        for (int h : heights) {
+            settings.setShareMaxHeight(h);
+            engine.setShareQuality(h, 30);
+            QVERIFY2(engine.shareMaxHeight() == settings.shareMaxHeight(),
+                     qPrintable(QStringLiteral(
+                         "height %1 snapped to %2 in settings but %3 in the "
+                         "engine")
+                             .arg(h).arg(settings.shareMaxHeight())
+                             .arg(engine.shareMaxHeight())));
+            QVERIFY2(engine.shareMaxHeight() == 720
+                         || engine.shareMaxHeight() == 1080
+                         || engine.shareMaxHeight() == 1440,
+                     "a share height outside the offered set reached the "
+                     "encoder");
+        }
+
+        const QList<int> rates = { -5, 0, 1, 10, 15, 16, 22, 23, 30, 31,
+                                   45, 46, 60, 61, 240 };
+        for (int f : rates) {
+            settings.setShareFps(f);
+            engine.setShareQuality(1080, f);
+            QVERIFY2(engine.shareFps() == settings.shareFps(),
+                     qPrintable(QStringLiteral(
+                         "fps %1 snapped to %2 in settings but %3 in the "
+                         "engine")
+                             .arg(f).arg(settings.shareFps())
+                             .arg(engine.shareFps())));
+            QVERIFY2(engine.shareFps() == 15 || engine.shareFps() == 30
+                         || engine.shareFps() == 60,
+                     "a share frame rate outside the offered set reached the "
+                     "encoder");
+        }
 #endif
     }
 
