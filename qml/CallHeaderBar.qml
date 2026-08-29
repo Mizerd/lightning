@@ -255,6 +255,48 @@ Rectangle {
             }
         }
 
+        // ── Share audio (SFU lane only) ──
+        //
+        // HERE, NOT IN THE SHARE PICKER, because on Wayland that picker never
+        // opens: the route is LinuxShareRoute::Portal and the desktop draws
+        // its own dialog, so a switch inside Lightning's picker is reachable
+        // on X11, Windows and macOS and invisible on the platform this was
+        // developed on. Reported exactly that way — "whatever you did to
+        // volume i never get asked".
+        //
+        // Nor can the portal carry it: xdg-desktop-portal's ScreenCast
+        // interface (version 5 here) has no audio option at all, and KDE's
+        // dialog offers no sound choice — measured on a live session. The
+        // capture is ours and independent of the portal, so the control has
+        // to be ours too.
+        //
+        // ABSENT where nothing can capture what the computer plays, rather
+        // than disabled: a greyed control invites "why can I not turn this
+        // on" and a disabled Qt Quick control gets no hover, so it cannot
+        // even explain itself.
+        Loader {
+            active: root.richMedia && app.groupCall.shareAudioSupported
+            visible: active
+            sourceComponent: CallControlButton {
+                objectName: "callBarShareAudioButton"
+                iconName: app.groupCall.shareAudioEnabled ? "volume_up"
+                                                          : "volume_off"
+                role: app.groupCall.shareAudioEnabled ? "active" : "neutral"
+                diameter: root.controlDiameter
+                glyphSize: root.controlGlyph
+                // The tooltip states WHEN it takes effect, because the switch
+                // is read as a share STARTS: changing it mid-share otherwise
+                // reads as a control that does nothing.
+                tooltip: app.groupCall.shareAudioEnabled
+                         ? qsTr("Screen shares will include this computer's "
+                                + "sound. Applies to the next share.")
+                         : qsTr("Screen shares will be silent. Applies to "
+                                + "the next share.")
+                onClicked: app.groupCall.shareAudioEnabled =
+                    !app.groupCall.shareAudioEnabled
+            }
+        }
+
         // ── Raise hand (SFU lane only) ──
         //
         // Here rather than on the call stage. The stage used to carry its own

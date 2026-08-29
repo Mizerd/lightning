@@ -2334,6 +2334,54 @@ ApplicationWindow {
 #endif
     }
 
+    void theShareAudioToggleLivesWhereWaylandCanReachIt()
+    {
+        // THE POINT OF THIS CASE is WHICH surface carries the control.
+        //
+        // On Wayland the share route is the PORTAL: the desktop draws its own
+        // dialog and Lightning's picker never opens, so a switch that lives
+        // only in the picker is unreachable on the platform this is developed
+        // on. It has to be on the call controls, which are shown on every
+        // route and every platform.
+        const QString bar = read(QStringLiteral(QML_DIR "/CallHeaderBar.qml"));
+        QVERIFY(!bar.isEmpty());
+        QVERIFY2(bar.contains(QStringLiteral("callBarShareAudioButton")),
+                 "the share-audio control is not on the call bar, so a "
+                 "Wayland user -- whose picker never opens -- has no way to "
+                 "reach it");
+        QVERIFY2(bar.contains(QStringLiteral("shareAudioSupported")),
+                 "the call bar offers the control without asking whether "
+                 "anything can capture, so it appears on a platform where it "
+                 "cannot work");
+
+        // And the picker keeps its copy, which is what X11, Windows and
+        // macOS see. Both surfaces, one setting.
+        const QString picker =
+            read(QStringLiteral(QML_DIR "/ScreenSharePicker.qml"));
+        QVERIFY(!picker.isEmpty());
+        QVERIFY2(picker.contains(QStringLiteral("shareAudioCheck")),
+                 "the picker lost its share-audio switch, leaving the "
+                 "non-portal platforms without one");
+
+        // NEITHER surface may carry its own idea of the state. Two controls
+        // over one setting is how a toggle comes to disagree with itself.
+        for (const QString &src : { bar, picker }) {
+            QVERIFY2(src.contains(QStringLiteral("shareAudioEnabled")),
+                     "a share-audio control does not read the controller's "
+                     "state");
+        }
+
+        // The route this is all about, asserted rather than described: the
+        // portal branch enumerates nothing and draws no picker of ours.
+        const QString ctrl =
+            read(QStringLiteral(SRC_DIR "/calls/SfuCallController.cpp"));
+        QVERIFY(!ctrl.isEmpty());
+        QVERIFY2(ctrl.contains(QStringLiteral("case LinuxShareRoute::Portal")),
+                 "the portal route is gone; if the picker now opens on "
+                 "Wayland this case is describing a world that no longer "
+                 "exists and should be revisited");
+    }
+
     void theSharePickerOffersShareAudioOnlyWhereItCanWork()
     {
         // A REAL LOAD, not a source scan. Every other case over this file
