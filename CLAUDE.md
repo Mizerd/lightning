@@ -931,11 +931,28 @@ ZERO observability, which is how it shipped unnoticed: the gesture trace
 now carries `srcRows`, `winSkip`, `winApplies`, and `rows == srcRows`
 with a deep reader, or `winApplies=0`, is the signature.
 
-*Still unproven.* **No production frame-cost improvement has ever been
-observed from the row window** — the felt "better by a lot" in the live
-capture belongs to the speculative-media gating. The judge is a fresh
-`QSG_RENDER_TIMING` capture with `winApplies` > 0, `rows` ≪ `srcRows`
-and median frame cost deep in history falling toward 3 ms. The window
+*The row window FIRES in production — first evidence, 2026-08-29.* A live
+`LIGHTNING_SCROLL_TRACE=1` capture on the maintainer's desktop, scrolling
+deep into a real room, produced `winApplies=1 winSkip=380 rows=255
+srcRows=635` with `dContentH=-22111`. So the window does bound the
+instantiated set on a real account, which had never been observed before —
+`rows` really is much less than `srcRows`. What is STILL unproven is the
+FRAME COST half: that capture carries `worstNotchMs` (0-1 ms throughout,
+which times the handler and not the frame), not `QSG_RENDER_TIMING`, so it
+says the mechanism engages and says nothing about what it saves. The judge
+for that remains a `QSG_RENDER_TIMING` capture with `winApplies` > 0 and
+median frame cost deep in history falling toward 3 ms.
+
+*And the anchor machinery came back CLEAN in that same capture.* Eleven
+gestures, up to 385 events each, 635 rows: `displacedApplied=0`,
+`prependFirings=0`, `unresolvedId=0` and `evictedNoInsert=0` on every line.
+`materializedMaxAbsDelta` was non-zero twice (84 and 221) — but
+`activeDeferrals` EQUALS `materializedFirings` on every line and
+`activeDeferredSum` equals the delta, so every one of those was deferred
+and none reached an active gesture. The single `anchorCorrections=1` sits
+on a gesture with `netY=0` and `stick=1`: an idle stuck-to-bottom restore,
+which is the designed path. Non-zero counters are not automatically a
+failure — read `activeDeferrals` beside them before concluding anything. The window
 only acts when SETTLED, so it does not help during the long upward
 scroll itself. Also open: which stall category (`row-reveal`,
 `image-decode`, `timeline-diff`, `timeline-reset`) owns the logged
