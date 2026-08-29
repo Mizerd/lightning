@@ -897,7 +897,14 @@ Popup {
             // a fixed row would clip a long homeserver name, and a clipped
             // domain is a misleading one.
             Flow {
-                id: chipRow
+                // NOT `chipRow`: ProfileChipButton's own contentItem is a Row
+                // with that id, so inside every button instance the name
+                // resolved to the button's internal row instead of this one.
+                // `height: profileChipRow.uniformHeight` was therefore undefined on
+                // exactly the items it was meant to size — which is why Share
+                // and the overflow still sat off the common edge after the
+                // first attempt at this.
+                id: profileChipRow
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
                 // ONE HEIGHT FOR EVERY CHIP IN THIS ROW.
@@ -913,7 +920,7 @@ Popup {
                 // The homeserver half of their address. Informational only —
                 // there is nothing to do with it that this card can do.
                 StatusChip {
-                    height: chipRow.uniformHeight
+                    height: profileChipRow.uniformHeight
                     visible: root.homeserver.length > 0
                     storm: true
                     tone: "neutral"
@@ -926,7 +933,7 @@ Popup {
                 // control, so naming the outcome is what keeps "Share" from
                 // being a second name for something the user cannot see.
                 ProfileChipButton {
-                    height: chipRow.uniformHeight
+                    height: profileChipRow.uniformHeight
                     objectName: "profileShareButton"
                     iconName: "link"
                     label: qsTr("Share")
@@ -997,21 +1004,21 @@ Popup {
                 // the room's REAL power levels, and a decorative badge must
                 // never compete with them.
                 StatusChip {
-                    height: chipRow.uniformHeight
+                    height: profileChipRow.uniformHeight
                     visible: root.role === "administrator" || root.role === "creator"
                     storm: true
                     tone: "accent"
                     label: qsTr("Administrator")
                 }
                 StatusChip {
-                    height: chipRow.uniformHeight
+                    height: profileChipRow.uniformHeight
                     visible: root.role === "moderator"
                     storm: true
                     tone: "info"
                     label: qsTr("Moderator")
                 }
                 StatusChip {
-                    height: chipRow.uniformHeight
+                    height: profileChipRow.uniformHeight
                     visible: root.isOwn
                     storm: true
                     tone: "neutral"
@@ -1024,7 +1031,7 @@ Popup {
                 // nickname to set, and this card has never rendered a
                 // disabled placeholder for something with no backend.
                 ProfileChipButton {
-                    height: chipRow.uniformHeight
+                    height: profileChipRow.uniformHeight
                     objectName: "profileOverflowButton"
                     iconName: "more_horiz"
                     label: ""

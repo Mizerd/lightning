@@ -401,6 +401,25 @@ Rectangle {
                 readonly property bool spaceView:
                     app.spaceChannels
                     && app.spaceChannels.viewKind === "space"
+                // THE mapping, in one place. The chip below reads it and so
+                // does the Binding that drives the model — they used to carry
+                // separate copies, and adding People to the chip row without
+                // touching the model's copy is exactly how the new chip came
+                // to do nothing at all: it wrote 1, and the model was handed
+                // `=== 3 ? 3 : 0`, which is 0.
+                readonly property int channelsFilterMode: {
+                    const stored = app.settings.roomFilterMode
+                    if (stored === 3)
+                        return 3
+                    // People passes through ONLY in a Space view, where it
+                    // means that Space's people. At Home or in Direct
+                    // Messages the chip is not offered, and letting a stored
+                    // People through there would filter a view whose chip is
+                    // not on screen.
+                    if (stored === 1 && filterChips.spaceView)
+                        return 1
+                    return 0
+                }
                 model: channelsLayout
                        ? (spaceView
                           ? [ { label: qsTr("All"), value: 0 },
@@ -420,7 +439,7 @@ Rectangle {
                 // not chosen and made clicking the stored value a no-op.
                 // One direction now: chips -> setting -> model (Binding).
                 current: channelsLayout
-                         ? (app.settings.roomFilterMode === 3 ? 3 : 0)
+                         ? filterChips.channelsFilterMode
                          : app.settings.roomFilterMode
                 onActivated: (value) => {
                     app.settings.roomFilterMode = value
@@ -442,7 +461,7 @@ Rectangle {
         Binding {
             target: app.spaceChannels
             property: "filterMode"
-            value: app.settings.roomFilterMode === 3 ? 3 : 0
+            value: filterChips.channelsFilterMode
         }
         Binding {
             target: app.spaceChannels

@@ -978,23 +978,33 @@ private slots:
                  "user did not choose");
         QVERIFY(host.contains(QStringLiteral("app.settings.roomFilterMode = value")));
 
-        // CHANNELS DROPS People and Rooms — the rail's two tabs ARE that
-        // split — but it must MAP the stored value rather than rewrite it, or
+        // CHANNELS MAPS the stored value rather than rewriting it, or
         // switching layouts silently destroys the chip the user chose in
-        // Classic. The mapping appears twice on purpose (the chip row and the
-        // channel model's binding) and both must be the same rule.
+        // Classic.
+        //
+        // The mapping used to be written out TWICE — once for the chip row
+        // and once for the channel model's binding — and this case pinned
+        // both literals. That is exactly how the People chip came to do
+        // nothing: People was added to the chip row and the model's copy
+        // still said `=== 3 ? 3 : 0`, so the chip wrote 1 and the model was
+        // handed 0. There is ONE mapping now and both consumers read it, so
+        // what this pins is that neither carries a copy of its own.
         QString flat = withoutComments(host);
         flat.replace(QRegularExpression(QStringLiteral("\\s+")),
                      QStringLiteral(" "));
+        QVERIFY2(flat.contains(QStringLiteral("readonly property int channelsFilterMode")),
+                 "the shared Channels filter mapping is gone");
         QVERIFY2(flat.contains(QStringLiteral(
-                     "current: channelsLayout ? (app.settings.roomFilterMode === 3 ? 3 : 0) "
+                     "current: channelsLayout ? filterChips.channelsFilterMode "
                      ": app.settings.roomFilterMode")),
-                 "the chip row does not map the stored filter for Channels, so "
-                 "a stored People/Rooms value selects no chip at all");
+                 "the chip row does not read the shared mapping, so a stored "
+                 "People/Rooms value selects no chip at all");
         QVERIFY2(flat.contains(QStringLiteral(
-                     "property: \"filterMode\" value: app.settings.roomFilterMode === 3 ? 3 : 0")),
-                 "the channel model is handed a filter whose chip is not on "
-                 "screen, so the column filters for a reason nothing states");
+                     "property: \"filterMode\" value: filterChips.channelsFilterMode")),
+                 "the channel model carries its own copy of the mapping again, "
+                 "which is what made the People chip inert");
+        QVERIFY2(!flat.contains(QStringLiteral("value: app.settings.roomFilterMode === 3 ? 3 : 0")),
+                 "a second copy of the mapping is back");
         QVERIFY2(!flat.contains(QStringLiteral("app.settings.roomFilterMode = 0")),
                  "the stored filter is rewritten when Channels drops its chip, "
                  "so returning to Classic loses the user's choice");
