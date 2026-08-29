@@ -2,6 +2,7 @@
 #include "media/MediaVisibilityStore.h"
 #include "storage/SecretStore.h"
 
+#include <QFile>
 #include <QHash>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -305,27 +306,51 @@ void SettingsSessionTest::themeChangeEmitsSignal()
 void SettingsSessionTest::previewDefaultsAndEncryptedOff()
 {
     SettingsManager settings;
-    // ENCRYPTED-room previews stay OFF, and this is the half that matters:
-    // the fetch is client-side, so an automatic preview hands the reader's IP
-    // and read timing to a sender-chosen host — and in an encrypted room the
-    // very fact that a link was followed is information the room was meant to
-    // keep. UNENCRYPTED previews load automatically since 2026-08-29, at the
-    // maintainer's explicit request; the switch is in Privacy & security.
-    // GIF animation of already-received media stays ON.
-    QCOMPARE(settings.loadPreviewsInEncryptedRooms(), true);
-    QCOMPARE(settings.autoLoadLinkPreviews(), true);
+    // BOTH preview defaults are OFF. The fetch is client-side — not through
+    // the homeserver's proxy — so an automatic preview hands the reader's IP
+    // and read timing to a host the SENDER chose, with no action by the
+    // reader. In an encrypted room it additionally leaks that a link was
+    // followed at all, which the room was otherwise keeping.
+    //
+    // THIS TEST FAILED TO DO ITS JOB ONCE and the failure mode is worth
+    // naming: the default was flipped to ON and these assertions were edited
+    // to match, leaving the case still called ...EncryptedOff with a comment
+    // saying previews stay off. A test edited to agree with a change defends
+    // nothing. Hence the docs coupling below — a source file and a published
+    // promise now have to be changed together.
+    //
+    // GIF animation of already-received media is a different question (no
+    // third party is contacted) and stays ON.
+    QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
+    QCOMPARE(settings.autoLoadLinkPreviews(), false);
     QCOMPARE(settings.animateGifPreviews(), true);
+
+    // docs/privacy.md documents this default in its own heading and in a
+    // defaults table, and the code-signing argument in that file rests on
+    // it. If the default ever changes deliberately, that document changes in
+    // the same commit -- and this assertion is what forces the pairing.
+    QFile privacyDoc(QStringLiteral(REPO_ROOT "/docs/privacy.md"));
+    QVERIFY2(privacyDoc.open(QIODevice::ReadOnly | QIODevice::Text),
+             "docs/privacy.md is unreadable");
+    const QString privacy = QString::fromUtf8(privacyDoc.readAll());
+    QVERIFY2(privacy.contains(QStringLiteral("Link previews")),
+             "the privacy document no longer has a link-preview section, so "
+             "this coupling is checking nothing");
+    QVERIFY2(privacy.contains(QStringLiteral("off by default")),
+             "docs/privacy.md no longer says link previews are off by "
+             "default, but the code still defaults them off -- one of the "
+             "two moved without the other");
 
     // Driven AWAY from the default and back: writing the value it already
     // holds is a correct no-op that emits nothing.
     QSignalSpy spy(&settings,
                    &SettingsManager::loadPreviewsInEncryptedRoomsChanged);
-    settings.setLoadPreviewsInEncryptedRooms(false);
-    QCOMPARE(spy.count(), 1);
-    QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
     settings.setLoadPreviewsInEncryptedRooms(true);
-    QCOMPARE(spy.count(), 2);
+    QCOMPARE(spy.count(), 1);
     QCOMPARE(settings.loadPreviewsInEncryptedRooms(), true);
+    settings.setLoadPreviewsInEncryptedRooms(false);
+    QCOMPARE(spy.count(), 2);
+    QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
 }
 
 void SettingsSessionTest::roomActivityDefaultsEnabledAndPersists()

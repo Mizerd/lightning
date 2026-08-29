@@ -1482,20 +1482,21 @@ bool SettingsManager::notificationsEnabled() const
 
 bool SettingsManager::autoLoadLinkPreviews() const
 {
-    // Default ON for UNENCRYPTED rooms (2026-08-29, at the maintainer's
-    // explicit request after living with the old default).
+    // OFF by default, and this default is load-bearing — do not flip it
+    // without deciding to, which is exactly what happened once already.
     //
-    // The tradeoff has NOT changed and is worth restating rather than
-    // quietly dropping: a preview is fetched by this client, directly from
-    // the linked site and not through the homeserver's preview proxy, so
-    // automatic loading hands the user's IP address and read timing to any
-    // host a sender chooses to link. The switch to turn it back off is in
-    // Settings -> Privacy & security, and an account that already stored a
-    // value keeps it — flipping a default must never overwrite a choice
-    // somebody already made.
+    // A preview is fetched by THIS CLIENT, directly from the linked site,
+    // not through the homeserver's preview proxy. Automatic loading would
+    // therefore hand the reader's IP address and read timing to any host a
+    // sender chooses to link, with no action by the reader — a tracking
+    // pixel by another name, which is how the privacy audit behind
+    // `6b06f95` described it when it turned this off.
     //
-    // ENCRYPTED rooms are deliberately NOT changed: see below.
-    return m_store->value(kPreviewsUnencrypted, true).toBool();
+    // `docs/privacy.md` states this default in its own section and in a
+    // defaults table, and the code-signing argument in that file rests on
+    // it. Changing it here is changing a published commitment; change both
+    // together or neither.
+    return m_store->value(kPreviewsUnencrypted, false).toBool();
 }
 
 void SettingsManager::setAutoLoadLinkPreviews(bool v)
@@ -1508,21 +1509,12 @@ void SettingsManager::setAutoLoadLinkPreviews(bool v)
 
 bool SettingsManager::loadPreviewsInEncryptedRooms() const
 {
-    // Default ON (2026-08-29), at the maintainer's explicit and repeated
-    // request: previews load by default and the only control is the switch
-    // in Settings -> Privacy & security.
-    //
-    // THE TRADEOFF IS UNCHANGED and is written down rather than dropped: the
-    // preview is fetched by this client, directly from the linked site and
-    // not through the homeserver's proxy. So an automatic preview hands the
-    // reader's IP address and read timing to any host a sender chooses to
-    // link — and in an ENCRYPTED room, the fact that a link was followed at
-    // all is information the room was otherwise keeping. That is why this
-    // was the one default held back when the unencrypted side flipped.
-    //
-    // An account that already stored a value keeps it: changing a default
-    // must never overwrite a choice somebody made.
-    return m_store->value(kPreviewsEncrypted, true).toBool();
+    // OFF by default, and the stricter of the two cases. Everything in the
+    // unencrypted note above applies, plus one thing that does not: in an
+    // ENCRYPTED room the fact that a link was followed at all is
+    // information the room was otherwise keeping, and an automatic fetch
+    // leaks it to the host the sender picked.
+    return m_store->value(kPreviewsEncrypted, false).toBool();
 }
 
 void SettingsManager::setLoadPreviewsInEncryptedRooms(bool v)

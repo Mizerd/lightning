@@ -1465,6 +1465,10 @@ if(BUILD_TESTING)
     )
     target_include_directories(settings-session-test PRIVATE src)
     target_link_libraries(settings-session-test PRIVATE Qt6::Core Qt6::Test)
+    # The preview-default case reads docs/privacy.md: the code default and the
+    # published promise must move together, and once did not.
+    target_compile_definitions(settings-session-test PRIVATE
+        REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME settings-session COMMAND settings-session-test)
 
     qt_add_executable(account-registry-test

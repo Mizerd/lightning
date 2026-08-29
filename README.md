@@ -75,8 +75,9 @@ live waveform, in rooms and threads; a two-provider GIF browser (GIPHY and KLIPY
 that sends real Matrix media and never sends a provider anything but your search
 term; a local emoji picker; MSC2545 sticker packs — your own, a room's, and
 packs subscribed from elsewhere — with a browser and save-to-pack; JPEG XL
-alongside the usual formats; drag-and-drop; and link previews, which load
-automatically and stay separately controllable for encrypted rooms.
+alongside the usual formats; drag-and-drop; and link previews, off by
+default because Lightning fetches them itself rather than through your
+homeserver, and separately controllable for encrypted rooms.
 
 **Desktop.** Eleven WCAG-AA themes and an editor for your own, which you can name,
 keep and share as a block of text. Ten languages, switchable without a restart,

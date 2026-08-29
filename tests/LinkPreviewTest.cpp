@@ -669,35 +669,37 @@ private Q_SLOTS:
         fresh.sync();
         SettingsManager settings;
 
-        // UNENCRYPTED previews load automatically (changed 2026-08-29 at the
-        // maintainer's explicit request). The tradeoff is unchanged and the
-        // switch to turn it off is in Privacy & security.
-        QCOMPARE(settings.autoLoadLinkPreviews(), true);
-        // BOTH default ON since 2026-08-29, at the maintainer's explicit
-        // and repeated request: previews load by default and the only
-        // control is the switch in Privacy & security.
+        // BOTH preview defaults are OFF. A preview is fetched by this client,
+        // straight from the linked site rather than through the homeserver's
+        // proxy, so loading one automatically would hand the reader's IP
+        // address and read timing to a host the SENDER chose — and in an
+        // encrypted room it additionally leaks that a link was followed at
+        // all. The privacy audit behind `6b06f95` called that a tracking
+        // pixel by another name.
         //
-        // The tradeoff is recorded rather than dropped. The fetch is
-        // client-side, so an automatic preview hands the reader's IP address
-        // and read timing to any host a sender links — and in an ENCRYPTED
-        // room the fact that a link was followed at all is information the
-        // room was otherwise keeping. That is why this half was held back
-        // when the unencrypted one flipped, and why turning it on was a
-        // second, separate decision.
-        QCOMPARE(settings.loadPreviewsInEncryptedRooms(), true);
+        // THIS IS THE SECOND OF TWO GUARDS THAT WERE EDITED TO AGREE WITH A
+        // CHANGE rather than blocking it: the default was flipped ON and both
+        // this case and SettingsSessionTest's were rewritten to expect the
+        // new value, which is how a documented privacy commitment came to
+        // disagree with the code for a whole release cycle. The coupling to
+        // docs/privacy.md lives in the other case; keep them both.
+        QCOMPARE(settings.autoLoadLinkPreviews(), false);
+        QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
+        // Animating media the user already received contacts nobody, so it
+        // is a different question and stays ON.
         QCOMPARE(settings.animateGifPreviews(), true);
 
         // Toggled AWAY from the default and back. Writing the value it
         // already holds is a no-op that emits nothing — which is correct, and
-        // is why this drives it off first rather than on.
+        // is why this drives it ON first rather than off.
         QSignalSpy encryptedChanged(
             &settings, &SettingsManager::loadPreviewsInEncryptedRoomsChanged);
-        settings.setLoadPreviewsInEncryptedRooms(false);
-        QCOMPARE(encryptedChanged.count(), 1);
-        QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
         settings.setLoadPreviewsInEncryptedRooms(true);
-        QCOMPARE(encryptedChanged.count(), 2);
+        QCOMPARE(encryptedChanged.count(), 1);
         QCOMPARE(settings.loadPreviewsInEncryptedRooms(), true);
+        settings.setLoadPreviewsInEncryptedRooms(false);
+        QCOMPARE(encryptedChanged.count(), 2);
+        QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
     }
 };
 
