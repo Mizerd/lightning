@@ -509,9 +509,40 @@ Popup {
             // Fetched through the media bridge like every other mxc: the
             // value is an mxc:// URI by construction (Rust drops anything
             // else), so no profile field can point this at an arbitrary host.
+            // The mask for the banner image's TOP corners.
+            //
+            // `clip: true` clips to a bounding RECTANGLE — it knows nothing
+            // about a radius — so the image had square top corners sitting on
+            // a card with rounded ones, which is what the banner's own Canvas
+            // paints around. Only the top is rounded: the bottom edge meets
+            // the card body and must stay square.
+            Item {
+                id: bannerCornerMask
+                anchors.fill: banner
+                visible: false
+                layer.enabled: true
+                Rectangle {
+                    anchors.fill: parent
+                    radius: banner.cornerRadius
+                    color: "white"
+                }
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: banner.cornerRadius
+                    color: "white"
+                }
+            }
+
             Item {
                 anchors.fill: banner
-                clip: true      // the banner's rounded top corners
+                clip: true
+                layer.enabled: true
+                layer.effect: MultiEffect {
+                    maskEnabled: true
+                    maskSource: bannerCornerMask
+                }
                 Image {
                     id: bannerImage
                     objectName: "profileBannerImage"
@@ -920,6 +951,7 @@ Popup {
                 // The homeserver half of their address. Informational only —
                 // there is nothing to do with it that this card can do.
                 StatusChip {
+                    objectName: "profileHomeserverChip"
                     height: profileChipRow.uniformHeight
                     visible: root.homeserver.length > 0
                     storm: true

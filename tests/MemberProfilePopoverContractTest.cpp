@@ -505,6 +505,72 @@ private slots:
                  QStringLiteral("@dave:mock.local"));
     }
 
+    // The chip row shares ONE vertical centre.
+    //
+    // Two attempts at this failed, so it MEASURES the laid-out items rather
+    // than reading the source. A Flow lays its children out top-aligned and
+    // the two chip kinds disagree on height — StatusChip is
+    // max(chipHeight, content+4), ProfileChipButton is chipHeight+6 — so
+    // without a common height the shorter ones hang off a common top edge.
+    void theChipRowSharesOneVerticalCentre()
+    {
+        QMetaObject::invokeMethod(m_root, "openFor",
+                                  Q_ARG(QVariant, QStringLiteral("@dave:mock.local")),
+                                  Q_ARG(QVariant, QStringLiteral("Dave")),
+                                  Q_ARG(QVariant, QStringLiteral("joined")),
+                                  Q_ARG(QVariant, QStringLiteral("")),
+                                  Q_ARG(QVariant, false));
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        QTRY_VERIFY(popover->property("opened").toBool());
+
+        QStringList report;
+        QList<qreal> centres;
+        for (const QString &name : { QStringLiteral("profileHomeserverChip"),
+                                     QStringLiteral("profileShareButton"),
+                                     QStringLiteral("profileOverflowButton") }) {
+            auto *item = qobject_cast<QQuickItem *>(find(name));
+            QVERIFY2(item != nullptr, qPrintable(name));
+            if (!item->isVisible())
+                continue;
+            const QPointF scene = item->mapToScene(QPointF(0, 0));
+            const qreal centre = scene.y() + item->height() / 2.0;
+            centres.append(centre);
+            report << QStringLiteral("%1 y=%2 h=%3 centre=%4")
+                          .arg(name).arg(scene.y()).arg(item->height()).arg(centre);
+        }
+        QVERIFY2(centres.size() >= 2, qPrintable(report.join(QLatin1String("; "))));
+        for (const qreal c : centres) {
+            QVERIFY2(qAbs(c - centres.first()) < 1.5,
+                     qPrintable(QStringLiteral("chips are not on one centre: ")
+                                + report.join(QLatin1String("; "))));
+        }
+
+        // AND THE CONTENT INSIDE THEM. The items sharing a centre is not the
+        // same claim as the label inside each one being centred: a Control
+        // whose height is forced larger than its contentItem's leaves that
+        // content wherever the control put it, and what a reader sees is the
+        // TEXT, not the box around it.
+        for (const QString &name : { QStringLiteral("profileShareButton"),
+                                     QStringLiteral("profileOverflowButton") }) {
+            auto *item = qobject_cast<QQuickItem *>(find(name));
+            QVERIFY(item);
+            if (!item->isVisible())
+                continue;
+            auto *content = item->property("contentItem").value<QQuickItem *>();
+            QVERIFY2(content != nullptr, qPrintable(name + QStringLiteral(" has no contentItem")));
+            const qreal itemCentre = item->height() / 2.0;
+            const qreal contentCentre = content->y() + content->height() / 2.0;
+            QVERIFY2(qAbs(itemCentre - contentCentre) < 1.5,
+                     qPrintable(QStringLiteral(
+                         "%1 content is off centre: item h=%2 centre=%3, "
+                         "content y=%4 h=%5 centre=%6")
+                             .arg(name).arg(item->height()).arg(itemCentre)
+                             .arg(content->y()).arg(content->height())
+                             .arg(contentCentre)));
+        }
+    }
+
     // Rooms in common, as Sable lists them — and ABSENT rather than shown
     // empty when none are known.
     //
