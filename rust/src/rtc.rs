@@ -1280,6 +1280,47 @@ const MEMBERSHIP_EXPIRY_MS: u64 = 4 * 60 * 60 * 1000;
 /// people who are still talking.
 const MEMBERSHIP_EXPIRY_NO_DELAYED_MS: u64 = 5 * 60 * 1000;
 
+/// The `expires` DURATION to write, given how old this membership already is.
+///
+/// `expires` is measured from `created_ts`, NOT from now: every client reads
+/// the absolute deadline as `created_ts + expires` — including this file's own
+/// parser, which does `created_ts.saturating_add(expires)`. A refresh
+/// deliberately PRESERVES `created_ts` (so the oldest-membership focus
+/// selection does not reorder), so writing the same constant on every refresh
+/// republishes the very same absolute instant. The membership then dies a
+/// fixed period after the JOIN however often it is refreshed.
+///
+/// THAT WAS THE REPORTED DEFECT: a Lightning participant vanished from every
+/// other client's list exactly `MEMBERSHIP_EXPIRY_NO_DELAYED_MS` after joining
+/// and reappeared a few seconds later, over and over. It also explains the
+/// lopsided symptom — the peers aged the membership out and rotated media keys
+/// WITHOUT that user, so they could still be heard (their own media kept
+/// flowing to an SFU that had never disconnected them) while they could hear
+/// nobody. The 60 s re-publish cadence was running correctly the whole time;
+/// it was writing a value that could not extend anything.
+///
+/// Clock domains: `created_ts` comes from the server (the content field, or
+/// `origin_server_ts` when the first publish omitted it) and `now_ms` is
+/// local. The reference implementation mixes them the same way. Skew only
+/// matters at the scale of the refresh slack — five refreshes at 60 s against
+/// a 5 minute period — and a client whose clock runs BEHIND the server merely
+/// re-publishes sooner than it had to.
+fn expires_for_refresh(period_ms: u64, created_ts: Option<u64>, now_ms: u64)
+    -> u64
+{
+    match created_ts {
+        // A first publish carries no created_ts, so peers date it from this
+        // event's own origin_server_ts: the duration IS the period.
+        None => period_ms,
+        // Saturating both ways: a created_ts in the FUTURE (skew, or a hostile
+        // value read back from our own state) must not wrap, and yields the
+        // plain period — an absolute deadline still at least a period out.
+        Some(created) => now_ms
+            .saturating_sub(created)
+            .saturating_add(period_ms),
+    }
+}
+
 /// Delayed-event (MSC4140) timeout — the server retracts our membership for
 /// us if we stop restarting it. This is the ONLY cleanup that survives a
 /// crash, a kill, or a lost network.
@@ -1444,11 +1485,15 @@ pub(crate) fn publish_membership(
         // against what the server does with the delayed retraction below, and
         // corrected there.
         let assumed_no_delayed = DELAYED_EVENTS_REFUSED.load(Ordering::Relaxed);
-        let expires_ms = if assumed_no_delayed {
+        let period_ms = if assumed_no_delayed {
             MEMBERSHIP_EXPIRY_NO_DELAYED_MS
         } else {
             MEMBERSHIP_EXPIRY_MS
         };
+        // Measured from created_ts, which a refresh preserves — see
+        // expires_for_refresh. A constant here expires the membership a fixed
+        // period after the JOIN, not after the refresh.
+        let expires_ms = expires_for_refresh(period_ms, created_ts, now_ms());
         let content = own_membership_content(
             &device_id, &user_id, focus.as_ref(), intent, created_ts,
             expires_ms);
@@ -2926,6 +2971,61 @@ mod tests {
         // If this ever drops below ~3 refresh intervals it starts removing
         // people who are still talking, which is worse than the ghost.
         assert!(MEMBERSHIP_EXPIRY_NO_DELAYED_MS >= 3 * 60 * 1000);
+    }
+
+    /// The reported defect, stated as the peers see it.
+    ///
+    /// A peer's deadline is `created_ts + expires`. Refreshing must MOVE that
+    /// deadline; before the fix it was constant, so the participant dropped
+    /// out exactly one period after joining however many refreshes ran.
+    #[test]
+    fn refreshing_a_membership_moves_the_deadline_peers_compute() {
+        let period = MEMBERSHIP_EXPIRY_NO_DELAYED_MS;
+        let created = 1_000_000_u64;
+
+        // First publish: no created_ts yet, peers date it from this event.
+        assert_eq!(expires_for_refresh(period, None, created), period);
+
+        // Refreshes at 60 s. The ABSOLUTE deadline must stay a full period
+        // ahead of the moment of the refresh, every time.
+        for elapsed in [60_000_u64, 120_000, 240_000, 299_000, 600_000] {
+            let now = created + elapsed;
+            let expires = expires_for_refresh(period, Some(created), now);
+            let deadline = created + expires;
+            assert_eq!(
+                deadline,
+                now + period,
+                "a refresh at {elapsed} ms must put the deadline a full \
+                 period ahead of NOW, not of the join"
+            );
+            assert!(
+                deadline > now,
+                "deadline {deadline} already passed at {now}"
+            );
+        }
+
+        // The exact reported case: still live well past the join + period
+        // instant that used to kill it.
+        let now = created + period + 1;
+        let expires = expires_for_refresh(period, Some(created), now);
+        assert!(created + expires > now,
+                "the participant would vanish at exactly one period");
+    }
+
+    /// Clock skew must never produce a deadline in the past.
+    #[test]
+    fn a_created_ts_in_the_future_still_yields_a_live_deadline() {
+        let period = MEMBERSHIP_EXPIRY_NO_DELAYED_MS;
+        let now = 1_000_000_u64;
+        // Server clock ahead of ours by a minute.
+        let created = now + 60_000;
+        let expires = expires_for_refresh(period, Some(created), now);
+        assert_eq!(expires, period, "saturating_sub must floor at zero");
+        assert!(created + expires > now);
+
+        // A hostile value read back from our own state must not wrap.
+        let expires = expires_for_refresh(period, Some(u64::MAX), now);
+        assert_eq!(expires, period);
         assert!(MEMBERSHIP_EXPIRY_NO_DELAYED_MS < MEMBERSHIP_EXPIRY_MS);
     }
 

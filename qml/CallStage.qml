@@ -194,9 +194,16 @@ Rectangle {
     readonly property int minimumPictureHeight: 132
     readonly property int minimumUsefulHeight:
         2 * AppTheme.spacing12          // the column's own margins
-        + 28 + AppTheme.spacing8        // header row, then its spacing
+        // The header row, which now CARRIES the controls. This value is the
+        // EXPANDED case, which is the only one it is asked about: the full
+        // (non-compact) dock's 48 px buttons plus its pill padding, per
+        // CallHeaderBar's own controlDiameter. It replaced a 28 px
+        // title-only row.
+        + 48 + 2 * AppTheme.spacing8 + AppTheme.spacing8
         + root.minimumPictureHeight
-        + AppTheme.spacing4 + 48        // the dock's top margin and its band
+        // No dock term. There is no bottom dock any more, and the 48 px band
+        // plus margin it used to reserve was height taken from the picture
+        // for something that is no longer drawn.
 
     /// What the strip beneath the spotlight is, for a stage of `available`
     /// px: "tiles" or "bubbles".
@@ -583,14 +590,22 @@ Rectangle {
                 sourceComponent: CallSpeakerBubbles {}
             }
 
-            // Compact controls while collapsed: the expanded dock is gone, so
-            // without these a collapsed call would have no controls at all —
-            // CallHeaderBar's header instance stands down whenever the stage
-            // is on screen. Same component, same definition, third placement.
+            // THE control surface, collapsed AND expanded.
+            //
+            // It used to be here only while collapsed, with a full-width dock
+            // across the BOTTOM of the expanded stage. That cost a whole strip
+            // of picture on every screen share, and it moved the controls to a
+            // different place depending on a state the user did not choose —
+            // so muting meant finding the button first. The maintainer asked
+            // for the collapsed arrangement to become the permanent one.
+            //
+            // Same component, same definition, one placement now. The header
+            // instance still stands down while the stage is on screen
+            // (CallHeaderBar.stageOwnsControls), so they are never drawn twice.
             Loader {
-                active: root.collapsed
-                visible: active
-                Layout.preferredHeight: active ? implicitHeight : 0
+                active: true
+                visible: true
+                Layout.preferredHeight: implicitHeight
                 // A FLOOR, so the squeeze lands on the title and the bubbles
                 // rather than on the controls. A RowLayout too narrow for
                 // its children shrinks them in proportion to their preferred
@@ -598,12 +613,20 @@ Rectangle {
                 // control row is centred in whatever box it is given and
                 // simply draws outside a box too small for it. The title
                 // beside it elides and the bubble strip scrolls.
-                Layout.minimumWidth: active ? implicitWidth : 0
+                Layout.minimumWidth: implicitWidth
                 Layout.alignment: Qt.AlignVCenter
                 sourceComponent: CallHeaderBar {
-                    objectName: "callStageCollapsedDock"
+                    objectName: "callStageControls"
                     placement: "dock"
-                    compact: true
+                    // Compact ONLY while collapsed. `compact` is not just a
+                    // size: CallHeaderBar hides the screen-share button, the
+                    // raise-hand button and all three device chevrons behind
+                    // it, because a one-line strip has no room for them. The
+                    // ask was to move the controls to the top, NOT to reduce
+                    // the set — an expanded call that had lost Share and
+                    // Raise hand would be a worse bug than the one being
+                    // fixed. Expanded gets the full bar, in the same place.
+                    compact: root.collapsed
                     onParticipantsRequested: root.participantsRequested()
                 }
             }
@@ -975,28 +998,11 @@ Rectangle {
             }
         }
 
-        // The control dock: ONE control surface, at the bottom of the stage,
-        // where a call client puts it.
-        //
-        // It is the SAME component as the header bar, in its "dock"
-        // placement — not a second control bar. That distinction is the whole
-        // lesson of this surface: the stage used to carry a partial bar of
-        // its own, and when the media controls moved to the header what was
-        // left were two orphan buttons floating under the call UI. There is
-        // one definition of the control set; the header instance hides itself
-        // while this stage is showing (CallHeaderBar.stageOwnsControls), so
-        // the controls are never drawn twice.
-        Loader {
-            Layout.fillWidth: true
-            Layout.topMargin: AppTheme.spacing4
-            active: !root.collapsed
-            visible: active
-            sourceComponent: CallHeaderBar {
-                objectName: "callStageDock"
-                placement: "dock"
-                onParticipantsRequested: root.participantsRequested()
-            }
-        }
+        // NO BOTTOM DOCK. The control set lives in the stage's top row in
+        // both states — see the Loader up there. A full-width strip along the
+        // bottom took a band of the picture away from every screen share and
+        // put the controls somewhere different depending on whether the panel
+        // happened to be collapsed. One surface, one position.
     }
 
     // ── The full-screen window ───────────────────────────────────────────
@@ -1034,6 +1040,41 @@ Rectangle {
         Item {
             id: fullScreenSurface
             anchors.fill: parent
+
+            // ── Full-screen overlays retire when the pointer is still ──────
+            //
+            // Reported: the controls "just sit there for good" in full screen.
+            // Every video surface hides its chrome once the pointer stops, and
+            // this one is showing somebody else's screen — the whole reason to
+            // be full screen is to see it unobstructed.
+            //
+            // The pointer, not a keystroke: a HoverHandler reports movement
+            // without consuming anything, so the overlays it wakes are still
+            // clickable and nothing below them loses an event.
+            property bool overlaysIdle: false
+            Timer {
+                id: fullScreenIdleTimer
+                interval: 3000
+                running: root.fullScreenActive
+                onTriggered: fullScreenSurface.overlaysIdle = true
+            }
+            HoverHandler {
+                enabled: root.fullScreenActive
+                onPointChanged: {
+                    fullScreenSurface.overlaysIdle = false
+                    fullScreenIdleTimer.restart()
+                }
+            }
+            // Leaving full screen must not strand the overlays hidden: the
+            // flag is state, and the state it belongs to has ended.
+            Connections {
+                target: root
+                function onFullScreenActiveChanged() {
+                    fullScreenSurface.overlaysIdle = false
+                    if (root.fullScreenActive)
+                        fullScreenIdleTimer.restart()
+                }
+            }
             focus: true
 
             // A Keys handler, NOT a Shortcut. Escape is in ShortcutRegistry's
@@ -1068,6 +1109,14 @@ Rectangle {
                 anchors.right: parent.right
                 anchors.margins: AppTheme.spacing12
                 spacing: AppTheme.spacing8
+                // Fades with the dock rather than disappearing: a control the
+                // user is reaching for must not vanish under the pointer, and
+                // opacity 0 still answers a click the moment hover wakes it.
+                opacity: fullScreenSurface.overlaysIdle ? 0 : 1
+                Behavior on opacity {
+                    enabled: !AppTheme.reducedMotion
+                    NumberAnimation { duration: 180 }
+                }
 
                 CallControlButton {
                     objectName: "callExitFullScreenButton"
@@ -1088,6 +1137,11 @@ Rectangle {
                 anchors.bottomMargin: AppTheme.spacing16
                 active: root.fullScreenActive
                 visible: active
+                opacity: fullScreenSurface.overlaysIdle ? 0 : 1
+                Behavior on opacity {
+                    enabled: !AppTheme.reducedMotion
+                    NumberAnimation { duration: 180 }
+                }
                 sourceComponent: CallHeaderBar {
                     objectName: "callFullScreenDock"
                     placement: "dock"

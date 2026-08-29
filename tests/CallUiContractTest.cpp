@@ -1041,6 +1041,45 @@ ApplicationWindow {
         }
     }
 
+    // CallStage must LOAD. Every other case in this file reads it as TEXT,
+    // and a text scan cannot see a load-time QML error — the failure mode that
+    // took four QML suites down at once when `font.families` (which does not
+    // exist on the QML font value type) was assigned. qmlformat cannot see it
+    // either: it parses syntax and does not check that a property exists.
+    // This case is the gate for any edit to CallStage.qml.
+    void theCallStageComponentActuallyLoads()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(),
+                            &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine,
+                              &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(5000));
+        // objectCreated carries a NULL object when the component failed, so
+        // this is the assertion that catches a load error rather than the
+        // spy merely having fired.
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY2(root != nullptr,
+                 "CallStage.qml failed to load — see the qWarning above for "
+                 "the property or type that does not exist");
+
+        // The one control surface exists as a real item, not just as source
+        // text, in the expanded state this stage defaults to.
+        QVERIFY(root->findChild<QObject *>(QStringLiteral("callStageControls"))
+                != nullptr);
+    }
+
     void callHeaderBarShowsForALiveCallInItsOwnRoomOnly()
     {
         AppController controller(AppController::MockBackend);
@@ -3270,6 +3309,93 @@ Item {
         QVERIFY2(body.contains(QStringLiteral("x11ScreenCaptureElementName()")),
                  "the element probe does not ask the engine which element it "
                  "should be probing for");
+    }
+
+    // The control set holds ONE position, collapsed and expanded alike.
+    //
+    // THE DEFECT THIS PINS: the expanded stage carried a second, full-width
+    // dock across its BOTTOM. That took a band of picture away from every
+    // screen share, and it moved the controls depending on a state the user
+    // had not chosen — so muting meant finding the button first. The
+    // maintainer asked for the collapsed arrangement to become permanent.
+    void theStageHasOneControlSurfaceAndItIsNotAlongTheBottom()
+    {
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(!stage.isEmpty());
+
+        // Exactly one CallHeaderBar in the stage body, plus the full-screen
+        // one. Two in the body is the two-docks arrangement coming back.
+        QCOMPARE(stage.count(QStringLiteral("objectName: \"callStageControls\"")), 1);
+        QCOMPARE(stage.count(QStringLiteral("objectName: \"callFullScreenDock\"")), 1);
+        QVERIFY2(!stage.contains(QStringLiteral("callStageDock")),
+                 "the bottom dock is back: it costs a strip of every screen "
+                 "share and moves the controls between states");
+
+        // And it must not be gated on the collapsed state, or expanded loses
+        // its controls entirely rather than gaining them at the top.
+        const int at = stage.indexOf(QStringLiteral("objectName: \"callStageControls\""));
+        QVERIFY(at > 0);
+        const int loader = stage.lastIndexOf(QStringLiteral("Loader {"), at);
+        QVERIFY(loader > 0);
+        const QString block = stage.mid(loader, at - loader);
+        QVERIFY2(!block.contains(QStringLiteral("active: root.collapsed")),
+                 "the one control surface is collapsed-only again");
+        QVERIFY2(block.contains(QStringLiteral("active: true")),
+                 "the control surface must be live in both states");
+
+        // AND it must not be compact while EXPANDED. `compact` is not a size
+        // knob: CallHeaderBar hides the screen-share button, the raise-hand
+        // button and all three device chevrons behind it. Pinning the control
+        // surface to `compact: true` would have moved the controls to the top
+        // and silently deleted three of them — a worse bug than the one being
+        // fixed. Expanded takes the full bar; only the collapsed one-line
+        // strip is compact.
+        // Bounded by an EXPRESSION at BOTH ends, never by a character count:
+        // a fixed `mid(at, 600)` failed against correct QML as soon as an
+        // explanatory comment sat between the two (the fourth time that
+        // pattern has bitten this repo), and a file-wide search is wrong the
+        // other way — CallStage declares `compact` on other components too.
+        const int barEnd =
+            stage.indexOf(QStringLiteral("onParticipantsRequested"), at);
+        QVERIFY2(barEnd > at, "the control bar block did not close as expected");
+        const QString barBlock = stage.mid(at, barEnd - at);
+        QVERIFY2(barBlock.contains(QStringLiteral("compact: root.collapsed")),
+                 "the expanded stage must get the FULL control set: compact "
+                 "hides screen share, raise hand and every device chevron");
+        QVERIFY2(!barBlock.contains(QStringLiteral("compact: true")),
+                 "an always-compact surface loses Share and Raise hand when "
+                 "the call is expanded");
+    }
+
+    // The claim the case above depends on, asserted against CallHeaderBar
+    // itself: if `compact` ever stops hiding these, the reasoning changes and
+    // this pair should be revisited together rather than drifting apart.
+    void compactIsAReducedControlSetNotJustASmallerOne()
+    {
+        const QString bar = read(QStringLiteral(QML_DIR "/CallHeaderBar.qml"));
+        QVERIFY(!bar.isEmpty());
+        const int hidden = bar.count(QStringLiteral("!root.compact"));
+        QVERIFY2(hidden >= 4,
+                 qPrintable(QStringLiteral("expected compact to gate several "
+                                           "controls, found %1").arg(hidden)));
+    }
+
+    // Full-screen chrome retires when the pointer stops. Reported as the
+    // controls "just sitting there for good" over someone's shared screen.
+    void fullScreenOverlaysRetireWhenThePointerIsStill()
+    {
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(stage.contains(QStringLiteral("overlaysIdle")));
+        QVERIFY2(stage.contains(QStringLiteral("HoverHandler")),
+                 "movement must wake the chrome without consuming a click");
+        // BOTH overlays fade, or the exit affordance sits there alone and the
+        // complaint is only half answered.
+        QCOMPARE(stage.count(
+                     QStringLiteral("opacity: fullScreenSurface.overlaysIdle ? 0 : 1")),
+                 2);
+        // Leaving full screen must not strand them hidden.
+        QVERIFY2(stage.contains(QStringLiteral("onFullScreenActiveChanged")),
+                 "the idle flag outlives the state it belongs to");
     }
 
 private:
