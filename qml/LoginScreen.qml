@@ -130,6 +130,49 @@ Item {
                     onClicked: app.showMain()
                 }
 
+                // ── The way back to accounts already on this device ───────
+                //
+                // Back above needs an ACTIVE account, and that is exactly
+                // what is missing in the case this exists for: a stored
+                // active-account record that points at an account which
+                // cannot be restored leaves the other saved accounts with no
+                // route at all. Reported live — sign-in was refused because
+                // the accounts were already signed in, and there was no way
+                // to reach them; recovery took editing the config by hand.
+                //
+                // Gated on the SAVED LIST, never on the active one, which is
+                // the whole point.
+                ColumnLayout {
+                    objectName: "signedInAccountsRecovery"
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacingS
+                    visible: app.accounts
+                             && app.accounts.accounts.length > 0
+                             && !(app.accounts.hasActiveAccount && app.loggedIn)
+
+                    Label {
+                        text: qsTr("Already on this device")
+                        color: AppTheme.textMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                        font.weight: AppTheme.weightStrong
+                    }
+                    Repeater {
+                        model: app.accounts ? app.accounts.accounts : []
+                        delegate: AppButton {
+                            required property var modelData
+                            objectName: "recoverAccountButton"
+                            Layout.fillWidth: true
+                            text: modelData.displayName
+                                  && modelData.displayName.length > 0
+                                  ? modelData.displayName + "  ·  " + modelData.userId
+                                  : modelData.userId
+                            Accessible.name: qsTr("Open %1").arg(modelData.userId)
+                            onClicked: app.switchToAccount(modelData.userId)
+                        }
+                    }
+                }
+
                 // Brand mark.
                 RowLayout {
                     Layout.fillWidth: true
