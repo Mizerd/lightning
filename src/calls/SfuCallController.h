@@ -105,6 +105,14 @@ class SfuCallController : public QObject
     Q_PROPERTY(bool deafened READ deafened NOTIFY mediaStateChanged)
     Q_PROPERTY(bool cameraOn READ cameraOn NOTIFY mediaStateChanged)
     Q_PROPERTY(bool screenSharing READ screenSharing NOTIFY mediaStateChanged)
+    /// Whether a NEW share will carry the computer's audio, and whether this
+    /// machine can capture it at all. Two properties because they answer
+    /// different questions: the user's preference survives a platform that
+    /// cannot honour it, so switching to one that can does not silently lose
+    /// their choice.
+    Q_PROPERTY(bool shareAudioEnabled READ shareAudioEnabled
+                   WRITE setShareAudioEnabled NOTIFY mediaStateChanged)
+    Q_PROPERTY(bool shareAudioSupported READ shareAudioSupported CONSTANT)
     Q_PROPERTY(bool handRaised READ handRaised NOTIFY mediaStateChanged)
     Q_PROPERTY(bool mediaEncrypted READ mediaEncrypted NOTIFY mediaStateChanged)
     /// NOTIFY is the MODEL's own countChanged, forwarded, and not
@@ -262,6 +270,9 @@ public:
     bool deafened() const { return m_deafened; }
     bool cameraOn() const { return m_cameraOn; }
     bool screenSharing() const { return m_screenSharing; }
+    bool shareAudioEnabled() const { return m_shareAudioEnabled; }
+    void setShareAudioEnabled(bool on);
+    bool shareAudioSupported() const;
     bool handRaised() const { return m_handRaised; }
     /// True only when every frame we publish is encrypted. Never optimistic.
     bool mediaEncrypted() const { return m_mediaEncrypted; }
@@ -761,6 +772,10 @@ private:
     bool m_micMutedBeforeDeafen = false;
     bool m_cameraOn = false;
     bool m_screenSharing = false;
+    /// Whether a new share should carry the computer's audio. Defaults ON:
+    /// sharing a video with no sound is the surprising outcome, and the
+    /// capture is only ever armed while a share is actually running.
+    bool m_shareAudioEnabled = true;
     bool m_handRaised = false;
     /// The `m.reaction` OUR raise produced. A hand can only be lowered by
     /// redacting the specific event that raised it, and this device is the
@@ -843,6 +858,10 @@ private:
     QString m_audioCid;
     QString m_cameraCid;
     QString m_screenCid;
+    /// The share's AUDIO track, empty when the share carries none. Kept
+    /// separately from m_screenCid because the two retire together but are
+    /// two tracks on the wire and either may be absent.
+    QString m_shareAudioCid;
     int m_keyIndex = 0;
     /// The addressable-device set the last media key actually reached. See
     /// distributeKeyIfNeeded(); an empty set is never recorded.

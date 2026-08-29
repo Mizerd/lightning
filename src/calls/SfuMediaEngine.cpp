@@ -861,6 +861,175 @@ void SfuMediaEngine::setIceServers(const QVariantList &servers)
     applyIceTo(m_subscriber);
 }
 
+/// The element that captures what the COMPUTER is playing, or empty.
+///
+/// A screen share has two halves and the desktop portal only carries one:
+/// xdg-desktop-portal's ScreenCast interface has no audio at all, and WASAPI
+/// does not put system audio on the video path either. So share audio is a
+/// SECOND capture, chosen per platform.
+///
+/// CHOSEN AT RUNTIME, NOT AT COMPILE TIME, and the property is checked as
+/// well as the element. `gst_parse_launch` fails outright on an unknown
+/// property, so naming `loopback` on a build whose wasapi element does not
+/// have it would take the whole bin down rather than degrade — and which
+/// element a package ships is a packaging fact this code cannot see. The dev
+/// shell here is GStreamer 1.26; Windows packages carry 1.28 and macOS 1.28.6,
+/// and this lane has already been bitten twice by a property that moved
+/// between the version developed against and the version shipped.
+static QString shareAudioSourceDescription()
+{
+    struct Candidate {
+        const char *element;
+        const char *property;   // must exist, or the parse would fail
+        const char *description;
+    };
+    // Order is preference. wasapi2 is the maintained Windows implementation;
+    // wasapi is the older one and is still staged, so it stays as a fallback.
+    static const Candidate kCandidates[] = {
+#if defined(Q_OS_WIN)
+        { "wasapi2src", "loopback",
+          "wasapi2src loopback=true low-latency=true" },
+        { "wasapisrc", "loopback", "wasapisrc loopback=true" },
+#elif defined(Q_OS_LINUX)
+        // `@DEFAULT_MONITOR@` is resolved by the SERVER, so this follows the
+        // user's default sink when they change it mid-call and needs no
+        // device enumeration of our own. PipeWire answers it through its
+        // PulseAudio compatibility, which every modern desktop runs.
+        { "pulsesrc", "device", "pulsesrc device=@DEFAULT_MONITOR@" },
+#endif
+        { nullptr, nullptr, nullptr },
+    };
+
+    for (const Candidate *c = kCandidates; c->element; ++c) {
+        GstElementFactory *factory = gst_element_factory_find(c->element);
+        if (!factory)
+            continue;
+        GstElement *probe = gst_element_factory_create(factory, nullptr);
+        gst_object_unref(factory);
+        if (!probe)
+            continue;
+        const bool hasProp =
+            g_object_class_find_property(G_OBJECT_GET_CLASS(probe),
+                                         c->property) != nullptr;
+        gst_object_unref(probe);
+        if (!hasProp) {
+            qCInfo(lcSfuMedia) << "share audio: element" << c->element
+                               << "has no property" << c->property
+                               << "— skipping it rather than failing the bin";
+            continue;
+        }
+        return QString::fromLatin1(c->description);
+    }
+    return QString();
+}
+
+bool SfuMediaEngine::shareAudioAvailable()
+{
+    return !shareAudioSourceDescription().isEmpty();
+}
+
+void SfuMediaEngine::publishShareAudio(const QString &cid)
+{
+    if (!ensurePeer(Target::Publisher) || cid.isEmpty())
+        return;
+    if (m_publishedBins.contains(cid))
+        return;
+
+    const QString source = m_testSources
+        ? QStringLiteral(
+              "audiotestsrc is-live=true wave=sine freq=220 volume=0.05")
+        : shareAudioSourceDescription();
+    if (source.isEmpty()) {
+        // An honest refusal, not a broken bin. The caller has already told
+        // the SFU a track is coming, so it must hear about this.
+        qCWarning(lcSfuMedia)
+            << "share audio: no loopback capture element on this platform";
+        Q_EMIT failed(QStringLiteral("share_audio_unavailable"));
+        return;
+    }
+
+    // DELIBERATELY NOT THE MICROPHONE CHAIN, in three ways.
+    //
+    //  * NO `webrtcdsp`. Its gain control and noise suppression exist to make
+    //    a voice intelligible; run over music or game audio they pump the
+    //    level and chew the quiet parts. The mic wants them and this does not.
+    //  * STEREO. The mic path pins channels=1 on purpose — voice is mono and
+    //    a Windows mic commonly reports two channels with signal in one. A
+    //    desktop mix is genuinely stereo and downmixing it would be a defect,
+    //    so this pins 2 rather than leaving the device to decide.
+    //  * MUSIC-GRADE OPUS. `audio-type=generic` and 128 kbit/s: opusenc's
+    //    default is voice-tuned at 64 kbit/s mono, which is audibly wrong on
+    //    a music bed.
+    const QString description =
+        QStringLiteral("%1 ! queue ! audioconvert ! audioresample "
+                       "! audio/x-raw,channels=2,rate=48000 "
+                       // Its own valve. Muting the share's audio must not
+                       // touch the microphone, and vice versa — they are two
+                       // tracks and the user thinks of them as two things.
+                       "! valve name=sharevalve drop=false "
+                       "! opusenc name=shareaudioenc audio-type=generic "
+                       "bitrate=128000 "
+                       "! rtpopuspay pt=111 ssrc=%2 "
+                       // Same reasoning as the microphone bin: the caps
+                       // webrtcbin READS to build the m= section, so the ssrc
+                       // has to be stated or the offer carries no a=ssrc and
+                       // the SFU cannot attribute the RTP to a transceiver.
+                       "! capsfilter caps=\"application/x-rtp,media=audio,"
+                       "encoding-name=OPUS,payload=111,clock-rate=(int)48000,"
+                       "encoding-params=(string)2,ssrc=(uint)%2\"")
+            .arg(source, QString::number(nextPublishSsrc()));
+
+    GError *error = nullptr;
+    GstElement *bin =
+        gst_parse_bin_from_description(description.toUtf8().constData(), TRUE,
+                                       &error);
+    if (error) {
+        qCWarning(lcSfuMedia) << "share audio pipeline parse failed:"
+                              << (error->message ? error->message : "?");
+        g_error_free(error);
+        if (bin)
+            gst_object_unref(bin);
+        Q_EMIT failed(QStringLiteral("share_audio_failed"));
+        return;
+    }
+    gst_element_set_name(bin, cid.toUtf8().constData());
+    if (!gst_bin_add(GST_BIN(m_publisher.pipeline), bin)) {
+        Q_EMIT failed(QStringLiteral("share_audio_failed"));
+        return;
+    }
+    m_publishedBins.insert(cid, bin);
+    // Encrypted exactly like every other track: on the ENCODER's src pad,
+    // one whole encoded frame, which is the unit LiveKit and Element Call
+    // encrypt. A share audio track that skipped this would be the one
+    // cleartext stream in an encrypted call.
+    if (GstElement *encoder =
+            gst_bin_get_by_name(GST_BIN(bin), "shareaudioenc")) {
+        if (GstPad *encoded = gst_element_get_static_pad(encoder, "src")) {
+            installEncryptProbe(encoded, /*video=*/false);
+            gst_object_unref(encoded);
+        }
+        gst_object_unref(encoder);
+    }
+    GstPad *srcPad = gst_element_get_static_pad(bin, "src");
+    GstPad *sinkPad = gst_element_request_pad_simple(m_publisher.webrtc,
+                                                     "sink_%u");
+    applyPublisherMsid(sinkPad, cid);
+    GstPadLinkReturn linked = GST_PAD_LINK_REFUSED;
+    if (srcPad && sinkPad)
+        linked = gst_pad_link(srcPad, sinkPad);
+    if (srcPad)
+        gst_object_unref(srcPad);
+    if (sinkPad)
+        gst_object_unref(sinkPad);
+    if (linked != GST_PAD_LINK_OK) {
+        qCWarning(lcSfuMedia) << "share audio link failed code=" << linked;
+        Q_EMIT failed(QStringLiteral("share_audio_failed"));
+        return;
+    }
+    gst_element_sync_state_with_parent(bin);
+    qCInfo(lcSfuMedia) << "share audio published";
+}
+
 void SfuMediaEngine::publishAudio(const QString &cid)
 {
     if (!ensurePeer(Target::Publisher) || cid.isEmpty())

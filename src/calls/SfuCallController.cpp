@@ -2447,6 +2447,32 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
     m_screenCid = cid;
     m_publishedTrackIds.append(cid);
     m_screenSharing = true;
+
+    // THE OTHER HALF OF THE SHARE. A separate track with its own cid, because
+    // that is what it is on the wire: LiveKit has SCREEN_SHARE and
+    // SCREEN_SHARE_AUDIO as two sources, Element renders share audio only
+    // when it arrives on the second, and the two mute and stop
+    // independently.
+    //
+    // kind=0 is AUDIO and screen_share is true, which is the combination that
+    // reaches `track_source_for` as SCREEN_SHARE_AUDIO. Sending it as kind=1
+    // would label a stereo Opus stream a video track.
+    //
+    // Availability is asked, not assumed: a platform with no loopback capture
+    // (macOS, without a virtual device) must publish no track at all rather
+    // than announce one that will never carry a sample.
+    if (m_shareAudioEnabled && SfuMediaEngine::shareAudioAvailable()) {
+        const QString audioCid =
+            QUuid::createUuid().toString(QUuid::WithoutBraces);
+        qCInfo(lcSfuCall) << "screen share audio publishing encrypted="
+                          << m_roomEncrypted;
+        m_client->sfuAddTrack(audioCid, QStringLiteral("screenaudio"),
+                              /*kind=*/0, 0, 0,
+                              /*screenShare=*/true, m_roomEncrypted);
+        m_engine->publishShareAudio(audioCid);
+        m_shareAudioCid = audioCid;
+        m_publishedTrackIds.append(audioCid);
+    }
     // A NEW share is a new identity for the stage. See m_localShareEpoch:
     // without this, stopping and restarting our own share would reuse one
     // share id, and a viewer who had dismissed the first from their
@@ -2462,12 +2488,40 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
 #endif
 }
 
+void SfuCallController::setShareAudioEnabled(bool on)
+{
+    if (m_shareAudioEnabled == on)
+        return;
+    m_shareAudioEnabled = on;
+    // Deliberately NOT retroactive. Adding or removing a track mid-share is a
+    // renegotiation, and this switch is read when a share STARTS -- so a
+    // change during one takes effect on the next. Saying so here because the
+    // alternative reads like a bug otherwise.
+    Q_EMIT mediaStateChanged();
+}
+
+bool SfuCallController::shareAudioSupported() const
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    return SfuMediaEngine::shareAudioAvailable();
+#else
+    return false;
+#endif
+}
+
 void SfuCallController::stopScreenShare()
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (!m_screenSharing || m_engine.isNull())
         return;
     unpublishTrack(m_screenCid);
+    // Both halves, always. A share audio track outliving its picture is a
+    // participant who stopped sharing and is still broadcasting their
+    // desktop's sound — the worse of the two failures by a distance.
+    if (!m_shareAudioCid.isEmpty()) {
+        unpublishTrack(m_shareAudioCid);
+        m_shareAudioCid.clear();
+    }
     m_screenSharing = false;
     // Close the portal session too: leaving it open keeps the compositor
     // capturing a surface nothing is reading.

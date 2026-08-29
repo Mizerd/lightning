@@ -108,6 +108,22 @@ public:
     /// declared to the SFU with AddTrack; it must match or the SFU cannot
     /// map the negotiated media section to the track it authorized.
     void publishAudio(const QString &cid);
+
+    /// The other half of a screen share: what the computer is playing.
+    ///
+    /// A separate track with its own cid, so it publishes, mutes and retires
+    /// independently of both the microphone and the share's video — which is
+    /// what a viewer expects, since stopping a share must silence it while
+    /// the microphone keeps going.
+    void publishShareAudio(const QString &cid);
+
+    /// Whether this build, on this machine, can capture what is playing.
+    ///
+    /// Platform AND element AND property: the answer is not a compile-time
+    /// constant, because which capture plugin a package ships is a packaging
+    /// fact. The UI asks before offering the option, so a user is never
+    /// offered a switch that cannot work.
+    static bool shareAudioAvailable();
     /// Publish the camera, or a screen share when `screenShare` is true.
     /// `nodeId` is the PipeWire node a desktop portal handed us; -1 means
     /// the camera. `pipewireFd` is the descriptor from the portal's
@@ -281,6 +297,14 @@ public:
     /// leak here is invisible until it reaches another client's screen.
     /// Returns -1 when there is no publisher at all.
     int publisherTrackSlotsForTest() const;
+
+    /// Test-only: is a bin registered under this cid? Lets a test assert that
+    /// a refusal REFUSED, rather than inferring it from the absence of a
+    /// crash. "Target absent" and "work done" are different outcomes.
+    bool hasPublishedBinForTest(const QString &cid) const
+    {
+        return m_publishedBins.contains(cid);
+    }
 
     /// The tail of unpublish(), run once the deferred teardown has actually
     /// put the bin at NULL. Public only because that teardown is driven by

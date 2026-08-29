@@ -2303,6 +2303,52 @@ private slots:
     // suite runs on Linux: the same shape as
     // `aChosenWindowRoutesToTheWindowCaptureElement` above, for the same
     // reason.
+    void shareAudioIsOfferedOnlyWhenSomethingCanActuallyCaptureIt()
+    {
+        // The availability answer must come from the SHIPPED plugin set, not
+        // from the platform macro. Which capture plugin a package carries is
+        // a packaging fact this code cannot see -- Windows stages both wasapi
+        // and wasapi2, and a build could ship neither -- so the question is
+        // asked of GStreamer at runtime.
+        //
+        // The two branches are asserted separately BECAUSE either can be the
+        // truth on a given machine, and a test that only covered the
+        // available branch would silently stop testing anything on a build
+        // without the element.
+        const bool available = SfuMediaEngine::shareAudioAvailable();
+
+        // Whatever the answer, it must agree with whether an element that
+        // can do the job is actually present. Recomputed here from the
+        // factories rather than copied from the implementation, so the two
+        // can disagree and be caught.
+        const char *const kCandidates[] = {
+#if defined(Q_OS_WIN)
+            "wasapi2src", "wasapisrc",
+#elif defined(Q_OS_LINUX)
+            "pulsesrc",
+#endif
+            nullptr,
+        };
+        bool anyPresent = false;
+        for (const char *const *c = kCandidates; *c; ++c) {
+            if (GstElementFactory *f = gst_element_factory_find(*c)) {
+                gst_object_unref(f);
+                anyPresent = true;
+            }
+        }
+        QCOMPARE(available, anyPresent);
+
+        // And the refusal is HONEST when it cannot: publishing share audio
+        // with no peer must add no bin and must not pretend it did. A track
+        // announced to the SFU and never fed is worse than no track, because
+        // the far end renders a participant who is sharing silence.
+        SfuMediaEngine engine;
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"));
+        QVERIFY2(!engine.hasPublishedBinForTest(
+                     QStringLiteral("cid-share-audio")),
+                 "share audio registered a bin without a publisher peer");
+    }
+
     void theWindowCaptureLearnsTheSizeItNegotiated()
     {
         QFile file(QStringLiteral(SOURCE_DIR "/src/calls/WindowCaptureSrc.cpp"));

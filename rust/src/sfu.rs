@@ -52,12 +52,19 @@ use livekit_protocol as lkp;
 /// as SCREEN_SHARE_AUDIO — a track Element Call treats as audio and never
 /// renders.
 pub(crate) fn track_source_for(kind: i32, screen_share: bool) -> i32 {
-    if screen_share {
-        lkp::TrackSource::ScreenShare as i32
-    } else if kind == lkp::TrackType::Video as i32 {
-        lkp::TrackSource::Camera as i32
-    } else {
-        lkp::TrackSource::Microphone as i32
+    let video = kind == lkp::TrackType::Video as i32;
+    match (screen_share, video) {
+        // A share has TWO sources, not one. Declaring the audio half as
+        // SCREEN_SHARE — which this function did while it branched on
+        // `screen_share` alone — hands a receiver an audio track labelled
+        // video: Element renders share audio only when it is
+        // SCREEN_SHARE_AUDIO, and puts anything else through the wrong
+        // path entirely. Exactly the failure the comment above describes,
+        // one enum value along.
+        (true, false) => lkp::TrackSource::ScreenShareAudio as i32,
+        (true, true) => lkp::TrackSource::ScreenShare as i32,
+        (false, true) => lkp::TrackSource::Camera as i32,
+        (false, false) => lkp::TrackSource::Microphone as i32,
     }
 }
 
@@ -1132,9 +1139,25 @@ mod tests {
         // Calls the SAME function the AddTrack path calls, in the raw numbers
         // that go on the wire. Asserting through the enum would pass against
         // the original off-by-one defect, which is why these are literals.
-        assert_eq!(track_source_for(1, true), 3);   // screen share
+        assert_eq!(track_source_for(1, true), 3);   // screen share video
+        assert_eq!(track_source_for(0, true), 4);   // screen share AUDIO
         assert_eq!(track_source_for(1, false), 1);  // camera
         assert_eq!(track_source_for(0, false), 2);  // microphone
+
+        // All four combinations are DISTINCT. The bug this guards against is
+        // not "a wrong constant" but "two inputs collapsing onto one output":
+        // branching on screen_share alone made the two share tracks
+        // indistinguishable, and the audio half is the one that loses.
+        let all = [
+            track_source_for(1, true),
+            track_source_for(0, true),
+            track_source_for(1, false),
+            track_source_for(0, false),
+        ];
+        let mut seen = all.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), 4, "two track sources collapsed onto one");
         // A screen share is a VIDEO track whose source is the screen, never
         // SCREEN_SHARE_AUDIO — the original bug, in one assertion.
         assert_ne!(track_source_for(1, true),
