@@ -841,14 +841,20 @@ Rectangle {
                         // The pointer goes too. Scoped to the picture rather
                         // than the whole stage: a blank cursor over the strip
                         // or the header would just look broken.
-                        HoverHandler {
+                        // The pointer goes with the chrome. It must be the
+                        // TOP-MOST item under the cursor to win: a
+                        // HoverHandler here lost to a pointing hand set by
+                        // something stacked above it, measured as window
+                        // cursor 13 (PointingHand) while the handler itself
+                        // said Blank. Present only while blanking, or it
+                        // would flatten every control's own cursor; and
+                        // NoButton so it takes no click on its way past.
+                        MouseArea {
                             objectName: "callSpotlightCursor"
-                            // ENABLED ONLY WHILE BLANKING. A handler that
-                            // names Qt.ArrowCursor the rest of the time is
-                            // still an authority on the cursor, and would
-                            // flatten the pointing hand every button under
-                            // it asks for.
-                            enabled: root.stageChromeIdle
+                            anchors.fill: parent
+                            z: 100
+                            visible: root.stageChromeIdle
+                            acceptedButtons: Qt.NoButton
                             cursorShape: Qt.BlankCursor
                         }
 
@@ -1198,10 +1204,13 @@ Rectangle {
                         fullScreenSurface.overlaysIdle = true;
                 }
             }
-            HoverHandler {
+            MouseArea {
                 objectName: "callFullScreenCursor"
-                enabled: root.fullScreenActive
+                anchors.fill: parent
+                z: 100
+                visible: root.fullScreenActive
                          && fullScreenSurface.overlaysIdle
+                acceptedButtons: Qt.NoButton
                 cursorShape: Qt.BlankCursor
             }
             // Movement — anywhere over the share — brings it back at once and
@@ -1293,54 +1302,6 @@ Rectangle {
                     glyphSize: 18
                     tooltip: qsTr("Exit full screen (Esc)")
                     onClicked: root.exitFullScreen()
-                }
-            }
-
-            // The handle that says the chrome is still there.
-            //
-            // Without it a retired dock is indistinguishable from a call that
-            // has no controls at all — the user asked for "a small arrow at
-            // the bottom", which is exactly Discord's affordance. It is the
-            // INVERSE of the dock: visible only while the dock is hidden, and
-            // clicking it brings everything back for people who would rather
-            // click than hover.
-            Loader {
-                objectName: "callFullScreenRevealHandle"
-                anchors.bottom: parent.bottom
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottomMargin: AppTheme.spacing8
-                active: root.fullScreenActive
-                        && fullScreenSurface.overlaysIdle
-                visible: active
-                opacity: active ? 1 : 0
-                Behavior on opacity {
-                    enabled: !AppTheme.reducedMotion
-                    NumberAnimation { duration: 180 }
-                }
-                sourceComponent: Rectangle {
-                    implicitWidth: 44
-                    implicitHeight: 20
-                    radius: height / 2
-                    color: Qt.alpha(AppTheme.stormPanel, 0.72)
-                    border.width: 1
-                    border.color: Qt.alpha(AppTheme.stormBorder, 0.72)
-                    Icon {
-                        anchors.centerIn: parent
-                        name: "expand_less"
-                        size: 16
-                        color: AppTheme.stormTextSecondary
-                    }
-                    Accessible.role: Accessible.Button
-                    Accessible.name: qsTr("Show call controls")
-                    TapHandler {
-                        onTapped: {
-                            // The count, not the timer. It is already AT the
-                            // budget, so re-phasing alone retired the chrome
-                            // again on the very next tick.
-                            fullScreenSurface.overlaysIdle = false
-                            fullScreenSurface.idleTicks = 0
-                        }
-                    }
                 }
             }
 

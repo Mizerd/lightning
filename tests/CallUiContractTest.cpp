@@ -2426,12 +2426,21 @@ ApplicationWindow {
                      "counts it as movement");
         }
 
+        // THE POINTER ITSELF, measured off the window rather than inferred
+        // from a handler's properties. Asserting that a HoverHandler carries
+        // Qt.BlankCursor says nothing about whether the window ever applied
+        // it -- which is the difference between the cursor being configured
+        // and the cursor being gone.
+        QCOMPARE(window.cursor().shape(), Qt::BlankCursor);
+
         // And a REAL move wakes it -- the other half, or the fix could simply
         // be "never reset" and this would still pass.
         QTest::mouseMove(&window, QPoint(640, 340));
         QCoreApplication::processEvents();
         QVERIFY2(!root->property("stageChromeIdle").toBool(),
                  "moving the pointer did not bring the controls back");
+        QVERIFY2(window.cursor().shape() != Qt::BlankCursor,
+                 "the pointer stayed hidden after the chrome came back");
 
         // ...and retires again afterwards, so waking is not a latch.
         QTRY_VERIFY_WITH_TIMEOUT(root->property("stageChromeIdle").toBool(),
@@ -2561,11 +2570,17 @@ ApplicationWindow {
                                     .arg(QString::fromLatin1(name))));
             QCOMPARE(cursor->property("cursorShape").toInt(),
                      int(Qt::BlankCursor));
-            QVERIFY2(!cursor->property("enabled").toBool(),
-                     qPrintable(QStringLiteral("%1 is live while the chrome "
-                                               "is up, so it overrides the "
-                                               "cursor of every control "
+            QVERIFY2(!cursor->property("visible").toBool(),
+                     qPrintable(QStringLiteral("%1 is present while the "
+                                               "chrome is up, so it flattens "
+                                               "the cursor of every control "
                                                "beneath it")
+                                    .arg(QString::fromLatin1(name))));
+            QVERIFY2(cursor->property("z").toReal() > 0,
+                     qPrintable(QStringLiteral("%1 is not stacked above the "
+                                               "picture, and the window "
+                                               "takes its cursor from the "
+                                               "TOP-MOST item that sets one")
                                     .arg(QString::fromLatin1(name))));
         }
 #endif
