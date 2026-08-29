@@ -1136,11 +1136,35 @@ ApplicationWindow {
                  "the idle timer is stopped somewhere; a stop with no "
                  "guaranteed restart is what left the controls on screen "
                  "over a full-screen share");
-        // Held open by a LIVE hover read rather than a latched flag, which is
-        // the other half of not getting stuck.
-        QVERIFY2(src.contains(QStringLiteral("fullScreenDockHover.hovered")),
-                 "the chrome is held open by something other than a live "
-                 "hover read");
+        // The retirement itself, driven rather than asserted about. The timer
+        // only auto-runs over a live share, so the ticks are delivered by
+        // hand -- but what they exercise is the real handler on the real
+        // surface, not a copy of its logic.
+        const int ticksToHide = surface->property("idleTicksToHide").toInt();
+        QVERIFY2(ticksToHide > 0, "no idle tick budget, so nothing can hide");
+        QVERIFY2(timer->property("interval").toInt() * ticksToHide >= 2000,
+                 "the chrome retires in under two seconds of stillness, which "
+                 "is too eager to reach a control with");
+        surface->setProperty("idleTicks", 0);
+        for (int i = 0; i < ticksToHide - 1; ++i)
+            QMetaObject::invokeMethod(timer, "triggered");
+        QVERIFY2(!surface->property("overlaysIdle").toBool(),
+                 "the chrome retired before its full idle budget elapsed");
+        QMetaObject::invokeMethod(timer, "triggered");
+        QVERIFY2(surface->property("overlaysIdle").toBool(),
+                 "the chrome never retires: a still pointer leaves the "
+                 "controls drawn over a full-screen share forever, which is "
+                 "what a single-monitor desktop always does");
+
+        // And movement -- anywhere, not merely on the dock -- is what brings
+        // it back. Gating that on the dock's own hover is what made this
+        // correct on two monitors and permanent on one.
+        QVERIFY2(src.contains(QStringLiteral("id: fullScreenHover")),
+                 "there is no pointer-movement handler over the share, so "
+                 "nothing can reveal the chrome again");
+        QVERIFY2(!src.contains(QStringLiteral("fullScreenDockHover")),
+                 "the chrome is still held open by a hover on the dock; a "
+                 "pointer resting there never leaves on a single monitor");
     }
 
     void callHeaderBarShowsForALiveCallInItsOwnRoomOnly()

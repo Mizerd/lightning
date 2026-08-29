@@ -1081,41 +1081,44 @@ Rectangle {
             // without consuming anything, so the overlays it wakes are still
             // clickable and nothing below them loses an event.
             property bool overlaysIdle: false
-            // THE TIMER IS NEVER STOPPED. It repeats, and only onTriggered
-            // decides whether to retire the chrome.
+            // IDLE MEANS THE POINTER HAS NOT MOVED, wherever it is.
             //
-            // The first version stopped it while the pointer sat in the
-            // reveal band, so the dock could not retire under a hand reaching
-            // for it. That is how it got STUCK ON SCREEN: the band is the
-            // bottom edge, the pointer leaves through the bottom edge to
-            // reach the taskbar, and if no leave event follows the timer stays
-            // stopped forever and the dock never hides again — a full-screen
-            // share with the controls sitting over it permanently.
+            // Not "the pointer is off the window", and not "the pointer is
+            // off the dock". Both of those looked right on two monitors —
+            // tabbing away moved the pointer out and the chrome went — and
+            // both leave it on screen forever for anyone with ONE monitor,
+            // because the pointer simply rests inside the share. What was
+            // asked for is the plain version: still for a few seconds and it
+            // goes.
             //
-            // A repeating timer plus a LIVE hover read cannot latch: if the
-            // pointer is gone the read is false and the chrome retires on the
-            // next tick, whatever events did or did not arrive.
+            // A ticking counter rather than a restartable one-shot. The timer
+            // is never stopped and never restarted, so there is no path where
+            // an interruption leaves it disarmed — which is exactly how the
+            // previous attempt got stuck on screen permanently.
+            property int idleTicks: 0
+            readonly property int idleTicksToHide: 6   // 6 x 500 ms = 3 s
             Timer {
                 id: fullScreenIdleTimer
                 objectName: "fullScreenIdleTimer"
-                interval: 3000
+                interval: 500
                 repeat: true
                 running: root.fullScreenActive
                 onTriggered: {
-                    if (!fullScreenDockHover.hovered)
+                    fullScreenSurface.idleTicks += 1;
+                    if (fullScreenSurface.idleTicks >= fullScreenSurface.idleTicksToHide)
                         fullScreenSurface.overlaysIdle = true;
                 }
             }
-            // Any movement brings the chrome back — which is also the "move
-            // toward the edge and it reappears" behaviour asked for, since
-            // reaching for the bottom of the screen IS movement.
+            // Movement — anywhere over the share — brings it back at once and
+            // restarts the count. That is also the "move toward the edge and
+            // it reappears" behaviour, since reaching for the controls IS
+            // movement.
             HoverHandler {
                 id: fullScreenHover
                 enabled: root.fullScreenActive
-                onPointChanged: fullScreenSurface.overlaysIdle = false
-                onHoveredChanged: {
-                    if (hovered)
-                        fullScreenSurface.overlaysIdle = false;
+                onPointChanged: {
+                    fullScreenSurface.idleTicks = 0;
+                    fullScreenSurface.overlaysIdle = false;
                 }
             }
             // Leaving full screen must not strand the overlays hidden: the
@@ -1123,9 +1126,11 @@ Rectangle {
             Connections {
                 target: root
                 function onFullScreenActiveChanged() {
+                    // Both halves, or a count left over from the last
+                    // full-screen session retires the chrome the instant the
+                    // next one opens.
                     fullScreenSurface.overlaysIdle = false
-                    if (root.fullScreenActive)
-                        fullScreenIdleTimer.restart()
+                    fullScreenSurface.idleTicks = 0
                 }
             }
             focus: true
@@ -1240,10 +1245,6 @@ Rectangle {
                     enabled: !AppTheme.reducedMotion
                     NumberAnimation { duration: 180 }
                 }
-                // The hover the idle timer reads: on the DOCK, so the chrome
-                // is held open only while the pointer is genuinely on it.
-                // A live read, never a latched flag.
-                HoverHandler { id: fullScreenDockHover }
                 sourceComponent: CallHeaderBar {
                     objectName: "callFullScreenDock"
                     placement: "dock"
