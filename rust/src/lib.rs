@@ -5892,6 +5892,29 @@ pub unsafe extern "C" fn mx_rust_stickers_set_room_pack_enabled(
     })
 }
 
+/// Upload a LOCAL image and add it to this account's own sticker pack.
+///
+/// The only way to create a pack from nothing: every other route needs an
+/// mxc that already exists. Same result event as the save path below,
+/// because it is the same pack write underneath.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_stickers_upload_to_user_pack(
+    ptr: *mut c_void,
+    shortcode: *const c_char,
+    body: *const c_char,
+    local_path: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let shortcode = unsafe { cstr_arg(shortcode) }?;
+        let body = unsafe { cstr_arg(body) }?;
+        let path = unsafe { cstr_arg(local_path) }?;
+        stickers::upload_to_user_pack(bridge, op_id, shortcode, body, path)
+            .map(|_| String::new())
+    })
+}
+
 /// "Steal" a sticker into `im.ponies.user_emotes`. Answers with
 /// `sticker_pack_add_result { op_id, lifecycle, ok, category, shortcode }`.
 ///
