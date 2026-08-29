@@ -3555,6 +3555,19 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    if (type == QLatin1String("latest_event_watch_report")) {
+        // Counts and timing only (see run_classic_sync): the evidence for
+        // tuning LATEST_EVENT_WATCH_CAP against a real account.
+        qCDebug(lcRust) << "latest-event watch reconcile:"
+                        << "elapsed_ms=" << event.value(QStringLiteral("elapsed_ms")).toInt()
+                        << "watched=" << event.value(QStringLiteral("watched")).toInt()
+                        << "of rooms=" << event.value(QStringLiteral("rooms")).toInt()
+                        << "buckets=" << event.value(QStringLiteral("buckets")).toInt()
+                        << "added=" << event.value(QStringLiteral("added")).toInt()
+                        << "forgot=" << event.value(QStringLiteral("forgot")).toInt();
+        return;
+    }
+
     if (type == QLatin1String("room_list_mode")) {
         const QString mode = event.value(QStringLiteral("mode")).toString();
         if (!mode.isEmpty() && mode != m_syncMode) {

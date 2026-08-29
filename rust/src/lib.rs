@@ -8441,6 +8441,7 @@ async fn run_classic_sync(
             }
             let latest_events = client.latest_events().await;
             {
+                let started = std::time::Instant::now();
                 let mut watched = watched.lock().await;
                 let stamps = stamps.lock().await;
                 let joined: Vec<Room> = client
@@ -8448,41 +8449,83 @@ async fn run_classic_sync(
                     .into_iter()
                     .filter(|room| matches!(room.state(), matrix_sdk::RoomState::Joined))
                     .collect();
-                for room in joined.iter()
-                    .filter(|room| room.num_unread_notifications() > 0)
-                {
-                    if !watched.contains(room.room_id())
-                        && watched.len() >= LATEST_EVENT_WATCH_CAP
-                    {
-                        // Evict the stalest watched room, but only for a
-                        // genuinely fresher one — churn for a tie helps
-                        // nobody.
-                        let incoming =
-                            stamps.get(room.room_id()).copied().unwrap_or(0);
-                        let oldest = watched
-                            .iter()
-                            .min_by_key(|id| {
-                                stamps.get(*id).copied().unwrap_or(0)
-                            })
-                            .cloned();
-                        if let Some(oldest) = oldest {
-                            if incoming
-                                > stamps.get(&oldest).copied().unwrap_or(0)
-                            {
-                                latest_events.forget_room(&oldest).await;
-                                watched.remove(&oldest);
-                            } else {
-                                continue;
-                            }
+
+                // The cap is one pool across the whole account, and a
+                // unified inbox spans many bridged networks of very unequal
+                // volume — allocated by raw recency alone, one firehose
+                // network starves the quiet ones of preview slots entirely.
+                // So the DESIRED watch set is a round-robin across coarse
+                // per-network buckets, most recent first within each: every
+                // network keeps previews for its own most active rooms, and
+                // spare capacity flows to the busy ones.
+                let mut buckets: HashMap<String, Vec<(&Room, u64)>> =
+                    HashMap::new();
+                for room in &joined {
+                    let stamp =
+                        stamps.get(room.room_id()).copied().unwrap_or(0);
+                    buckets
+                        .entry(preview_bucket(room))
+                        .or_default()
+                        .push((room, stamp));
+                }
+                for rooms in buckets.values_mut() {
+                    rooms.sort_by(|a, b| b.1.cmp(&a.1));
+                }
+                let mut bucket_keys: Vec<&String> = buckets.keys().collect();
+                bucket_keys.sort();
+
+                let mut desired: BTreeSet<OwnedRoomId> = BTreeSet::new();
+                let mut depth = 0usize;
+                'fill: loop {
+                    let mut any = false;
+                    for key in &bucket_keys {
+                        if desired.len() >= LATEST_EVENT_WATCH_CAP {
+                            break 'fill;
+                        }
+                        if let Some((room, _)) =
+                            buckets.get(*key).and_then(|rooms| rooms.get(depth))
+                        {
+                            desired.insert(room.room_id().to_owned());
+                            any = true;
                         }
                     }
-                    watch_latest_event(&latest_events, &mut watched, room.room_id())
-                        .await;
+                    if !any {
+                        break;
+                    }
+                    depth += 1;
                 }
-                for room in &joined {
-                    watch_latest_event(&latest_events, &mut watched, room.room_id())
-                        .await;
+
+                // Reconcile, don't accumulate: the watched set follows the
+                // desired set as stamps move, so the cap can never freeze
+                // the first minute's choice, and a bucket's slots return to
+                // the pool when its rooms go quiet.
+                let stale: Vec<OwnedRoomId> =
+                    watched.difference(&desired).cloned().collect();
+                let forgot = stale.len();
+                for room_id in stale {
+                    latest_events.forget_room(&room_id).await;
+                    watched.remove(&room_id);
                 }
+                let mut added = 0usize;
+                for room_id in &desired {
+                    if !watched.contains(room_id) {
+                        watch_latest_event(&latest_events, &mut watched, room_id)
+                            .await;
+                        added += 1;
+                    }
+                }
+
+                // Counts and timing only — instrumentation for tuning the
+                // cap against a real account, never identifiers.
+                enqueue(&events, json!({
+                    "type": "latest_event_watch_report",
+                    "elapsed_ms": started.elapsed().as_millis() as u64,
+                    "watched": watched.len(),
+                    "buckets": bucket_keys.len(),
+                    "rooms": joined.len(),
+                    "forgot": forgot,
+                    "added": added,
+                }));
             }
             {
                 let stamps = stamps.lock().await;
@@ -8941,6 +8984,31 @@ pub(crate) fn latest_event_preview_text(
 /// rooms cannot trigger unbounded computation; the room list is
 /// recency-sorted, so the first rooms delivered are the ones on screen.
 const LATEST_EVENT_WATCH_CAP: usize = 200;
+
+/// Coarse per-network grouping for preview-slot FAIRNESS only. A DM whose
+/// partner localpart reads "<prefix>_<rest>" buckets by that prefix;
+/// everything else — native rooms, groups, portal rooms — shares one
+/// bucket. Deliberately NOT the C++ BridgeNetwork table: a wrong bucket
+/// here (a human called `@alice_b:…`) costs a slightly different fairness
+/// split and nothing else, so duplicating the known-network list across
+/// the FFI for it would buy divergence risk and no correctness.
+fn preview_bucket(room: &Room) -> String {
+    let targets = room.direct_targets();
+    if targets.len() == 1 {
+        if let Some(target) = targets.iter().next() {
+            let s = target.as_str();
+            let local = s.strip_prefix('@').unwrap_or(s);
+            let local = local.split(':').next().unwrap_or(local);
+            let local = local.strip_prefix('_').unwrap_or(local);
+            if let Some(i) = local.find('_') {
+                if i > 0 {
+                    return local[..i].to_ascii_lowercase();
+                }
+            }
+        }
+    }
+    "-".to_owned()
+}
 
 async fn watch_latest_event(
     latest_events: &matrix_sdk::latest_events::LatestEvents,
