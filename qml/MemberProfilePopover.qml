@@ -616,9 +616,17 @@ Popup {
             // banner-sized clip container (nothing else in this popover
             // clips; the mock's overflow:hidden lives here). Painted after
             // the Canvas, before the avatar.
+            //
+            // ONLY over the GRADIENT. It is the brand mark standing in for a
+            // banner nobody has set; once the user has one it is somebody
+            // else's picture, and stamping a logo across it is neither ours
+            // to do nor what they chose. Bound to the image's readiness
+            // rather than to the mxc, so it does not blink out before the
+            // picture it is making way for has actually arrived.
             Item {
                 anchors.fill: banner
                 clip: true
+                visible: !bannerImage.visible
                 Icon {
                     name: "bolt"
                     size: 80

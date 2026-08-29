@@ -605,6 +605,28 @@ private slots:
         }
     }
 
+    // The bolt watermark belongs to the GRADIENT, not to somebody's banner.
+    //
+    // It stands in for a banner nobody has set. Once a user has one, the
+    // banner is their picture and stamping a logo across it is neither ours
+    // to do nor what they chose. Tied to the IMAGE'S READINESS rather than to
+    // the mxc string, so it does not blink out before the picture it is
+    // making way for has arrived.
+    void theBoltWatermarkYieldsToARealBanner()
+    {
+        QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(file.readAll());
+        QVERIFY(!src.isEmpty());
+        const int at = src.indexOf(QStringLiteral("Storm §3.6 corner watermark"));
+        QVERIFY2(at > 0, "the watermark block is gone");
+        const int iconAt = src.indexOf(QStringLiteral("name: \"bolt\""), at);
+        QVERIFY2(iconAt > at, "the watermark no longer draws a bolt");
+        const QString block = src.mid(at, iconAt - at);
+        QVERIFY2(block.contains(QStringLiteral("visible: !bannerImage.visible")),
+                 "the bolt is painted over a user's own banner");
+    }
+
     // Rooms in common, as Sable lists them — and ABSENT rather than shown
     // empty when none are known.
     //
