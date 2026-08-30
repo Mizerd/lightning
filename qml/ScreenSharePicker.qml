@@ -686,7 +686,8 @@ AppDialog {
                 model: [
                     { label: qsTr("720p"), value: 720 },
                     { label: qsTr("1080p"), value: 1080 },
-                    { label: qsTr("1440p"), value: 1440 }
+                    { label: qsTr("1440p"), value: 1440 },
+                    { label: qsTr("4K"), value: 2160 }
                 ]
                 Accessible.name: qsTr("Screen share resolution")
                 // NEVER bind currentIndex: indexOfValue() is -1 at creation
@@ -735,6 +736,28 @@ AppDialog {
                     }
                 }
             }
+            // Same predicate as the call bar's menu, so the two surfaces
+            // cannot warn differently about the same combination.
+            Label {
+                objectName: "shareAboveDisplayNote"
+                visible: app.largestScreenHeight > 0
+                         && app.settings.shareMaxHeight > app.largestScreenHeight
+                text: qsTr("above your display")
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+            }
+            Label {
+                objectName: "shareQualityWarning"
+                visible: app.settings.shareQualityDemanding
+                text: qsTr("slow")
+                color: AppTheme.warning
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("4K above 15 fps is slower than this "
+                                   + "computer can encode")
+                HoverHandler { id: warnHover }
+                property bool hovered: warnHover.hovered
+            }
             CheckBox {
                 objectName: "shareAudioCheck"
                 visible: app.groupCall && app.groupCall.shareAudioSupported
@@ -744,6 +767,16 @@ AppDialog {
                 onToggled: {
                     if (app.groupCall)
                         app.groupCall.shareAudioEnabled = checked;
+                    // RESTORE THE BINDING. A CheckBox writes its own
+                    // `checked` when the user clicks it, and an imperative
+                    // write destroys the declarative binding — so after one
+                    // click this box stopped following the controller and
+                    // would disagree with the call bar's menu, which is
+                    // exactly the "both menus should be synced" case.
+                    checked = Qt.binding(function () {
+                        return app.groupCall ? app.groupCall.shareAudioEnabled
+                                             : false;
+                    });
                 }
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Send what this computer is playing, "

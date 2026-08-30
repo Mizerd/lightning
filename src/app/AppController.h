@@ -224,6 +224,13 @@ class AppController : public QObject
     Q_PROPERTY(bool verificationQrScanned READ verificationQrScanned NOTIFY verificationStateChanged)
     Q_PROPERTY(bool verificationQrConfirming READ verificationQrConfirming NOTIFY verificationStateChanged)
 
+    /// The tallest display attached, in NATIVE pixels.
+    ///
+    /// Native, not QScreen::geometry(): that is device-independent, so a 4K
+    /// panel at 125% reports 3072x1728 and a share ceiling compared against
+    /// it would call 2160 "above your display" on a 4K monitor. This repo
+    /// has that recorded — resolve through QScreen::handle().
+    Q_PROPERTY(int largestScreenHeight READ largestScreenHeight CONSTANT)
     Q_PROPERTY(SettingsManager* settings READ settings CONSTANT)
     // Rebindable keyboard shortcuts. CONSTANT like the other controllers —
     // the OBJECT never changes; its rows announce their own changes, and
@@ -525,6 +532,7 @@ public:
     bool accountSwitching() const { return m_accountSwitching; }
 
     SettingsManager *settings() const;
+    int largestScreenHeight() const;
     ShortcutRegistry *shortcuts() const;
     LocalizationManager *localization() const;
     CustomThemeStore *customTheme() const;

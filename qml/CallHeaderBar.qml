@@ -232,74 +232,86 @@ Rectangle {
             }
         }
 
-        // ── Screen share (SFU lane only) ──
-        Loader {
-            active: root.richMedia
-            visible: active
-            sourceComponent: CallControlButton {
-                objectName: "callBarScreenShareButton"
-                iconName: app.groupCall.screenSharing ? "stop_screen_share"
-                                                      : "screen_share"
-                role: app.groupCall.screenSharing ? "active" : "neutral"
-                diameter: root.controlDiameter
-                glyphSize: root.controlGlyph
-                tooltip: app.groupCall.screenSharing
-                         ? qsTr("Stop sharing your screen")
-                         : qsTr("Share your screen")
-                onClicked: {
-                    if (app.groupCall.screenSharing)
-                        app.groupCall.stopScreenShare()
-                    else
-                        app.groupCall.requestScreenShare()
-                }
-            }
-        }
-
-        // The share's OPTIONS, on a chevron beside it — the same split shape
-        // the mic and camera use: the button does the thing, the chevron
-        // qualifies it. Sound, resolution and frame rate live in here rather
-        // than as controls on the bar, because they are set once and the bar
-        // is not where a once-a-month decision belongs.
+        // ── Screen share + options (SFU lane only) ──
         //
-        // AND BECAUSE THE SHARE PICKER IS UNREACHABLE ON WAYLAND: the portal
-        // draws that dialog, so anything living only there is invisible on
-        // KDE. This surface is shown on every route.
+        // ONE RowLayout for the pair, spacing 0 and a 2 px margin on the
+        // chevron — exactly what the camera and microphone pairs do. As two
+        // siblings of the outer row they took the outer spacing instead and
+        // the gap read wider than everything beside it.
         Loader {
-            objectName: "callBarShareOptionsChevron"
             active: root.richMedia
             visible: active
-            sourceComponent: AbstractButton {
-                id: shareChevron
-                implicitWidth: 20
-                implicitHeight: 26
-                hoverEnabled: true
-                focusPolicy: Qt.StrongFocus
-                Accessible.role: Accessible.ButtonMenu
-                Accessible.name: qsTr("Screen share options")
-                background: Rectangle {
-                    radius: AppTheme.radiusSm
-                    color: shareChevron.pressed
-                           ? AppTheme.selectedHover
-                           : (shareChevron.hovered || shareChevron.activeFocus
-                              ? AppTheme.hover : AppTheme.surfaceElevated)
-                    border.width: shareChevron.activeFocus ? 2 : 1
-                    border.color: shareChevron.activeFocus
-                                  ? AppTheme.focusRing : AppTheme.borderSubtle
-                    Behavior on color { ColorAnimation { duration: 90 } }
+            sourceComponent: RowLayout {
+                spacing: 0
+                CallControlButton {
+                    objectName: "callBarScreenShareButton"
+                    iconName: app.groupCall.screenSharing
+                              ? "stop_screen_share" : "screen_share"
+                    role: app.groupCall.screenSharing ? "active" : "neutral"
+                    diameter: root.controlDiameter
+                    glyphSize: root.controlGlyph
+                    tooltip: app.groupCall.screenSharing
+                             ? qsTr("Stop sharing your screen")
+                             : qsTr("Share your screen")
+                    onClicked: {
+                        if (app.groupCall.screenSharing)
+                            app.groupCall.stopScreenShare()
+                        else
+                            app.groupCall.requestScreenShare()
+                    }
                 }
-                contentItem: Icon {
-                    name: "expand_more"
-                    size: 14
-                    color: AppTheme.textSecondary
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                // The share's OPTIONS, on a chevron beside it — the same
+                // split shape the mic and camera use: the button does the
+                // thing, the chevron qualifies it. Sound, resolution and
+                // frame rate live in here rather than as controls on the
+                // bar, because they are set once.
+                //
+                // AND BECAUSE THE SHARE PICKER IS UNREACHABLE ON WAYLAND:
+                // the portal draws that dialog, so anything living only
+                // there is invisible on KDE. This surface is shown on every
+                // route.
+                AbstractButton {
+                    id: shareChevron
+                    objectName: "callBarShareOptionsChevron"
+                    visible: !root.compact
+                    // Zero width when hidden, or the RowLayout keeps its slot.
+                    Layout.preferredWidth: visible ? implicitWidth : 0
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.leftMargin: 2
+                    implicitWidth: 20
+                    implicitHeight: 26
+                    hoverEnabled: true
+                    focusPolicy: Qt.StrongFocus
+                    Accessible.role: Accessible.ButtonMenu
+                    Accessible.name: qsTr("Screen share options")
+                    background: Rectangle {
+                        radius: AppTheme.radiusSm
+                        color: shareChevron.pressed
+                               ? AppTheme.selectedHover
+                               : (shareChevron.hovered
+                                  || shareChevron.activeFocus
+                                  ? AppTheme.hover
+                                  : AppTheme.surfaceElevated)
+                        border.width: shareChevron.activeFocus ? 2 : 1
+                        border.color: shareChevron.activeFocus
+                                      ? AppTheme.focusRing
+                                      : AppTheme.borderSubtle
+                        Behavior on color { ColorAnimation { duration: 90 } }
+                    }
+                    contentItem: Icon {
+                        name: "expand_more"
+                        size: 14
+                        color: AppTheme.textSecondary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    ToolTip.visible: shareChevron.hovered
+                                     || shareChevron.activeFocus
+                    ToolTip.delay: 400
+                    ToolTip.text: qsTr("Sound, resolution and frame rate")
+                    onClicked: shareOptions.popup()
+                    CallShareOptionsMenu { id: shareOptions }
                 }
-                ToolTip.visible: (shareChevron.hovered
-                                  || shareChevron.activeFocus)
-                ToolTip.delay: 400
-                ToolTip.text: qsTr("Sound, resolution and frame rate")
-                onClicked: shareOptions.popup()
-                CallShareOptionsMenu { id: shareOptions }
             }
         }
 

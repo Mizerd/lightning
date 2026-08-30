@@ -10,6 +10,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
+#include <QQmlExpression>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QRegularExpression>
@@ -2393,6 +2394,328 @@ ApplicationWindow {
                      "encoder");
         }
 #endif
+    }
+
+    void theShareMenuStaysOpenWhileSettingsAreChanged()
+    {
+        // A MenuItem closes its menu on trigger, which is right for an action
+        // and wrong for a settings panel: picking a resolution should not
+        // dismiss the list you were about to pick a frame rate from.
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 800
+    height: 600
+    property alias menu: m
+    CallShareOptionsMenu { id: m }
+}
+)"), QUrl(QStringLiteral("qrc:/sharemenustaysopentest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY(owner != nullptr);
+        QCoreApplication::processEvents();
+        auto *menu = owner->property("menu").value<QObject *>();
+        QVERIFY(menu != nullptr);
+        QMetaObject::invokeMethod(menu, "open");
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("visible").toBool(), 3000);
+
+        SettingsManager *settings = controller.settings();
+        QVERIFY(settings);
+        settings->setShareMaxHeight(1080);
+
+        // THROUGH THE MENU'S OWN count/itemAt, not findChildren: these rows
+        // are Repeater delegates, and findChild cannot reach a Repeater's
+        // delegates at all — a trap this repository has already recorded and
+        // that cost this case one run.
+        QQuickItem *target = nullptr;
+        const int rows = menu->property("count").toInt();
+        QVERIFY2(rows > 0, "the menu reports no rows at all");
+        for (int i = 0; i < rows; ++i) {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(menu, "itemAt",
+                                      Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, i));
+            if (item
+                && item->property("text").toString() == QStringLiteral("720p")) {
+                target = item;
+                break;
+            }
+        }
+        QVERIFY2(target != nullptr, "no 720p row found in the menu");
+        // The SIGNAL, not a trigger() method: MenuItem has no such slot,
+        // and invoking a name that does not exist is a silent no-op that
+        // leaves the assertion below blaming the code.
+        QMetaObject::invokeMethod(target, "triggered");
+        QCoreApplication::processEvents();
+
+        QCOMPARE(settings->shareMaxHeight(), 720);
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("visible").toBool(), 3000);
+    }
+
+    void theShareAudioCheckboxKeepsFollowingTheControllerAfterAClick()
+    {
+        // A CheckBox WRITES its own `checked` when clicked, and an imperative
+        // write destroys the declarative binding. Without restoring it the
+        // box stops following the controller after the first click — so the
+        // picker and the call bar's menu would then disagree about whether
+        // sound is on, which is the whole point of them sharing one setting.
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 700
+    height: 500
+    property alias picker: pick
+    ScreenSharePicker { id: pick; objectName: "sharePicker" }
+}
+)"), QUrl(QStringLiteral("qrc:/shareaudiosynctest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY(owner != nullptr);
+        QCoreApplication::processEvents();
+        auto *picker = owner->property("picker").value<QObject *>();
+        QVERIFY(picker != nullptr);
+        QMetaObject::invokeMethod(picker, "open");
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(picker->property("visible").toBool(), 3000);
+
+        auto *box = picker->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioCheck"));
+        QVERIFY2(box != nullptr, "the share-audio checkbox is gone");
+        if (!box->isVisible())
+            QSKIP("no loopback capture element here, so the box is absent");
+
+        SfuCallController *call = controller.groupCall();
+        QVERIFY(call);
+
+        // A JS-SIDE WRITE, because that is what actually breaks a binding.
+        // C++ toggle()/setProperty() do NOT remove a QML binding — they set
+        // the value and the binding overwrites it on its next evaluation —
+        // so a simulation built on those passes whether or not the fix is
+        // present. Measured: with Qt.binding() deleted, the toggle() version
+        // of this case still passed. Evaluating `checked = ...` in the
+        // object's own context is the real thing.
+        {
+            QQmlExpression write(qmlContext(box), box,
+                                 QStringLiteral("checked = !checked"));
+            write.evaluate();
+            QVERIFY2(!write.hasError(),
+                     qPrintable(write.error().toString()));
+        }
+        QMetaObject::invokeMethod(box, "toggled");
+        QCoreApplication::processEvents();
+
+        // ...then move the setting from the OTHER surface and require the
+        // box to follow. This is the assertion that fails without
+        // Qt.binding() being restored.
+        const bool now = call->shareAudioEnabled();
+        call->setShareAudioEnabled(!now);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE_WITH_TIMEOUT(box->property("checked").toBool(), !now, 3000);
+        call->setShareAudioEnabled(now);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE_WITH_TIMEOUT(box->property("checked").toBool(), now, 3000);
+    }
+
+    void bothShareSurfacesOfferTheSameRungsAndTheSameWarning()
+    {
+        // TWO SURFACES, ONE TRUTH. The chevron menu and the share picker both
+        // set the same settings, and they have already drifted once: the menu
+        // gained the 4K rung and the picker did not, so the same setting
+        // offered different choices depending on which platform you were on.
+        const QString menu =
+            read(QStringLiteral(QML_DIR "/CallShareOptionsMenu.qml"));
+        const QString picker =
+            read(QStringLiteral(QML_DIR "/ScreenSharePicker.qml"));
+        QVERIFY(!menu.isEmpty() && !picker.isEmpty());
+
+        for (int rung : { 720, 1080, 1440, 2160 }) {
+            const QString needle = QStringLiteral("value: %1").arg(rung);
+            QVERIFY2(menu.contains(needle),
+                     qPrintable(QStringLiteral("the menu does not offer %1")
+                                    .arg(rung)));
+            QVERIFY2(picker.contains(needle),
+                     qPrintable(QStringLiteral("the picker does not offer %1")
+                                    .arg(rung)));
+        }
+        for (int rate : { 15, 30, 60 }) {
+            const QString needle = QStringLiteral("value: %1").arg(rate);
+            QVERIFY2(menu.contains(needle), qPrintable(
+                         QStringLiteral("the menu does not offer %1 fps")
+                             .arg(rate)));
+            QVERIFY2(picker.contains(needle), qPrintable(
+                         QStringLiteral("the picker does not offer %1 fps")
+                             .arg(rate)));
+        }
+
+        // And both warn from the SAME predicate rather than each deciding.
+        for (const QString &src : { menu, picker }) {
+            QVERIFY2(src.contains(QStringLiteral("shareQualityDemanding")),
+                     "a share surface decides for itself whether a "
+                     "combination is too slow, so the two can disagree");
+        }
+
+        // The predicate itself: 4K above 15 fps, and nothing else.
+        SettingsManager settings;
+        struct Row { int h; int fps; bool warn; };
+        const QList<Row> rows = {
+            { 720, 60, false }, { 1080, 60, false }, { 1440, 60, false },
+            { 2160, 15, false }, { 2160, 30, true }, { 2160, 60, true },
+        };
+        for (const Row &r : rows) {
+            settings.setShareMaxHeight(r.h);
+            settings.setShareFps(r.fps);
+            QVERIFY2(settings.shareQualityDemanding() == r.warn,
+                     qPrintable(QStringLiteral("%1p%2 warned=%3, expected %4")
+                                    .arg(r.h).arg(r.fps)
+                                    .arg(settings.shareQualityDemanding())
+                                    .arg(r.warn)));
+        }
+    }
+
+    void theShareChevronSitsAsCloseAsEveryOtherChevron()
+    {
+        // MEASURED AGAINST THE ESTABLISHED PAIR, not against a number. The
+        // camera and microphone each group their button and chevron in one
+        // RowLayout with spacing 0 and a 2 px margin; the share pair were
+        // two siblings of the OUTER row, so they took the outer spacing and
+        // the gap read visibly wider than everything beside it. Comparing
+        // the two gaps catches that without hardcoding either.
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 1200
+    height: 200
+    visible: true
+    property alias bar: b
+    CallHeaderBar { id: b; anchors.fill: parent; previewMode: true }
+}
+)"), QUrl(QStringLiteral("qrc:/sharechevrongaptest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY2(owner != nullptr, "CallHeaderBar must instantiate");
+        QCoreApplication::processEvents();
+        auto *bar = owner->property("bar").value<QQuickItem *>();
+        QVERIFY(bar != nullptr);
+
+        auto gapFor = [bar](const char *button, const char *chevron) -> double {
+            auto *b = bar->findChild<QQuickItem *>(QString::fromLatin1(button));
+            auto *c = bar->findChild<QQuickItem *>(QString::fromLatin1(chevron));
+            if (!b || !c || !b->isVisible() || !c->isVisible())
+                return -1.0;
+            // Scene coordinates, so a different parent cannot flatter the
+            // comparison.
+            const QPointF bEnd = b->mapToScene(QPointF(b->width(), 0));
+            const QPointF cStart = c->mapToScene(QPointF(0, 0));
+            return cStart.x() - bEnd.x();
+        };
+
+        double cameraGap = -1.0;
+        double shareGap = -1.0;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (cameraGap = gapFor("callBarCameraButton", "callBarCameraChevron"))
+                >= 0.0
+            && (shareGap = gapFor("callBarScreenShareButton",
+                                  "callBarShareOptionsChevron")) >= 0.0,
+            5000);
+
+        QVERIFY2(qAbs(shareGap - cameraGap) < 1.5,
+                 qPrintable(QStringLiteral(
+                     "the share chevron sits %1 px from its button while the "
+                     "camera's sits %2 px from its own")
+                         .arg(shareGap).arg(cameraGap)));
+    }
+
+    void theShareOptionsMenuShowsItsLabelsWithoutEliding()
+    {
+        // MEASURED, because "260 is probably enough" is how the first
+        // version shipped a row reading "Share this computer's ...". A Label
+        // whose implicitWidth exceeds its width is eliding; that is the
+        // arithmetic Qt itself uses, so it is the thing to assert rather
+        // than a guess about character counts.
+        //
+        // It also guards the translations: a language whose word for "sound"
+        // is longer gets caught here rather than by a screenshot.
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 800
+    height: 600
+    property alias menu: m
+    CallShareOptionsMenu { id: m }
+}
+)"), QUrl(QStringLiteral("qrc:/shareoptionsmenutest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY2(owner != nullptr, "CallShareOptionsMenu must instantiate");
+        QCoreApplication::processEvents();
+        auto *menu = owner->property("menu").value<QObject *>();
+        QVERIFY(menu != nullptr);
+
+        QMetaObject::invokeMethod(menu, "open");
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("visible").toBool(), 3000);
+
+        auto *item = menu->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioMenuItem"));
+        QVERIFY2(item != nullptr, "the sound row is gone from the menu");
+
+        // The row is only built where something can capture, so a machine
+        // without a loopback element cannot exercise this -- say so rather
+        // than passing on an absent row.
+        if (!item->isVisible())
+            QSKIP("no loopback capture element here, so the sound row is "
+                  "absent and its width cannot be measured");
+
+        int checked = 0;
+        for (QQuickItem *label : item->findChildren<QQuickItem *>()) {
+            if (!label->inherits("QQuickLabel")
+                && !label->inherits("QQuickText"))
+                continue;
+            const QString text = label->property("text").toString();
+            if (text.isEmpty())
+                continue;
+            ++checked;
+            QVERIFY2(label->implicitWidth() <= label->width() + 0.5,
+                     qPrintable(QStringLiteral(
+                         "\"%1\" is elided: it wants %2 px and has %3")
+                             .arg(text)
+                             .arg(label->implicitWidth())
+                             .arg(label->width())));
+        }
+        QVERIFY2(checked > 0,
+                 "no label was measured, so this case proved nothing");
     }
 
     void theShareAudioToggleLivesWhereWaylandCanReachIt()

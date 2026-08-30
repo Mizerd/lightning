@@ -16,6 +16,34 @@ import MatrixClient
 AppMenu {
     id: root
 
+    // EXPLICIT WIDTH, like every other menu here that carries a real
+    // sentence. AppMenu's own comment says the design width is "a floor, not
+    // a clamp" and that rows outgrowing it widen to fit — but its content
+    // item is a ListView, which does not measure its delegates' widths, so
+    // `implicitContentWidth` never exceeds the floor and the row elides
+    // instead. That the four other menus needing more room all set this
+    // property by hand is the evidence. Reported as a sound toggle whose
+    // label read "Share this computer's ...".
+    menuWidth: 260
+
+    // THE MENU STAYS OPEN while these are changed. A MenuItem closes its
+    // menu on trigger — correct for an action, wrong for a settings panel
+    // where someone reasonably wants to pick a resolution AND a rate. Qt
+    // offers no "do not close" on MenuItem, so the close is allowed to
+    // happen and the menu is reopened at the same place; `x`/`y` were set by
+    // popup() and are not touched, so it returns exactly where it was.
+    property bool keepOpen: false
+    function actAndStayOpen(fn) {
+        root.keepOpen = true;
+        fn();
+    }
+    onClosed: {
+        if (root.keepOpen) {
+            root.keepOpen = false;
+            root.open();
+        }
+    }
+
     MenuSectionLabel { text: qsTr("Screen share") }
 
     AppMenuItem {
@@ -27,13 +55,13 @@ AppMenu {
         height: visible ? implicitHeight : 0
         radio: true
         radioSelected: app.groupCall && app.groupCall.shareAudioEnabled
-        text: qsTr("Share this computer's sound")
-        onTriggered: {
+        text: qsTr("Share computer sound")
+        onTriggered: root.actAndStayOpen(function () {
             if (app.groupCall) {
                 app.groupCall.shareAudioEnabled =
                     !app.groupCall.shareAudioEnabled;
             }
-        }
+        })
     }
 
     AppMenuSeparator {
@@ -55,13 +83,37 @@ AppMenu {
             text: modelData.label
             radio: true
             radioSelected: app.settings.shareMaxHeight === modelData.value
-            onTriggered: app.settings.shareMaxHeight = modelData.value
+            onTriggered: root.actAndStayOpen(function () {
+                app.settings.shareMaxHeight = modelData.value;
+            })
         }
     }
 
     AppMenuSeparator {}
 
     MenuSectionLabel { text: qsTr("Frame rate") }
+
+    // The warning belongs to the COMBINATION, so it lives between the two
+    // ladders rather than on either. The predicate is SettingsManager's, so
+    // this menu and the share picker cannot disagree about what is safe.
+    // A CEILING ABOVE THE DISPLAY BUYS NOTHING. The source is never
+    // upscaled, so picking 1440p on a 1080p panel leaves the picture
+    // identical and only raises the bitrate — which is real cost on a lane
+    // with no congestion control.
+    MenuSectionLabel {
+        objectName: "shareAboveDisplayNote"
+        visible: app.largestScreenHeight > 0
+                 && app.settings.shareMaxHeight > app.largestScreenHeight
+        height: visible ? implicitHeight : 0
+        text: qsTr("Taller than your display — the picture will not improve")
+    }
+
+    MenuSectionLabel {
+        objectName: "shareQualityWarning"
+        visible: app.settings.shareQualityDemanding
+        height: visible ? implicitHeight : 0
+        text: qsTr("4K above 15 fps is slower than this computer can encode")
+    }
 
     Repeater {
         model: [
@@ -74,7 +126,9 @@ AppMenu {
             text: modelData.label
             radio: true
             radioSelected: app.settings.shareFps === modelData.value
-            onTriggered: app.settings.shareFps = modelData.value
+            onTriggered: root.actAndStayOpen(function () {
+                app.settings.shareFps = modelData.value;
+            })
         }
     }
 }

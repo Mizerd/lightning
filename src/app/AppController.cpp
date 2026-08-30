@@ -59,6 +59,7 @@
 #include <QIcon>
 #include <QSaveFile>
 #include <QScreen>
+#include <qpa/qplatformscreen.h>
 #include <QSysInfo>
 #include <QTimer>
 #include <QPalette>
@@ -1922,6 +1923,24 @@ void AppController::cancelVoiceRecording()
         m_voiceRecorder->cancel();
     m_voiceOwner.clear();
     Q_EMIT voiceOwnerChanged();
+}
+
+int AppController::largestScreenHeight() const
+{
+    // NATIVE pixels, through QScreen::handle(). QScreen::geometry() is
+    // device-independent: a 4K panel at 125% reports 1728 high, and a share
+    // ceiling of 2160 would then read as "taller than your display" on a
+    // display that is exactly that tall. Recorded in this repo already, from
+    // a round where the wrong monitor got captured for the same reason.
+    int tallest = 0;
+    for (const QScreen *screen : QGuiApplication::screens()) {
+        if (!screen)
+            continue;
+        const int h = screen->handle() ? screen->handle()->geometry().height()
+                                       : screen->geometry().height();
+        tallest = std::max(tallest, h);
+    }
+    return tallest;
 }
 
 SettingsManager *AppController::settings() const { return m_settings.get(); }

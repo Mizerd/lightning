@@ -124,6 +124,11 @@ class SettingsManager : public QObject
                    NOTIFY shareQualityChanged)
     Q_PROPERTY(int shareFps READ shareFps WRITE setShareFps
                    NOTIFY shareQualityChanged)
+    /// True when the chosen combination asks more of the encoder than it can
+    /// deliver in real time. ONE predicate, read by every surface that
+    /// offers the choice, so two menus cannot warn differently.
+    Q_PROPERTY(bool shareQualityDemanding READ shareQualityDemanding
+                   NOTIFY shareQualityChanged)
     Q_PROPERTY(bool sharePresence READ sharePresence
                    WRITE setSharePresence NOTIFY sharePresenceChanged)
     // Shell layout. Device-level, not per-account: it describes this
@@ -515,6 +520,9 @@ public:
     /// Screen-share frame rate: 15, 30 or 60.
     int shareFps() const;
     void setShareFps(int v);
+    /// Whether the chosen height and rate together are beyond what a
+    /// software VP8 encoder can sustain. See the definition for the sums.
+    bool shareQualityDemanding() const;
 
     bool sharePresence() const;
     bool spacesRailVisible() const;

@@ -1526,6 +1526,24 @@ void SettingsManager::setShareMaxHeight(int v)
     Q_EMIT shareQualityChanged();
 }
 
+bool SettingsManager::shareQualityDemanding() const
+{
+    // 4K AT 30 OR 60 IS NOT SERVABLE, and this is arithmetic rather than
+    // taste: 3840x2160 at 30 fps is ~249 megapixels a second, and the share
+    // is encoded by SOFTWARE VP8 (`vp8enc`) because no hardware encoder is
+    // shipped. Reported from a live session as a self-view running at about
+    // one frame a second — the encoder back-pressures the capture, so the
+    // whole pipeline crawls, preview included.
+    //
+    // 4K at 15 is left unmarked deliberately: ~125 Mpx/s is still heavy but
+    // it is the one 4K case with a real use, reading text on a shared
+    // desktop, and refusing it outright would be deciding for the user.
+    //
+    // The rule lives HERE, not in either menu, so the chevron and the picker
+    // cannot come to disagree about what is safe.
+    return shareMaxHeight() >= 2160 && shareFps() >= 30;
+}
+
 int SettingsManager::shareFps() const
 {
     return snapShareFps(m_store->value(kShareFps, 30).toInt());
