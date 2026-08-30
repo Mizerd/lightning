@@ -369,7 +369,7 @@ build-appimage:
       apt-get install -y --no-install-recommends
       gstreamer1.0-plugins-base gstreamer1.0-plugins-good
       gstreamer1.0-plugins-bad gstreamer1.0-nice gstreamer1.0-pipewire
-      gstreamer1.0-alsa
+      gstreamer1.0-alsa gstreamer1.0-gl
       libspa-0.2-modules libpipewire-0.3-modules
     # THE LAST TWO ABOVE ARE NOT PULLED IN BY gstreamer1.0-pipewire, and their
     # absence is invisible until a share is attempted: libpipewire dlopens its
