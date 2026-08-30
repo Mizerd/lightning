@@ -364,7 +364,7 @@ RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
     && test "$(x86_64-w64-mingw32-pkg-config --modversion gstreamer-webrtc-1.0)" \
          = "${GSTREAMER_VERSION}" \
     && test "$(ls /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/*.dll | wc -l)" \
-         = 26 \
+         = 27 \
     && for plugin in /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/*.dll; do \
          file "$plugin" | grep -F 'PE32+ executable' >/dev/null \
            || { echo "not a PE32+ plugin: $plugin" >&2; exit 1; }; \
