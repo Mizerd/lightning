@@ -4320,8 +4320,21 @@ Item {
                     // build a Popup, a background and a Label per timeline
                     // row carrying a link (the reaction chips above carry
                     // the same note and the same reason).
+                    // STATES THE ORDER, because the order is the privacy
+                    // property. Your homeserver fetches the page, so the
+                    // linked site sees the SERVER and not you — and the
+                    // thumbnail comes back as an mxc:// that rides the
+                    // authenticated media path, so the image costs no direct
+                    // contact either.
+                    //
+                    // The second sentence is not a hedge, it is the honest
+                    // half: a server with previews disabled cannot do this,
+                    // and Lightning then loads directly, which does reveal
+                    // your address. Promising only the good case would make
+                    // this notice a lie on every server that has previews
+                    // off — and that is Synapse's DEFAULT.
                     readonly property string fullPrivacyText:
-                        qsTr("Loading this preview contacts the linked website directly and may reveal your IP address.")
+                        qsTr("Your homeserver loads this preview, so the linked site does not see your IP address. If your server cannot, Lightning loads it directly and the site does see your IP.")
                     ToolTip.text: consentRow.fullPrivacyText
                     ToolTip.visible: consentHover.hovered
                     ToolTip.delay: 400
@@ -4356,9 +4369,25 @@ Item {
                             // the reader may never reach the end of, and on
                             // a narrow bubble the tail is the half that
                             // matters.
+                            // Both halves again, compressed. The encrypted
+                            // variant keeps its sharper wording for a
+                            // different reason than the IP: asking the
+                            // homeserver to preview a link tells it a URL
+                            // the encryption was keeping from it, so an
+                            // encrypted room still requires this explicit
+                            // gesture whichever route ends up serving it.
+                            // SHORT ON PURPOSE — the gate must stay
+                            // narrower than the loaded card, which
+                            // consentGateIsNarrowerThanTheStateItLeadsTo
+                            // pins and which a longer sentence here broke.
+                            // The complete explanation is the tooltip
+                            // above; this row carries only the three words
+                            // that change the reader's decision: who
+                            // fetches, that direct is the fallback, and
+                            // that the fallback costs their IP.
                             text: root.roomEncrypted
-                                  ? qsTr("Contacts the site directly — it sees your IP")
-                                  : qsTr("Loads directly from the site, which sees your IP")
+                                  ? qsTr("Your server sees this URL — or directly, your IP")
+                                  : qsTr("Your server loads it — or directly, your IP")
                             color: root.roomEncrypted ? AppTheme.warning
                                                       : AppTheme.textMuted
                             font.pixelSize: AppTheme.scaled(AppTheme.textMicro)

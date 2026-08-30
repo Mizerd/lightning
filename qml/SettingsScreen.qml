@@ -3432,14 +3432,31 @@ Item {
                                         // action that was never built — the
                                         // real gesture is the “Show” button
                                         // on the message's own link card.
-                                        text: qsTr("Loading a preview contacts the linked website "
-                                                   + "directly — not through your homeserver — and "
-                                                   + "may reveal your IP address and request "
-                                                   + "timing to a site the sender chose. No "
-                                                   + "JavaScript is executed. Both switches are "
-                                                   + "off by default; leave them off and use the "
-                                                   + "“Show” button on each message's link card to "
-                                                   + "decide one at a time.")
+                                        // WAS "directly — not through your
+                                        // homeserver", which stopped being
+                                        // true: previews now go through the
+                                        // homeserver first and fall back to
+                                        // a direct fetch only when it cannot
+                                        // supply one. The fallback is why
+                                        // this still describes the direct
+                                        // case at all, and why the switches
+                                        // stay off by default — a server
+                                        // with previews disabled (Synapse's
+                                        // own default) gives you exactly the
+                                        // old behaviour.
+                                        text: qsTr("Your homeserver loads the preview, so the "
+                                                   + "linked site sees your server rather than "
+                                                   + "you. If your server cannot — many have "
+                                                   + "previews turned off — Lightning loads it "
+                                                   + "directly instead, which may reveal your IP "
+                                                   + "address and request timing to a site the "
+                                                   + "sender chose. Asking your homeserver also "
+                                                   + "tells it which link was previewed, which in "
+                                                   + "an encrypted room it would not otherwise "
+                                                   + "know. No JavaScript is executed. Both "
+                                                   + "switches are off by default; leave them off "
+                                                   + "and use the “Show” button on each message's "
+                                                   + "link card to decide one at a time.")
                                     }
                                 }
 

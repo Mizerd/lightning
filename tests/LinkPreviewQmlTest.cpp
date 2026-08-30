@@ -308,10 +308,21 @@ private Q_SLOTS:
         QVERIFY(notice != nullptr);
         QVERIFY(notice->isVisible());
         const QString visible = notice->property("text").toString();
-        // Both facts: the request goes to the site itself, and the site
-        // learns the reader's address.
-        QVERIFY(visible.contains(QStringLiteral("directly")));
-        QVERIFY(visible.contains(QStringLiteral("IP")));
+        // Both facts, and previews now go through the homeserver FIRST, so
+        // there are three things this compressed label has to carry: who
+        // fetches it, that a direct fetch is the fallback, and that the
+        // fallback costs the reader's address. Dropping the last two would
+        // promise a privacy property that a server with previews disabled
+        // — Synapse's default — cannot deliver.
+        QVERIFY2(visible.contains(QStringLiteral("server")),
+                 qPrintable(QStringLiteral("label omits who fetches: %1")
+                                .arg(visible)));
+        QVERIFY2(visible.contains(QStringLiteral("directly")),
+                 qPrintable(QStringLiteral("label omits the fallback: %1")
+                                .arg(visible)));
+        QVERIFY2(visible.contains(QStringLiteral("IP")),
+                 qPrintable(QStringLiteral("label omits what the fallback "
+                                           "costs: %1").arg(visible)));
         // Not elided away on a narrow bubble — a privacy notice the reader
         // cannot reach the end of is not a notice.
         // Qt::ElideNone is 3, NOT 0 — 0 is Qt::ElideLeft. This assertion was
@@ -332,8 +343,27 @@ private Q_SLOTS:
             QStringLiteral("linkPreviewConsentRow"));
         QVERIFY(row != nullptr);
         const QString full = row->property("fullPrivacyText").toString();
-        QVERIFY(full.contains(QStringLiteral("contacts the linked website")));
-        QVERIFY(full.contains(QStringLiteral("may reveal your IP address")));
+        // BOTH HALVES, and the order matters as much as the words.
+        //
+        // Previews now go through the homeserver first, so the notice must
+        // say so — claiming a direct fetch when the server did it would be
+        // scaring the user about an exposure that did not happen. But it
+        // must ALSO keep the direct case, because the fallback is real and
+        // Synapse disables previews by DEFAULT: a notice that promised only
+        // the private route would be a lie on most servers.
+        QVERIFY2(full.contains(QStringLiteral("homeserver")),
+                 qPrintable(QStringLiteral(
+                     "the consent notice no longer says the homeserver "
+                     "loads the preview: %1").arg(full)));
+        QVERIFY2(full.contains(QStringLiteral("does not see your IP")),
+                 qPrintable(QStringLiteral(
+                     "the notice no longer states the property the server "
+                     "route buys: %1").arg(full)));
+        QVERIFY2(full.contains(QStringLiteral("directly")),
+                 qPrintable(QStringLiteral(
+                     "the notice dropped the fallback — it would then be "
+                     "false on any server with previews disabled: %1")
+                         .arg(full)));
         QCOMPARE(d.warnings, QStringList{});
     }
 

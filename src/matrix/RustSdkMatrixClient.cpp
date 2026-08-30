@@ -7090,6 +7090,15 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                       raw.value(QStringLiteral("site_name")).toString());
         fields.insert(QStringLiteral("previewKind"),
                       raw.value(QStringLiteral("preview_kind")).toString());
+        // WHICH ROUTE PRODUCED THIS CARD: "server" or "client".
+        //
+        // The mapping here is field-by-field and explicit, so a field the
+        // Rust side emits and this list omits is dropped SILENTLY — which
+        // for this one would mean the UI could never tell whether the
+        // member's IP reached the linked site, and would have to keep
+        // warning about an exposure that did not happen.
+        fields.insert(QStringLiteral("previewRoute"),
+                      raw.value(QStringLiteral("preview_route")).toString());
         fields.insert(QStringLiteral("imageMxc"),
                       raw.value(QStringLiteral("image_mxc")).toString());
         fields.insert(QStringLiteral("imageSource"),

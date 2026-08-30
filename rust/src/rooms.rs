@@ -665,12 +665,96 @@ fn image_dimensions(mime: &str, b: &[u8]) -> Option<(u32,u32)> {
     }} None
 }
 
+/// The homeserver's own preview of a page, or None if it cannot supply one.
+///
+/// WHY THIS EXISTS AND RUNS FIRST. A client-side preview fetch contacts the
+/// linked website directly, which hands that site the member's IP address —
+/// a tracking pixel by another name, and the reason previews have shipped
+/// default-OFF behind a consent box since the 2026-08-12 privacy audit. The
+/// homeserver fetching on our behalf removes that exposure entirely: the site
+/// sees the SERVER, and the returned thumbnail is an `mxc://` that rides the
+/// existing authenticated media path.
+///
+/// WHAT IT COSTS INSTEAD, because it is not free. The homeserver learns which
+/// URL was previewed. In an unencrypted room it already saw the message
+/// carrying that link, so this discloses nothing new. In an ENCRYPTED room it
+/// did not — which is exactly why the caller keeps the existing rule that an
+/// encrypted room never previews without an explicit per-message gesture.
+/// Server-side previewing does not weaken that gate; it changes only WHO sees
+/// the URL once the user has asked for it.
+///
+/// Returns Ok(None) — not an error — when the server has previews disabled or
+/// the endpoint is unrecognised, so the caller falls back to the client path
+/// without treating a normal server configuration as a failure.
+async fn server_preview(
+    client: &matrix_sdk::Client,
+    page: &url::Url,
+) -> Option<serde_json::Value> {
+    use matrix_sdk::ruma::api::client::authenticated_media::get_media_preview;
+    let request = get_media_preview::v1::Request::new(page.to_string());
+    let response = client.send(request).await.ok()?;
+    let raw = response.data?;
+    let data: serde_json::Value = serde_json::from_str(raw.get()).ok()?;
+    server_preview_fields(&data)
+}
+
+/// The OpenGraph object a server returned, reshaped into our field set — or
+/// None when it did not actually say anything.
+///
+/// SPLIT OUT SO A TEST CAN DRIVE IT. Left inline it was reachable only
+/// through a live homeserver, and the test that "covered" it re-implemented
+/// the predicate as a local closure — which asserts that the test agrees with
+/// itself and would pass with this function deleted.
+pub(crate) fn server_preview_fields(data: &serde_json::Value) -> Option<serde_json::Value> {
+    let obj = data.as_object()?;
+    // OPENGRAPH KEYS, and the server may legitimately supply none of them:
+    // a URL it could not fetch still returns 200 with an empty object. An
+    // answer with neither a title nor a description is no better than no
+    // answer, so it counts as "the server could not do this" and the caller
+    // falls back rather than drawing an empty card.
+    let text = |k: &str| -> String {
+        obj.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_owned()
+    };
+    let title = text("og:title");
+    let description = text("og:description");
+    if title.is_empty() && description.is_empty() {
+        return None;
+    }
+    // The SAME field set the client path emits, so nothing downstream needs to
+    // know which route produced it. `og:image` is an mxc:// URI here rather
+    // than an http(s) URL — the media bridge already resolves those, and it is
+    // the whole reason the thumbnail costs no direct contact either.
+    let image_source = text("og:image");
+    let image_size = obj
+        .get("matrix:image:size")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let dim = |k: &str| -> u64 {
+        obj.get(k).and_then(|v| v.as_u64()).unwrap_or(0)
+    };
+    Some(json!({
+        "preview_kind": "metadata",
+        "preview_route": "server",
+        "title": clipped(title, 300),
+        "description": clipped(description, 1000),
+        "site_name": clipped(text("og:site_name"), 120),
+        "image_source": image_source,
+        "image_mime": text("og:image:type"),
+        "image_width": dim("og:image:width"),
+        "image_height": dim("og:image:height"),
+        "image_size": image_size,
+    }))
+}
+
 pub(crate) fn fetch_url_preview(
     bridge: &RustClient,
     url: String,
     op_id: u64,
 ) -> Result<(), String> {
-    require_client(bridge)?; // previews are account/session scoped
+    // Previews are account/session scoped — and the client this returns is
+    // also what the server-side attempt below sends through, so there is one
+    // session involved, not two.
+    let sdk = require_client(bridge)?;
     let parsed = url::Url::parse(url.trim()).map_err(|_| "invalid URL".to_owned())?;
     if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() {
         return Err("unsupported or credentialed URL".to_owned());
@@ -679,7 +763,25 @@ pub(crate) fn fetch_url_preview(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let result = preview(parsed).await;
+        // SERVER FIRST, CLIENT ONLY IF IT CANNOT. The homeserver fetching the
+        // page means the linked site never sees the member's IP. Falling back
+        // is not a silent downgrade of that property — the caller decides
+        // whether a direct fetch is permitted at all, and the result carries
+        // `preview_route` so the UI can say which one produced the card
+        // rather than implying the private path was used.
+        let mut result = match server_preview(&sdk, &parsed).await {
+            Some(fields) => Ok(fields),
+            None => preview(parsed.clone()).await,
+        };
+        // Anything the client path produced took the direct route. Stamped
+        // here rather than in preview() so there is exactly one place that
+        // decides what the label means, and no way to return a card without
+        // one.
+        if let Ok(ref mut fields) = result {
+            if fields.get("preview_route").is_none() {
+                fields["preview_route"] = "client".into();
+            }
+        }
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
@@ -3327,6 +3429,50 @@ mod tests {
         )
         .await;
         assert_eq!(quick, Ok(7));
+    }
+
+    // The server's answer is only USABLE if it actually says something.
+    //
+    // Synapse returns 200 with an empty object for a URL it could not fetch,
+    // so "the request succeeded" is not the same as "there is a preview".
+    // Accepting an empty answer would draw a blank card AND skip the client
+    // fallback that could have produced a real one — the worst of both.
+    //
+    // THIS CALLS THE REAL FUNCTION. An earlier version of this case
+    // re-implemented the predicate as a local closure, which asserts only
+    // that the test agrees with itself and would have passed with
+    // server_preview_fields() deleted entirely.
+    #[test]
+    fn server_preview_answer_is_usable_only_with_title_or_description() {
+        use super::server_preview_fields as f;
+        assert!(f(&json!({})).is_none(), "an empty object must fall back");
+        assert!(
+            f(&json!({ "matrix:image:size": 1234 })).is_none(),
+            "an image size with no text is not a preview"
+        );
+        assert!(
+            f(&json!({ "og:title": "", "og:description": "" })).is_none(),
+            "present-but-empty strings must fall back, not draw a blank card"
+        );
+        let only_title = f(&json!({ "og:title": "Example" }))
+            .expect("a title alone is a usable preview");
+        assert_eq!(only_title["title"], "Example");
+        // The route label is what lets the UI drop the IP warning honestly,
+        // so a card without it would be worse than no card.
+        assert_eq!(only_title["preview_route"], "server");
+        let only_desc = f(&json!({ "og:description": "Some page" }))
+            .expect("a description alone is a usable preview");
+        assert_eq!(only_desc["description"], "Some page");
+        // og:image is an mxc:// URI from a server preview — it must survive
+        // into image_source, or the thumbnail silently disappears.
+        let with_image = f(&json!({
+            "og:title": "T",
+            "og:image": "mxc://example.org/abc",
+            "matrix:image:size": 4096
+        }))
+        .expect("usable");
+        assert_eq!(with_image["image_source"], "mxc://example.org/abc");
+        assert_eq!(with_image["image_size"], 4096);
     }
 
     #[test]
