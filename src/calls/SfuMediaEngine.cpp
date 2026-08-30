@@ -1416,42 +1416,19 @@ void SfuMediaEngine::applyPublisherMsid(GstPad *sinkPad, const QString &cid)
 /// share.
 bool SfuMediaEngine::shareGpuScalingRequested()
 {
-#if defined(Q_OS_LINUX)
-    // LINUX ONLY, AND NOT AS A CONSERVATIVE DEFAULT — THE PATH CANNOT WORK
-    // ELSEWHERE, AND ON WINDOWS IT WOULD BREAK SHARING OUTRIGHT.
+    // ON EVERYWHERE, with `LIGHTNING_SHARE_GPU=0` to force the CPU.
     //
-    // 1. `libgstopengl.dll` IS NOT IN THE WINDOWS STAGED PLUGIN SET
-    //    (lightning-deploy packaging/windows/Dockerfile). So glupload,
-    //    glcolorconvert, glcolorscale and gldownload do not exist there, and
-    //    gst_parse_launch fails outright on an unknown element — the whole
-    //    share pipeline would fail to build. Not "no acceleration": no
-    //    screen share at all.
-    // 2. `memory:DMABuf` is a Linux concept. The entry filter's DMA-BUF
-    //    alternative is meaningless on Windows and macOS.
-    // 3. THE PREMISE IS ABSENT. What makes this worth doing on Linux is that
-    //    the portal hands us a DMA-BUF the frame is ALREADY IN — the import
-    //    is zero-copy and only the reduced frame comes back. Windows
-    //    captures with gdiscreencapsrc, which delivers SYSTEM MEMORY, so the
-    //    same chain would upload a full 4K frame to the GPU in order to
-    //    download a smaller one. That is the readback we are avoiding here,
-    //    pointing the other way.
-    // 4. The right Windows answer is d3d11convert/d3d11scale behind
-    //    d3d11screencapturesrc, and `libgstd3d11.dll` is DELIBERATELY not
-    //    shipped: it imports `std::codecvt<wchar_t, char, _Mbstatet>` forms
-    //    that the Fedora libstdc++ in the build image does not export. That
-    //    is a CRT choice, not version drift, so a GStreamer bump will not
-    //    fix it.
-    // DEFAULT ON. `=0` forces the CPU path; anything else leaves the
-    // default, and `=1` is kept meaningful on platforms this would
-    // otherwise skip so the path stays reachable for testing.
-    static const QString v = qEnvironmentVariable("LIGHTNING_SHARE_GPU");
-    return v != QLatin1String("0");
-#else
-    // Off by default here, but STILL FORCEABLE with `=1`: the fallback
-    // ladder below refuses safely when the elements are absent, so an
-    // explicit opt-in on a platform that has staged them is not a foot-gun.
-    return qEnvironmentVariable("LIGHTNING_SHARE_GPU") == QLatin1String("1");
-#endif
+    // It was Linux-only while unproven; it is now confirmed working on a
+    // packaged Windows build (`screen share scaling on the GPU`, a game
+    // holding 225 of 240 fps, and the capture feeding the encoder 1:1
+    // instead of videorate tripling every frame). What makes the default
+    // safe is not that measurement but the LADDER underneath it: the
+    // elements are probed, the chain is proved to reach PAUSED, and a
+    // description that still will not build falls back once. A machine that
+    // cannot do any of that gets the CPU path and a log line saying which
+    // step declined.
+    return qEnvironmentVariable("LIGHTNING_SHARE_GPU")
+           != QLatin1String("0");
 }
 
 /// The first missing GL element, or empty when the chain can be built.
@@ -1471,6 +1448,59 @@ QString SfuMediaEngine::missingGpuShareElement()
                                 QByteArrayLiteral("glcolorconvert"),
                                 QByteArrayLiteral("glcolorscale"),
                                 QByteArrayLiteral("gldownload")});
+}
+
+/// Whether the GPU chain can reach PAUSED here. Cached; see the header.
+bool SfuMediaEngine::gpuShareChainUsable()
+{
+    static const bool usable = [] {
+        // The REAL scale stage, not an approximation of it — a probe that
+        // does not share the property under test proves nothing, which this
+        // lane has now learned four separate times. videotestsrc feeds it so
+        // no capture, portal or permission is involved: what is being asked
+        // is whether GL works, not whether a desktop can be grabbed.
+        const QString desc =
+            QStringLiteral("videotestsrc num-buffers=1 ! ")
+            + shareScaleStage(1080, true) + QStringLiteral(" ! fakesink");
+        GError *error = nullptr;
+        GstElement *pipeline =
+            gst_parse_launch(desc.toUtf8().constData(), &error);
+        if (error || !pipeline) {
+            qCInfo(lcSfuMedia)
+                << "GPU share chain unusable, will use the CPU: build failed:"
+                << (error && error->message ? error->message : "?");
+            if (error)
+                g_error_free(error);
+            if (pipeline)
+                gst_object_unref(pipeline);
+            return false;
+        }
+        // BOUNDED, and on the GUI thread. A GL context that cannot be created
+        // fails fast; a driver that hangs must not take the call with it, so
+        // an inconclusive answer counts as unusable rather than as a wait.
+        bool ok = gst_element_set_state(pipeline, GST_STATE_PAUSED)
+                  != GST_STATE_CHANGE_FAILURE;
+        if (ok) {
+            GstState state = GST_STATE_NULL;
+            const GstStateChangeReturn ret = gst_element_get_state(
+                pipeline, &state, nullptr, 3 * GST_SECOND);
+            ok = ret == GST_STATE_CHANGE_SUCCESS && state == GST_STATE_PAUSED;
+            if (!ok) {
+                qCInfo(lcSfuMedia)
+                    << "GPU share chain unusable, will use the CPU: the GL "
+                       "pipeline did not reach PAUSED (ret=" << int(ret)
+                    << "state=" << int(state) << ")";
+            }
+        } else {
+            qCInfo(lcSfuMedia)
+                << "GPU share chain unusable, will use the CPU: the GL "
+                   "pipeline refused to change state";
+        }
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+        return ok;
+    }();
+    return usable;
 }
 
 /// The first of `names` with no registered factory, or empty.
@@ -2311,6 +2341,18 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                 << missing << "is not available in this build";
             useGpu = false;
         }
+    }
+    // AND THE ELEMENTS EXISTING IS NOT THE SAME AS THEM WORKING. A driver
+    // that cannot give us a GL context, or a headless session with no
+    // display to make one on, passes the factory probe above and then fails
+    // when the real chain runs. gpuShareChainUsable() builds that chain
+    // against a test source once per process and requires PAUSED, so the
+    // decision happens BEFORE a capture is opened and a share is committed.
+    if (useGpu && !gpuShareChainUsable()) {
+        qCInfo(lcSfuMedia)
+            << "screen share falling back to the CPU: the GL chain is "
+               "present but cannot run on this machine";
+        useGpu = false;
     }
 
     QString scaleStageInUse = useGpu ? scaleStage : cpuScaleStage;

@@ -1546,7 +1546,26 @@ bool SettingsManager::shareQualityDemanding() const
 
 bool SettingsManager::shareQualityDemandingAt(int maxHeight, int fps) const
 {
-    return maxHeight >= 2160 && fps >= 30;
+    // MEASURED ON A REAL WINDOWS SHARE, not guessed at. `gdiscreencapsrc`
+    // sustains 30 fps and does not sustain 60: asked for 30 it delivered
+    // 1000 frames while the encoder encrypted 1000 (1:1), and asked for 60
+    // it delivered ~500 while the encoder pushed ~1500 — `videorate`
+    // duplicating each real frame three times, so two thirds of the encode,
+    // encrypt and send was the SAME PICTURE. The cost is real and the
+    // smoothness is not, which is the worst trade a setting can offer.
+    //
+    // So the warning is about what the machine can actually produce:
+    //
+    //   1080p at any rate   — fine, measured at about 1 fps of game impact
+    //   1440p at 60         — the capture cannot feed it
+    //   2160p at any rate   — the blit is 4x 1080p before anything encodes
+    //
+    // 1440p at 30 is deliberately NOT warned: that is the configuration
+    // measured at 240 -> 225 fps in a running game, which is a real cost
+    // but a reasonable one to offer without a caveat.
+    if (maxHeight >= 2160)
+        return true;
+    return maxHeight >= 1440 && fps >= 60;
 }
 
 int SettingsManager::shareFps() const

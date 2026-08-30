@@ -119,6 +119,14 @@ public:
     /// nothing about which stage production would have picked — which is
     /// exactly how the first regression case for this passed on the bug.
     static QString cpuFallbackScaleStage(bool screenShare, int shareMaxHeight);
+    /// Whether the GPU chain can actually REACH PAUSED on this machine.
+    ///
+    /// The element probe answers "are the elements installed"; this answers
+    /// "does the GL stack work here", which is a different question and the
+    /// one a driver fails. Building the real chain against a test source and
+    /// asking for PAUSED exercises context creation, caps negotiation and
+    /// the shaders, and costs one tiny pipeline ONCE per process.
+    static bool gpuShareChainUsable();
     static QString shareEncoderStage(int maxHeight, int fps);
     int shareMaxHeight() const { return m_shareMaxHeight; }
     int shareFps() const { return m_shareFps; }

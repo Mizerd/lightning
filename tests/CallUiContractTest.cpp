@@ -2577,12 +2577,28 @@ ApplicationWindow {
                  "the menu no longer marks the individual rate rows, so the "
                  "warning is back to being a block of prose");
 
-        // The predicate itself: 4K above 15 fps, and nothing else.
+        // The predicate itself, and every row is a MEASURED position rather
+        // than a taste. `gdiscreencapsrc` sustains 30 fps and not 60: at 30
+        // it delivered 1000 frames against 1000 encrypted (1:1); at 60 it
+        // delivered ~500 against ~1500, i.e. videorate tripling each real
+        // frame. So 60 is warned wherever the pixel count makes the blit
+        // expensive, and 4K is warned at every rate.
+        //
+        // THE FALSE ROWS ARE THE POINT. 1080p is measured at about 1 fps of
+        // impact in a running game and must never warn — a warning on the
+        // setting most people should pick trains everyone to ignore it. And
+        // 1440p at 30 is the 240 -> 225 fps configuration: a real cost,
+        // deliberately offered without a caveat.
         SettingsManager settings;
         struct Row { int h; int fps; bool warn; };
         const QList<Row> rows = {
-            { 720, 60, false }, { 1080, 60, false }, { 1440, 60, false },
-            { 2160, 15, false }, { 2160, 30, true }, { 2160, 60, true },
+            // 1080p and below: never, at any rate.
+            { 720, 30, false }, { 720, 60, false },
+            { 1080, 15, false }, { 1080, 30, false }, { 1080, 60, false },
+            // 1440p: fine at 30, warned at 60.
+            { 1440, 15, false }, { 1440, 30, false }, { 1440, 60, true },
+            // 4K: warned at every rate, including 15.
+            { 2160, 15, true }, { 2160, 30, true }, { 2160, 60, true },
         };
         for (const Row &r : rows) {
             // Asked BOTH ways — about the current setting and about an
