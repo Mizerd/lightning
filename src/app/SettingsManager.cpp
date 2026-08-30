@@ -1541,7 +1541,12 @@ bool SettingsManager::shareQualityDemanding() const
     //
     // The rule lives HERE, not in either menu, so the chevron and the picker
     // cannot come to disagree about what is safe.
-    return shareMaxHeight() >= 2160 && shareFps() >= 30;
+    return shareQualityDemandingAt(shareMaxHeight(), shareFps());
+}
+
+bool SettingsManager::shareQualityDemandingAt(int maxHeight, int fps) const
+{
+    return maxHeight >= 2160 && fps >= 30;
 }
 
 int SettingsManager::shareFps() const

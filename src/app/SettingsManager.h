@@ -523,6 +523,10 @@ public:
     /// Whether the chosen height and rate together are beyond what a
     /// software VP8 encoder can sustain. See the definition for the sums.
     bool shareQualityDemanding() const;
+    /// The same rule asked about a combination that is not the current one,
+    /// so a menu row can mark ITSELF rather than each surface re-deriving
+    /// the policy.
+    Q_INVOKABLE bool shareQualityDemandingAt(int maxHeight, int fps) const;
 
     bool sharePresence() const;
     bool spacesRailVisible() const;

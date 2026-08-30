@@ -736,27 +736,12 @@ AppDialog {
                     }
                 }
             }
-            // Same predicate as the call bar's menu, so the two surfaces
-            // cannot warn differently about the same combination.
-            Label {
-                objectName: "shareAboveDisplayNote"
-                visible: app.largestScreenHeight > 0
-                         && app.settings.shareMaxHeight > app.largestScreenHeight
-                text: qsTr("above your display")
-                color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-            }
             Label {
                 objectName: "shareQualityWarning"
                 visible: app.settings.shareQualityDemanding
                 text: qsTr("slow")
                 color: AppTheme.warning
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("4K above 15 fps is slower than this "
-                                   + "computer can encode")
-                HoverHandler { id: warnHover }
-                property bool hovered: warnHover.hovered
             }
             CheckBox {
                 objectName: "shareAudioCheck"

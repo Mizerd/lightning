@@ -93,27 +93,7 @@ AppMenu {
 
     MenuSectionLabel { text: qsTr("Frame rate") }
 
-    // The warning belongs to the COMBINATION, so it lives between the two
-    // ladders rather than on either. The predicate is SettingsManager's, so
-    // this menu and the share picker cannot disagree about what is safe.
-    // A CEILING ABOVE THE DISPLAY BUYS NOTHING. The source is never
-    // upscaled, so picking 1440p on a 1080p panel leaves the picture
-    // identical and only raises the bitrate — which is real cost on a lane
-    // with no congestion control.
-    MenuSectionLabel {
-        objectName: "shareAboveDisplayNote"
-        visible: app.largestScreenHeight > 0
-                 && app.settings.shareMaxHeight > app.largestScreenHeight
-        height: visible ? implicitHeight : 0
-        text: qsTr("Taller than your display — the picture will not improve")
-    }
 
-    MenuSectionLabel {
-        objectName: "shareQualityWarning"
-        visible: app.settings.shareQualityDemanding
-        height: visible ? implicitHeight : 0
-        text: qsTr("4K above 15 fps is slower than this computer can encode")
-    }
 
     Repeater {
         model: [
@@ -123,7 +103,15 @@ AppMenu {
         ]
         delegate: AppMenuItem {
             required property var modelData
-            text: modelData.label
+            // The marker rides the ROW it applies to, so there is no
+            // paragraph to read and nothing to run off the edge. Asked of
+            // SettingsManager rather than re-derived here, so the rule stays
+            // in one place.
+            readonly property bool slow:
+                app.settings.shareQualityDemandingAt(
+                    app.settings.shareMaxHeight, modelData.value)
+            text: slow ? qsTr("%1 — slow").arg(modelData.label)
+                       : modelData.label
             radio: true
             radioSelected: app.settings.shareFps === modelData.value
             onTriggered: root.actAndStayOpen(function () {

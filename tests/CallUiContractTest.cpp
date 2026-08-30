@@ -18,6 +18,8 @@
 #include <QWindow>
 #include <QtTest>
 
+#include <functional>
+
 #include <memory>
 
 #include "app/AppController.h"
@@ -2563,12 +2565,17 @@ ApplicationWindow {
                              .arg(rate)));
         }
 
-        // And both warn from the SAME predicate rather than each deciding.
+        // And both mark the slow combination from the SAME predicate rather
+        // than each deciding. The menu marks the RATE ROW itself — a
+        // paragraph under the list ran off the menu's edge and had to go.
         for (const QString &src : { menu, picker }) {
             QVERIFY2(src.contains(QStringLiteral("shareQualityDemanding")),
                      "a share surface decides for itself whether a "
                      "combination is too slow, so the two can disagree");
         }
+        QVERIFY2(menu.contains(QStringLiteral("shareQualityDemandingAt")),
+                 "the menu no longer marks the individual rate rows, so the "
+                 "warning is back to being a block of prose");
 
         // The predicate itself: 4K above 15 fps, and nothing else.
         SettingsManager settings;
@@ -2578,6 +2585,10 @@ ApplicationWindow {
             { 2160, 15, false }, { 2160, 30, true }, { 2160, 60, true },
         };
         for (const Row &r : rows) {
+            // Asked BOTH ways — about the current setting and about an
+            // arbitrary combination — because the menu rows use the second
+            // and only the first was covered.
+            QCOMPARE(settings.shareQualityDemandingAt(r.h, r.fps), r.warn);
             settings.setShareMaxHeight(r.h);
             settings.setShareFps(r.fps);
             QVERIFY2(settings.shareQualityDemanding() == r.warn,
@@ -2586,6 +2597,76 @@ ApplicationWindow {
                                     .arg(settings.shareQualityDemanding())
                                     .arg(r.warn)));
         }
+    }
+
+    void everyPrivateQtHeaderIncludeStaysGuarded()
+    {
+        // A PORTABILITY RULE THE TREE ALREADY KNEW, and that a change in this
+        // round broke anyway. `qpa/qplatformscreen.h` is a PRIVATE Qt header:
+        // the Linux dev shell has it, the MinGW Qt the Windows package builds
+        // against does not. So an unguarded include compiles here and stops
+        // the Windows job dead — which is exactly what happened, thirty
+        // minutes into a build, on a line added the same afternoon.
+        //
+        // SfuCallController.cpp gets this right and says why: "Compiled on
+        // Linux alone, so no Windows or macOS translation unit sees a private
+        // Qt header; and gated on the CMake probe, so a Qt packaged without
+        // private headers still builds." The rule was two files away.
+        QDir dir(QStringLiteral(SRC_DIR));
+        const QStringList files =
+            dir.entryList(QStringList{}, QDir::Dirs | QDir::NoDotAndDotDot);
+        int includes = 0;
+        QStringList offenders;
+        std::function<void(const QString &)> walk = [&](const QString &path) {
+            QDir d(path);
+            for (const QFileInfo &fi :
+                 d.entryInfoList(QDir::Files | QDir::Dirs
+                                 | QDir::NoDotAndDotDot)) {
+                if (fi.isDir()) {
+                    walk(fi.absoluteFilePath());
+                    continue;
+                }
+                if (!fi.fileName().endsWith(QStringLiteral(".cpp"))
+                    && !fi.fileName().endsWith(QStringLiteral(".h")))
+                    continue;
+                QFile f(fi.absoluteFilePath());
+                if (!f.open(QIODevice::ReadOnly))
+                    continue;
+                const QStringList lines =
+                    QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+                for (int i = 0; i < lines.size(); ++i) {
+                    if (!lines.at(i).contains(QStringLiteral("#include <qpa/")))
+                        continue;
+                    ++includes;
+                    // A conditional must OPEN somewhere above it. Twenty
+                    // lines is generous enough for a comment block like the
+                    // one this rule is documented in.
+                    bool guarded = false;
+                    for (int j = std::max(0, i - 20); j < i; ++j) {
+                        if (lines.at(j).trimmed().startsWith(
+                                QStringLiteral("#if"))) {
+                            guarded = true;
+                            break;
+                        }
+                    }
+                    if (!guarded)
+                        offenders << (fi.fileName() + QStringLiteral(":")
+                                      + QString::number(i + 1));
+                }
+            }
+        };
+        walk(QStringLiteral(SRC_DIR));
+
+        // found > 0, or a rename turns this into a scan that passes by
+        // matching nothing at all.
+        QVERIFY2(includes > 0,
+                 "no private Qt include found anywhere, so this scan is "
+                 "checking nothing -- has the header been renamed?");
+        QVERIFY2(offenders.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "unguarded private Qt header include(s), which build "
+                     "here and break the Windows package: %1")
+                         .arg(offenders.join(QStringLiteral(", ")))));
     }
 
     void theShareChevronSitsAsCloseAsEveryOtherChevron()
