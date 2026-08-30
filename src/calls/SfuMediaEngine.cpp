@@ -958,7 +958,8 @@ void SfuMediaEngine::setShareQuality(int maxHeight, int fps)
     // would reach the caps string. A ceiling of 0 negotiates nothing at all.
     m_shareMaxHeight = (maxHeight <= 900) ? 720
                      : (maxHeight <= 1260) ? 1080
-                                           : 1440;
+                     : (maxHeight <= 1800) ? 1440
+                                           : 2160;
     m_shareFps = (fps <= 22) ? 15 : (fps <= 45) ? 30 : 60;
 }
 

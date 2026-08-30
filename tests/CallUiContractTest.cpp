@@ -2358,7 +2358,7 @@ ApplicationWindow {
         // hand-edited config could carry.
         const QList<int> heights = { -100, 0, 1, 480, 719, 720, 721, 900,
                                      901, 1080, 1081, 1260, 1261, 1440,
-                                     1441, 2160, 4320 };
+                                     1441, 1800, 1801, 2160, 2161, 4320 };
         for (int h : heights) {
             settings.setShareMaxHeight(h);
             engine.setShareQuality(h, 30);
@@ -2370,7 +2370,8 @@ ApplicationWindow {
                              .arg(engine.shareMaxHeight())));
             QVERIFY2(engine.shareMaxHeight() == 720
                          || engine.shareMaxHeight() == 1080
-                         || engine.shareMaxHeight() == 1440,
+                         || engine.shareMaxHeight() == 1440
+                         || engine.shareMaxHeight() == 2160,
                      "a share height outside the offered set reached the "
                      "encoder");
         }
@@ -2405,14 +2406,22 @@ ApplicationWindow {
         // route and every platform.
         const QString bar = read(QStringLiteral(QML_DIR "/CallHeaderBar.qml"));
         QVERIFY(!bar.isEmpty());
-        QVERIFY2(bar.contains(QStringLiteral("callBarShareAudioButton")),
-                 "the share-audio control is not on the call bar, so a "
-                 "Wayland user -- whose picker never opens -- has no way to "
-                 "reach it");
-        QVERIFY2(bar.contains(QStringLiteral("shareAudioSupported")),
-                 "the call bar offers the control without asking whether "
-                 "anything can capture, so it appears on a platform where it "
-                 "cannot work");
+        QVERIFY2(bar.contains(QStringLiteral("callBarShareOptionsChevron")),
+                 "the share options are not on the call bar, so a Wayland "
+                 "user -- whose picker never opens -- has no way to reach "
+                 "sound, resolution or frame rate");
+        const QString menu =
+            read(QStringLiteral(QML_DIR "/CallShareOptionsMenu.qml"));
+        QVERIFY2(!menu.isEmpty(), "the share options menu is gone");
+        QVERIFY2(menu.contains(QStringLiteral("shareAudioSupported")),
+                 "the menu offers sound without asking whether anything can "
+                 "capture it, so it appears where it cannot work");
+        // Resolution and frame rate must be here TOO, not only in the picker
+        // -- that is the whole reason this surface exists.
+        QVERIFY2(menu.contains(QStringLiteral("shareMaxHeight"))
+                     && menu.contains(QStringLiteral("shareFps")),
+                 "resolution or frame rate is missing from the one surface "
+                 "Wayland shows");
 
         // And the picker keeps its copy, which is what X11, Windows and
         // macOS see. Both surfaces, one setting.
@@ -2425,7 +2434,9 @@ ApplicationWindow {
 
         // NEITHER surface may carry its own idea of the state. Two controls
         // over one setting is how a toggle comes to disagree with itself.
-        for (const QString &src : { bar, picker }) {
+        // The MENU and the picker, not the bar: the bar now carries only the
+        // chevron that opens the menu, which is the point of the move.
+        for (const QString &src : { menu, picker }) {
             QVERIFY2(src.contains(QStringLiteral("shareAudioEnabled")),
                      "a share-audio control does not read the controller's "
                      "state");

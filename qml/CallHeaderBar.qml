@@ -255,45 +255,51 @@ Rectangle {
             }
         }
 
-        // ── Share audio (SFU lane only) ──
+        // The share's OPTIONS, on a chevron beside it — the same split shape
+        // the mic and camera use: the button does the thing, the chevron
+        // qualifies it. Sound, resolution and frame rate live in here rather
+        // than as controls on the bar, because they are set once and the bar
+        // is not where a once-a-month decision belongs.
         //
-        // HERE, NOT IN THE SHARE PICKER, because on Wayland that picker never
-        // opens: the route is LinuxShareRoute::Portal and the desktop draws
-        // its own dialog, so a switch inside Lightning's picker is reachable
-        // on X11, Windows and macOS and invisible on the platform this was
-        // developed on. Reported exactly that way — "whatever you did to
-        // volume i never get asked".
-        //
-        // Nor can the portal carry it: xdg-desktop-portal's ScreenCast
-        // interface (version 5 here) has no audio option at all, and KDE's
-        // dialog offers no sound choice — measured on a live session. The
-        // capture is ours and independent of the portal, so the control has
-        // to be ours too.
-        //
-        // ABSENT where nothing can capture what the computer plays, rather
-        // than disabled: a greyed control invites "why can I not turn this
-        // on" and a disabled Qt Quick control gets no hover, so it cannot
-        // even explain itself.
+        // AND BECAUSE THE SHARE PICKER IS UNREACHABLE ON WAYLAND: the portal
+        // draws that dialog, so anything living only there is invisible on
+        // KDE. This surface is shown on every route.
         Loader {
-            active: root.richMedia && app.groupCall.shareAudioSupported
+            objectName: "callBarShareOptionsChevron"
+            active: root.richMedia
             visible: active
-            sourceComponent: CallControlButton {
-                objectName: "callBarShareAudioButton"
-                iconName: app.groupCall.shareAudioEnabled ? "volume_up"
-                                                          : "volume_off"
-                role: app.groupCall.shareAudioEnabled ? "active" : "neutral"
-                diameter: root.controlDiameter
-                glyphSize: root.controlGlyph
-                // The tooltip states WHEN it takes effect, because the switch
-                // is read as a share STARTS: changing it mid-share otherwise
-                // reads as a control that does nothing.
-                tooltip: app.groupCall.shareAudioEnabled
-                         ? qsTr("Screen shares will include this computer's "
-                                + "sound. Applies to the next share.")
-                         : qsTr("Screen shares will be silent. Applies to "
-                                + "the next share.")
-                onClicked: app.groupCall.shareAudioEnabled =
-                    !app.groupCall.shareAudioEnabled
+            sourceComponent: AbstractButton {
+                id: shareChevron
+                implicitWidth: 20
+                implicitHeight: 26
+                hoverEnabled: true
+                focusPolicy: Qt.StrongFocus
+                Accessible.role: Accessible.ButtonMenu
+                Accessible.name: qsTr("Screen share options")
+                background: Rectangle {
+                    radius: AppTheme.radiusSm
+                    color: shareChevron.pressed
+                           ? AppTheme.selectedHover
+                           : (shareChevron.hovered || shareChevron.activeFocus
+                              ? AppTheme.hover : AppTheme.surfaceElevated)
+                    border.width: shareChevron.activeFocus ? 2 : 1
+                    border.color: shareChevron.activeFocus
+                                  ? AppTheme.focusRing : AppTheme.borderSubtle
+                    Behavior on color { ColorAnimation { duration: 90 } }
+                }
+                contentItem: Icon {
+                    name: "expand_more"
+                    size: 14
+                    color: AppTheme.textSecondary
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                ToolTip.visible: (shareChevron.hovered
+                                  || shareChevron.activeFocus)
+                ToolTip.delay: 400
+                ToolTip.text: qsTr("Sound, resolution and frame rate")
+                onClicked: shareOptions.popup()
+                CallShareOptionsMenu { id: shareOptions }
             }
         }
 

@@ -322,7 +322,7 @@ void SettingsSessionTest::shareQualityDefaultsPersistAndSnap()
     raw.setValue(QStringLiteral("calls/shareFps"), 240);
     raw.sync();
     SettingsManager reread;
-    QCOMPARE(reread.shareMaxHeight(), 1440);
+    QCOMPARE(reread.shareMaxHeight(), 2160);
     QCOMPARE(reread.shareFps(), 60);
 
     raw.setValue(QStringLiteral("calls/shareMaxHeight"), 0);

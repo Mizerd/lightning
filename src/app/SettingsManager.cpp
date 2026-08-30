@@ -1496,7 +1496,9 @@ int snapShareHeight(int v)
         return 720;
     if (v <= 1260)
         return 1080;
-    return 1440;
+    if (v <= 1800)
+        return 1440;
+    return 2160;
 }
 int snapShareFps(int v)
 {

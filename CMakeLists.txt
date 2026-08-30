@@ -866,6 +866,7 @@ set(APP_QML_FILES
     qml/CallControlButton.qml
     qml/CallDeviceChevron.qml
     qml/CallDeviceMenu.qml
+    qml/CallShareOptionsMenu.qml
     qml/CallDeviceSettings.qml
     qml/CallHeaderBar.qml
     qml/CallTileBadge.qml
