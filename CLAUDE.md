@@ -1921,6 +1921,39 @@ the next subsection carries the full confirmed list.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-08-30 — THE GPU SCREEN-SHARE SCALE PATH WORKS ON FOUR ENVIRONMENTS,
+AND TWO GPU VENDORS.** `screen share scaling on the GPU` confirmed on: NixOS
+from source (NVIDIA), a packaged Windows portable build (NVIDIA), the Fedora
+RPM (Intel), and the Flatpak (Intel) — the last two on a laptop, with share
+audio and a real two-participant call carrying a distributed media key. It is
+now the DEFAULT everywhere rather than opt-in.
+
+The Windows numbers are the ones that justify it: a game held 225 of 240 fps
+while sharing, and the capture fed the encoder 1:1 (1000 delivered, 1000
+encrypted) where the CPU path at 60 fps delivered ~500 against ~1500 — i.e.
+`videorate` tripling every real frame, so two thirds of the encode and
+encryption was the same picture.
+
+`gstreamer initialised bundled= false` is CORRECT for the RPM and the Flatpak
+(system and runtime GStreamer respectively); only the AppImage bundles.
+
+**AND THE APPIMAGE SHIPPED WITHOUT THE PLUGIN, which nothing could have
+caught.** The 0.8.2 AppImage logged `screen share falling back to the CPU:
+GStreamer element "glupload" is not available in this build` — `libgstopengl`
+was simply not in `GST_REQUIRED_PLUGINS`. The engine probes for the element
+and degrades, so a missing plugin can never fail a build or a call: GRACEFUL
+FALLBACK AND SILENT ABSENCE ARE THE SAME OBSERVABLE unless something asserts
+the payload. Third time this shape has bitten — sctp on Windows, ximagesrc,
+now opengl — and `validate-appimage.sh` now names it, as it already named
+those two. The same gap existed on Windows in a SECOND list:
+packaging/windows/Dockerfile stages into the builder SYSROOT,
+stage-windows-runtime.py stages into the shipped ZIP, and updating one is not
+updating the other.
+
+NOT COVERED: whether the GPU path survives on a machine with no usable GL —
+the new `gpuShareChainUsable()` pre-flight is written for that case and has
+never been observed declining. macOS is untested entirely.
+
 **2026-08-29 — SCREEN SHARE AUDIO REACHES ELEMENT, on Linux.** Confirmed on
 a real desktop into an ENCRYPTED room: Element hears what the sharing
 computer is playing. First time share audio has ever left this client.
