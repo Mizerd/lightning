@@ -1361,20 +1361,27 @@ void SfuMediaEngine::applyPublisherMsid(GstPad *sinkPad, const QString &cid)
 /// readback gone, which was the entire hypothesis, and it is measured rather
 /// than argued.
 ///
-/// STILL BROKEN, AND THE REASON IS NOT IN THIS FUNCTION. Frames flow
-/// (`capture delivered frames`), the encoder is fed (`frames ... out
-/// video=true`), and every pixel is black — the signature of a GL import
-/// that silently produced an empty texture. NOTHING IN THIS ENGINE ANSWERS
-/// `GST_MESSAGE_NEED_CONTEXT`: a pipeline containing GL elements asks the
-/// bus for a `gst.gl.GLDisplay` and a `gst.gl.app_context`, and with no
-/// answer `glupload` invents its own. A context that does not match the DRM
-/// device the compositor allocated on cannot sample a modifier'd buffer, and
-/// that modifier is an AMD tiled/DCC one.
+/// THE BLACK SHARE IS FIXED, AND THE CAUSE WAS IN OUR OWN CAPSFILTER — not
+/// where the paragraph that used to sit here said it was. That paragraph
+/// blamed `GST_MESSAGE_NEED_CONTEXT`: no answer on the bus, so `glupload`
+/// invents a GstGLDisplay that cannot sample a modifier'd buffer. Plausible,
+/// and WRONG, and it is kept named here because it would have cost somebody
+/// a week of bus plumbing for a one-line caps bug.
 ///
-/// So the next step is bus handling, not another element: answer
-/// need-context with a GstGLDisplay built for the capture's DRM device, plus
-/// the lifetime that implies across pipeline rebuilds. Until that exists
-/// this flag produces a black share and stays off.
+/// What was actually happening: `captureEntryFilter()` offered a LINEAR
+/// DMA-BUF first and `video/x-raw(ANY)` as a fallback. `(ANY)` matches every
+/// caps feature INCLUDING memory:DMABuf at any modifier, so the linear entry
+/// was only ever a PREFERENCE and the compositor was free to decline it and
+/// take the second — which it did, answering
+/// `drm-format=AR24:0x0300000000606014`, NVIDIA block-linear, which imports
+/// as an empty texture. Frames flowed, the encoder ran, every pixel was
+/// black. The fallback is now plain `video/x-raw`, so the choice is a linear
+/// DMA-BUF the chain can import or system memory, never a tiled buffer.
+///
+/// GENERALISE, because this lane keeps relearning it: a field you PREFER is
+/// not a field you CONSTRAIN, and two of this file's own tests were pinning
+/// the preference — one requiring linear to come first, the other requiring
+/// the fallback that let the peer skip it.
 ///
 /// EARLIER, AND NOW FIXED — kept because it explains the shape of the code:
 ///
@@ -1397,7 +1404,8 @@ void SfuMediaEngine::applyPublisherMsid(GstPad *sinkPad, const QString &cid)
 /// has to keep a fixed PAR in front of the source while letting the memory
 /// feature through.
 ///
-/// OPT-IN, AND UNMEASURED ON A REAL CAPTURE. Set LIGHTNING_SHARE_GPU=1. It is
+/// LIVE-VALIDATED ON LINUX and now the default there; see
+/// shareGpuScalingRequested() for the platform gate and the ladder. It is
 /// not the default because it cannot be measured here: a probe built on
 /// `videotestsrc` produces system memory, so `glupload` has to upload 4K
 /// frames it would otherwise import for free — measured 2.39 s against the
