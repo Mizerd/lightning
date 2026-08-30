@@ -1443,11 +1443,25 @@ QString SfuMediaEngine::captureEntryFilter(bool gpu)
     //
     // The compositor detiles to satisfy it, which is a GPU blit — still far
     // cheaper than the full-frame readback this whole path exists to remove.
+    // THE FALLBACK MUST NOT BE `video/x-raw(ANY)`, AND THIS WAS THE BUG.
+    // `(ANY)` matches every caps feature INCLUDING memory:DMABuf with any
+    // modifier, so listing linear first expressed a PREFERENCE the fallback
+    // then silently defeated: the compositor answered
+    // `drm-format=AR24:0x0300000000606014` — NVIDIA block-linear — and the
+    // share went out black while every counter stayed healthy. A field you
+    // prefer is not a field you constrain, which is the same trap as the
+    // fixate rules above.
+    //
+    // So the choice is now genuinely binary: a LINEAR DMA-BUF, which the GL
+    // chain can import, or plain SYSTEM MEMORY, which is the CPU path we
+    // already know works. A compositor that will only produce block-linear
+    // now falls back instead of producing a black picture, which is the
+    // honest failure and costs nothing that was working before.
     return gpu
         ? QStringLiteral("capsfilter caps=\"video/x-raw(memory:DMABuf),"
                          "drm-format=(string)AR24:0x0000000000000000,"
                          "pixel-aspect-ratio=(fraction)1/1;"
-                         "video/x-raw(ANY),"
+                         "video/x-raw,"
                          "pixel-aspect-ratio=(fraction)1/1\"")
         : QStringLiteral("capsfilter caps=\"video/x-raw,"
                          "pixel-aspect-ratio=(fraction)1/1\"");

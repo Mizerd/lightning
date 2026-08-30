@@ -2340,6 +2340,19 @@ private slots:
             // the target, glcolorconvert may pass it through and
             // glcolorscale samples it as 2D and reads nothing — frames
             // flow, encoder runs, picture black.
+            // THE FALLBACK MUST NOT BE (ANY). It matches memory:DMABuf with
+            // ANY modifier, so a linear preference listed first is silently
+            // defeated and a block-linear buffer reaches the GL import,
+            // which goes out black with every counter healthy.
+            const QString entry = SfuMediaEngine::captureEntryFilter(true);
+            QVERIFY2(!entry.contains(QStringLiteral("video/x-raw(ANY)")),
+                     qPrintable(QStringLiteral(
+                         "an (ANY) fallback re-admits block-linear DMA-BUF "
+                         "and the share goes out black: %1").arg(entry)));
+            QVERIFY2(entry.contains(QStringLiteral("AR24:0x0000000000000000")),
+                     qPrintable(QStringLiteral(
+                         "the GPU entry filter no longer requires a linear "
+                         "DMA-BUF: %1").arg(entry)));
             QVERIFY2(gpu.contains(QStringLiteral("texture-target=2D")),
                      qPrintable(QStringLiteral(
                          "no texture-target pin: an external-oes texture can "
@@ -2396,23 +2409,37 @@ private slots:
         }
         QVERIFY2(!cpuEntry.contains(QStringLiteral("(ANY)")),
                  "the CPU path stopped pinning system memory");
-        // LINEAR ASKED FOR FIRST. The import, not the chain, is what
-        // produced a black share: the GL chain fed GL memory directly writes
-        // a full PNG, while the compositor's NVIDIA block-linear buffer
-        // (drm-format AR24:0x0300000000606014) imports as an empty texture.
-        // 0x0 is DRM_FORMAT_MOD_LINEAR, which any importer can sample, and
-        // it has to come FIRST because caps are an ordered preference list.
-        QVERIFY2(gpuEntry.indexOf(QStringLiteral("0x0000000000000000"))
-                     < gpuEntry.indexOf(QStringLiteral("video/x-raw(ANY)")),
+        // LINEAR REQUIRED, NOT MERELY PREFERRED — and the earlier version
+        // of this case asserted the PREFERENCE, which is why the defect
+        // looked covered while it was live. It required the linear modifier
+        // to appear before a `video/x-raw(ANY)` fallback, reasoning that
+        // caps are an ordered preference list. They are, and that is exactly
+        // the problem: `(ANY)` matches every caps feature INCLUDING
+        // memory:DMABuf at any modifier, so the peer was free to decline the
+        // first entry and take the second. It did — the compositor answered
+        // `drm-format=AR24:0x0300000000606014`, NVIDIA block-linear, which
+        // imports as an empty texture and publishes a black share with every
+        // counter healthy.
+        //
+        // So the fallback must not be able to carry a DMA-BUF at all. Either
+        // a LINEAR one the GL chain can import, or plain system memory.
+        QVERIFY2(!gpuEntry.contains(QStringLiteral("video/x-raw(ANY)")),
                  qPrintable(QStringLiteral(
-                     "the linear modifier is not preferred first, so the "
-                     "compositor can hand back a tiled buffer that imports "
-                     "black: %1").arg(gpuEntry)));
-        QVERIFY2(gpuEntry.contains(QStringLiteral("video/x-raw(ANY)")),
+                     "an (ANY) fallback re-admits a block-linear DMA-BUF, so "
+                     "the linear entry is only a preference and the share "
+                     "goes out black: %1").arg(gpuEntry)));
+        QVERIFY2(gpuEntry.contains(QStringLiteral("0x0000000000000000")),
                  qPrintable(QStringLiteral(
-                     "the GPU entry filter still pins system memory, so the "
-                     "compositor's buffer can never be imported: %1")
-                         .arg(gpuEntry)));
+                     "the GPU entry filter stopped requiring a linear "
+                     "DMA-BUF: %1").arg(gpuEntry)));
+        // (The case that used to sit here REQUIRED `video/x-raw(ANY)`,
+        // arguing that without it "the compositor's buffer can never be
+        // imported". Together with the ordering case above, the two
+        // assertions enforced the defect from both sides: one demanded the
+        // linear entry come first, the other demanded the fallback that let
+        // the peer skip it. A block-linear buffer is not importable here, so
+        // refusing DMA-BUF and taking system memory is the CORRECT outcome,
+        // not a regression.)
 
         // And it is genuinely OPT-IN: with the variable unset the engine
         // asks for the CPU segment.
