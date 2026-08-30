@@ -19,7 +19,7 @@ the existing Linux runners.
 | Scope | project 7 only, locked, protected, tagged jobs only |
 | Concurrency | 1 job; 2 polling requests |
 | Job limits | 4 CPU, 8 GiB memory (10 GiB including swap), 2-hour maximum |
-| Builder | `lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v4` |
+| Builder | `lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v5` |
 
 The runner manager mounts `/var/run/docker.sock`, which is root-equivalent host
 access. It is constrained by project scope, protected-ref access, unique tags,
@@ -64,10 +64,10 @@ record the resulting image ID and size:
 ```bash
 sudo docker build \
   --label net.smetonis.lightning.task=windows-packaging \
-  -t lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v4 \
+  -t lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v5 \
   -f packaging/windows/Dockerfile .
 sudo docker image inspect \
-  lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v4
+  lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v5
 ```
 
 Do not use a floating builder image. The official Qt multimedia, FFmpeg and
@@ -97,7 +97,7 @@ printed or copied anywhere.
 1. Commit the `packaging/windows/Dockerfile` change and the NEW tag in
    `.gitlab-ci.yml`, `tests/test-pipeline-config.py`, this file, the README and
    the example config. The tag encodes what changed, e.g.
-   `fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v4`.
+   `fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v5`.
 2. Build the image on `10.195.35.2` from a checkout of that commit, using the
    `docker build` command above with the new tag.
 3. Edit the host's `config/config.toml`: set `[runners.docker] image` to the new

@@ -457,7 +457,7 @@ for fmt in all_fmts:
 windows = resolve_extends("windows-package-test")
 check(set(windows.get("tags", [])) == {"windows-cross", "windows-package"},
       "Windows job uses only the dedicated cross-package runner tags")
-WINDOWS_IMAGE = "lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v4"
+WINDOWS_IMAGE = "lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v5"
 image = windows.get("image", {})
 check(isinstance(image, dict)
       and image.get("name") == WINDOWS_IMAGE

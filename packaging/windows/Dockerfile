@@ -285,6 +285,37 @@ RUN set -eu; \
         fi; \
         install -m 0755 "$src/bin/$runtime" "$sysroot/bin/$runtime"; \
     done; \
+    # THE OPENGL PLUGIN'S OWN DEPENDENCIES, and it does not load without
+    # every one of them. Measured with objdump against the extracted SDK:
+    # libgstopengl.dll imports libgstcontroller, libgraphene, libjpeg-8 and
+    # libpng16 on top of the core libraries above, and libgstgl needs
+    # libgmodule. None of those are in the list above, and the Fedora
+    # sysroot baseline supplies only libglib/libgobject/libwinpthread —
+    # established by taking the imports of plugins that ALREADY stage
+    # successfully and subtracting the staged set.
+    #
+    # SKIP-IF-PRESENT rather than fail-if-present, and only for these. The
+    # loop above is right to treat a collision as fatal: those are core
+    # GStreamer libraries and silently replacing Fedora's copy is how a
+    # process ends up with two of something. These are ordinary third-party
+    # libraries that Fedora's mingw stack may legitimately already ship
+    # (Qt pulls libpng and libjpeg), and in that case the correct action is
+    # to USE Fedora's rather than to fail the build or overwrite it. The
+    # invariant that matters — no Fedora runtime DLL is ever replaced — is
+    # preserved either way.
+    for gldep in \
+        libgstcontroller-1.0-0.dll libgraphene-1.0-0.dll \
+        libgmodule-2.0-0.dll libjpeg-8.dll libpng16.dll; do \
+        if [ -e "$sysroot/bin/$gldep" ]; then \
+            echo "gl dep already provided by the sysroot, not staging: $gldep"; \
+            continue; \
+        fi; \
+        if [ ! -e "$src/bin/$gldep" ]; then \
+            echo "gl dep missing from the GStreamer SDK: $gldep" >&2; \
+            exit 1; \
+        fi; \
+        install -m 0755 "$src/bin/$gldep" "$sysroot/bin/$gldep"; \
+    done; \
     cp -a "$src/include/gstreamer-1.0" "$sysroot/include/"; \
     cp -a "$src/include/orc-0.4" "$sysroot/include/"; \
     for implib in \
