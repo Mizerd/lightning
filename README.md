@@ -171,6 +171,56 @@ remove it; if it will not start you may need FUSE, or run it with
 `--dangerous` means "this file is not signed by the store", not that the snap is
 unsafe; it is built with `strict` confinement.
 
+### NixOS
+
+If you want to use it without installing:
+
+```sh
+nix run github:Mizerd/lightning
+```
+
+**Installing using flakes**:
+
+Add lightning-matrix-client as an input:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+    lightning-matrix-client = {
+      url = "github:Mizerd/lightning";
+      #url = "github:Mizerd/lightning/v0.8.3"; # Use this if you want a specific version
+    };
+  };
+  . . . # Your outputs config
+}
+```
+
+Add the package from the lightning-matrix-client input:
+
+```nix
+{ inputs, pkgs, ... }:
+{
+  environment.systemPackages = [
+    inputs.lightning-matrix-client.packages.${pkgs.stdenv.hostPlatform.system}.default
+  ];
+}
+```
+
+Optionally, the flake also provides a `homeManagerModules` output with settings
+(you don't need to add the package to `environment.systemPackages` if using this method):
+
+```nix
+# This is a module imported inside a home manager (https://github.com/nix-community/home-manager) configuration
+{ inputs, ... }:
+{
+  imports = [
+    inputs.lightning-matrix-client.homeManagerModules.default
+  ];
+  lightning-matrix-client.enable = true;
+}
+```
+
 ### Windows (x86-64, Windows 10 or later)
 
 Three formats — **MSI**, **Setup EXE** and a **portable ZIP** — all per-user. None
