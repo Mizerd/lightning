@@ -2316,7 +2316,11 @@ private slots:
         // string fails at pipeline build, which is a bad place to learn.
         for (int h : { 720, 1080, 1440, 2160 }) {
             const QString cpu = SfuMediaEngine::shareScaleStage(h, false);
-            QCOMPARE(cpu, QStringLiteral("videoconvert ! videoscale"));
+            // EXACT, and it is the threaded single pass now. `videoconvert
+            // ! videoscale` walked the pixels TWICE on ONE thread and took
+            // 3.66 s of wall time per 5 s of 4K video — 73% of realtime
+            // before the encoder started, so the chain could not keep up.
+            QCOMPARE(cpu, QStringLiteral("videoconvertscale n-threads=4"));
 
             const QString gpu = SfuMediaEngine::shareScaleStage(h, true);
             // Imports the compositor's buffer rather than asking for system
@@ -2423,6 +2427,54 @@ private slots:
         //
         // So the fallback must not be able to carry a DMA-BUF at all. Either
         // a LINEAR one the GL chain can import, or plain system memory.
+        // THE CPU FALLBACK IS ONE THREADED PASS, and both properties are
+        // load-bearing rather than tidy. Measured 4K -> 1080p over 5 s of
+        // video: `videoconvert ! videoscale` took 3.66 s of WALL time, i.e.
+        // 73% of realtime for the convert alone, before the encoder's
+        // ~2.35 s. Serially that is ~6 s of work per 5 s of video, so the
+        // stage cannot keep up and the share stutters.
+        // `videoconvertscale n-threads=4` is 1.65 s at the same total CPU.
+        {
+            const QString cpu = SfuMediaEngine::shareScaleStage(1080, false);
+            QVERIFY2(cpu.contains(QStringLiteral("videoconvertscale")),
+                     qPrintable(QStringLiteral(
+                         "the CPU fallback went back to two passes: %1")
+                             .arg(cpu)));
+            QVERIFY2(cpu.contains(QStringLiteral("n-threads=4")),
+                     qPrintable(QStringLiteral(
+                         "the CPU fallback is single-threaded again, which "
+                         "cannot keep up with a 4K capture: %1").arg(cpu)));
+        }
+        // THE PATH IS LINUX-ONLY, and on Windows it would not merely fail
+        // to help — `libgstopengl.dll` is not in the staged plugin set, so
+        // gst_parse_launch would fail on an unknown element and there would
+        // be NO SCREEN SHARE AT ALL. Pinned so nobody widens the gate
+        // without also staging the plugin and answering the system-memory
+        // premise in point 3 of the comment on the accessor.
+#if defined(Q_OS_LINUX)
+        // The env var is readable here, so the gate is the platform alone.
+        QVERIFY2(SfuMediaEngine::shareScaleStage(1080, true)
+                     .contains(QStringLiteral("glupload")),
+                 "the GPU stage stopped using glupload on Linux");
+        // AND THE PROBE MUST NAME THE ELEMENT, not answer a boolean. A
+        // packaged build that forgot one plugin is the likeliest way this
+        // path dies, and "GPU unavailable" would send the next person
+        // hunting the driver instead of the plugin list.
+        {
+            const QString missing = SfuMediaEngine::missingGpuShareElement();
+            // In the dev shell every GL element is present, so this is the
+            // "nothing missing" answer; the point is that it is a NAME.
+            QVERIFY2(missing.isEmpty()
+                         || missing.startsWith(QStringLiteral("gl")),
+                     qPrintable(QStringLiteral(
+                         "the missing-element probe returned something that "
+                         "is not a GL element name: %1").arg(missing)));
+        }
+#else
+        QVERIFY2(!SfuMediaEngine::shareGpuScalingRequested(),
+                 "the GPU share path is enabled off Linux, where glupload is "
+                 "not staged and gst_parse_launch would fail on it");
+#endif
         QVERIFY2(!gpuEntry.contains(QStringLiteral("video/x-raw(ANY)")),
                  qPrintable(QStringLiteral(
                      "an (ANY) fallback re-admits a block-linear DMA-BUF, so "
@@ -2441,11 +2493,39 @@ private slots:
         // refusing DMA-BUF and taking system memory is the CORRECT outcome,
         // not a regression.)
 
-        // And it is genuinely OPT-IN: with the variable unset the engine
-        // asks for the CPU segment.
-        QVERIFY2(!SfuMediaEngine::shareGpuScalingRequested(),
-                 "the GPU path is on by default, but it has never been "
-                 "measured on a real capture");
+        // DEFAULT ON where the platform can carry it — this case used to
+        // assert the opposite ("opt-in, and it has never been measured on a
+        // real capture"), which was true until the path was confirmed
+        // working on a real desktop. What keeps that safe is not the
+        // default but the LADDER: intent here, availability probed
+        // separately, and a parse failure falling back once. So the thing
+        // worth pinning is that wanting the GPU and being able to use it
+        // stay two different questions.
+#if defined(Q_OS_LINUX)
+        QVERIFY2(SfuMediaEngine::shareGpuScalingRequested(),
+                 "the GPU share path is no longer attempted by default");
+#endif
+        // THE PROBE'S FAILING BRANCH, DRIVEN FOR REAL. An earlier version
+        // of this asserted over missingGpuShareElement() directly, which in
+        // the dev shell always answers "nothing missing" — so the branch
+        // that matters was unreachable and the assertion passed on a
+        // deliberately broken probe. A mutation check caught it. The names
+        // are a parameter now precisely so this can be exercised.
+        QVERIFY2(SfuMediaEngine::firstMissingElement(
+                     {QByteArrayLiteral("queue")}).isEmpty(),
+                 "the probe reports a present element as missing");
+        QCOMPARE(SfuMediaEngine::firstMissingElement(
+                     {QByteArrayLiteral("queue"),
+                      QByteArrayLiteral("lightning-no-such-element"),
+                      QByteArrayLiteral("also-not-real")}),
+                 QStringLiteral("lightning-no-such-element"));
+        // And the real list resolves through the same helper.
+        const QString missingNow = SfuMediaEngine::missingGpuShareElement();
+        QVERIFY2(missingNow.isEmpty()
+                     || missingNow.startsWith(QStringLiteral("gl")),
+                 qPrintable(QStringLiteral(
+                     "the availability probe answered something that is not "
+                     "a GL element name: %1").arg(missingNow)));
     }
 
     void shareCapsAndBitrateAreRightAtEveryOfferedQuality()

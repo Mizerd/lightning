@@ -1408,9 +1408,73 @@ void SfuMediaEngine::applyPublisherMsid(GstPad *sinkPad, const QString &cid)
 /// share.
 bool SfuMediaEngine::shareGpuScalingRequested()
 {
-    static const bool gpu =
-        qEnvironmentVariable("LIGHTNING_SHARE_GPU") == QLatin1String("1");
-    return gpu;
+#if defined(Q_OS_LINUX)
+    // LINUX ONLY, AND NOT AS A CONSERVATIVE DEFAULT — THE PATH CANNOT WORK
+    // ELSEWHERE, AND ON WINDOWS IT WOULD BREAK SHARING OUTRIGHT.
+    //
+    // 1. `libgstopengl.dll` IS NOT IN THE WINDOWS STAGED PLUGIN SET
+    //    (lightning-deploy packaging/windows/Dockerfile). So glupload,
+    //    glcolorconvert, glcolorscale and gldownload do not exist there, and
+    //    gst_parse_launch fails outright on an unknown element — the whole
+    //    share pipeline would fail to build. Not "no acceleration": no
+    //    screen share at all.
+    // 2. `memory:DMABuf` is a Linux concept. The entry filter's DMA-BUF
+    //    alternative is meaningless on Windows and macOS.
+    // 3. THE PREMISE IS ABSENT. What makes this worth doing on Linux is that
+    //    the portal hands us a DMA-BUF the frame is ALREADY IN — the import
+    //    is zero-copy and only the reduced frame comes back. Windows
+    //    captures with gdiscreencapsrc, which delivers SYSTEM MEMORY, so the
+    //    same chain would upload a full 4K frame to the GPU in order to
+    //    download a smaller one. That is the readback we are avoiding here,
+    //    pointing the other way.
+    // 4. The right Windows answer is d3d11convert/d3d11scale behind
+    //    d3d11screencapturesrc, and `libgstd3d11.dll` is DELIBERATELY not
+    //    shipped: it imports `std::codecvt<wchar_t, char, _Mbstatet>` forms
+    //    that the Fedora libstdc++ in the build image does not export. That
+    //    is a CRT choice, not version drift, so a GStreamer bump will not
+    //    fix it.
+    // DEFAULT ON. `=0` forces the CPU path; anything else leaves the
+    // default, and `=1` is kept meaningful on platforms this would
+    // otherwise skip so the path stays reachable for testing.
+    static const QString v = qEnvironmentVariable("LIGHTNING_SHARE_GPU");
+    return v != QLatin1String("0");
+#else
+    // Off by default here, but STILL FORCEABLE with `=1`: the fallback
+    // ladder below refuses safely when the elements are absent, so an
+    // explicit opt-in on a platform that has staged them is not a foot-gun.
+    return qEnvironmentVariable("LIGHTNING_SHARE_GPU") == QLatin1String("1");
+#endif
+}
+
+/// The first missing GL element, or empty when the chain can be built.
+///
+/// A FACTORY PROBE, NOT A GUESS. `gst_parse_bin_from_description` fails
+/// outright on an unknown element, so on a build that did not stage
+/// libgstopengl the GPU description would take the whole share down rather
+/// than degrade. Asking the registry first turns that into a fallback, and
+/// naming the element turns "the GPU path is unavailable" into something a
+/// packaging bug can actually be found from.
+QString SfuMediaEngine::missingGpuShareElement()
+{
+    // Exactly the elements shareScaleStage()'s GPU branch names. Kept
+    // beside it deliberately: a chain that gains an element and not an
+    // entry here would go back to failing the whole share.
+    return firstMissingElement({QByteArrayLiteral("glupload"),
+                                QByteArrayLiteral("glcolorconvert"),
+                                QByteArrayLiteral("glcolorscale"),
+                                QByteArrayLiteral("gldownload")});
+}
+
+/// The first of `names` with no registered factory, or empty.
+QString SfuMediaEngine::firstMissingElement(const QList<QByteArray> &names)
+{
+    for (const QByteArray &name : names) {
+        GstElementFactory *factory = gst_element_factory_find(name.constData());
+        if (!factory)
+            return QString::fromLatin1(name);
+        gst_object_unref(factory);
+    }
+    return {};
 }
 
 /// The capsfilter that sits between the capture and everything after it.
@@ -1473,8 +1537,29 @@ QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu)
     // environment inside would make the GPU string unreachable from a test,
     // and a malformed GL caps string then fails for the first person to opt
     // in rather than in CI.
-    if (!gpu)
-        return QStringLiteral("videoconvert ! videoscale");
+    if (!gpu) {
+        // ONE PASS AND THREADED, and both halves are measured rather than
+        // assumed. 4K -> 1080p, 5 s of video, this machine:
+        //
+        //   videoconvert ! videoscale        3.66 s wall   3.64 s CPU
+        //   videoconvertscale                3.29 s wall   3.26 s CPU
+        //   videoconvertscale n-threads=4    1.65 s wall   3.62 s CPU
+        //   videoconvertscale n-threads=8    1.42 s wall   4.10 s CPU
+        //
+        // The single pass is a free ~10% of TOTAL CPU: one walk over the
+        // pixels instead of two. The threads buy something different and
+        // more important — the same total CPU spread over cores, so WALL
+        // time halves. That is what decides whether the stage keeps up:
+        // 5 s of video has to be converted in under 5 s, and at 3.66 s the
+        // convert alone was taking 73% of realtime before the encoder's
+        // ~2.35 s had even started. Serially that is ~6 s of work per 5 s
+        // of video, so frames back up and the share stutters.
+        //
+        // 4 rather than 8: 8 shaves another 0.23 s of wall and costs 13%
+        // MORE total CPU, which is the wrong trade on a machine that is
+        // also running whatever the user is sharing.
+        return QStringLiteral("videoconvertscale n-threads=4");
+    }
 
     // The size has to be constrained INSIDE the GL segment, or glcolorscale
     // has no target and passes through — leaving the scale to happen after
@@ -2179,21 +2264,60 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     const QString scaleStage = screenShare
         ? shareScaleStage(m_shareMaxHeight, shareGpuScalingRequested())
         : QStringLiteral("videoconvert ! videoscale");
-    if (screenShare
-        && scaleStage != QLatin1String("videoconvert ! videoscale")) {
-        // Names itself in the log, so a capture from a tester says which
-        // path produced it without anyone having to ask.
-        qCInfo(lcSfuMedia) << "screen share scaling on the GPU (opt-in)";
+    // ── GPU FIRST, CPU FALLBACK ──────────────────────────────────────
+    //
+    // The GPU chain is tried by default and the CPU chain catches it. Two
+    // things can go wrong and they need DIFFERENT log lines, because they
+    // send whoever reads the capture to different places:
+    //
+    //   * the elements are not there  -> a PACKAGING problem
+    //   * they are there and the description will not build -> a caps or
+    //     driver problem on that machine
+    //
+    // "GPU unavailable" for both would have sent the last three rounds of
+    // this lane hunting the driver for what is a missing plugin.
+    bool useGpu = screenShare && shareGpuScalingRequested();
+    if (useGpu) {
+        const QString missing = missingGpuShareElement();
+        if (!missing.isEmpty()) {
+            qCInfo(lcSfuMedia)
+                << "screen share falling back to the CPU: GStreamer element"
+                << missing << "is not available in this build";
+            useGpu = false;
+        }
     }
-    const QString description = videoPipelineDescription(
+
+    QString scaleStageInUse = useGpu ? scaleStage
+                                     : shareScaleStage(m_shareMaxHeight, false);
+    QString description = videoPipelineDescription(
         source, videoRateStage(screenShare), limits, encoder, selfView,
-        nextPublishSsrc(), scaleStage,
-        captureEntryFilter(screenShare && shareGpuScalingRequested()));
+        nextPublishSsrc(), scaleStageInUse, captureEntryFilter(useGpu));
 
     GError *error = nullptr;
     GstElement *bin =
         gst_parse_bin_from_description(description.toUtf8().constData(), TRUE,
                                        &error);
+    if (error && useGpu) {
+        // SECOND CHANCE, ONCE. The GPU description did not build, so say
+        // exactly what GStreamer said and rebuild on the CPU rather than
+        // failing the share. A tester who reports "sharing broke" then has
+        // the reason in the same capture.
+        qCWarning(lcSfuMedia)
+            << "screen share GPU pipeline failed to build, falling back to "
+               "the CPU:" << (error->message ? error->message : "?");
+        g_clear_error(&error);
+        if (bin) {
+            gst_object_unref(bin);
+            bin = nullptr;
+        }
+        useGpu = false;
+        scaleStageInUse = shareScaleStage(m_shareMaxHeight, false);
+        description = videoPipelineDescription(
+            source, videoRateStage(screenShare), limits, encoder, selfView,
+            nextPublishSsrc(), scaleStageInUse, captureEntryFilter(false));
+        bin = gst_parse_bin_from_description(description.toUtf8().constData(),
+                                             TRUE, &error);
+    }
     if (error) {
         qCWarning(lcSfuMedia) << "video pipeline parse failed:"
                               << (error->message ? error->message : "?");
@@ -2203,6 +2327,14 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         Q_EMIT failed(screenShare ? QStringLiteral("screen_share_failed")
                                   : QStringLiteral("camera_failed"));
         return;
+    }
+    if (screenShare) {
+        // Names the path that actually built, so a capture from a tester
+        // says which one produced it without anyone having to ask. Says it
+        // AFTER the ladder, or it would report an intention rather than an
+        // outcome — which is how the row window once shipped as a no-op.
+        qCInfo(lcSfuMedia) << "screen share scaling on"
+                           << (useGpu ? "the GPU" : "the CPU");
     }
     gst_element_set_name(bin, cid.toUtf8().constData());
     if (!gst_bin_add(GST_BIN(m_publisher.pipeline), bin)) {

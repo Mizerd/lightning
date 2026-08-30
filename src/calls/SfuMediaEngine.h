@@ -87,8 +87,28 @@ public:
     /// The capsfilter between the capture and the rest. Pins PAR either way;
     /// the GPU form also allows a non-system memory feature through.
     static QString captureEntryFilter(bool gpu);
-    /// Whether LIGHTNING_SHARE_GPU asked for the GPU path. Read once.
+    /// Whether the GPU share path should be ATTEMPTED. Default is now yes
+    /// on platforms that can carry it; `LIGHTNING_SHARE_GPU=0` forces the
+    /// CPU path and `=1` forces an attempt even where we would not try.
+    /// This is intent only — availability is a separate question, because
+    /// wanting the path and having the elements are different failures and
+    /// the log has to be able to tell them apart.
     static bool shareGpuScalingRequested();
+    /// The first required GL element that is MISSING, or empty if the GPU
+    /// share chain can be built at all. Named rather than boolean so the
+    /// fallback log says WHICH element was absent — a packaged build that
+    /// forgot one plugin is the likeliest way this path dies, and "GPU
+    /// unavailable" would send the next person hunting the driver.
+    static QString missingGpuShareElement();
+    /// The first name in `names` with no registered factory, or empty.
+    ///
+    /// SPLIT OUT SO IT CAN ACTUALLY BE TESTED. With the element list baked
+    /// in, the dev shell has every GL element and the "something is
+    /// missing" branch is unreachable from a test — an assertion over it
+    /// passes on code that returns anything at all, which is precisely what
+    /// a mutation check caught here. Taking the names as a parameter lets a
+    /// test pass one that cannot exist and see the real answer.
+    static QString firstMissingElement(const QList<QByteArray> &names);
     static QString shareEncoderStage(int maxHeight, int fps);
     int shareMaxHeight() const { return m_shareMaxHeight; }
     int shareFps() const { return m_shareFps; }
