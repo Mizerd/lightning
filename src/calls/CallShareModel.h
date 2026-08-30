@@ -94,6 +94,9 @@ public:
     void clear();
 
     Q_INVOKABLE int indexOfShare(const QString &shareId) const;
+    /// Who is publishing this share. Needed to find the share's own audio
+    /// track, which belongs to that participant and is not the share id.
+    Q_INVOKABLE QString ownerIdentityFor(const QString &shareId) const;
     Q_INVOKABLE QVariantMap get(int row) const;
     /// Every live share id, oldest first. Used by CallStageState to prune
     /// dismissals of shares that have ended and to answer "is anything

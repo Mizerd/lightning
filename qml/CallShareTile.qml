@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
@@ -269,4 +270,169 @@ Item {
             cursorShape: Qt.PointingHandCursor
         }
     }
+    // ── The share's own volume ───────────────────────────────────────────
+    //
+    // SEPARATE FROM THE SHARER'S MICROPHONE, because they are separate
+    // tracks and a viewer wants them apart: turn the game down without
+    // silencing the person playing it. The engine keys its receive volume
+    // per TRACK for exactly this — one participant publishing both a
+    // microphone and a desktop used to collide on a single volume element,
+    // so a change landed on whichever GStreamer found first.
+    //
+    // Offered only when the share actually carries sound. A slider that
+    // cannot move anything is worse than no slider.
+    // `shareHasAudio()` IS A PLAIN CALL WITH NO NOTIFY BEHIND IT, so this
+    // binding cannot re-evaluate on its own. That matters because a sharer
+    // can toggle share audio MID-SHARE from our own menu: without a
+    // dependency the slider would never appear for a share that started
+    // silent, and the right-click would stay dead for the rest of the call.
+    // `participantsChanged` is emitted from the path that rebuilds
+    // participants out of SFU track state, which is exactly when the answer
+    // can change.
+    property int shareAudioRevision: 0
+    Connections {
+        target: app.groupCall
+        function onParticipantsChanged() {
+            root.shareAudioRevision = root.shareAudioRevision + 1
+        }
+    }
+    readonly property bool shareAudioOffered: {
+        var _ = root.shareAudioRevision
+        return root.shareId.length > 0 && app.groupCall
+            && app.groupCall.shareHasAudio(root.shareId)
+    }
+
+    property int shareVolumeRevision: 0
+    function currentShareVolume() {
+        var _ = root.shareVolumeRevision
+        if (!root.shareAudioOffered)
+            return 100
+        var v = app.groupCall.shareVolume(root.shareId)
+        return (v === undefined || v === null) ? 100 : v
+    }
+    function applyShareVolume(percent) {
+        if (!root.shareAudioOffered)
+            return
+        app.groupCall.setShareVolume(root.shareId, Math.round(percent))
+        root.shareVolumeRevision = root.shareVolumeRevision + 1
+    }
+    function openShareVolume() {
+        if (root.shareAudioOffered)
+            shareVolumePopup.open()
+    }
+
+    // A right-click on the share opens it, mirroring the participant tile —
+    // and gated on the share actually having sound, so it never swallows a
+    // press the stage wanted when there is nothing to adjust. That collision
+    // has shipped three times in this repo.
+    TapHandler {
+        enabled: root.shareAudioOffered
+        acceptedButtons: Qt.RightButton
+        onTapped: root.openShareVolume()
+    }
+
+    Popup {
+        id: shareVolumePopup
+        objectName: "callShareVolumePopup"
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        width: 268
+        margins: 8
+        padding: AppTheme.spacing12
+        modal: false
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        onOpened: shareVolumeSlider.value = root.currentShareVolume()
+
+        background: Rectangle {
+            radius: AppTheme.radiusMd
+            color: AppTheme.stormPanel
+            border.width: 1
+            border.color: AppTheme.stormBorder
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.AllButtons
+                hoverEnabled: true
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: AppTheme.spacing8
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing8
+                Icon {
+                    name: shareVolumeSlider.value > 0 ? "volume_up"
+                                                      : "volume_off"
+                    size: 18
+                    color: AppTheme.stormTextSecondary
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Screen share")
+                    color: AppTheme.stormText
+                    font.pixelSize: AppTheme.textBody
+                    font.weight: AppTheme.weightMedium
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                }
+                Text {
+                    objectName: "callShareVolumeReadout"
+                    text: Math.round(shareVolumeSlider.value) + "%"
+                    color: AppTheme.stormText
+                    font.pixelSize: AppTheme.textBody
+                    font.weight: AppTheme.weightMedium
+                }
+            }
+            Slider {
+                id: shareVolumeSlider
+                objectName: "callShareVolumeSlider"
+                Layout.fillWidth: true
+                from: 0
+                to: 200
+                stepSize: 1
+                snapMode: Slider.SnapAlways
+                Accessible.name: qsTr("Screen share volume")
+                onMoved: root.applyShareVolume(value)
+                background: Rectangle {
+                    x: shareVolumeSlider.leftPadding
+                    y: shareVolumeSlider.topPadding
+                       + shareVolumeSlider.availableHeight / 2 - 2
+                    width: shareVolumeSlider.availableWidth
+                    height: 4
+                    radius: AppTheme.radiusPill
+                    color: AppTheme.stormInset
+                    Rectangle {
+                        width: shareVolumeSlider.visualPosition * parent.width
+                        height: parent.height
+                        radius: AppTheme.radiusPill
+                        color: AppTheme.bolt
+                    }
+                    Rectangle {
+                        x: Math.round(parent.width / 2) - 1
+                        y: -3
+                        width: 2
+                        height: parent.height + 6
+                        radius: 1
+                        color: AppTheme.stormTextMuted
+                    }
+                }
+                handle: Rectangle {
+                    x: shareVolumeSlider.leftPadding
+                       + shareVolumeSlider.visualPosition
+                         * (shareVolumeSlider.availableWidth - width)
+                    y: shareVolumeSlider.topPadding
+                       + shareVolumeSlider.availableHeight / 2 - height / 2
+                    width: 16
+                    height: 16
+                    radius: 8
+                    color: AppTheme.bolt
+                    border.width: 1
+                    border.color: AppTheme.stormBorder
+                }
+            }
+        }
+    }
+
 }

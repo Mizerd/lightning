@@ -498,6 +498,18 @@ public:
     /// the right value rather than jumping there after the first write.
     Q_INVOKABLE int participantVolume(const QString &identity) const;
 
+    /// A SCREEN SHARE'S OWN LEVEL, separate from its owner's microphone.
+    ///
+    /// The two are different tracks — SCREEN_SHARE_AUDIO and MICROPHONE from
+    /// one participant — and a viewer wants them independently: turn a game
+    /// down without silencing the person playing it. Addressed by share id
+    /// so a surface never has to know which track carries the sound.
+    Q_INVOKABLE void setShareVolume(const QString &shareId, int percent);
+    Q_INVOKABLE int shareVolume(const QString &shareId) const;
+    /// Whether this share carries sound at all. A volume control that can
+    /// move nothing is worse than none, so the tile asks before offering it.
+    Q_INVOKABLE bool shareHasAudio(const QString &shareId) const;
+
     /// Participants for the call stage, in the shape callers already expect.
     ///
     /// KEPT because other surfaces (the speaker bubbles, the banner facepile)
@@ -555,6 +567,7 @@ Q_SIGNALS:
     void participantsChanged();
     /// Forwarded from CallParticipantModel::countChanged. See the property.
     void participantCountChanged();
+    void shareVolumeChanged(const QString &shareId, int percent);
     /// The picker has something to show. Raised only where there is no
     /// portal; on Linux the portal's own dialog is the picker.
     void screenShareSourcesChanged();
@@ -758,6 +771,11 @@ private:
     QString m_lastError;
     QString m_focusUrl;
     QString m_membershipEventId;
+    /// Per-share level, 0..200, for the slider to read back its own
+    /// position. Cleared with the call. NOT a standing preference: nothing
+    /// re-applies it to a track that appears later, and a restarted share
+    /// gets a new id.
+    QHash<QString, int> m_shareVolumes;
     /// Sampled BEFORE our membership publishes: were we the first in?
     /// Announce only then, or every joiner posts a "started a call" row.
     bool m_announceOnPublish = false;

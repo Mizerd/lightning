@@ -58,6 +58,12 @@ int CallShareModel::indexOf(const QString &shareId) const
     return -1;
 }
 
+QString CallShareModel::ownerIdentityFor(const QString &shareId) const
+{
+    const int row = indexOfShare(shareId);
+    return row < 0 ? QString() : m_rows.at(row).ownerIdentity;
+}
+
 int CallShareModel::indexOfShare(const QString &shareId) const
 {
     return indexOf(shareId);

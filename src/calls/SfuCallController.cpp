@@ -1078,6 +1078,13 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     if (m_stageState)
         m_stageState->clear();
     m_publishedTrackIds.clear();
+    // A share's level belongs to the CALL it was set in. Share ids never
+    // repeat (m_localShareEpoch only ever increments and SFU track sids are
+    // unique), so keeping them could not apply a stale level to the wrong
+    // share — but it would accumulate one entry per share ever seen, and a
+    // level the user chose for a game two calls ago is not a preference
+    // about the next one.
+    m_shareVolumes.clear();
     m_audioCid.clear();
     m_cameraCid.clear();
     m_screenCid.clear();
@@ -2301,6 +2308,13 @@ void SfuCallController::teardown(State finalState, const QString &error)
     if (m_stageState)
         m_stageState->clear();
     m_publishedTrackIds.clear();
+    // A share's level belongs to the CALL it was set in. Share ids never
+    // repeat (m_localShareEpoch only ever increments and SFU track sids are
+    // unique), so keeping them could not apply a stale level to the wrong
+    // share — but it would accumulate one entry per share ever seen, and a
+    // level the user chose for a game two calls ago is not a preference
+    // about the next one.
+    m_shareVolumes.clear();
     m_audioCid.clear();
     m_cameraCid.clear();
     m_screenCid.clear();
@@ -2937,6 +2951,52 @@ int SfuCallController::participantVolume(const QString &identity) const
     if (userId.isEmpty())
         return 100;
     return m_settings->callParticipantVolume(userId);
+}
+
+void SfuCallController::setShareVolume(const QString &shareId, int percent)
+{
+    const int clamped = qBound(0, percent, 200);
+    const QString identity = m_shareModel
+        ? m_shareModel->ownerIdentityFor(shareId) : QString();
+    if (identity.isEmpty())
+        return;
+    m_shareVolumes.insert(shareId, clamped);
+#ifdef HAVE_LIGHTNING_WEBRTC
+    // The share's AUDIO track, which is a different track from the sharer's
+    // microphone. Empty means they are sharing silently, and then there is
+    // simply nothing to set: NOTHING RE-APPLIES A STORED LEVEL when a track
+    // appears later, so do not read the stored value as a standing intent.
+    // It is not reachable from the UI either — the tile offers the slider
+    // only while shareHasAudio() is true — and a share that stops and
+    // restarts comes back under a NEW share id, so the old entry could not
+    // apply to it anyway. The map exists to answer shareVolume() for the
+    // slider's own position, nothing more.
+    const QString audioKey =
+        trackKeyForSource(identity, QStringLiteral("screen_share_audio"));
+    const QString streamId = streamIdForIdentity(identity);
+    if (!m_engine.isNull() && !streamId.isEmpty() && !audioKey.isEmpty())
+        m_engine->setTrackVolume(streamId, audioKey, clamped);
+#endif
+    Q_EMIT shareVolumeChanged(shareId, clamped);
+}
+
+bool SfuCallController::shareHasAudio(const QString &shareId) const
+{
+    const QString identity = m_shareModel
+        ? m_shareModel->ownerIdentityFor(shareId) : QString();
+    if (identity.isEmpty())
+        return false;
+    // The SFU tells us which sources a participant publishes, so this is
+    // what they are actually sending rather than what we hope they are.
+    return !trackKeyForSource(identity,
+                              QStringLiteral("screen_share_audio")).isEmpty();
+}
+
+int SfuCallController::shareVolume(const QString &shareId) const
+{
+    // 100 is the neutral point, and the honest answer for a share nobody has
+    // touched — not 0, which would read as muted.
+    return m_shareVolumes.value(shareId, 100);
 }
 
 void SfuCallController::setParticipantVolume(const QString &identity,

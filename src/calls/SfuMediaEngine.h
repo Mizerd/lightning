@@ -82,6 +82,13 @@ public:
     /// that existed, because the string was only ever built inside a
     /// function that needed one.
     static QString shareLimitsCaps(int maxHeight, int fps);
+    /// Convert-and-scale for a share: CPU, or GPU under LIGHTNING_SHARE_GPU.
+    static QString shareScaleStage(int maxHeight, bool gpu);
+    /// The capsfilter between the capture and the rest. Pins PAR either way;
+    /// the GPU form also allows a non-system memory feature through.
+    static QString captureEntryFilter(bool gpu);
+    /// Whether LIGHTNING_SHARE_GPU asked for the GPU path. Read once.
+    static bool shareGpuScalingRequested();
     static QString shareEncoderStage(int maxHeight, int fps);
     int shareMaxHeight() const { return m_shareMaxHeight; }
     int shareFps() const { return m_shareFps; }
@@ -180,7 +187,9 @@ public:
                                             const QString &limits,
                                             const QString &encoder,
                                             const QString &selfView,
-                                            quint32 ssrc);
+                                            quint32 ssrc,
+                                            const QString &scaleStage,
+                                            const QString &entryFilter);
     /// The element that turns the capture's own cadence into the pinned
     /// 30 fps the encoder and every WebRTC receiver expect.
     ///
@@ -196,6 +205,16 @@ public:
     /// that FINDS it share one derivation — they did not, and per-participant
     /// volume was a no-op for it.
     static QString outputVolumeElementName(const QString &streamId);
+    /// The identity a receive bin's volume element is named for. Per TRACK,
+    /// because one participant can publish both a microphone and a screen
+    /// share's audio, and two bins sharing a name make a volume change land
+    /// on whichever GStreamer finds first.
+    static QString volumeKeyFor(const QString &streamId,
+                                const QString &trackKey);
+    /// Set the level on ONE track. `setParticipantVolume` is this with the
+    /// participant's microphone track resolved for it.
+    void setTrackVolume(const QString &streamId, const QString &trackKey,
+                        int percent);
 
     /// The audio factor, in percent, for a volume the USER set on a 0-200
     /// slider.

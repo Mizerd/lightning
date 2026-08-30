@@ -1209,7 +1209,9 @@ private slots:
             const QString desc = SfuMediaEngine::videoPipelineDescription(
                 QStringLiteral("videotestsrc"),
                 SfuMediaEngine::videoRateStage(screenShare), limits,
-                QStringLiteral("vp8enc"), QString(), 1u);
+                QStringLiteral("vp8enc"), QString(), 1u,
+                QStringLiteral("videoconvert ! videoscale"),
+                SfuMediaEngine::captureEntryFilter(false));
             QVERIFY2(desc.contains(QStringLiteral("framerate=(fraction)30/1")),
                      "the encoder is not given a fixed framerate");
             QVERIFY2(!desc.contains(QStringLiteral("framerate=(fraction)[0/1")),
@@ -1672,7 +1674,9 @@ private slots:
             const QString desc = SfuMediaEngine::videoPipelineDescription(
                 QStringLiteral("videotestsrc"),
                 SfuMediaEngine::videoRateStage(screenShare), limits,
-                QStringLiteral("vp8enc"), QString(), 1u);
+                QStringLiteral("vp8enc"), QString(), 1u,
+                QStringLiteral("videoconvert ! videoscale"),
+                SfuMediaEngine::captureEntryFilter(false));
             const int rateAt = desc.indexOf(
                 SfuMediaEngine::videoRateStage(screenShare));
             const int capsAt = desc.indexOf(limits);
@@ -1733,7 +1737,9 @@ private slots:
                            "framerate=(fraction)[0/1,30/1]"),
             QStringLiteral("vp8enc deadline=1 end-usage=cbr "
                            "target-bitrate=3000000"),
-            selfView, 12345u);
+            selfView, 12345u,
+            QStringLiteral("videoconvert ! videoscale"),
+                SfuMediaEngine::captureEntryFilter(false));
         // The payloader must be OURS: rtpvp8pay parses the bitstream and
         // cannot carry an encrypted frame.
         QVERIFY2(description.contains(
@@ -2303,6 +2309,118 @@ private slots:
     // suite runs on Linux: the same shape as
     // `aChosenWindowRoutesToTheWindowCaptureElement` above, for the same
     // reason.
+    void theGpuScaleStageIsWellFormedAndOptIn()
+    {
+        // BOTH BRANCHES, because the GPU one is opt-in and would otherwise
+        // be first exercised by whoever set the variable — a malformed caps
+        // string fails at pipeline build, which is a bad place to learn.
+        for (int h : { 720, 1080, 1440, 2160 }) {
+            const QString cpu = SfuMediaEngine::shareScaleStage(h, false);
+            QCOMPARE(cpu, QStringLiteral("videoconvert ! videoscale"));
+
+            const QString gpu = SfuMediaEngine::shareScaleStage(h, true);
+            // Imports the compositor's buffer rather than asking for system
+            // memory, which is the whole point: a plain video/x-raw request
+            // forces a readback of every frame at CAPTURE size.
+            QVERIFY2(gpu.startsWith(QStringLiteral("glupload")),
+                     qPrintable(gpu));
+            // THE CONVERT IS LOAD-BEARING. The portal hands over
+            // `format=DMA_DRM` — an opaque DRM-modifier buffer, not a
+            // sampleable colour format — so without glcolorconvert the
+            // scaler has nothing to filter and the share goes out BLACK.
+            // Measured on a real capture: negotiation succeeded, frames
+            // flowed, picture empty.
+            QVERIFY2(gpu.contains(QStringLiteral("glcolorconvert")),
+                     qPrintable(QStringLiteral(
+                         "no glcolorconvert: a DMA_DRM buffer reaches the "
+                         "scaler unconverted and the share is black: %1")
+                             .arg(gpu)));
+            // texture-target=2D IS LOAD-BEARING. A DMA-BUF imported as an
+            // EGLImage arrives as GL_TEXTURE_EXTERNAL_OES; without pinning
+            // the target, glcolorconvert may pass it through and
+            // glcolorscale samples it as 2D and reads nothing — frames
+            // flow, encoder runs, picture black.
+            QVERIFY2(gpu.contains(QStringLiteral("texture-target=2D")),
+                     qPrintable(QStringLiteral(
+                         "no texture-target pin: an external-oes texture can "
+                         "reach the scaler and the share goes out black: %1")
+                             .arg(gpu)));
+            // And it must be pinned BEFORE the scaler, or the conversion
+            // has already been skipped by the time it matters.
+            QVERIFY2(gpu.indexOf(QStringLiteral("texture-target=2D"))
+                         < gpu.indexOf(QStringLiteral("glcolorscale")),
+                     qPrintable(QStringLiteral(
+                         "the texture-target pin is after the scaler: %1")
+                             .arg(gpu)));
+            QVERIFY2(gpu.contains(QStringLiteral("format=RGBA")),
+                     qPrintable(QStringLiteral(
+                         "the GL caps do not pin a sampleable format: %1")
+                             .arg(gpu)));
+            QVERIFY2(gpu.contains(QStringLiteral("memory:GLMemory")),
+                     qPrintable(QStringLiteral(
+                         "the size is not constrained inside GL, so "
+                         "glcolorscale has no target and the scale happens "
+                         "after the download anyway: %1").arg(gpu)));
+            QVERIFY2(gpu.contains(QStringLiteral("gldownload")),
+                     qPrintable(gpu));
+            // RANGES, so a window smaller than the ceiling is still never
+            // upscaled — the same property the CPU path has.
+            QVERIFY2(gpu.contains(QStringLiteral("[1,%1]").arg(h)),
+                     qPrintable(gpu));
+            QVERIFY2(gpu.contains(QStringLiteral("[1,%1]").arg((h * 16) / 9)),
+                     qPrintable(gpu));
+            // ASCII digits, same as the caps: this string goes to the same
+            // C parser.
+            for (QChar c : gpu) {
+                QVERIFY2(!c.isDigit() || (c >= QLatin1Char('0')
+                                          && c <= QLatin1Char('9')),
+                         "a non-ASCII digit reached the GL caps string");
+            }
+        }
+
+        // THE ENTRY FILTER, which is what actually broke the first attempt.
+        // Both forms pin the PAR — an unfixated PAR is taken to its minimum,
+        // 1/2147483647, and overflows videoscale — but only the GPU form
+        // lets a non-system memory feature through, and without that
+        // pipewiresrc is asked for a downloaded buffer before glupload can
+        // import anything. Measured on a real capture as
+        // "no more input formats", and the share never started.
+        const QString cpuEntry = SfuMediaEngine::captureEntryFilter(false);
+        const QString gpuEntry = SfuMediaEngine::captureEntryFilter(true);
+        for (const QString &f : { cpuEntry, gpuEntry }) {
+            QVERIFY2(f.contains(QStringLiteral(
+                         "pixel-aspect-ratio=(fraction)1/1")),
+                     qPrintable(QStringLiteral(
+                         "the PAR pin is gone, which lets gst_caps_fixate "
+                         "take it to 1/2147483647: %1").arg(f)));
+        }
+        QVERIFY2(!cpuEntry.contains(QStringLiteral("(ANY)")),
+                 "the CPU path stopped pinning system memory");
+        // LINEAR ASKED FOR FIRST. The import, not the chain, is what
+        // produced a black share: the GL chain fed GL memory directly writes
+        // a full PNG, while the compositor's NVIDIA block-linear buffer
+        // (drm-format AR24:0x0300000000606014) imports as an empty texture.
+        // 0x0 is DRM_FORMAT_MOD_LINEAR, which any importer can sample, and
+        // it has to come FIRST because caps are an ordered preference list.
+        QVERIFY2(gpuEntry.indexOf(QStringLiteral("0x0000000000000000"))
+                     < gpuEntry.indexOf(QStringLiteral("video/x-raw(ANY)")),
+                 qPrintable(QStringLiteral(
+                     "the linear modifier is not preferred first, so the "
+                     "compositor can hand back a tiled buffer that imports "
+                     "black: %1").arg(gpuEntry)));
+        QVERIFY2(gpuEntry.contains(QStringLiteral("video/x-raw(ANY)")),
+                 qPrintable(QStringLiteral(
+                     "the GPU entry filter still pins system memory, so the "
+                     "compositor's buffer can never be imported: %1")
+                         .arg(gpuEntry)));
+
+        // And it is genuinely OPT-IN: with the variable unset the engine
+        // asks for the CPU segment.
+        QVERIFY2(!SfuMediaEngine::shareGpuScalingRequested(),
+                 "the GPU path is on by default, but it has never been "
+                 "measured on a real capture");
+    }
+
     void shareCapsAndBitrateAreRightAtEveryOfferedQuality()
     {
         // ALL NINE COMBINATIONS, against the real derivation rather than a

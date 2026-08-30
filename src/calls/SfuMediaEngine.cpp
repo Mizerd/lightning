@@ -1313,6 +1313,191 @@ void SfuMediaEngine::applyPublisherMsid(GstPad *sinkPad, const QString &cid)
 /// lane is that all three caps defects it has had were invisible to every test
 /// that existed at the time — because the string was only ever built inside a
 /// function that needs a live peer.
+/// The convert-and-scale segment for a screen share: CPU by default, GPU
+/// when opted into.
+///
+/// WHY THERE IS A GPU VARIANT AT ALL. The default segment is
+/// `videoconvert ! videoscale`, and the capsfilter above it asks for plain
+/// `video/x-raw` — system memory. A compositor's capture buffer lives on the
+/// GPU, so that request forces a READBACK of every frame at CAPTURE size
+/// (3840x2160 here, ~33 MB) before anything is scaled. A readback is cheap in
+/// CPU time and expensive in stalls: the GPU must finish and hand the buffer
+/// back before the compositor continues, which is how a desktop stutters
+/// while the CPU looks idle. It also explains why choosing a lower resolution
+/// changes nothing — the readback is at capture size whatever the ceiling is.
+///
+/// The GPU variant imports the buffer instead (`glupload` takes a DMA-BUF
+/// zero-copy), scales it on the GPU, and downloads the SMALLER frame.
+///
+/// STATE, 2026-08-30: BLOCKED BELOW US. Off by default. Do not re-litigate
+/// any of the four points below — each one is measured, not argued.
+///
+///  1. THE READBACK IS REAL AND THIS REMOVES IT. With the `(ANY)` entry
+///     filter the capture negotiates `video/x-raw(memory:DMABuf)` instead of
+///     system-memory BGRA. That was the whole hypothesis for a desktop that
+///     stutters at low CPU load, and it is demonstrated.
+///  2. THE GL CHAIN IS CORRECT. `glcolorconvert ! glcolorscale ! gldownload`
+///     fed GL memory directly writes a full 235 KB PNG. It carries pixels.
+///  3. THE IMPORT IS WHAT COMES BACK EMPTY. Fed the compositor's buffer the
+///     same chain produces black while frames flow and the encoder is fed.
+///  4. AND THE COMPOSITOR WILL NOT HAND OVER ANYTHING ELSE. Asking for
+///     `drm-format=AR24:0x0` (DRM_FORMAT_MOD_LINEAR) FIRST changes nothing:
+///     KWin on this NVIDIA stack still answers
+///     `AR24:0x0300000000606014` — block-linear — and importing that as an
+///     EGLImage yields an empty texture on driver 595.71.05.
+///
+/// So the blocker is the NVIDIA/KWin/glupload combination, not a pipeline
+/// string, and no rearrangement of these elements fixes it. What might: a
+/// CUDA import path (`cudaupload` is present on this machine) or NVENC
+/// (`nvh264enc`), which would sidestep EGLImage entirely — at the cost of
+/// H.264, and this lane's payloader is VP8-specific for a recorded reason.
+/// Retry the GL route when the driver or GStreamer moves; the flag and its
+/// tests are left in place so that is a one-line experiment rather than a
+/// re-investigation.
+///
+/// SETTLED: the import works. With the `(ANY)` entry filter the capture
+/// negotiates `video/x-raw(memory:DMABuf), drm-format=AR24:0x03000000006060
+/// 14, format=DMA_DRM` instead of plain system-memory BGRA. That is the
+/// readback gone, which was the entire hypothesis, and it is measured rather
+/// than argued.
+///
+/// STILL BROKEN, AND THE REASON IS NOT IN THIS FUNCTION. Frames flow
+/// (`capture delivered frames`), the encoder is fed (`frames ... out
+/// video=true`), and every pixel is black — the signature of a GL import
+/// that silently produced an empty texture. NOTHING IN THIS ENGINE ANSWERS
+/// `GST_MESSAGE_NEED_CONTEXT`: a pipeline containing GL elements asks the
+/// bus for a `gst.gl.GLDisplay` and a `gst.gl.app_context`, and with no
+/// answer `glupload` invents its own. A context that does not match the DRM
+/// device the compositor allocated on cannot sample a modifier'd buffer, and
+/// that modifier is an AMD tiled/DCC one.
+///
+/// So the next step is bus handling, not another element: answer
+/// need-context with a GstGLDisplay built for the capture's DRM device, plus
+/// the lifetime that implies across pipeline rebuilds. Until that exists
+/// this flag produces a black share and stays off.
+///
+/// EARLIER, AND NOW FIXED — kept because it explains the shape of the code:
+///
+///     screen share scaling on the GPU (opt-in)
+///     pipeline error element="capsrc" reason="stream error: no more input
+///     formats"
+///
+/// and the share never starts. The reason is upstream of this function and
+/// is the thing to fix before trying again: `videoPipelineDescription()`
+/// puts `capsfilter caps="video/x-raw,pixel-aspect-ratio=1/1"` BETWEEN the
+/// source and this segment. Plain `video/x-raw` is SYSTEM MEMORY, so
+/// pipewiresrc is asked to hand over a downloaded buffer before `glupload`
+/// ever sees it — the import can never happen, and the intersection then
+/// fails outright.
+///
+/// So the next attempt is not a different GL element: it is moving that PAR
+/// pin. And that is delicate, because the pin exists for a recorded reason —
+/// a PAR left unfixated is taken to its MINIMUM by gst_caps_fixate,
+/// 1/2147483647, which kills videoscale with an integer overflow. Any rework
+/// has to keep a fixed PAR in front of the source while letting the memory
+/// feature through.
+///
+/// OPT-IN, AND UNMEASURED ON A REAL CAPTURE. Set LIGHTNING_SHARE_GPU=1. It is
+/// not the default because it cannot be measured here: a probe built on
+/// `videotestsrc` produces system memory, so `glupload` has to upload 4K
+/// frames it would otherwise import for free — measured 2.39 s against the
+/// CPU path's 1.50 s, which is the opposite of what a real capture would
+/// show and exactly the "a probe must share the property under test" trap.
+/// Three GStreamer properties have shipped on this lane on reasoning alone
+/// and every one made things worse; this one waits for a number from a real
+/// share.
+bool SfuMediaEngine::shareGpuScalingRequested()
+{
+    static const bool gpu =
+        qEnvironmentVariable("LIGHTNING_SHARE_GPU") == QLatin1String("1");
+    return gpu;
+}
+
+/// The capsfilter that sits between the capture and everything after it.
+///
+/// THE PAR PIN IS NOT OPTIONAL. A pixel-aspect-ratio left unfixated is taken
+/// to its MINIMUM by gst_caps_fixate — 1/2147483647 — and videoscale then
+/// dies of integer overflow. That is recorded, and it is why a fixed value
+/// sits in front of the source rather than only downstream.
+///
+/// But plain `video/x-raw` also pins the MEMORY to system, which is what
+/// stopped the GPU path from ever importing the compositor's buffer and made
+/// pipewiresrc report "no more input formats". `(ANY)` is the caps-features
+/// wildcard: same PAR pin, any memory. Verified to parse and run end to end
+/// before being wired in.
+QString SfuMediaEngine::captureEntryFilter(bool gpu)
+{
+    // LINEAR FIRST, THEN ANYTHING. Caps are an ordered preference list and
+    // negotiation takes the first structure both ends accept, so this asks
+    // the compositor for an untiled DMA-BUF and falls back to whatever it
+    // has if it cannot.
+    //
+    // WHY: the import, not the chain, is what produced a black share.
+    // Measured — the GL chain (glcolorconvert ! glcolorscale ! gldownload)
+    // fed GL memory directly writes a full 235 KB PNG, so it carries pixels
+    // fine; fed the compositor's buffer it carries none. That buffer arrives
+    // as `drm-format=AR24:0x0300000000606014`, an NVIDIA BLOCK-LINEAR
+    // modifier, and importing one of those as an EGLImage is what comes back
+    // empty on this driver. `0x0` is DRM_FORMAT_MOD_LINEAR, which every
+    // importer can sample.
+    //
+    // The compositor detiles to satisfy it, which is a GPU blit — still far
+    // cheaper than the full-frame readback this whole path exists to remove.
+    return gpu
+        ? QStringLiteral("capsfilter caps=\"video/x-raw(memory:DMABuf),"
+                         "drm-format=(string)AR24:0x0000000000000000,"
+                         "pixel-aspect-ratio=(fraction)1/1;"
+                         "video/x-raw(ANY),"
+                         "pixel-aspect-ratio=(fraction)1/1\"")
+        : QStringLiteral("capsfilter caps=\"video/x-raw,"
+                         "pixel-aspect-ratio=(fraction)1/1\"");
+}
+
+QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu)
+{
+    // The FLAG IS A PARAMETER so both branches are testable. Reading the
+    // environment inside would make the GPU string unreachable from a test,
+    // and a malformed GL caps string then fails for the first person to opt
+    // in rather than in CI.
+    if (!gpu)
+        return QStringLiteral("videoconvert ! videoscale");
+
+    // The size has to be constrained INSIDE the GL segment, or glcolorscale
+    // has no target and passes through — leaving the scale to happen after
+    // the download, which is the cost this exists to avoid. Ranges, so the
+    // "never upscale" property is unchanged.
+    const int h = maxHeight;
+    const int w = (h * 16) / 9;
+    // `glcolorconvert` IS NOT OPTIONAL, and leaving it out is why the first
+    // working negotiation produced a BLACK picture. The portal hands over
+    // `format=DMA_DRM` (measured: `drm-format=AR24`), which is an opaque
+    // DRM-modifier buffer rather than a sampleable colour format —
+    // glcolorscale has nothing it can filter and the result is empty. The
+    // convert turns it into RGBA in GL first, which is where the whole
+    // point of this path lives: it happens on the GPU, on the imported
+    // buffer, with no download.
+    // `texture-target=2D` PINNED ON THE CONVERT'S OUTPUT, and this is the
+    // part that is easy to leave out. A DMA-BUF imported as an EGLImage
+    // arrives as GL_TEXTURE_EXTERNAL_OES, not a normal 2D texture — the
+    // caps field is `texture-target`, values 2D / rectangle / external-oes.
+    // Without pinning it, glcolorconvert is free to pass the external-oes
+    // texture straight through, and glcolorscale then samples it as if it
+    // were 2D and reads nothing. Frames flow, the encoder runs, the picture
+    // is black — exactly the symptom.
+    //
+    // Pinning it makes the convert do the external-oes -> 2D step, which is
+    // the one thing that has to happen after an EGLImage import and before
+    // anything tries to filter the texture.
+    return QStringLiteral("glupload ! glcolorconvert "
+                          "! video/x-raw(memory:GLMemory),format=RGBA,"
+                          "texture-target=2D "
+                          "! glcolorscale "
+                          "! video/x-raw(memory:GLMemory),"
+                          "width=(int)[1,%1],height=(int)[1,%2] "
+                          "! gldownload ! videoconvert")
+        .arg(QString::number(w), QString::number(h));
+}
+
 QString SfuMediaEngine::shareLimitsCaps(int maxHeight, int fps)
 {
     // Width follows the height at 16:9, and BOTH STAY RANGES so videoscale
@@ -1442,7 +1627,9 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                                                 const QString &limits,
                                                 const QString &encoder,
                                                 const QString &selfView,
-                                                quint32 ssrc)
+                                                quint32 ssrc,
+                                                const QString &scaleStage,
+                                                const QString &entryFilter)
 {
     return QStringLiteral(
                // `capsrc` is named so a probe can count what the CAPTURE
@@ -1482,10 +1669,9 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                // in front of the source is not a range, so it cannot be
                // fixated to a minimum: measured, it rescues a source that
                // fixates no PAR at all, at every size that fails without it.
-               "! capsfilter caps=\"video/x-raw,"
-               "pixel-aspect-ratio=(fraction)1/1\" "
+               "! %9 "
                "! queue max-size-buffers=4 leaky=downstream "
-               "! videoconvert ! videoscale ! %7 "
+               "! %8 ! %7 "
                "! %2 "
                "! tee name=t %4"
                "t. ! queue "
@@ -1501,7 +1687,8 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                "encoding-name=VP8,payload=96,clock-rate=(int)90000,"
                "ssrc=(uint)%5\"")
         .arg(source, limits, encoder, selfView, QString::number(ssrc),
-             QLatin1String(lightning::rtp::vp8PayloaderName()), rateStage);
+             QLatin1String(lightning::rtp::vp8PayloaderName()), rateStage, scaleStage,
+             entryFilter);
 }
 
 QString SfuMediaEngine::trackSidFromMsid(const QString &msid)
@@ -1975,9 +2162,19 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                          "! appsink name=selfvidsink emit-signals=true "
                          "sync=false max-buffers=1 drop=true ")
         : QString();
+    const QString scaleStage = screenShare
+        ? shareScaleStage(m_shareMaxHeight, shareGpuScalingRequested())
+        : QStringLiteral("videoconvert ! videoscale");
+    if (screenShare
+        && scaleStage != QLatin1String("videoconvert ! videoscale")) {
+        // Names itself in the log, so a capture from a tester says which
+        // path produced it without anyone having to ask.
+        qCInfo(lcSfuMedia) << "screen share scaling on the GPU (opt-in)";
+    }
     const QString description = videoPipelineDescription(
         source, videoRateStage(screenShare), limits, encoder, selfView,
-        nextPublishSsrc());
+        nextPublishSsrc(), scaleStage,
+        captureEntryFilter(screenShare && shareGpuScalingRequested()));
 
     GError *error = nullptr;
     GstElement *bin =
@@ -2731,6 +2928,24 @@ int SfuMediaEngine::audioFactorPercent(int userPercent)
     return 100 + (user - 100) * 9;
 }
 
+QString SfuMediaEngine::volumeKeyFor(const QString &streamId,
+                                    const QString &trackKey)
+{
+    // PER TRACK, not per participant — and this became load-bearing the day
+    // a screen share started carrying audio. One participant can now publish
+    // TWO audio tracks (their microphone and their desktop), and both receive
+    // bins used to name their volume element after the same stream id. A
+    // lookup is `gst_bin_get_by_name` from the pipeline root, which returns
+    // the FIRST match, so setting that person's volume moved whichever bin
+    // GStreamer happened to find and left the other one alone.
+    //
+    // The track key falls back to the stream id when a track cannot be
+    // identified, which keeps the old single-track behaviour exactly as it
+    // was rather than inventing a name nothing will look up.
+    return trackKey.isEmpty() ? streamId
+                              : (streamId + QLatin1Char('_') + trackKey);
+}
+
 QString SfuMediaEngine::outputVolumeElementName(const QString &streamId)
 {
     // ONE derivation, used by the bin that creates the element and by the
@@ -2759,6 +2974,16 @@ QString SfuMediaEngine::outputVolumeElementName(const QString &streamId)
 void SfuMediaEngine::setParticipantVolume(const QString &streamId,
                                           int percent)
 {
+    // The whole participant, which today means every audio track they
+    // publish. Kept because the participant-level control is what the tile
+    // offers and what has been live-validated; setTrackVolume is the finer
+    // grain the share tile needs.
+    setTrackVolume(streamId, QString(), percent);
+}
+
+void SfuMediaEngine::setTrackVolume(const QString &streamId,
+                                    const QString &trackKey, int percent)
+{
     if (!m_subscriber.pipeline || streamId.isEmpty())
         return;
     // 0..1000, not 0..100. Above unity is real amplification — the whole
@@ -2775,12 +3000,54 @@ void SfuMediaEngine::setParticipantVolume(const QString &streamId,
     //
     // Recursive, because the element lives inside the per-track bin rather
     // than directly in the pipeline; gst_bin_get_by_name already recurses.
-    const QString target = outputVolumeElementName(streamId);
-    if (GstElement *element = gst_bin_get_by_name(
-            GST_BIN(m_subscriber.pipeline), target.toUtf8().constData())) {
-        g_object_set(element, "volume", volume, nullptr);
-        gst_object_unref(element);
-        return;
+    // What we were looking for, kept for the diagnostic below: a volume that
+    // lands nowhere used to be silent, and naming the element it wanted is
+    // what made the participant-volume no-op findable.
+    const QString target =
+        trackKey.isEmpty() ? outputVolumeElementName(streamId)
+                           : outputVolumeElementName(
+                                 volumeKeyFor(streamId, trackKey));
+
+    // A NAMED TRACK moves that track alone; an EMPTY key moves every audio
+    // track this participant publishes, which is what the participant-level
+    // control means now that a sharer can have two.
+    const auto apply = [&](const QString &key) {
+        const QString target = outputVolumeElementName(key);
+        if (GstElement *element = gst_bin_get_by_name(
+                GST_BIN(m_subscriber.pipeline), target.toUtf8().constData())) {
+            g_object_set(element, "volume", volume, nullptr);
+            gst_object_unref(element);
+            return true;
+        }
+        return false;
+    };
+    if (!trackKey.isEmpty()) {
+        if (apply(volumeKeyFor(streamId, trackKey)))
+            return;
+    } else {
+        // Every bin whose name starts with this participant's prefix. An
+        // iteration rather than one lookup, because gst_bin_get_by_name
+        // returns only the FIRST match and a sharer has two.
+        bool any = false;
+        const QString prefix =
+            outputVolumeElementName(streamId);
+        GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
+        GValue item = G_VALUE_INIT;
+        while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+            auto *element = GST_ELEMENT(g_value_get_object(&item));
+            gchar *raw = element ? gst_element_get_name(element) : nullptr;
+            const QString name = QString::fromUtf8(raw ? raw : "");
+            g_free(raw);
+            if (name.startsWith(prefix)) {
+                g_object_set(element, "volume", volume, nullptr);
+                any = true;
+            }
+            g_value_reset(&item);
+        }
+        g_value_unset(&item);
+        gst_iterator_free(it);
+        if (any)
+            return;
     }
 
     // A MISS HERE IS A CONTROL THAT SILENTLY DOES NOTHING, so it says so.
@@ -3585,12 +3852,14 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
                                 "! opusdec ! audioconvert "
                                 "! audioresample ! volume name=%1 "
                                 "! fakesink sync=false")
-                     .arg(outputVolumeElementName(streamId))
+                     .arg(outputVolumeElementName(
+                         volumeKeyFor(streamId, trackMid)))
                : QStringLiteral("queue ! rtpopusdepay name=recvdepay "
                                 "! opusdec ! audioconvert "
                                 "! audioresample ! volume name=%1 "
                                 "! autoaudiosink")
-                     .arg(outputVolumeElementName(streamId)));
+                     .arg(outputVolumeElementName(
+                         volumeKeyFor(streamId, trackMid))));
 
     GError *error = nullptr;
     GstElement *bin = gst_parse_bin_from_description(
