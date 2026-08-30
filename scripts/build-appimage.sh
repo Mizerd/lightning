@@ -154,6 +154,19 @@ mkdir -p "$GST_PLUGIN_DEST"
 #                                       deliberately not used -- see the source)
 #   webrtcdsp                           the microphone AGC, live-confirmed audible
 #   audioparsers playback typefindfunctions   supporting demux/parse paths
+#   opengl                              glupload/glcolorconvert/glcolorscale/
+#                                       gldownload: the GPU scale path for a
+#                                       screen share, which is now the DEFAULT.
+#                                       Without it a packaged run logs
+#                                       `element "glupload" is not available in
+#                                       this build` and quietly uses the CPU --
+#                                       measured on the 0.8.2 AppImage, and the
+#                                       ladder degrading cleanly is exactly why
+#                                       nothing failed to reveal it. Its own
+#                                       deps (libgstgl, libgraphene, libjpeg,
+#                                       libpng) come from the ldd walk below;
+#                                       libGL/libEGL are deliberately NOT
+#                                       bundled, per linuxdeploy's excludelist.
 GST_REQUIRED_PLUGINS=(
     libgstcoreelements
     libgstwebrtc libgstnice libgstdtls libgstsrtp libgstsctp
@@ -161,6 +174,7 @@ GST_REQUIRED_PLUGINS=(
     libgstapp
     libgstaudioconvert libgstaudioresample libgstaudiotestsrc
     libgstvideotestsrc libgstvideoconvertscale libgstvideorate libgstvolume
+    libgstopengl
     libgstautodetect libgstpulseaudio libgstalsa
     libgstpipewire libgstvideo4linux2 libgstximagesrc
     libgstwebrtcdsp

@@ -103,8 +103,16 @@ find "$tree/usr/qml" -maxdepth 1 -name 'QtQuick' | grep -q . || die "QML modules
 #                   the system plugin path, so the host's plugins-good is
 #                   invisible and the route refuses with "install
 #                   gst-plugins-good", which changes nothing.
+#   libgstopengl  — glupload and friends, the GPU scale path for a screen
+#                   share, which is now the DEFAULT rather than opt-in. Its
+#                   absence CANNOT fail anything: the engine probes for the
+#                   element, logs `element "glupload" is not available in this
+#                   build` and uses the CPU. Measured on the 0.8.2 AppImage,
+#                   where the feature was simply absent and every check passed.
+#                   Same shape as libgstximagesrc above — a graceful fallback
+#                   is exactly what stops a packaging gap from being noticed.
 for gst_plugin in libgstwebrtc libgstsctp libgstnice libgstvpx libgstopus \
-                  libgstximagesrc; do
+                  libgstximagesrc libgstopengl; do
     test -f "$tree/usr/lib/gstreamer-1.0/$gst_plugin.so" \
         || die "$gst_plugin.so missing from the AppImage payload"
 done
