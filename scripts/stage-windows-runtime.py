@@ -108,6 +108,23 @@ GSTREAMER_PLUGINS = (
     # refuted the theory before a control run brought it back.
     "libgstsctp.dll",              # sctpenc, sctpdec
     "libgstsrtp.dll",              # srtpenc, srtpdec, used inside dtlssrtp*
+    # glupload, glcolorconvert, glcolorscale, gldownload — the opt-in GPU
+    # scale path for a screen share (LIGHTNING_SHARE_GPU=1).
+    #
+    # THIS IS A SECOND LIST, AND STAGING IT IN THE BUILDER IMAGE IS NOT
+    # ENOUGH. packaging/windows/Dockerfile puts the plugin in the image's
+    # SYSROOT so the toolchain has it; this tuple is what actually goes into
+    # the shipped zip. Adding it there and not here produced a build whose
+    # log said `element "glupload" is not available in this build` — the
+    # app's own fallback catching a packaging gap, correctly, and the second
+    # time in this round that an artifact was nearly handed over claiming a
+    # capability it did not have.
+    #
+    # Its dependencies (libgstgl-1.0-0, libgraphene-1.0-0,
+    # libgstcontroller-1.0-0, libjpeg-8, libpng16) need no entry: the seeded
+    # import walk below pulls them out of the sysroot, which is exactly what
+    # that walk is for.
+    "libgstopengl.dll",            # glupload, glcolorconvert, glcolorscale
     "libgstvideoconvertscale.dll", # videoconvert, videoscale
     "libgstvideorate.dll",         # videorate
     "libgstvideotestsrc.dll",      # videotestsrc
@@ -129,7 +146,15 @@ GSTREAMER_PLUGINS = (
 GSTREAMER_ELEMENTS = (
     "appsink", "audioconvert", "audioresample", "audiotestsrc", "autoaudiosink",
     "autoaudiosrc", "capsfilter", "dtlssrtpdec", "dtlssrtpenc", "fakesink",
-    "gdiscreencapsrc", "ksvideosrc", "nicesink", "nicesrc", "opusdec", "opusenc",
+    "gdiscreencapsrc",
+    # The GPU screen-share scale path (LIGHTNING_SHARE_GPU=1). Probed against
+    # the SHIPPED tree for the same reason as sctp below: the app degrades to
+    # the CPU when these are absent and says so in its log, which is the right
+    # behaviour and also means a packaging gap would never fail a build. It
+    # would just quietly stop being a GPU path — which is exactly what the
+    # previous artifact did.
+    "glcolorconvert", "glcolorscale", "gldownload", "glupload",
+    "ksvideosrc", "nicesink", "nicesrc", "opusdec", "opusenc",
     "queue", "rtpbin", "rtpopusdepay", "rtpopuspay", "rtpvp8depay", "rtpvp8pay",
     # Probed even though no Lightning pipeline names them: webrtcbin loads
     # them for the data channel, and their absence broke every incoming track
