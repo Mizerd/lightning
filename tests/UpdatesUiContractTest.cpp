@@ -229,6 +229,40 @@ private Q_SLOTS:
 
     // ---- Flatpak/Snap never expose an install/download action ----
 
+    // "Update now" in the dialog must LEAVE THE USER SOMEWHERE USEFUL.
+    //
+    // REPORTED FROM REAL USE: the button appeared to do nothing and the
+    // update could only be completed by finding Settings unaided.
+    // downloadUpdate() only STARTS a download; every progress surface and
+    // the Install button that finishes the job live in the Updates settings
+    // section, deliberately, because installUpdate() and
+    // installAndRestart() are valid only from the ready state and that
+    // section is the single place they are called from. So closing the
+    // dialog on its own left a download running with nothing on screen.
+    void theDialogsUpdateNowLandsOnTheUpdatesSection()
+    {
+        const QString dialog = read(QStringLiteral("UpdateAvailableDialog.qml"));
+        const int idx = dialog.indexOf(QStringLiteral("updateDialogUpdateNowButton"));
+        QVERIFY2(idx > 0, "the dialog's Update now button is gone");
+        // Anchored on the button, and bounded by the end of its handler
+        // rather than a fixed window — a fixed window after a name has been
+        // defeated by an added comment four times in this repository.
+        const int handlerEnd = dialog.indexOf(QStringLiteral("\n            }"), idx);
+        QVERIFY2(handlerEnd > idx, "could not find the end of the button's handler");
+        const QString handler = dialog.mid(idx, handlerEnd - idx);
+        QVERIFY2(handler.contains(QStringLiteral("downloadUpdate()")),
+                 qPrintable(QStringLiteral("Update now no longer starts the "
+                                           "download: %1").arg(handler)));
+        QVERIFY2(handler.contains(QStringLiteral("showSettingsSection")),
+                 qPrintable(QStringLiteral(
+                     "Update now starts a download and then shows the user "
+                     "nothing — the progress and the Install button are only "
+                     "in the settings section: %1").arg(handler)));
+        QVERIFY2(handler.contains(QStringLiteral("\"updates\"")),
+                 qPrintable(QStringLiteral("Update now navigates somewhere "
+                                           "other than Updates: %1").arg(handler)));
+    }
+
     void packageManagedInstallsNeverExposeDownloadOrInstall()
     {
         const QString section = read(QStringLiteral("UpdatesSettingsSection.qml"));

@@ -292,8 +292,22 @@ Dialog {
                 visible: !root.packageManaged && root.canInstallAutomatically
                 text: qsTr("Update now")
                 onClicked: {
+                    // AND TAKE THE USER WHERE THE UPDATE ACTUALLY HAPPENS.
+                    //
+                    // downloadUpdate() only STARTS a download. Every surface
+                    // that shows its progress, and the "Install" button that
+                    // finishes the job, live in the Updates settings section
+                    // — deliberately, because installUpdate() and
+                    // installAndRestart() are only valid from the ready
+                    // state and that section is the one place they are
+                    // called from. Closing the dialog here left a download
+                    // running with nothing on screen to show for it, so the
+                    // button read as doing nothing and the update could only
+                    // be completed by finding Settings unaided. Reported
+                    // from real use.
                     if (root.um) root.um.downloadUpdate()
                     root.close()
+                    app.showSettingsSection("updates")
                 }
             }
         }
