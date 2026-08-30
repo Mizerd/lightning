@@ -265,6 +265,7 @@ RUN set -eu; \
         libgstsctp.dll \
         libgstsrtp.dll libgstvideoconvertscale.dll libgstvideorate.dll \
         libgstvideotestsrc.dll libgstvolume.dll libgstvpx.dll \
+        libgstopengl.dll \
         libgstwasapi.dll libgstwasapi2.dll libgstwebrtc.dll \
         libgstwebrtcdsp.dll libgstwinks.dll libgstwinscreencap.dll; do \
         install -m 0755 "$src/lib/gstreamer-1.0/$plugin" \
@@ -275,7 +276,8 @@ RUN set -eu; \
         libgstbase-1.0-0.dll libgstnet-1.0-0.dll libgstpbutils-1.0-0.dll \
         libgstreamer-1.0-0.dll libgstrtp-1.0-0.dll libgstsctp-1.0-0.dll \
         libgstsdp-1.0-0.dll libgsttag-1.0-0.dll libgstvideo-1.0-0.dll \
-        libgstwebrtc-1.0-0.dll libgstwebrtcnice-1.0-0.dll libnice-10.dll \
+        libgstwebrtc-1.0-0.dll libgstwebrtcnice-1.0-0.dll \
+        libgstgl-1.0-0.dll libnice-10.dll \
         libopus-0.dll liborc-0.4-0.dll libsrtp2-1.dll libz-1.dll; do \
         if [ -e "$sysroot/bin/$runtime" ]; then \
             echo "GStreamer runtime DLL collides with the Fedora sysroot: $runtime" >&2; \
@@ -343,7 +345,9 @@ RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
          queue:libgstcoreelements autoaudiosrc:libgstautodetect \
          webrtcdsp:libgstwebrtcdsp ksvideosrc:libgstwinks \
          gdiscreencapsrc:libgstwinscreencap \
-         sctpenc:libgstsctp; do \
+         sctpenc:libgstsctp \
+         glupload:libgstopengl glcolorconvert:libgstopengl \
+         glcolorscale:libgstopengl gldownload:libgstopengl; do \
          element="${pair%%:*}"; plugin="${pair##*:}"; \
          strings -a -n 3 \
            "/usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/${plugin}.dll" \
