@@ -1019,6 +1019,37 @@ drew U+1F600 with colouredPx=0, preferring a MONOCHROME font that claims the
 codepoint, where Qt 6.11.1 drew 2580; naming the family gave 4400 on both. That
 is why emoji looked right locally and came out monochrome-or-tofu when packaged.
 
+**WHERE A SCREEN SHARE'S CPU ACTUALLY GOES, measured 2026-08-30 — and it is
+NOT where two rounds of "GPU scaling" work assumed.** Per 5 s of video, one
+core-second is 20% of a core; `videotestsrc` at 4K into the real share stages,
+machine otherwise idle:
+
+| Stage (4K desktop shared at 1080p) | CPU / 5 s | Share |
+|---|---|---|
+| BGRA -> I420 convert, at 4K | 3.32 s | **57%** |
+| `videoscale` 4K -> 1080p | 0.12 s | **2%** |
+| `vp8enc` at 1080p | 2.35 s | **41%** |
+
+**SCALING IS 2% OF THE COST.** A GPU path justified as "moving the scaling to
+the GPU" would be worth almost nothing. What makes `glupload ! glcolorconvert
+! glcolorscale ! gldownload` worth having is different and must be described
+correctly or the next round will optimise the wrong stage: it moves the COLOUR
+CONVERSION onto the GPU and downloads only the REDUCED frame, so the 57% is
+what it removes, not the 2%.
+
+Encoder alone, by rung (5 s of video): 1080p30 **2.80 s** (0.56 cores),
+1440p30 **5.29 s** (1.06), 4K30 **9.53 s** (1.91), 4K60 **14.35 s** (2.87). A
+4K share at 4K therefore costs convert+encode ~12.9 s per 5 s, ~2.6 cores
+sustained, which is the measured shape of "4K is laggy".
+
+**None of this explains an OS-WIDE stall on a 20-core machine** — 2.6 cores is
+13%. Before blaming the encoder for that, measure the CAPTURE: Windows uses
+`gdiscreencapsrc`, a GDI BitBlt that contends with the compositor every frame,
+where Discord and OBS use DXGI Desktop Duplication (`d3d11screencapturesrc`,
+currently blocked here by the mingw-w64 UCRT/msvcrt break recorded above).
+That is a hypothesis, NOT a measurement — the numbers in this block are Linux
+`videotestsrc` and say nothing about either capture element.
+
 **THE LINUX PACKAGE JOBS BUILD WITHOUT THE MEDIA ENGINE, and no local tree
 does.** Every machine here has GStreamer, so `HAVE_LIGHTNING_WEBRTC` is ON in
 `build` and in `build-rust` alike. The deb/rpm/flatpak/appimage jobs build
