@@ -5,6 +5,8 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     flake-parts.url = "github:hercules-ci/flake-parts";
+
+    flake-compat.url = "github:edolstra/flake-compat";
   };
 
   outputs =
