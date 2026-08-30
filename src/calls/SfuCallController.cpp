@@ -58,6 +58,13 @@
 Q_LOGGING_CATEGORY(lcSfuCall, "lightning.calls.group")
 
 namespace {
+// Element caps a notification's lifetime at 90 s and the Rust side clamps to
+// the same number, so asking for more would be silently trimmed. This is the
+// window in which a receiver treats the announcement as live.
+constexpr quint64 kAnnounceLifetimeMs = 90000;
+} // namespace
+
+namespace {
 /// Closes a descriptor the desktop portal handed us, and compiles everywhere.
 ///
 /// The portal DUPLICATES the fd for us, so it is ours and every path out —
@@ -1115,6 +1122,16 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     Q_EMIT mediaStateChanged();
     Q_EMIT participantsChanged();
 
+    // WHETHER WE ARE STARTING THIS CALL OR JOINING ONE, sampled BEFORE our
+    // own membership goes out — a moment later the answer is always "no",
+    // because we are in it. It decides whether the room gets an announcement:
+    // the first person to arrive announces, and everyone after them does not,
+    // or a five-person call posts five "started a call" rows and pings the
+    // room five times.
+    m_announceOnPublish = m_rtc && m_rtc->participantCount(roomId) == 0;
+    m_announceIntent = withVideo ? QStringLiteral("video")
+                                 : QStringLiteral("audio");
+
     // Membership FIRST, carrying the focus. Other clients pick their SFU
     // from the oldest membership, so ours has to be on the wire before we
     // expect anyone to meet us there.
@@ -1173,6 +1190,31 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
         return;
     }
     m_membershipEventId = eventId;
+
+    // THE ROOM IS TOLD A CALL STARTED. Everything else here is state:
+    // `m.call.member` is a STATE event and state events do not appear in a
+    // timeline, which is why starting a call posted nothing and the only
+    // call row visible was one somebody else's client had sent. The
+    // MessageLike announcement is what renders — TimelineEvent already
+    // carries a "notification" kind for it and CallEventDelegate already
+    // draws it; the send pipe was built and never called, which
+    // docs/matrixrtc.md records as "send pipe built, no caller yet".
+    //
+    // TYPE `notification`, NOT `ring`, deliberately. Element's vocabulary is
+    // "ring" for a DM-style ring that makes the far end audibly ring, and
+    // "notification" for announcing a group call. Announcing is what fixes
+    // the reported gap; making other people's clients ring is a louder
+    // change that deserves its own round and a live Element on the other
+    // end. Relating it to our own membership event is what lets a receiver
+    // tie the announcement to this session.
+    if (m_announceOnPublish && m_client && !m_membershipEventId.isEmpty()) {
+        m_announceOnPublish = false;
+        const quint64 op = m_client->rtcNotify(
+            m_roomId, QStringLiteral("notification"), m_announceIntent,
+            kAnnounceLifetimeMs, m_membershipEventId);
+        qCInfo(lcSfuCall) << "call announced to the room op=" << op
+                          << "intent=" << m_announceIntent;
+    }
     // Empty means the server has no MSC4140. Cleanup then relies ENTIRELY on
     // the membership's own `expires`, which the Rust side shortens to minutes
     // for exactly that case — and which only works because refreshMembership()

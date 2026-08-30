@@ -2599,6 +2599,61 @@ ApplicationWindow {
         }
     }
 
+    void startingACallAnnouncesItOnceAndOnlyByTheFirstArrival()
+    {
+        // A CONTRACT SCAN, not a behavioural test, and worth saying so: this
+        // pins the two decisions, not the wire result. The behaviour needs a
+        // live room with Element on the other end, which is where it will be
+        // judged.
+        //
+        // WHY IT EXISTS. `m.call.member` is a STATE event, and state events
+        // do not appear in a timeline — so starting a call posted nothing and
+        // the only "started a call" row a user saw was one somebody else's
+        // client had sent, which read as their call being attributed to
+        // someone else. The MessageLike announcement is what renders, and
+        // docs/matrixrtc.md recorded its send pipe as built with "no caller
+        // yet".
+        const QString src =
+            read(QStringLiteral(SRC_DIR "/calls/SfuCallController.cpp"));
+        QVERIFY(!src.isEmpty());
+
+        const int sampled = src.indexOf(QStringLiteral(
+            "m_announceOnPublish = m_rtc && m_rtc->participantCount"));
+        const int published = src.indexOf(QStringLiteral(
+            "m_publishOp = m_client->rtcPublishMembership"));
+        QVERIFY2(sampled >= 0, "nothing decides whether we started the call");
+        QVERIFY2(published >= 0, "the membership publish call site moved");
+        // SAMPLED FIRST. A moment after our own membership is on the wire the
+        // answer is always "somebody is already here" — ourselves — so the
+        // room would never be told anything.
+        QVERIFY2(sampled < published,
+                 "the first-arrival check runs AFTER our own membership "
+                 "publishes, so it can only ever answer no");
+
+        // ANNOUNCE, not ring. "ring" is Element's DM-style ring that makes
+        // the far end audibly ring; "notification" announces a group call.
+        // Announcing is what the report asked for; ringing other people's
+        // clients is a louder change and belongs to its own round.
+        QVERIFY2(src.contains(QStringLiteral("m_client->rtcNotify(")),
+                 "nothing announces the call, so the room still gets no "
+                 "timeline row when a call starts");
+        const int notify = src.indexOf(QStringLiteral("m_client->rtcNotify("));
+        const QString args = src.mid(notify, 320);
+        QVERIFY2(args.contains(QStringLiteral("\"notification\"")),
+                 qPrintable(QStringLiteral("the announcement is not sent as "
+                                           "a notification: %1").arg(args)));
+        QVERIFY2(!args.contains(QStringLiteral("\"ring\"")),
+                 "the announcement rings other people's clients, which was "
+                 "deliberately left to its own round");
+
+        // ONCE. The flag is cleared as it fires, or a re-published
+        // membership (the refresh cadence re-enters this path) announces
+        // again on every tick.
+        QVERIFY2(src.contains(QStringLiteral("m_announceOnPublish = false;")),
+                 "the announcement flag is never cleared, so a membership "
+                 "refresh would announce the call again");
+    }
+
     void everyPrivateQtHeaderIncludeStaysGuarded()
     {
         // A PORTABILITY RULE THE TREE ALREADY KNEW, and that a change in this

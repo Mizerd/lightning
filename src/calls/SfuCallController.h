@@ -758,6 +758,12 @@ private:
     QString m_lastError;
     QString m_focusUrl;
     QString m_membershipEventId;
+    /// Sampled BEFORE our membership publishes: were we the first in?
+    /// Announce only then, or every joiner posts a "started a call" row.
+    bool m_announceOnPublish = false;
+    /// "video" or "audio" — the intent the announcement carries, which is
+    /// what decides whether a receiver offers a video answer.
+    QString m_announceIntent;
     QString m_delayId;
     QString m_ownIdentity;
     /// Populated while the picker is open; cleared when a source is chosen
