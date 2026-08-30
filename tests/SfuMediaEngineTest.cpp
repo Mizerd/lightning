@@ -2528,6 +2528,39 @@ private slots:
                      "a GL element name: %1").arg(missingNow)));
     }
 
+    // The GPU/CPU ladder must not re-point the CAMERA at share policy.
+    //
+    // THIS IS A REGRESSION CASE AND IT FAILED ON THE FIRST VERSION OF THE
+    // LADDER. That version chose the fallback stage as
+    // `useGpu ? shareStage : shareScaleStage(m_shareMaxHeight, false)`, and
+    // `useGpu` is false for EVERY camera publish — so the camera silently
+    // stopped using its own `videoconvert ! videoscale` and started using
+    // the share's, sized by the share's max height. Harmless in effect
+    // today, since the CPU branch ignores the height and the elements are
+    // equivalent, which is exactly why nothing noticed.
+    void theCameraKeepsItsOwnScaleStageWhateverTheShareIsDoing()
+    {
+        // The two stages must be DISTINGUISHABLE, or this case cannot fail.
+        const QString shareCpu = SfuMediaEngine::shareScaleStage(2160, false);
+        const QString cameraStage = QStringLiteral("videoconvert ! videoscale");
+        QVERIFY2(shareCpu != cameraStage,
+                 "the share and camera CPU stages became identical, so this "
+                 "case can no longer detect the camera being re-pointed");
+
+        // THE DECISION ITSELF, not a description we handed the answer to.
+        // The first version of this case built a description while passing
+        // the camera stage in as an argument — so it asserted that
+        // videoPipelineDescription() uses what it is given, which was never
+        // in doubt, and it PASSED with the bug reintroduced. A mutation
+        // check caught that.
+        QCOMPARE(SfuMediaEngine::cpuFallbackScaleStage(false, 2160),
+                 cameraStage);
+        QCOMPARE(SfuMediaEngine::cpuFallbackScaleStage(true, 2160), shareCpu);
+        // And the share's height must not leak into the camera's answer.
+        QCOMPARE(SfuMediaEngine::cpuFallbackScaleStage(false, 720),
+                 SfuMediaEngine::cpuFallbackScaleStage(false, 2160));
+    }
+
     void shareCapsAndBitrateAreRightAtEveryOfferedQuality()
     {
         // ALL NINE COMBINATIONS, against the real derivation rather than a

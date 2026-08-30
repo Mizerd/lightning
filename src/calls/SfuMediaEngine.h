@@ -109,6 +109,16 @@ public:
     /// a mutation check caught here. Taking the names as a parameter lets a
     /// test pass one that cannot exist and see the real answer.
     static QString firstMissingElement(const QList<QByteArray> &names);
+    /// The CPU stage a publish falls back to. A SHARE gets the threaded
+    /// single pass; a CAMERA keeps its own two-pass stage, which is fine at
+    /// 720p and is not what the 4K measurement was about.
+    ///
+    /// EXTRACTED SO THE CHOICE IS TESTABLE. Inline, the only way to reach
+    /// it was through the publish path, and a test that calls
+    /// videoPipelineDescription() with a stage it chose ITSELF proves
+    /// nothing about which stage production would have picked — which is
+    /// exactly how the first regression case for this passed on the bug.
+    static QString cpuFallbackScaleStage(bool screenShare, int shareMaxHeight);
     static QString shareEncoderStage(int maxHeight, int fps);
     int shareMaxHeight() const { return m_shareMaxHeight; }
     int shareFps() const { return m_shareFps; }

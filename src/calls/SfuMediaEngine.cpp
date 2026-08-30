@@ -1642,6 +1642,14 @@ QString SfuMediaEngine::shareEncoderStage(int maxHeight, int fps)
         .arg(QString::number(shareBitrate), QString::number(2 * fps));
 }
 
+/// The CPU stage a publish falls back to. See the header.
+QString SfuMediaEngine::cpuFallbackScaleStage(bool screenShare,
+                                              int shareMaxHeight)
+{
+    return screenShare ? shareScaleStage(shareMaxHeight, false)
+                       : QStringLiteral("videoconvert ! videoscale");
+}
+
 QString SfuMediaEngine::videoRateStage(bool screenShare)
 {
     Q_UNUSED(screenShare);
@@ -2264,6 +2272,16 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     const QString scaleStage = screenShare
         ? shareScaleStage(m_shareMaxHeight, shareGpuScalingRequested())
         : QStringLiteral("videoconvert ! videoscale");
+    // THE CPU STAGE THIS PUBLISH WOULD FALL BACK TO, and it is per-path on
+    // purpose. The camera keeps its own `videoconvert ! videoscale`: the
+    // threaded single pass was measured against a 4K DESKTOP, where the
+    // convert was 73% of realtime, and a 1280x720 camera is a ninth of
+    // those pixels with no such problem. Reaching for the share's stage
+    // here would silently re-point an unrelated path at share-sized
+    // policy — which is exactly what the first version of this ladder did,
+    // because `useGpu` is false for every camera publish.
+    const QString cpuScaleStage =
+        cpuFallbackScaleStage(screenShare, m_shareMaxHeight);
     // ── GPU FIRST, CPU FALLBACK ──────────────────────────────────────
     //
     // The GPU chain is tried by default and the CPU chain catches it. Two
@@ -2287,8 +2305,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         }
     }
 
-    QString scaleStageInUse = useGpu ? scaleStage
-                                     : shareScaleStage(m_shareMaxHeight, false);
+    QString scaleStageInUse = useGpu ? scaleStage : cpuScaleStage;
     QString description = videoPipelineDescription(
         source, videoRateStage(screenShare), limits, encoder, selfView,
         nextPublishSsrc(), scaleStageInUse, captureEntryFilter(useGpu));
@@ -2311,7 +2328,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             bin = nullptr;
         }
         useGpu = false;
-        scaleStageInUse = shareScaleStage(m_shareMaxHeight, false);
+        scaleStageInUse = cpuScaleStage;
         description = videoPipelineDescription(
             source, videoRateStage(screenShare), limits, encoder, selfView,
             nextPublishSsrc(), scaleStageInUse, captureEntryFilter(false));
