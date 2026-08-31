@@ -4348,6 +4348,38 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME space-people-scope COMMAND space-people-scope-test)
 
+    # 2026-08-31: unread badge ATTRIBUTION. Two direct messages were missed
+    # because the Direct Messages tile is a synthesised pseudo row that never
+    # carried an unread total at all, while Home counted DMs and Space rooms
+    # it does not list. The invariant is one line — a tile's badge counts what
+    # that tile's view lists — and every case asserts BOTH halves, so a badge
+    # that is merely non-zero cannot pass.
+    qt_add_executable(unread-badge-attribution-test
+        tests/UnreadBadgeAttributionTest.cpp
+        src/models/SpaceChannelModel.h
+        src/models/SpaceChannelModel.cpp
+        src/models/DirectAvatarResolver.h
+        src/models/DirectAvatarResolver.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/spaces/RailEntryModel.h
+        src/spaces/RailEntryModel.cpp
+        src/spaces/RailLayoutStore.h
+        src/spaces/RailLayoutStore.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(unread-badge-attribution-test PRIVATE src)
+    target_link_libraries(unread-badge-attribution-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME unread-badge-attribution
+             COMMAND unread-badge-attribution-test)
+
 endif()
 
 # ----------------------------------------------------------------------

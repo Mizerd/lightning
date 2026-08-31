@@ -243,8 +243,18 @@ QVariant SpaceManager::data(const QModelIndex &index, int role) const
         case TopicRole:        return QString{};
         case AvatarUrlRole:    return QString{};
         case ChildCountRole:   return m_allRoomIds.size();
-        case UnreadTotalRole:  return m_homeUnreadTotal;
-        case HighlightTotalRole: return m_homeHighlightTotal;
+        // A TILE COUNTS WHAT ITS VIEW LISTS. In Channels, DMs are on their
+        // own tile and a Space's rooms are on the Space's tile, and Home
+        // lists neither — so counting them here sends the user to Home
+        // looking for a message that can never appear there. Classic has no
+        // People tab and its Home lists the whole account, so there the
+        // whole-account total is the honest one.
+        case UnreadTotalRole:
+            return m_directMessagesHaveOwnTile ? m_unparentedUnreadTotal
+                                               : m_homeUnreadTotal;
+        case HighlightTotalRole:
+            return m_directMessagesHaveOwnTile ? m_unparentedHighlightTotal
+                                               : m_homeHighlightTotal;
         case LevelRole: return 0;
         case ParentSpaceIdRole: return QString{};
         case ChildSpaceCountRole: return 0;
@@ -264,8 +274,10 @@ QVariant SpaceManager::data(const QModelIndex &index, int role) const
             case TopicRole:       return tr("Rooms not in any Space");
             case AvatarUrlRole:   return QString{};
             case ChildCountRole:  return m_orphanRoomIds.size();
-            case UnreadTotalRole: return 0;
-            case HighlightTotalRole: return 0;
+            // Was hardcoded 0, which made the one tile that does list these
+            // rooms the one tile that could never say they had traffic.
+            case UnreadTotalRole: return m_unparentedUnreadTotal;
+            case HighlightTotalRole: return m_unparentedHighlightTotal;
             case LevelRole: return 0;
             case ParentSpaceIdRole: return QString{};
             case ChildSpaceCountRole: return 0;
@@ -722,6 +734,10 @@ void SpaceManager::rebuild()
     m_spaceChildRoomIds.clear();
     m_homeUnreadTotal = 0;
     m_homeHighlightTotal = 0;
+    m_peopleUnreadTotal = 0;
+    m_peopleHighlightTotal = 0;
+    m_unparentedUnreadTotal = 0;
+    m_unparentedHighlightTotal = 0;
 
     if (!m_client) {
         endResetModel();
@@ -736,8 +752,14 @@ void SpaceManager::rebuild()
         byId.insert(r.id, r);
         if (!r.isSpace && r.membership == RoomInfo::Joined) {
             m_allRoomIds.insert(r.id);
+            // Home's total is the WHOLE account, which is what the Classic
+            // layout's Home genuinely lists.
             m_homeUnreadTotal += r.unreadCount;
             m_homeHighlightTotal += r.highlightCount;
+            if (r.isDirect) {
+                m_peopleUnreadTotal += r.unreadCount;
+                m_peopleHighlightTotal += r.highlightCount;
+            }
         }
     }
 
@@ -788,6 +810,26 @@ void SpaceManager::rebuild()
         m_spaces.append(std::move(e));
     }
 
+    // WHAT THE CHANNELS HOME AND "OTHER ROOMS" VIEWS ACTUALLY LIST: joined,
+    // not a Space, not a DM, and not a direct child of any Space. This has to
+    // run after the loop above, because m_spaceChildRoomIds is only complete
+    // once every Space has contributed its children.
+    //
+    // It deliberately mirrors SpaceChannelModel::buildHome's own predicate
+    // rather than reusing m_orphanRoomIds, which is computed from the
+    // TRANSITIVE child sets and includes DMs — a badge derived from a
+    // different set than the view uses is the defect this whole block exists
+    // to close.
+    for (const QString &roomId : m_allRoomIds) {
+        const auto it = byId.constFind(roomId);
+        if (it == byId.constEnd() || it->isDirect)
+            continue;
+        if (m_spaceChildRoomIds.contains(roomId))
+            continue;
+        m_unparentedUnreadTotal += it->unreadCount;
+        m_unparentedHighlightTotal += it->highlightCount;
+    }
+
     resolveHierarchy(byId);
 
     // ONLY A REAL SPACE ID IS CHECKED AGAINST MEMBERSHIP. The rail's selection
@@ -809,6 +851,23 @@ void SpaceManager::rebuild()
 
     endResetModel();
     Q_EMIT spacesChanged();
+}
+
+void SpaceManager::setDirectMessagesHaveOwnTile(bool own)
+{
+    if (m_directMessagesHaveOwnTile == own)
+        return;
+    m_directMessagesHaveOwnTile = own;
+    // Only Home's two totals change meaning, and only if there is a row to
+    // change: no aggregate is recomputed, so a full rebuild would be wasted
+    // work on a setting the user toggles by switching layout.
+    if (rowCount() > 0) {
+        const QModelIndex home = index(0, 0);
+        Q_EMIT dataChanged(home, home,
+                           { UnreadTotalRole, HighlightTotalRole });
+    }
+    Q_EMIT spacesChanged();
+    Q_EMIT directMessagesHaveOwnTileChanged();
 }
 
 void SpaceManager::recomputeOrphans()

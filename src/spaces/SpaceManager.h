@@ -38,6 +38,11 @@ class SpaceManager : public QAbstractListModel
     // v0.6.5: the number of REAL joined Spaces (excludes the "All rooms" and
     // orphans pseudo-rows) — the account switcher's honest "N spaces" meta.
     Q_PROPERTY(int spaceCount READ spaceCount NOTIFY spacesChanged)
+    // Bound from SpacesRail.qml to the same condition that decides whether
+    // the Direct Messages tile exists at all. See the setter's comment.
+    Q_PROPERTY(bool directMessagesHaveOwnTile READ directMessagesHaveOwnTile
+                   WRITE setDirectMessagesHaveOwnTile
+                   NOTIFY directMessagesHaveOwnTileChanged)
 
 public:
     enum Roles {
@@ -77,6 +82,26 @@ public:
     explicit SpaceManager(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+
+    /// Whether direct messages have a rail tile of their own — true in the
+    /// Channels layout, false in Classic.
+    ///
+    /// A TILE'S BADGE MUST COUNT WHAT THAT TILE'S VIEW LISTS, and which rooms
+    /// Home lists is the one thing the two layouts disagree about. Classic
+    /// reaches DMs through a filter chip over one list, so its Home really is
+    /// where an unread DM is found and Home must keep counting it. Channels
+    /// gives DMs their own tile and Spaces their own tiles, and its Home view
+    /// lists neither — so counting them there points the user at a place the
+    /// message cannot be.
+    void setDirectMessagesHaveOwnTile(bool own);
+    bool directMessagesHaveOwnTile() const
+    { return m_directMessagesHaveOwnTile; }
+
+    /// Unread/highlight over every joined direct message. The Direct Messages
+    /// tile is synthesised by RailEntryModel rather than being a row here, so
+    /// it reads these instead of a role.
+    int peopleUnreadTotal() const { return m_peopleUnreadTotal; }
+    int peopleHighlightTotal() const { return m_peopleHighlightTotal; }
 
     QString activeSpaceId() const { return m_activeSpaceId; }
     void    setActiveSpaceId(const QString &spaceId);
@@ -214,6 +239,7 @@ public:
 Q_SIGNALS:
     void activeSpaceIdChanged();
     void spacesChanged();
+    void directMessagesHaveOwnTileChanged();
     // v0.7: outcome of one addRoomToSpace call (send result, not sync).
     void childAddFinished(const QString &spaceId, const QString &roomId,
                           bool ok);
@@ -268,6 +294,14 @@ private:
     QSet<QString> m_orphanRoomIds;          // Rooms not in any Space.
     int m_homeUnreadTotal = 0;
     int m_homeHighlightTotal = 0;
+    // Joined direct messages.
+    int m_peopleUnreadTotal = 0;
+    int m_peopleHighlightTotal = 0;
+    // Joined, non-space, non-DM rooms that no Space's view lists — exactly
+    // what the Channels Home and "Other rooms" views render.
+    int m_unparentedUnreadTotal = 0;
+    int m_unparentedHighlightTotal = 0;
+    bool m_directMessagesHaveOwnTile = false;
     // The Space rosters (see the People block above). `m_spaceMembers` holds
     // only COMPLETE ones — a truncated or failed snapshot is never recorded,
     // so "known" and "usable" are the same fact. `m_rosterRequested` is the

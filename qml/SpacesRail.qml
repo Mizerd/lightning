@@ -58,6 +58,17 @@ Rectangle {
         property: "peopleEntryVisible"
         value: root.peopleTabVisible
     }
+    // The same condition, told to the model that computes the badges. A
+    // tile's badge counts what that tile's view lists, and Home lists
+    // different things in the two layouts: in Channels the DMs are on the
+    // tile above and every Space's rooms are on its own tile, so Home
+    // counting them pointed at a message that could not be there. That is how
+    // two direct messages were missed on 2026-08-31.
+    Binding {
+        target: app.spaces
+        property: "directMessagesHaveOwnTile"
+        value: root.peopleTabVisible
+    }
     // A SELECTION THAT NO LONGER HAS A TILE MUST NOT SURVIVE. Switching to
     // Classic removes the People tab, and leaving the selection on it would
     // leave the whole shell scoped to a tab with nothing rendering it — the

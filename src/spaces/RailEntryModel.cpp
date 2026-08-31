@@ -179,7 +179,7 @@ void RailEntryModel::refresh()
     // pushing it down would move the one tile every user already knows.
     const bool peopleWanted = m_peopleEntryVisible;
     bool peopleInserted = false;
-    auto insertPeople = [&rows] {
+    auto insertPeople = [&rows, this] {
         QVariantMap people;
         people.insert(QStringLiteral("kind"), kKindSpace);
         people.insert(QStringLiteral("entryId"), SpaceManager::peopleId());
@@ -191,6 +191,16 @@ void RailEntryModel::refresh()
         people.insert(QStringLiteral("draggable"), false);
         people.insert(QStringLiteral("expandable"), false);
         people.insert(QStringLiteral("expanded"), false);
+        // BEING SYNTHESISED HERE IS EXACTLY WHY THIS WAS MISSED. Every real
+        // Space arrives from SpaceManager carrying its own totals; this row
+        // is built by hand, and a key nobody wrote is not a zero anybody
+        // chose — UnreadTotalRole reads value("unreadTotal", 0) and the tile
+        // stayed silent through every unread direct message there has ever
+        // been. Two were missed for real on 2026-08-31.
+        const int unread = m_spaces ? m_spaces->peopleUnreadTotal() : 0;
+        const int highlight = m_spaces ? m_spaces->peopleHighlightTotal() : 0;
+        people.insert(QStringLiteral("unreadTotal"), unread);
+        people.insert(QStringLiteral("highlightTotal"), highlight);
         rows.append(people);
     };
     for (const QVariant &value : arranged) {
