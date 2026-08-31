@@ -243,12 +243,24 @@ private Q_SLOTS:
                  "timer while every geometry signal issues another request — "
                  "the archived-room freeze");
 
-        // And the budget must be re-armed by GROWTH, not merely by attempts:
-        // a room that really is filling has to keep filling, which is what
-        // the hidden-page deadlock case depends on.
+        // And there must be TWO bounds, because there are two kinds of
+        // progress. Bounding on visible height alone traded the freeze for
+        // the original complaint: the room stopped after eight pages and the
+        // reader had to expand the activity group by hand before anything
+        // more would load. A page that added ROWS advanced the pagination
+        // cursor towards the real messages beyond the collapsed run, so it
+        // gets the generous bound; a page that added nothing gets the small
+        // one. Expanding an activity group must never be required to reach
+        // older history.
         QVERIFY2(body.contains(QStringLiteral("viewportFillLastHeight")),
                  "the budget is spent on attempts rather than on attempts "
                  "that failed to make the content taller");
+        QVERIFY2(body.contains(QStringLiteral("viewportFillLastRows")),
+                 "nothing distinguishes a page that advanced the pagination "
+                 "cursor from one that did nothing, so a collapsed run stops "
+                 "the reader dead and expanding it by hand is the only way on");
+        QVERIFY2(body.contains(QStringLiteral("maxInvisibleFillRetries")),
+                 "invisible progress has no bound of its own");
     }
 
     // 2026-08-23 tester report: "Panel size is not saved." The room list's

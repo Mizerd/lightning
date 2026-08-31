@@ -4416,11 +4416,21 @@ Rectangle {
                 // too. So the loop cannot spin: every path either grows the
                 // content, exhausts a bound, or ends the room.
                 readonly property int maxViewportFillRetries: 8
+                /// Pages that added ROWS but no visible height. Generous,
+                /// because each one advances the pagination cursor through a
+                /// collapsed run towards the real messages beyond it — the
+                /// reader must never have to expand an activity group to reach
+                /// older history. Still bounded: an enormous room stops here
+                /// rather than paginating to its start.
+                readonly property int maxInvisibleFillRetries: 60
+                property int viewportFillInvisibleRetries: 0
                 property int viewportFillRetries: 0
                 /// contentHeight at the previous fill attempt, or -1 for "no
                 /// attempt yet". The budget is spent on attempts that did not
                 /// make the content taller, not on attempts.
                 property real viewportFillLastHeight: -1
+                /// Loaded row count at the previous attempt, or -1 for none.
+                property int viewportFillLastRows: -1
                 Timer {
                     id: viewportFillRetryTimer
                     interval: 250
@@ -4436,42 +4446,67 @@ Rectangle {
                         if (app.currentRoomId === ""
                             || contentHeight >= height) {
                             viewportFillRetries = 0
+                            viewportFillInvisibleRetries = 0
                             viewportFillLastHeight = -1
+                            viewportFillLastRows = -1
                             viewportFillRetryTimer.stop()
                             return
                         }
-                        // A FILL THAT IS NOT MAKING THE CONTENT TALLER IS NOT
-                        // FILLING, and the budget has to be spent on that
-                        // rather than on the number of attempts.
+                        // TWO KINDS OF PROGRESS, AND ONLY ONE OF THEM IS
+                        // VISIBLE.
                         //
                         // Captured 2026-08-31 in an archived room whose whole
-                        // history is routine state: rows=144, srcRows=144,
-                        // stateRows=129, stateGroups=1, contentH=60. A
-                        // hundred and twenty-nine state rows fold into ONE
-                        // collapsed group, so contentHeight is 60px and can
-                        // never reach `height` — the guard above is
-                        // unsatisfiable, every page adds ~22 more rows that
-                        // render at no height, and the client paginates the
-                        // room to its start. That is the freeze: rows went 52
-                        // -> 74 -> 144 with contentH pinned at 60 throughout,
-                        // and stick/topDist/nearTop all read 1/0/1 at once
-                        // because top and bottom are the same place.
+                        // tail is routine state: rows=205, stateRows=184,
+                        // stateGroups=1, contentH=60. A hundred and
+                        // eighty-four state rows fold into ONE collapsed
+                        // group, so contentHeight is 60px and can never reach
+                        // `height` — the guard above is unsatisfiable.
                         //
-                        // The budget existed but could not bite: the request
-                        // was issued BEFORE the check, so exhausting it only
-                        // stopped the retry TIMER while every geometry signal
-                        // — and each of the hundreds of row reveals is one —
-                        // went on issuing another. Growth is what re-arms it
-                        // now, so a room that is really filling is unaffected
-                        // and one that cannot fill stops after eight.
-                        if (viewportFillLastHeight >= 0
-                            && contentHeight > viewportFillLastHeight + 1)
+                        // The first bound here counted attempts and issued the
+                        // request BEFORE checking, so exhausting it stopped
+                        // only the retry TIMER while every geometry signal —
+                        // and each of the hundreds of paced row reveals is one
+                        // — went on issuing another request. That was the
+                        // freeze.
+                        //
+                        // Bounding it on HEIGHT then traded the freeze for the
+                        // original complaint: the room stopped after eight
+                        // pages and the reader had to expand the activity
+                        // group by hand before anything more would load.
+                        // Expanding must never be required to reach older
+                        // messages.
+                        //
+                        // So a page that added ROWS is progress even when it
+                        // added no pixels: the pagination cursor moved, and it
+                        // moved towards the real messages beyond the collapsed
+                        // run. It gets the generous bound. A page that added
+                        // NOTHING moved nothing and gets the small one. Both
+                        // terminate, and the request is gated by the check, so
+                        // there is one request per completed page rather than
+                        // one per geometry signal.
+                        var loadedRows = app.timeline ? app.timeline.count : 0
+                        var grewHeight = viewportFillLastHeight >= 0
+                                && contentHeight > viewportFillLastHeight + 1
+                        var grewRows = viewportFillLastRows >= 0
+                                && loadedRows > viewportFillLastRows
+                        if (grewHeight) {
+                            // Ordinary filling: the reader is gaining visible
+                            // history, so the budget is not being spent at all.
                             viewportFillRetries = 0
+                            viewportFillInvisibleRetries = 0
+                        } else if (grewRows) {
+                            // Invisible progress: keep going, but not forever.
+                            viewportFillRetries = 0
+                            ++viewportFillInvisibleRetries
+                        }
                         viewportFillLastHeight = contentHeight
+                        viewportFillLastRows = loadedRows
                         if (app.pagination.reachedStart
                             || app.pagination.fillStopped
                             || app.pagination.failed
-                            || viewportFillRetries >= maxViewportFillRetries)
+                            || viewportFillRetries >= maxViewportFillRetries
+                            || viewportFillInvisibleRetries
+                                   >= maxInvisibleFillRetries)
                             return
                         ++viewportFillRetries
                         app.pagination.requestViewportFill()
@@ -4717,7 +4752,9 @@ Rectangle {
                         // previous room's spent attempts must not deny this
                         // one its own.
                         timeline.viewportFillRetries = 0
+                        timeline.viewportFillInvisibleRetries = 0
                         timeline.viewportFillLastHeight = -1
+                        timeline.viewportFillLastRows = -1
                         viewportFillRetryTimer.stop()
                         // A pending navigation landing belongs to the
                         // snapshot it was resolved against.
