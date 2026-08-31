@@ -576,6 +576,21 @@ void PaginationController::finishBatch(bool hitStart)
     // batch is legal mid-history (e.g. filtered state events), so two
     // consecutive empty automatic batches stop the loop instead of one.
     if (reason == Reason::ViewportFill) {
+        // A PRODUCTIVE FILL REFUNDS THE BUDGET, so m_maxFillRequests bounds
+        // CONSECUTIVE unproductive fills rather than fills per room.
+        //
+        // Eight per room is not enough for a room whose recent history is a
+        // long run of routine state: those pages insert rows and render at no
+        // height, so the viewport is still unfilled after all eight and the
+        // reader is left having to expand the activity group by hand to reach
+        // anything older. Reported exactly that way, and the cap is the same
+        // mistake as the QML-side one it sits behind — counting attempts
+        // where it meant to count attempts that achieved nothing.
+        //
+        // Still bounded: eight consecutive pages that add NO rows stop the
+        // loop, which is the storm this cap exists to prevent.
+        if (inserted > 0)
+            m_fillRequests = 0;
         if (inserted == 0 && !hitStart) {
             if (++m_noProgressStrikes >= kMaxNoProgressStrikes) {
                 m_fillStopped = true;

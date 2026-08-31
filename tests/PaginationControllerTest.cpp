@@ -487,6 +487,65 @@ private Q_SLOTS:
         QCOMPARE(client.loadOlderCalls, 3); // user gesture still allowed
     }
 
+    // The per-room viewport-fill cap bounds CONSECUTIVE unproductive fills,
+    // not fills per room.
+    //
+    // Reported 2026-08-31: an archived room whose recent history is a long
+    // run of routine state stopped loading and the reader had to expand the
+    // activity group by hand to get any further. Those pages insert rows and
+    // render at no height, so eight of them left the viewport still unfilled
+    // and the cap had already been spent — "fill budget exhausted requests= 8"
+    // with the real messages still beyond the run.
+    void aProductiveViewportFillRefundsThePerRoomBudget()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+
+        // Twenty fills, every one productive — the collapsed-run shape, where
+        // each page adds rows the reader cannot see.
+        int dispatched = 0;
+        for (int i = 0; i < 20; ++i) {
+            const int before = client.loadOlderCalls;
+            controller.requestViewportFill();
+            if (client.loadOlderCalls == before)
+                break; // the cap refused it
+            ++dispatched;
+            client.beginLoading(kRoomA);
+            client.completeBatch(kRoomA, 22, false);
+        }
+        QVERIFY2(dispatched > 8,
+                 qPrintable(QStringLiteral(
+                     "the per-room fill cap stopped a room whose pages were "
+                     "all productive after %1 fills; a collapsed activity run "
+                     "is longer than that and the reader is left having to "
+                     "expand it by hand").arg(dispatched)));
+        QCOMPARE(dispatched, 20);
+    }
+
+    // And the bound is still a bound: pages that add nothing stop it.
+    void consecutiveEmptyViewportFillsStillStopTheLoop()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+
+        int dispatched = 0;
+        for (int i = 0; i < 30; ++i) {
+            const int before = client.loadOlderCalls;
+            controller.requestViewportFill();
+            if (client.loadOlderCalls == before)
+                break;
+            ++dispatched;
+            client.beginLoading(kRoomA);
+            client.completeBatch(kRoomA, 0, false); // nothing gained
+        }
+        QVERIFY2(dispatched < 30,
+                 "a room whose fills add nothing paginates without bound");
+    }
+
     void automaticNearTopBackfillIsBoundedButUserGestureReArms()
     {
         FakeClient client;
@@ -786,7 +845,18 @@ private Q_SLOTS:
         QCOMPARE(client.loadOlderCalls, 4);
     }
 
-    void fillBudgetIsBounded()
+    // UPDATED 2026-08-31. This used to pin "two PRODUCTIVE fills exhaust a
+    // budget of two", and that rule is what stopped an archived room from
+    // loading: its recent history is a long run of routine state, every page
+    // inserts rows and renders at no height, so the viewport is still
+    // unfilled when the cap runs out and the reader has to expand the
+    // activity group by hand to reach anything older.
+    //
+    // The cap now bounds CONSECUTIVE UNPRODUCTIVE fills, which is what it
+    // meant all along — it exists to stop a request storm, and a page that
+    // added rows is not a storm. The invisible-progress case is bounded on
+    // the QML side instead, where the viewport height is known.
+    void fillBudgetBoundsConsecutiveUnproductiveFills()
     {
         FakeClient client;
         PaginationController controller;
@@ -794,13 +864,26 @@ private Q_SLOTS:
         controller.setRoomId(kRoomA);
         controller.setMaxViewportFillRequests(2);
 
-        for (int i = 0; i < 2; ++i) {
+        // Productive fills do not spend it, however many there are.
+        for (int i = 0; i < 5; ++i) {
             controller.requestViewportFill();
             client.beginLoading(kRoomA);
             client.completeBatch(kRoomA, 5, false);
         }
+        QCOMPARE(client.loadOlderCalls, 5);
+        QVERIFY2(!controller.fillStopped(),
+                 "productive fills exhausted the cap, so a room whose pages "
+                 "are all invisible stops before the reader reaches anything");
+
+        // Unproductive ones do, and the bound still bites.
+        for (int i = 0; i < 2; ++i) {
+            controller.requestViewportFill();
+            client.beginLoading(kRoomA);
+            client.completeBatch(kRoomA, 0, false);
+        }
+        const int afterEmpties = client.loadOlderCalls;
         controller.requestViewportFill();
-        QCOMPARE(client.loadOlderCalls, 2);
+        QCOMPARE(client.loadOlderCalls, afterEmpties);
         QVERIFY(controller.fillStopped());
     }
 

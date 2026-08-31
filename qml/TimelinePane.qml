@@ -4473,6 +4473,22 @@ Rectangle {
                             viewportFillRetryTimer.restart()
                             return
                         }
+                        // WHY A FILL DECLINED, named. Three rounds of this
+                        // defect were spent reasoning about which bound had
+                        // stopped the loop, and the answer was a bound in
+                        // PaginationController that the QML side cannot see.
+                        // One line settles it instead of a fourth hypothesis.
+                        function declineReason() {
+                            if (app.pagination.reachedStart) return "reachedStart"
+                            if (app.pagination.fillStopped) return "fillStopped"
+                            if (app.pagination.failed) return "failed"
+                            if (viewportFillRetries >= maxViewportFillRetries)
+                                return "noProgressBudget"
+                            if (viewportFillInvisibleRetries
+                                >= maxInvisibleFillRetries)
+                                return "invisibleBudget"
+                            return ""
+                        }
                         // TWO KINDS OF PROGRESS, AND ONLY ONE OF THEM IS
                         // VISIBLE.
                         //
@@ -4522,15 +4538,29 @@ Rectangle {
                         }
                         viewportFillLastHeight = contentHeight
                         viewportFillLastRows = loadedRows
-                        if (app.pagination.reachedStart
-                            || app.pagination.fillStopped
-                            || app.pagination.failed
-                            || viewportFillRetries >= maxViewportFillRetries
-                            || viewportFillInvisibleRetries
-                                   >= maxInvisibleFillRetries)
+                        var decline = declineReason()
+                        if (decline !== "") {
+                            if (scrollTrace) {
+                                console.log("fill-declined reason=" + decline
+                                    + " rows=" + loadedRows
+                                    + " contentH=" + Math.round(contentHeight)
+                                    + " height=" + Math.round(height)
+                                    + " noProgress=" + viewportFillRetries
+                                    + " invisible=" + viewportFillInvisibleRetries)
+                            }
                             return
+                        }
                         ++viewportFillRetries
                         app.pagination.requestViewportFill()
+                        if (scrollTrace) {
+                            console.log("fill-requested rows=" + loadedRows
+                                + " contentH=" + Math.round(contentHeight)
+                                + " height=" + Math.round(height)
+                                + " grewRows=" + (grewRows ? 1 : 0)
+                                + " grewHeight=" + (grewHeight ? 1 : 0)
+                                + " noProgress=" + viewportFillRetries
+                                + " invisible=" + viewportFillInvisibleRetries)
+                        }
                         viewportFillRetryTimer.restart()
                     })
                 }
