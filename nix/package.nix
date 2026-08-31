@@ -86,7 +86,7 @@ stdenv.mkDerivation {
   meta = {
     homepage = "https://www.lightning-matrix.org";
     description = "Native Qt 6/QML Matrix desktop client (C++20 + official Rust Matrix SDK)";
-    license = lib.licenses.gpl3Only;
+    license = lib.licenses.gpl3Plus;
     platforms = [
       "x86_64-linux"
       "aarch64-linux"
