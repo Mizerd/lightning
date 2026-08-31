@@ -21,6 +21,31 @@ RoomInfo room(const QString &id, bool direct = false, int members = 0)
     return value;
 }
 
+/// `n` seconds before a fixed instant, so "newer" is unambiguous and no case
+/// depends on wall-clock timing.
+QDateTime ago(int seconds)
+{
+    static const QDateTime base =
+        QDateTime(QDate(2026, 8, 31), QTime(13, 0), QTimeZone::UTC);
+    return base.addSecs(-seconds);
+}
+
+RoomInfo at(const QString &id, bool direct, int secondsAgo)
+{
+    RoomInfo value = room(id, direct);
+    value.lastActivity = ago(secondsAgo);
+    return value;
+}
+
+/// Row order as room ids — what the user sees, top to bottom.
+QStringList orderOf(const RoomListModel &model)
+{
+    QStringList out;
+    for (int i = 0; i < model.rowCount(); ++i)
+        out << model.data(model.index(i), RoomListModel::RoomIdRole).toString();
+    return out;
+}
+
 class FakeClient final : public MatrixClient
 {
     Q_OBJECT
@@ -114,11 +139,19 @@ private Q_SLOTS:
     void searchFiltersNameAndAliasAndFindsInvites();
     void filterModeSplitsPeopleRoomsUnreads();
     void identityColorKeyPolicyForDms();
-    void favouritesFormTheirOwnSectionAboveEverythingButInvites();
+    void invitesStayOnTopAndEverythingElseIsOneActivityFeed();
+    void aNewerRoomOutranksAnOlderDirectMessage();
+    void aNewerDirectMessageOutranksAnOlderRoom();
+    void aStaleFavouriteDoesNotDefeatRecency();
+    void peopleAndRoomsFiltersAreRecentFirst();
+    void unreadsFilterMixesDirectMessagesAndRoomsByRecency();
+    void incomingActivityMovesOneRowAndKeepsTheSelection();
+    void aSpaceScopedListUsesTheSameRecencyRule();
+    void roomsWithNoActivityYetSortLastAndDeterministically();
     void favouriteToggleIsNeverAppliedLocally();
     void everyCategoryTheModelEmitsHasASectionLabel();
     void theFavouritesSectionIsClosedOffByADivider();
-    void theFavouritesBoundaryIsOwnedByTheModel();
+    void theFavouritesBoundaryIsRetiredWithTheGroup();
     void roomActivityOnlyEverMovesForward();
     void aDirectMessageIsNeverScopedByTheSelectedSpace();
 };
@@ -133,10 +166,12 @@ void RoomStateModelTest::directClassificationUsesMDirectOnly()
     QCOMPARE(model.rowCount(), 2);
     QCOMPARE(model.data(model.index(0), RoomListModel::RoomIdRole).toString(),
              QStringLiteral("!large:example.org"));
-    QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("dm"));
-    QCOMPARE(model.data(model.index(1), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("room"));
+    // Direct-ness is IsDirectRole, not the section. The category role no
+    // longer tells a DM from a room: they share one activity feed, so it
+    // reports only which of the two SECTIONS a row is in (invite or
+    // conversation).
+    QVERIFY(model.data(model.index(0), RoomListModel::IsDirectRole).toBool());
+    QVERIFY(!model.data(model.index(1), RoomListModel::IsDirectRole).toBool());
 }
 
 void RoomStateModelTest::liveDirectUpdateChangesCategory()
@@ -145,15 +180,13 @@ void RoomStateModelTest::liveDirectUpdateChangesCategory()
     RoomListModel model;
     client.mirror = { room(QStringLiteral("!room:example.org"), false, 2) };
     model.setClient(&client);
-    QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("room"));
+    QVERIFY(!model.data(model.index(0), RoomListModel::IsDirectRole).toBool());
     client.mirror[0].isDirect = true;
     Q_EMIT client.roomUpdated(client.mirror[0].id);
     // v0.7 perf round: per-room updates coalesce onto a zero-timer
     // reconcile; settle it before asserting.
     QCoreApplication::processEvents();
-    QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("dm"));
+    QVERIFY(model.data(model.index(0), RoomListModel::IsDirectRole).toBool());
 }
 
 void RoomStateModelTest::inviteActionsRouteAndStaySeparate()
@@ -200,13 +233,11 @@ void RoomStateModelTest::directMappingRemovalReturnsToRoom()
     dm.directUserId = QStringLiteral("@bob:example.org");
     client.mirror = { dm };
     model.setClient(&client);
-    QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("dm"));
+    QVERIFY(model.data(model.index(0), RoomListModel::IsDirectRole).toBool());
     client.mirror[0].isDirect = false;
     client.mirror[0].directUserId.clear();
     Q_EMIT client.roomsChanged();
-    QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("room"));
+    QVERIFY(!model.data(model.index(0), RoomListModel::IsDirectRole).toBool());
 }
 
 void RoomStateModelTest::effectiveDirectAvatarPolicy()
@@ -712,69 +743,199 @@ void RoomStateModelTest::identityColorKeyPolicyForDms()
              QStringLiteral("@ga:example.org"));
 }
 
-// Element classic pins a Favourites section above People and Rooms, and a
-// favourited DM lives THERE rather than in both places. RoomsPanel opens one
-// header per contiguous run of the `category` role, so this also pins the
-// property that makes the headers work at all: each category is exactly one
-// run, which is only true while the sort and the role read the same
-// classification (RoomListModel::groupIndexOf).
-void RoomStateModelTest::favouritesFormTheirOwnSectionAboveEverythingButInvites()
+// ── One activity feed (2026-08-31) ───────────────────────────────────────
+//
+// REPLACES favouritesFormTheirOwnSectionAboveEverythingButInvites, which
+// pinned the OLD rule: invites, then favourites, then DMs, then rooms, with
+// recency applied only INSIDE each of those. That is why a room which had
+// just received a message sat below every person the user had ever spoken
+// to, and why starring a conversation froze it above live traffic for good.
+//
+// The rule now is two ranks. Invitations need action and stay on top;
+// everything joined below them is ONE feed ordered purely by when somebody
+// last spoke, DMs and rooms interleaved. A favourite keeps its star and its
+// filter behaviour and loses only its rank.
+
+void RoomStateModelTest::invitesStayOnTopAndEverythingElseIsOneActivityFeed()
 {
     FakeClient client;
     RoomListModel model;
-    auto invite = room(QStringLiteral("!invite:example.org"));
+    auto invite = at(QStringLiteral("!invite:example.org"), false, 9999);
     invite.membership = RoomInfo::Invited;
-    auto favouriteDm = room(QStringLiteral("!favdm:example.org"), true, 2);
-    favouriteDm.isFavourite = true;
-    auto favouriteRoom = room(QStringLiteral("!favroom:example.org"));
-    favouriteRoom.isFavourite = true;
-    const auto plainDm = room(QStringLiteral("!dm:example.org"), true, 2);
-    const auto plainRoom = room(QStringLiteral("!room:example.org"));
-    // Deliberately shuffled: the ordering must come from the sort, not from
-    // the order the backend happened to hand rooms over in.
-    client.mirror = { plainRoom, favouriteDm, invite, plainDm, favouriteRoom };
+    const auto newRoom = at(QStringLiteral("!newroom:example.org"), false, 60);
+    const auto oldDm   = at(QStringLiteral("!olddm:example.org"), true, 600);
+    const auto newDm   = at(QStringLiteral("!newdm:example.org"), true, 30);
+    const auto oldRoom = at(QStringLiteral("!oldroom:example.org"), false, 900);
+    // Shuffled: the order must come from the sort, not from the backend.
+    client.mirror = { oldRoom, newDm, invite, oldDm, newRoom };
     model.setClient(&client);
-    QCOMPARE(model.rowCount(), 5);
 
+    // The invite is the STALEST thing here and still leads, because it needs
+    // action. Everything below it is strictly by recency, alternating kinds.
+    QCOMPARE(orderOf(model),
+             (QStringList{ invite.id, newDm.id, newRoom.id, oldDm.id,
+                           oldRoom.id }));
+
+    // The section role collapses to two values, so the presenter cannot draw
+    // a second "People" header halfway down a list that alternates.
     QStringList categories;
     for (int i = 0; i < model.rowCount(); ++i) {
         categories << model.data(model.index(i), RoomListModel::CategoryRole)
                           .toString();
     }
     QCOMPARE(categories,
-             (QStringList{ QStringLiteral("invite"), QStringLiteral("favourite"),
-                           QStringLiteral("favourite"), QStringLiteral("dm"),
-                           QStringLiteral("room") }));
-    // Every category is ONE contiguous run — a second "People" header
-    // halfway down the list is the failure this guards.
+             (QStringList{ QStringLiteral("invite"),
+                           QStringLiteral("conversation"),
+                           QStringLiteral("conversation"),
+                           QStringLiteral("conversation"),
+                           QStringLiteral("conversation") }));
     QStringList runs;
     for (const QString &category : std::as_const(categories)) {
         if (runs.isEmpty() || runs.constLast() != category)
             runs << category;
     }
-    QCOMPARE(runs.size(), 4);
+    QCOMPARE(runs.size(), 2);
+}
 
-    // The favourited DM reports the favourite section AND is still a DM, so
-    // the People filter keeps it (Element does the same).
-    const auto rowOf = [&model](const QString &roomId) {
-        for (int i = 0; i < model.rowCount(); ++i) {
-            if (model.data(model.index(i), RoomListModel::RoomIdRole)
-                    .toString() == roomId)
-                return i;
-        }
-        return -1;
-    };
-    QVERIFY(model.data(model.index(rowOf(favouriteDm.id)),
-                       RoomListModel::IsDirectRole).toBool());
-    QVERIFY(model.data(model.index(rowOf(favouriteDm.id)),
-                       RoomListModel::IsFavouriteRole).toBool());
-    QVERIFY(!model.data(model.index(rowOf(plainDm.id)),
-                        RoomListModel::IsFavouriteRole).toBool());
+void RoomStateModelTest::aNewerRoomOutranksAnOlderDirectMessage()
+{
+    // The report, stated exactly: a room with a message from 13:05 must be
+    // above a DM whose latest was 12:40.
+    FakeClient client;
+    RoomListModel model;
+    const auto dm = at(QStringLiteral("!dm:example.org"), true, 25 * 60);
+    const auto room1305 = at(QStringLiteral("!room:example.org"), false, 0);
+    client.mirror = { dm, room1305 };
+    model.setClient(&client);
+    QCOMPARE(orderOf(model), (QStringList{ room1305.id, dm.id }));
+}
+
+void RoomStateModelTest::aNewerDirectMessageOutranksAnOlderRoom()
+{
+    // The converse, so the fix cannot be "rooms now win".
+    FakeClient client;
+    RoomListModel model;
+    const auto room1305 = at(QStringLiteral("!room:example.org"), false, 60);
+    const auto dm1306 = at(QStringLiteral("!dm:example.org"), true, 0);
+    client.mirror = { room1305, dm1306 };
+    model.setClient(&client);
+    QCOMPARE(orderOf(model), (QStringList{ dm1306.id, room1305.id }));
+}
+
+void RoomStateModelTest::aStaleFavouriteDoesNotDefeatRecency()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto staleFavourite = at(QStringLiteral("!fav:example.org"), false, 86400);
+    staleFavourite.isFavourite = true;
+    const auto fresh = at(QStringLiteral("!fresh:example.org"), false, 10);
+    client.mirror = { staleFavourite, fresh };
+    model.setClient(&client);
+
+    QCOMPARE(orderOf(model), (QStringList{ fresh.id, staleFavourite.id }));
+    // The star is untouched — it lost rank, not meaning.
+    QVERIFY(model.data(model.index(1), RoomListModel::IsFavouriteRole).toBool());
+    // And the divider that used to close the favourites group is retired,
+    // because the rows it separated are no longer adjacent.
+    QVERIFY(model.favouritesBoundaryRoomId().isEmpty());
+}
+
+void RoomStateModelTest::peopleAndRoomsFiltersAreRecentFirst()
+{
+    FakeClient client;
+    RoomListModel model;
+    const auto dmOld = at(QStringLiteral("!dmold:example.org"), true, 900);
+    const auto dmNew = at(QStringLiteral("!dmnew:example.org"), true, 30);
+    const auto roomOld = at(QStringLiteral("!roomold:example.org"), false, 800);
+    const auto roomNew = at(QStringLiteral("!roomnew:example.org"), false, 20);
+    client.mirror = { dmOld, roomOld, dmNew, roomNew };
+    model.setClient(&client);
+
     model.setFilterMode(1); // People
-    QCOMPARE(model.rowCount(), 3); // invite always passes, + both DMs
-    QCOMPARE(model.data(model.index(rowOf(favouriteDm.id)),
-                        RoomListModel::CategoryRole).toString(),
-             QStringLiteral("favourite"));
+    QCOMPARE(orderOf(model), (QStringList{ dmNew.id, dmOld.id }));
+    model.setFilterMode(2); // Rooms
+    QCOMPARE(orderOf(model), (QStringList{ roomNew.id, roomOld.id }));
+}
+
+void RoomStateModelTest::unreadsFilterMixesDirectMessagesAndRoomsByRecency()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto dm = at(QStringLiteral("!dm:example.org"), true, 500);
+    dm.hasUnreadMessages = true;
+    auto roomRow = at(QStringLiteral("!room:example.org"), false, 40);
+    roomRow.hasUnreadMessages = true;
+    client.mirror = { dm, roomRow };
+    model.setClient(&client);
+    model.setFilterMode(3); // Unreads
+    QCOMPARE(orderOf(model), (QStringList{ roomRow.id, dm.id }));
+}
+
+void RoomStateModelTest::incomingActivityMovesOneRowAndKeepsTheSelection()
+{
+    FakeClient client;
+    RoomListModel model;
+    const auto a = at(QStringLiteral("!a:example.org"), false, 100);
+    const auto b = at(QStringLiteral("!b:example.org"), true, 200);
+    const auto c = at(QStringLiteral("!c:example.org"), false, 300);
+    client.mirror = { a, b, c };
+    model.setClient(&client);
+    QCOMPARE(orderOf(model), (QStringList{ a.id, b.id, c.id }));
+
+    // A message arrives in the OLDEST room. It must MOVE, not reset the
+    // model: a reset destroys every delegate and drops the reader's place.
+    QSignalSpy reset(&model, &QAbstractItemModel::modelReset);
+    client.mirror[2].lastActivity = ago(0);
+    Q_EMIT client.roomsChanged();
+
+    QCOMPARE(orderOf(model), (QStringList{ c.id, a.id, b.id }));
+    QCOMPARE(reset.count(), 0);
+}
+
+void RoomStateModelTest::aSpaceScopedListUsesTheSameRecencyRule()
+{
+    // Space scoping narrows WHICH rooms are listed; it must not change how
+    // they are ordered. This is the case behind "inside a Space all the
+    // People sit at the top and the rooms are buried far below".
+    FakeClient client;
+    RoomListModel model;
+    SpaceManager spaces;
+    auto space = room(QStringLiteral("!space:example.org"));
+    space.isSpace = true;
+    space.childRoomIds = { QStringLiteral("!inroom:example.org"),
+                           QStringLiteral("!inolder:example.org") };
+    const auto inOlder = at(QStringLiteral("!inolder:example.org"), false, 900);
+    const auto inRoom = at(QStringLiteral("!inroom:example.org"), false, 10);
+    client.mirror = { space, inOlder, inRoom };
+    spaces.setClient(&client);
+    model.setClient(&client);
+    model.setSpaceManager(&spaces);
+    // Scope comes from the manager's selection, which is what the rail sets.
+    spaces.setActiveSpaceId(space.id);
+
+    QCOMPARE(orderOf(model), (QStringList{ inRoom.id, inOlder.id }));
+}
+
+void RoomStateModelTest::roomsWithNoActivityYetSortLastAndDeterministically()
+{
+    // A room that has never had a message carries an invalid timestamp.
+    // Without an explicit rule those compare unpredictably and the list
+    // reshuffles itself between syncs from nothing but backend order.
+    FakeClient client;
+    RoomListModel model;
+    auto quietB = room(QStringLiteral("!q2:example.org"));
+    quietB.name = QStringLiteral("Beta");
+    quietB.lastActivity = QDateTime();
+    auto quietA = room(QStringLiteral("!q1:example.org"));
+    quietA.name = QStringLiteral("Alpha");
+    quietA.lastActivity = QDateTime();
+    const auto active = at(QStringLiteral("!live:example.org"), false, 3600);
+    client.mirror = { quietB, active, quietA };
+    model.setClient(&client);
+
+    // The active room leads however stale, then the silent ones by name.
+    QCOMPARE(orderOf(model),
+             (QStringList{ active.id, quietA.id, quietB.id }));
 }
 
 // The tag is ACCOUNT state. Flipping the row locally would show a favourite
@@ -793,16 +954,18 @@ void RoomStateModelTest::favouriteToggleIsNeverAppliedLocally()
     QCOMPARE(client.favouriteRoom, QStringLiteral("!room:example.org"));
     QCOMPARE(client.favouriteWrites, 1);
     QVERIFY(client.lastFavourite);
-    // The backend has not confirmed anything, so nothing moved.
+    // The backend has not confirmed anything, so nothing changed.
     QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("room"));
+             QStringLiteral("conversation"));
     QVERIFY(!model.data(model.index(0), RoomListModel::IsFavouriteRole).toBool());
 
     // Only the backend reflecting the tag back changes the row.
     client.mirror[0].isFavourite = true;
     Q_EMIT client.roomsChanged();
+    // Still one conversation section; what proves the write landed is the
+    // favourite FLAG, not a section of its own.
     QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("favourite"));
+             QStringLiteral("conversation"));
     QVERIFY(model.isRoomFavourite(QStringLiteral("!room:example.org")));
 
     client.favouritesSupported = false;
@@ -824,34 +987,47 @@ void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
              qPrintable(file.fileName()));
     const QString source = QString::fromUtf8(file.readAll());
 
+    // 2026-08-31: the model emits TWO categories now, not four. DMs, rooms
+    // and favourites share one activity feed, so a finer split would repeat
+    // its header every time the kinds alternate — which, in a list ordered by
+    // when people spoke, is constantly.
     RoomInfo probe;
     probe.membership = RoomInfo::Invited;
     QStringList emitted{ RoomListModel::categoryOf(probe) };
     probe.membership = RoomInfo::Joined;
+    // Every joined shape must land in the SAME section: a favourite, a DM, a
+    // favourited DM and a plain room.
     probe.isFavourite = true;
     emitted << RoomListModel::categoryOf(probe);
-    probe.isFavourite = false;
     probe.isDirect = true;
+    emitted << RoomListModel::categoryOf(probe);
+    probe.isFavourite = false;
     emitted << RoomListModel::categoryOf(probe);
     probe.isDirect = false;
     emitted << RoomListModel::categoryOf(probe);
     QCOMPARE(emitted,
-             (QStringList{ QStringLiteral("invite"), QStringLiteral("favourite"),
-                           QStringLiteral("dm"), QStringLiteral("room") }));
+             (QStringList{ QStringLiteral("invite"),
+                           QStringLiteral("conversation"),
+                           QStringLiteral("conversation"),
+                           QStringLiteral("conversation"),
+                           QStringLiteral("conversation") }));
 
-    // "room" is the delegate's fallback branch and carries no test, so it is
-    // checked by its label instead.
-    for (const QString &category : std::as_const(emitted)) {
-        if (category == QStringLiteral("room"))
-            continue;
-        QVERIFY2(source.contains(QStringLiteral("section === \"%1\"")
-                                     .arg(category)),
-                 qPrintable(QStringLiteral("the Classic presenter has no "
-                                           "section label for category "
-                                           "'%1'").arg(category)));
+    // The invite section is still matched by name in the delegate; the
+    // conversation section takes its label from the active filter, so what
+    // must exist there is the fallback property rather than a second
+    // `section ===` branch.
+    QVERIFY2(source.contains(QStringLiteral("section === \"invite\"")),
+             "the Classic presenter has no section label for invites");
+    QVERIFY2(source.contains(QStringLiteral("conversationSectionLabel")),
+             "the Classic presenter has no label for the conversation "
+             "section");
+    // One label per filter mode, so no mode falls through to a wrong name.
+    for (const char *label : { "Conversations", "People", "Rooms", "Unread" }) {
+        QVERIFY2(source.contains(
+                     QStringLiteral("qsTr(\"%1\")").arg(QLatin1String(label))),
+                 qPrintable(QStringLiteral("no section label '%1'")
+                                .arg(QLatin1String(label))));
     }
-    QVERIFY(source.contains(QStringLiteral("qsTr(\"Favourites\")")));
-    QVERIFY(source.contains(QStringLiteral("qsTr(\"Rooms\")")));
 }
 
 
@@ -914,52 +1090,53 @@ void RoomStateModelTest::theFavouritesSectionIsClosedOffByADivider()
              "the selection chip must yield the row's last pixel line to the rule");
 }
 
-void RoomStateModelTest::theFavouritesBoundaryIsOwnedByTheModel()
+void RoomStateModelTest::theFavouritesBoundaryIsRetiredWithTheGroup()
 {
+    // WAS theFavouritesBoundaryIsOwnedByTheModel, which pinned the rule under
+    // the last favourite. There is no favourites GROUP to close off any more:
+    // favourites are interleaved with everything else by recency, so the rows
+    // the rule separated are no longer adjacent and a line drawn anywhere in
+    // the feed would divide nothing.
+    //
+    // Kept as a case rather than deleted, because "the model reports no
+    // boundary" is exactly what the surviving QML binding depends on — the
+    // property is still bound, and a future non-empty value would silently
+    // start ruling a random row.
     FakeClient client;
     RoomListModel model;
-    auto favA = room(QStringLiteral("!favA:example.org"));
+    auto favA = at(QStringLiteral("!favA:example.org"), false, 500);
     favA.isFavourite = true;
-    auto favB = room(QStringLiteral("!favB:example.org"));
+    auto favB = at(QStringLiteral("!favB:example.org"), false, 400);
     favB.isFavourite = true;
-    const auto plain = room(QStringLiteral("!plain:example.org"));
+    const auto plain = at(QStringLiteral("!plain:example.org"), false, 10);
     client.mirror = { favA, favB, plain };
     model.setClient(&client);
 
-    // Sorted invites -> favourites -> DMs -> rooms, so the boundary is the
-    // second favourite, whichever order the two of them settle in.
     QCOMPARE(model.rowCount(), 3);
-    QCOMPARE(model.data(model.index(2), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("room"));
-    const QString expected =
-        model.data(model.index(1), RoomListModel::RoomIdRole).toString();
-    QCOMPARE(model.favouritesBoundaryRoomId(), expected);
+    // The plain room is the newest, so it leads — the favourites do not.
+    QCOMPARE(orderOf(model), (QStringList{ plain.id, favB.id, favA.id }));
+    // Both favourites keep their star.
+    QVERIFY(model.data(model.index(1), RoomListModel::IsFavouriteRole).toBool());
+    QVERIFY(model.data(model.index(2), RoomListModel::IsFavouriteRole).toBool());
+    // And every row is in the one conversation section.
+    for (int i = 0; i < model.rowCount(); ++i) {
+        QCOMPARE(model.data(model.index(i), RoomListModel::CategoryRole)
+                     .toString(),
+                 QStringLiteral("conversation"));
+    }
+    QVERIFY2(model.favouritesBoundaryRoomId().isEmpty(),
+             "there is no favourites group left to close off");
 
-    // Un-favouriting the boundary room moves the rule up a row.
-    QSignalSpy moved(&model, &RoomListModel::favouritesBoundaryRoomIdChanged);
+    // Un-favouriting changes nothing about the order, which is the point:
+    // the star no longer buys rank.
     for (auto &r : client.mirror) {
-        if (r.id == expected)
+        if (r.id == favB.id)
             r.isFavourite = false;
     }
-    Q_EMIT client.roomUpdated(expected);
+    Q_EMIT client.roomUpdated(favB.id);
     QCoreApplication::processEvents();
-    QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("favourite"));
-    QCOMPARE(model.favouritesBoundaryRoomId(),
-             model.data(model.index(0), RoomListModel::RoomIdRole).toString());
-    QVERIFY(moved.count() >= 1);
-
-    // A list that is ENTIRELY favourites has nothing below the group, and a
-    // trailing rule would divide it from the bottom of the window.
-    for (auto &r : client.mirror)
-        r.isFavourite = true;
-    for (const auto &r : client.mirror)
-        Q_EMIT client.roomUpdated(r.id);
-    QCoreApplication::processEvents();
-    QCOMPARE(model.data(model.index(2), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("favourite"));
-    QVERIFY2(model.favouritesBoundaryRoomId().isEmpty(),
-             "a favourites-only list must not hang a trailing rule");
+    QCOMPARE(orderOf(model), (QStringList{ plain.id, favB.id, favA.id }));
+    QVERIFY(model.favouritesBoundaryRoomId().isEmpty());
 }
 
 void RoomStateModelTest::roomActivityOnlyEverMovesForward()

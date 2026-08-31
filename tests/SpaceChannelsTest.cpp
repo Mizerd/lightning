@@ -141,6 +141,18 @@ RoomInfo room(const QString &id, const QString &name, int unread = 0,
     return info;
 }
 
+/// `n` seconds before a fixed instant, so "newer" is unambiguous and no case
+/// depends on wall-clock timing. Rooms built by `room()` above carry NO
+/// activity at all, which is why the alphabetical assertions elsewhere in this
+/// file still hold: with every timestamp invalid the recency comparator falls
+/// through to its name tiebreak.
+QDateTime ago(int seconds)
+{
+    static const QDateTime base =
+        QDateTime(QDate(2026, 8, 31), QTime(13, 0), QTimeZone::UTC);
+    return base.addSecs(-seconds);
+}
+
 RoomInfo dm(const QString &id, const QString &name)
 {
     RoomInfo info = room(id, name);
@@ -237,6 +249,10 @@ private:
     };
 
 private Q_SLOTS:
+    void homeRoomsAreNewestFirstNotAlphabetical();
+    void directMessageChatsAreNewestFirst();
+    void aSpacesRoomsAreNewestFirstNotInChildOrder();
+    void aRoomMovesWhenSomebodySpeaksInIt();
     // THE DIRECT MESSAGES TAB MUST SURVIVE A SPACE-LIST REBUILD.
     //
     // SpaceManager drops the active scope when it is not a joined Space, which
@@ -1478,6 +1494,112 @@ private Q_SLOTS:
 private:
     QTemporaryDir m_configHome;
 };
+
+
+// ── Activity ordering (2026-08-31) ───────────────────────────────────────
+//
+// This column used to sort alphabetically, and the header said so as a
+// CONTRACT: "nothing here is activity-ordered: a channel list whose rows move
+// when somebody speaks is not a channel list". That was reversed — a stable
+// order is useless if the room somebody just posted in sits wherever its name
+// puts it, because the thing the user is looking for never moves to where
+// they are looking.
+//
+// These cases stamp real activity times. Note that every other case in this
+// file leaves lastActivity INVALID, which is why their alphabetical
+// expectations still hold: the shared comparator falls through to its name
+// tiebreak when no room has ever been spoken in.
+
+void SpaceChannelsTest::homeRoomsAreNewestFirstNotAlphabetical()
+{
+    Fixture f;
+    // Named so alphabetical and recency give OPPOSITE answers — otherwise the
+    // case passes on the old code and proves nothing.
+    auto alpha = room(QStringLiteral("!a:x"), QStringLiteral("Alpha"));
+    alpha.lastActivity = ago(900);
+    auto zulu = room(QStringLiteral("!z:x"), QStringLiteral("Zulu"));
+    zulu.lastActivity = ago(10);
+    f.build({ alpha, zulu });
+    f.selectHome();
+
+    const QStringList names = namesOf(f.model);
+    QVERIFY2(names.indexOf(QStringLiteral("Zulu"))
+                 < names.indexOf(QStringLiteral("Alpha")),
+             "Home rooms are still alphabetical, not newest-first");
+}
+
+void SpaceChannelsTest::directMessageChatsAreNewestFirst()
+{
+    Fixture f;
+    auto ada = dm(QStringLiteral("!ada:x"), QStringLiteral("Ada"));
+    ada.lastActivity = ago(900);
+    auto zoe = dm(QStringLiteral("!zoe:x"), QStringLiteral("Zoe"));
+    zoe.lastActivity = ago(10);
+    f.build({ ada, zoe });
+    f.selectPeople();
+
+    const QStringList names = namesOf(f.model);
+    QVERIFY2(names.indexOf(QStringLiteral("Zoe"))
+                 < names.indexOf(QStringLiteral("Ada")),
+             "People chats are still alphabetical, not newest-first");
+}
+
+void SpaceChannelsTest::aSpacesRoomsAreNewestFirstNotInChildOrder()
+{
+    Fixture f;
+    // m.space.child order deliberately puts the STALE room first, so a list
+    // that still follows it fails here. That order is the Space admin's idea
+    // of importance, which is a different question from where the
+    // conversation is.
+    auto space = room(QStringLiteral("!space:x"), QStringLiteral("Work"));
+    space.isSpace = true;
+    space.childRoomIds = { QStringLiteral("!stale:x"), QStringLiteral("!live:x") };
+    auto stale = room(QStringLiteral("!stale:x"), QStringLiteral("Archive"));
+    stale.lastActivity = ago(9000);
+    auto live = room(QStringLiteral("!live:x"), QStringLiteral("General"));
+    live.lastActivity = ago(5);
+    f.build({ space, stale, live });
+    f.selectSpace(space.id);
+
+    const QStringList names = namesOf(f.model);
+    QVERIFY2(names.indexOf(QStringLiteral("General"))
+                 < names.indexOf(QStringLiteral("Archive")),
+             "a Space's rooms still follow m.space.child order");
+    // The STRUCTURE is untouched: the Space is still the group header above
+    // its own rooms.
+    QVERIFY(names.indexOf(QStringLiteral("Work"))
+            < names.indexOf(QStringLiteral("General")));
+}
+
+void SpaceChannelsTest::aRoomMovesWhenSomebodySpeaksInIt()
+{
+    // The reason lastActivity had to be carried ON the row: applyRows diffs
+    // rows BY VALUE, so a sort key the row does not hold is a key the diff
+    // cannot see change — the list would claim to be activity-ordered and
+    // then sit still when a message arrived.
+    Fixture f;
+    auto alpha = room(QStringLiteral("!a:x"), QStringLiteral("Alpha"));
+    alpha.lastActivity = ago(10);
+    auto zulu = room(QStringLiteral("!z:x"), QStringLiteral("Zulu"));
+    zulu.lastActivity = ago(900);
+    f.build({ alpha, zulu });
+    f.selectHome();
+    QStringList names = namesOf(f.model);
+    QVERIFY(names.indexOf(QStringLiteral("Alpha"))
+            < names.indexOf(QStringLiteral("Zulu")));
+
+    // Somebody speaks in the older room.
+    f.client.roomList[1].lastActivity = ago(0);
+    f.client.announce();
+    // Source signals coalesce onto a zero-timer so a burst costs one rebuild;
+    // settle it before asserting.
+    QCoreApplication::processEvents();
+
+    names = namesOf(f.model);
+    QVERIFY2(names.indexOf(QStringLiteral("Zulu"))
+                 < names.indexOf(QStringLiteral("Alpha")),
+             "the row did not move when the room received a message");
+}
 
 QTEST_MAIN(SpaceChannelsTest)
 #include "SpaceChannelsTest.moc"

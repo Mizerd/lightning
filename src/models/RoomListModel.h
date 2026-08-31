@@ -136,7 +136,7 @@ public:
     QString favouritesBoundaryRoomId() const { return m_favouritesBoundaryRoomId; }
     // The one classification: section string and sort group read the same
     // function so a category can never be split across two runs.
-    static int groupIndexOf(const RoomInfo &room);
+    static int orderRankOf(const RoomInfo &room);
     static QString categoryOf(const RoomInfo &room);
 
     void resetRooms(const QList<RoomInfo> &rooms);

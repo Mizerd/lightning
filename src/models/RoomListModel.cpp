@@ -1,5 +1,7 @@
 #include "models/RoomListModel.h"
 
+#include "models/ConversationOrder.h"
+
 #include "matrix/MatrixClient.h"
 #include "spaces/SpaceManager.h"
 
@@ -249,7 +251,9 @@ QVariantList RoomListModel::recentRooms(int max) const
     }
     std::stable_sort(pool.begin(), pool.end(),
                      [](const RoomInfo &a, const RoomInfo &b) {
-                         return a.lastActivity > b.lastActivity;
+                         return conversation::moreRecent(
+                             a.lastActivity, a.name, a.id,
+                             b.lastActivity, b.name, b.id);
                      });
     QVariantList out;
     for (const auto &r : pool) {
@@ -457,33 +461,39 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded) con
             if (passesFilter(r))
                 desired.append(r);
         }
-        // Invitations are separate, then favourites, then Matrix m.direct
-        // rooms, then normal joined rooms — groupIndexOf() owns that order
-        // and the `category` role reads the same function. Member count is
-        // deliberately irrelevant.
+        // ONE ACTIVITY FEED. Invitations stay a block at the top because
+        // they need action; everything joined below them is ordered purely by
+        // when somebody last spoke, with direct messages and rooms
+        // interleaved.
+        //
+        // This used to sort by category first — invites, favourites, DMs,
+        // rooms — so a room that had just received a message sat below every
+        // person the user had ever spoken to, and reaching it meant scrolling
+        // past the entire People section. Favourites made it worse: starring
+        // a conversation froze it above live traffic forever.
+        //
+        // A favourite keeps its star and everything else it does; what it no
+        // longer gets is RANK, because a list sorted by importance-someone-
+        // declared-once is not a list of what is happening now.
+        //
         // v0.7.x room upgrades: a room whose successor the user can reach
-        // sorts BELOW every live room. Deliberately a demotion and not a
-        // filter — the old room stays present, openable and readable, which
-        // is the whole point of banner-and-link over auto-follow.
-        // A superseded room sinks WITHIN its own group rather than below
-        // every other room. RoomsPanel sections the list by the `category`
-        // role (invite/dm/room), which until now corresponded 1:1 with these
-        // groups, so each category was one contiguous run. A fourth top-level
-        // group would be the first to mix categories, producing a second
-        // "PEOPLE"/"ROOMS" header at the bottom of the list — and it would
-        // demote a superseded INVITE out of the top block, breaking the
-        // "invitations are separate" rule stated above.
+        // sorts BELOW every live room of the same rank. Deliberately a
+        // demotion and not a filter — the old room stays present, openable
+        // and readable, which is the whole point of banner-and-link over
+        // auto-follow. It is applied before recency so a superseded room
+        // cannot outrank a live one by having been busy.
         std::stable_sort(desired.begin(), desired.end(),
                          [&superseded](const RoomInfo &a, const RoomInfo &b) {
-            const int aGroup = groupIndexOf(a);
-            const int bGroup = groupIndexOf(b);
-            if (aGroup != bGroup)
-                return aGroup < bGroup;
+            const int aRank = orderRankOf(a);
+            const int bRank = orderRankOf(b);
+            if (aRank != bRank)
+                return aRank < bRank;
             const bool aOld = superseded.contains(a.id);
             const bool bOld = superseded.contains(b.id);
             if (aOld != bOld)
                 return bOld;
-            return a.lastActivity > b.lastActivity;
+            return conversation::moreRecent(a.lastActivity, a.name, a.id,
+                                            b.lastActivity, b.name, b.id);
         });
     }
     return desired;
@@ -673,51 +683,52 @@ void RoomListModel::markRoomUnread(const QString &roomId)
     if (m_client) m_client->setRoomMarkedUnread(roomId, true);
 }
 
-// The section a row belongs to, and the ONLY classification in this file.
+// Where a row sits in the list's top-level order, and the ONLY classification
+// in this file.
 //
-// RoomsPanel opens one header per contiguous run of the `category` role, so
-// desiredRooms() has to sort by exactly this classification: an ordering
-// that disagrees with the string splits a category into two runs and the
-// list grows a second "PEOPLE" header further down. Both callers read this
-// one function so they cannot drift apart.
-int RoomListModel::groupIndexOf(const RoomInfo &room)
+// There are exactly two ranks, and that is the point. Invitations need action
+// and are held at the top; everything else is one activity feed in which a
+// direct message and a room compete on nothing but recency. The category role
+// below is derived from this same function, so the sort and the section
+// headers cannot disagree — RoomsPanel opens one header per contiguous run of
+// `category`, and an ordering that disagreed with the string would split a
+// section in two and grow a second "PEOPLE" header further down the list.
+int RoomListModel::orderRankOf(const RoomInfo &room)
 {
     // Invitations stay first — they need action, and a room the user has not
     // joined cannot carry their tags anyway.
     if (room.membership == RoomInfo::Invited)
         return 0;
-    // A favourite outranks its own kind, as in Element classic: a
-    // favourited DM appears under Favourites and NOT also under People.
-    if (room.isFavourite)
-        return 1;
-    return room.isDirect ? 2 : 3;
+    return 1;
 }
 
 QString RoomListModel::categoryOf(const RoomInfo &room)
 {
-    switch (groupIndexOf(room)) {
-    case 0:  return QStringLiteral("invite");
-    case 1:  return QStringLiteral("favourite");
-    case 2:  return QStringLiteral("dm");
-    default: return QStringLiteral("room");
-    }
+    // Two values, because there are two ranks. "conversation" covers DMs and
+    // rooms alike: they are interleaved by recency, so any finer split would
+    // repeat its header every time the two kinds alternate — which, in a list
+    // ordered by when people spoke, is constantly.
+    //
+    // The label a user reads is chosen by the presenter from the active
+    // filter (People / Rooms / Unread / everything), because that is what the
+    // section actually contains; the model does not need to know.
+    return orderRankOf(room) == 0 ? QStringLiteral("invite")
+                                  : QStringLiteral("conversation");
 }
 
 void RoomListModel::updateFavouritesBoundary()
 {
-    // groupIndexOf == 1 is the favourites group (0 invites, 2 DMs, 3 rooms),
-    // and the list is already sorted by it, so the boundary is the last
-    // favourite that still has a row after it. No trailing row means no
-    // rule: a divider hanging off the bottom of the list divides nothing.
-    QString boundary;
-    for (int i = 0; i < m_rooms.size(); ++i) {
-        if (groupIndexOf(m_rooms.at(i)) != 1)
-            continue;
-        boundary = (i + 1 < m_rooms.size()) ? m_rooms.at(i).id : QString();
-    }
-    if (boundary == m_favouritesBoundaryRoomId)
+    // RETIRED, deliberately, and kept as a no-op rather than removed so the
+    // property stays bound and every consumer keeps working.
+    //
+    // The divider marked the end of the favourites GROUP, and there is no
+    // such group any more: favourites are interleaved with everything else by
+    // recency, so the rows it used to separate are no longer adjacent and a
+    // line drawn anywhere in the feed would divide nothing. Favouriting still
+    // works and still shows its star; it simply no longer buys rank.
+    if (m_favouritesBoundaryRoomId.isEmpty())
         return;
-    m_favouritesBoundaryRoomId = boundary;
+    m_favouritesBoundaryRoomId.clear();
     Q_EMIT favouritesBoundaryRoomIdChanged();
 }
 

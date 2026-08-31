@@ -38,6 +38,18 @@ Item {
     // than reaching up into a parent by id — which is what made the reader
     // popover's click silently dead when it was a pane-root function.
     signal roomActivated(string roomId)
+
+    // Mirrors RoomListModel's filter modes: 0 all, 1 People, 2 Rooms,
+    // 3 Unreads. Read once here so the section delegate stays a binding
+    // rather than repeating the mapping per header.
+    readonly property string conversationSectionLabel: {
+        switch (app.roomList ? app.roomList.filterMode : 0) {
+        case 1:  return qsTr("People")
+        case 2:  return qsTr("Rooms")
+        case 3:  return qsTr("Unread")
+        default: return qsTr("Conversations")
+        }
+    }
     signal createRequested(string mode)
     signal discoverRequested
     signal roomLinkCopyRequested(string roomId)
@@ -109,11 +121,21 @@ Item {
                 // was re-typed inline in seven places across the app.
                 // These are the shared section-label tokens.
                 //
-                // One label per RoomListModel::categoryOf() value: the
-                // last branch is a FALLBACK, so a category with no case
-                // here renders "Rooms" over a section that is not rooms
-                // rather than failing. Keep the two in step.
-                text: section === "invite" ? qsTr("Invites") : section === "favourite" ? qsTr("Favourites") : section === "dm" ? qsTr("People") : qsTr("Rooms")
+                // categoryOf() now yields exactly two values — "invite"
+                // and "conversation" — because the joined rows below the
+                // invites are ONE activity feed with DMs and rooms
+                // interleaved. Splitting that by kind would repeat its
+                // header every time the two alternate, which in a list
+                // ordered by when people spoke is constantly.
+                //
+                // So the conversation section takes its name from the
+                // active filter chip, which is what the section actually
+                // contains. Under "All" it says Conversations, because
+                // calling a list that holds both People or Rooms would be
+                // a lie about half of it.
+                text: section === "invite"
+                      ? qsTr("Invites")
+                      : root.conversationSectionLabel
                 color: AppTheme.sectionLabelColor
                 font.family: AppTheme.menuSectionFont
                 font.pixelSize: AppTheme.menuSectionSize
@@ -125,18 +147,12 @@ Item {
         delegate: RoomDelegate {
             width: ListView.view.width
             selected: model.roomId === app.currentRoomId
-            // Rule under the last favourited room, closing that group
-            // off from People / Rooms below it. Scoped to favourites on
-            // purpose: it marks the pinned priority block, and a rule
-            // under EVERY group turns a 300px column into a table.
-            //
-            // Asked of the MODEL, not of ListView.section /
-            // ListView.nextSection. Those attached properties go stale
-            // under `reuseItems` and row moves, and opening an older room
-            // re-sorts the list — so the rule vanished whenever a room
-            // near the boundary was selected. The model owns the sort and
-            // answers with the room id the rule belongs under (empty when
-            // there is nothing below it to divide from).
+            // The favourites rule is retired along with the favourites
+            // GROUP: favourites are now interleaved with everything else
+            // by recency, so the rows it separated are no longer adjacent
+            // and a line anywhere in the feed would divide nothing. The
+            // model reports an empty boundary permanently; the binding is
+            // kept so the property stays live for whatever divides next.
             showGroupDivider: app.roomList.favouritesBoundaryRoomId.length > 0 && model.roomId === app.roomList.favouritesBoundaryRoomId
             onClicked: if (model.membership === "joined")
                 root.roomActivated(model.roomId)

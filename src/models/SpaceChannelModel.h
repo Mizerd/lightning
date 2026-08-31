@@ -48,12 +48,23 @@
 //  * INVITES are split the same way the rest is: a DM invite is in People, a
 //    room invite is at Home. A Space view carries none, because an invite is
 //    not yet a member of anything.
-//  * ORDER IS STABLE. Spaces follow the rail's own arrangement (the order the
-//    user dragged them into, folders expanded in place); rooms follow their
-//    Space's `m.space.child` order, and Home's "Rooms" and People's "Chats"
-//    are sorted by name. Nothing here is activity-ordered: a channel list
-//    whose rows move when somebody speaks is not a channel list. Unread
-//    changes a row's WEIGHT, never its position.
+//  * STRUCTURE IS FIXED, ORDER IS BY ACTIVITY. Spaces follow the rail's own
+//    arrangement (the order the user dragged them into, folders expanded in
+//    place) and that is NOT touched here — the rail is hand-arranged and
+//    reordering it would throw away the user's own work. Which Space owns
+//    which rooms, and each subspace as its own folder, is equally fixed.
+//    But WITHIN a group — Home's "Rooms", People's "Chats", a Space's rooms,
+//    a Space's People — rows are ordered newest conversation first, through
+//    the one comparator the Classic list also uses (models/ConversationOrder.h),
+//    so the two layouts cannot disagree about which room is more recent.
+//
+//    This reverses the rule that stood here until 2026-08-31 ("nothing here
+//    is activity-ordered: a channel list whose rows move when somebody speaks
+//    is not a channel list"). Alphabetical is a stable order and a useless
+//    one: a room somebody had just posted in sat wherever its name put it, so
+//    the thing the user was looking for never moved to where they were
+//    looking. Unread still changes a row's WEIGHT; now recency also changes
+//    its position.
 #pragma once
 
 #include <QAbstractListModel>
@@ -280,10 +291,24 @@ private:
         int hiddenUnread = 0;
         int hiddenHighlight = 0;
         QString iconName;
+        /// When somebody last spoke here. Carried on the row so a room can
+        /// MOVE when it receives a message: applyRows diffs rows by value, so
+        /// a sort key the row does not hold is a sort key the diff cannot see
+        /// change, and the row would sit still while the list claimed to be
+        /// activity-ordered. Empty for headers, actions, Lobby and Search.
+        QDateTime lastActivity;
 
         bool operator==(const Row &other) const;
         bool operator!=(const Row &other) const { return !(*this == other); }
     };
+
+    /// Newest conversation first, over this model's rows.
+    ///
+    /// Delegates to the SAME comparator the Classic list uses
+    /// (models/ConversationOrder.h), deliberately: two lists over the same
+    /// rooms that disagree about which is newer is a bug the user sees as
+    /// rooms swapping places when they switch layout.
+    static bool byRecency(const Row &a, const Row &b);
 
     /// Cancels any queued rebuild before running, so that after this returns
     /// nothing armed under the previous state is still on its way. Every

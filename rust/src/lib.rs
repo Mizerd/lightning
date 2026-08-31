@@ -8630,15 +8630,27 @@ async fn enqueue_spaces(
 /// older room moves it upwards, then it drops back down to where it was", and
 /// the tester's own guess — "hidden room updates, like users leaving or
 /// joining" — was right. A room's position must follow what was SAID in it.
+/// The room list's sort key: when a real CONVERSATION last happened here.
+///
+/// `LatestEventValue` is the SDK's room-list preview value, so every variant
+/// of it is already message-like — that is the whole reason it exists, and it
+/// is what makes this a conversation timestamp rather than an "anything
+/// happened" one.
+///
+/// Two things this deliberately does NOT do. It does not match only `Remote`:
+/// the three `Local*` variants are the user's OWN message on its way out, and
+/// dropping through on those meant a room you had just spoken in did not rise
+/// until the echo came back from the server. And it does not reach for
+/// `latest_event_timestamp()` except as a last resort, because that one is the
+/// latest event of ANY KIND — a membership change, a topic edit, a room whose
+/// timeline was loaded and brought state events into view. Ordering a
+/// conversation list by that makes rooms jump for things nobody said.
 fn room_ordering_timestamp_ms(
     latest: &matrix_sdk_base::latest_event::LatestEventValue,
     room: &Room,
 ) -> u64 {
-    use matrix_sdk_base::latest_event::LatestEventValue;
-    if let LatestEventValue::Remote(event) = latest {
-        if let Ok(deserialized) = event.raw().deserialize() {
-            return u64::from(deserialized.origin_server_ts().get());
-        }
+    if let Some(ts) = latest.timestamp() {
+        return u64::from(ts.get());
     }
     room.latest_event_timestamp().map(|ts| u64::from(ts.get())).unwrap_or(0)
 }

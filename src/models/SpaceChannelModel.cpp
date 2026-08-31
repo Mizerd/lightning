@@ -1,5 +1,7 @@
 #include "models/SpaceChannelModel.h"
 
+#include "models/ConversationOrder.h"
+
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
 #include "spaces/RailLayoutStore.h"
@@ -30,6 +32,12 @@ constexpr auto kIconMessageSearch = "search";
 constexpr auto kIconLobby = "flag";
 } // namespace
 
+bool SpaceChannelModel::byRecency(const Row &a, const Row &b)
+{
+    return conversation::moreRecent(a.lastActivity, a.name, a.id,
+                                    b.lastActivity, b.name, b.id);
+}
+
 bool SpaceChannelModel::Row::operator==(const Row &other) const
 {
     return id == other.id && name == other.name && kind == other.kind
@@ -41,7 +49,11 @@ bool SpaceChannelModel::Row::operator==(const Row &other) const
            && favourite == other.favourite
            && hiddenUnread == other.hiddenUnread
            && hiddenHighlight == other.hiddenHighlight
-           && iconName == other.iconName;
+           && iconName == other.iconName
+           // Part of identity so a row whose activity moved is DIFFERENT and
+           // the diff emits for it; without this the list could not reorder
+           // on a new message.
+           && lastActivity == other.lastActivity;
 }
 
 SpaceChannelModel::SpaceChannelModel(QObject *parent)
@@ -558,6 +570,7 @@ SpaceChannelModel::Row SpaceChannelModel::roomRow(const RoomInfo &info) const
     row.hasUnread = row.isInvite || info.hasUnreadMessages || info.markedUnread
                     || info.unreadCount > 0 || info.highlightCount > 0;
     row.favourite = info.isFavourite;
+    row.lastActivity = info.lastActivity;
     return row;
 }
 
@@ -618,14 +631,16 @@ int SpaceChannelModel::buildHome(QVector<Row> &rows,
             continue;
         unparented.append(roomRow(info));
     }
-    auto byName = [](const Row &a, const Row &b) {
-        const int cmp = a.name.compare(b.name, Qt::CaseInsensitive);
-        // Name, then id: two rooms may legitimately share a name, and a tie
-        // broken by nothing is a list that reorders itself between syncs.
-        return cmp != 0 ? cmp < 0 : a.id < b.id;
-    };
-    std::sort(invites.begin(), invites.end(), byName);
-    std::sort(unparented.begin(), unparented.end(), byName);
+    // NEWEST FIRST, exactly as the Classic list orders the same rooms — one
+    // shared comparator, so the two layouts cannot disagree about which
+    // conversation is more recent.
+    //
+    // This column used to sort alphabetically. That is a stable order and a
+    // useless one: a room somebody just posted in sat whereever its name put
+    // it, so the thing you were looking for never moved to where you were
+    // looking.
+    std::sort(invites.begin(), invites.end(), byRecency);
+    std::sort(unparented.begin(), unparented.end(), byRecency);
 
     int shown = 0;
     if (!invites.isEmpty()) {
@@ -667,12 +682,9 @@ int SpaceChannelModel::buildPeople(QVector<Row> &rows,
             continue;
         chats.append(roomRow(info));
     }
-    auto byName = [](const Row &a, const Row &b) {
-        const int cmp = a.name.compare(b.name, Qt::CaseInsensitive);
-        return cmp != 0 ? cmp < 0 : a.id < b.id;
-    };
-    std::sort(invites.begin(), invites.end(), byName);
-    std::sort(chats.begin(), chats.end(), byName);
+    // Chats newest first, like every other conversation list here.
+    std::sort(invites.begin(), invites.end(), byRecency);
+    std::sort(chats.begin(), chats.end(), byRecency);
 
     int shown = 0;
     if (!invites.isEmpty()) {
@@ -751,6 +763,12 @@ int SpaceChannelModel::buildSpace(QVector<Row> &rows,
                 children.append(roomRow(*childInfo));
             }
         }
+        // Within the group, newest first. The STRUCTURE — which Space owns
+        // which rooms, and each subspace as its own folder — is unchanged;
+        // only the order inside a group is. m.space.child order is the
+        // Space admin's idea of importance, which is not the same question as
+        // where the conversation is.
+        std::sort(children.begin(), children.end(), byRecency);
         shown += appendGroup(rows, header, children);
     }
     shown += appendSpacePeople(rows, byId);
@@ -814,10 +832,8 @@ int SpaceChannelModel::appendSpacePeople(QVector<Row> &rows,
     }
     if (people.isEmpty())
         return 0;
-    std::sort(people.begin(), people.end(), [](const Row &a, const Row &b) {
-        const int cmp = a.name.compare(b.name, Qt::CaseInsensitive);
-        return cmp != 0 ? cmp < 0 : a.id < b.id;
-    });
+    // A Space's People are conversations too, so they follow the same rule.
+    std::sort(people.begin(), people.end(), byRecency);
     Row header;
     header.id = spacePeopleGroupId();
     header.kind = GroupKind;
