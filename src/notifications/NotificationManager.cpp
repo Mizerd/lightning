@@ -346,6 +346,10 @@ void NotificationManager::processEvent(const TimelineEvent &event,
     payload.insert(QStringLiteral("roomId"), event.roomId);
     payload.insert(QStringLiteral("eventId"), event.eventId);
     payload.insert(QStringLiteral("threadRootId"), event.threadRootId);
+    // Carried so the delivery can raise the urgency: a message that names
+    // the user is the one it is least acceptable to miss.
+    payload.insert(QStringLiteral("mention"),
+                   event.mentionsMe || event.mentionsRoom);
     // Private preview deliberately keeps the generic app identity: a room or
     // DM avatar would disclose the conversation the user asked to hide —
     // and an initials disc discloses exactly the same thing, so it is
@@ -512,6 +516,18 @@ void NotificationManager::deliverNow(const QString &title,
     QVariantMap hints{
         { QStringLiteral("desktop-entry"), identity.desktopEntry },
     };
+    // URGENCY, so a mention does not quietly time out.
+    //
+    // freedesktop urgency: 0 low, 1 normal, 2 critical. A critical
+    // notification is not dismissed on a timer by GNOME or KDE — it waits
+    // for the user, which is the correct treatment for a message that named
+    // them and the wrong treatment for ordinary traffic, so ordinary traffic
+    // stays normal. Reported as messages going unnoticed entirely; a mention
+    // that expired while the user was away was indistinguishable from one
+    // that never arrived.
+    const bool mention = payload.value(QStringLiteral("mention")).toBool();
+    hints.insert(QStringLiteral("urgency"),
+                 QVariant::fromValue(uchar(mention ? 2 : 1)));
     if (!avatar.isNull()) {
         hints.insert(QStringLiteral("image-data"),
                      QVariant::fromValue(notificationImage(avatar)));
