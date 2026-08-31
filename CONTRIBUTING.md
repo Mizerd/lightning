@@ -14,7 +14,8 @@ directly to it is overwritten by the next release push.
 
 Anyone can clone either one. On the GitLab instance public registration is closed
 and the issue tracker, merge requests and forks are limited to members, so there
-are two ways to send a change and neither needs an account there.
+are two ways to send a change and neither needs an account there — a pull
+request on the GitHub mirror is the simpler of the two.
 
 ## Reporting a bug
 
@@ -28,7 +29,25 @@ private message contents.
 
 ## Sending a change
 
-### 1. A patch by email — the default
+### 1. A pull request on the GitHub mirror — the easiest way
+
+Fork [Mizerd/lightning](https://github.com/Mizerd/lightning) on GitHub and open
+a PR against `main`. You need nothing but a GitHub account, and you get a web UI
+to review the diff in.
+
+One thing to know so the outcome is not a surprise: the PR is read as a
+**proposal**, and it is not merged on GitHub. Accepted commits are applied on
+GitLab and reach GitHub through the mirror, so the PR ends up **closed rather
+than merged** even when your change ships. Your authorship is preserved either
+way — the commits keep your name and email, and you appear in the repository's
+contributor list.
+
+Do not push directly to the mirror's own branches. The mirror is force-updated
+from GitLab and such a commit is destroyed without warning.
+
+### 2. A patch by email
+
+If you would rather not use GitHub:
 
 ```sh
 git clone https://gitlab.smetonis.net/Mizerd/lightning.git
@@ -40,18 +59,6 @@ git format-patch origin/main --stdout > lightning-<topic>.patch
 Send the `.patch` file to <antrasrokas@gmail.com> (`git send-email` works too).
 It applies with `git am`, so your name and email stay on the commit as its
 author.
-
-### 2. A pull request on the GitHub mirror — as a review surface
-
-If you would rather review a diff in a web UI, fork
-[Mizerd/lightning](https://github.com/Mizerd/lightning) on GitHub and open a PR
-against `main`. It is read as a **proposal**, not merged there: accepted commits
-are applied on GitLab and reach GitHub through the mirror, so the PR closes as
-*closed* rather than *merged* even when the change ships. Your authorship on the
-commit is preserved either way.
-
-Do not push directly to the mirror's own branches. The mirror is force-updated
-from GitLab and such a commit is destroyed without warning.
 
 If you expect to contribute more than once, ask about a GitLab account and
 project membership — registration is closed to the public, but both can be
