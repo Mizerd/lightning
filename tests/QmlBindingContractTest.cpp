@@ -130,13 +130,26 @@ private Q_SLOTS:
     }
 
     // 2026-08-23 tester report: "Window geometry and position is not saved."
+    // 2026-08-31 report: "opens half off screen, and then fights being
+    // dragged; closing and reopening fixes it."
     //
-    // Two halves have to hold. The restore must be DECLARATIVE: Qt shows the
-    // window during its own componentComplete(), which runs before any
-    // Component.onCompleted, so geometry applied from a completion handler
-    // lands after the window is on screen and the user watches it jump. And
-    // the save must survive a prompt close — the debounce may still be
-    // pending, and both close paths end the window's visible life.
+    // THE RULE CHANGED, and the reason the old one existed has not. Qt shows
+    // the window during its own componentComplete(), so geometry applied from
+    // a completion handler used to land after the window was already on
+    // screen and the user watched it jump — which is why the SIZE is still
+    // restored declaratively below.
+    //
+    // The POSITION cannot be. As a binding, the fresh-launch branch read
+    // Screen.desktopAvailableWidth/Height, which notify, and `width`, which
+    // changes on every resize — so the window re-centred itself under its own
+    // user mid-drag, and centred against metrics that were not settled yet on
+    // the first launch. It is applied once, imperatively, which breaks the
+    // binding for good.
+    //
+    // What keeps the ORIGINAL defect closed is that the window now starts
+    // HIDDEN and is shown only after placement. Nobody watches a window jump
+    // that was never on screen. Both halves are asserted, because either one
+    // alone brings a defect back.
     void windowGeometryIsRestoredInBindingsAndFlushedOnClose()
     {
         const QString main = read(QStringLiteral("Main.qml"));
@@ -144,19 +157,32 @@ private Q_SLOTS:
         // Declarative restore, from the pre-filtered CONSTANT value.
         QVERIFY(main.contains(QStringLiteral(
             "readonly property rect startupGeometry: app.restorableWindowGeometry")));
+        // SIZE stays declarative: neither dimension reads a notifying source.
         for (const QString &prop : { QStringLiteral("width:"),
-                                    QStringLiteral("height:"),
-                                    QStringLiteral("x:"),
-                                    QStringLiteral("y:") }) {
+                                    QStringLiteral("height:") }) {
             QVERIFY2(main.contains(prop + QStringLiteral(" hasStartupGeometry")),
                      qPrintable(prop));
         }
-        // Nothing may apply geometry from the completion handler.
+        // POSITION must NOT be a binding — that is the defect.
+        QVERIFY2(!main.contains(QStringLiteral("x: hasStartupGeometry")),
+                 "window x is a binding again: it will fight the user's drag "
+                 "and re-centre on any screen-metric change");
+        QVERIFY2(!main.contains(QStringLiteral("y: hasStartupGeometry")),
+                 "window y is a binding again");
+        // ...and the window must not be visible before it is placed.
+        QVERIFY2(main.contains(QStringLiteral("visible: false")),
+                 "the window is shown before startup placement is applied, so "
+                 "the user watches it jump into position");
         const QString completed = bracedBody(
             main, main.indexOf(QStringLiteral("Component.onCompleted:")));
         QVERIFY(!completed.isEmpty());
+        QVERIFY2(completed.contains(QStringLiteral("applyStartupPlacement()")),
+                 "startup placement is never applied");
+        // Placement, then show, in that order.
+        QVERIFY(completed.indexOf(QStringLiteral("applyStartupPlacement()"))
+                < completed.indexOf(QStringLiteral("visible = true")));
+        // The SIZE still may not be assigned from the handler.
         QVERIFY(!completed.contains(QStringLiteral("window.width")));
-        QVERIFY(!completed.contains(QStringLiteral("window.x")));
         // Saved only from the windowed state, and flushed when closing.
         QVERIFY(main.contains(QStringLiteral("saveWindowGeometry")));
         QVERIFY(main.contains(QStringLiteral(

@@ -478,6 +478,15 @@ public:
     // Removes the normalized copy, disables the setting, and restores the
     // packaged default icon immediately.
     Q_INVOKABLE void resetCustomAppIcon();
+
+    /// One line naming how the window was placed at startup, and against
+    /// what. Diagnostic only — the reported "opens half off screen, then
+    /// fights being dragged" needs to be told apart from a stale stored rect,
+    /// a monitor that has gone away, and metrics that were not settled yet,
+    /// and those look identical from the outside. Carries geometry only:
+    /// nothing here is account data.
+    Q_INVOKABLE void noteWindowPlacement(const QString &how, int x, int y,
+                                         int width, int height) const;
     QString appIconSource() const;
     bool screenshotDemoActive() const { return m_screenshotDemoActive; }
     // Development-only: enter screenshot/demo mode. Enriches the mock scene,

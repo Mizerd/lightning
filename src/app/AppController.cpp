@@ -2556,6 +2556,30 @@ QString AppController::setCustomAppIconFromFile(const QUrl &fileUrl)
     return {};
 }
 
+void AppController::noteWindowPlacement(const QString &how, int x, int y,
+                                        int width, int height) const
+{
+    QStringList screens;
+    for (const QScreen *screen : QGuiApplication::screens()) {
+        if (!screen)
+            continue;
+        const QRect available = screen->availableGeometry();
+        screens << QStringLiteral("%1[%2,%3 %4x%5]")
+                       .arg(screen->name())
+                       .arg(available.x()).arg(available.y())
+                       .arg(available.width()).arg(available.height());
+    }
+    const QRect stored =
+        m_settings ? m_settings->initialWindowGeometry() : QRect{};
+    qCInfo(lcApp).nospace()
+        << "window placement " << how
+        << " applied=[" << x << "," << y << " " << width << "x" << height
+        << "] stored=[" << stored.x() << "," << stored.y() << " "
+        << stored.width() << "x" << stored.height()
+        << "] restorable=" << !m_restorableWindowGeometry.isEmpty()
+        << " screens=" << screens.join(QLatin1Char(' '));
+}
+
 void AppController::resetCustomAppIcon()
 {
     const QString target = matrix::app_data::customAppIconFile();

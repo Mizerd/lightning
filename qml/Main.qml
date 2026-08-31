@@ -33,17 +33,63 @@ ApplicationWindow {
                                                && startupGeometry.height > 0
     width: hasStartupGeometry ? startupGeometry.width : 1100
     height: hasStartupGeometry ? startupGeometry.height : 720
-    // Centred on the primary screen for a first launch: predictable, and
-    // better than the (0,0)-ish corner some platforms choose.
-    // desktopAvailable*, not the raw screen size: centring against the full
-    // height puts the window under a panel or taskbar.
-    x: hasStartupGeometry ? startupGeometry.x
-                          : Math.round((Screen.desktopAvailableWidth - width) / 2)
-    y: hasStartupGeometry ? startupGeometry.y
-                          : Math.round((Screen.desktopAvailableHeight - height) / 2)
     minimumWidth: 640
     minimumHeight: 420
-    visible: true
+
+    // THE POSITION IS APPLIED ONCE AND THEN LET GO OF.
+    //
+    // x and y used to be BINDINGS, and on the fresh-launch branch they read
+    // Screen.desktopAvailableWidth/Height — which notify — and `width`, which
+    // changes whenever the user resizes. So the window re-centred itself
+    // under its own user: drag it toward another monitor and the Screen
+    // attached property changes, the binding fires, and the window is pulled
+    // back to the middle of wherever it now thinks it is. That is the
+    // reported "trying to move the window makes it fight the movement", and
+    // it is also how a window can end up half off screen — the metrics are
+    // not final when an ApplicationWindow is first created, particularly on
+    // macOS, so the first centring runs against numbers that are about to
+    // change.
+    //
+    // The comment that used to sit here claimed these bindings evaluate once
+    // because restorableWindowGeometry is constant. That is true of the
+    // RESTORE branch and false of the centring branch beside it.
+    //
+    // So: start hidden, compute once, assign imperatively (which breaks the
+    // binding for good), then show. Hidden-until-placed also removes the jump
+    // the previous round hit when it tried to do this from
+    // Component.onCompleted while the window was already visible — Qt shows
+    // during componentComplete(), so the user watched it move. Nothing
+    // watches it move if it was never on screen.
+    visible: false
+
+    function applyStartupPlacement() {
+        if (hasStartupGeometry) {
+            // Already validated in C++ against the CURRENT display layout: a
+            // rect whose grab band no longer meets any screen was dropped
+            // there, so reaching here means it is usable, including the
+            // legitimate negative coordinates of a monitor left of or above
+            // the primary.
+            x = startupGeometry.x
+            y = startupGeometry.y
+            app.noteWindowPlacement("restored", x, y, width, height)
+            return
+        }
+        // Centred on the available geometry, not the raw screen: centring
+        // against the full height puts the window under a panel or taskbar.
+        var availableW = Screen.desktopAvailableWidth
+        var availableH = Screen.desktopAvailableHeight
+        if (availableW > 0 && availableH > 0) {
+            x = Math.round(Screen.virtualX + (availableW - width) / 2)
+            y = Math.round(Screen.virtualY + (availableH - height) / 2)
+            app.noteWindowPlacement("centred", x, y, width, height)
+            return
+        }
+        // No usable metrics — a headless or still-settling display. Leave the
+        // platform's own placement rather than centring against zeroes, which
+        // is what puts a window in the top-left corner or half off screen.
+        app.noteWindowPlacement("platform-default", x, y, width, height)
+    }
+
     // Development screenshot mode gets a clear window-title suffix so a demo
     // window is never mistaken for a real account. It drops automatically when
     // the demo controls are hidden, for a fully clean final screenshot.
@@ -139,6 +185,11 @@ ApplicationWindow {
 
     Component.onCompleted: {
         syncControlPalette()
+        // Placement FIRST, and while the window is still hidden: everything
+        // below decides how to SHOW it, and a window that is shown before it
+        // has been positioned is one the user watches jump.
+        applyStartupPlacement()
+        visible = true
         // Maximized is applied here rather than in a `visibility` binding: a
         // binding would be broken the first time the user un-maximizes, and
         // then re-established by the save below, fighting them. It also has
