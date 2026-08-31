@@ -8373,6 +8373,44 @@ async fn run_modern_sync(
     }
 }
 
+/// When the classic sync should say it has had no first response, escalating
+/// rather than firing once.
+///
+/// Generous on purpose. The first request is full-state, and on a large
+/// account that is genuinely heavy — these are the points at which silence
+/// stops being explainable by size, not a deadline anything is held to.
+const FIRST_SYNC_STALL_STEPS: &[std::time::Duration] = &[
+    std::time::Duration::from_secs(60),
+    std::time::Duration::from_secs(180),
+    std::time::Duration::from_secs(600),
+];
+
+/// Report, at each step, that no first sync response has arrived yet.
+///
+/// Returns as soon as a response lands, so the caller can park afterwards.
+/// Split out from run_classic_sync purely so it can be tested: driving it
+/// with millisecond steps is the whole difference between a covered
+/// escalation and a 10-minute sleep nobody ever runs.
+async fn watch_first_sync_response(
+    events: &Arc<Mutex<VecDeque<String>>>,
+    first_response: &Arc<AtomicBool>,
+    steps: &[std::time::Duration],
+) {
+    let mut waited = std::time::Duration::ZERO;
+    for step in steps {
+        tokio::time::sleep(step.saturating_sub(waited)).await;
+        waited = *step;
+        if !first_response.load(Ordering::SeqCst) {
+            return; // the response landed; nothing to report
+        }
+        enqueue(events, json!({
+            "type": "sync_stalled",
+            "phase": "first_response",
+            "waited_secs": waited.as_secs(),
+        }));
+    }
+}
+
 async fn run_classic_sync(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
@@ -8540,7 +8578,36 @@ async fn run_classic_sync(
             LoopCtrl::Continue
         }
     });
+    // A WATCHDOG ON THE FIRST RESPONSE, because a sync that dies without
+    // returning looks exactly like one that is merely slow.
+    //
+    // Reported as issue #2: against a server that takes this fallback, the
+    // classic sync logged "starting" and then did nothing for 13+ minutes —
+    // zero established TCP connections for the process, zero I/O progress,
+    // ~0.4% CPU, and no sync_error, although the select! arm below promises
+    // one on failure. The future was simply parked. Restarting the client
+    // with the same store synced normally, so it is a wedge on a first
+    // request rather than an incompatibility, and it has not reproduced on
+    // demand since.
+    //
+    // This deliberately does NOT cancel or restart the sync. A first
+    // full-state request on a large account (the report was 1028 joined
+    // rooms) can legitimately take a long time, and killing a working sync
+    // would be a worse defect than the one being chased. What it does is
+    // make the silence VISIBLE — the next occurrence produces a line saying
+    // how long it has been waiting, instead of a spinner that means nothing.
+    //
+    // The future never resolves: after the last escalation it parks forever,
+    // so it can never be the arm that ends the select! and stops the sync.
+    let watchdog_events = Arc::clone(&events);
+    let watchdog_first = Arc::clone(&first_response);
+    let watchdog = async move {
+        watch_first_sync_response(&watchdog_events, &watchdog_first,
+                                  FIRST_SYNC_STALL_STEPS).await;
+        std::future::pending::<()>().await
+    };
     tokio::pin!(sync);
+    tokio::pin!(watchdog);
     tokio::select! {
         result = &mut sync => if let Err(err) = result {
             enqueue(&events, json!({
@@ -8548,6 +8615,7 @@ async fn run_classic_sync(
                 "message": format_matrix_error("Matrix Rust SDK sync failed", err),
             }));
         },
+        _ = &mut watchdog => {},
         _ = &mut cancel => {}
     }
 }
@@ -11085,5 +11153,82 @@ mod delegation_tests {
         let result = runtime()
             .block_on(build_client(&format!("http://{bogus}/nope"), &PathBuf::new()));
         assert!(result.is_err(), "a non-homeserver must not build a client");
+    }
+}
+
+// ── The silent classic-sync wedge (issue #2) ─────────────────────────────
+//
+// Reported by ThomasRedstone against a server that takes the classic
+// fallback: "starting" was logged and then nothing for 13+ minutes — zero
+// established TCP connections for the process, zero I/O progress, ~0.4% CPU,
+// and no sync_error even though run_classic_sync's select! arm promises one
+// on failure. Restarting the client with the same store synced normally.
+//
+// It has not reproduced on demand, so this is INSTRUMENTATION rather than a
+// fix: the escalation makes the silence visible instead of leaving a spinner
+// that means nothing. Driving it with millisecond steps is the difference
+// between covering the escalation and shipping three sleeps totalling ten
+// minutes that no test will ever run.
+#[cfg(test)]
+mod first_sync_watchdog_tests {
+    use super::{watch_first_sync_response, Ordering};
+    use std::collections::VecDeque;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    fn steps() -> Vec<Duration> {
+        vec![Duration::from_millis(10), Duration::from_millis(20),
+             Duration::from_millis(30)]
+    }
+
+    fn drain(events: &VecDeque<String>) -> Vec<serde_json::Value> {
+        events.iter().map(|e| serde_json::from_str(e).unwrap()).collect()
+    }
+
+    #[tokio::test]
+    async fn silence_is_reported_at_every_step() {
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        // Never flipped: the wedge, where no response ever arrives.
+        let first = Arc::new(AtomicBool::new(true));
+        watch_first_sync_response(&events, &first, &steps()).await;
+
+        let seen = drain(&events.lock().unwrap());
+        assert_eq!(seen.len(), 3, "expected one report per step");
+        for value in &seen {
+            assert_eq!(value["type"], "sync_stalled");
+            assert_eq!(value["phase"], "first_response");
+        }
+        // Each report says how long it has been waiting, cumulatively — a
+        // report that cannot say "how long" is no better than the spinner.
+        assert!(seen[0]["waited_secs"].is_number());
+    }
+
+    #[tokio::test]
+    async fn a_response_ends_the_watch_and_reports_nothing() {
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        // Already answered: an ordinary sync, which must stay silent.
+        let first = Arc::new(AtomicBool::new(false));
+        watch_first_sync_response(&events, &first, &steps()).await;
+        assert!(events.lock().unwrap().is_empty(),
+                "a healthy sync produced a stall report");
+    }
+
+    #[tokio::test]
+    async fn a_late_response_stops_further_reports() {
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let first = Arc::new(AtomicBool::new(true));
+        let flip = Arc::clone(&first);
+        // The response lands between the first and second step, which is the
+        // case that separates "report once and stop" from "report forever".
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(15)).await;
+            flip.store(false, Ordering::SeqCst);
+        });
+        watch_first_sync_response(&events, &first, &steps()).await;
+
+        let seen = drain(&events.lock().unwrap());
+        assert_eq!(seen.len(), 1,
+                   "the watch kept reporting after the sync answered");
     }
 }

@@ -4117,6 +4117,21 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     if (type == QLatin1String("verification_sas_started"))
         return;
 
+    if (type == QLatin1String("sync_stalled")) {
+        // NOT an error state, deliberately. The sync may still be working —
+        // a first full-state request on a large account is heavy — and
+        // declaring failure over a slow one would be a worse defect than the
+        // silence this reports. It exists so a wedge (issue #2: "starting"
+        // for 13 minutes, no socket, no I/O, no sync_error) leaves a line
+        // behind instead of an unexplained spinner.
+        qCWarning(lcRust) << "sync has not received a first response"
+                          << "phase="
+                          << event.value(QStringLiteral("phase")).toString()
+                          << "waited_secs="
+                          << event.value(QStringLiteral("waited_secs")).toInt();
+        return;
+    }
+
     if (type == QLatin1String("sync_error")) {
         // This branch is reachable only for the active generation. Shutdown
         // callbacks were rejected in pollRustEvents, so M_UNKNOWN_TOKEN keeps
