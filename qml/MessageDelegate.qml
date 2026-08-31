@@ -2875,7 +2875,7 @@ Item {
                         border.width: 2
                         border.color: AppTheme.focusRing
                     }
-                    implicitWidth: reactionRow.implicitWidth + 18
+                    implicitWidth: reactionRow.implicitWidth + 14
                     // reactionRow.implicitHeight is deterministic now: both
                     // labels below are pinned to a fixed 16px content height,
                     // so every chip in a row lands on the SAME height no
@@ -2889,8 +2889,9 @@ Item {
                     // The 22px floor scales with the chip's own text:
                     // pinning it while the labels grow would let a 140%
                     // count overflow its pill.
-                    implicitHeight: Math.max(AppTheme.scaled(22),
-                                             reactionRow.implicitHeight + 6)
+                    implicitHeight:
+                        Math.max(AppTheme.scaled(AppTheme.reactionChipHeight),
+                                 reactionRow.implicitHeight + 4)
                     HoverHandler { id: reactionHover }
 
                     // ── Who reacted (C2) ─────────────────────────────────
@@ -2989,12 +2990,31 @@ Item {
                     RowLayout {
                         id: reactionRow
                         anchors.centerIn: parent
-                        spacing: 5
+                        spacing: 4
                         Label {
                             objectName: "reactionEmoji"
                             visible: !reactionChip.customEmojiReaction
                             Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredHeight: AppTheme.scaled(20)
+                            // A FIXED BOX, and the line height pinned to it.
+                            //
+                            // Layout.preferredHeight alone was not enough:
+                            // it fixes what the LAYOUT sees while the text
+                            // inside still lays itself out on the font's own
+                            // ascent and descent, and colour-emoji faces
+                            // report wildly different metrics per sequence.
+                            // The ink then sits high in its line box and the
+                            // glyph reads as optically RAISED beside the
+                            // count — which is exactly the reported symptom,
+                            // and why it affected only some emoji.
+                            //
+                            // FixedHeight makes every key lay out into the
+                            // same line box whatever its face claims, so a
+                            // ZWJ family, a skin-tone modifier, a keycap and
+                            // a flag all sit where a plain thumbs-up does.
+                            Layout.preferredHeight:
+                                AppTheme.scaled(AppTheme.reactionEmojiBox)
+                            lineHeightMode: Text.FixedHeight
+                            lineHeight: AppTheme.scaled(AppTheme.reactionEmojiBox)
                             text: reactionChip.customEmojiReaction
                                   ? "" : modelData.key
                             // The reaction key is an emoji; name the face so
@@ -3009,7 +3029,8 @@ Item {
                             // The chip's own implicitHeight is
                             // max(scaled(22), row + 6), so it follows this
                             // rather than clipping it.
-                            font.pixelSize: AppTheme.scaled(18)
+                            font.pixelSize:
+                                AppTheme.scaled(AppTheme.reactionEmojiSize)
                             verticalAlignment: Text.AlignVCenter
                         }
                         Image {
@@ -3019,8 +3040,10 @@ Item {
                             // Matched to the unicode glyph beside it, or a
                             // custom-emoji reaction would read as a different
                             // size from an ordinary one on the same row.
-                            Layout.preferredHeight: AppTheme.scaled(20)
-                            Layout.preferredWidth: AppTheme.scaled(20)
+                            Layout.preferredHeight:
+                                AppTheme.scaled(AppTheme.reactionEmojiBox)
+                            Layout.preferredWidth:
+                                AppTheme.scaled(AppTheme.reactionEmojiBox)
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true

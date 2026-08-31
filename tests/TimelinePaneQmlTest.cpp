@@ -2092,6 +2092,13 @@ private Q_SLOTS:
         // historically diverges from single-codepoint glyphs in reported
         // font metrics on some font stacks, which is exactly the class of
         // difference the old Row-based layout let leak into chip height.
+        // Every shape whose font metrics are known to diverge: a plain single
+        // codepoint, a base+VS16 pair, a ZWJ family sequence, a skin-tone
+        // modifier, a keycap and a regional-indicator flag. If any one of
+        // these lays out taller than the rest, the chip grows and the row
+        // above it shifts — and if any one PAINTS at a different height, the
+        // glyph reads as optically raised beside the count, which is the
+        // reported symptom.
         fixture.insert(QStringLiteral("reactions"), QVariantList{
             QVariantMap{ { QStringLiteral("key"), QStringLiteral("👍") },
                         { QStringLiteral("count"), 1 },
@@ -2100,6 +2107,19 @@ private Q_SLOTS:
                           QStringLiteral("❤️") },
                         { QStringLiteral("count"), 12 },
                         { QStringLiteral("byMe"), true } },
+            QVariantMap{ { QStringLiteral("key"),
+                          QStringLiteral("👨‍👩‍👧‍👦") },
+                        { QStringLiteral("count"), 2 },
+                        { QStringLiteral("byMe"), false } },
+            QVariantMap{ { QStringLiteral("key"), QStringLiteral("👍🏽") },
+                        { QStringLiteral("count"), 3 },
+                        { QStringLiteral("byMe"), false } },
+            QVariantMap{ { QStringLiteral("key"), QStringLiteral("1️⃣") },
+                        { QStringLiteral("count"), 4 },
+                        { QStringLiteral("byMe"), false } },
+            QVariantMap{ { QStringLiteral("key"), QStringLiteral("🇱🇹") },
+                        { QStringLiteral("count"), 5 },
+                        { QStringLiteral("byMe"), false } },
         });
 
         QQmlApplicationEngine engine;
@@ -2134,10 +2154,35 @@ private Q_SLOTS:
         // by direct inspection during triage). Walk the actual QQuickItem
         // scene-graph tree instead.
         const auto chips = findVisualChildren(root, QStringLiteral("reactionChip"));
-        QCOMPARE(chips.size(), 2);
-        QVERIFY2(chips.at(0)->height() >= 22.0,
-                 "chip height below the 22px design floor");
-        QCOMPARE(chips.at(0)->height(), chips.at(1)->height());
+        QCOMPARE(chips.size(), 6);
+        // 20px floor as of 2026-08-31 (was 22): matched against Element's
+        // pill, which is noticeably more compact than what Lightning drew.
+        QVERIFY2(chips.at(0)->height() >= 20.0,
+                 "chip height below the 20px design floor");
+        for (int i = 1; i < chips.size(); ++i) {
+            QVERIFY2(qFuzzyCompare(chips.at(i)->height() + 1.0,
+                                   chips.at(0)->height() + 1.0),
+                     qPrintable(QStringLiteral("chip %1 is %2px tall against "
+                                               "%3px for the first — a glyph "
+                                               "grew its pill")
+                                    .arg(i)
+                                    .arg(chips.at(i)->height())
+                                    .arg(chips.at(0)->height())));
+        }
+
+        // THE ALIGNMENT HALF IS NOT COVERED, deliberately and on purpose
+        // stated. The reported symptom is that some emoji sit optically
+        // raised beside the count, which comes from colour-emoji faces
+        // reporting divergent ascent/descent — and this environment's font
+        // stack resolves every one of the six keys above to metrics that do
+        // NOT diverge. Measured: removing the line-box pin from
+        // MessageDelegate leaves paintedHeight identical across all six, so
+        // an assertion on it passes on the broken code and proves nothing.
+        // The fix (lineHeightMode: Text.FixedHeight) is a reading of the
+        // cause, not something this suite can witness; it needs eyes on a
+        // real desktop. What IS pinned above is that no glyph may change the
+        // pill's size, which is testable and was the other half of the
+        // report.
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 

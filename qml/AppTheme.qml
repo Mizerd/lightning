@@ -1659,6 +1659,23 @@ QtObject {
     readonly property int radius:     radiusMd
     // Media (images/video/GIF) corner radius — matches the card radius so media
     // reads as part of the message rather than pasted into the window.
+    // ── Reaction chips ───────────────────────────────────────────────────
+    //
+    // Matched against Element's reaction pill, which is noticeably more
+    // compact than what Lightning drew: an 18px glyph in a 20px box under a
+    // 22px floor made the emoji the largest thing on the row.
+    //
+    // The BOX is what keeps the pill honest. Emoji vary enormously in
+    // reported font metrics — a ZWJ family sequence, a skin-tone modifier, a
+    // keycap and a flag all measure differently from a plain single
+    // codepoint — so the glyph is drawn at reactionEmojiSize inside a fixed
+    // reactionEmojiBox and the box is what the layout sees. A custom MSC2545
+    // image uses the SAME box, or a custom reaction reads as a different size
+    // from an ordinary one sitting next to it on the same row.
+    readonly property int reactionEmojiSize: 16
+    readonly property int reactionEmojiBox:  18
+    readonly property int reactionChipHeight: 20
+
     readonly property int radiusMedia: 12
     // v0.6.5 menu-language radii (SPEC §0 and chosen surfaces).
     readonly property int radiusChip:    radiusSm   // keycap chips (named role)
