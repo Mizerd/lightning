@@ -3499,8 +3499,24 @@ void AppController::refreshTrayUnread()
         if (room.membership != RoomInfo::Joined)
             continue;
         total += qMax(0, room.unreadCount);
-        if (room.unreadCount > 0 || room.hasUnreadMessages || room.markedUnread)
+        const bool roomUnread = room.unreadCount > 0 || room.hasUnreadMessages
+                                || room.markedUnread;
+        if (roomUnread)
             anyUnread = true;
+        // A ROOM THAT IS NO LONGER UNREAD WITHDRAWS ITS NOTIFICATIONS.
+        //
+        // Level-triggered on purpose: this runs on every room change, so it
+        // cannot miss the transition the way an edge-triggered "the user just
+        // read this" hook would — and the read may not have happened here at
+        // all. Reading the room in another client clears the unread through
+        // sync, and the desktop notification was still sitting there
+        // afterwards, asserting that something was waiting when nothing was.
+        //
+        // Costs nothing for the overwhelming majority of rooms: the payload
+        // map is small and bounded, and a room with no live notification
+        // returns immediately.
+        if (!roomUnread && m_notifications)
+            m_notifications->closeRoomNotifications(room.id);
     }
     m_tray.setUnread(total, anyUnread);
 }

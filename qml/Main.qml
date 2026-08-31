@@ -93,9 +93,27 @@ ApplicationWindow {
     // Development screenshot mode gets a clear window-title suffix so a demo
     // window is never mistaken for a real account. It drops automatically when
     // the demo controls are hidden, for a fully clean final screenshot.
+    // THE TITLE CARRIES THE UNREAD COUNT, because the taskbar is the one
+    // surface visible while Lightning is not. Reported: messages arrive and
+    // go unnoticed until the same account is opened in another client.
+    //
+    // Rooms, not messages, and mentions called out separately — "2 unread,
+    // 1 mention" is something a person acts on, where a summed message
+    // count is a number nobody can do anything with.
+    readonly property string unreadTitleSuffix: {
+        if (!app.roomList)
+            return ""
+        var rooms = app.roomList.unreadRoomCount
+        if (rooms <= 0)
+            return ""
+        var mentions = app.roomList.highlightRoomCount
+        if (mentions > 0)
+            return qsTr("(%1 unread, %2 ●) ").arg(rooms).arg(mentions)
+        return qsTr("(%1 unread) ").arg(rooms)
+    }
     title: (app.screenshotDemoActive && (!app.demo || app.demo.controlsVisible))
            ? qsTr("Lightning — Screenshot Demo")
-           : qsTr("Lightning %1").arg(app.appVersion)
+           : unreadTitleSuffix + qsTr("Lightning %1").arg(app.appVersion)
 
     color: AppTheme.background
 

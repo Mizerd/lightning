@@ -41,6 +41,21 @@ class RoomListModel : public QAbstractListModel
     // The model re-sorts; the model knows.
     Q_PROPERTY(QString favouritesBoundaryRoomId READ favouritesBoundaryRoomId
                    NOTIFY favouritesBoundaryRoomIdChanged)
+    /// How many joined conversations are unread, and how many of those name
+    /// the user. ACCOUNT-WIDE and deliberately immune to the filter chips and
+    /// the Space scope: this is what the window title and the tray carry, and
+    /// a total that changed when the user picked a chip would be reporting
+    /// the view rather than the account.
+    ///
+    /// Rooms, not messages. "Three conversations want you" is what a person
+    /// acts on; a summed message count is a number nobody can do anything
+    /// with, and on Matrix it is frequently 0 for a room that is genuinely
+    /// unread — which is exactly how an unread direct message became
+    /// invisible.
+    Q_PROPERTY(int unreadRoomCount READ unreadRoomCount
+                   NOTIFY unreadTotalsChanged)
+    Q_PROPERTY(int highlightRoomCount READ highlightRoomCount
+                   NOTIFY unreadTotalsChanged)
 public:
     enum Roles {
         RoomIdRole = Qt::UserRole + 1,
@@ -140,6 +155,8 @@ public:
 
     bool roomFavouritesSupported() const;
     QString favouritesBoundaryRoomId() const { return m_favouritesBoundaryRoomId; }
+    int unreadRoomCount() const { return m_unreadRoomCount; }
+    int highlightRoomCount() const { return m_highlightRoomCount; }
     // The one classification: section string and sort group read the same
     // function so a category can never be split across two runs.
     static int orderRankOf(const RoomInfo &room);
@@ -181,6 +198,9 @@ private:
     void updateFavouritesBoundary();
 
     QString m_favouritesBoundaryRoomId;
+    int m_unreadRoomCount = 0;
+    int m_highlightRoomCount = 0;
+    void updateUnreadTotals();
     MatrixClient *m_client = nullptr;
     SpaceManager *m_spaces = nullptr;
     QList<RoomInfo> m_rooms; // Filtered subset actually shown.
@@ -205,4 +225,5 @@ Q_SIGNALS:
     void filterModeChanged();
     void roomFavouritesSupportedChanged();
     void favouritesBoundaryRoomIdChanged();
+    void unreadTotalsChanged();
 };

@@ -38,6 +38,8 @@ class NotificationManagerTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void readingARoomWithdrawsItsGhostNotifications();
+    void withdrawingSparesTheIncomingCallRing();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
         const auto decision =
@@ -551,6 +553,59 @@ private Q_SLOTS:
         QCOMPARE(spy.count(), 1); // the call card survived the eviction
     }
 };
+
+
+// ── Ghost notifications (2026-09-01) ─────────────────────────────────────
+//
+// Only the call ring was ever closed. A message notification stayed in the
+// notification centre after its room had been read — here, in another
+// client, or on a phone — so the desktop went on asserting that something
+// was waiting when nothing was. That teaches a person to stop believing the
+// notification area, which is how a real message then gets missed.
+void NotificationManagerTest::readingARoomWithdrawsItsGhostNotifications()
+{
+    NotificationManager manager;
+    const auto payload = [](const QString &room) {
+        QVariantMap p;
+        p.insert(QStringLiteral("roomId"), room);
+        p.insert(QStringLiteral("eventId"), QStringLiteral("$e:example.org"));
+        p.insert(QStringLiteral("threadRootId"), QString{});
+        return p;
+    };
+    manager.recordPayloadForTest(1, payload(QStringLiteral("!read:x")));
+    manager.recordPayloadForTest(2, payload(QStringLiteral("!read:x")));
+    manager.recordPayloadForTest(3, payload(QStringLiteral("!other:x")));
+    QCOMPARE(manager.pendingPayloadCountForTest(), 3);
+
+    manager.closeRoomNotifications(QStringLiteral("!read:x"));
+
+    // Both of the read room's notifications are gone; the other room's is
+    // untouched — reading one conversation must not silence another.
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+
+    // And an unknown room is a no-op rather than a clear-everything.
+    manager.closeRoomNotifications(QStringLiteral("!nothing:x"));
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+    manager.closeRoomNotifications(QString{});
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+}
+
+// The ring is not a message and owns its own lifetime. Closing it because the
+// room it rings in was read would silence a call nobody answered.
+void NotificationManagerTest::withdrawingSparesTheIncomingCallRing()
+{
+    NotificationManager manager;
+    QVariantMap p;
+    p.insert(QStringLiteral("roomId"), QStringLiteral("!ringing:x"));
+    p.insert(QStringLiteral("eventId"), QString{});
+    p.insert(QStringLiteral("threadRootId"), QString{});
+    manager.recordPayloadForTest(9, p);
+    manager.setActiveCallNotificationIdForTest(9);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+
+    manager.closeRoomNotifications(QStringLiteral("!ringing:x"));
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+}
 
 QTEST_MAIN(NotificationManagerTest)
 #include "NotificationManagerTest.moc"

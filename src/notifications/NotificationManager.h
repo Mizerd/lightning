@@ -196,6 +196,22 @@ private:
     // exceeded (a desktop only keeps a handful visible). FIFO eviction keeps
     // the most recent notifications clickable instead of dropping them all.
     void recordPayload(quint32 id, const QVariantMap &payload);
+public:
+    /// Withdraw every still-showing notification for a room the user has now
+    /// read.
+    ///
+    /// GHOST NOTIFICATIONS. Only the call ring was ever closed; a message
+    /// notification stayed in the notification centre after its room had
+    /// been read — here, or in another client, or on a phone. So the desktop
+    /// kept asserting that something was waiting when nothing was, which
+    /// teaches a person to stop believing the notification area, and that is
+    /// how a real message then gets missed.
+    ///
+    /// Cheap when there is nothing to do: the payload map is small and
+    /// bounded, and a room with no live notification scans a few entries and
+    /// returns.
+    void closeRoomNotifications(const QString &roomId);
+private:
     void forgetPayload(quint32 id);
 
     // Bounded number of click payloads retained for routing.

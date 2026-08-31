@@ -386,6 +386,40 @@ void NotificationManager::clearPending()
     m_avatarWaitTimer.stop();
 }
 
+void NotificationManager::closeRoomNotifications(const QString &roomId)
+{
+    if (roomId.isEmpty() || m_pendingPayloads.isEmpty())
+        return;
+    QList<quint32> stale;
+    for (auto it = m_pendingPayloads.cbegin(); it != m_pendingPayloads.cend();
+         ++it) {
+        if (it.value().value(QStringLiteral("roomId")).toString() == roomId)
+            stale.append(it.key());
+    }
+    if (stale.isEmpty())
+        return;
+    // The ring is not a message and owns its own lifetime (stopIncomingCall);
+    // closing it from here would silence a call the user has not answered
+    // just because they read the room it is ringing in.
+    stale.removeOne(m_activeCallNotificationId);
+    if (stale.isEmpty())
+        return;
+#ifdef HAVE_QT_DBUS
+    QDBusInterface notifications(kService, kPath, kInterface,
+                                 QDBusConnection::sessionBus());
+    const bool valid = notifications.isValid();
+#endif
+    for (const quint32 id : std::as_const(stale)) {
+#ifdef HAVE_QT_DBUS
+        if (valid)
+            notifications.call(QStringLiteral("CloseNotification"), id);
+#endif
+        forgetPayload(id);
+    }
+    qCInfo(lcNotify) << "withdrew" << stale.size()
+                     << "notification(s) for a room that has been read";
+}
+
 void NotificationManager::recordPayload(quint32 id, const QVariantMap &payload)
 {
     // Re-recording an id promotes it to most-recent: a notification being

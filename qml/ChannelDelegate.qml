@@ -90,7 +90,19 @@ ItemDelegate {
     // A muted channel keeps its unread WEIGHT but loses its pill: the user
     // asked not to be counted at, not to be lied to about whether anything
     // happened.
-    readonly property bool showsPill: root.highlightCount > 0 && !root.muted
+    // A PILL FOR ORDINARY UNREAD TOO, not only for mentions.
+    //
+    // This was `highlightCount > 0`, so a plain unread conversation showed
+    // nothing but a 3px bar down its left edge — and a muted one showed
+    // nothing whatsoever. Reported as messages going unnoticed until the
+    // same account was opened in another client.
+    //
+    // The count may legitimately be 0 on a room that IS unread (Matrix only
+    // computes notification_count where push rules say to), so the pill
+    // falls back to a dot rather than rendering "0".
+    readonly property bool showsPill:
+        (root.highlightCount > 0 || root.unreadCount > 0
+         || root.hasUnread || root.isInvite) && !root.muted
     readonly property bool readsUnread: (root.isInvite || root.hasUnread || root.unreadCount > 0 || root.highlightCount > 0)
 
     // A Loader-hosted row: the Channels presenter picks between five row
@@ -145,9 +157,11 @@ ItemDelegate {
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             x: 2 + root.depth * 10
-            width: 3
-            height: 16
-            radius: 1.5
+            // Was 3x16. An unread conversation is the thing this column
+            // exists to surface and it was the faintest mark on the row.
+            width: 4
+            height: 20
+            radius: 2
             color: AppTheme.channelUnreadMark
             visible: root.readsUnread && !root.active && !root.muted
         }
@@ -236,8 +250,13 @@ ItemDelegate {
             anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
             sourceComponent: UnreadBadge {
-                count: root.highlightCount
-                mention: true
+                // Mentions win the colour and the number; an unread room with
+                // no count of its own shows the dot form.
+                count: root.highlightCount > 0 ? root.highlightCount
+                                               : root.unreadCount
+                mention: root.highlightCount > 0
+                // Unread with no honest number falls back to the dot.
+                dot: root.hasUnread || root.isInvite
             }
         }
 

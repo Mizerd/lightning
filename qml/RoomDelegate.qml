@@ -403,6 +403,29 @@ Item {
                 // clock meant every arriving message — and every 9→10→100
                 // digit change — slid the timestamp sideways, so a quiet
                 // sidebar was in constant low-level motion.
+                // AN UNREAD ROOM WITH NO COUNT STILL HAS TO SAY SO.
+                //
+                // hasCountBadge keys on unreadCount/highlightCount, and on
+                // Matrix those are frequently 0 for a room that is genuinely
+                // unread — the server generates a notification count only
+                // where its push rules say to. So a room could carry unread
+                // messages and show NOTHING but slightly heavier name text,
+                // which is what "people write to me and I only notice when I
+                // check another client" looks like from the inside.
+                //
+                // A dot, not a number, because there is no honest number to
+                // show: what is known is that something is waiting.
+                Rectangle {
+                    objectName: "roomUnreadDot"
+                    visible: root.isUnread && !root.hasCountBadge
+                    implicitWidth: 8
+                    implicitHeight: 8
+                    radius: 4
+                    Layout.alignment: Qt.AlignVCenter
+                    // Muted rooms keep a dot, in muted ink: muting silences
+                    // the noise, it does not mean "pretend nothing arrived".
+                    color: root.muted ? root.metaInk : AppTheme.unreadBadge
+                }
                 Label {
                     objectName: "roomUnreadBadge"
                     visible: root.hasCountBadge

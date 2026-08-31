@@ -26,9 +26,17 @@ Label {
     /// Ink for the muted-plain case, which is tuned against the host's
     /// surface rather than globally (see RoomDelegate's metaInk note).
     property color mutedInk: AppTheme.textMuted
+    /// Show the DOT form: the room is unread but carries no honest number.
+    ///
+    /// Matrix computes notification_count only where a room's push rules say
+    /// to, so a conversation can be genuinely unread with a count of 0. A
+    /// pill that hides itself at 0 then makes that room look read, which is
+    /// how messages went unnoticed until another client was opened. There is
+    /// no number to show, so it shows that something is waiting instead.
+    property bool dot: false
 
-    visible: root.count > 0
-    text: root.count
+    visible: root.count > 0 || root.dot
+    text: root.dot && root.count <= 0 ? "" : root.count
 
     color: root.mention ? AppTheme.dangerText : root.muted ? root.mutedInk : AppTheme.accentText
     background: Rectangle {
@@ -39,16 +47,17 @@ Label {
     }
     horizontalAlignment: Text.AlignHCenter
     verticalAlignment: Text.AlignVCenter
-    leftPadding: AppTheme.spacing6
-    rightPadding: AppTheme.spacing6
     font.pixelSize: AppTheme.textMicro
     font.weight: AppTheme.weightBold
     // A single digit renders as a circle rather than a squat lozenge.
     // `height`/`width`, not implicitHeight — Label derives its implicit size
     // from its text and refuses an assignment. The width is a FLOOR, not a
     // fixed size, so "128" still fits.
-    height: 18
-    width: Math.max(18, implicitWidth)
-    Layout.preferredHeight: 18
-    Layout.minimumWidth: 18
+    readonly property bool dotOnly: root.dot && root.count <= 0
+    height: dotOnly ? 10 : 18
+    width: dotOnly ? 10 : Math.max(18, implicitWidth)
+    Layout.preferredHeight: dotOnly ? 10 : 18
+    Layout.minimumWidth: dotOnly ? 10 : 18
+    leftPadding: dotOnly ? 0 : AppTheme.spacing6
+    rightPadding: dotOnly ? 0 : AppTheme.spacing6
 }

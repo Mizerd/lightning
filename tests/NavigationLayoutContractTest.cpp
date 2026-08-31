@@ -860,8 +860,22 @@ private slots:
         QString flat = row;
         flat.replace(QRegularExpression(QStringLiteral("\\s+")),
                      QStringLiteral(" "));
-        QVERIFY(flat.contains(QStringLiteral(
-            "readonly property bool showsPill: root.highlightCount > 0 && !root.muted")));
+        // UPDATED 2026-09-01. The pill used to be mentions-only, so an
+        // ordinary unread conversation showed nothing but a thin bar down its
+        // left edge — reported as messages going unnoticed until the same
+        // account was opened in another client. It now covers plain unread
+        // too. What this case is actually about is unchanged and still
+        // asserted: muting removes the pill.
+        QVERIFY2(flat.contains(QStringLiteral("showsPill:")),
+                 "the pill predicate is gone");
+        const int pillAt = flat.indexOf(QStringLiteral("showsPill:"));
+        const QString pill = flat.mid(pillAt, 220);
+        QVERIFY2(pill.contains(QStringLiteral("!root.muted")),
+                 "a muted channel is being counted at again");
+        QVERIFY2(pill.contains(QStringLiteral("root.unreadCount > 0"))
+                     || pill.contains(QStringLiteral("root.hasUnread")),
+                 "the pill is mentions-only again, so an ordinary unread "
+                 "conversation shows nothing but a 3px bar");
         // And it re-reads the mode on an id change, because reuseItems is on
         // and a recycled row would otherwise inherit the previous room's.
         QVERIFY(row.contains(QStringLiteral("onRoomIdChanged")));

@@ -40,7 +40,10 @@ RoomListModel::RoomListModel(QObject *parent)
     // append, prepend, insert, replace, move, remove, truncate). Hooking the
     // model's own change signals covers all of them at once, and cannot be
     // forgotten by the ninth. Every path ends in one of these.
-    const auto boundary = [this] { updateFavouritesBoundary(); };
+    const auto boundary = [this] {
+        updateFavouritesBoundary();
+        updateUnreadTotals();
+    };
     connect(this, &QAbstractItemModel::modelReset, this, boundary);
     connect(this, &QAbstractItemModel::rowsInserted, this, boundary);
     connect(this, &QAbstractItemModel::rowsRemoved, this, boundary);
@@ -739,6 +742,39 @@ QString RoomListModel::categoryOf(const RoomInfo &room)
     // section actually contains; the model does not need to know.
     return orderRankOf(room) == 0 ? QStringLiteral("invite")
                                   : QStringLiteral("conversation");
+}
+
+void RoomListModel::updateUnreadTotals()
+{
+    // The WHOLE account, not the current view. A filter chip or a Space
+    // selection changes what is listed; it does not change how many
+    // conversations are waiting, and a title that dropped to zero because
+    // the user picked "Rooms" would be lying about their DMs.
+    //
+    // hasUnreadMessages OR markedUnread OR a count, because on Matrix those
+    // disagree constantly: a room can carry unread messages with
+    // notification_count 0 (its push rules generate no notification), and
+    // keying a badge on the count alone is how an unread direct message
+    // ended up showing nothing at all.
+    int unread = 0;
+    int highlight = 0;
+    if (m_client) {
+        for (const RoomInfo &room : m_client->rooms()) {
+            if (room.isSpace || room.membership != RoomInfo::Joined)
+                continue;
+            if (room.highlightCount > 0)
+                ++highlight;
+            if (room.hasUnreadMessages || room.markedUnread
+                || room.unreadCount > 0 || room.highlightCount > 0) {
+                ++unread;
+            }
+        }
+    }
+    if (unread == m_unreadRoomCount && highlight == m_highlightRoomCount)
+        return;
+    m_unreadRoomCount = unread;
+    m_highlightRoomCount = highlight;
+    Q_EMIT unreadTotalsChanged();
 }
 
 void RoomListModel::updateFavouritesBoundary()
