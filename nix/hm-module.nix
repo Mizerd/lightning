@@ -83,8 +83,6 @@ in
           run mkdir -p "$(dirname "${cfg.settingsFilePath}")"
           if [ ! -f "${cfg.settingsFilePath}" ]; then
             run touch "${cfg.settingsFilePath}"
-            run chown "${config.home.username}:users" "${cfg.settingsFilePath}"
-            run chmod 644 "${cfg.settingsFilePath}"
           fi
           ${
             let
