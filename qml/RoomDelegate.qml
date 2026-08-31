@@ -289,19 +289,43 @@ Item {
                 // native Matrix room, so nothing renders and the row is
                 // exactly as it was — a badge appears only where it says
                 // something the room name does not.
-                Label {
-                    objectName: "roomNetworkTag"
-                    visible: (model.networkLabel || "") !== ""
-                    text: model.networkLabel || ""
-                    color: selected ? AppTheme.selectedText : AppTheme.textMuted
-                    font.pixelSize: AppTheme.fontCaption
-                    font.weight: Font.DemiBold
-                    leftPadding: 5; rightPadding: 5
-                    background: Rectangle {
-                        color: AppTheme.hover
-                        border.color: AppTheme.border
-                        border.width: 1
-                        radius: AppTheme.radiusSm
+                // NOT a Label with an empty string. Every QQuickText is
+                // born carrying ItemObservesViewport, and the only thing
+                // that clears the flag is QQuickText::setText, which opens
+                // with an early return when the value has not changed — so
+                // a binding that keeps producing "" never clears it, and Qt
+                // walks the whole instantiated subtree on every scroll
+                // frame. Measured in this project's MessageDelegate at 3000
+                // observers across 1000 rows (maintainer review of this
+                // change). Native Matrix rooms are most of a room list, so
+                // the badge is INSTANTIATED only where it says something.
+                //
+                // The label and selection are lifted onto the Loader rather
+                // than read as `model.` inside sourceComponent: a component
+                // created by a Loader resolves names through the Loader's
+                // context, and delegate-context lookups from there are the
+                // shape that has bitten this codebase before.
+                Loader {
+                    id: networkTagLoader
+                    objectName: "roomNetworkTagLoader"
+                    readonly property string label: model.networkLabel || ""
+                    readonly property bool tagSelected: selected
+                    active: label !== ""
+                    visible: active
+                    sourceComponent: Label {
+                        objectName: "roomNetworkTag"
+                        text: networkTagLoader.label
+                        color: networkTagLoader.tagSelected
+                               ? AppTheme.selectedText : AppTheme.textMuted
+                        font.pixelSize: AppTheme.fontCaption
+                        font.weight: Font.DemiBold
+                        leftPadding: 5; rightPadding: 5
+                        background: Rectangle {
+                            color: AppTheme.hover
+                            border.color: AppTheme.border
+                            border.width: 1
+                            radius: AppTheme.radiusSm
+                        }
                     }
                 }
                 Icon {
