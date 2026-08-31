@@ -261,6 +261,22 @@ private Q_SLOTS:
                  "the reader dead and expanding it by hand is the only way on");
         QVERIFY2(body.contains(QStringLiteral("maxInvisibleFillRetries")),
                  "invisible progress has no bound of its own");
+
+        // And a call made while a page is still in flight must not spend the
+        // budget. This function is called by every geometry signal, so
+        // several land between one request and its completion, and each sees
+        // no growth for the trivial reason that the page has not arrived.
+        // Measured: an archived room reported "fill budget exhausted
+        // requests= 8" while its rows had gone 79 -> 123 — pages WERE
+        // productive and the generous bound was never reached, because the
+        // small one had been eaten by redundant calls.
+        const int busyGuard = body.indexOf(QStringLiteral("app.pagination.busy"));
+        QVERIFY2(busyGuard >= 0,
+                 "calls made while a page is in flight still spend the fill "
+                 "budget, so redundant geometry signals exhaust it before any "
+                 "page has had a chance to help");
+        QVERIFY2(busyGuard < budget,
+                 "the in-flight guard must come before the budget is spent");
     }
 
     // 2026-08-23 tester report: "Panel size is not saved." The room list's

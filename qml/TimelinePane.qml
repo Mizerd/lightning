@@ -4452,6 +4452,27 @@ Rectangle {
                             viewportFillRetryTimer.stop()
                             return
                         }
+                        // NOTHING IS DECIDED WHILE A PAGE IS IN FLIGHT.
+                        //
+                        // The budget counts PAGES that failed to help. This
+                        // function is called by every geometry signal, so
+                        // several calls land between one request and its
+                        // completion — the trace shows "duplicates suppressed
+                        // count= 4" — and each of those saw no growth for the
+                        // trivial reason that the page had not arrived yet.
+                        //
+                        // Counting them spent the whole budget on redundant
+                        // calls: measured, an archived room reported "fill
+                        // budget exhausted requests= 8" while its rows had
+                        // gone 79 -> 123, so pages WERE productive and the
+                        // generous bound for invisible progress was never
+                        // reached. The retry timer is re-armed so a page that
+                        // lands without moving any geometry still wakes this
+                        // up, which is the deadlock the timer exists for.
+                        if (app.pagination.busy) {
+                            viewportFillRetryTimer.restart()
+                            return
+                        }
                         // TWO KINDS OF PROGRESS, AND ONLY ONE OF THEM IS
                         // VISIBLE.
                         //
