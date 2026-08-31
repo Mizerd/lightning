@@ -7589,8 +7589,26 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     // Rotated tokens must then be persisted on every change (see
     // oauth::spawn_token_persistence), or the store keeps a CONSUMED refresh
     // token and an OAuth 2.1 server treats its reuse as compromise.
+    // MATRIX DELEGATION. The user types a SERVER NAME ("example.com"), and the
+    // client API may live somewhere else entirely — that is what
+    // /.well-known/matrix/client is for, and it is how most self-hosted
+    // deployments are set up. `homeserver_url()` performs no discovery at all,
+    // so a delegated server answered the login request with the web server
+    // sitting on the apex domain: "[404] <non-json bytes>", reported as
+    // Lightning simply being unable to sign in (issue #5).
+    //
+    // `server_name_or_homeserver_url()` is the one that handles a field a
+    // HUMAN typed. It strips any scheme, tries well-known discovery, and only
+    // if that fails falls back to treating the input as a homeserver URL —
+    // and unlike `homeserver_url()` it then VERIFIES that URL really is a
+    // homeserver before handing back a client. So "example.com",
+    // "https://example.com" and "https://matrix.example.com" all work, and a
+    // typo fails at build time with a real error instead of a 404 later.
+    //
+    // This is the single build path behind password login, OAuth sign-in and
+    // the login screen's auth-method probe, so all three follow delegation.
     let mut builder = Client::builder()
-        .homeserver_url(homeserver)
+        .server_name_or_homeserver_url(homeserver)
         .user_agent(USER_AGENT)
         .handle_refresh_tokens()
         .with_encryption_settings(encryption_settings)
@@ -10700,5 +10718,149 @@ mod live_e2ee_interop_tests {
         ));
         std::fs::create_dir_all(&base).expect("temp dir");
         base
+    }
+}
+
+// ── Matrix delegation via /.well-known/matrix/client (issue #5) ──────────
+//
+// Reported by trakais 2026-08-31: with the Matrix server name `example.com`
+// delegating to `matrix.example.com`, entering `https://example.com` failed
+// with `[404] <non-json bytes>` — the apex domain's ordinary web server
+// answering a Matrix API request. Entering the delegated host directly
+// worked, which is exactly the signature of a client that never asks for the
+// well-known.
+//
+// It was `Client::builder().homeserver_url()`, which performs no discovery.
+// `server_name_or_homeserver_url()` is the builder method meant for a field a
+// human typed: strip the scheme, try discovery, fall back to a verified
+// homeserver URL.
+//
+// These cases run against a real SDK client build over loopback HTTP, with no
+// network: the builder picks the HTTP scheme when the input carries one, so a
+// plain TcpListener can play both the delegating server name and the real
+// homeserver it points at.
+#[cfg(test)]
+mod delegation_tests {
+    use super::build_client;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::path::PathBuf;
+    use std::sync::mpsc;
+    use std::thread;
+
+    fn respond(mut stream: TcpStream, body: &str) {
+        let mut buf = [0u8; 2048];
+        let read = stream.read(&mut buf).unwrap_or(0);
+        let request = String::from_utf8_lossy(&buf[..read]).to_string();
+        // A 404 for anything unrecognised, which is precisely what the apex
+        // web server did in the report.
+        let (status, payload) = if request.starts_with("GET /.well-known/matrix/client")
+            || request.starts_with("GET /_matrix/client/versions")
+        {
+            ("200 OK", body)
+        } else {
+            ("404 Not Found", "not found")
+        };
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
+             Access-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}",
+            payload.len(),
+            payload
+        );
+        let _ = stream.write_all(response.as_bytes());
+        let _ = stream.flush();
+    }
+
+    /// A server that answers every request with `body`, until the test drops.
+    /// Returns its `host:port`.
+    fn serve(body: String) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        let (ready_tx, ready_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = ready_tx.send(());
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(s) => {
+                        let body = body.clone();
+                        thread::spawn(move || respond(s, &body));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        ready_rx.recv().expect("listener thread started");
+        format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    /// The subset of `/_matrix/client/versions` the SDK needs to accept a host
+    /// as a homeserver.
+    fn versions_body() -> String {
+        r#"{"versions":["v1.1","v1.11"],"unstable_features":{}}"#.to_owned()
+    }
+
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+    }
+
+    #[test]
+    fn login_follows_well_known_delegation_to_another_host() {
+        // The REAL homeserver, on its own host and port.
+        let homeserver = serve(versions_body());
+        // The server NAME the user types. It serves a well-known pointing at
+        // the homeserver above and 404s every Matrix API path, exactly like
+        // the apex web server in the report.
+        let delegating = serve(format!(
+            r#"{{"m.homeserver":{{"base_url":"http://{homeserver}"}}}}"#
+        ));
+
+        let client = runtime()
+            .block_on(build_client(&format!("http://{delegating}"), &PathBuf::new()))
+            .expect("delegated login must build a client");
+
+        // The client must be pointed at the DELEGATED host, not at what was
+        // typed. Before the fix it kept the typed host and every request 404ed.
+        assert_eq!(
+            client.homeserver().host_str(),
+            Some("127.0.0.1"),
+            "expected the discovered homeserver"
+        );
+        assert_eq!(
+            client.homeserver().port(),
+            homeserver.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()),
+            "client did not follow the well-known to the delegated port"
+        );
+    }
+
+    #[test]
+    fn a_direct_homeserver_url_still_works_without_any_well_known() {
+        // The maintainer's own workflow, and the reporter's workaround: type
+        // the homeserver directly. It serves NO well-known, so discovery fails
+        // and the builder must fall back to the URL rather than refusing.
+        let homeserver = serve(versions_body());
+
+        let client = runtime()
+            .block_on(build_client(&format!("http://{homeserver}"), &PathBuf::new()))
+            .expect("a direct homeserver URL must still work");
+
+        assert_eq!(
+            client.homeserver().port(),
+            homeserver.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()),
+        );
+    }
+
+    #[test]
+    fn a_host_that_is_no_homeserver_fails_to_build_instead_of_404ing_later() {
+        // Nothing Matrix here: no well-known and no versions endpoint. The old
+        // homeserver_url() accepted this happily and the user met a 404 at
+        // login; server_name_or_homeserver_url verifies, so it fails here with
+        // a real error.
+        let bogus = serve("irrelevant".to_owned());
+        let result = runtime()
+            .block_on(build_client(&format!("http://{bogus}/nope"), &PathBuf::new()));
+        assert!(result.is_err(), "a non-homeserver must not build a client");
     }
 }
