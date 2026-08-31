@@ -4417,6 +4417,10 @@ Rectangle {
                 // content, exhausts a bound, or ends the room.
                 readonly property int maxViewportFillRetries: 8
                 property int viewportFillRetries: 0
+                /// contentHeight at the previous fill attempt, or -1 for "no
+                /// attempt yet". The budget is spent on attempts that did not
+                /// make the content taller, not on attempts.
+                property real viewportFillLastHeight: -1
                 Timer {
                     id: viewportFillRetryTimer
                     interval: 250
@@ -4432,16 +4436,45 @@ Rectangle {
                         if (app.currentRoomId === ""
                             || contentHeight >= height) {
                             viewportFillRetries = 0
+                            viewportFillLastHeight = -1
                             viewportFillRetryTimer.stop()
                             return
                         }
-                        app.pagination.requestViewportFill()
+                        // A FILL THAT IS NOT MAKING THE CONTENT TALLER IS NOT
+                        // FILLING, and the budget has to be spent on that
+                        // rather than on the number of attempts.
+                        //
+                        // Captured 2026-08-31 in an archived room whose whole
+                        // history is routine state: rows=144, srcRows=144,
+                        // stateRows=129, stateGroups=1, contentH=60. A
+                        // hundred and twenty-nine state rows fold into ONE
+                        // collapsed group, so contentHeight is 60px and can
+                        // never reach `height` — the guard above is
+                        // unsatisfiable, every page adds ~22 more rows that
+                        // render at no height, and the client paginates the
+                        // room to its start. That is the freeze: rows went 52
+                        // -> 74 -> 144 with contentH pinned at 60 throughout,
+                        // and stick/topDist/nearTop all read 1/0/1 at once
+                        // because top and bottom are the same place.
+                        //
+                        // The budget existed but could not bite: the request
+                        // was issued BEFORE the check, so exhausting it only
+                        // stopped the retry TIMER while every geometry signal
+                        // — and each of the hundreds of row reveals is one —
+                        // went on issuing another. Growth is what re-arms it
+                        // now, so a room that is really filling is unaffected
+                        // and one that cannot fill stops after eight.
+                        if (viewportFillLastHeight >= 0
+                            && contentHeight > viewportFillLastHeight + 1)
+                            viewportFillRetries = 0
+                        viewportFillLastHeight = contentHeight
                         if (app.pagination.reachedStart
                             || app.pagination.fillStopped
                             || app.pagination.failed
                             || viewportFillRetries >= maxViewportFillRetries)
                             return
                         ++viewportFillRetries
+                        app.pagination.requestViewportFill()
                         viewportFillRetryTimer.restart()
                     })
                 }
@@ -4684,6 +4717,7 @@ Rectangle {
                         // previous room's spent attempts must not deny this
                         // one its own.
                         timeline.viewportFillRetries = 0
+                        timeline.viewportFillLastHeight = -1
                         viewportFillRetryTimer.stop()
                         // A pending navigation landing belongs to the
                         // snapshot it was resolved against.

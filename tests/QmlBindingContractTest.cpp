@@ -192,6 +192,65 @@ private Q_SLOTS:
         QVERIFY(closing.contains(QStringLiteral("window.flushGeometry()")));
     }
 
+    // ── The archived-room freeze (2026-08-31) ────────────────────────────
+    //
+    // CAPTURED, not theorised. LIGHTNING_SCROLL_TRACE from an archived room
+    // whose entire history is routine state:
+    //
+    //   rows=52  srcRows=52  stateRows=46  stateGroups=1 contentH=60
+    //   rows=74  srcRows=74  stateRows=65  stateGroups=1 contentH=60
+    //   rows=144 srcRows=144 stateRows=129 stateGroups=1 contentH=60
+    //
+    // A hundred and twenty-nine state rows fold into ONE collapsed group, so
+    // contentHeight is 60px and can never reach the viewport height. The fill
+    // guard `contentHeight >= height` is therefore unsatisfiable, every page
+    // adds ~22 more rows of no height, and the client paginates towards the
+    // room's start without pause. stick=1, topDist=0 and nearTop=1 all read
+    // true at once, because with 60px of content top and bottom are the same
+    // place.
+    //
+    // A SOURCE CONTRACT ON PURPOSE, and the reason is worth knowing. A
+    // behavioural version was written first and DELETED: it passed against
+    // the unfixed tree. Measured — unfixed, the mock harness settles by
+    // itself at 102 rows and 3 pages, because what drives the runaway in
+    // production is the paced row-reveal (the capture shows backlog climbing
+    // past 340, each reveal a geometry signal, each geometry signal another
+    // fill request) and the mock delivers its pages without that pacing. The
+    // harness cannot exhibit the defect, so no assertion over it can catch
+    // the defect.
+    //
+    // What IS checkable is the ordering that made the budget useless.
+    void theViewportFillBudgetGatesTheRequestAndNotJustTheTimer()
+    {
+        const QString source = read(QStringLiteral("TimelinePane.qml"));
+        QVERIFY(!source.isEmpty());
+
+        const int fn = source.indexOf(
+            QStringLiteral("function maybeFillViewport()"));
+        QVERIFY2(fn >= 0, "maybeFillViewport is gone; re-point this contract");
+        const QString body = bracedBody(source, fn);
+        QVERIFY(!body.isEmpty());
+
+        const int budget = body.indexOf(
+            QStringLiteral("viewportFillRetries >= maxViewportFillRetries"));
+        const int request = body.indexOf(
+            QStringLiteral("app.pagination.requestViewportFill()"));
+        QVERIFY2(budget >= 0, "the fill budget check is gone");
+        QVERIFY2(request >= 0, "nothing requests a viewport fill");
+        QVERIFY2(budget < request,
+                 "requestViewportFill() is issued BEFORE the budget is "
+                 "checked, so exhausting the budget stops only the retry "
+                 "timer while every geometry signal issues another request — "
+                 "the archived-room freeze");
+
+        // And the budget must be re-armed by GROWTH, not merely by attempts:
+        // a room that really is filling has to keep filling, which is what
+        // the hidden-page deadlock case depends on.
+        QVERIFY2(body.contains(QStringLiteral("viewportFillLastHeight")),
+                 "the budget is spent on attempts rather than on attempts "
+                 "that failed to make the content taller");
+    }
+
     // 2026-08-23 tester report: "Panel size is not saved." The room list's
     // width was written back from onWidthChanged while `resizing` was false —
     // which is never true during a drag, and the RELEASE moves nothing, so it
