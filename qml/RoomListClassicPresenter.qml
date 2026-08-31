@@ -81,9 +81,10 @@ Item {
         }
 
         // Section grouping driven by the "category" role from
-        // RoomListModel. C++ sorts by RoomListModel::groupIndexOf(),
-        // which is the same function the role reads: invites, then
-        // favourites, then DMs, then rooms.
+        // RoomListModel. C++ sorts by RoomListModel::orderRankOf(), which
+        // is the same function the role reads, so the sort and the headers
+        // cannot disagree: invites, then one activity feed holding every
+        // joined conversation.
         section.property: "category"
         section.criteria: ViewSection.FullString
         // Element pins its group headers. The default (InlineLabels)
