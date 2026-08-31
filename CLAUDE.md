@@ -1125,8 +1125,14 @@ and the required-element list must include what the elements load, not
 only what we call.
 
 **GStreamer version differences, same trap, different library.** The dev
-shell is **1.26.11**; packaged Windows is **1.28.5** (upstream MinGW SDK)
-and the macOS bundle **1.28.6**. Received-track attribution read the
+shell is now **1.28.6** (MEASURED 2026-08-31 via `--call-media-status`; it
+was 1.26.11 when this was written, and the flake has moved since — check
+before relying on the split); packaged Windows is **1.28.5** (upstream
+MinGW SDK) and the macOS bundle **1.28.6**. So the dev shell no longer
+differs from the packaged fleet the way it did, and a defect that needs
+1.28 will now reproduce locally — but do not read that as "the versions
+all match": Windows is still a different patch release built by a
+different toolchain. Received-track attribution read the
 `msid` PROPERTY off a webrtcbin src pad, and how much of it is populated
 moved between those releases — so on a packaged build it came back empty,
 the fallback took the transceiver **mid as the TRACK KEY**, and the ring
