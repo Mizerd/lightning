@@ -4350,6 +4350,8 @@ if(BUILD_TESTING)
         tests/SpacePeopleScopeTest.cpp
         src/models/RoomListModel.h
         src/models/RoomListModel.cpp
+        src/matrix/BridgeNetwork.h
+        src/matrix/BridgeNetwork.cpp
         src/models/SpaceChannelModel.h
         src/models/SpaceChannelModel.cpp
         src/models/DirectAvatarResolver.h
