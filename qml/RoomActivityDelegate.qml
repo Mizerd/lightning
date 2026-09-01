@@ -43,11 +43,13 @@ Item {
     readonly property int entryCount: entriesWithoutCalls.length
     readonly property bool canExpand: entryCount > 0
 
-    // A collapsed group draws ONE summary line, and the date dividers that
-    // used to sit around it are now suppressed when everything they
-    // introduce is hidden — so a group spanning several days would otherwise
-    // lose its date entirely. Same-day groups keep the plain count: a date on
-    // every group is noise, not information.
+    // A collapsed group draws ONE summary line. Since 2026-09-01 the model
+    // breaks a state run at every date divider, so on the Rust backend a
+    // group can no longer span calendar days and this range label is a
+    // SAFETY NET: it only renders on a backend that delivers a multi-day run
+    // without dividers between the days (mock/HTTP fixtures can). Same-day
+    // groups keep the plain count: a date on every group is noise, not
+    // information.
     //
     // Entries carry their own timestamp (TimelineModel::stateGroupEntriesFrom)
     // and arrive in timeline order, so the range is the first and the last —

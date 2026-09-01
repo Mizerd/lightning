@@ -1,8 +1,11 @@
-// 0.5.14 checkpoint 2: room-activity (state-change) grouping must be
-// transparent through virtual SDK rows (date dividers, read markers, the
-// timeline-start marker) — matrix-sdk-ui freely interleaves those between
-// real events, and they must not fragment one logical activity group into
-// several. Only a visible message/media event actually ends a group.
+// 0.5.14 checkpoint 2, chronology amendment 2026-09-01: room-activity
+// (state-change) grouping is transparent through read markers and the
+// timeline-start marker — matrix-sdk-ui freely interleaves those between
+// real events, and they must not fragment one logical activity group.
+// A DATE DIVIDER is different: it ends the run, so each calendar day's
+// activity leads its own collapsed group under its own truthful date
+// separator instead of one group swallowing months of history. A visible
+// message/media/call event ends a group as before.
 
 #include "matrix/MatrixClient.h"
 #include "models/TimelineModel.h"
@@ -122,7 +125,9 @@ private Q_SLOTS:
     void consecutiveStateChangesFormOneGroup();
     void exposesTypedMembershipAndRoomStateEntries();
     void aMembershipEntryCarriesWhatItDid();
-    void dateDividerDoesNotSplitGroup();
+    void dateDividerSplitsTheRunIntoDailyGroups();
+    void multiDayRunYieldsOneGroupPerDay();
+    void aDividerLeadingOnlyActivityStillIntroducesVisibleContent();
     void readMarkerDoesNotSplitGroup();
     void timelineStartDoesNotSplitGroup();
     void visibleTextMessageBreaksGroup();
@@ -137,7 +142,7 @@ private Q_SLOTS:
     void groupCountAlwaysMatchesAccessibleChildren();
     // v0.7.4 (C4): a date divider must not draw when everything it
     // introduces is hidden.
-    void dividersInsideOneCollapsedRunAreOrphansAndReportNoContent();
+    void everyDayOfAMultiDayRunOwnsItsGroupAndItsDate();
     void hiddenRoutineActivityLeavesItsDividerWithNothingToIntroduce();
     void showRoomActivityFlipReAnnouncesTheDividerRows();
 
@@ -324,12 +329,19 @@ void StateActivityGroupingTest::aMembershipEntryCarriesWhatItDid()
              QStringLiteral("Bob joined the room."));
 }
 
-void StateActivityGroupingTest::dateDividerDoesNotSplitGroup()
+// INVERTED 2026-09-01: this case used to pin the opposite — that a divider
+// was transparent and both rows shared one group. That transparency is what
+// let one collapsed group swallow months of history under a single date
+// separator ("142 room updates · 22 Feb – 31 Aug" below "22 February"), so
+// the rule is now: a date divider ENDS a state run; each day's activity
+// leads its own group under its own truthful date. Read markers and the
+// timeline-start row stay transparent (the two cases below this one).
+void StateActivityGroupingTest::dateDividerSplitsTheRunIntoDailyGroups()
 {
     m_client->mirror = {
-        makeStateChange(QStringLiteral("$s0"), QStringLiteral("first")),
+        onDay(makeStateChange(QStringLiteral("$s0"), QStringLiteral("first")), 0),
         makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$div0")),
-        makeStateChange(QStringLiteral("$s1"), QStringLiteral("second")),
+        onDay(makeStateChange(QStringLiteral("$s1"), QStringLiteral("second")), 1),
     };
     m_model->setRoomId(kRoom);
 
@@ -337,18 +349,70 @@ void StateActivityGroupingTest::dateDividerDoesNotSplitGroup()
     // either row's group.
     QCOMPARE(m_model->data(m_model->index(1), TimelineModel::IsStateActivityRole).toBool(), false);
 
+    // TWO groups: each state row leads its own day.
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupLeaderRole).toBool(), true);
-    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::StateGroupLeaderRole).toBool(), false);
-    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::StateGroupIdRole).toString(),
-             m_model->data(m_model->index(0), TimelineModel::StateGroupIdRole).toString());
+    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::StateGroupLeaderRole).toBool(), true);
+    QVERIFY(m_model->data(m_model->index(2), TimelineModel::StateGroupIdRole).toString()
+            != m_model->data(m_model->index(0), TimelineModel::StateGroupIdRole).toString());
+    QCOMPARE(m_model->stateGroupCount(), 2);
 
-    const QVariantList entries =
+    // Each leader reports only its own day's entries.
+    const QVariantList first =
         m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole).toList();
-    QCOMPARE(entries.size(), 2);
-    QCOMPARE(entries.at(0).toMap().value(QStringLiteral("description")).toString(),
+    QCOMPARE(first.size(), 1);
+    QCOMPARE(first.at(0).toMap().value(QStringLiteral("description")).toString(),
              QStringLiteral("first"));
-    QCOMPARE(entries.at(1).toMap().value(QStringLiteral("description")).toString(),
+    const QVariantList second =
+        m_model->data(m_model->index(2), TimelineModel::StateGroupEntriesRole).toList();
+    QCOMPARE(second.size(), 1);
+    QCOMPARE(second.at(0).toMap().value(QStringLiteral("description")).toString(),
              QStringLiteral("second"));
+}
+
+void StateActivityGroupingTest::multiDayRunYieldsOneGroupPerDay()
+{
+    // Three days of pure state churn, divider-separated as the SDK delivers
+    // them (DateDividerMode is daily): day 0 has two rows, days 1 and 2 one
+    // each. Four state rows, THREE groups — one per calendar day.
+    m_client->mirror = {
+        onDay(makeStateChange(QStringLiteral("$a0"), QStringLiteral("a0")), 0),
+        onDay(makeStateChange(QStringLiteral("$a1"), QStringLiteral("a1")), 0),
+        makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$d1")),
+        onDay(makeStateChange(QStringLiteral("$b0"), QStringLiteral("b0")), 1),
+        makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$d2")),
+        onDay(makeStateChange(QStringLiteral("$c0"), QStringLiteral("c0")), 2),
+    };
+    m_model->setRoomId(kRoom);
+
+    QCOMPARE(m_model->stateActivityRowCount(), 4);
+    QCOMPARE(m_model->stateGroupCount(), 3);
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole)
+                 .toList().size(), 2);
+    QCOMPARE(m_model->data(m_model->index(3), TimelineModel::StateGroupEntriesRole)
+                 .toList().size(), 1);
+    QCOMPARE(m_model->data(m_model->index(5), TimelineModel::StateGroupEntriesRole)
+                 .toList().size(), 1);
+}
+
+void StateActivityGroupingTest::aDividerLeadingOnlyActivityStillIntroducesVisibleContent()
+{
+    // With the run split at the divider, the day's first state row leads a
+    // group and DRAWS its summary — so the divider above it introduces
+    // visible content and keeps its date on screen. Before the split this
+    // divider introduced nothing (the run's leader sat above it) and the
+    // date label was suppressed, which is exactly how a months-wide group
+    // ended up owning one stale date.
+    m_client->mirror = {
+        onDay(makeStateChange(QStringLiteral("$s0"), QStringLiteral("yesterday")), 0),
+        makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$div0")),
+        onDay(makeStateChange(QStringLiteral("$s1"), QStringLiteral("today")), 1),
+    };
+    m_model->setRoomId(kRoom);
+
+    QCOMPARE(m_model->data(m_model->index(1),
+                           TimelineModel::DividerIntroducesVisibleContentRole)
+                 .toBool(),
+             true);
 }
 
 void StateActivityGroupingTest::readMarkerDoesNotSplitGroup()
@@ -550,12 +614,16 @@ void StateActivityGroupingTest::groupCountAlwaysMatchesAccessibleChildren()
         QVERIFY(!child.toMap().value(QStringLiteral("description")).toString().isEmpty());
 }
 
-void StateActivityGroupingTest::dividersInsideOneCollapsedRunAreOrphansAndReportNoContent()
+void StateActivityGroupingTest::everyDayOfAMultiDayRunOwnsItsGroupAndItsDate()
 {
-    // The reported defect: a long run of membership churn spread over
-    // several days draws ONE collapsed summary, but the SDK still emits a
-    // date divider at every day boundary inside it — so the timeline showed
-    // a stack of bare date labels introducing nothing at all.
+    // REWRITTEN 2026-09-01. The previous version of this case pinned the
+    // opposite design: one group across the whole 3-day run, with the inner
+    // dividers suppressed as "orphans". That removed the bare-date-label
+    // defect but created the misleading-chronology one — a single date
+    // separator owning a collapsed group whose subtitle ran months past it.
+    // The run now BREAKS at every date divider, which solves both defects
+    // at once: no divider is an orphan (each introduces its own day's
+    // summary), and no summary spans days its date separator does not own.
     QList<TimelineEvent> mirror;
     mirror.append(onDay(makeVirtual(TimelineEvent::DateDivider,
                                     QStringLiteral("$divA")), 0));
@@ -584,8 +652,8 @@ void StateActivityGroupingTest::dividersInsideOneCollapsedRunAreOrphansAndReport
     m_client->mirror = mirror;
     m_model->setRoomId(kRoom);
 
-    // Collapsed: exactly ONE summary for the whole 51-row run, because a
-    // group is transparent through the dividers between its rows.
+    // THREE summaries — one per calendar day — because a date divider ends
+    // the run.
     int leaders = 0;
     for (int row = 0; row < m_model->rowCount(); ++row) {
         if (m_model->data(m_model->index(row),
@@ -594,7 +662,7 @@ void StateActivityGroupingTest::dividersInsideOneCollapsedRunAreOrphansAndReport
                              TimelineModel::StateGroupLeaderRole).toBool())
             ++leaders;
     }
-    QCOMPARE(leaders, 1);
+    QCOMPARE(leaders, 3);
 
     // The fixture's layout is explicit, so each answer is read at a KNOWN
     // row and guarded by that row's own id: a drift in the fixture must
@@ -609,37 +677,41 @@ void StateActivityGroupingTest::dividersInsideOneCollapsedRunAreOrphansAndReport
             idx, TimelineModel::DividerIntroducesVisibleContentRole);
     };
 
-    // Day 1's divider introduces the group's leader — its summary is drawn
-    // there, so the date belongs.
+    // EVERY day's divider introduces that day's own summary — no orphans,
+    // and no suppressed dates.
     QCOMPARE(dividerAt(2, QStringLiteral("$div1")), QVariant(true));
-    // Days 2 and 3 introduce only NON-leader rows of that same collapsed
-    // group: nothing is drawn, so the label is an orphan.
-    QCOMPARE(dividerAt(20, QStringLiteral("$div2")), QVariant(false));
-    QCOMPARE(dividerAt(38, QStringLiteral("$div3")), QVariant(false));
+    QCOMPARE(dividerAt(20, QStringLiteral("$div2")), QVariant(true));
+    QCOMPARE(dividerAt(38, QStringLiteral("$div3")), QVariant(true));
     // The ordinary message boundaries on either side still work.
     QCOMPARE(dividerAt(0, QStringLiteral("$divA")), QVariant(true));
     QCOMPARE(dividerAt(56, QStringLiteral("$divAfter")), QVariant(true));
 
-    // Expanded, the leader renders the whole run itself — which is why the
-    // inner dividers have nothing to introduce, and why the summary needs a
-    // date RANGE rather than a single day. The entries carry the timestamps
-    // that range is built from.
-    const int leaderRow = 3;   // the first state row, right after $div1
-    QCOMPARE(m_model->data(m_model->index(leaderRow),
-                           TimelineModel::EventIdRole).toString(),
-             QStringLiteral("$s0"));
-    QCOMPARE(m_model->data(m_model->index(leaderRow),
-                           TimelineModel::StateGroupLeaderRole).toBool(), true);
-    const QVariantList entries =
-        m_model->data(m_model->index(leaderRow),
-                      TimelineModel::StateGroupEntriesRole).toList();
-    QCOMPARE(entries.size(), 51);
-    const QDateTime first =
-        entries.first().toMap().value(QStringLiteral("timestamp")).toDateTime();
-    const QDateTime last =
-        entries.last().toMap().value(QStringLiteral("timestamp")).toDateTime();
-    QVERIFY(first.isValid() && last.isValid());
-    QVERIFY(first.date() != last.date());
+    // Each leader renders only ITS day: 17 entries, all on one calendar
+    // day, so the summary sits truthfully under its own date separator and
+    // never needs a range subtitle.
+    const QList<int> leaderRows = { 3, 21, 39 }; // first state row after each divider
+    const QStringList leaderIds = { QStringLiteral("$s0"),
+                                    QStringLiteral("$s17"),
+                                    QStringLiteral("$s34") };
+    for (int i = 0; i < leaderRows.size(); ++i) {
+        const int leaderRow = leaderRows.at(i);
+        QCOMPARE(m_model->data(m_model->index(leaderRow),
+                               TimelineModel::EventIdRole).toString(),
+                 leaderIds.at(i));
+        QCOMPARE(m_model->data(m_model->index(leaderRow),
+                               TimelineModel::StateGroupLeaderRole).toBool(),
+                 true);
+        const QVariantList entries =
+            m_model->data(m_model->index(leaderRow),
+                          TimelineModel::StateGroupEntriesRole).toList();
+        QCOMPARE(entries.size(), 17);
+        const QDateTime first = entries.first().toMap()
+                                    .value(QStringLiteral("timestamp")).toDateTime();
+        const QDateTime last = entries.last().toMap()
+                                   .value(QStringLiteral("timestamp")).toDateTime();
+        QVERIFY(first.isValid() && last.isValid());
+        QCOMPARE(first.date(), last.date());
+    }
 }
 
 void StateActivityGroupingTest::hiddenRoutineActivityLeavesItsDividerWithNothingToIntroduce()

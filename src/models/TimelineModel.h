@@ -480,13 +480,14 @@ private:
     bool dividerIntroducesVisibleContent(int dividerRow) const;
     QVariantList pollAnswersVariant(const TimelineEvent &e) const;
     QVariantList readReceiptsVariant(const TimelineEvent &e) const;
-    // Grouping is transparent through virtual rows (date dividers, read
-    // markers, timeline-start) — only a visible message/media event ends a
-    // group. See TimelineModel.cpp for the rationale.
+    // Grouping is transparent through read markers and timeline-start, but a
+    // DATE DIVIDER ends the run (one collapsed group must not span calendar
+    // days under a single date separator). A visible message/media/call
+    // event ends a group as always. See TimelineModel.cpp for the rationale.
     int stateGroupLeaderRow(int row) const;
     // First row of the run of redacted messages containing `row`, or -1 when
     // that row is not redacted. Mirrors stateGroupLeaderRow, including its
-    // transparency through virtual rows.
+    // virtual-row rules (date dividers break, read markers do not).
     int deletedGroupLeaderRow(int row) const;
     int deletedGroupLengthFrom(int leaderRow) const;
     QVariantList stateGroupEntriesFrom(int leaderRow) const;

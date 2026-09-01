@@ -505,6 +505,15 @@ int TimelineModel::stateGroupLeaderRow(int row) const
             --probe;
             continue;
         }
+        // A DATE DIVIDER ends the run: one collapsed group must not swallow
+        // months of history under a single date separator ("142 room
+        // updates · 22 Feb – 31 Aug" sitting below "22 February"). The SDK
+        // emits dividers daily, so each calendar day with activity leads its
+        // own group and the date separator above it tells the truth. Read
+        // markers and the timeline-start row stay transparent — they say
+        // nothing about chronology.
+        if (e.type == TimelineEvent::DateDivider)
+            break;
         if (e.isVirtual()) {
             --probe;
             continue;
@@ -514,10 +523,11 @@ int TimelineModel::stateGroupLeaderRow(int row) const
     return leader;
 }
 
-// Deliberately the same shape as stateGroupLeaderRow, including walking
-// THROUGH virtual rows: a date divider between two deletions does not make
-// them two separate events to a reader. A run is broken only by a row that is
-// actually visible.
+// Deliberately the same shape as stateGroupLeaderRow: transparent through
+// read markers and the timeline-start row, broken by a DATE DIVIDER — a
+// collapsed "N messages deleted" run must not span calendar days under a
+// single date separator any more than a state run may. A run is otherwise
+// broken only by a row that is actually visible.
 int TimelineModel::deletedGroupLeaderRow(int row) const
 {
     if (row < 0 || row >= m_events.size() || !m_events.at(row).redacted)
@@ -532,6 +542,8 @@ int TimelineModel::deletedGroupLeaderRow(int row) const
             --probe;
             continue;
         }
+        if (e.type == TimelineEvent::DateDivider)
+            break;
         if (e.isVirtual()) {
             --probe;
             continue;
@@ -552,6 +564,8 @@ int TimelineModel::deletedGroupLengthFrom(int leaderRow) const
             ++count;
             continue;
         }
+        if (e.type == TimelineEvent::DateDivider)
+            break;
         if (e.isVirtual())
             continue;
         break;
@@ -630,6 +644,10 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
             ++i;
             continue;
         }
+        // Mirror of stateGroupLeaderRow: a date divider ends the run, so the
+        // entries a leader reports never cross into the next day's group.
+        if (e.type == TimelineEvent::DateDivider)
+            break;
         if (e.isVirtual()) {
             ++i;
             continue;
@@ -759,14 +777,13 @@ bool TimelineModel::dividerIntroducesVisibleContent(int dividerRow) const
         const bool routine = !e.stateKind.isEmpty();
         if (routine && !activityKindVisible(e.stateKind))
             continue;
-        // State groups are transparent through virtual rows, so a run that
-        // began BEFORE this divider keeps its leader up there and this
-        // divider introduces no summary of its own — that is precisely the
-        // orphan date label this role exists to remove. Only the FIRST
-        // drawable state row after the divider can be a leader: everything
-        // after it is in the same run (a run can only end at a visible
-        // message, which returns true above), so this walk costs one
-        // leader resolution, not one per row.
+        // A date divider now ENDS a state run, so the first drawable state
+        // row after this divider leads its own group and this divider
+        // introduces that summary. The leader resolution is kept (rather
+        // than assuming true) so this stays derived from the one grouping
+        // rule in stateGroupLeaderRow; only the FIRST drawable state row
+        // needs asking — everything after it is in the same run, so this
+        // walk costs one leader resolution, not one per row.
         if (!leaderChecked) {
             leaderChecked = true;
             if (stateGroupLeaderRow(row) == row)
