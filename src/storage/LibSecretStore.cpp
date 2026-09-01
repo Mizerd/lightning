@@ -66,6 +66,35 @@ void LibSecretStore::probe()
         return;
     }
     g_object_unref(svc);
+
+    // Reaching the service is NOT permission to use it. Under Ubuntu Touch's
+    // AppArmor confinement gnome-keyring answers on the bus — so the call
+    // above succeeds — while every real operation is denied at
+    // Secret.Service.OpenSession, and there is no policy group a click can
+    // request to change that. Probing with the bus proxy alone therefore
+    // reported "backend ready" and the factory never fell back, so the token
+    // was written nowhere and the next launch could not restore the session.
+    //
+    // A real (harmless) lookup is the honest probe: it exercises the same
+    // session-opening path every read and write needs. A miss is success —
+    // the key is not expected to exist; only an ERROR means unusable.
+    GError *probeErr = nullptr;
+    gchar *probeValue = secret_password_lookup_sync(
+        matrixClientSchema(), nullptr, &probeErr,
+        "user_id", "__lightning_probe__",
+        "key",     "__probe__",
+        nullptr);
+    if (probeValue)
+        secret_password_free(probeValue);
+    if (probeErr) {
+        m_available = false;
+        setError(QString::fromUtf8(probeErr->message));
+        qCInfo(lcLibSecret) << "libsecret reachable but unusable:"
+                            << m_lastError;
+        g_error_free(probeErr);
+        return;
+    }
+
     m_available = true;
     qCInfo(lcLibSecret) << "libsecret backend ready";
 }
