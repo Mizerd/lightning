@@ -13,10 +13,12 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QSet>
 #include <QTemporaryDir>
 #include <QTranslator>
+#include <QXmlStreamReader>
 #include <QtTest>
 
 namespace {
@@ -45,6 +47,72 @@ QSet<QString> placeholders(const QString &s)
     while (it.hasNext())
         out.insert(it.next().captured(0));
     return out;
+}
+
+int tokenOccurrences(const QString &text, const QString &token)
+{
+    const QRegularExpression re(
+        QStringLiteral("(?<![A-Za-z0-9_])%1(?![A-Za-z0-9_])")
+            .arg(QRegularExpression::escape(token)));
+    int count = 0;
+    auto it = re.globalMatch(text);
+    while (it.hasNext()) {
+        it.next();
+        ++count;
+    }
+    return count;
+}
+
+QSet<QString> catalogKeys(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+
+    QSet<QString> out;
+    QXmlStreamReader xml(&file);
+    QString context;
+    QString source;
+    QString comment;
+    bool inMessage = false;
+    bool numerus = false;
+    while (!xml.atEnd()) {
+        xml.readNext();
+        if (xml.isStartElement()) {
+            if (xml.name() == QLatin1String("name") && !inMessage) {
+                context = xml.readElementText();
+            } else if (xml.name() == QLatin1String("message")) {
+                inMessage = true;
+                numerus = xml.attributes().value(QLatin1String("numerus"))
+                              == QLatin1String("yes");
+                source.clear();
+                comment.clear();
+            } else if (inMessage && xml.name() == QLatin1String("source")) {
+                source = xml.readElementText();
+            } else if (inMessage && xml.name() == QLatin1String("comment")) {
+                comment = xml.readElementText();
+            }
+        } else if (xml.isEndElement()
+                   && xml.name() == QLatin1String("message")) {
+            const QChar separator(0x1f);
+            out.insert(context + separator + source + separator + comment
+                       + separator + (numerus ? QLatin1Char('1')
+                                              : QLatin1Char('0')));
+            inMessage = false;
+        }
+    }
+    return xml.hasError() ? QSet<QString>() : out;
+}
+
+QString summarizeKeys(const QSet<QString> &keys)
+{
+    QStringList sorted = keys.values();
+    sorted.sort();
+    if (sorted.size() > 8)
+        sorted = sorted.mid(0, 8) << QStringLiteral("…");
+    for (QString &key : sorted)
+        key.replace(QChar(0x1f), QStringLiteral(" | "));
+    return sorted.join(QLatin1Char('\n'));
 }
 
 } // namespace
@@ -90,6 +158,8 @@ private Q_SLOTS:
                  QStringLiteral("hi"));
         QCOMPARE(LocalizationManager::matchLanguageTag(QStringLiteral("bn_BD")),
                  QStringLiteral("bn"));
+        QCOMPARE(LocalizationManager::matchLanguageTag(QStringLiteral("lt_LT")),
+                 QStringLiteral("lt"));
     }
 
     // Chinese is the one language where the SCRIPT decides. Simplified and
@@ -114,7 +184,7 @@ private Q_SLOTS:
 
     void unsupportedLanguagesFallBackToEnglish()
     {
-        for (const char *tag : { "de_DE", "ja", "sw", "lt_LT", "", "!!", "xx_YY" })
+        for (const char *tag : { "de_DE", "ja", "sw", "", "!!", "xx_YY" })
             QVERIFY2(LocalizationManager::matchLanguageTag(QLatin1String(tag)).isEmpty(),
                      tag);
         QCOMPARE(LocalizationManager::matchPreferenceList(
@@ -256,6 +326,62 @@ private Q_SLOTS:
         }
     }
 
+    // A catalog can agree with every other catalog and still be stale. This
+    // is what happened when all ten files remained internally consistent at
+    // 1,922 messages while the source had grown to 2,545: every newly added
+    // UI string silently fell back to English. Extract the current source to
+    // a temporary catalog and compare translation lookup keys in both
+    // directions so missing and removed messages are both visible.
+    void catalogsMatchTheCurrentSource()
+    {
+#ifndef LIGHTNING_LUPDATE_EXECUTABLE
+        QSKIP("configured without Qt Linguist tools — source extraction unavailable");
+#else
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString fresh = temp.filePath(QStringLiteral("lightning_en_US.ts"));
+
+        QProcess lupdate;
+        lupdate.setWorkingDirectory(QStringLiteral(LIGHTNING_SOURCE_DIR));
+        lupdate.setProcessChannelMode(QProcess::MergedChannels);
+        lupdate.start(QStringLiteral(LIGHTNING_LUPDATE_EXECUTABLE), {
+            QStringLiteral("-silent"),
+            QStringLiteral("-locations"), QStringLiteral("none"),
+            QStringLiteral("-no-obsolete"),
+            QStringLiteral("-target-language"), QStringLiteral("en_US"),
+            QStringLiteral("src"), QStringLiteral("qml"),
+            QStringLiteral("-ts"), fresh,
+        });
+        QVERIFY2(lupdate.waitForFinished(30'000),
+                 "lupdate did not finish within 30 seconds");
+        const QString diagnostics = QString::fromUtf8(lupdate.readAll());
+        QCOMPARE(lupdate.exitStatus(), QProcess::NormalExit);
+        QVERIFY2(lupdate.exitCode() == 0, qPrintable(diagnostics));
+        QVERIFY2(!diagnostics.contains(QStringLiteral("cannot be called without context")),
+                 qPrintable(diagnostics));
+
+        const QSet<QString> extracted = catalogKeys(fresh);
+        QVERIFY2(extracted.size() > 2'000,
+                 "lupdate extracted implausibly few source messages");
+        for (const QString &code : LocalizationManager::supportedCodes()) {
+            const QString path =
+                repoFile(QStringLiteral("i18n/lightning_%1.ts").arg(code));
+            const QSet<QString> catalog = catalogKeys(path);
+            QVERIFY2(!catalog.isEmpty(), qPrintable(path));
+            const QSet<QString> missing = extracted - catalog;
+            const QSet<QString> stale = catalog - extracted;
+            QVERIFY2(missing.isEmpty() && stale.isEmpty(),
+                     qPrintable(QStringLiteral(
+                         "%1 is out of sync with the source: %2 missing, %3 stale\n"
+                         "missing:\n%4\nstale:\n%5")
+                         .arg(code)
+                         .arg(missing.size())
+                         .arg(stale.size())
+                         .arg(summarizeKeys(missing), summarizeKeys(stale))));
+        }
+#endif
+    }
+
     // A translation that drops %1 loses the room name; one that invents %2
     // renders a literal "%2" to the user. Both are silent — lrelease accepts
     // them — so they are caught here instead.
@@ -337,6 +463,88 @@ private Q_SLOTS:
         QVERIFY2(checked > 0, "no finished translations were examined");
     }
 
+    // Product, protocol, library and file-format names are identifiers, not
+    // prose. Translating Lightning to "Rayo" or Rust to the word for oxidised
+    // iron renames the thing being described; transliterating PNG leaves a
+    // user looking for a file type that is not in their file picker.
+    void translationsPreserveTechnicalNames()
+    {
+        const QStringList protectedNames = {
+            QStringLiteral("Lightning"), QStringLiteral("MatrixRTC"),
+            QStringLiteral("Matrix"), QStringLiteral("LiveKit"),
+            QStringLiteral("Element"), QStringLiteral("GStreamer"),
+            QStringLiteral("PipeWire"), QStringLiteral("Flatpak"),
+            QStringLiteral("Snap"), QStringLiteral("GIPHY"),
+            QStringLiteral("KLIPY"), QStringLiteral("JPEG XL"),
+            QStringLiteral("Electron"), QStringLiteral("Secret Service"),
+            QStringLiteral("QSettings"), QStringLiteral("KWallet"),
+            QStringLiteral("libsecret"), QStringLiteral("gnome-keyring"),
+            QStringLiteral("xdg-desktop-portal"),
+            QStringLiteral("matrix-client"),
+            QStringLiteral("WebP"), QStringLiteral("PNG"),
+            QStringLiteral("JPEG"), QStringLiteral("GIF"),
+            QStringLiteral("BMP"), QStringLiteral("SDK"),
+            QStringLiteral("SFU"), QStringLiteral("OIDC"),
+            QStringLiteral("OAuth"), QStringLiteral("SAS"),
+            QStringLiteral("QML"), QStringLiteral("Qt"),
+            QStringLiteral("Rust"),
+        };
+
+        int checked = 0;
+        for (const QString &code : LocalizationManager::supportedCodes()) {
+            const QString path =
+                repoFile(QStringLiteral("i18n/lightning_%1.ts").arg(code));
+            const QString xml = readAll(path);
+            QVERIFY2(!xml.isEmpty(), qPrintable(path));
+
+            static const QRegularExpression msgRe(
+                QStringLiteral("<message[^>]*>(.*?)</message>"),
+                QRegularExpression::DotMatchesEverythingOption);
+            auto it = msgRe.globalMatch(xml);
+            while (it.hasNext()) {
+                const QString body = it.next().captured(1);
+                static const QRegularExpression srcRe(
+                    QStringLiteral("<source>(.*?)</source>"),
+                    QRegularExpression::DotMatchesEverythingOption);
+                const auto sm = srcRe.match(body);
+                if (!sm.hasMatch())
+                    continue;
+
+                static const QRegularExpression trRe(
+                    QStringLiteral("<translation(?![^>]*type=\"unfinished\")[^>]*>"
+                                   "(.*?)</translation>"),
+                    QRegularExpression::DotMatchesEverythingOption);
+                const auto tm = trRe.match(body);
+                if (!tm.hasMatch() || tm.captured(1).trimmed().isEmpty())
+                    continue;
+
+                static const QRegularExpression formRe(
+                    QStringLiteral("<numerusform>(.*?)</numerusform>"),
+                    QRegularExpression::DotMatchesEverythingOption);
+                QStringList forms;
+                auto fit = formRe.globalMatch(tm.captured(1));
+                while (fit.hasNext())
+                    forms << fit.next().captured(1);
+                if (forms.isEmpty())
+                    forms << tm.captured(1);
+
+                for (const QString &name : protectedNames) {
+                    if (tokenOccurrences(sm.captured(1), name) == 0)
+                        continue;
+                    for (const QString &form : std::as_const(forms)) {
+                        QVERIFY2(tokenOccurrences(form, name) > 0,
+                                 qPrintable(QStringLiteral(
+                                     "%1 drops or translates the technical name %2\n"
+                                     "source: %3\ntranslation: %4")
+                                     .arg(code, name, sm.captured(1), form)));
+                        ++checked;
+                    }
+                }
+            }
+        }
+        QVERIFY2(checked > 100, "implausibly few technical names were checked");
+    }
+
     // ---- the catalog actually loads --------------------------------------
 
     // English is the SOURCE language and still needs a catalog, because a
@@ -362,6 +570,29 @@ private Q_SLOTS:
         QCOMPARE(many, QStringLiteral("%n rooms"));
         QVERIFY2(!one.contains(QStringLiteral("(s)")),
                  "the English UI would render a literal \"(s)\"");
+    }
+
+    // Smoke-test the new catalog through the same compiled artifact the app
+    // loads, and pin the Matrix-specific terminology that generic machine
+    // translation most readily turns into unrelated everyday words.
+    void theCompiledLithuanianCatalogUsesMatrixTerminology()
+    {
+#ifndef LIGHTNING_HAS_TRANSLATIONS
+        QSKIP("configured without Qt Linguist tools — no catalog is compiled");
+#endif
+        const QString qm = QStringLiteral(LIGHTNING_QM_DIR "/lightning_lt.qm");
+        QVERIFY2(QFile::exists(qm), qPrintable(qm));
+
+        QTranslator t;
+        QVERIFY2(t.load(qm), "the compiled Lithuanian catalog did not load");
+        QCOMPARE(t.translate("DiscoverJoinDialog", "Space"),
+                 QStringLiteral("Erdvė"));
+        QCOMPARE(t.translate("AccountMenu", "Accounts"),
+                 QStringLiteral("Paskyros"));
+        QCOMPARE(t.translate("ThreadPanel", "Thread"),
+                 QStringLiteral("Gija"));
+        QCOMPARE(t.translate("SettingsScreen", "Backend"),
+                 QStringLiteral("Posistemė"));
     }
 
     // ---- source discipline ------------------------------------------------

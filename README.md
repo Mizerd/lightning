@@ -85,7 +85,7 @@ default because Lightning fetches them itself rather than through your
 homeserver, and separately controllable for encrypted rooms.
 
 **Desktop.** Eleven WCAG-AA themes and an editor for your own, which you can name,
-keep and share as a block of text. Ten languages, switchable without a restart,
+keep and share as a block of text. Eleven languages, switchable without a restart,
 including right-to-left Arabic. Native notifications with per-room modes written to your
 account's server push rules, close-to-tray, resizable and hideable panes, a quick
 switcher (Ctrl-K), rebindable shortcuts, native spell checking in the composer,

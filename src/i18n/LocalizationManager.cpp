@@ -22,13 +22,12 @@ struct Language {
     bool rtl;
 };
 
-// The ten most widely spoken languages by total speakers, English first
-// because it is the SOURCE language: there is no lightning_en.qm and there
-// does not need to be — selecting English simply installs no catalog, so
-// every qsTr() renders its own source string.
+// English comes first because it is the source language. Its catalog still
+// carries plural forms; without it a source such as "%n room(s)" renders the
+// parenthesised suffix literally.
 //
 // Adding a language is this table plus an i18n/lightning_<code>.ts file and
-// one line in CMakeLists' LIGHTNING_TS_FILES. Nothing else.
+// one entry in CMakeLists' LIGHTNING_LANGUAGE_CODES. Nothing else.
 constexpr Language kLanguages[] = {
     { "en",    "English",                    "English",          false },
     { "zh_CN", "Chinese (Simplified)",       "中文（简体）", false },
@@ -40,6 +39,7 @@ constexpr Language kLanguages[] = {
     { "pt",    "Portuguese",                 "Português",   false },
     { "ru",    "Russian",                    "Русский", false },
     { "id",    "Indonesian",                 "Bahasa Indonesia", false },
+    { "lt",    "Lithuanian",                 "Lietuvių",        false },
 };
 
 const Language *lookup(const QString &code)
