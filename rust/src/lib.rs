@@ -8088,42 +8088,129 @@ async fn run_modern_sync(
     }
 }
 
+/// Retry timing for [`supervise_sync`]. A parameter rather than a constant
+/// so tests can drive the loop without sleeping for real seconds.
+#[derive(Clone, Copy)]
+pub(crate) struct SyncBackoff {
+    pub(crate) start_ms: u64,
+    pub(crate) max_ms: u64,
+}
+
+impl SyncBackoff {
+    /// Doubling, capped, and saturating — a backoff that overflows to a tiny
+    /// value would turn a supervised loop into a hot one.
+    pub(crate) const fn next_ms(current_ms: u64, max_ms: u64) -> u64 {
+        let doubled = current_ms.saturating_mul(2);
+        if doubled > max_ms { max_ms } else { doubled }
+    }
+}
+
+/// Run `run_once` until cancelled, reporting and retrying EVERY termination.
+///
+/// Generic over the attempt so the policy — which terminations are reported,
+/// how the backoff grows, what cancellation does — can be tested without a
+/// homeserver. `run_once` returns an already-formatted error message because
+/// formatting an SDK error is the caller's business, not the supervisor's.
+pub(crate) async fn supervise_sync<F, Fut>(
+    events: &EventQueueRef,
+    cancel: &mut tokio::sync::oneshot::Receiver<()>,
+    backoff: SyncBackoff,
+    mut run_once: F,
+) where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
+    let mut backoff_ms = backoff.start_ms;
+    loop {
+        let attempt = run_once();
+        tokio::pin!(attempt);
+        let outcome = tokio::select! {
+            result = &mut attempt => Some(result),
+            _ = &mut *cancel => None,
+        };
+        let message = match outcome {
+            // Explicit cancel: logout, account switch, shutdown.
+            None => return,
+            Some(Err(err)) => err,
+            // A graceful stop is still a stop. Saying so is the whole point:
+            // silence here is what produced a permanent "starting".
+            Some(Ok(())) => "Sync stopped; reconnecting".to_owned(),
+        };
+        enqueue(events, json!({ "type": "sync_error", "message": message }));
+        enqueue(events, json!({
+            "type": "room_list_sync_state", "state": "starting"
+        }));
+
+        // The wait is cancellable, or a logout would be held up by a backoff
+        // that can reach half a minute.
+        let sleep = tokio::time::sleep(std::time::Duration::from_millis(backoff_ms));
+        tokio::pin!(sleep);
+        tokio::select! {
+            _ = &mut sleep => {}
+            _ = &mut *cancel => return,
+        }
+        backoff_ms = SyncBackoff::next_ms(backoff_ms, backoff.max_ms);
+    }
+}
+
+/// Supervised classic (v2) sync.
+///
+/// `sync_with_callback` RETURNS when the SDK's sync loop stops, and it can
+/// return `Ok(())`: a graceful stop, which is what a network transition
+/// produces. Treating only `Err` as noteworthy therefore had a silent hole —
+/// a graceful stop emitted nothing at all, no error and no state change, so
+/// the task was already dead while the UI sat on "starting" forever with no
+/// evidence anything had gone wrong.
+///
+/// Every termination is now reported and retried with bounded exponential
+/// backoff. Only an explicit cancel (logout, account switch, shutdown) ends
+/// the loop, and the backoff wait is itself cancellable so a logout is never
+/// held up by it.
 async fn run_classic_sync(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
     enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
+    // Shared ACROSS restarts: initial_sync_done reports the first complete
+    // response of this SESSION, not of this attempt, so a reconnect cannot
+    // re-announce a cold start the UI has already handled.
     let first_response = Arc::new(AtomicBool::new(true));
-    let settings = SyncSettings::default().ignore_timeout_on_first_sync(true).full_state(true);
-    let callback_client = client.clone();
-    let callback_events = Arc::clone(&events);
-    let callback_first = Arc::clone(&first_response);
-    let sync = client.sync_with_callback(settings, move |_response| {
-        let client = callback_client.clone();
-        let events = Arc::clone(&callback_events);
-        let first_response = Arc::clone(&callback_first);
-        async move {
-            enqueue_rooms(&events, &client).await;
-            let spaces = SpaceService::new(client.clone()).await;
-            enqueue_spaces(&events, &spaces, &client).await;
-            enqueue(&events, json!({ "type": "room_list_sync_state", "state": "running" }));
-            if first_response.swap(false, Ordering::SeqCst) {
-                enqueue(&events, json!({ "type": "initial_sync_done" }));
+
+    supervise_sync(
+        &events,
+        &mut cancel,
+        SyncBackoff { start_ms: 1_000, max_ms: 30_000 },
+        || {
+            let settings =
+                SyncSettings::default().ignore_timeout_on_first_sync(true).full_state(true);
+            let callback_client = client.clone();
+            let callback_events = Arc::clone(&events);
+            let callback_first = Arc::clone(&first_response);
+            let sync = client.sync_with_callback(settings, move |_response| {
+                let client = callback_client.clone();
+                let events = Arc::clone(&callback_events);
+                let first_response = Arc::clone(&callback_first);
+                async move {
+                    enqueue_rooms(&events, &client).await;
+                    let spaces = SpaceService::new(client.clone()).await;
+                    enqueue_spaces(&events, &spaces, &client).await;
+                    enqueue(&events, json!({
+                        "type": "room_list_sync_state", "state": "running"
+                    }));
+                    if first_response.swap(false, Ordering::SeqCst) {
+                        enqueue(&events, json!({ "type": "initial_sync_done" }));
+                    }
+                    LoopCtrl::Continue
+                }
+            });
+            async move {
+                sync.await
+                    .map_err(|err| format_matrix_error("Matrix Rust SDK sync failed", err))
             }
-            LoopCtrl::Continue
-        }
-    });
-    tokio::pin!(sync);
-    tokio::select! {
-        result = &mut sync => if let Err(err) = result {
-            enqueue(&events, json!({
-                "type": "sync_error",
-                "message": format_matrix_error("Matrix Rust SDK sync failed", err),
-            }));
         },
-        _ = &mut cancel => {}
-    }
+    )
+    .await;
 }
 
 async fn forward_room_list_diffs(
@@ -8824,6 +8911,180 @@ fn classify_import_error(message: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::classify_import_error;
+    use super::{enqueue, supervise_sync, EventQueueRef, SyncBackoff};
+    use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::{Arc, Mutex};
+
+    // ── The silent sync wedge (issue #2) ─────────────────────────────────
+    //
+    // `sync_with_callback` RETURNS when the SDK's loop stops and can return
+    // `Ok(())` — a graceful stop, which is what a network transition
+    // produces. The code these cases guard used to treat only `Err` as
+    // noteworthy, so a graceful stop emitted NOTHING: the task was already
+    // dead while the UI sat on "starting" forever.
+    //
+    // TWO of the five cases below fail against that version, and they are
+    // the regression tests proper: `graceful_stop_is_reported_and_retried`
+    // (empty queue, one lonely attempt) and
+    // `error_stop_reports_its_own_message_and_retries` (reported once, never
+    // retried). Verified by reverting the match arm and the loop and
+    // re-running.
+    //
+    // The other three PASS against the old code and are guards rather than
+    // regressions: the old code returned immediately so cancellation was
+    // trivially prompt, and the backoff arithmetic is new but pure. They are
+    // here to stop the retry loop growing a hot spin or an uncancellable
+    // wait, not to prove this bug is fixed.
+
+    fn queue() -> EventQueueRef {
+        Arc::new(Mutex::new(VecDeque::new()))
+    }
+
+    fn drained(events: &EventQueueRef) -> Vec<serde_json::Value> {
+        let guard = events.lock().expect("queue poisoned");
+        guard.iter().filter_map(|raw| serde_json::from_str(raw).ok()).collect()
+    }
+
+    fn kinds(events: &EventQueueRef) -> Vec<String> {
+        drained(events)
+            .iter()
+            .map(|v| v["type"].as_str().unwrap_or_default().to_owned())
+            .collect()
+    }
+
+    // Milliseconds, not seconds: the POLICY is under test, not the clock.
+    const FAST: SyncBackoff = SyncBackoff { start_ms: 1, max_ms: 4 };
+
+    #[tokio::test]
+    async fn graceful_stop_is_reported_and_retried() {
+        let events = queue();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
+
+        let counter = Arc::clone(&attempts);
+        let run = supervise_sync(&events, &mut rx, FAST, move || {
+            let counter = Arc::clone(&counter);
+            async move {
+                // Stop gracefully three times, then stay running so the
+                // supervisor is parked in an attempt rather than spinning.
+                if counter.fetch_add(1, AtomicOrdering::SeqCst) < 3 {
+                    Ok(())
+                } else {
+                    std::future::pending::<Result<(), String>>().await
+                }
+            }
+        });
+
+        tokio::select! {
+            _ = run => panic!("supervisor returned without being cancelled"),
+            _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {}
+        }
+        drop(tx);
+
+        assert_eq!(attempts.load(AtomicOrdering::SeqCst), 4,
+                   "a graceful stop must be retried, not accepted as the end");
+        let reported = kinds(&events);
+        assert_eq!(reported.iter().filter(|k| *k == "sync_error").count(), 3,
+                   "every termination is reported, including the graceful ones");
+        for event in drained(&events) {
+            if event["type"] == "sync_error" {
+                assert_eq!(event["message"], "Sync stopped; reconnecting");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn error_stop_reports_its_own_message_and_retries() {
+        let events = queue();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let (_tx, mut rx) = tokio::sync::oneshot::channel::<()>();
+
+        let counter = Arc::clone(&attempts);
+        let run = supervise_sync(&events, &mut rx, FAST, move || {
+            let counter = Arc::clone(&counter);
+            async move {
+                if counter.fetch_add(1, AtomicOrdering::SeqCst) < 2 {
+                    Err("the homeserver hung up".to_owned())
+                } else {
+                    std::future::pending::<Result<(), String>>().await
+                }
+            }
+        });
+        tokio::select! {
+            _ = run => panic!("supervisor returned without being cancelled"),
+            _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {}
+        }
+
+        assert_eq!(attempts.load(AtomicOrdering::SeqCst), 3);
+        let messages: Vec<String> = drained(&events)
+            .iter()
+            .filter(|e| e["type"] == "sync_error")
+            .map(|e| e["message"].as_str().unwrap_or_default().to_owned())
+            .collect();
+        assert_eq!(messages, vec!["the homeserver hung up", "the homeserver hung up"],
+                   "the attempt's own message survives; it is not replaced");
+    }
+
+    #[tokio::test]
+    async fn cancelling_during_backoff_returns_promptly() {
+        let events = queue();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        // A backoff long enough that returning at all proves the wait was
+        // cancellable rather than merely slept through.
+        let slow = SyncBackoff { start_ms: 30_000, max_ms: 30_000 };
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
+
+        let counter = Arc::clone(&attempts);
+        let run = supervise_sync(&events, &mut rx, slow, move || {
+            let counter = Arc::clone(&counter);
+            async move {
+                counter.fetch_add(1, AtomicOrdering::SeqCst);
+                Ok(())
+            }
+        });
+
+        let canceller = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let _ = tx.send(());
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), run)
+            .await
+            .expect("a logout must not wait out the backoff");
+        let _ = canceller.await;
+        assert_eq!(attempts.load(AtomicOrdering::SeqCst), 1,
+                   "cancelled during the first backoff, so no second attempt");
+    }
+
+    #[tokio::test]
+    async fn cancelling_during_an_attempt_reports_nothing() {
+        let events = queue();
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
+        let run = supervise_sync(&events, &mut rx, FAST, || async {
+            std::future::pending::<Result<(), String>>().await
+        });
+        let canceller = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let _ = tx.send(());
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), run)
+            .await
+            .expect("cancel must interrupt a running attempt");
+        let _ = canceller.await;
+        assert!(kinds(&events).is_empty(),
+                "a deliberate stop is not a sync failure and must not be reported as one");
+    }
+
+    #[test]
+    fn backoff_doubles_to_a_cap_and_cannot_overflow() {
+        assert_eq!(SyncBackoff::next_ms(1_000, 30_000), 2_000);
+        assert_eq!(SyncBackoff::next_ms(16_000, 30_000), 30_000);
+        assert_eq!(SyncBackoff::next_ms(30_000, 30_000), 30_000);
+        // Saturating: an overflow that wrapped to a small number would turn
+        // a supervised loop into a hot one.
+        assert_eq!(SyncBackoff::next_ms(u64::MAX, 30_000), 30_000);
+    }
 
     // ── The account-switch SIGABRT (2026-08-25) ──────────────────────────
     //
