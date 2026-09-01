@@ -21,6 +21,7 @@ English at its call site, and the catalogs translate away from it.
 | `pt` | Portuguese | Português |
 | `ru` | Russian | Русский |
 | `id` | Indonesian | Bahasa Indonesia |
+| `lt` | Lithuanian | Lietuvių |
 
 The table lives in exactly one place in code — `kLanguages` in
 `src/i18n/LocalizationManager.cpp`. `tests/LocalizationTest.cpp` asserts that
@@ -122,7 +123,8 @@ half-translated string falls back to English rather than shipping a draft.
 3. `nix develop -c lupdate -locations relative -no-obsolete src qml -ts i18n/lightning_<code>.ts`
 4. Translate it.
 
-`tests/LocalizationTest.cpp` fails if any of the first three are missed.
+`tests/LocalizationTest.cpp` fails if any of the first three are missed or if
+the catalogs no longer match the strings currently extracted from the source.
 
 ## Rules for writing translatable strings
 
@@ -146,6 +148,13 @@ message bodies are data, not UI. Lightning's *description* of an event is UI
 and is translated — `"%1 joined the room"` — with the name left as a
 placeholder.
 
+Product, protocol, library and file-format names also stay exact: `Lightning`,
+`Matrix`, `MatrixRTC`, `Element`, `Rust`, `Qt`, `PNG`, `JPEG`, and similar
+identifiers are not ordinary English words in this context. Translating or
+transliterating them makes the UI name a different product or a file type that
+does not exist. `LocalizationTest` checks the full protected-name list in every
+finished translation.
+
 **Do not translate logs or diagnostics.** They are read by developers, and a
 translated log line is a log line nobody can grep for.
 
@@ -160,8 +169,7 @@ Debian/Ubuntu it is `qt6-tools-dev-tools`, not `qt6-base-dev`. CMake therefore
 looks for `Qt6::LinguistTools` with `QUIET` and, when it is absent, configures
 successfully and prints a warning: the build works and the application is
 English-only, `LocalizationManager::translationsAvailable()` returns false, and
-the Settings page says so instead of offering ten languages that all look
-identical.
+the Settings page says so instead of offering languages that all look identical.
 
 > **Packaging action required.** The lightning-deploy CI images have not been
 > checked for the Qt Linguist tools. Until `qt6-tools-dev-tools` (or each

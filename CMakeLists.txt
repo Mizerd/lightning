@@ -265,22 +265,21 @@ qt_standard_project_setup(REQUIRES 6.5)
 # ---------------------------------------------------------------------------
 # Localization (Qt Linguist).
 #
-# The catalogs are hand-maintained .ts files under i18n/ and English is the
-# SOURCE language, so there is deliberately no lightning_en.ts: selecting
-# English installs no catalog and every qsTr() renders its own source string.
+# The catalogs are hand-maintained .ts files under i18n/. English is the
+# SOURCE language, but it still has a catalog for Qt plural forms.
 #
 # LinguistTools is OPTIONAL on purpose. lrelease lives in a separate distro
 # package from the Qt development headers (Debian: qt6-tools-dev-tools, not
 # qt6-base-dev), and a hard requirement here would break every packaging job
 # that has not added it. Without it the build succeeds and the application is
 # English-only, LocalizationManager::translationsAvailable() reports false,
-# and the Settings page says so instead of offering ten identical languages.
+# and the Settings page says so instead of offering unavailable languages.
 # ---------------------------------------------------------------------------
 # `en` is in the list even though English is the SOURCE language: Qt renders
 # a `%n room(s)` source string's "(s)" literally when no catalog is loaded, so
 # English needs a catalog carrying its plural forms and (after
 # -removeidentical) essentially nothing else.
-set(LIGHTNING_LANGUAGE_CODES en zh_CN hi es ar fr bn pt ru id)
+set(LIGHTNING_LANGUAGE_CODES en zh_CN hi es ar fr bn pt ru id lt)
 set(LIGHTNING_TS_FILES "")
 foreach(_lang IN LISTS LIGHTNING_LANGUAGE_CODES)
     list(APPEND LIGHTNING_TS_FILES "${CMAKE_CURRENT_SOURCE_DIR}/i18n/lightning_${_lang}.ts")
@@ -1461,7 +1460,8 @@ if(BUILD_TESTING)
     if(LIGHTNING_TRANSLATIONS_ENABLED)
         target_compile_definitions(localization-test PRIVATE
             LIGHTNING_HAS_TRANSLATIONS=1
-            LIGHTNING_QM_DIR="${LIGHTNING_QM_DIR}")
+            LIGHTNING_QM_DIR="${LIGHTNING_QM_DIR}"
+            LIGHTNING_LUPDATE_EXECUTABLE="$<TARGET_FILE:Qt6::lupdate>")
         add_dependencies(localization-test lightning-translations)
         # The catalogs are embedded here too, at the SAME :/i18n prefix the
         # application uses, so the test exercises the real resource lookup

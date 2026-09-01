@@ -185,8 +185,15 @@ def cmd_status():
                     numerus_left += 1
             else:
                 done += 1
-        print(f"{code:6s} {done:5d}/{total:5d} done, {total - done:5d} left "
-              f"({numerus_left} of them plural)")
+        if code == "en":
+            # English is the source language. Its unfinished non-plural rows
+            # intentionally fall back to their source text; only numerus rows
+            # need finished translations so "%n room(s)" inflects correctly.
+            print(f"{code:6s} {done:5d} plural entries, {total - done:5d} "
+                  "source fallbacks (intentional)")
+        else:
+            print(f"{code:6s} {done:5d}/{total:5d} done, {total - done:5d} left "
+                  f"({numerus_left} of them plural)")
 
 
 def main():

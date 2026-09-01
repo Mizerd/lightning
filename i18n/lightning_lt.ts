@@ -1,104 +1,105 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1" language="fr_FR">
+<TS version="2.1" language="lt_LT">
 <context>
     <name>AccountMenu</name>
     <message>
         <location filename="../qml/AccountMenu.qml" line="+22"/>
         <source>Connected</source>
-        <translation>Connecté</translation>
+        <translation>Prisijungta</translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
         <source>%n space(s)</source>
         <comment>how many Spaces this account is in</comment>
         <translation>
-            <numerusform>%n espace</numerusform>
-            <numerusform>%n espaces</numerusform>
+            <numerusform>%n erdvė</numerusform>
+            <numerusform>%n erdvės</numerusform>
+            <numerusform>%n erdvių</numerusform>
         </translation>
     </message>
     <message>
         <location line="+121"/>
         <source>Accounts</source>
-        <translation>Comptes</translation>
+        <translation>Paskyros</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Manage</source>
-        <translation>Gérer</translation>
+        <translation>Tvarkyti</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Manage account settings</source>
-        <translation>Gérer les paramètres du compte</translation>
+        <translation>Tvarkyti paskyros nustatymus</translation>
     </message>
     <message>
         <location line="+153"/>
         <source>Add</source>
-        <translation>Ajouter</translation>
+        <translation>Pridėti</translation>
     </message>
     <message>
         <location line="+7"/>
         <location line="+22"/>
         <source>Settings</source>
-        <translation>Paramètres</translation>
+        <translation>Nustatymai</translation>
     </message>
     <message>
         <location line="-15"/>
         <location line="+172"/>
         <source>Sign out</source>
-        <translation>Se déconnecter</translation>
+        <translation>Atsijungti</translation>
     </message>
     <message>
         <location line="-152"/>
         <source>Security &amp; Recovery</source>
-        <translation>Sécurité et récupération</translation>
+        <translation>Saugumas ir atkūrimas</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>About Lightning</source>
-        <translation>À propos de Lightning</translation>
+        <translation>Apie Lightning</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Remove account?</source>
-        <translation>Supprimer le compte ?</translation>
+        <translation>Pašalinti paskyrą?</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Remove %1 from this device? Its local Lightning data, encryption store, and sign-in are deleted from this computer only. Messages stay on the server, and other accounts are not affected.</source>
-        <translation>Supprimer %1 de cet appareil ? Ses données Lightning locales, son magasin de chiffrement et sa connexion sont supprimés de cet ordinateur uniquement. Les messages restent sur le serveur et les autres comptes ne sont pas affectés.</translation>
+        <translation>Pašalinti %1 iš šio įrenginio? Vietiniai „Lightning“ duomenys, šifravimo saugykla ir prisijungimas ištrinami tik iš šio kompiuterio. Pranešimai lieka serveryje, o kitos paskyros neturi įtakos.</translation>
     </message>
     <message>
         <location line="+15"/>
         <location line="+76"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="-69"/>
         <source>Remove</source>
-        <translation>Supprimer</translation>
+        <translation>Pašalinti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Confirm account removal</source>
-        <translation>Confirmer la suppression du compte</translation>
+        <translation>Patvirtinkite paskyros pašalinimą</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Sign out?</source>
-        <translation>Se déconnecter ?</translation>
+        <translation>Atsijungti?</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>You will be signed out of this session. Lightning&apos;s local data for this account is removed from this computer; your messages stay on the server, and encrypted history may need your recovery key after the next sign-in.</source>
-        <translation>Vous serez déconnecté de cette session. Les données locales de Lightning pour ce compte sont supprimées de cet ordinateur ; vos messages restent sur le serveur et l&apos;historique chiffré pourra nécessiter votre clé de récupération à la prochaine connexion.</translation>
+        <translation>Būsite atjungti nuo šios sesijos. Vietiniai šios paskyros „Lightning“ duomenys pašalinami iš šio kompiuterio; jūsų pranešimai lieka serveryje, o šifruotai istorijai gali prireikti atkūrimo rakto po kito prisijungimo.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Confirm sign out</source>
-        <translation>Confirmer la déconnexion</translation>
+        <translation>Patvirtinkite atsijungimą</translation>
     </message>
 </context>
 <context>
@@ -106,7 +107,7 @@
     <message>
         <location filename="../qml/AppBusyIndicator.qml" line="+45"/>
         <source>Loading</source>
-        <translation>Chargement</translation>
+        <translation>Įkeliama</translation>
     </message>
 </context>
 <context>
@@ -114,216 +115,216 @@
     <message>
         <location filename="../src/app/AppController.cpp" line="+619"/>
         <source>Room invitation</source>
-        <translation>Invitation au salon</translation>
+        <translation>Kvietimas į kambarį</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>New Matrix notification</source>
-        <translation>Nouvelle notification Matrix</translation>
+        <translation>Naujas Matrix pranešimas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>You were invited to %1</source>
-        <translation>Vous avez été invité à %1</translation>
+        <translation>Buvote pakviesti į %1</translation>
     </message>
     <message>
         <location line="+141"/>
         <source>Incoming voice call</source>
-        <translation>Appel vocal entrant</translation>
+        <translation>Įeinantis balso skambutis</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 is calling</source>
-        <translation>%1 vous appelle</translation>
+        <translation>%1 skambina</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 is calling in %2</source>
-        <translation>%1 appelle dans %2</translation>
+        <translation>%1 skambina %2</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Incoming call</source>
-        <translation>Appel entrant</translation>
+        <translation>Įeinantis skambutis</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Missed call</source>
-        <translation>Appel manqué</translation>
+        <translation>Praleistas skambutis</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You missed a voice call</source>
-        <translation>Vous avez manqué un appel vocal</translation>
+        <translation>Praleidote balso skambutį</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>You missed a voice call in %1</source>
-        <translation>Vous avez manqué un appel vocal dans %1</translation>
+        <translation>Praleidote balso skambutį %1</translation>
     </message>
     <message>
         <location line="+158"/>
         <source>The room was created, but adding it to the Space failed.</source>
-        <translation>Le salon a été créé, mais son ajout à l&apos;espace a échoué.</translation>
+        <translation>Kambarys buvo sukurtas, bet nepavyko jo pridėti prie erdvės.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The room was created, but setting its picture failed.</source>
-        <translation>Le salon a été créé, mais la définition de son image a échoué.</translation>
+        <translation>Kambarys buvo sukurtas, bet nepavyko nustatyti jo paveikslo.</translation>
     </message>
     <message>
         <location line="+71"/>
         <source>Could not switch accounts — returning to the previous account.</source>
-        <translation>Impossible de changer de compte — retour au compte précédent.</translation>
+        <translation>Nepavyko perjungti paskyrų – grįžtama į ankstesnę paskyrą.</translation>
     </message>
     <message>
         <location line="+48"/>
         <source>The picture could not be saved. Please try again.</source>
-        <translation>L&apos;image n&apos;a pas pu être enregistrée. Veuillez réessayer.</translation>
+        <translation>Nepavyko išsaugoti nuotraukos. Bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>The display name could not be saved. Please try again.</source>
-        <translation>Le nom affiché n&apos;a pas pu être enregistré. Veuillez réessayer.</translation>
+        <translation>Nepavyko išsaugoti rodomo pavadinimo. Bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Idle</source>
-        <translation>Inactif</translation>
+        <translation>Tuščia eiga</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+53"/>
         <source>Not connected</source>
-        <translation>Non connecté</translation>
+        <translation>Neprisijungęs</translation>
     </message>
     <message>
         <location line="-50"/>
         <source>Connecting…</source>
-        <translation>Connexion…</translation>
+        <translation>Jungiamasi…</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Connected</source>
-        <translation>Connecté</translation>
+        <translation>Prisijungta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Loading rooms…</source>
-        <translation>Chargement des salons…</translation>
+        <translation>Įkeliami kambariai…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Error</source>
-        <translation>Erreur</translation>
+        <translation>Klaida</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Offline — retrying</source>
-        <translation>Hors ligne — nouvelle tentative</translation>
+        <translation>Neprisijungus – bandoma dar kartą</translation>
     </message>
     <message>
         <location line="+133"/>
         <source>Verification request</source>
-        <translation>Demande de vérification</translation>
+        <translation>Patikrinimo užklausa</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 wants to verify a session. Open Lightning to review it.</source>
-        <translation>%1 souhaite vérifier une session. Ouvrez Lightning pour l&apos;examiner.</translation>
+        <translation>%1 nori patvirtinti seansą. Atidarykite „Lightning“, kad peržiūrėtumėte.</translation>
     </message>
     <message>
         <location line="+302"/>
         <source>Imported room keys applied to the open timeline.</source>
-        <translation>Clés de salon importées appliquées à la conversation ouverte.</translation>
+        <translation>Importuoti kambario raktai pritaikyti atvirai laiko juostai.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>The passphrase is incorrect or the key export is corrupted.</source>
-        <translation>La phrase secrète est incorrecte ou l&apos;export de clés est corrompu.</translation>
+        <translation>Slaptafrazė neteisinga arba rakto eksportas sugadintas.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The selected file is not a supported encrypted Matrix room-key export.</source>
-        <translation>Le fichier sélectionné n&apos;est pas un export de clés de salon Matrix chiffré pris en charge.</translation>
+        <translation>Pasirinktas failas nėra palaikomas šifruotas Matrix kambario rakto eksportavimas.</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+1508"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
-        <translation>Lightning n&apos;a pas pu lire le fichier sélectionné.</translation>
+        <translation>Lightning nepavyko nuskaityti pasirinkto failo.</translation>
     </message>
     <message>
         <location line="-1514"/>
         <source>A room-key import is already in progress.</source>
-        <translation>Un import de clés de salon est déjà en cours.</translation>
+        <translation>Jau vyksta kambario rakto importavimas.</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+2058"/>
         <source>Not signed in.</source>
-        <translation>Non connecté.</translation>
+        <translation>Neprisijungęs.</translation>
     </message>
     <message>
         <location line="-2056"/>
         <source>Room-key import failed.</source>
-        <translation>L&apos;import des clés de salon a échoué.</translation>
+        <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
     <message>
         <location line="+462"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
-        <translation>Les appels vidéo nécessitent un service MatrixRTC, qui n&apos;est pas encore disponible ici.</translation>
+        <translation>Vaizdo skambučiams reikalinga MatrixRTC paslauga, kuri čia dar nepasiekiama.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
-        <translation>Cette salle est cryptée et les appels cryptés ne sont pas encore disponibles sur cette version.</translation>
+        <translation>Šis kambarys yra užšifruotas, o šifruoti skambučiai šioje versijoje dar nepasiekiami.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Calling isn&apos;t available on this homeserver because no MatrixRTC service is configured.</source>
-        <translation>Les appels ne sont pas disponibles sur ce serveur domestique car aucun service MatrixRTC n&apos;est configuré.</translation>
+        <translation>Šiame namų serveryje skambinti negalima, nes nesukonfigūruota jokia „MatrixRTC“ paslauga.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Still checking whether calling is available…</source>
-        <translation>Je vérifie toujours si les appels sont disponibles…</translation>
+        <translation>Vis dar tikrinama, ar galima skambinti…</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Calling isn&apos;t available here.</source>
-        <translation>Les appels ne sont pas disponibles ici.</translation>
+        <translation>Skambinti čia negalima.</translation>
     </message>
     <message>
         <location line="+136"/>
         <source>Modern room list</source>
-        <translation>Liste de salons moderne</translation>
+        <translation>Šiuolaikinių kambarių sąrašas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Compatibility mode</source>
-        <translation>Mode de compatibilité</translation>
+        <translation>Suderinamumo režimas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Checking server support…</source>
-        <translation>Vérification de la prise en charge par le serveur…</translation>
+        <translation>Tikrinamas serverio palaikymas…</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Recovery is only available on the Rust backend.</source>
-        <translation>La récupération n&apos;est disponible que sur le backend Rust.</translation>
+        <translation>Atkūrimas galimas tik Rust posistemėje.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Recovery key is empty.</source>
-        <translation>La clé de récupération est vide.</translation>
+        <translation>Atkūrimo raktas tuščias.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Rust backend not available.</source>
-        <translation>Backend Rust indisponible.</translation>
+        <translation>Rust posistemė nepasiekiama.</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -331,160 +332,160 @@
         <location line="+46"/>
         <location line="+68"/>
         <source>This build has no Rust SDK backend.</source>
-        <translation>Cette version ne comporte pas de backend Rust SDK.</translation>
+        <translation>Šioje versijoje nėra Rust SDK posistemės.</translation>
     </message>
     <message>
         <location line="-805"/>
         <source>Choose a local image file.</source>
-        <translation>Choisissez un fichier image local.</translation>
+        <translation>Pasirinkite vietinį vaizdo failą.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The image could not be read.</source>
-        <translation>L&apos;image n&apos;a pas pu être lue.</translation>
+        <translation>Nepavyko perskaityti vaizdo.</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <location line="+4"/>
         <source>The image is too large — 32 MiB at most.</source>
-        <translation>L&apos;image est trop volumineuse — 32 Mio au maximum.</translation>
+        <translation>Vaizdas per didelis – daugiausia 32 MiB.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The image is too large — 8192×8192 at most.</source>
-        <translation>L&apos;image est trop grande — 8192×8192 au maximum.</translation>
+        <translation>Vaizdas per didelis – daugiausia 8192 × 8192.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The image is too small — 16×16 at least.</source>
-        <translation>L&apos;image est trop petite — 16×16 au minimum.</translation>
+        <translation>Vaizdas per mažas – bent 16×16.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Choose a PNG, JPEG, WebP, BMP or GIF image.</source>
-        <translation>Choisissez une image PNG, JPEG, WebP, BMP ou GIF.</translation>
+        <translation>Pasirinkite PNG, JPEG, WebP, BMP arba GIF vaizdą.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Application data storage is unavailable.</source>
-        <translation>Le stockage des données de l&apos;application est indisponible.</translation>
+        <translation>Programos duomenų saugykla nepasiekiama.</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+3"/>
         <location line="+2"/>
         <source>The icon could not be saved.</source>
-        <translation>L&apos;icône n&apos;a pas pu être enregistrée.</translation>
+        <translation>Nepavyko išsaugoti piktogramos.</translation>
     </message>
     <message>
         <location line="+265"/>
         <source>Couldn&apos;t load the image (%1).</source>
-        <translation>Impossible de charger l&apos;image (%1).</translation>
+        <translation>Nepavyko įkelti vaizdo (%1).</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>This isn&apos;t a copyable image.</source>
-        <translation>Cette image ne peut pas être copiée.</translation>
+        <translation>Tai nėra kopijuojamas vaizdas.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Couldn&apos;t decode the image.</source>
-        <translation>Impossible de décoder l&apos;image.</translation>
+        <translation>Nepavyko iššifruoti vaizdo.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Clipboard unavailable.</source>
-        <translation>Presse-papiers indisponible.</translation>
+        <translation>Iškarpinė nepasiekiama.</translation>
     </message>
     <message>
         <location line="+174"/>
         <source>Verification is only available on the Rust backend.</source>
-        <translation>La vérification n&apos;est disponible que sur le backend Rust.</translation>
+        <translation>Patvirtinimas galimas tik Rust posistemėje.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>A verification is already in progress.</source>
-        <translation>Une vérification est déjà en cours.</translation>
+        <translation>Patvirtinimas jau vyksta.</translation>
     </message>
     <message>
         <location line="+31"/>
         <location line="+11"/>
         <source>Key requests are only available on the Rust backend.</source>
-        <translation>Les demandes de clés ne sont disponibles que sur le backend Rust.</translation>
+        <translation>Raktų užklausos galimos tik Rust posistemėje.</translation>
     </message>
     <message>
         <location line="+56"/>
         <source>Room-key import is only available on the Rust backend.</source>
-        <translation>L&apos;import de clés de salon n&apos;est disponible que sur le backend Rust.</translation>
+        <translation>Kambarių raktus galima importuoti tik Rust posistemėje.</translation>
     </message>
     <message>
         <location line="+41"/>
         <location line="+36"/>
         <source>Reset is only available on the Rust backend.</source>
-        <translation>La réinitialisation n&apos;est disponible que sur le backend Rust.</translation>
+        <translation>Atstatymas galimas tik Rust posistemėje.</translation>
     </message>
     <message>
         <location line="-25"/>
         <location line="+33"/>
         <source>Enter a valid homeserver and Matrix user ID before resetting the local Lightning session.</source>
-        <translation>Saisissez un serveur d&apos;accueil et un identifiant Matrix valides avant de réinitialiser la session Lightning locale.</translation>
+        <translation>Prieš iš naujo nustatydami vietinį „Lightning“ seansą, įveskite galiojantį namų serverį ir „Matrix“ vartotojo ID.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
-        <translation>Lightning n&apos;a pas pu réinitialiser complètement la session locale de ce compte. Vérifiez les journaux de l&apos;application et les permissions du système de fichiers, puis réessayez.</translation>
+        <translation>„Lightning“ nepavyko visiškai iš naujo nustatyti šios paskyros vietinės sesijos. Patikrinkite programų žurnalus ir failų sistemos leidimus, tada bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+57"/>
         <source>Clearing this device&apos;s local data would not fix this, and it would destroy encryption keys you still need.</source>
-        <translation>Effacer les données locales de cet appareil ne résoudrait pas ce problème et détruirait des clés de chiffrement dont vous avez encore besoin.</translation>
+        <translation>Išvalius šio įrenginio vietinius duomenis problema neišspręstų ir būtų sunaikinti šifravimo raktai, kurių vis dar reikia.</translation>
     </message>
     <message>
         <location line="+406"/>
         <source>This backend cannot change your display name.</source>
-        <translation>Ce backend ne peut pas modifier votre nom affiché.</translation>
+        <translation>Ši posistemė negali pakeisti rodomo vardo.</translation>
     </message>
     <message>
         <location line="+16"/>
         <location line="+26"/>
         <source>This account cannot change its picture here.</source>
-        <translation>Ce compte ne peut pas changer son image ici.</translation>
+        <translation>Ši paskyra negali pakeisti savo nuotraukos čia.</translation>
     </message>
     <message>
         <location line="-16"/>
         <source>That image could not be read.</source>
-        <translation>Cette image n&apos;a pas pu être lue.</translation>
+        <translation>To vaizdo perskaityti nepavyko.</translation>
     </message>
     <message>
         <location line="+70"/>
         <source>Enter a name, or use Clear to remove your display name.</source>
-        <translation>Saisissez un nom, ou utilisez Effacer pour supprimer votre nom affiché.</translation>
+        <translation>Įveskite pavadinimą arba naudokite Išvalyti, kad pašalintumėte rodomą vardą.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Display names are limited to %1 characters.</source>
-        <translation>Les noms affichés sont limités à %1 caractères.</translation>
+        <translation>Rodomi pavadinimai apriboti iki %1 simbolių.</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>That account is not signed in on this device.</source>
-        <translation>Ce compte n&apos;est pas connecté sur cet appareil.</translation>
+        <translation>Prie tos paskyros šiame įrenginyje neprisijungta.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
-        <translation>La connexion de ce compte a expiré. Reconnectez-vous.</translation>
+        <translation>Tos paskyros prisijungimo galiojimo laikas baigėsi. Prisijunkite prie jo dar kartą.</translation>
     </message>
     <message>
         <location line="+49"/>
         <source>Could not switch accounts right now. If a sign-out is in progress, try again in a moment.</source>
-        <translation>Impossible de changer de compte pour le moment. Si une déconnexion est en cours, réessayez dans un instant.</translation>
+        <translation>Šiuo metu nepavyko perjungti paskyrų. Jei vyksta atsijungimas, po kurio laiko bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Could not activate the selected account.</source>
-        <translation>Impossible d&apos;activer le compte sélectionné.</translation>
+        <translation>Nepavyko suaktyvinti pasirinktos paskyros.</translation>
     </message>
 </context>
 <context>
@@ -492,12 +493,12 @@
     <message>
         <location filename="../qml/AppMenuItem.qml" line="+53"/>
         <source>Selected</source>
-        <translation>Sélectionné</translation>
+        <translation>Pasirinkta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not selected</source>
-        <translation>Non sélectionné</translation>
+        <translation>Nepasirinkta</translation>
     </message>
 </context>
 <context>
@@ -505,7 +506,7 @@
     <message>
         <location filename="../qml/AppTextField.qml" line="+82"/>
         <source>Clear text</source>
-        <translation>Effacer le texte</translation>
+        <translation>Aiškus tekstas</translation>
     </message>
 </context>
 <context>
@@ -513,62 +514,62 @@
     <message>
         <location filename="../qml/AppTheme.qml" line="+837"/>
         <source>Storm</source>
-        <translation>Storm</translation>
+        <translation>Audra</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Moss Light</source>
-        <translation>Moss Light</translation>
+        <translation>Samanų šviesa</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Indigo Night</source>
-        <translation>Indigo Night</translation>
+        <translation>Indigo naktis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Deep Teal</source>
-        <translation>Deep Teal</translation>
+        <translation>Giliai žalsvai mėlyna</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning Light</source>
-        <translation>Lightning Light</translation>
+        <translation>Lightning Šviesa</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning Dark</source>
-        <translation>Lightning Dark</translation>
+        <translation>Lightning Tamsus</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Graphite</source>
-        <translation>Graphite</translation>
+        <translation>Grafitas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Midnight</source>
-        <translation>Midnight</translation>
+        <translation>Vidurnaktis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nordic</source>
-        <translation>Nordic</translation>
+        <translation>Šiaurės šalių</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Purple Dusk</source>
-        <translation>Purple Dusk</translation>
+        <translation>Violetinė sutema</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Warm</source>
-        <translation>Warm</translation>
+        <translation>Šiltas</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your theme</source>
-        <translation>Votre thème</translation>
+        <translation>Jūsų tema</translation>
     </message>
 </context>
 <context>
@@ -576,42 +577,42 @@
     <message>
         <location filename="../src/models/AttachmentQueueModel.cpp" line="+46"/>
         <source>The file is larger than the server&apos;s upload limit (%1).</source>
-        <translation>Le fichier dépasse la limite d&apos;envoi du serveur (%1).</translation>
+        <translation>Failas didesnis nei serverio įkėlimo limitas (%1).</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>Only local files can be attached.</source>
-        <translation>Seuls des fichiers locaux peuvent être joints.</translation>
+        <translation>Galima pridėti tik vietinius failus.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Folders cannot be attached.</source>
-        <translation>Les dossiers ne peuvent pas être joints.</translation>
+        <translation>Aplankų pridėti negalima.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>That file cannot be read.</source>
-        <translation>Ce fichier ne peut pas être lu.</translation>
+        <translation>To failo negalima nuskaityti.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Empty files cannot be sent.</source>
-        <translation>Les fichiers vides ne peuvent pas être envoyés.</translation>
+        <translation>Negalima siųsti tuščių failų.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>That file is already attached.</source>
-        <translation>Ce fichier est déjà joint.</translation>
+        <translation>Tas failas jau pridėtas.</translation>
     </message>
     <message>
         <location line="+113"/>
         <source>The clipboard image is empty.</source>
-        <translation>L&apos;image du presse-papiers est vide.</translation>
+        <translation>Iškarpinės vaizdas tuščias.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The image is larger than the server&apos;s upload limit (%1).</source>
-        <translation>L&apos;image dépasse la limite d&apos;envoi du serveur (%1).</translation>
+        <translation>Vaizdas didesnis nei serverio įkėlimo limitas (%1).</translation>
     </message>
 </context>
 <context>
@@ -619,63 +620,63 @@
     <message>
         <location filename="../qml/AudioPlayerCard.qml" line="+351"/>
         <source>Audio cover artwork</source>
-        <translation>Pochette audio</translation>
+        <translation>Garso viršelio kūrinys</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Pause %1</source>
-        <translation>Mettre %1 en pause</translation>
+        <translation>Pristabdyti %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+2"/>
         <source>voice message</source>
-        <translation>message vocal</translation>
+        <translation>balso žinutę</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>Play %1</source>
-        <translation>Lire %1</translation>
+        <translation>Žaisti %1</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>This audio cannot be played</source>
-        <translation>Cet audio ne peut pas être lu</translation>
+        <translation>Šio garso negalima leisti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Voice message</source>
-        <translation>Message vocal</translation>
+        <translation>Balso žinutė</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Audio</source>
-        <translation>Audio</translation>
+        <translation>Garsas</translation>
     </message>
     <message>
         <location line="+67"/>
         <source>Seek position</source>
-        <translation>Position de lecture</translation>
+        <translation>Siekite pozicijos</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>Playback speed %1x</source>
-        <translation>Vitesse de lecture %1x</translation>
+        <translation>Atkūrimo greitis %1x</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Playback speed</source>
-        <translation>Vitesse de lecture</translation>
+        <translation>Atkūrimo greitis</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Save %1 as…</source>
-        <translation>Enregistrer %1 sous…</translation>
+        <translation>Išsaugoti %1 kaip…</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>audio</source>
-        <translation>audio</translation>
+        <translation>garso</translation>
     </message>
 </context>
 <context>
@@ -683,12 +684,12 @@
     <message>
         <location filename="../src/auth/AuthManager.cpp" line="+176"/>
         <source>This build cannot perform browser sign-in.</source>
-        <translation>Cette version ne peut pas effectuer de connexion via navigateur.</translation>
+        <translation>Ši versija negali atlikti prisijungimo prie naršyklės.</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>This build cannot perform single sign-on.</source>
-        <translation>Cette version ne peut pas effectuer d&apos;authentification unique.</translation>
+        <translation>Ši versija negali atlikti vieno prisijungimo.</translation>
     </message>
 </context>
 <context>
@@ -696,7 +697,7 @@
     <message>
         <location filename="../qml/CallDeviceChevron.qml" line="+38"/>
         <source>The chosen device isn&apos;t connected</source>
-        <translation>L&apos;appareil choisi n&apos;est pas connecté</translation>
+        <translation>Pasirinktas įrenginys neprijungtas</translation>
     </message>
 </context>
 <context>
@@ -704,32 +705,32 @@
     <message>
         <location filename="../qml/CallDeviceMenu.qml" line="+53"/>
         <source>Output device</source>
-        <translation>Périphérique de sortie</translation>
+        <translation>Išvesties įrenginys</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Camera</source>
-        <translation>Appareil photo</translation>
+        <translation>Fotoaparatas</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Microphone</source>
-        <translation>Micro</translation>
+        <translation>Mikrofonas</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>System default</source>
-        <translation>Valeur par défaut du système</translation>
+        <translation>Numatytasis sistemos</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>(default)</source>
-        <translation>(par défaut)</translation>
+        <translation>(numatytasis)</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Your chosen microphone isn&apos;t connected</source>
-        <translation>Le microphone que vous avez choisi n&apos;est pas connecté</translation>
+        <translation>Jūsų pasirinktas mikrofonas neprijungtas</translation>
     </message>
 </context>
 <context>
@@ -737,63 +738,63 @@
     <message>
         <location filename="../qml/CallDeviceSettings.qml" line="+63"/>
         <source>System default</source>
-        <translation>Valeur par défaut du système</translation>
+        <translation>Numatytasis sistemos</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>(default)</source>
-        <translation>(par défaut)</translation>
+        <translation>(numatytasis)</translation>
     </message>
     <message>
         <location line="+41"/>
         <source>Microphone</source>
-        <translation>Micro</translation>
+        <translation>Mikrofonas</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>No microphone was found. You can still join a call and listen.</source>
-        <translation>Aucun microphone n&apos;a été trouvé. Vous pouvez toujours rejoindre un appel et écouter.</translation>
+        <translation>Nerastas joks mikrofonas. Vis tiek galite prisijungti prie skambučio ir klausytis.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Your chosen microphone isn&apos;t connected. Calls use the system default until it&apos;s back.</source>
-        <translation>Le microphone que vous avez choisi n&apos;est pas connecté. Les appels utilisent la valeur par défaut du système jusqu&apos;à ce qu&apos;ils reviennent.</translation>
+        <translation>Jūsų pasirinktas mikrofonas neprijungtas. Skambučiams naudojami numatytieji sistemos nustatymai, kol sugrįš.</translation>
     </message>
     <message>
         <location line="+37"/>
         <location line="+27"/>
         <source>Microphone volume</source>
-        <translation>Volume du micro</translation>
+        <translation>Mikrofono garsumas</translation>
     </message>
     <message>
         <location line="+68"/>
         <source>Above 100% amplifies and can clip. 200% applies the maximum the audio stage can reach.</source>
-        <translation>Au dessus de 100%, amplifie et peut écrêter. 200&#xa0;% applique le maximum que la scène audio peut atteindre.</translation>
+        <translation>Virš 100% sustiprina ir gali nukirpti. 200 % taikomas maksimumas, kurį gali pasiekti garso scena.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Reset</source>
-        <translation>Réinitialiser</translation>
+        <translation>Nustatyti iš naujo</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Output device</source>
-        <translation>Périphérique de sortie</translation>
+        <translation>Išvesties įrenginys</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Camera</source>
-        <translation>Appareil photo</translation>
+        <translation>Fotoaparatas</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>No camera was found.</source>
-        <translation>Aucune caméra n&apos;a été trouvée.</translation>
+        <translation>Kamera nerasta.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>These devices belong to this computer, not to your account. A change applies to your next call; during a call you can switch from the controls at the top of the conversation.</source>
-        <translation>Ces appareils appartiennent à cet ordinateur et non à votre compte. Un changement s&apos;applique à votre prochain appel&#xa0;; pendant un appel, vous pouvez basculer entre les commandes en haut de la conversation.</translation>
+        <translation>Šie įrenginiai priklauso šiam kompiuteriui, o ne jūsų paskyrai. Pakeitimas taikomas kitam jūsų skambučiui; pokalbio metu galite perjungti valdiklius, esančius pokalbio viršuje.</translation>
     </message>
 </context>
 <context>
@@ -801,22 +802,22 @@
     <message>
         <location filename="../qml/CallEventDelegate.qml" line="+246"/>
         <source>Join</source>
-        <translation>Rejoindre</translation>
+        <translation>Prisijunk</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Join the call</source>
-        <translation>Rejoignez l&apos;appel</translation>
+        <translation>Prisijunkite prie skambučio</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>1 person declined</source>
-        <translation>1 personne a refusé</translation>
+        <translation>1 asmuo atsisakė</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 people declined</source>
-        <translation>%1 personnes ont refusé</translation>
+        <translation>%1 žmonių atsisakė</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -835,113 +836,113 @@
         <location filename="../qml/CallHeaderBar.qml" line="+102"/>
         <location line="+10"/>
         <source>Connecting…</source>
-        <translation>Connexion…</translation>
+        <translation>Jungiamasi…</translation>
     </message>
     <message>
         <location line="-8"/>
         <source>Reconnecting…</source>
-        <translation>Reconnexion…</translation>
+        <translation>Jungiamasi iš naujo…</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+7"/>
         <source>Voice call</source>
-        <translation>Appel vocal</translation>
+        <translation>Balso skambutis</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Calling…</source>
-        <translation>Appel en cours…</translation>
+        <translation>Skambina…</translation>
     </message>
     <message>
         <location line="+108"/>
         <source>Turn off camera</source>
-        <translation>Éteindre la caméra</translation>
+        <translation>Išjunkite kamerą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Turn on camera</source>
-        <translation>Allumer la caméra</translation>
+        <translation>Įjunkite fotoaparatą</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Choose camera</source>
-        <translation>Choisir l&apos;appareil photo</translation>
+        <translation>Pasirinkite fotoaparatą</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Stop sharing your screen</source>
-        <translation>Arrêtez de partager votre écran</translation>
+        <translation>Nustokite bendrinti ekraną</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Share your screen</source>
-        <translation>Partagez votre écran</translation>
+        <translation>Bendrinkite savo ekraną</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Screen share options</source>
-        <translation>Options de partage d&apos;écran</translation>
+        <translation>Ekrano bendrinimo parinktys</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Sound, resolution and frame rate</source>
-        <translation>Son, résolution et fréquence d&apos;images</translation>
+        <translation>Garsas, raiška ir kadrų dažnis</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Lower your hand</source>
-        <translation>Baisse ta main</translation>
+        <translation>Nuleiskite ranką</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Raise your hand</source>
-        <translation>Levez la main</translation>
+        <translation>Pakelk ranką</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Show who&apos;s in the call (%1)</source>
-        <translation>Afficher qui participe à l&apos;appel (%1)</translation>
+        <translation>Rodyti, kas dalyvauja pokalbyje (%1)</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Show who&apos;s in the call</source>
-        <translation>Montrer qui participe à l&apos;appel</translation>
+        <translation>Parodykite, kas dalyvauja skambutyje</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Unmute microphone</source>
-        <translation>Activer le microphone</translation>
+        <translation>Įjungti mikrofono garsą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mute microphone</source>
-        <translation>Couper le microphone</translation>
+        <translation>Nutildyti mikrofoną</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Choose microphone</source>
-        <translation>Choisir un micro</translation>
+        <translation>Pasirinkite mikrofoną</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Undeafen</source>
-        <translation>Insourdissant</translation>
+        <translation>Nekurčias</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Deafen</source>
-        <translation>Assourdir</translation>
+        <translation>Kurčias</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Choose output device</source>
-        <translation>Choisir le périphérique de sortie</translation>
+        <translation>Pasirinkite išvesties įrenginį</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Leave call</source>
-        <translation>Quitter l&apos;appel</translation>
+        <translation>Palikite skambutį</translation>
     </message>
 </context>
 <context>
@@ -949,53 +950,53 @@
     <message>
         <location filename="../qml/CallParticipantTile.qml" line="+161"/>
         <source>You</source>
-        <translation>Vous</translation>
+        <translation>Jūs</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>Participant</source>
-        <translation>Participant</translation>
+        <translation>Dalyvis</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Microphone muted</source>
-        <translation>Microphone coupé</translation>
+        <translation>Mikrofonas nutildytas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sharing their screen</source>
-        <translation>Partager son écran</translation>
+        <translation>Bendrina savo ekraną</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Hand raised</source>
-        <translation>Main levée</translation>
+        <translation>Ranka pakelta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Speaking</source>
-        <translation>Parler</translation>
+        <translation>Kalbėdamas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Poor connection</source>
-        <translation>Mauvaise connexion</translation>
+        <translation>Prastas ryšys</translation>
     </message>
     <message>
         <location line="+458"/>
         <location line="+120"/>
         <source>Volume for %1</source>
-        <translation>Volume pour %1</translation>
+        <translation>%1 tomas</translation>
     </message>
     <message>
         <location line="+85"/>
         <source>Above 100% amplifies and can clip. 200% applies the maximum the audio stage can reach.</source>
-        <translation>Au dessus de 100%, amplifie et peut écrêter. 200&#xa0;% applique le maximum que la scène audio peut atteindre.</translation>
+        <translation>Virš 100% sustiprina ir gali nukirpti. 200 % taikomas maksimumas, kurį gali pasiekti garso scena.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Reset</source>
-        <translation>Réinitialiser</translation>
+        <translation>Nustatyti iš naujo</translation>
     </message>
 </context>
 <context>
@@ -1003,17 +1004,17 @@
     <message>
         <location filename="../qml/CallShareOptionsMenu.qml" line="+47"/>
         <source>Screen share</source>
-        <translation>Partage d&apos;écran</translation>
+        <translation>Ekrano bendrinimas</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Share computer sound</source>
-        <translation>Partager le son de l&apos;ordinateur</translation>
+        <translation>Bendrinkite kompiuterio garsą</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Resolution</source>
-        <translation>Résolution</translation>
+        <translation>Rezoliucija</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -1038,27 +1039,27 @@
     <message>
         <location line="+15"/>
         <source>Frame rate</source>
-        <translation>Fréquence d&apos;images</translation>
+        <translation>Kadrų dažnis</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>15 fps</source>
-        <translation>15 images par seconde</translation>
+        <translation>15 kadrų per sekundę</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>30 fps</source>
-        <translation>30 images par seconde</translation>
+        <translation>30 kadrų per sekundę</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>60 fps</source>
-        <translation>60 images par seconde</translation>
+        <translation>60 kadrų per sekundę</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>%1 — slow</source>
-        <translation>%1 — lent</translation>
+        <translation>%1 – lėtas</translation>
     </message>
 </context>
 <context>
@@ -1066,33 +1067,33 @@
     <message>
         <location filename="../qml/CallShareTile.qml" line="+78"/>
         <source>Your screen</source>
-        <translation>Votre écran</translation>
+        <translation>Jūsų ekranas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1&apos;s screen</source>
-        <translation>Écran de %1</translation>
+        <translation>%1 ekrane</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Shared screen</source>
-        <translation>Écran partagé</translation>
+        <translation>Bendrinamas ekranas</translation>
     </message>
     <message>
         <location line="+7"/>
         <location line="+285"/>
         <source>Screen share</source>
-        <translation>Partage d&apos;écran</translation>
+        <translation>Ekrano bendrinimas</translation>
     </message>
     <message>
         <location line="-175"/>
         <source>Waiting for the picture…</source>
-        <translation>En attendant la photo…</translation>
+        <translation>Laukiam nuotraukos…</translation>
     </message>
     <message>
         <location line="+198"/>
         <source>Screen share volume</source>
-        <translation>Volume de partage d&apos;écran</translation>
+        <translation>Ekrano bendrinimo garsumas</translation>
     </message>
 </context>
 <context>
@@ -1100,22 +1101,22 @@
     <message>
         <location filename="../qml/CallSpeakerBubbles.qml" line="+112"/>
         <source>You</source>
-        <translation>Vous</translation>
+        <translation>Jūs</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Speaking</source>
-        <translation>Parler</translation>
+        <translation>Kalbėdamas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Microphone muted</source>
-        <translation>Microphone coupé</translation>
+        <translation>Mikrofonas nutildytas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sharing their screen</source>
-        <translation>Partager son écran</translation>
+        <translation>Bendrina savo ekraną</translation>
     </message>
 </context>
 <context>
@@ -1123,77 +1124,77 @@
     <message>
         <location filename="../qml/CallStage.qml" line="+587"/>
         <source>Nobody to show here yet</source>
-        <translation>Personne à montrer ici pour l&apos;instant</translation>
+        <translation>Dar nėra ką čia parodyti</translation>
     </message>
     <message>
         <location line="+41"/>
         <source>Connecting…</source>
-        <translation>Connexion…</translation>
+        <translation>Jungiamasi…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>1 person in call</source>
-        <translation>1 personne en appel</translation>
+        <translation>Skambutyje dalyvauja 1 žmogus</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 people in call</source>
-        <translation>%1 personnes en appel</translation>
+        <translation>Skambutyje dalyvauja %1 žmonių</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Reconnecting…</source>
-        <translation>Reconnexion…</translation>
+        <translation>Jungiamasi iš naujo…</translation>
     </message>
     <message>
         <location line="+96"/>
         <source>Show screen shares (%1)</source>
-        <translation>Afficher les partages d&apos;écran (%1)</translation>
+        <translation>Rodyti ekrano bendrinimus (%1)</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Show screen share</source>
-        <translation>Afficher le partage d&apos;écran</translation>
+        <translation>Rodyti ekrano bendrinimą</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Expand the call</source>
-        <translation>Développer l&apos;appel</translation>
+        <translation>Išplėskite skambutį</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Collapse the call</source>
-        <translation>Réduire l&apos;appel</translation>
+        <translation>Sutraukti skambutį</translation>
     </message>
     <message>
         <location line="+141"/>
         <source>Full screen</source>
-        <translation>Plein écran</translation>
+        <translation>Visas ekranas</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Back to grid</source>
-        <translation>Retour à la grille</translation>
+        <translation>Atgal į tinklelį</translation>
     </message>
     <message>
         <location line="+199"/>
         <source>Playing full screen</source>
-        <translation>Lecture en plein écran</translation>
+        <translation>Leidžiama per visą ekraną</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Exit full screen</source>
-        <translation>Quitter le plein écran</translation>
+        <translation>Išeikite per visą ekraną</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Lightning — full screen</source>
-        <translation>Lightning — plein écran</translation>
+        <translation>Lightning – visas ekranas</translation>
     </message>
     <message>
         <location line="+159"/>
         <source>Exit full screen (Esc)</source>
-        <translation>Quitter le plein écran (Esc)</translation>
+        <translation>Išeiti per visą ekraną (Esc)</translation>
     </message>
 </context>
 <context>
@@ -1201,32 +1202,32 @@
     <message>
         <location filename="../qml/ChannelCategoryHeader.qml" line="+43"/>
         <source>%1, %2 mentions inside</source>
-        <translation>%1, %2 mentionne à l&apos;intérieur</translation>
+        <translation>%1, viduje – %2 paminėjimų</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, unread inside</source>
-        <translation>%1, non lu à l&apos;intérieur</translation>
+        <translation>%1, viduje neskaityta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, collapsed</source>
-        <translation>%1, réduit</translation>
+        <translation>%1, sutraukta</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>%1, expanded</source>
-        <translation>%1, développé</translation>
+        <translation>%1, išplėstas</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Activate to expand</source>
-        <translation>Activer pour développer</translation>
+        <translation>Norėdami išplėsti, suaktyvinkite</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Activate to collapse</source>
-        <translation>Activer pour réduire</translation>
+        <translation>Suaktyvinkite, kad sutrauktumėte</translation>
     </message>
 </context>
 <context>
@@ -1234,22 +1235,22 @@
     <message>
         <location filename="../qml/ChannelDelegate.qml" line="+121"/>
         <source>%1, invitation</source>
-        <translation>%1, invitation</translation>
+        <translation>%1, kvietimas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, muted</source>
-        <translation>%1, en sourdine</translation>
+        <translation>%1, nutildytas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, %2 mentions</source>
-        <translation>%1, %2 mentions</translation>
+        <translation>%1, %2 paminėjimų</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, unread</source>
-        <translation>%1, non lu</translation>
+        <translation>%1, neskaityta</translation>
     </message>
 </context>
 <context>
@@ -1257,17 +1258,17 @@
     <message>
         <location filename="../qml/ChannelNavRow.qml" line="+39"/>
         <source>%1 — coming soon</source>
-        <translation>%1 — bientôt disponible</translation>
+        <translation>%1 – netrukus</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not available yet</source>
-        <translation>Pas encore disponible</translation>
+        <translation>Dar nepasiekiama</translation>
     </message>
     <message>
         <location line="+51"/>
         <source>Coming soon</source>
-        <translation>Bientôt disponible</translation>
+        <translation>Netrukus</translation>
     </message>
 </context>
 <context>
@@ -1275,27 +1276,27 @@
     <message>
         <location filename="../qml/CodeBlock.qml" line="+100"/>
         <source>Code block, %1, %2 lines</source>
-        <translation>Bloc de code, %1, %2 lignes</translation>
+        <translation>Kodo blokas, %1, %2 eilutės</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Code block, %1 lines</source>
-        <translation>Bloc de code, %1 lignes</translation>
+        <translation>Kodo blokas, %1 eilutės</translation>
     </message>
     <message>
         <location line="+108"/>
         <source>Copied</source>
-        <translation>Copié</translation>
+        <translation>Nukopijuota</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Copy code</source>
-        <translation>Copier le code</translation>
+        <translation>Nukopijuokite kodą</translation>
     </message>
     <message>
         <location line="+108"/>
         <source>Code</source>
-        <translation>Code</translation>
+        <translation>Kodas</translation>
     </message>
 </context>
 <context>
@@ -1303,28 +1304,28 @@
     <message>
         <location filename="../qml/ColorPickerPanel.qml" line="+139"/>
         <source>Close the colour picker</source>
-        <translation>Fermer le sélecteur de couleur</translation>
+        <translation>Uždarykite spalvų parinkiklį</translation>
     </message>
     <message>
         <location line="+187"/>
         <source>Colour, as a hex value</source>
-        <translation>Couleur, en valeur hexadécimale</translation>
+        <translation>Spalva, kaip šešioliktainė vertė</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Colours already in this theme</source>
-        <translation>Couleurs déjà présentes dans ce thème</translation>
+        <translation>Spalvos jau šioje temoje</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Use %1</source>
-        <translation>Utiliser %1</translation>
+        <translation>Naudokite %1</translation>
     </message>
     <message>
         <location line="+20"/>
         <location line="+12"/>
         <source>Reset to the base theme</source>
-        <translation>Rétablir le thème de base</translation>
+        <translation>Iš naujo nustatykite pagrindinę temą</translation>
     </message>
 </context>
 <context>
@@ -1332,57 +1333,57 @@
     <message>
         <location filename="../src/app/ConversationController.cpp" line="+65"/>
         <source>You do not have permission to do that.</source>
-        <translation>Vous n&apos;avez pas la permission de faire cela.</translation>
+        <translation>Jūs neturite leidimo to daryti.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server is rate-limiting requests. Try again shortly.</source>
-        <translation>Le serveur limite le débit des requêtes. Réessayez sous peu.</translation>
+        <translation>Serveris riboja užklausas. Netrukus bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That room address is already in use.</source>
-        <translation>Cette adresse de salon est déjà utilisée.</translation>
+        <translation>Tas kambario adresas jau naudojamas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server rejected the request as invalid.</source>
-        <translation>Le serveur a rejeté la requête comme invalide.</translation>
+        <translation>Serveris atmetė užklausą kaip negaliojantį.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not found on this server.</source>
-        <translation>Introuvable sur ce serveur.</translation>
+        <translation>Šiame serveryje nerasta.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A network or server error occurred.</source>
-        <translation>Une erreur de réseau ou de serveur est survenue.</translation>
+        <translation>Įvyko tinklo arba serverio klaida.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>You cannot start a direct message with yourself.</source>
-        <translation>Vous ne pouvez pas démarrer une conversation privée avec vous-même.</translation>
+        <translation>Negalite pradėti tiesioginio pokalbio su savimi.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Starting direct messages is not supported on this backend.</source>
-        <translation>Le démarrage de conversations privées n&apos;est pas pris en charge par ce backend.</translation>
+        <translation>Ši posistemė nepalaiko tiesioginių pokalbių pradėjimo.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>The room needs a name.</source>
-        <translation>Le salon a besoin d&apos;un nom.</translation>
+        <translation>Kambariui reikia pavadinimo.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Creating rooms is not supported on this backend.</source>
-        <translation>La création de salons n&apos;est pas prise en charge par ce backend.</translation>
+        <translation>Ši posistemė nepalaiko kambarių kūrimo.</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Inviting users is not supported on this backend.</source>
-        <translation>L&apos;invitation d&apos;utilisateurs n&apos;est pas prise en charge par ce backend.</translation>
+        <translation>Ši posistemė nepalaiko naudotojų kvietimo.</translation>
     </message>
 </context>
 <context>
@@ -1390,74 +1391,74 @@
     <message>
         <location filename="../src/matrix/CppHttpMatrixClient.cpp" line="+157"/>
         <source>Homeserver URL is empty or invalid.</source>
-        <translation>L&apos;URL du serveur d&apos;accueil est vide ou invalide.</translation>
+        <translation>Namų serverio URL tuščias arba neteisingas.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Username is required.</source>
-        <translation>Le nom d&apos;utilisateur est requis.</translation>
+        <translation>Reikalingas vartotojo vardas.</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Invalid username or password.</source>
-        <translation>Nom d&apos;utilisateur ou mot de passe invalide.</translation>
+        <translation>Neteisingas vartotojo vardas arba slaptažodis.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Malformed login response from homeserver.</source>
-        <translation>Réponse de connexion mal formée du serveur d&apos;accueil.</translation>
+        <translation>Netinkamai suformuotas prisijungimo atsakymas iš namų serverio.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Login response missing required fields.</source>
-        <translation>Il manque des champs obligatoires dans la réponse de connexion.</translation>
+        <translation>Prisijungimo atsakyme trūksta būtinų laukų.</translation>
     </message>
     <message>
         <location line="+85"/>
         <source>Session expired — please sign in again.</source>
-        <translation>Session expirée — veuillez vous reconnecter.</translation>
+        <translation>Sesija baigėsi – prisijunkite dar kartą.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Invalid /whoami response.</source>
-        <translation>Réponse /whoami invalide.</translation>
+        <translation>Neteisingas /whoami atsakymas.</translation>
     </message>
     <message>
         <location line="+153"/>
         <source>Session expired during sync.</source>
-        <translation>Session expirée pendant la synchronisation.</translation>
+        <translation>Sesija baigėsi sinchronizuojant.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Sync error (%1): %2</source>
-        <translation>Erreur de synchronisation (%1) : %2</translation>
+        <translation>Sinchronizavimo klaida (%1): %2</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Malformed /sync response.</source>
-        <translation>Réponse /sync mal formée.</translation>
+        <translation>Netinkamai suformuotas /sinchronizavimo atsakas.</translation>
     </message>
     <message>
         <location line="+310"/>
         <location line="+924"/>
         <source>[encrypted message - E2EE not implemented yet]</source>
-        <translation>[message chiffré — le chiffrement de bout en bout n&apos;est pas encore implémenté]</translation>
+        <translation>[šifruotas pranešimas – E2EE dar neįdiegtas]</translation>
     </message>
     <message>
         <location line="-904"/>
         <location line="+926"/>
         <source>[encrypted media - E2EE not implemented yet]</source>
-        <translation>[média chiffré — le chiffrement de bout en bout n&apos;est pas encore implémenté]</translation>
+        <translation>[šifruota laikmena – E2EE dar neįdiegta]</translation>
     </message>
     <message>
         <location line="-774"/>
         <source>[message deleted]</source>
-        <translation>[message supprimé]</translation>
+        <translation>[pranešimas ištrintas]</translation>
     </message>
     <message>
         <location line="+161"/>
         <source>Send failed: %1</source>
-        <translation>Échec de l&apos;envoi : %1</translation>
+        <translation>Nepavyko išsiųsti: %1</translation>
     </message>
     <message>
         <location line="+35"/>
@@ -1469,7 +1470,7 @@
         <location line="+73"/>
         <location line="+103"/>
         <source>Not signed in.</source>
-        <translation>Non connecté.</translation>
+        <translation>Neprisijungęs.</translation>
     </message>
     <message>
         <location line="-373"/>
@@ -1478,7 +1479,7 @@
         <location line="+210"/>
         <location line="+103"/>
         <source>Unknown room: %1</source>
-        <translation>Salon inconnu : %1</translation>
+        <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
         <location line="-372"/>
@@ -1487,46 +1488,46 @@
         <location line="+68"/>
         <location line="+66"/>
         <source>Cannot send to encrypted rooms yet: E2EE backend is not implemented.</source>
-        <translation>Envoi impossible vers des salons chiffrés pour l&apos;instant : le backend de chiffrement n&apos;est pas implémenté.</translation>
+        <translation>Dar negalima siųsti į šifruotus kambarius: E2EE posistemė neįdiegta.</translation>
     </message>
     <message>
         <location line="-129"/>
         <source>Cannot send thread reply: no thread root.</source>
-        <translation>Impossible d&apos;envoyer la réponse au fil : aucune racine de fil.</translation>
+        <translation>Nepavyko išsiųsti gijos atsakymo: nėra gijos šaknies.</translation>
     </message>
     <message>
         <location line="+109"/>
         <source>Redaction failed: %1</source>
-        <translation>Échec de la suppression : %1</translation>
+        <translation>Turinio pašalinti nepavyko: %1</translation>
     </message>
     <message>
         <location line="+96"/>
         <location line="+103"/>
         <source>Cannot send media to encrypted rooms yet: E2EE backend is not implemented.</source>
-        <translation>Envoi de médias impossible vers des salons chiffrés pour l&apos;instant : le backend de chiffrement n&apos;est pas implémenté.</translation>
+        <translation>Dar negalima siųsti medijos į šifruotus kambarius: E2EE posistemė neįdiegta.</translation>
     </message>
     <message>
         <location line="-97"/>
         <location line="+103"/>
         <source>Cannot read %1</source>
-        <translation>Impossible de lire %1</translation>
+        <translation>Negalima skaityti %1</translation>
     </message>
     <message>
         <location line="-48"/>
         <location line="+95"/>
         <source>Upload failed: %1</source>
-        <translation>Échec de l&apos;envoi : %1</translation>
+        <translation>Įkelti nepavyko: %1</translation>
     </message>
     <message>
         <location line="-88"/>
         <location line="+95"/>
         <source>Upload response missing content_uri.</source>
-        <translation>content_uri manquant dans la réponse d&apos;envoi.</translation>
+        <translation>Trūksta įkėlimo atsakymo turinio_uri.</translation>
     </message>
     <message>
         <location line="+56"/>
         <source>Failed to load more history.</source>
-        <translation>Impossible de charger plus d&apos;historique.</translation>
+        <translation>Nepavyko įkelti daugiau istorijos.</translation>
     </message>
 </context>
 <context>
@@ -1534,121 +1535,121 @@
     <message>
         <location filename="../qml/CreatePollDialog.qml" line="+119"/>
         <source>Discard this poll draft?</source>
-        <translation>Abandonner ce brouillon de sondage ?</translation>
+        <translation>Išmesti šį apklausos juodraštį?</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Keep editing</source>
-        <translation>Continuer à modifier</translation>
+        <translation>Tęskite redagavimą</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Discard</source>
-        <translation>Abandonner</translation>
+        <translation>Išmesti</translation>
     </message>
     <message>
         <location line="+35"/>
         <source>Create a poll</source>
-        <translation>Créer un sondage</translation>
+        <translation>Sukurti apklausą</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Close poll creation</source>
-        <translation>Fermer la création de sondage</translation>
+        <translation>Uždaryti apklausos kūrimą</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Question</source>
-        <translation>Question</translation>
+        <translation>Klausimas</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+218"/>
         <source>Ask a question…</source>
-        <translation>Posez une question…</translation>
+        <translation>Užduoti klausimą…</translation>
     </message>
     <message>
         <location line="-217"/>
         <source>Poll question</source>
-        <translation>Question du sondage</translation>
+        <translation>Apklausos klausimas</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Options</source>
-        <translation>Options</translation>
+        <translation>Parinktys</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Answer %1</source>
-        <translation>Réponse %1</translation>
+        <translation>Atsakymas %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Poll answer %1</source>
-        <translation>Réponse %1 du sondage</translation>
+        <translation>Apklausos atsakymas %1</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Remove answer %1</source>
-        <translation>Supprimer la réponse %1</translation>
+        <translation>Pašalinti atsakymą %1</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Add another poll answer</source>
-        <translation>Ajouter une autre réponse au sondage</translation>
+        <translation>Pridėkite kitą apklausos atsakymą</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Add answer</source>
-        <translation>Ajouter une réponse</translation>
+        <translation>Pridėti atsakymą</translation>
     </message>
     <message>
         <location line="+41"/>
         <location line="+21"/>
         <source>Hide results until the poll ends</source>
-        <translation>Masquer les résultats jusqu&apos;à la fin du sondage</translation>
+        <translation>Slėpti rezultatus, kol baigsis apklausa</translation>
     </message>
     <message>
         <location line="-12"/>
         <source>Voters see the tallies only after you end the poll.</source>
-        <translation>Les votants ne voient les décomptes qu&apos;après la fin du sondage.</translation>
+        <translation>Balsavimo rezultatus rinkėjai mato tik tada, kai baigiate apklausą.</translation>
     </message>
     <message>
         <location line="+21"/>
         <location line="+11"/>
         <source>Allow choosing multiple answers</source>
-        <translation>Autoriser plusieurs réponses</translation>
+        <translation>Leiskite pasirinkti kelis atsakymus</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Preview · as sent</source>
-        <translation>Aperçu · tel qu&apos;envoyé</translation>
+        <translation>Peržiūra · kaip išsiųsta</translation>
     </message>
     <message>
         <location line="+74"/>
         <source>Options appear here as you type them.</source>
-        <translation>Les options apparaissent ici au fur et à mesure que vous les saisissez.</translation>
+        <translation>Parinktys rodomos čia, kai jas įvesite.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>0 votes · anonymous</source>
-        <translation>0 vote · anonyme</translation>
+        <translation>0 balsų · anoniminis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>0 votes</source>
-        <translation>0 vote</translation>
+        <translation>0 balsų</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+7"/>
         <location line="+2"/>
         <source>Send poll</source>
-        <translation>Envoyer le sondage</translation>
+        <translation>Siųsti apklausą</translation>
     </message>
 </context>
 <context>
@@ -1656,73 +1657,75 @@
     <message>
         <location filename="../src/crypto/CryptoBootstrapModel.cpp" line="+39"/>
         <source>Verify this session to unlock encrypted history.</source>
-        <translation>Vérifiez cette session pour déverrouiller l&apos;historique chiffré.</translation>
+        <translation>Patvirtinkite šią sesiją, kad atrakintumėte šifruotą istoriją.</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Encryption-key request sent to %n verified session(s).</source>
         <translation>
-            <numerusform>Demande de clé de chiffrement envoyée à %n session vérifiée.</numerusform>
-            <numerusform>Demande de clé de chiffrement envoyée à %n sessions vérifiées.</numerusform>
+            <numerusform>Šifravimo rakto užklausa išsiųsta į %n patvirtintą seansą.</numerusform>
+            <numerusform>Šifravimo rakto užklausa išsiųsta į %n patvirtintas sesijas.</numerusform>
+            <numerusform>Šifravimo rakto užklausa išsiųsta į %n patvirtintų seansų.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Requesting encryption keys from your verified session. Approve the request on your other device if it asks.</source>
-        <translation>Demande des clés de chiffrement à votre session vérifiée. Approuvez la demande sur votre autre appareil s&apos;il la présente.</translation>
+        <translation>Patvirtintos sesijos šifravimo raktų užklausa. Patvirtinkite užklausą kitame įrenginyje, jei jis prašo.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Your verified session has not responded yet. Keep it open and connected — Lightning will request the keys again automatically.</source>
-        <translation>Votre session vérifiée n&apos;a pas encore répondu. Laissez-la ouverte et connectée — Lightning redemandera les clés automatiquement.</translation>
+        <translation>Jūsų patvirtinta sesija dar neatsakė. Laikykite jį atidarytą ir prijungtą – „Lightning“ vėl automatiškai paprašys raktų.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Your other device has not sent the encryption keys yet. Keep it open and unlocked — or verify again to request the keys once more.</source>
-        <translation>Votre autre appareil n&apos;a pas encore envoyé les clés de chiffrement. Laissez-le ouvert et déverrouillé — ou vérifiez à nouveau pour redemander les clés.</translation>
+        <translation>Kitas įrenginys dar neišsiuntė šifravimo raktų. Laikykite jį atidarytą ir atrakintą arba patvirtinkite dar kartą, kad dar kartą paprašytumėte raktų.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Encryption secret received. Preparing backup restoration…</source>
-        <translation>Secret de chiffrement reçu. Préparation de la restauration de la sauvegarde…</translation>
+        <translation>Gauta šifravimo paslaptis. Ruošiama atsarginės kopijos atkūrimas…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>This session is trusted by your other device, but its own identity check did not complete. Verify this session again — or enter your recovery key.</source>
-        <translation>Cette session est approuvée par votre autre appareil, mais sa propre vérification d&apos;identité ne s&apos;est pas terminée. Vérifiez à nouveau cette session — ou saisissez votre clé de récupération.</translation>
+        <translation>Šiuo seansu pasitiki kitas įrenginys, bet jo tapatybės patikrinimas nebuvo baigtas. Dar kartą patvirtinkite šią sesiją arba įveskite atkūrimo raktą.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Restoring encrypted history from key backup…</source>
-        <translation>Restauration de l&apos;historique chiffré depuis la sauvegarde de clés…</translation>
+        <translation>Atkuriama šifruota istorija iš rakto atsarginės kopijos…</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Encrypted history restored (%n key(s) received).</source>
         <translation>
-            <numerusform>Historique chiffré restauré (%n clé reçue).</numerusform>
-            <numerusform>Historique chiffré restauré (%n clés reçues).</numerusform>
+            <numerusform>Šifruota istorija atkurta (gautas %n raktas).</numerusform>
+            <numerusform>Šifruota istorija atkurta (gauti %n raktai).</numerusform>
+            <numerusform>Šifruota istorija atkurta (gauta %n raktų).</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>History decryption is ready.</source>
-        <translation>Le déchiffrement de l&apos;historique est prêt.</translation>
+        <translation>Istorijos iššifravimas paruoštas.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>This account has no encryption key backup on the server. Older encrypted messages can only be recovered by importing a key file from another client.</source>
-        <translation>Ce compte n&apos;a pas de sauvegarde de clés de chiffrement sur le serveur. Les anciens messages chiffrés ne peuvent être récupérés qu&apos;en important un fichier de clés depuis un autre client.</translation>
+        <translation>Šioje paskyroje nėra šifravimo rakto atsarginės kopijos serveryje. Senesni užšifruoti pranešimai gali būti atkurti tik importuojant rakto failą iš kito kliento.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>No key backup is available from your other session. Enter your recovery key to unlock older messages.</source>
-        <translation>Aucune sauvegarde de clés n&apos;est disponible depuis votre autre session. Saisissez votre clé de récupération pour déverrouiller les anciens messages.</translation>
+        <translation>Kito seanso rakto atsarginė kopija nepasiekiama. Įveskite atkūrimo raktą, kad atrakintumėte senesnius pranešimus.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Your verified session did not send the encryption keys. Enter your recovery key or passphrase to restore encrypted history.</source>
-        <translation>Votre session vérifiée n&apos;a pas envoyé les clés de chiffrement. Saisissez votre clé de récupération ou votre phrase secrète pour restaurer l&apos;historique chiffré.</translation>
+        <translation>Jūsų patvirtinta sesija neatsiuntė šifravimo raktų. Įveskite atkūrimo raktą arba slaptafrazę, kad atkurtumėte šifruotą istoriją.</translation>
     </message>
 </context>
 <context>
@@ -1730,37 +1733,37 @@
     <message>
         <location filename="../src/crypto/CryptoHealthModel.cpp" line="+115"/>
         <source>This backend does not support end-to-end encryption.</source>
-        <translation>Ce backend ne prend pas en charge le chiffrement de bout en bout.</translation>
+        <translation>Ši posistemė nepalaiko ištisinio šifravimo.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Encryption state could not be read.</source>
-        <translation>L&apos;état du chiffrement n&apos;a pas pu être lu.</translation>
+        <translation>Šifravimo būsenos nuskaityti nepavyko.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Checking encryption state…</source>
-        <translation>Vérification de l&apos;état du chiffrement…</translation>
+        <translation>Tikrinama šifravimo būsena…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This session is verified and key backup is active.</source>
-        <translation>Cette session est vérifiée et la sauvegarde de clés est active.</translation>
+        <translation>Ši sesija patvirtinta ir aktyvi rakto atsarginė kopija.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This session is verified.</source>
-        <translation>Cette session est vérifiée.</translation>
+        <translation>Ši sesija patvirtinta.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This session is not verified yet. Verify it from another session or with a recovery key.</source>
-        <translation>Cette session n&apos;est pas encore vérifiée. Vérifiez-la depuis une autre session ou avec une clé de récupération.</translation>
+        <translation>Ši sesija dar nepatvirtinta. Patvirtinkite jį iš kitos sesijos arba naudodami atkūrimo raktą.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Cross-signing is not set up for this account.</source>
-        <translation>La signature croisée n&apos;est pas configurée pour ce compte.</translation>
+        <translation>Kryžminis pasirašymas šioje paskyroje nenustatytas.</translation>
     </message>
 </context>
 <context>
@@ -1772,57 +1775,57 @@
         <location line="+3"/>
         <location line="+3"/>
         <source>Shell</source>
-        <translation>Coquille</translation>
+        <translation>Lango sritys</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>Spaces rail</source>
-        <translation>Rail d&apos;espaces</translation>
+        <translation>Erdvių juosta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The narrow strip of Spaces down the far edge</source>
-        <translation>L&apos;étroite bande d&apos;espaces jusqu&apos;au bord le plus éloigné</translation>
+        <translation>Siaura erdvių juosta tolimajame krašte</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room list</source>
-        <translation>Liste des chambres</translation>
+        <translation>Kambarių sąrašas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The column of rooms and people</source>
-        <translation>La colonne des chambres et des personnes</translation>
+        <translation>Kambarių ir žmonių stulpelis</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Conversation background</source>
-        <translation>Contexte de la conversation</translation>
+        <translation>Pokalbio fonas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The ground the timeline sits on — the largest area on screen</source>
-        <translation>Le sol sur lequel repose la chronologie – la plus grande zone à l’écran</translation>
+        <translation>Fonas po laiko juosta – didžiausia ekrano sritis</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Panels and cards</source>
-        <translation>Panneaux et cartes</translation>
+        <translation>Skydeliai ir kortelės</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Side panels, dialogs, the composer</source>
-        <translation>Panneaux latéraux, boîtes de dialogue, le compositeur</translation>
+        <translation>Šoniniai skydeliai, dialogai ir žinučių rašymo laukas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Text fields</source>
-        <translation>Champs de texte</translation>
+        <translation>Teksto laukai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The inside of the message box and every input</source>
-        <translation>L&apos;intérieur de la boîte de message et chaque entrée</translation>
+        <translation>Žinučių laukelio ir visų įvesties laukų vidus</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -1831,57 +1834,57 @@
         <location line="+3"/>
         <location line="+3"/>
         <source>States</source>
-        <translation>États</translation>
+        <translation>Būsenos</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>Hovered row</source>
-        <translation>Ligne survolée</translation>
+        <translation>Eilutė po žymekliu</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A room row, menu item or message under the pointer</source>
-        <translation>Une ligne de pièce, un élément de menu ou un message sous le pointeur</translation>
+        <translation>Kambario eilutė, meniu elementas ar žinutė po žymekliu</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selected room</source>
-        <translation>Chambre sélectionnée</translation>
+        <translation>Pasirinktas kambarys</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The open room, menu highlights and selected text</source>
-        <translation>La salle ouverte, les points forts du menu et le texte sélectionné</translation>
+        <translation>Atidarytas kambarys, pažymėti meniu elementai ir pasirinktas tekstas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selected and hovered</source>
-        <translation>Sélectionné et survolé</translation>
+        <translation>Pasirinkta po žymekliu</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The open room with the pointer on it</source>
-        <translation>La pièce ouverte avec le pointeur dessus</translation>
+        <translation>Atidarytas kambarys po žymekliu</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Raised chips</source>
-        <translation>Jetons surélevés</translation>
+        <translation>Iškilūs ženkleliai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Keycaps, link previews, neutral buttons</source>
-        <translation>Touches, aperçus de liens, boutons neutres</translation>
+        <translation>Klavišų žymos, nuorodų peržiūros ir neutralūs mygtukai</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Reaction pill</source>
-        <translation>Pilule de réaction</translation>
+        <translation>Reakcijos ženklelis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The background of an emoji reaction under a message</source>
-        <translation>L&apos;arrière-plan d&apos;une réaction emoji sous un message</translation>
+        <translation>Jaustuko reakcijos fonas po žinute</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -1889,47 +1892,47 @@
         <location line="+3"/>
         <location line="+3"/>
         <source>Messages</source>
-        <translation>Messages</translation>
+        <translation>Žinutės</translation>
     </message>
     <message>
         <location line="-8"/>
         <source>Your messages</source>
-        <translation>Vos messages</translation>
+        <translation>Jūsų žinutės</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The bubble behind messages you sent</source>
-        <translation>La bulle derrière les messages que vous avez envoyés</translation>
+        <translation>Jūsų siųstų žinučių burbulas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Their messages</source>
-        <translation>Leurs messages</translation>
+        <translation>Kitų žinutės</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The bubble behind messages from everyone else</source>
-        <translation>La bulle derrière les messages des autres</translation>
+        <translation>Kitų siųstų žinučių burbulas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Code blocks</source>
-        <translation>Blocs de code</translation>
+        <translation>Kodo blokai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The surface behind fenced code in a message</source>
-        <translation>La surface derrière le code clôturé dans un message</translation>
+        <translation>Fonas po žinutėje esančiu kodo bloku</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Mentions</source>
-        <translation>Mentions</translation>
+        <translation>Paminėjimai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The colour that marks a message naming you</source>
-        <translation>La couleur qui marque un message vous nommant</translation>
+        <translation>Spalva, žyminti jus mininčią žinutę</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -1939,52 +1942,52 @@
         <location line="+3"/>
         <location line="+3"/>
         <source>Accent</source>
-        <translation>Accent</translation>
+        <translation>Akcentas</translation>
     </message>
     <message>
         <location line="-10"/>
         <source>Primary buttons, focus rings, the checked state</source>
-        <translation>Boutons principaux, bagues de mise au point, l&apos;état coché</translation>
+        <translation>Pagrindiniai mygtukai, fokusavimo rėmeliai ir pažymėta būsena</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Accent, hovered</source>
-        <translation>Accent, survolé</translation>
+        <translation>Akcentas po žymekliu</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A primary button under the pointer</source>
-        <translation>Un bouton principal sous le pointeur</translation>
+        <translation>Pagrindinis mygtukas po žymekliu</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Accent, pressed</source>
-        <translation>Accent, pressé</translation>
+        <translation>Paspaustas akcentas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A primary button while it is held down</source>
-        <translation>Un bouton principal lorsqu&apos;il est maintenu enfoncé</translation>
+        <translation>Laikomas nuspaustas pagrindinis mygtukas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Text on accent</source>
-        <translation>Texte avec accent</translation>
+        <translation>Tekstas ant akcento spalvos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The label painted on a filled accent button</source>
-        <translation>L&apos;étiquette peinte sur un bouton d&apos;accent rempli</translation>
+        <translation>Užpildyto akcento mygtuko užrašas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Links</source>
-        <translation>Liens</translation>
+        <translation>Nuorodos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Web links inside messages</source>
-        <translation>Liens Web dans les messages</translation>
+        <translation>Žinutėse esančios žiniatinklio nuorodos</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -1993,116 +1996,116 @@
         <location line="+3"/>
         <location line="+3"/>
         <source>Text</source>
-        <translation>Texte</translation>
+        <translation>Tekstas</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>Main text</source>
-        <translation>Texte principal</translation>
+        <translation>Pagrindinis tekstas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Message bodies, room names, headings</source>
-        <translation>Corps des messages, noms de salles, titres</translation>
+        <translation>Žinučių turinys, kambarių pavadinimai ir antraštės</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Secondary text</source>
-        <translation>Texte secondaire</translation>
+        <translation>Antrinis tekstas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Message previews and supporting lines</source>
-        <translation>Aperçus des messages et lignes de support</translation>
+        <translation>Žinučių peržiūros ir papildomos eilutės</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Muted text</source>
-        <translation>Texte masqué</translation>
+        <translation>Prislopintas tekstas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Timestamps, counts, section labels, icons</source>
-        <translation>Horodatages, décomptes, étiquettes de section, icônes</translation>
+        <translation>Laiko žymos, skaitikliai, skyrių pavadinimai ir piktogramos</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Disabled text</source>
-        <translation>Texte désactivé</translation>
+        <translation>Išjungtas tekstas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A control that cannot be used right now</source>
-        <translation>Un contrôle qui ne peut pas être utilisé pour le moment</translation>
+        <translation>Valdiklis, kurio šiuo metu negalima naudoti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Text on a selection</source>
-        <translation>Texte sur une sélection</translation>
+        <translation>Pasirinkto elemento tekstas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The room name in the open room&apos;s row</source>
-        <translation>Le nom de la pièce dans la rangée de la pièce ouverte</translation>
+        <translation>Kambario pavadinimas atidaryto kambario eilutėje</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+3"/>
         <source>Lines</source>
-        <translation>Lignes</translation>
+        <translation>Linijos</translation>
     </message>
     <message>
         <location line="-2"/>
         <source>Hairlines</source>
-        <translation>Déliés</translation>
+        <translation>Plonos linijos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The 1px line around every panel — the eye follows these</source>
-        <translation>La ligne 1px autour de chaque panneau - l&apos;œil les suit</translation>
+        <translation>Vieno pikselio linija aplink kiekvieną skydelį</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Strong lines</source>
-        <translation>Des lignes fortes</translation>
+        <translation>Ryškios linijos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Field outlines and the scrollbar handle</source>
-        <translation>Contours des champs et poignée de la barre de défilement</translation>
+        <translation>Laukų kontūrai ir slinkties juostos slankiklis</translation>
     </message>
     <message>
         <location line="+275"/>
         <location line="+108"/>
         <location line="+29"/>
         <source>My theme</source>
-        <translation>Mon thème</translation>
+        <translation>Mano tema</translation>
     </message>
     <message>
         <location line="-119"/>
         <source>%1 copy</source>
-        <translation>Copie de %1</translation>
+        <translation>%1 kopija</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>You already have the maximum number of themes.</source>
-        <translation>Vous avez déjà le nombre maximal de thèmes.</translation>
+        <translation>Jau turite didžiausią temų skaičių.</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+3"/>
         <source>That does not look like a shared theme.</source>
-        <translation>Cela ne ressemble pas à un thème partagé.</translation>
+        <translation>Tai neatrodo kaip bendra tema.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Shared theme</source>
-        <translation>Thème partagé</translation>
+        <translation>Bendrinama tema</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>That theme has no colours in it.</source>
-        <translation>Ce thème ne contient aucune couleur.</translation>
+        <translation>Toje temoje nėra spalvų.</translation>
     </message>
 </context>
 <context>
@@ -2116,101 +2119,101 @@
         <location line="+2"/>
         <location line="+30"/>
         <source>Screenshot Demo</source>
-        <translation>Démo de captures d&apos;écran</translation>
+        <translation>Demonstracinė ekrano kopija</translation>
     </message>
     <message>
         <location line="-19"/>
         <source>Expand demo controls</source>
-        <translation>Déplier les contrôles de démo</translation>
+        <translation>Išplėskite demonstracinius valdiklius</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Collapse</source>
-        <translation>Replier</translation>
+        <translation>Sutraukti</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Hide (Ctrl+Shift+D restores)</source>
-        <translation>Masquer (Ctrl+Maj+D pour rétablir)</translation>
+        <translation>Slėpti (atkuria „Ctrl“ + „Shift“ + D)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Demo account: %1
 Scenario: %2
 Size: %3</source>
-        <translation>Compte de démo : %1
-Scénario : %2
-Taille : %3</translation>
+        <translation>Demonstracinė paskyra: %1
+Scenarijus: %2
+Dydis: %3</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Scenario</source>
-        <translation>Scénario</translation>
+        <translation>Scenarijus</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Account</source>
-        <translation>Compte</translation>
+        <translation>Paskyra</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Room</source>
-        <translation>Salon</translation>
+        <translation>Kambarys</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Theme</source>
-        <translation>Thème</translation>
+        <translation>tema</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Appearance</source>
-        <translation>Apparence</translation>
+        <translation>Išvaizda</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Window size</source>
-        <translation>Taille de la fenêtre</translation>
+        <translation>Lango dydis</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Typing</source>
-        <translation>Saisie en cours</translation>
+        <translation>Rašymas</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Unread</source>
-        <translation>Non lu</translation>
+        <translation>Neskaityta</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Open Settings</source>
-        <translation>Ouvrir les paramètres</translation>
+        <translation>Atidarykite Nustatymai</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Account switcher</source>
-        <translation>Sélecteur de compte</translation>
+        <translation>Paskyros perjungiklis</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open thread</source>
-        <translation>Ouvrir le fil</translation>
+        <translation>Atidaryti giją</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Reset scenario</source>
-        <translation>Réinitialiser le scénario</translation>
+        <translation>Iš naujo nustatyti scenarijų</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Reset all</source>
-        <translation>Tout réinitialiser</translation>
+        <translation>Iš naujo nustatyti viską</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Hide controls</source>
-        <translation>Masquer les contrôles</translation>
+        <translation>Slėpti valdiklius</translation>
     </message>
 </context>
 <context>
@@ -2218,161 +2221,162 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/DiscoverJoinDialog.qml" line="+144"/>
         <source>Public</source>
-        <translation>Public</translation>
+        <translation>Viešas</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+295"/>
         <location line="+258"/>
         <source>Ask to join</source>
-        <translation>Demander à rejoindre</translation>
+        <translation>Paprašykite prisijungti</translation>
     </message>
     <message>
         <location line="-552"/>
         <source>Restricted</source>
-        <translation>Restreint</translation>
+        <translation>Apribota</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Invite only</source>
-        <translation>Sur invitation uniquement</translation>
+        <translation>Tik pakviesti</translation>
     </message>
     <message>
         <location line="+78"/>
         <source>Discover rooms</source>
-        <translation>Découvrir des salons</translation>
+        <translation>Atraskite kambarius</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Close</source>
-        <translation>Fermer</translation>
+        <translation>Uždaryti</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Browse</source>
-        <translation>Parcourir</translation>
+        <translation>Naršyti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>By address</source>
-        <translation>Par adresse</translation>
+        <translation>Pagal adresą</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Search public rooms…</source>
-        <translation>Rechercher des salons publics…</translation>
+        <translation>Ieškoti viešų kambarių…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Server (optional)</source>
-        <translation>Serveur (facultatif)</translation>
+        <translation>Serveris (neprivaloma)</translation>
     </message>
     <message>
         <location line="+85"/>
         <source>Space</source>
-        <translation>Espace</translation>
+        <translation>Erdvė</translation>
     </message>
     <message numerus="yes">
         <location line="+21"/>
         <location line="+205"/>
         <source>%n member(s)</source>
         <translation>
-            <numerusform>%n membre</numerusform>
-            <numerusform>%n membres</numerusform>
+            <numerusform>%n narys</numerusform>
+            <numerusform>%n nariai</numerusform>
+            <numerusform>%n narių</numerusform>
         </translation>
     </message>
     <message>
         <location line="-191"/>
         <location line="+253"/>
         <source>Request pending</source>
-        <translation>Demande en attente</translation>
+        <translation>Užklausa laukiama</translation>
     </message>
     <message>
         <location line="-246"/>
         <location line="+253"/>
         <source>Open</source>
-        <translation>Ouvrir</translation>
+        <translation>Atidaryti</translation>
     </message>
     <message>
         <location line="-241"/>
         <location line="+257"/>
         <source>Joining…</source>
-        <translation>Adhésion…</translation>
+        <translation>Prisijungiama…</translation>
     </message>
     <message>
         <location line="-255"/>
         <source>Join</source>
-        <translation>Rejoindre</translation>
+        <translation>Prisijunk</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>No rooms found</source>
-        <translation>Aucun salon trouvé</translation>
+        <translation>Kambarių nerasta</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>That is not a valid directory server name.</source>
-        <translation>Ce nom de serveur d&apos;annuaire n&apos;est pas valide.</translation>
+        <translation>Tai neteisingas katalogo serverio pavadinimas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The room directory could not be loaded.</source>
-        <translation>L&apos;annuaire des salons n&apos;a pas pu être chargé.</translation>
+        <translation>Nepavyko įkelti kambario katalogo.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Retry</source>
-        <translation>Réessayer</translation>
+        <translation>Bandykite dar kartą</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Loading more…</source>
-        <translation>Chargement…</translation>
+        <translation>Įkeliama daugiau…</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>#room:server, !roomid:server, or a Matrix link</source>
-        <translation>#salon:serveur, !identifiant:serveur, ou un lien Matrix</translation>
+        <translation>#room:serveris, !roomid:serveris arba Matrix nuoroda</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Look up</source>
-        <translation>Rechercher</translation>
+        <translation>Pažiūrėk aukštyn</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>That link points at a person, not a room.</source>
-        <translation>Ce lien pointe vers une personne, pas vers un salon.</translation>
+        <translation>Ši nuoroda nukreipta į žmogų, o ne į kambarį.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That is not a valid room address or link.</source>
-        <translation>Ce n&apos;est pas une adresse ou un lien de salon valide.</translation>
+        <translation>Tai neteisingas kambario adresas arba nuoroda.</translation>
     </message>
     <message>
         <location line="+86"/>
         <source>No preview is available for this room — the server does not allow previewing it. You can still try to join.</source>
-        <translation>Aucun aperçu n&apos;est disponible pour ce salon — le serveur n&apos;autorise pas son aperçu. Vous pouvez tout de même essayer de le rejoindre.</translation>
+        <translation>Šiame kambaryje peržiūra nepasiekiama – serveris neleidžia jos peržiūrėti. Dar galite pabandyti prisijungti.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>You are banned from this room.</source>
-        <translation>Vous êtes banni de ce salon.</translation>
+        <translation>Jūs esate užblokuotas šiame kambaryje.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Reason (optional)</source>
-        <translation>Motif (facultatif)</translation>
+        <translation>Priežastis (neprivaloma)</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Accept invite</source>
-        <translation>Accepter l&apos;invitation</translation>
+        <translation>Priimti kvietimą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Join room</source>
-        <translation>Rejoindre le salon</translation>
+        <translation>Prisijunkite prie kambario</translation>
     </message>
 </context>
 <context>
@@ -2380,57 +2384,57 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/EmojiPicker.qml" line="+80"/>
         <source>Search results</source>
-        <translation>Résultats de la recherche</translation>
+        <translation>Paieškos rezultatai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Recently used</source>
-        <translation>Utilisés récemment</translation>
+        <translation>Neseniai naudotas</translation>
     </message>
     <message>
         <location line="+197"/>
         <source>Search emoji</source>
-        <translation>Rechercher un émoji</translation>
+        <translation>Ieškokite jaustukų</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search emoji by name or keyword</source>
-        <translation>Rechercher un émoji par nom ou mot-clé</translation>
+        <translation>Ieškokite jaustukų pagal pavadinimą arba raktinį žodį</translation>
     </message>
     <message>
         <location line="+120"/>
         <source>Custom emoji</source>
-        <translation>Émoji personnalisé</translation>
+        <translation>Pasirinktinis jaustukas</translation>
     </message>
     <message>
         <location line="+252"/>
         <source>No recently used emoji</source>
-        <translation>Aucun émoji utilisé récemment</translation>
+        <translation>Nėra neseniai naudotų jaustukų</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>No emoji found</source>
-        <translation>Aucun émoji trouvé</translation>
+        <translation>Jaustukų nerasta</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>Enter selects · Alt+V or right-click opens skin tones · Esc closes</source>
-        <translation>Entrée sélectionne · Alt+V ou clic droit ouvre les teintes de peau · Échap ferme</translation>
+        <translation>Enter pasirenka · Alt+V arba dešiniuoju pelės mygtuku spustelėjus atidaromi odos tonai · Esc uždaroma</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>select</source>
-        <translation>sélectionner</translation>
+        <translation>pasirinkite</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>skin tones</source>
-        <translation>teintes de peau</translation>
+        <translation>odos tonus</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>close</source>
-        <translation>fermer</translation>
+        <translation>uždaryti</translation>
     </message>
 </context>
 <context>
@@ -2438,32 +2442,32 @@ Taille : %3</translation>
     <message>
         <location filename="../src/app/ForwardController.cpp" line="+84"/>
         <source>Photo</source>
-        <translation>Photo</translation>
+        <translation>Nuotrauka</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Video</source>
-        <translation>Vidéo</translation>
+        <translation>Vaizdo įrašas</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Voice message</source>
-        <translation>Message vocal</translation>
+        <translation>Balso žinutė</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Audio</source>
-        <translation>Audio</translation>
+        <translation>Garsas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sticker</source>
-        <translation>Autocollant</translation>
+        <translation>Lipdukas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>File</source>
-        <translation>Fichier</translation>
+        <translation>Failas</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -2473,7 +2477,7 @@ Taille : %3</translation>
     <message>
         <location line="+15"/>
         <source>%1 — %2</source>
-        <translation>%1 — %2</translation>
+        <translation>%1 – %2</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -2481,37 +2485,37 @@ Taille : %3</translation>
         <location line="+10"/>
         <location line="+4"/>
         <source>This message can&apos;t be forwarded.</source>
-        <translation>Ce message ne peut pas être transféré.</translation>
+        <translation>Šio pranešimo negalima persiųsti.</translation>
     </message>
     <message>
         <location line="+62"/>
         <source>Media isn&apos;t available right now.</source>
-        <translation>Le média n&apos;est pas disponible pour le moment.</translation>
+        <translation>Medija šiuo metu nepasiekiama.</translation>
     </message>
     <message>
         <location line="+35"/>
         <source>This media is no longer available.</source>
-        <translation>Ce média n&apos;est plus disponible.</translation>
+        <translation>Ši medija nebepasiekiama.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Couldn&apos;t download this media.</source>
-        <translation>Impossible de télécharger ce média.</translation>
+        <translation>Nepavyko atsisiųsti šios medijos.</translation>
     </message>
     <message>
         <location line="+75"/>
         <source>This media can&apos;t be forwarded.</source>
-        <translation>Ce média ne peut pas être transféré.</translation>
+        <translation>Šios medijos negalima persiųsti.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Couldn&apos;t forward this message.</source>
-        <translation>Impossible de transférer ce message.</translation>
+        <translation>Nepavyko persiųsti šio pranešimo.</translation>
     </message>
     <message>
         <location line="+63"/>
         <source>That message could not be forwarded.</source>
-        <translation>Ce message n&apos;a pas pu être transféré.</translation>
+        <translation>Šio pranešimo nepavyko persiųsti.</translation>
     </message>
 </context>
 <context>
@@ -2519,47 +2523,47 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/ForwardMessageDialog.qml" line="+60"/>
         <source>Forward message</source>
-        <translation>Transférer le message</translation>
+        <translation>Persiųsti pranešimą</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Close</source>
-        <translation>Fermer</translation>
+        <translation>Uždaryti</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Forwarding: %1</source>
-        <translation>Transfert : %1</translation>
+        <translation>Persiuntimas: %1</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Search rooms…</source>
-        <translation>Rechercher des salons…</translation>
+        <translation>Ieškoti kambarių…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Search rooms</source>
-        <translation>Rechercher des salons</translation>
+        <translation>Ieškokite kambarių</translation>
     </message>
     <message>
         <location line="+81"/>
         <source>Encrypted</source>
-        <translation>Chiffré</translation>
+        <translation>Šifruota</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Send</source>
-        <translation>Envoyer</translation>
+        <translation>Siųsti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Forward to %1</source>
-        <translation>Transférer vers %1</translation>
+        <translation>Persiųsti į %1</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>No rooms</source>
-        <translation>Aucun salon</translation>
+        <translation>Nėra kambarių</translation>
     </message>
 </context>
 <context>
@@ -2567,27 +2571,27 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/GifPicker.qml" line="+107"/>
         <source>Local</source>
-        <translation>Local</translation>
+        <translation>Vietinis</translation>
     </message>
     <message>
         <location line="+331"/>
         <source>Saved GIFs</source>
-        <translation>GIF enregistrés</translation>
+        <translation>Išsaugoti GIF</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Recently sent</source>
-        <translation>Envoyés récemment</translation>
+        <translation>Neseniai išsiųstas</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Search %1</source>
-        <translation>Rechercher %1</translation>
+        <translation>Ieškoti %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search GIFs</source>
-        <translation>Rechercher des GIF</translation>
+        <translation>Ieškoti GIF</translation>
     </message>
     <message>
         <location line="+40"/>
@@ -2599,113 +2603,113 @@ Taille : %3</translation>
     <message>
         <location line="-404"/>
         <source>Close GIF picker</source>
-        <translation>Fermer le sélecteur de GIF</translation>
+        <translation>Uždarykite GIF rinkiklį</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Not configured — set an API key to enable this provider</source>
-        <translation>Non configuré — définissez une clé d&apos;API pour activer ce fournisseur</translation>
+        <translation>Nekonfigūruota – nustatykite API raktą, kad įgalintumėte šį teikėją</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Saved</source>
-        <translation>Enregistrés</translation>
+        <translation>Išsaugota</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Every GIF you&apos;ve starred — from a provider or from a chat</source>
-        <translation>Tous les GIF que vous avez mis en favori — d&apos;un fournisseur ou d&apos;une conversation</translation>
+        <translation>Kiekvienas GIF, kurį pažymėjote žvaigždute – iš teikėjo arba iš pokalbio</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Recent</source>
-        <translation>Récents</translation>
+        <translation>Neseniai</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>GIFs you recently sent</source>
-        <translation>GIF que vous avez envoyés récemment</translation>
+        <translation>Neseniai išsiųsti GIF failai</translation>
     </message>
     <message>
         <location line="+49"/>
         <source>Category %1</source>
-        <translation>Catégorie %1</translation>
+        <translation>Kategorija %1</translation>
     </message>
     <message>
         <location line="+238"/>
         <source>%1: %2</source>
-        <translation>%1 : %2</translation>
+        <translation>%1: %2</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+26"/>
         <source>GIF: %1</source>
-        <translation>GIF : %1</translation>
+        <translation>GIF: %1</translation>
     </message>
     <message>
         <location line="+142"/>
         <source>Remove from saved GIFs</source>
-        <translation>Retirer des GIF enregistrés</translation>
+        <translation>Pašalinti iš išsaugotų GIF</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Save GIF</source>
-        <translation>Enregistrer le GIF</translation>
+        <translation>Išsaugoti GIF</translation>
     </message>
     <message>
         <location line="+69"/>
         <source>No saved GIFs yet. Press the star on any GIF — here or in a chat — to keep it.</source>
-        <translation>Aucun GIF enregistré pour l&apos;instant. Appuyez sur l&apos;étoile d&apos;un GIF — ici ou dans une conversation — pour le conserver.</translation>
+        <translation>Dar nėra išsaugotų GIF. Paspauskite žvaigždutę bet kuriame GIF – čia arba pokalbyje – kad jį pasiliktumėte.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>No recent GIFs yet.</source>
-        <translation>Aucun GIF récent pour l&apos;instant.</translation>
+        <translation>Dar nėra naujausių GIF.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>GIFs are unavailable on this backend.</source>
-        <translation>Les GIF ne sont pas disponibles sur ce backend.</translation>
+        <translation>Šioje posistemėje GIF nepasiekiami.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 is not configured. Set its API key to browse GIFs.</source>
-        <translation>%1 n&apos;est pas configuré. Définissez sa clé d&apos;API pour parcourir les GIF.</translation>
+        <translation>%1 nesukonfigūruotas. Nustatykite jo API raktą, kad galėtumėte naršyti GIF.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>You appear to be offline.</source>
-        <translation>Vous semblez être hors ligne.</translation>
+        <translation>Atrodo, kad esate neprisijungęs.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The GIF provider is rate limiting requests. Try again shortly.</source>
-        <translation>Le fournisseur de GIF limite le débit des requêtes. Réessayez sous peu.</translation>
+        <translation>GIF teikėjas riboja greitį. Netrukus bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The GIF provider had a problem. Try again.</source>
-        <translation>Le fournisseur de GIF a rencontré un problème. Réessayez.</translation>
+        <translation>GIF teikėjas turėjo problemų. Bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No GIFs found.</source>
-        <translation>Aucun GIF trouvé.</translation>
+        <translation>GIF nerasta.</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Searches are sent to the selected GIF provider</source>
-        <translation>Les recherches sont envoyées au fournisseur de GIF sélectionné</translation>
+        <translation>Paieškos siunčiamos pasirinktam GIF teikėjui</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing here is searched online. GIFs you saved from a chat stay on this device; provider GIFs still load their preview from that provider.</source>
-        <translation>Rien ici n&apos;est recherché en ligne. Les GIF que vous avez enregistrés depuis une conversation restent sur cet appareil ; les GIF de fournisseurs chargent tout de même leur aperçu depuis ce fournisseur.</translation>
+        <translation>Nieko čia neieškoma internete. GIF, kuriuos išsaugojote pokalbio metu, lieka šiame įrenginyje; teikėjo GIF vis tiek įkelia savo peržiūrą iš to teikėjo.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>send</source>
-        <translation>envoyer</translation>
+        <translation>siųsti</translation>
     </message>
 </context>
 <context>
@@ -2713,57 +2717,57 @@ Taille : %3</translation>
     <message>
         <location filename="../src/gif/GifStarredStore.cpp" line="+77"/>
         <source>That file is not a supported image.</source>
-        <translation>Ce fichier n&apos;est pas une image prise en charge.</translation>
+        <translation>Šis failas nėra palaikomas vaizdas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file could not be read.</source>
-        <translation>Ce fichier n&apos;a pas pu être lu.</translation>
+        <translation>To failo nuskaityti nepavyko.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>That image is too large to save.</source>
-        <translation>Cette image est trop volumineuse pour être enregistrée.</translation>
+        <translation>Šis vaizdas per didelis, kad jį būtų galima išsaugoti.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Saved GIFs is full (%1 items) — remove one first.</source>
-        <translation>Les GIF enregistrés sont pleins (%1 éléments) — supprimez-en un d&apos;abord.</translation>
+        <translation>Išsaugoti GIF failai yra pilni (%1 elementai) – pirmiausia pašalinkite vieną.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Saved GIFs is full (%1 MiB) — remove one first.</source>
-        <translation>Les GIF enregistrés sont pleins (%1 Mio) — supprimez-en un d&apos;abord.</translation>
+        <translation>Išsaugoti GIF failai yra pilni (%1 MiB) – pirmiausia pašalinkite vieną.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning could not save that GIF to this device.</source>
-        <translation>Lightning n&apos;a pas pu enregistrer ce GIF sur cet appareil.</translation>
+        <translation>„Lightning“ nepavyko išsaugoti šio GIF šiame įrenginyje.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Saved GIFs is unavailable right now.</source>
-        <translation>Les GIF enregistrés sont indisponibles pour le moment.</translation>
+        <translation>Išsaugoti GIF failai šiuo metu nepasiekiami.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The GIF could not be fetched.</source>
-        <translation>Le GIF n&apos;a pas pu être récupéré.</translation>
+        <translation>Nepavyko gauti GIF.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Fetching the GIF timed out.</source>
-        <translation>La récupération du GIF a expiré.</translation>
+        <translation>Baigėsi skirtasis GIF gavimo laikas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Already in your saved GIFs.</source>
-        <translation>Déjà dans vos GIF enregistrés.</translation>
+        <translation>Jau jūsų išsaugotuose GIF.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The GIF could not be saved.</source>
-        <translation>Le GIF n&apos;a pas pu être enregistré.</translation>
+        <translation>GIF nepavyko išsaugoti.</translation>
     </message>
 </context>
 <context>
@@ -2771,112 +2775,112 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/HomePane.qml" line="+33"/>
         <source>there</source>
-        <translation>là</translation>
+        <translation>ten</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Yesterday</source>
-        <translation>Hier</translation>
+        <translation>vakar</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Error</source>
-        <translation>Erreur</translation>
+        <translation>Klaida</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Offline — retrying</source>
-        <translation>Hors ligne — nouvelle tentative</translation>
+        <translation>Neprisijungus – bandoma dar kartą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not connected</source>
-        <translation>Non connecté</translation>
+        <translation>Neprisijungęs</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Welcome back</source>
-        <translation>Bon retour</translation>
+        <translation>Sveiki sugrįžę</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Pick up a conversation, or start something new.</source>
-        <translation>Reprenez une conversation, ou commencez-en une nouvelle.</translation>
+        <translation>Pradėkite pokalbį arba pradėkite ką nors naujo.</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>You appear to be offline. Reconnecting — your rooms stay available.</source>
-        <translation>Vous semblez être hors ligne. Reconnexion — vos salons restent disponibles.</translation>
+        <translation>Atrodo, kad esate neprisijungęs. Jungiamasi iš naujo – jūsų kambariai išlieka prieinami.</translation>
     </message>
     <message>
         <location line="+50"/>
         <source>Open security</source>
-        <translation>Ouvrir la sécurité</translation>
+        <translation>Atvira apsauga</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>New message</source>
-        <translation>Nouveau message</translation>
+        <translation>Nauja žinutė</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Create room</source>
-        <translation>Créer un salon</translation>
+        <translation>Sukurti kambarį</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Create Space</source>
-        <translation>Créer un espace</translation>
+        <translation>Sukurkite erdvę</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Settings</source>
-        <translation>Paramètres</translation>
+        <translation>Nustatymai</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Jump to anything with</source>
-        <translation>Accédez à tout avec</translation>
+        <translation>Peršokti prie bet ko</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Jump back in</source>
-        <translation>Reprendre</translation>
+        <translation>Įšok atgal</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Open %1</source>
-        <translation>Ouvrir %1</translation>
+        <translation>Atidaryti %1</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Conversation</source>
-        <translation>Conversation</translation>
+        <translation>Pokalbis</translation>
     </message>
     <message>
         <location line="+77"/>
         <source>Your spaces</source>
-        <translation>Vos espaces</translation>
+        <translation>Jūsų erdvės</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Open Space %1</source>
-        <translation>Ouvrir l&apos;espace %1</translation>
+        <translation>Atidaryti erdvę %1</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Space</source>
-        <translation>Espace</translation>
+        <translation>Erdvė</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Nothing here yet</source>
-        <translation>Rien ici pour l&apos;instant</translation>
+        <translation>Čia dar nieko</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Start a direct message to talk to someone, create a room for a group, or organise rooms into a Space. Invitations you receive appear in the room list.</source>
-        <translation>Démarrez une conversation privée pour parler à quelqu&apos;un, créez un salon pour un groupe, ou organisez des salons dans un espace. Les invitations que vous recevez apparaissent dans la liste des salons.</translation>
+        <translation>Pradėkite tiesioginį pokalbį su kitu žmogumi, sukurkite kambarį grupei arba sutvarkykite kambarius erdvėje. Gauti kvietimai rodomi kambarių sąraše.</translation>
     </message>
 </context>
 <context>
@@ -2884,47 +2888,47 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/IdentityCard.qml" line="+66"/>
         <source>Active account, %1, %2</source>
-        <translation>Compte actif, %1, %2</translation>
+        <translation>Aktyvi paskyra, %1, %2</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Switch to %1, %2</source>
-        <translation>Basculer vers %1, %2</translation>
+        <translation>Perjungti į %1, %2</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This is the active account</source>
-        <translation>Ceci est le compte actif</translation>
+        <translation>Tai aktyvi paskyra</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Needs sign-in</source>
-        <translation>Connexion requise</translation>
+        <translation>Reikia prisijungti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Encryption needs attention</source>
-        <translation>Le chiffrement demande votre attention</translation>
+        <translation>Šifravimui reikia dėmesio</translation>
     </message>
     <message>
         <location line="+133"/>
         <source>ACTIVE</source>
-        <translation>ACTIF</translation>
+        <translation>AKTYVUS</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Remove account %1</source>
-        <translation>Supprimer le compte %1</translation>
+        <translation>Pašalinti paskyrą %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Remove from this device</source>
-        <translation>Supprimer de cet appareil</translation>
+        <translation>Pašalinti iš šio įrenginio</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>E2EE</source>
-        <translation>Chiffrement de bout en bout</translation>
+        <translation>E2EE</translation>
     </message>
 </context>
 <context>
@@ -2932,57 +2936,57 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/ImageCropDialog.qml" line="+114"/>
         <source>Adjust picture</source>
-        <translation>Ajuster l&apos;image</translation>
+        <translation>Sureguliuokite paveikslėlį</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>That file isn&apos;t a picture Lightning can use. Choose a PNG, JPEG, GIF, WebP or BMP image.</source>
-        <translation>Ce fichier n’est pas une image que Lightning peut utiliser. Choisissez une image PNG, JPEG, GIF, WebP ou BMP.</translation>
+        <translation>Šis failas nėra paveikslėlis, kurį gali naudoti „Lightning“. Pasirinkite PNG, JPEG, GIF, WebP arba BMP vaizdą.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That picture is too large to open.</source>
-        <translation>Cette image est trop grande pour être ouverte.</translation>
+        <translation>Ši nuotrauka per didelė, kad ją būtų galima atidaryti.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That picture couldn&apos;t be opened. It may be incomplete, or in a format this build can&apos;t read.</source>
-        <translation>Cette photo n&apos;a pas pu être ouverte. Il est peut-être incomplet ou dans un format que cette version ne peut pas lire.</translation>
+        <translation>To paveikslo nepavyko atidaryti. Jis gali būti neužbaigtas arba tokio formato, kurio ši versija negali nuskaityti.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That file couldn&apos;t be read.</source>
-        <translation>Ce fichier n&apos;a pas pu être lu.</translation>
+        <translation>To failo perskaityti nepavyko.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That picture couldn&apos;t be used.</source>
-        <translation>Cette photo n&apos;a pas pu être utilisée.</translation>
+        <translation>Ši nuotrauka negalėjo būti panaudota.</translation>
     </message>
     <message>
         <location line="+371"/>
         <source>Zoom</source>
-        <translation>Zoomer</translation>
+        <translation>Padidinti</translation>
     </message>
     <message>
         <location line="+49"/>
         <source>Drag to move the picture, drag the frame to move the crop, and drag a corner to resize it. Only the circle is shown, and a square picture is uploaded.</source>
-        <translation>Faites glisser pour déplacer l&apos;image, faites glisser le cadre pour déplacer le recadrage et faites glisser un coin pour le redimensionner. Seul le cercle est affiché et une image carrée est téléchargée.</translation>
+        <translation>Vilkite, kad perkeltumėte paveikslėlį, vilkite rėmelį, kad perkeltumėte apkarpymą, ir vilkite kampą, kad pakeistumėte jo dydį. Rodomas tik apskritimas ir įkeliamas kvadratinis paveikslėlis.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Drag to move the picture, drag the frame to move the crop, and drag a corner to resize it.</source>
-        <translation>Faites glisser pour déplacer l&apos;image, faites glisser le cadre pour déplacer le recadrage et faites glisser un coin pour le redimensionner.</translation>
+        <translation>Vilkite, kad perkeltumėte paveikslėlį, vilkite rėmelį, kad perkeltumėte apkarpymą, ir vilkite kampą, kad pakeistumėte jo dydį.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Use picture</source>
-        <translation>Utiliser l&apos;image</translation>
+        <translation>Naudokite paveikslėlį</translation>
     </message>
 </context>
 <context>
@@ -2990,39 +2994,39 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/ImageViewerOverlay.qml" line="+201"/>
         <source>Copy image</source>
-        <translation>Copier l&apos;image</translation>
+        <translation>Kopijuoti vaizdą</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+20"/>
         <location line="+446"/>
         <source>Save image as…</source>
-        <translation>Enregistrer l&apos;image sous…</translation>
+        <translation>Išsaugoti vaizdą kaip…</translation>
     </message>
     <message>
         <location line="-453"/>
         <source>Close</source>
-        <translation>Fermer</translation>
+        <translation>Uždaryti</translation>
     </message>
     <message>
         <location line="+241"/>
         <source>The image could not be loaded.</source>
-        <translation>L&apos;image n&apos;a pas pu être chargée.</translation>
+        <translation>Nepavyko įkelti vaizdo.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Retry</source>
-        <translation>Réessayer</translation>
+        <translation>Bandykite dar kartą</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Previous image</source>
-        <translation>Image précédente</translation>
+        <translation>Ankstesnis vaizdas</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Next image</source>
-        <translation>Image suivante</translation>
+        <translation>Kitas vaizdas</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -3032,42 +3036,42 @@ Taille : %3</translation>
     <message>
         <location line="+16"/>
         <source>Close image viewer</source>
-        <translation>Fermer la visionneuse d&apos;images</translation>
+        <translation>Uždaryti vaizdų peržiūros priemonę</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Zoom out</source>
-        <translation>Zoom arrière</translation>
+        <translation>Nutolinti</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Zoom in</source>
-        <translation>Zoom avant</translation>
+        <translation>Priartinti</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Fit to window</source>
-        <translation>Ajuster à la fenêtre</translation>
+        <translation>Pritvirtinti prie lango</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Fit to window (F)</source>
-        <translation>Ajuster à la fenêtre (F)</translation>
+        <translation>Pritaikyti prie lango (F)</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Actual size</source>
-        <translation>Taille réelle</translation>
+        <translation>Tikrasis dydis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Actual size (0)</source>
-        <translation>Taille réelle (0)</translation>
+        <translation>Faktinis dydis (0)</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>%1 of %2</source>
-        <translation>%1 sur %2</translation>
+        <translation>%1 iš %2</translation>
     </message>
 </context>
 <context>
@@ -3075,137 +3079,137 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/IncomingCallPrompt.qml" line="+126"/>
         <source>This build can&apos;t join Matrix calls.</source>
-        <translation>Cette version ne peut pas rejoindre les appels Matrix.</translation>
+        <translation>Ši versija negali prisijungti prie Matrix skambučių.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Checking whether calling is available…</source>
-        <translation>Vérifier si les appels sont disponibles…</translation>
+        <translation>Tikrinama, ar galima skambinti…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No MatrixRTC service on this homeserver.</source>
-        <translation>Aucun service MatrixRTC sur ce serveur domestique.</translation>
+        <translation>Šiame namų serveryje nėra „MatrixRTC“ paslaugos.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Couldn&apos;t check whether calling is available.</source>
-        <translation>Impossible de vérifier si les appels sont disponibles.</translation>
+        <translation>Nepavyko patikrinti, ar galima skambinti.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This call has ended.</source>
-        <translation>Cet appel est terminé.</translation>
+        <translation>Šis skambutis baigėsi.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Joining calls isn&apos;t supported yet in this build.</source>
-        <translation>Rejoindre des appels n’est pas encore pris en charge dans cette version.</translation>
+        <translation>Prisijungimas prie skambučių šioje versijoje dar nepalaikomas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Joining isn&apos;t available.</source>
-        <translation>L&apos;adhésion n&apos;est pas disponible.</translation>
+        <translation>Prisijungti negalima.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Answering needs a media engine this build doesn&apos;t have.</source>
-        <translation>La réponse nécessite un moteur multimédia que cette version n&apos;a pas.</translation>
+        <translation>Norint atsakyti, reikia medijos variklio, kurio ši versija neturi.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The caller&apos;s connection details didn&apos;t arrive.</source>
-        <translation>Les détails de connexion de l&apos;appelant ne sont pas arrivés.</translation>
+        <translation>Skambintojo ryšio duomenys neatvyko.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That call is no longer ringing.</source>
-        <translation>Cet appel ne sonne plus.</translation>
+        <translation>Tas skambutis nebeskamba.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Couldn&apos;t answer this call.</source>
-        <translation>Impossible de répondre à cet appel.</translation>
+        <translation>Nepavyko atsiliepti į šį skambutį.</translation>
     </message>
     <message>
         <location line="+68"/>
         <source>Calling…</source>
-        <translation>Appel en cours…</translation>
+        <translation>Skambina…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Voice call — connecting…</source>
-        <translation>Appel vocal — connexion…</translation>
+        <translation>Balso skambutis – jungiamasi…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Voice call</source>
-        <translation>Appel vocal</translation>
+        <translation>Balso skambutis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Incoming voice call</source>
-        <translation>Appel vocal entrant</translation>
+        <translation>Įeinantis balso skambutis</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>%1 started a call.</source>
-        <translation>%1 a démarré un appel.</translation>
+        <translation>%1 pradėjo skambutį.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Someone started a call.</source>
-        <translation>Quelqu&apos;un a lancé un appel.</translation>
+        <translation>Kažkas pradėjo skambinti.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You&apos;re already in this call.</source>
-        <translation>Vous êtes déjà dans cet appel.</translation>
+        <translation>Jūs jau dalyvaujate šiame skambutyje.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>%1 is calling.</source>
-        <translation>%1 vous appelle.</translation>
+        <translation>%1 skambina.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Incoming voice call.</source>
-        <translation>Appel vocal entrant.</translation>
+        <translation>Įeinantis balso skambutis.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 is calling. Answering on this device isn&apos;t supported yet — decline to stop the ring everywhere, or answer on another device.</source>
-        <translation>%1 vous appelle. Répondre sur cet appareil n&apos;est pas encore pris en charge — refusez pour arrêter la sonnerie partout, ou répondez sur un autre appareil.</translation>
+        <translation>%1 skambina. Atsiliepimas šiame įrenginyje dar nepalaikomas – atsisakykite sustabdyti skambėjimą visur arba atsiliepkite kitame įrenginyje.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Answering on this device isn&apos;t supported yet.</source>
-        <translation>Répondre sur cet appareil n&apos;est pas encore pris en charge.</translation>
+        <translation>Atsakymas šiame įrenginyje dar nepalaikomas.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Join</source>
-        <translation>Rejoindre</translation>
+        <translation>Prisijunk</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Accept</source>
-        <translation>Accepter</translation>
+        <translation>Priimti</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Decline</source>
-        <translation>Refuser</translation>
+        <translation>Atmesti</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Hang up</source>
-        <translation>Raccrocher</translation>
+        <translation>Padėkite ragelį</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Dismiss</source>
-        <translation>Ignorer</translation>
+        <translation>Atsisakyti</translation>
     </message>
 </context>
 <context>
@@ -3213,82 +3217,83 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/InvitePeopleDialog.qml" line="+166"/>
         <source>Invite to %1</source>
-        <translation>Inviter dans %1</translation>
+        <translation>Pakviesti į %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Invite people</source>
-        <translation>Inviter des personnes</translation>
+        <translation>Pakvieskite žmones</translation>
     </message>
     <message>
         <location line="+67"/>
         <source>%1 is already in this room.</source>
-        <translation>%1 est déjà dans ce salon.</translation>
+        <translation>%1 jau yra šiame kambaryje.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 is banned from this room. Unban them from the People tab first.</source>
-        <translation>%1 est banni de ce salon. Levez d&apos;abord son bannissement dans l&apos;onglet Personnes.</translation>
+        <translation>%1 uždraustas šiame kambaryje. Pirmiausia panaikinkite jų blokavimą skirtuke Žmonės.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 has already been invited.</source>
-        <translation>%1 a déjà été invité.</translation>
+        <translation>%1 jau buvo pakviestas.</translation>
     </message>
     <message>
         <location line="+86"/>
         <source>Remove %1</source>
-        <translation>Supprimer %1</translation>
+        <translation>Pašalinti %1</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Invited</source>
-        <translation>Invité</translation>
+        <translation>Pakviestas</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Not permitted</source>
-        <translation>Non autorisé</translation>
+        <translation>Neleidžiama</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Rate limited</source>
-        <translation>Débit limité</translation>
+        <translation>Kaina ribota</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Failed</source>
-        <translation>Échec</translation>
+        <translation>Nepavyko</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Pending…</source>
-        <translation>En attente…</translation>
+        <translation>Laukiama…</translation>
     </message>
     <message>
         <location line="+27"/>
         <location line="+1"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message numerus="yes">
         <location line="+8"/>
         <source>Invite %n people</source>
         <translation>
-            <numerusform>Inviter %n personne</numerusform>
-            <numerusform>Inviter %n personnes</numerusform>
+            <numerusform>Pakvieskite %n žmogų</numerusform>
+            <numerusform>Pakvieskite %n žmones</numerusform>
+            <numerusform>Pakvieskite %n žmonių</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Invite</source>
-        <translation>Inviter</translation>
+        <translation>Pakviesti</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+1"/>
         <source>Done</source>
-        <translation>Terminé</translation>
+        <translation>Atlikta</translation>
     </message>
 </context>
 <context>
@@ -3297,7 +3302,7 @@ Taille : %3</translation>
         <location filename="../src/i18n/LocalizationManager.cpp" line="+200"/>
         <location line="+1"/>
         <source>System default</source>
-        <translation>Valeur par défaut du système</translation>
+        <translation>Numatytasis sistemos</translation>
     </message>
 </context>
 <context>
@@ -3305,60 +3310,60 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+128"/>
         <source>Back to the app</source>
-        <translation>Retour à l&apos;application</translation>
+        <translation>Grįžti į programą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>← Back</source>
-        <translation>← Retour</translation>
+        <translation>← Atgal</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Already on this device</source>
-        <translation>Déjà sur cet appareil</translation>
+        <translation>Jau šiame įrenginyje</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Open %1</source>
-        <translation>Ouvrir %1</translation>
+        <translation>Atidaryti %1</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Add another account</source>
-        <translation>Ajouter un autre compte</translation>
+        <translation>Pridėkite kitą paskyrą</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+171"/>
         <source>Sign in</source>
-        <translation>Se connecter</translation>
+        <translation>Prisijunkite</translation>
     </message>
     <message>
         <location line="-154"/>
         <source>Mock backend — any credentials work</source>
-        <translation>Backend fictif — n&apos;importe quels identifiants fonctionnent</translation>
+        <translation>Bandomoji posistemė – tinka bet kokie prisijungimo duomenys</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Native Matrix backend with end-to-end encryption</source>
-        <translation>Backend Matrix natif avec chiffrement de bout en bout</translation>
+        <translation>Vietinė Matrix posistemė su ištisiniu šifravimu</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sign in with your Matrix account</source>
-        <translation>Connectez-vous avec votre compte Matrix</translation>
+        <translation>Prisijunkite naudodami savo Matrix paskyrą</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+31"/>
         <source>Homeserver URL</source>
-        <translation>URL du serveur d&apos;accueil</translation>
+        <translation>Namų serverio URL</translation>
     </message>
     <message>
         <location line="+20"/>
         <location line="+15"/>
         <source>User</source>
-        <translation>Utilisateur</translation>
+        <translation>Vartotojas</translation>
     </message>
     <message>
         <location line="-1"/>
@@ -3370,246 +3375,246 @@ Taille : %3</translation>
         <location line="+6"/>
         <location line="+13"/>
         <source>Password</source>
-        <translation>Mot de passe</translation>
+        <translation>Slaptažodis</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Hide password</source>
-        <translation>Masquer le mot de passe</translation>
+        <translation>Slėpti slaptažodį</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show password</source>
-        <translation>Afficher le mot de passe</translation>
+        <translation>Rodyti slaptažodį</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Connecting…</source>
-        <translation>Connexion…</translation>
+        <translation>Jungiamasi…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Opening secure store…</source>
-        <translation>Ouverture du magasin sécurisé…</translation>
+        <translation>Atidaroma saugi saugykla…</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+2"/>
         <location line="+3"/>
         <source>Signing in…</source>
-        <translation>Connexion en cours…</translation>
+        <translation>Prisijungiama…</translation>
     </message>
     <message>
         <location line="-4"/>
         <source>Starting sync…</source>
-        <translation>Démarrage de la synchronisation…</translation>
+        <translation>Pradedamas sinchronizavimas…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Waiting for your browser…</source>
-        <translation>En attente de votre navigateur…</translation>
+        <translation>Laukiama jūsų naršyklės…</translation>
     </message>
     <message>
-        <location line="+104"/>
-        <source>Finish signing in with the page that opened in your browser, then return to Lightning.</source>
-        <translation>Terminez la connexion sur la page ouverte dans votre navigateur, puis revenez à Lightning.</translation>
-    </message>
-    <message>
-        <location line="+9"/>
-        <location line="+583"/>
-        <source>Cancel</source>
-        <translation>Annuler</translation>
-    </message>
-    <message>
-        <location line="-581"/>
-        <source>Cancel browser sign-in</source>
-        <translation>Annuler la connexion par navigateur</translation>
-    </message>
-    <message>
-        <location line="-85"/>
+        <location line="+30"/>
         <source>Or</source>
         <extracomment>Separates the password form from the sign-in-with-your-browser buttons below it.</extracomment>
-        <translation>Ou</translation>
+        <translation>Arba</translation>
     </message>
     <message>
         <location line="+33"/>
         <location line="+144"/>
         <source>Continue with %1</source>
-        <translation>Continuez avec %1</translation>
+        <translation>Tęsti su %1</translation>
     </message>
     <message>
         <location line="-143"/>
         <source>Continue</source>
-        <translation>Continuer</translation>
+        <translation>Tęsti</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Signs you in on your homeserver&apos;s own page, in your browser. No password needed here.</source>
-        <translation>Vous connecte sur la propre page de votre serveur domestique, dans votre navigateur. Aucun mot de passe n&apos;est nécessaire ici.</translation>
+        <translation>Prisijungia prie jūsų namų serverio puslapio, jūsų naršyklėje. Čia nereikia slaptažodžio.</translation>
     </message>
     <message>
-        <location line="+81"/>
+        <location line="+26"/>
+        <source>Finish signing in with the page that opened in your browser, then return to Lightning.</source>
+        <translation>Užbaikite prisijungti naudodami puslapį, kuris atidarytas jūsų naršyklėje, tada grįžkite į „Lightning“.</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <location line="+583"/>
+        <source>Cancel</source>
+        <translation>Atšaukti</translation>
+    </message>
+    <message>
+        <location line="-581"/>
+        <source>Cancel browser sign-in</source>
+        <translation>Atšaukti prisijungimą prie naršyklės</translation>
+    </message>
+    <message>
+        <location line="+44"/>
         <location line="+49"/>
         <source>Sign in with single sign-on</source>
-        <translation>Connectez-vous avec l&apos;authentification unique</translation>
+        <translation>Prisijunkite naudodami vienkartinį prisijungimą</translation>
     </message>
     <message>
         <location line="-33"/>
         <source>Signs you in through an identity provider your homeserver trusts, in your browser.</source>
-        <translation>Vous connecte via un fournisseur d&apos;identité auquel votre serveur domestique fait confiance, dans votre navigateur.</translation>
+        <translation>Naršyklėje prisijungia per tapatybės teikėją, kuriuo pasitiki jūsų namų serveris.</translation>
     </message>
     <message>
         <location line="+87"/>
         <location line="+2"/>
         <location line="+2"/>
         <source>This local session doesn&apos;t match this account</source>
-        <translation>Cette session locale ne correspond pas à ce compte</translation>
+        <translation>Ši vietinė sesija neatitinka šios paskyros</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This device has an incomplete local session</source>
-        <translation>Cet appareil a une session locale incomplète</translation>
+        <translation>Šio įrenginio vietinė sesija neužbaigta</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning&apos;s saved record for this account is missing its device ID and can&apos;t be used to sign back in. Rebuilding the local session is safe — your messages stay on the server.</source>
-        <translation>L&apos;enregistrement de Lightning pour ce compte n&apos;a pas d&apos;identifiant d&apos;appareil et ne peut pas servir à se reconnecter. Reconstruire la session locale est sans risque — vos messages restent sur le serveur.</translation>
+        <translation>„Lightning“ išsaugotame šios paskyros įraše trūksta įrenginio ID ir jo negalima naudoti norint vėl prisijungti. Vietinės sesijos atkūrimas yra saugus – jūsų pranešimai lieka serveryje.</translation>
     </message>
     <message>
         <location line="+5"/>
         <location line="+4"/>
         <source>Lightning found a local session store that doesn&apos;t belong to this account. Rebuilding it is safe — your messages stay on the server.</source>
-        <translation>Lightning a trouvé un magasin de session locale qui n&apos;appartient pas à ce compte. Le reconstruire est sans risque — vos messages restent sur le serveur.</translation>
+        <translation>Lightning rado vietinę seansų saugyklą, kuri nepriklauso šiai paskyrai. Ją atkurti saugu – jūsų pranešimai lieka serveryje.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning found a local encryption store for this account with no sign-in saved alongside it. Rebuilding it is safe — your messages stay on the server.</source>
-        <translation>Lightning a trouvé un magasin de chiffrement local pour ce compte sans connexion enregistrée à côté. Le reconstruire est sans risque — vos messages restent sur le serveur.</translation>
+        <translation>Lightning rado vietinę šios paskyros šifravimo saugyklą, tačiau šalia nėra išsaugotų prisijungimo duomenų. Ją atkurti saugu – jūsų pranešimai lieka serveryje.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Quarantine and rebuild</source>
-        <translation>Mettre en quarantaine et reconstruire</translation>
+        <translation>Karantinas ir atstatymas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Rebuild the local session?</source>
-        <translation>Reconstruire la session locale ?</translation>
+        <translation>Atkurti vietinę sesiją?</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This moves Lightning&apos;s local session data for %1 on this device aside — kept, not deleted — so a fresh one can be built. Server messages, Element data, and other accounts on this device are untouched. You&apos;ll sign in again afterwards.</source>
-        <translation>Cela met de côté les données de session locales de Lightning pour %1 sur cet appareil — conservées, pas supprimées — afin qu&apos;une nouvelle puisse être construite. Les messages du serveur, les données Element et les autres comptes de cet appareil ne sont pas touchés. Vous vous reconnecterez ensuite.</translation>
+        <translation>Taip perkeliami Lightning vietiniai seanso duomenys, skirti %1 šiame įrenginyje – saugomi, o ne ištrinti – kad būtų galima sukurti naują. Serverio pranešimai, Element duomenys ir kitos paskyros šiame įrenginyje yra nepaliesti. Vėliau vėl prisijungsite.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>This device needs to sign in again</source>
-        <translation>Cet appareil doit se reconnecter</translation>
+        <translation>Prie šio įrenginio reikia prisijungti dar kartą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The local encryption store for this device is gone, so this device can&apos;t resume its old session — signing in creates a new device instead. Your messages stay on the server; encrypted history may need your recovery key or another verified device afterwards.</source>
-        <translation>Le magasin de chiffrement local de cet appareil a disparu : cet appareil ne peut donc pas reprendre son ancienne session — se connecter crée un nouvel appareil. Vos messages restent sur le serveur ; l&apos;historique chiffré pourra ensuite nécessiter votre clé de récupération ou un autre appareil vérifié.</translation>
+        <translation>Vietinės šio įrenginio šifravimo saugyklos nebėra, todėl šis įrenginys negali atnaujinti senosios sesijos – prisijungus sukuriamas naujas įrenginys. Jūsų pranešimai lieka serveryje; užšifruotai istorijai vėliau gali prireikti atkūrimo rakto arba kito patvirtinto įrenginio.</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>This session was signed out remotely</source>
-        <translation>Cette session a été déconnectée à distance</translation>
+        <translation>Ši sesija buvo atsijungta nuotoliniu būdu</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This device&apos;s Matrix session is no longer valid on the server — for example, it may have been signed out from another client. Your local data, including this device&apos;s encryption keys, is intact. Try signing in again above with your password. If that keeps failing, you can remove this account below, which does delete this device&apos;s local copy of your encryption keys.</source>
-        <translation>La session Matrix de cet appareil n&apos;est plus valide sur le serveur — elle a pu, par exemple, être déconnectée depuis un autre client. Vos données locales, y compris les clés de chiffrement de cet appareil, sont intactes. Essayez de vous reconnecter ci-dessus avec votre mot de passe. Si cela échoue toujours, vous pouvez supprimer ce compte ci-dessous, ce qui supprime la copie locale de vos clés de chiffrement sur cet appareil.</translation>
+        <translation>Šio įrenginio „Matrix“ seansas nebegalioja serveryje – pavyzdžiui, jis gali būti atjungtas nuo kito kliento. Jūsų vietiniai duomenys, įskaitant šio įrenginio šifravimo raktus, yra nepažeisti. Pabandykite dar kartą prisijungti naudodami savo slaptažodį. Jei tai nepavyksta, toliau galite pašalinti šią paskyrą, kuri ištrins vietinę šio įrenginio šifravimo raktų kopiją.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Lightning can&apos;t read your saved sign-in</source>
-        <translation>Lightning ne peut pas lire votre connexion enregistrée</translation>
+        <translation>„Lightning“ negali nuskaityti jūsų išsaugoto prisijungimo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your system keyring is locked or unavailable, so Lightning can&apos;t read the saved sign-in for %1. Unlock your keyring and try again. Nothing has been deleted, and this device&apos;s encryption keys are untouched.</source>
-        <translation>Votre trousseau système est verrouillé ou indisponible : Lightning ne peut pas lire la connexion enregistrée pour %1. Déverrouillez votre trousseau et réessayez. Rien n&apos;a été supprimé, et les clés de chiffrement de cet appareil sont intactes.</translation>
+        <translation>Sistemos raktinė užrakinta arba nepasiekiama, todėl Lightning negali perskaityti išsaugotų %1 prisijungimo duomenų. Atrakinkite raktinę ir bandykite dar kartą. Niekas neištrinta, o šio įrenginio šifravimo raktai nepakeisti.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>More than one local session was found</source>
-        <translation>Plusieurs sessions locales ont été trouvées</translation>
+        <translation>Rasta daugiau nei viena vietinė sesija</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning found more than one local encryption store that could belong to this account and will not guess between them. Sign out of the accounts you no longer use, or remove the unused one from Settings, then sign in again. Nothing has been deleted.</source>
-        <translation>Lightning a trouvé plusieurs magasins de chiffrement locaux pouvant appartenir à ce compte et ne devinera pas lequel choisir. Déconnectez-vous des comptes que vous n&apos;utilisez plus, ou supprimez celui qui est inutilisé depuis les Paramètres, puis reconnectez-vous. Rien n&apos;a été supprimé.</translation>
+        <translation>Lightning rado kelias vietines šifravimo saugyklas, kurios gali priklausyti šiai paskyrai, ir nesirinks spėdama. Atsijunkite nuo nebenaudojamų paskyrų arba pašalinkite nenaudojamą paskyrą nustatymuose, tada prisijunkite iš naujo. Niekas nebuvo ištrinta.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This account&apos;s saved details are corrupted</source>
-        <translation>Les informations enregistrées de ce compte sont corrompues</translation>
+        <translation>Šios paskyros išsaugota informacija sugadinta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning couldn&apos;t read this account&apos;s saved sign-in details. Remove it and sign in again.</source>
-        <translation>Lightning n&apos;a pas pu lire les informations de connexion enregistrées de ce compte. Supprimez-le et reconnectez-vous.</translation>
+        <translation>„Lightning“ nepavyko perskaityti šios paskyros išsaugotos prisijungimo informacijos. Pašalinkite jį ir vėl prisijunkite.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The repair didn&apos;t finish</source>
-        <translation>La réparation ne s&apos;est pas terminée</translation>
+        <translation>Remontas nesibaigė</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning couldn&apos;t completely clean up the local files for this account. Check that Lightning has permission to modify its data folder, then try again.</source>
-        <translation>Lightning n&apos;a pas pu nettoyer complètement les fichiers locaux de ce compte. Vérifiez que Lightning a la permission de modifier son dossier de données, puis réessayez.</translation>
+        <translation>„Lightning“ nepavyko visiškai išvalyti šios paskyros vietinių failų. Patikrinkite, ar „Lightning“ turi leidimą keisti savo duomenų aplanką, tada bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Retry</source>
-        <translation>Réessayer</translation>
+        <translation>Bandykite dar kartą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Try the repair again?</source>
-        <translation>Réessayer la réparation ?</translation>
+        <translation>Bandyti taisyti dar kartą?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning will try again to clean up local files for %1. This doesn&apos;t touch server messages or other accounts.</source>
-        <translation>Lightning va réessayer de nettoyer les fichiers locaux de %1. Cela ne touche ni les messages du serveur ni les autres comptes.</translation>
+        <translation>„Lightning“ dar kartą bandys išvalyti vietinius %1 failus. Tai neliečia serverio pranešimų ar kitų paskyrų.</translation>
     </message>
     <message>
         <location line="+155"/>
         <source>Remove this account</source>
-        <translation>Supprimer ce compte</translation>
+        <translation>Pašalinti šią paskyrą</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Copy sanitized diagnostics</source>
-        <translation>Copier les diagnostics anonymisés</translation>
+        <translation>Nukopijuokite dezinfekuotą diagnostiką</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Remove account?</source>
-        <translation>Supprimer le compte ?</translation>
+        <translation>Pašalinti paskyrą?</translation>
     </message>
     <message>
         <location line="+47"/>
         <source>Remove %1 from this device? Its local Lightning data, encryption store, and sign-in are deleted from this computer only. Messages stay on the server, and other accounts are not affected.</source>
-        <translation>Supprimer %1 de cet appareil ? Ses données Lightning locales, son magasin de chiffrement et sa connexion sont supprimés de cet ordinateur uniquement. Les messages restent sur le serveur et les autres comptes ne sont pas affectés.</translation>
+        <translation>Pašalinti %1 iš šio įrenginio? Vietiniai „Lightning“ duomenys, šifravimo saugykla ir prisijungimas ištrinami tik iš šio kompiuterio. Pranešimai lieka serveryje, o kitos paskyros neturi įtakos.</translation>
     </message>
     <message>
         <location line="+35"/>
         <source>Remove</source>
-        <translation>Supprimer</translation>
+        <translation>Pašalinti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Confirm: %1</source>
-        <translation>Confirmer : %1</translation>
+        <translation>Patvirtinti: %1</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Repairing…</source>
-        <translation>Réparation…</translation>
+        <translation>Taisoma…</translation>
     </message>
 </context>
 <context>
@@ -3617,17 +3622,17 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/Main.qml" line="+111"/>
         <source>(%1 unread, %2 ●) </source>
-        <translation>(%1 non lu, %2 ●)</translation>
+        <translation>(%1 neskaityta, %2 ●)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(%1 unread) </source>
-        <translation>(%1 non lu)</translation>
+        <translation>(%1 neskaityta)</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Lightning — Screenshot Demo</source>
-        <translation>Lightning — Démo de captures d&apos;écran</translation>
+        <translation>Lightning – ekrano kopijos demonstracija</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -3642,123 +3647,123 @@ Taille : %3</translation>
     <message>
         <location line="+12"/>
         <source>Restoring your session…</source>
-        <translation>Restauration de votre session…</translation>
+        <translation>Atkuriama sesija…</translation>
     </message>
     <message>
         <location line="+91"/>
         <source>Interface zoom %1% — takes effect after restart</source>
-        <translation>Zoom de l&apos;interface %1 % — prend effet après redémarrage</translation>
+        <translation>Sąsajos mastelio keitimas %1% – įsigalios paleidus iš naujo</translation>
     </message>
     <message>
         <location line="+78"/>
         <source>This message&apos;s edits could not be read. Check your connection and try again.</source>
-        <translation>Les modifications de ce message n&apos;ont pas pu être lues. Vérifiez votre connexion et réessayez.</translation>
+        <translation>Nepavyko perskaityti šio pranešimo pakeitimų. Patikrinkite ryšį ir bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Removed %1 edit(s); %2 could not be removed.</source>
-        <translation>%1 modification(s) supprimée(s) ; %2 n&apos;ont pas pu être supprimées.</translation>
+        <translation>Pašalinti %1 pakeitimai; %2 pašalinti nepavyko.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>No edits could be found to remove.</source>
-        <translation>Aucune modification à supprimer n&apos;a été trouvée.</translation>
+        <translation>Nerasta pakeitimų, kuriuos būtų galima pašalinti.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Removed %1 edits. More remain — run it again.</source>
-        <translation>%1 modifications supprimées. Il en reste — relancez l&apos;opération.</translation>
+        <translation>Pašalinti %1 pakeitimai. Liko daugiau – paleiskite dar kartą.</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Added to this room&apos;s stickers as :%1:</source>
-        <translation>Ajouté aux autocollants de cette salle sous la forme&#xa0;:%1&#xa0;:</translation>
+        <translation>Pridėta prie šio kambario lipdukų kaip:%1:</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Added to this room&apos;s stickers</source>
-        <translation>Ajouté aux autocollants de cette pièce</translation>
+        <translation>Pridėta prie šio kambario lipdukų</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Saved to your stickers as :%1:</source>
-        <translation>Enregistré sur vos autocollants sous&#xa0;:%1&#xa0;:</translation>
+        <translation>Išsaugota jūsų lipdukuose kaip :%1:</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Saved to your stickers</source>
-        <translation>Enregistré dans vos autocollants</translation>
+        <translation>Išsaugota jūsų lipdukuose</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>That sticker is already in this room&apos;s stickers</source>
-        <translation>Cet autocollant est déjà dans les autocollants de cette pièce</translation>
+        <translation>Tas lipdukas jau yra šio kambario lipdukuose</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That sticker is already in your stickers</source>
-        <translation>Cet autocollant est déjà dans vos autocollants</translation>
+        <translation>Tas lipdukas jau yra jūsų lipdukuose</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This room&apos;s sticker pack is full.</source>
-        <translation>Le pack d&apos;autocollants de cette pièce est plein.</translation>
+        <translation>Šio kambario lipdukų paketas pilnas.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your sticker pack is full. Remove some stickers in another client to add more.</source>
-        <translation>Votre pack d&apos;autocollants est plein. Supprimez quelques autocollants dans un autre client pour en ajouter d&apos;autres.</translation>
+        <translation>Jūsų lipdukų paketas pilnas. Pašalinkite kai kuriuos lipdukus iš kito kliento, kad pridėtumėte daugiau.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>You do not have permission to change this room&apos;s stickers.</source>
-        <translation>Vous n&apos;êtes pas autorisé à modifier les autocollants de cette salle.</translation>
+        <translation>Neturite leidimo keisti šio kambario lipdukų.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The sticker could not be saved.</source>
-        <translation>L&apos;autocollant n&apos;a pas pu être enregistré.</translation>
+        <translation>Nepavyko išsaugoti lipduko.</translation>
     </message>
     <message>
         <location line="+125"/>
         <location line="+18"/>
         <source>Connected</source>
-        <translation>Connecté</translation>
+        <translation>Prisijungta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Error</source>
-        <translation>Erreur</translation>
+        <translation>Klaida</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Offline — retrying</source>
-        <translation>Hors ligne — nouvelle tentative</translation>
+        <translation>Neprisijungus – bandoma dar kartą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Connecting…</source>
-        <translation>Connexion…</translation>
+        <translation>Jungiamasi…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Syncing</source>
-        <translation>Synchronisation</translation>
+        <translation>Sinchronizuojama</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Loading rooms…</source>
-        <translation>Chargement des salons…</translation>
+        <translation>Įkeliami kambariai…</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>HTTP backend</source>
-        <translation>Backend HTTP</translation>
+        <translation>HTTP posistemė</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Mock backend</source>
-        <translation>Backend fictif</translation>
+        <translation>Bandomoji posistemė</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -3776,7 +3781,7 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/MainScreen.qml" line="+332"/>
         <source>Switching account…</source>
-        <translation>Changement de compte…</translation>
+        <translation>Perjungiama paskyra…</translation>
     </message>
 </context>
 <context>
@@ -3785,32 +3790,32 @@ Taille : %3</translation>
         <location filename="../src/media/MediaBridge.cpp" line="+1152"/>
         <location line="+532"/>
         <source>The file could not be downloaded.</source>
-        <translation>Le fichier n&apos;a pas pu être téléchargé.</translation>
+        <translation>Failo atsisiųsti nepavyko.</translation>
     </message>
     <message>
         <location line="-446"/>
         <source>The download timed out.</source>
-        <translation>Le téléchargement a expiré.</translation>
+        <translation>Baigėsi atsisiuntimo laikas.</translation>
     </message>
     <message>
         <location line="+480"/>
         <source>No destination selected.</source>
-        <translation>Aucune destination sélectionnée.</translation>
+        <translation>Nepasirinktas joks tikslas.</translation>
     </message>
     <message>
         <location line="+121"/>
         <source>The destination is not writable.</source>
-        <translation>La destination n&apos;est pas accessible en écriture.</translation>
+        <translation>Paskirties vieta nerašoma.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Writing the file failed.</source>
-        <translation>L&apos;écriture du fichier a échoué.</translation>
+        <translation>Nepavyko įrašyti failo.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Saved.</source>
-        <translation>Enregistré.</translation>
+        <translation>Išsaugota.</translation>
     </message>
 </context>
 <context>
@@ -3819,12 +3824,12 @@ Taille : %3</translation>
         <location filename="../qml/MediaHiddenPlaceholder.qml" line="+56"/>
         <location line="+23"/>
         <source>Show image</source>
-        <translation>Afficher l&apos;image</translation>
+        <translation>Rodyti vaizdą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This image is hidden on this device only</source>
-        <translation>Cette image est masquée sur cet appareil uniquement</translation>
+        <translation>Šis vaizdas paslėptas tik šiame įrenginyje</translation>
     </message>
 </context>
 <context>
@@ -3832,215 +3837,215 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/MediaVolumeControl.qml" line="+22"/>
         <source>Unmute</source>
-        <translation>Réactiver le son</translation>
+        <translation>Įjungti garsą</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Mute</source>
-        <translation>Couper le son</translation>
+        <translation>Nutildyti</translation>
     </message>
     <message>
         <location line="+100"/>
         <source>Volume</source>
-        <translation>Volume</translation>
+        <translation>Apimtis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Playback volume</source>
-        <translation>Volume de lecture</translation>
+        <translation>Atkūrimo garsumas</translation>
     </message>
 </context>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+448"/>
-        <source>Profile for %1</source>
-        <translation>Profil de %1</translation>
-    </message>
-    <message>
-        <location line="+598"/>
-        <location line="+12"/>
-        <source>Presence unavailable</source>
-        <translation>Présence indisponible</translation>
-    </message>
-    <message>
-        <location line="-783"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+275"/>
         <source>Invited</source>
-        <translation>Invité</translation>
+        <translation>Pakviestas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Member</source>
-        <translation>Membre</translation>
+        <translation>narys</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Banned</source>
-        <translation>Banni</translation>
+        <translation>Uždrausta</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+44"/>
+        <source>Matrix ID copied</source>
+        <translation>Matrix ID nukopijuotas</translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Profile link copied</source>
-        <translation>Lien du profil copié</translation>
+        <translation>Profilio nuoroda nukopijuota</translation>
     </message>
     <message>
-        <location line="+615"/>
-        <source>Bio</source>
-        <translation>Biographie</translation>
+        <location line="+116"/>
+        <source>Profile for %1</source>
+        <translation>%1 profilis</translation>
     </message>
     <message>
-        <location line="+50"/>
-        <source>Share</source>
-        <translation>Partager</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Copy profile link</source>
-        <translation>Copier le lien du profil</translation>
-    </message>
-    <message>
-        <location line="+71"/>
-        <source>Administrator</source>
-        <translation>Administrateur</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Moderator</source>
-        <translation>Modérateur</translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>You</source>
-        <translation>Vous</translation>
-    </message>
-    <message>
-        <location line="+13"/>
-        <source>More actions</source>
-        <translation>Plus de propositions</translation>
-    </message>
-    <message>
-        <location line="+54"/>
-        <source>Rooms in common</source>
-        <translation>Pièces en commun</translation>
-    </message>
-    <message>
-        <location line="+28"/>
-        <source>Copy user ID</source>
-        <translation>Copier l&apos;ID utilisateur</translation>
-    </message>
-    <message>
-        <location line="-341"/>
+        <location line="+389"/>
         <source>Message</source>
-        <translation>Message</translation>
+        <translation>Pranešimas</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Start or open a direct message with %1</source>
-        <translation>Démarrer ou ouvrir une conversation privée avec %1</translation>
+        <translation>Pradėti arba atidaryti tiesioginį pokalbį su %1</translation>
     </message>
     <message>
-        <location line="+328"/>
+        <location line="+95"/>
+        <source>Bio</source>
+        <translation>Biografija</translation>
+    </message>
+    <message>
+        <location line="+50"/>
+        <source>Share</source>
+        <translation>Dalintis</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Copy profile link</source>
+        <translation>Kopijuoti profilio nuorodą</translation>
+    </message>
+    <message>
+        <location line="+48"/>
+        <location line="+12"/>
+        <source>Presence unavailable</source>
+        <translation>Dalyvavimas nepasiekiamas</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Administrator</source>
+        <translation>Administratorius</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Moderator</source>
+        <translation>Moderatorius</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>You</source>
+        <translation>Jūs</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>More actions</source>
+        <translation>Daugiau veiksmų</translation>
+    </message>
+    <message>
+        <location line="+54"/>
+        <source>Rooms in common</source>
+        <translation>Bendri kambariai</translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>Copy user ID</source>
+        <translation>Nukopijuokite vartotojo ID</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Copy Matrix ID %1</source>
-        <translation>Copier l&apos;identifiant Matrix %1</translation>
+        <translation>Kopijuoti Matrix ID %1</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Unignore user</source>
-        <translation>Ne plus ignorer l&apos;utilisateur</translation>
+        <translation>Nustoti ignoruoti naudotoją</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ignore user</source>
-        <translation>Ignorer l&apos;utilisateur</translation>
+        <translation>Ignoruoti vartotoją</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Stop ignoring %1 in every room</source>
-        <translation>Arrêtez d&apos;ignorer %1 dans chaque pièce</translation>
+        <translation>Nustokite ignoruoti %1 kiekviename kambaryje</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ignore %1 in every room</source>
-        <translation>Ignorer %1 dans chaque pièce</translation>
+        <translation>Nepaisykite %1 kiekviename kambaryje</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Role</source>
-        <translation>Rôle</translation>
+        <translation>Vaidmuo</translation>
     </message>
     <message>
         <location line="+35"/>
         <source>Set %1 to %2</source>
-        <translation>Définir %1 sur %2</translation>
+        <translation>Nustatyti %1 į %2</translation>
     </message>
     <message>
         <location line="+62"/>
         <location line="+145"/>
         <source>Remove</source>
-        <translation>Exclure</translation>
+        <translation>Pašalinti</translation>
     </message>
     <message>
         <location line="-142"/>
         <location line="+143"/>
         <source>Ban</source>
-        <translation>Bannir</translation>
+        <translation>Uždrausti</translation>
     </message>
     <message>
         <location line="-140"/>
         <location line="+141"/>
         <source>Unban</source>
-        <translation>Lever le bannissement</translation>
+        <translation>Atšaukti draudimą</translation>
     </message>
     <message>
         <location line="-123"/>
         <source>Remove %1 from the room</source>
-        <translation>Exclure %1 du salon</translation>
+        <translation>Pašalinkite %1 iš kambario</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ban %1 from the room</source>
-        <translation>Bannir %1 du salon</translation>
+        <translation>Uždrausti %1 patekti į kambarį</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unban %1</source>
-        <translation>Lever le bannissement de %1</translation>
+        <translation>Atšaukti draudimą %1</translation>
     </message>
     <message>
         <location line="+70"/>
         <source>Remove %1 from this room?</source>
-        <translation>Exclure %1 de ce salon ?</translation>
+        <translation>Pašalinti %1 iš šio kambario?</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ban %1 from this room?</source>
-        <translation>Bannir %1 de ce salon ?</translation>
+        <translation>Uždrausti naudotojui %1 įeiti į šį kambarį?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unban %1? They will be able to join again.</source>
-        <translation>Lever le bannissement de %1 ? Cette personne pourra à nouveau rejoindre le salon.</translation>
+        <translation>Atšaukti blokavimą %1? Jie vėl galės prisijungti.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Reason (optional)</source>
-        <translation>Motif (facultatif)</translation>
+        <translation>Priežastis (neprivaloma)</translation>
     </message>
     <message>
         <location line="+10"/>
         <location line="+4"/>
         <source>Invite back after unbanning</source>
-        <translation>Réinviter après la levée du bannissement</translation>
+        <translation>Atšaukus draudimą, pakviesti atgal</translation>
     </message>
     <message>
         <location line="+42"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
-    </message>
-    <message>
-        <location line="-1177"/>
-        <source>Matrix ID copied</source>
-        <translation>Identifiant Matrix copié</translation>
+        <translation>Atšaukti</translation>
     </message>
 </context>
 <context>
@@ -4048,22 +4053,22 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/MentionPopup.qml" line="+119"/>
         <source>ADMIN</source>
-        <translation>ADMIN</translation>
+        <translation>ADMIN.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>MOD</source>
-        <translation>MOD</translation>
+        <translation>MOD.</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>Mention · Matching &quot;%1&quot;</source>
-        <translation>Mention · Correspondance « %1 »</translation>
+        <translation>Paminėjimas · Atitinka „%1“</translation>
     </message>
     <message>
         <location line="+102"/>
         <source>Notify everyone in this room</source>
-        <translation>Avertir tout le monde dans cette salle</translation>
+        <translation>Pranešti visiems šiame kambaryje</translation>
     </message>
 </context>
 <context>
@@ -4071,34 +4076,34 @@ Taille : %3</translation>
     <message>
         <location filename="../src/models/MessageComposer.cpp" line="+192"/>
         <source>Attachments are not supported on this backend.</source>
-        <translation>Les pièces jointes ne sont pas prises en charge par ce backend.</translation>
+        <translation>Ši posistemė nepalaiko priedų.</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>The clipboard image could not be read.</source>
-        <translation>L&apos;image du presse-papiers n&apos;a pas pu être lue.</translation>
+        <translation>Nepavyko nuskaityti iškarpinės vaizdo.</translation>
     </message>
     <message>
         <location line="+110"/>
         <source>The attachment could not be queued.</source>
-        <translation>La pièce jointe n&apos;a pas pu être mise en file d&apos;attente.</translation>
+        <translation>Priedo nepavyko įtraukti į eilę.</translation>
     </message>
     <message>
         <location line="+16"/>
         <location line="+29"/>
         <location line="+28"/>
         <source>The voice message could not be sent.</source>
-        <translation>Le message vocal n&apos;a pas pu être envoyé.</translation>
+        <translation>Balso pranešimo išsiųsti nepavyko.</translation>
     </message>
     <message>
         <location line="-45"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
-        <translation>Le message vocal dépasse la limite d&apos;envoi du serveur (%1).</translation>
+        <translation>Balso pranešimas yra didesnis nei serverio įkėlimo limitas (%1).</translation>
     </message>
     <message>
         <location line="+65"/>
         <source>Upload failed. Retry or remove.</source>
-        <translation>Échec de l&apos;envoi. Réessayez ou supprimez.</translation>
+        <translation>Įkelti nepavyko. Bandykite dar kartą arba pašalinkite.</translation>
     </message>
 </context>
 <context>
@@ -4106,48 +4111,48 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/MessageComposerBar.qml" line="+543"/>
         <source>The GIF could not be sent.</source>
-        <translation>Le GIF n&apos;a pas pu être envoyé.</translation>
+        <translation>Nepavyko išsiųsti GIF.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Attach files</source>
-        <translation>Joindre des fichiers</translation>
+        <translation>Pridėkite failus</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Send image</source>
-        <translation>Envoyer une image</translation>
+        <translation>Siųsti vaizdą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</source>
-        <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
+        <translation>Vaizdai (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>All files (*)</source>
-        <translation>Tous les fichiers (*)</translation>
+        <translation>Visi failai (*)</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Send file</source>
-        <translation>Envoyer un fichier</translation>
+        <translation>Siųsti failą</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Send image…</source>
-        <translation>Envoyer une image…</translation>
+        <translation>Siųsti vaizdą…</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Send file…</source>
-        <translation>Envoyer un fichier…</translation>
+        <translation>Siųsti failą…</translation>
     </message>
     <message>
         <location line="+7"/>
         <location line="+42"/>
         <source>Emoji…</source>
-        <translation>Émoji…</translation>
+        <translation>Jaustukai…</translation>
     </message>
     <message>
         <location line="-35"/>
@@ -4159,187 +4164,187 @@ Taille : %3</translation>
         <location line="-35"/>
         <location line="+42"/>
         <source>Sticker…</source>
-        <translation>Autocollant…</translation>
+        <translation>Lipdukas…</translation>
     </message>
     <message>
         <location line="-29"/>
         <source>Attach files…</source>
-        <translation>Joindre des fichiers…</translation>
+        <translation>Pridėti failus…</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Create poll…</source>
-        <translation>Créer un sondage…</translation>
+        <translation>Sukurti apklausą…</translation>
     </message>
     <message>
         <location line="+256"/>
         <source>Failed</source>
-        <translation>Échec</translation>
+        <translation>Nepavyko</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sending…</source>
-        <translation>Envoi…</translation>
+        <translation>Siunčiama…</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Retry sending %1</source>
-        <translation>Réessayer d&apos;envoyer %1</translation>
+        <translation>Bandyti dar kartą siųsti %1</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Remove attachment %1</source>
-        <translation>Supprimer la pièce jointe %1</translation>
+        <translation>Pašalinti priedą %1</translation>
     </message>
     <message>
         <location line="+92"/>
         <source>Editing message</source>
-        <translation>Modification du message</translation>
+        <translation>Redaguojamas pranešimas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Replying in thread</source>
-        <translation>Réponse dans le fil</translation>
+        <translation>Atsakoma gijoje</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Replying to %1</source>
-        <translation>Réponse à %1</translation>
+        <translation>Atsakymas į %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>someone</source>
-        <translation>quelqu&apos;un</translation>
+        <translation>kas nors</translation>
     </message>
     <message>
         <location line="+164"/>
         <source>Cancel editing</source>
-        <translation>Annuler la modification</translation>
+        <translation>Atšaukti redagavimą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Cancel reply</source>
-        <translation>Annuler la réponse</translation>
+        <translation>Atšaukti atsakymą</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Bold</source>
-        <translation>Gras</translation>
+        <translation>Paryškintas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Italic</source>
-        <translation>Italique</translation>
+        <translation>Kursyvas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Strikethrough</source>
-        <translation>Barré</translation>
+        <translation>Perbraukta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Inline code</source>
-        <translation>Code en ligne</translation>
+        <translation>Inline kodas</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Link</source>
-        <translation>Lien</translation>
+        <translation>Nuoroda</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Bulleted list</source>
-        <translation>Liste à puces</translation>
+        <translation>Sąrašas su ženkleliais</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Quote</source>
-        <translation>Citation</translation>
+        <translation>Citata</translation>
     </message>
     <message>
         <location line="+51"/>
         <source>Attach files or create a poll</source>
-        <translation>Joindre des fichiers ou créer un sondage</translation>
+        <translation>Pridėkite failus arba sukurkite apklausą</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Attach</source>
-        <translation>Joindre</translation>
+        <translation>Prikabinti</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Formatting</source>
-        <translation>Mise en forme</translation>
+        <translation>Formatavimas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Hide formatting</source>
-        <translation>Masquer la mise en forme</translation>
+        <translation>Slėpti formatavimą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show formatting</source>
-        <translation>Afficher la mise en forme</translation>
+        <translation>Rodyti formatavimą</translation>
     </message>
     <message>
         <location line="+70"/>
         <source>Select a room to start typing</source>
-        <translation>Sélectionnez un salon pour commencer à écrire</translation>
+        <translation>Pasirinkite kambarį, kad pradėtumėte vesti tekstą</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Edit message…</source>
-        <translation>Modifier le message…</translation>
+        <translation>Redaguoti pranešimą…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Message %1</source>
-        <translation>Message %1</translation>
+        <translation>Pranešimas %1</translation>
     </message>
     <message>
         <location line="+238"/>
         <source>Add to dictionary</source>
-        <translation>Ajouter au dictionnaire</translation>
+        <translation>Pridėti į žodyną</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Ignore</source>
-        <translation>Ignorer</translation>
+        <translation>Ignoruoti</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Cut</source>
-        <translation>Couper</translation>
+        <translation>Iškirpti</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Copy</source>
-        <translation>Copier</translation>
+        <translation>Kopijuoti</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Paste</source>
-        <translation>Coller</translation>
+        <translation>Įklijuoti</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Select all</source>
-        <translation>Tout sélectionner</translation>
+        <translation>Pasirinkite viską</translation>
     </message>
     <message>
         <location line="+111"/>
         <source>Insert emoji</source>
-        <translation>Insérer un émoji</translation>
+        <translation>Įdėkite jaustuką</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji</source>
-        <translation>Émoji</translation>
+        <translation>Jaustukai</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Insert a GIF</source>
-        <translation>Insérer un GIF</translation>
+        <translation>Įdėkite GIF</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -4350,94 +4355,94 @@ Taille : %3</translation>
     <message>
         <location line="-9"/>
         <source>GIFs are unavailable on this backend</source>
-        <translation>Les GIF ne sont pas disponibles sur ce backend</translation>
+        <translation>Šioje posistemėje GIF nepasiekiami</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>Insert a sticker</source>
-        <translation>Insérer un autocollant</translation>
+        <translation>Įklijuokite lipduką</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sticker</source>
-        <translation>Autocollant</translation>
+        <translation>Lipdukas</translation>
     </message>
     <message>
         <location line="+23"/>
         <location line="+1"/>
         <source>Record a voice message</source>
-        <translation>Enregistrer un message vocal</translation>
+        <translation>Įrašykite balso pranešimą</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>A recording is already in progress.</source>
-        <translation>Un enregistrement est déjà en cours.</translation>
+        <translation>Jau vyksta įrašymas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Voice recording is unavailable.</source>
-        <translation>L&apos;enregistrement vocal est indisponible.</translation>
+        <translation>Balso įrašymas nepasiekiamas.</translation>
     </message>
     <message>
         <location line="+75"/>
         <source>Resume recording</source>
-        <translation>Reprendre l&apos;enregistrement</translation>
+        <translation>Tęsti įrašymą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Pause recording</source>
-        <translation>Mettre l&apos;enregistrement en pause</translation>
+        <translation>Pristabdyti įrašymą</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Discard the recording</source>
-        <translation>Abandonner l&apos;enregistrement</translation>
+        <translation>Išmeskite įrašą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Discard</source>
-        <translation>Abandonner</translation>
+        <translation>Išmesti</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Finish and review</source>
-        <translation>Terminer et écouter</translation>
+        <translation>Baigti ir peržiūrėti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Done</source>
-        <translation>Terminé</translation>
+        <translation>Atlikta</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Send the voice message</source>
-        <translation>Envoyer le message vocal</translation>
+        <translation>Siųsti balso pranešimą</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+38"/>
         <source>Send</source>
-        <translation>Envoyer</translation>
+        <translation>Siųsti</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>Save edit</source>
-        <translation>Enregistrer la modification</translation>
+        <translation>Išsaugoti redagavimą</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Send message</source>
-        <translation>Envoyer le message</translation>
+        <translation>Siųsti žinutę</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Save</source>
-        <translation>Enregistrer</translation>
+        <translation>Išsaugoti</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>this room</source>
-        <translation>ce salon</translation>
+        <translation>šis kambarys</translation>
     </message>
 </context>
 <context>
@@ -4445,609 +4450,612 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/MessageDelegate.qml" line="+782"/>
         <source>Today</source>
-        <translation>Aujourd&apos;hui</translation>
+        <translation>Šiandien</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Yesterday</source>
-        <translation>Hier</translation>
+        <translation>vakar</translation>
     </message>
     <message>
         <location line="+77"/>
         <source>Beginning of conversation</source>
-        <translation>Début de la conversation</translation>
+        <translation>Pokalbio pradžia</translation>
     </message>
     <message>
         <location line="+105"/>
         <source>New messages</source>
-        <translation>Nouveaux messages</translation>
+        <translation>Nauji pranešimai</translation>
     </message>
     <message>
         <location line="+174"/>
         <source>Avatar for %1</source>
-        <translation>Avatar de %1</translation>
+        <translation>%1 pseudoportretas</translation>
     </message>
     <message>
         <location line="+56"/>
         <location line="+243"/>
         <source>Sent at %1</source>
-        <translation>Envoyé à %1</translation>
+        <translation>Išsiųsta %1</translation>
     </message>
     <message>
         <location line="-43"/>
         <source>Sender: %1</source>
-        <translation>Expéditeur : %1</translation>
+        <translation>Siuntėjas: %1</translation>
     </message>
     <message>
         <location line="+128"/>
         <source>Go to message from %1</source>
-        <translation>Aller au message de %1</translation>
+        <translation>Eiti į pranešimą nuo %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Go to the original message</source>
-        <translation>Aller au message d&apos;origine</translation>
+        <translation>Eikite į pradinį pranešimą</translation>
     </message>
     <message>
         <location line="+117"/>
         <location line="+1061"/>
         <location line="+894"/>
         <source>Reply</source>
-        <translation>Répondre</translation>
+        <translation>Atsakyti</translation>
     </message>
     <message>
         <location line="-1935"/>
         <source>(original message not loaded)</source>
-        <translation>(message d&apos;origine non chargé)</translation>
+        <translation>(originali žinutė neįkelta)</translation>
     </message>
     <message numerus="yes">
         <location line="+113"/>
         <source>%n message(s) deleted</source>
         <comment>collapsed run of redactions</comment>
         <translation>
-            <numerusform>%n message supprimé</numerusform>
-            <numerusform>%n messages supprimés</numerusform>
+            <numerusform>%n žinutė ištrinta</numerusform>
+            <numerusform>Ištrintos %n žinutės</numerusform>
+            <numerusform>Ištrinta %n žinučių</numerusform>
         </translation>
     </message>
     <message>
         <location line="+3"/>
         <source>[message deleted]</source>
-        <translation>[message supprimé]</translation>
+        <translation>[pranešimas ištrintas]</translation>
     </message>
     <message>
         <location line="+117"/>
         <source>Missing room key. Restore your recovery key in Settings, or wait for another verified device to share the key.</source>
-        <translation>Clé de salon manquante. Restaurez votre clé de récupération dans les Paramètres, ou attendez qu&apos;un autre appareil vérifié partage la clé.</translation>
+        <translation>Trūksta kambario rakto. Atkurkite atkūrimo raktą nustatymuose arba palaukite, kol kitas patvirtintas įrenginys bendrins raktą.</translation>
     </message>
     <message>
         <location line="+281"/>
         <source>Sent before you joined</source>
-        <translation>Envoyé avant votre arrivée</translation>
+        <translation>Išsiųsta prieš jums prisijungiant</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sender requires a verified session</source>
-        <translation>L&apos;expéditeur exige une session vérifiée</translation>
+        <translation>Siuntėjas reikalauja patvirtintos sesijos</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Key withheld by sender</source>
-        <translation>Clé retenue par l&apos;expéditeur</translation>
+        <translation>Raktą sulaikė siuntėjas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Waiting for keys…</source>
-        <translation>En attente des clés…</translation>
+        <translation>Laukiama raktų…</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Retry decryption</source>
-        <translation>Réessayer le déchiffrement</translation>
+        <translation>Bandykite iššifruoti dar kartą</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Security settings</source>
-        <translation>Paramètres de sécurité</translation>
+        <translation>Apsaugos nustatymai</translation>
     </message>
     <message>
-        <location line="+68"/>
+        <location line="+63"/>
+        <source>Show preview</source>
+        <translation>Rodyti peržiūrą</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Show the link preview again</source>
-        <translation>Afficher à nouveau l&apos;aperçu du lien</translation>
+        <translation>Dar kartą parodykite nuorodos peržiūrą</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Uploading</source>
-        <translation>Envoi en cours</translation>
+        <translation>Įkeliama</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Uploading, %1%</source>
-        <translation>Envoi en cours, %1 %</translation>
+        <translation>Įkeliama, %1%</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>%1 • sending… %2%</source>
-        <translation>%1 • envoi… %2 %</translation>
+        <translation>%1 • siunčiama… %2%</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 • sending…</source>
-        <translation>%1 • envoi…</translation>
+        <translation>%1 • siunčiama…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 • failed</source>
-        <translation>%1 • échec</translation>
+        <translation>%1 • nepavyko</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>edited</source>
-        <translation>modifié</translation>
+        <translation>redaguota</translation>
     </message>
     <message>
         <location line="+19"/>
         <location line="+2111"/>
         <source>Retry</source>
-        <translation>Réessayer</translation>
+        <translation>Bandykite dar kartą</translation>
     </message>
     <message>
         <location line="-2074"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Cancel sending this message</source>
-        <translation>Annuler l&apos;envoi de ce message</translation>
+        <translation>Atšaukti šio pranešimo siuntimą</translation>
     </message>
     <message>
         <location line="+215"/>
         <location line="+1190"/>
         <source>Hide image</source>
-        <translation>Masquer l&apos;image</translation>
+        <translation>Slėpti vaizdą</translation>
     </message>
     <message>
         <location line="-1186"/>
         <source>Hide</source>
-        <translation>Masquer</translation>
+        <translation>Slėpti</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>React to message</source>
-        <translation>Réagir au message</translation>
+        <translation>Reaguoti į pranešimą</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>React</source>
-        <translation>Réagir</translation>
+        <translation>Reaguoti</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Reply to message</source>
-        <translation>Répondre au message</translation>
+        <translation>Atsakyti į žinutę</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>More message actions</source>
-        <translation>Plus d&apos;actions sur le message</translation>
+        <translation>Daugiau pranešimų veiksmų</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>More</source>
-        <translation>Plus</translation>
+        <translation>Daugiau</translation>
     </message>
     <message>
         <location line="+210"/>
         <source>%1 and 1 other</source>
-        <translation>%1 et 1 autre</translation>
+        <translation>%1 ir dar 1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 and %2 others</source>
-        <translation>%1 et %2 autres</translation>
+        <translation>%1 ir %2 kiti</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 and %2</source>
-        <translation>%1 et %2</translation>
+        <translation>%1 ir %2</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, %2 and 1 other</source>
-        <translation>%1, %2 et 1 autre</translation>
+        <translation>%1, %2 ir dar 1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, %2 and %3 others</source>
-        <translation>%1, %2 et %3 autres</translation>
+        <translation>%1, %2 ir %3 kiti</translation>
     </message>
     <message>
         <location line="+45"/>
         <source>custom emoji</source>
-        <translation>émoji personnalisé</translation>
+        <translation>pasirinktiniai jaustukai</translation>
     </message>
     <message>
         <location line="+112"/>
         <source>Reaction %1, %2, selected</source>
-        <translation>Réaction %1, %2, sélectionnée</translation>
+        <translation>Reakcija %1, %2, pasirinkta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reaction %1, %2</source>
-        <translation>Réaction %1, %2</translation>
+        <translation>Reakcija %1, %2</translation>
     </message>
     <message>
         <location line="+89"/>
         <location line="+4"/>
         <source>Add reaction</source>
-        <translation>Ajouter une réaction</translation>
+        <translation>Pridėti reakciją</translation>
     </message>
     <message>
         <location line="+63"/>
         <source>Read by %1</source>
-        <translation>Lu par %1</translation>
+        <translation>Perskaitė %1</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Read by %1 and %2 others</source>
-        <translation>Lu par %1 et %2 autres</translation>
+        <translation>Skaitė %1 ir %2 kiti</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Read by %1 and %2</source>
-        <translation>Lu par %1 et %2</translation>
+        <translation>Perskaitė %1 ir %2</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Read by %1, %2 and 1 other</source>
-        <translation>Lu par %1, %2 et 1 autre</translation>
+        <translation>Skaitė %1, %2 ir 1 kitas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Read by %1, %2 and %3 others</source>
-        <translation>Lu par %1, %2 et %3 autres</translation>
+        <translation>Skaitė %1, %2 ir %3 kiti</translation>
     </message>
     <message>
         <location line="+199"/>
         <source>Message · %1 · %2</source>
-        <translation>Message · %1 · %2</translation>
+        <translation>Pranešimas · %1 · %2</translation>
     </message>
     <message>
         <location line="+138"/>
         <source>Reply in thread</source>
-        <translation>Répondre dans un fil</translation>
+        <translation>Atsakyti gijoje</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Open in room</source>
-        <translation>Ouvrir dans le salon</translation>
+        <translation>Atidaryti kambaryje</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Pin message</source>
-        <translation>Épingler le message</translation>
+        <translation>Prisegti pranešimą</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Unpin message</source>
-        <translation>Désépingler le message</translation>
+        <translation>Atsegti pranešimą</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Copy text</source>
-        <translation>Copier le texte</translation>
+        <translation>Nukopijuokite tekstą</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Copy message link</source>
-        <translation>Copier le lien du message</translation>
+        <translation>Nukopijuoti pranešimo nuorodą</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Open image</source>
-        <translation>Ouvrir l&apos;image</translation>
+        <translation>Atidaryti vaizdą</translation>
     </message>
     <message>
         <location line="+45"/>
         <source>Add to my stickers</source>
-        <translation>Ajouter à mes autocollants</translation>
+        <translation>Pridėti prie mano lipdukų</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Add to this room&apos;s stickers</source>
-        <translation>Ajouter aux autocollants de cette pièce</translation>
+        <translation>Pridėkite prie šio kambario lipdukų</translation>
     </message>
     <message>
         <location line="+21"/>
         <location line="+2048"/>
         <source>Save as…</source>
-        <translation>Enregistrer sous…</translation>
+        <translation>Išsaugoti kaip…</translation>
     </message>
     <message>
         <location line="-2018"/>
         <source>Show image</source>
-        <translation>Afficher l&apos;image</translation>
+        <translation>Rodyti vaizdą</translation>
     </message>
     <message>
         <location line="+20"/>
         <location line="+584"/>
         <source>Show link preview</source>
-        <translation>Afficher l&apos;aperçu du lien</translation>
+        <translation>Rodyti nuorodos peržiūrą</translation>
     </message>
     <message>
         <location line="-575"/>
         <source>Copy image</source>
-        <translation>Copier l&apos;image</translation>
+        <translation>Kopijuoti vaizdą</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>View profile</source>
-        <translation>Voir le profil</translation>
+        <translation>Žiūrėti profilį</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>View details</source>
-        <translation>Voir les détails</translation>
+        <translation>Peržiūrėkite išsamią informaciją</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Edit</source>
-        <translation>Modifier</translation>
+        <translation>Redaguoti</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Remove edits</source>
-        <translation>Supprimer les modifications</translation>
+        <translation>Pašalinti pakeitimus</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>End poll</source>
-        <translation>Terminer le sondage</translation>
+        <translation>Baigti apklausą</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Forward</source>
-        <translation>Transférer</translation>
+        <translation>Persiųsti</translation>
     </message>
     <message>
         <location line="+41"/>
         <source>Report message</source>
-        <translation>Signaler le message</translation>
+        <translation>Pranešti apie pranešimą</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Delete</source>
-        <translation>Supprimer</translation>
+        <translation>Ištrinti</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Message details</source>
-        <translation>Détails du message</translation>
+        <translation>Išsami pranešimo informacija</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Sender</source>
-        <translation>Expéditeur</translation>
+        <translation>Siuntėjas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sender ID</source>
-        <translation>Identifiant de l&apos;expéditeur</translation>
+        <translation>Siuntėjo ID</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Timestamp</source>
-        <translation>Horodatage</translation>
+        <translation>Laiko žyma</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room ID</source>
-        <translation>Identifiant du salon</translation>
+        <translation>Kambario ID</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Event ID</source>
-        <translation>Identifiant de l&apos;événement</translation>
+        <translation>Įvykio ID</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Type</source>
-        <translation>Type</translation>
+        <translation>Tipas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Delivery</source>
-        <translation>Remise</translation>
+        <translation>Pristatymas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Encryption</source>
-        <translation>Chiffrement</translation>
+        <translation>Šifravimas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Decryption</source>
-        <translation>Déchiffrement</translation>
+        <translation>Iššifravimas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Edited</source>
-        <translation>Modifié</translation>
+        <translation>Redaguota</translation>
     </message>
     <message>
         <location line="+0"/>
         <location line="+1"/>
         <source>Yes</source>
-        <translation>Oui</translation>
+        <translation>Taip</translation>
     </message>
     <message>
         <location line="-1"/>
         <location line="+1"/>
         <source>No</source>
-        <translation>Non</translation>
+        <translation>Nr</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Redacted</source>
-        <translation>Supprimé</translation>
+        <translation>Turinys pašalintas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reply target</source>
-        <translation>Cible de la réponse</translation>
+        <translation>Atsakymo tikslas</translation>
     </message>
     <message>
-        <location line="-1780"/>
-        <source>Show preview</source>
-        <translation>Afficher l&apos;aperçu</translation>
-    </message>
-    <message>
-        <location line="+1917"/>
+        <location line="+137"/>
         <location line="+107"/>
         <source>Dismiss link preview</source>
-        <translation>Ignorer l&apos;aperçu du lien</translation>
+        <translation>Atsisakyti nuorodos peržiūros</translation>
     </message>
     <message>
         <location line="-106"/>
         <location line="+107"/>
         <source>Dismiss preview</source>
-        <translation>Ignorer l&apos;aperçu</translation>
+        <translation>Atsisakyti peržiūros</translation>
     </message>
     <message>
         <location line="+65"/>
         <source>Your homeserver loads this preview, so the linked site does not see your IP address. If your server cannot, Lightning loads it directly and the site does see your IP.</source>
-        <translation>Votre serveur domestique charge cet aperçu, de sorte que le site lié ne voit pas votre adresse IP. Si votre serveur ne le peut pas, Lightning le charge directement et le site voit votre IP.</translation>
+        <translation>Jūsų namų serveris įkelia šią peržiūrą, todėl susieta svetainė nemato jūsų IP adreso. Jei jūsų serveris negali, „Lightning“ jį įkelia tiesiogiai ir svetainė mato jūsų IP.</translation>
     </message>
     <message>
         <location line="+52"/>
         <source>Your server sees this URL — or directly, your IP</source>
-        <translation>Votre serveur voit cette URL – ou directement, votre IP</translation>
+        <translation>Jūsų serveris mato šį URL arba tiesiogiai jūsų IP</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your server loads it — or directly, your IP</source>
-        <translation>Votre serveur le charge — ou directement, votre IP</translation>
+        <translation>Jūsų serveris įkelia jį arba tiesiogiai jūsų IP</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Show</source>
-        <translation>Afficher</translation>
+        <translation>Rodyti</translation>
     </message>
     <message>
         <location line="+55"/>
         <source>Preview unavailable</source>
-        <translation>Aperçu indisponible</translation>
+        <translation>Peržiūra negalima</translation>
     </message>
     <message>
         <location line="+609"/>
         <source>Remove from saved</source>
-        <translation>Retirer des enregistrés</translation>
+        <translation>Pašalinti iš išsaugotų</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Save image</source>
-        <translation>Enregistrer l&apos;image</translation>
+        <translation>Išsaugoti vaizdą</translation>
     </message>
     <message>
         <location line="+92"/>
         <source>Image failed to load — click to retry</source>
-        <translation>Échec du chargement de l&apos;image — cliquez pour réessayer</translation>
+        <translation>Nepavyko įkelti vaizdo – spustelėkite ir bandykite dar kartą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(image unavailable)</source>
-        <translation>(image indisponible)</translation>
+        <translation>(vaizdas nepasiekiamas)</translation>
     </message>
     <message>
         <location line="+130"/>
         <source>Sticker failed to load — click to retry</source>
-        <translation>Échec du chargement de l&apos;autocollant — cliquez pour réessayer</translation>
+        <translation>Lipduko įkelti nepavyko – spustelėkite, kad bandytumėte dar kartą</translation>
     </message>
     <message>
         <location line="+233"/>
         <location line="+65"/>
         <source>Video</source>
-        <translation>Vidéo</translation>
+        <translation>Vaizdo įrašas</translation>
     </message>
     <message>
         <location line="+17"/>
         <location line="+212"/>
         <source>Save %1 as…</source>
-        <translation>Enregistrer %1 sous…</translation>
+        <translation>Išsaugoti %1 kaip…</translation>
     </message>
     <message>
         <location line="-211"/>
         <source>video</source>
-        <translation>vidéo</translation>
+        <translation>vaizdo įrašą</translation>
     </message>
     <message>
         <location line="+125"/>
         <location line="+31"/>
         <source>File</source>
-        <translation>Fichier</translation>
+        <translation>Failas</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Saving…</source>
-        <translation>Enregistrement…</translation>
+        <translation>Išsaugoma…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Saved</source>
-        <translation>Enregistré</translation>
+        <translation>Išsaugota</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Save failed</source>
-        <translation>Échec de l&apos;enregistrement</translation>
+        <translation>Išsaugoti nepavyko</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>file</source>
-        <translation>fichier</translation>
+        <translation>failą</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Retry save</source>
-        <translation>Réessayer l&apos;enregistrement</translation>
+        <translation>Bandykite išsaugoti dar kartą</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Open file</source>
-        <translation>Ouvrir le fichier</translation>
+        <translation>Atidaryti failą</translation>
     </message>
     <message>
         <location line="+100"/>
         <source>Results are revealed when the poll ends</source>
-        <translation>Les résultats sont dévoilés à la fin du sondage</translation>
+        <translation>Rezultatai skelbiami pasibaigus apklausai</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>%1, %2 votes</source>
-        <translation>%1, %2 votes</translation>
+        <translation>%1, %2 balsų</translation>
     </message>
     <message numerus="yes">
         <location line="+98"/>
         <source>Final result • %n vote(s)</source>
         <comment>closed poll tally</comment>
         <translation>
-            <numerusform>Résultat final • %n vote</numerusform>
-            <numerusform>Résultat final • %n votes</numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <location line="+3"/>
-        <source>%n vote(s)</source>
-        <comment>open poll tally</comment>
-        <translation>
-            <numerusform>%n vote</numerusform>
-            <numerusform>%n votes</numerusform>
+            <numerusform>Galutinis rezultatas • %n balsas</numerusform>
+            <numerusform>Galutinis rezultatas • %n balsai</numerusform>
+            <numerusform>Galutinis rezultatas • %n balsų</numerusform>
         </translation>
     </message>
     <message>
-        <location line="-1"/>
+        <location line="+2"/>
         <source>No votes yet</source>
-        <translation>Aucun vote pour l&apos;instant</translation>
+        <translation>Dar nėra balsų</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>%n vote(s)</source>
+        <comment>open poll tally</comment>
+        <translation>
+            <numerusform>%n balsas</numerusform>
+            <numerusform>%n balsai</numerusform>
+            <numerusform>%n balsų</numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -5055,57 +5063,57 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/MessageSearchDialog.qml" line="+64"/>
         <source>Search messages</source>
-        <translation>Rechercher des messages</translation>
+        <translation>Ieškoti žinučių</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Close</source>
-        <translation>Fermer</translation>
+        <translation>Uždaryti</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Search your message history…</source>
-        <translation>Rechercher dans votre historique de messages…</translation>
+        <translation>Ieškoti pranešimų istorijoje…</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Server-side search — messages in end-to-end encrypted rooms are not included.</source>
-        <translation>Recherche côté serveur — les messages des salons chiffrés de bout en bout ne sont pas inclus.</translation>
+        <translation>Serverio paieška neapima žinučių ištisai šifruotuose kambariuose.</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>Open result in %1</source>
-        <translation>Ouvrir le résultat dans %1</translation>
+        <translation>Atidaryti rezultatą %1</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>in %1</source>
-        <translation>dans %1</translation>
+        <translation>%1</translation>
     </message>
     <message>
         <location line="+50"/>
         <source>No messages found</source>
-        <translation>Aucun message trouvé</translation>
+        <translation>Nerasta jokių pranešimų</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The search could not be completed.</source>
-        <translation>La recherche n&apos;a pas pu aboutir.</translation>
+        <translation>Paieškos užbaigti nepavyko.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Retry</source>
-        <translation>Réessayer</translation>
+        <translation>Bandykite dar kartą</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Type to search across your rooms</source>
-        <translation>Saisissez du texte pour chercher dans vos salons</translation>
+        <translation>Įveskite norėdami ieškoti savo kambariuose</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Loading more…</source>
-        <translation>Chargement…</translation>
+        <translation>Įkeliama daugiau…</translation>
     </message>
 </context>
 <context>
@@ -5118,32 +5126,32 @@ Taille : %3</translation>
         <location line="+414"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
-        <translation>Salon inconnu : %1</translation>
+        <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
         <location line="-113"/>
         <source>Cannot edit: original message not found.</source>
-        <translation>Modification impossible : message d&apos;origine introuvable.</translation>
+        <translation>Negalima redaguoti: pradinis pranešimas nerastas.</translation>
     </message>
     <message>
         <location line="+96"/>
         <source>Image</source>
-        <translation>Image</translation>
+        <translation>Vaizdas</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>File</source>
-        <translation>Fichier</translation>
+        <translation>Failas</translation>
     </message>
     <message>
         <location line="+69"/>
         <source>Older message #%1 (page %2)</source>
-        <translation>Message plus ancien n° %1 (page %2)</translation>
+        <translation>Senesnis pranešimas Nr.%1 (puslapis %2)</translation>
     </message>
     <message>
         <location line="+1535"/>
         <source>You joined the room.</source>
-        <translation>Vous avez rejoint le salon.</translation>
+        <translation>Jūs prisijungėte prie kambario.</translation>
     </message>
 </context>
 <context>
@@ -5151,37 +5159,37 @@ Taille : %3</translation>
     <message>
         <location filename="../src/app/ModerationController.cpp" line="+156"/>
         <source>%1 is now ignored. You will no longer see their messages.</source>
-        <translation>%1 est désormais ignoré. Vous ne verrez plus ses messages.</translation>
+        <translation>%1 dabar nepaisoma. Daugiau nematysite jų pranešimų.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>%1 is no longer ignored. New messages will appear again.</source>
-        <translation>%1 n&apos;est plus ignoré. Les nouveaux messages réapparaîtront.</translation>
+        <translation>%1 nebėra ignoruojamas. Vėl pasirodys nauji pranešimai.</translation>
     </message>
     <message>
         <location line="+38"/>
         <source>The message was reported to the server administrator.</source>
-        <translation>Le message a été signalé à l&apos;administrateur du serveur.</translation>
+        <translation>Apie pranešimą pranešta serverio administratoriui.</translation>
     </message>
     <message>
         <location line="+50"/>
         <source>The server refused this action.</source>
-        <translation>Le serveur a refusé cette action.</translation>
+        <translation>Serveris atsisakė šio veiksmo.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That message no longer exists on the server.</source>
-        <translation>Ce message n&apos;existe plus sur le serveur.</translation>
+        <translation>Šio pranešimo serveryje nebėra.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The server is rate limiting this action. Try again shortly.</source>
-        <translation>Le serveur limite le débit de cette action. Réessayez sous peu.</translation>
+        <translation>Serveris riboja šį veiksmą. Netrukus bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Could not reach the server. Try again.</source>
-        <translation>Impossible de joindre le serveur. Réessayez.</translation>
+        <translation>Nepavyko pasiekti serverio. Bandykite dar kartą.</translation>
     </message>
 </context>
 <context>
@@ -5189,330 +5197,330 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/NewConversationDialog.qml" line="+234"/>
         <source>Choose a room picture</source>
-        <translation>Choisir une image de salon</translation>
+        <translation>Pasirinkite kambario nuotrauką</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</source>
-        <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
+        <translation>Vaizdai (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>Create a room</source>
-        <translation>Créer un salon</translation>
+        <translation>Sukurkite kambarį</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Create a Space</source>
-        <translation>Créer un espace</translation>
+        <translation>Sukurkite erdvę</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Start something</source>
-        <translation>Commencer quelque chose</translation>
+        <translation>Pradėkite ką nors</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>New conversation</source>
-        <translation>Nouvelle conversation</translation>
+        <translation>Naujas pokalbis</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Close</source>
-        <translation>Fermer</translation>
+        <translation>Uždaryti</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Type a name, an @user ID, or a #room address — Lightning figures out the rest.</source>
-        <translation>Saisissez un nom, un identifiant @utilisateur ou une adresse #salon — Lightning se charge du reste.</translation>
+        <translation>Įveskite vardą, @user ID arba #kambario adresą – Lightning nustato visa kita.</translation>
     </message>
     <message>
         <location line="+93"/>
         <source>New DM</source>
-        <translation>Nouvelle conversation privée</translation>
+        <translation>Naujas DM</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>New room</source>
-        <translation>Nouveau salon</translation>
+        <translation>Naujas kambarys</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>New space</source>
-        <translation>Nouvel espace</translation>
+        <translation>Nauja erdvė</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Working…</source>
-        <translation>Traitement…</translation>
+        <translation>Dirba…</translation>
     </message>
     <message>
         <location line="+16"/>
         <location line="+1"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+55"/>
         <source>Create room %1</source>
-        <translation>Créer le salon %1</translation>
+        <translation>Sukurti kambarį %1</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Create room “%1”</source>
-        <translation>Créer le salon « %1 »</translation>
+        <translation>Sukurti kambarį „%1“</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Public · not encrypted</source>
-        <translation>Public · non chiffré</translation>
+        <translation>Vieša · nešifruota</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Private · encrypted · invite-only by default</source>
-        <translation>Privé · chiffré · sur invitation par défaut</translation>
+        <translation>Privatus · šifruotas · tik pakvietimas pagal numatytuosius nustatymus</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Private · not encrypted · invite-only by default</source>
-        <translation>Privé · non chiffré · sur invitation par défaut</translation>
+        <translation>Privatus · nešifruotas · tik pakvietimas pagal numatytuosius nustatymus</translation>
     </message>
     <message>
         <location line="+77"/>
         <source>Choose a different user</source>
-        <translation>Choisir un autre utilisateur</translation>
+        <translation>Pasirinkite kitą vartotoją</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>You already share a direct message with this user</source>
-        <translation>Vous avez déjà une conversation privée avec cet utilisateur</translation>
+        <translation>Jau turite tiesioginį pokalbį su šiuo naudotoju</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Existing conversation</source>
-        <translation>Conversation existante</translation>
+        <translation>Esamas pokalbis</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Open</source>
-        <translation>Ouvrir</translation>
+        <translation>Atidaryti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open %1</source>
-        <translation>Ouvrir %1</translation>
+        <translation>Atidaryti %1</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Start encrypted direct message</source>
-        <translation>Démarrer une conversation privée chiffrée</translation>
+        <translation>Pradėti šifruotą tiesioginį pokalbį</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Start a new conversation anyway</source>
-        <translation>Démarrer quand même une nouvelle conversation</translation>
+        <translation>Bet kokiu atveju pradėkite naują pokalbį</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Direct messages are end-to-end encrypted.</source>
-        <translation>Les conversations privées sont chiffrées de bout en bout.</translation>
+        <translation>Tiesioginiai pokalbiai šifruojami ištisai.</translation>
     </message>
     <message>
         <location line="+22"/>
         <location line="+11"/>
         <source>Room name</source>
-        <translation>Nom du salon</translation>
+        <translation>Kambario pavadinimas</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>e.g. Design team</source>
-        <translation>p. ex. Équipe design</translation>
+        <translation>pvz. Dizaino komanda</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>The room needs a name.</source>
-        <translation>Le salon a besoin d&apos;un nom.</translation>
+        <translation>Kambariui reikia pavadinimo.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Topic (optional)</source>
-        <translation>Sujet (facultatif)</translation>
+        <translation>Tema (neprivaloma)</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>What is this room about?</source>
-        <translation>De quoi parle ce salon ?</translation>
+        <translation>Apie ką šis kambarys?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Topic</source>
-        <translation>Sujet</translation>
+        <translation>Tema</translation>
     </message>
     <message>
         <location line="+8"/>
         <location line="+351"/>
         <source>Visibility</source>
-        <translation>Visibilité</translation>
+        <translation>Matomumas</translation>
     </message>
     <message>
         <location line="-342"/>
         <location line="+351"/>
         <source>Private</source>
-        <translation>Privé</translation>
+        <translation>Privatus</translation>
     </message>
     <message>
         <location line="-350"/>
         <location line="+351"/>
         <source>Public</source>
-        <translation>Public</translation>
+        <translation>Viešas</translation>
     </message>
     <message>
         <location line="-342"/>
         <source>Anyone can find and join this room.</source>
-        <translation>N&apos;importe qui peut trouver et rejoindre ce salon.</translation>
+        <translation>Kiekvienas gali rasti šį kambarį ir prie jo prisijungti.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Only people you invite can join this room.</source>
-        <translation>Seules les personnes que vous invitez peuvent rejoindre ce salon.</translation>
+        <translation>Prie šio kambario gali prisijungti tik jūsų pakviesti žmonės.</translation>
     </message>
     <message>
         <location line="+19"/>
         <location line="+8"/>
         <source>End-to-end encryption</source>
-        <translation>Chiffrement de bout en bout</translation>
+        <translation>Visiškas šifravimas</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Public rooms are not end-to-end encrypted.</source>
-        <translation>Les salons publics ne sont pas chiffrés de bout en bout.</translation>
+        <translation>Viešieji kambariai nėra ištisai šifruoti.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Only invited members can read messages.</source>
-        <translation>Seuls les membres invités peuvent lire les messages.</translation>
+        <translation>Tik pakviesti nariai gali skaityti pranešimus.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Warning: this private room will NOT be encrypted. The server can read every message.</source>
-        <translation>Attention : ce salon privé NE sera PAS chiffré. Le serveur peut lire chaque message.</translation>
+        <translation>Įspėjimas: šis privatus kambarys NEBUS užšifruotas. Serveris gali skaityti kiekvieną pranešimą.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Address (optional)</source>
-        <translation>Adresse (facultatif)</translation>
+        <translation>Adresas (neprivaloma)</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Local address, e.g. my-room</source>
-        <translation>Adresse locale, p. ex. mon-salon</translation>
+        <translation>Vietinis adresas, pvz. mano kambarys</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room address</source>
-        <translation>Adresse du salon</translation>
+        <translation>Kambario adresas</translation>
     </message>
     <message>
         <location line="+18"/>
         <location line="+5"/>
         <source>Add to the current Space</source>
-        <translation>Ajouter à l&apos;espace actuel</translation>
+        <translation>Pridėti prie dabartinės erdvės</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Invite people (optional)</source>
-        <translation>Inviter des personnes (facultatif)</translation>
+        <translation>Pakviesti žmonių (neprivaloma)</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>Remove %1</source>
-        <translation>Supprimer %1</translation>
+        <translation>Pašalinti %1</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Room picture (optional)</source>
-        <translation>Image du salon (facultatif)</translation>
+        <translation>Kambario nuotrauka (neprivaloma)</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Choose picture</source>
-        <translation>Choisir une image</translation>
+        <translation>Pasirinkite paveikslėlį</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Change picture</source>
-        <translation>Changer l&apos;image</translation>
+        <translation>Keisti paveikslėlį</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Remove picture</source>
-        <translation>Supprimer l&apos;image</translation>
+        <translation>Pašalinti paveikslėlį</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Create public room</source>
-        <translation>Créer un salon public</translation>
+        <translation>Sukurkite viešą kambarį</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Create encrypted room</source>
-        <translation>Créer un salon chiffré</translation>
+        <translation>Sukurkite užšifruotą kambarį</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Create unencrypted room</source>
-        <translation>Créer un salon non chiffré</translation>
+        <translation>Sukurkite nešifruotą kambarį</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>A Space groups related rooms together in the left rail. It is a real Matrix Space, not a local folder.</source>
-        <translation>Un espace regroupe des salons liés dans la barre de gauche. C&apos;est un véritable espace Matrix, pas un dossier local.</translation>
+        <translation>Erdvė sugrupuoja susijusius kambarius kairėje juostoje. Tai tikra Matrix erdvė, ne vietinis aplankas.</translation>
     </message>
     <message>
         <location line="+11"/>
         <location line="+11"/>
         <source>Space name</source>
-        <translation>Nom de l&apos;espace</translation>
+        <translation>Erdvės pavadinimas</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>e.g. My community</source>
-        <translation>p. ex. Ma communauté</translation>
+        <translation>pvz. Mano bendruomenė</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>The Space needs a name.</source>
-        <translation>L&apos;espace a besoin d&apos;un nom.</translation>
+        <translation>Erdvei reikia pavadinimo.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Description (optional)</source>
-        <translation>Description (facultatif)</translation>
+        <translation>Aprašymas (nebūtina)</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>What is this Space for?</source>
-        <translation>À quoi sert cet espace ?</translation>
+        <translation>Kam skirta ši erdvė?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Description</source>
-        <translation>Description</translation>
+        <translation>Aprašymas</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Anyone can find and join this Space.</source>
-        <translation>N&apos;importe qui peut trouver et rejoindre cet espace.</translation>
+        <translation>Kiekvienas gali rasti šią erdvę ir prie jos prisijungti.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Only people you invite can see this Space.</source>
-        <translation>Seules les personnes que vous invitez peuvent voir cet espace.</translation>
+        <translation>Tik jūsų pakviesti žmonės gali matyti šią erdvę.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Create Space</source>
-        <translation>Créer l&apos;espace</translation>
+        <translation>Sukurkite erdvę</translation>
     </message>
 </context>
 <context>
@@ -5521,12 +5529,12 @@ Taille : %3</translation>
         <location filename="../src/notifications/NotificationManager.cpp" line="+514"/>
         <location line="+141"/>
         <source>Open</source>
-        <translation>Ouvrir</translation>
+        <translation>Atidaryti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Decline</source>
-        <translation>Refuser</translation>
+        <translation>Atmesti</translation>
     </message>
 </context>
 <context>
@@ -5534,57 +5542,57 @@ Taille : %3</translation>
     <message>
         <location line="-399"/>
         <source>Matrix room</source>
-        <translation>Salon Matrix</translation>
+        <translation>Matrix kambarys</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>%1 in %2</source>
-        <translation>%1 dans %2</translation>
+        <translation>%1 %2</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Encrypted message</source>
-        <translation>Message chiffré</translation>
+        <translation>Šifruotas pranešimas</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Sent an image</source>
-        <translation>A envoyé une image</translation>
+        <translation>Atsiuntė paveikslėlį</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Sent a file</source>
-        <translation>A envoyé un fichier</translation>
+        <translation>Išsiuntė failą</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Sent a video</source>
-        <translation>A envoyé une vidéo</translation>
+        <translation>Išsiuntė vaizdo įrašą</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Sent a voice message</source>
-        <translation>A envoyé un message vocal</translation>
+        <translation>Išsiuntė balso žinutę</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sent an audio file</source>
-        <translation>A envoyé un fichier audio</translation>
+        <translation>Išsiuntė garso failą</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>%1 mentioned you</source>
-        <translation>%1 vous a mentionné</translation>
+        <translation>%1 paminėjo jus</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>New message from %1</source>
-        <translation>Nouveau message de %1</translation>
+        <translation>Nauja žinutė nuo %1</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>New Matrix notification</source>
-        <translation>Nouvelle notification Matrix</translation>
+        <translation>Naujas Matrix pranešimas</translation>
     </message>
 </context>
 <context>
@@ -5593,39 +5601,39 @@ Taille : %3</translation>
         <location filename="../src/auth/OAuthCallbackServer.cpp" line="+123"/>
         <location line="+26"/>
         <source>Sign-in</source>
-        <translation>Connexion</translation>
+        <translation>Prisijunkite</translation>
     </message>
     <message>
         <location line="-26"/>
         <location line="+26"/>
         <source>This page is not part of the sign-in.</source>
-        <translation>Cette page ne fait pas partie de la connexion.</translation>
+        <translation>Šis puslapis nėra prisijungimo dalis.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Sign-in cancelled</source>
-        <translation>Connexion annulée</translation>
+        <translation>Prisijungimas atšauktas</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+28"/>
         <source>You can close this window and return to Lightning.</source>
-        <translation>Vous pouvez fermer cette fenêtre et revenir à Lightning.</translation>
+        <translation>Galite uždaryti šį langą ir grįžti į „Lightning“.</translation>
     </message>
     <message>
         <location line="-9"/>
         <source>Sign-in failed</source>
-        <translation>Échec de la connexion</translation>
+        <translation>Nepavyko prisijungti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The response was incomplete. You can close this window and try again.</source>
-        <translation>La réponse était incomplète. Vous pouvez fermer cette fenêtre et réessayer.</translation>
+        <translation>Atsakymas buvo neišsamus. Galite uždaryti šį langą ir bandyti dar kartą.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Signed in</source>
-        <translation>Connecté</translation>
+        <translation>Prisijungta</translation>
     </message>
 </context>
 <context>
@@ -5633,7 +5641,7 @@ Taille : %3</translation>
     <message>
         <location filename="../src/models/PaginationController.h" line="+116"/>
         <source>Original message is unavailable.</source>
-        <translation>Le message d&apos;origine est indisponible.</translation>
+        <translation>Originalus pranešimas nepasiekiamas.</translation>
     </message>
 </context>
 <context>
@@ -5641,27 +5649,27 @@ Taille : %3</translation>
     <message>
         <location filename="../src/app/PinnedMessagesController.cpp" line="+13"/>
         <source>You do not have permission to change pinned messages in this room.</source>
-        <translation>Vous n&apos;avez pas la permission de modifier les messages épinglés de ce salon.</translation>
+        <translation>Neturite leidimo keisti šiame kambaryje prisegtų žinučių.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The server is rate limiting this action. Try again shortly.</source>
-        <translation>Le serveur limite le débit de cette action. Réessayez sous peu.</translation>
+        <translation>Serveris riboja šį veiksmą. Netrukus bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>That message could not be found.</source>
-        <translation>Ce message est introuvable.</translation>
+        <translation>Šio pranešimo rasti nepavyko.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The server rejected that change.</source>
-        <translation>Le serveur a rejeté cette modification.</translation>
+        <translation>Serveris atmetė šį pakeitimą.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Could not reach the server. Try again.</source>
-        <translation>Impossible de joindre le serveur. Réessayez.</translation>
+        <translation>Nepavyko pasiekti serverio. Bandykite dar kartą.</translation>
     </message>
 </context>
 <context>
@@ -5669,12 +5677,12 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/PopupResizeGrip.qml" line="+103"/>
         <source>Resize</source>
-        <translation>Redimensionner</translation>
+        <translation>Pakeisti dydį</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Drag to resize</source>
-        <translation>Faites glisser pour redimensionner</translation>
+        <translation>Vilkite, kad pakeistumėte dydį</translation>
     </message>
 </context>
 <context>
@@ -5682,37 +5690,37 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/PresenceDot.qml" line="+81"/>
         <source>Online</source>
-        <translation>En ligne</translation>
+        <translation>Prisijungę</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Away</source>
-        <translation>Absent</translation>
+        <translation>Toli</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Offline</source>
-        <translation>Hors ligne</translation>
+        <translation>Neprisijungus</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Offline — active just now</source>
-        <translation>Hors ligne — actif à l&apos;instant</translation>
+        <translation>Neprisijungęs – aktyvus tik dabar</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Offline — active %1 min ago</source>
-        <translation>Hors ligne — actif il y a %1 min</translation>
+        <translation>Neprisijungus – aktyvus prieš %1 min</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Offline — active %1 h ago</source>
-        <translation>Hors ligne — actif il y a %1 h</translation>
+        <translation>Neprisijungus – aktyvus prieš %1 val</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Offline — active %1 d ago</source>
-        <translation>Hors ligne — actif il y a %1 j</translation>
+        <translation>Neprisijungus – aktyvus prieš %1 d</translation>
     </message>
 </context>
 <context>
@@ -5720,7 +5728,7 @@ Taille : %3</translation>
     <message>
         <location filename="../src/profile/ProfileBadges.cpp" line="+23"/>
         <source>idea master — a thank-you badge for helping develop Lightning. Not a moderation role and not a verification status.</source>
-        <translation>idea master – un badge de remerciement pour avoir aidé à développer Lightning. Il ne s&apos;agit pas d&apos;un rôle de modération ni d&apos;un statut de vérification.</translation>
+        <translation>idėjos meistras – padėkos ženklelis už pagalbą kuriant „Lightning“. Ne moderavimo vaidmuo ir ne patvirtinimo būsena.</translation>
     </message>
 </context>
 <context>
@@ -5728,12 +5736,12 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/QuickReactionStrip.qml" line="+89"/>
         <source>More reactions</source>
-        <translation>Plus de réactions</translation>
+        <translation>Daugiau reakcijų</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>React with %1</source>
-        <translation>Réagir avec %1</translation>
+        <translation>Reaguokite su %1</translation>
     </message>
 </context>
 <context>
@@ -5741,204 +5749,204 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/QuickSwitcher.qml" line="+109"/>
         <source>Open Settings</source>
-        <translation>Ouvrir les paramètres</translation>
+        <translation>Atidarykite Nustatymai</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Application action</source>
-        <translation>Action de l&apos;application</translation>
+        <translation>Taikymo veiksmas</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Discover rooms</source>
-        <translation>Découvrir des salons</translation>
+        <translation>Atraskite kambarius</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Browse the public room directory</source>
-        <translation>Parcourir l&apos;annuaire des salons publics</translation>
+        <translation>Naršyti viešų kambarių katalogą</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Join a room by address…</source>
-        <translation>Rejoindre un salon par adresse…</translation>
+        <translation>Prisijunkite prie kambario pagal adresą…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>#room:server, !roomid or a Matrix link</source>
-        <translation>#salon:serveur, !identifiant ou un lien Matrix</translation>
+        <translation>#kambarys:serveris, !roomid arba Matrix nuoroda</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Search messages…</source>
-        <translation>Rechercher des messages…</translation>
+        <translation>Ieškoti žinučių…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Server-side history search (Ctrl+Shift+F)</source>
-        <translation>Recherche d&apos;historique côté serveur (Ctrl+Maj+F)</translation>
+        <translation>Serverio istorijos paieška (Ctrl + Shift + F)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Account</source>
-        <translation>Compte</translation>
+        <translation>Paskyra</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+37"/>
         <location line="+14"/>
         <source>Appearance</source>
-        <translation>Apparence</translation>
+        <translation>Išvaizda</translation>
     </message>
     <message>
         <location line="-50"/>
         <source>Notifications</source>
-        <translation>Notifications</translation>
+        <translation>Pranešimai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Privacy &amp; security</source>
-        <translation>Confidentialité et sécurité</translation>
+        <translation>Privatumas ir saugumas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sessions</source>
-        <translation>Sessions</translation>
+        <translation>Sesijos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Labs</source>
-        <translation>Labs</translation>
+        <translation>Laboratorijos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>About</source>
-        <translation>À propos</translation>
+        <translation>Apie</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Open %1</source>
-        <translation>Ouvrir %1</translation>
+        <translation>Atidaryti %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Settings</source>
-        <translation>Paramètres</translation>
+        <translation>Nustatymai</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Switch to %1</source>
-        <translation>Basculer vers %1</translation>
+        <translation>Perjungti į %1</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Theme: Match system</source>
-        <translation>Thème : suivre le système</translation>
+        <translation>Tema: Rungtynių sistema</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Theme: %1</source>
-        <translation>Thème : %1</translation>
+        <translation>Tema: %1</translation>
     </message>
     <message>
         <location line="+66"/>
         <source>ROOMS</source>
-        <translation>SALONS</translation>
+        <translation>KAMBARIAI</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>PEOPLE</source>
-        <translation>PERSONNES</translation>
+        <translation>ŽMONĖS</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>SPACES</source>
-        <translation>ESPACES</translation>
+        <translation>ERDVĖS</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>INVITES</source>
-        <translation>INVITATIONS</translation>
+        <translation>KVIETIMAI</translation>
     </message>
     <message>
         <location line="+126"/>
         <source>Type a command…</source>
-        <translation>Saisissez une commande…</translation>
+        <translation>Įveskite komandą…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Jump to a room, person, or Space…</source>
-        <translation>Accéder à un salon, une personne ou un espace…</translation>
+        <translation>Peršokti į kambarį, žmogų ar erdvę…</translation>
     </message>
     <message>
         <location line="+86"/>
         <source>Actions</source>
-        <translation>Actions</translation>
+        <translation>Veiksmai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Rooms</source>
-        <translation>Salons</translation>
+        <translation>Kambariai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>People</source>
-        <translation>Personnes</translation>
+        <translation>Žmonės</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>No matching rooms</source>
-        <translation>Aucun salon correspondant</translation>
+        <translation>Nėra atitinkamų kambarių</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Type to search your rooms</source>
-        <translation>Saisissez du texte pour chercher dans vos salons</translation>
+        <translation>Įveskite norėdami ieškoti savo kambarių</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>No matching actions</source>
-        <translation>Aucune action correspondante</translation>
+        <translation>Nėra atitinkančių veiksmų</translation>
     </message>
     <message>
         <location line="+272"/>
         <source>navigate</source>
-        <translation>naviguer</translation>
+        <translation>naršyti</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>open</source>
-        <translation>ouvrir</translation>
+        <translation>atviras</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>sections</source>
-        <translation>sections</translation>
+        <translation>skyriuose</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>dismiss</source>
-        <translation>fermer</translation>
+        <translation>atleisti</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Try “theme indigo night” · “switch to alice” · “open privacy”</source>
-        <translation>Essayez « thème indigo night » · « basculer vers alice » · « ouvrir confidentialité »</translation>
+        <translation>Išbandykite „teminį indigo vakarą“ · „persijungti į alisą“ · „atvirą privatumą“</translation>
     </message>
     <message>
         <location filename="../src/models/QuickSwitcherModel.cpp" line="+201"/>
         <source>Invitation</source>
-        <translation>Invitation</translation>
+        <translation>Kvietimas</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Space</source>
-        <translation>Espace</translation>
+        <translation>Erdvė</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Direct message</source>
-        <translation>Conversation privée</translation>
+        <translation>Tiesioginis pokalbis</translation>
     </message>
 </context>
 <context>
@@ -5946,7 +5954,7 @@ Taille : %3</translation>
     <message>
         <location filename="../src/spaces/RailEntryModel.cpp" line="+187"/>
         <source>Direct Messages</source>
-        <translation>Messages directs</translation>
+        <translation>Tiesioginiai pokalbiai</translation>
     </message>
 </context>
 <context>
@@ -5955,7 +5963,7 @@ Taille : %3</translation>
         <location filename="../src/spaces/RailLayoutStore.cpp" line="+212"/>
         <location line="+208"/>
         <source>Folder</source>
-        <translation>Dossier</translation>
+        <translation>Aplankas</translation>
     </message>
 </context>
 <context>
@@ -5963,32 +5971,32 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/ReportMessageDialog.qml" line="+54"/>
         <source>Report message</source>
-        <translation>Signaler le message</translation>
+        <translation>Pranešti apie pranešimą</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The report goes to the administrator of your homeserver, together with a reference to this one message. It is not sent to the message&apos;s author.</source>
-        <translation>Le signalement est transmis à l&apos;administrateur de votre serveur d&apos;accueil, accompagné d&apos;une référence à ce seul message. Il n&apos;est pas envoyé à l&apos;auteur du message.</translation>
+        <translation>Ataskaita siunčiama jūsų namų serverio administratoriui kartu su nuoroda į šį pranešimą. Jis nesiunčiamas pranešimo autoriui.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Reason (optional)</source>
-        <translation>Motif (facultatif)</translation>
+        <translation>Priežastis (neprivaloma)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Report reason</source>
-        <translation>Motif du signalement</translation>
+        <translation>Pranešimo priežastis</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Report</source>
-        <translation>Signaler</translation>
+        <translation>Pranešti</translation>
     </message>
 </context>
 <context>
@@ -5996,77 +6004,77 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/RoomActionsMenu.qml" line="+55"/>
         <source>Remove from favourites</source>
-        <translation>Retirer des favoris</translation>
+        <translation>Pašalinti iš mėgstamiausių</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Add to favourites</source>
-        <translation>Ajouter aux favoris</translation>
+        <translation>Pridėti prie mėgstamiausių</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Mark as read</source>
-        <translation>Marquer comme lu</translation>
+        <translation>Pažymėti kaip skaitytą</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Mark as unread</source>
-        <translation>Marquer comme non lu</translation>
+        <translation>Pažymėti kaip neskaitytą</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Notifications</source>
-        <translation>Notifications</translation>
+        <translation>Pranešimai</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Notify mode</source>
-        <translation>Mode de notification</translation>
+        <translation>Pranešimo režimas</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>All messages</source>
-        <translation>Tous les messages</translation>
+        <translation>Visi pranešimai</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Mentions &amp; keywords</source>
-        <translation>Mentions et mots-clés</translation>
+        <translation>Paminėjimai ir raktiniai žodžiai</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Muted</source>
-        <translation>En sourdine</translation>
+        <translation>Nutildyta</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Follow account default</source>
-        <translation>Suivre la valeur par défaut du compte</translation>
+        <translation>Sekite paskyros numatytuosius nustatymus</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Couldn&apos;t save to the server — kept on this device. Retried when you reconnect.</source>
-        <translation>Impossible d&apos;enregistrer sur le serveur — conservé sur cet appareil. Nouvelle tentative à la reconnexion.</translation>
+        <translation>Nepavyko išsaugoti serveryje – saugomas šiame įrenginyje. Bandyta dar kartą, kai vėl prisijungiate.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Saved to your account&apos;s notification settings (server push rules).</source>
-        <translation>Enregistré dans les paramètres de notification de votre compte (règles push du serveur).</translation>
+        <translation>Išsaugota paskyros pranešimų nustatymuose (serverio siunčiamųjų pranešimų taisyklėse).</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Local setting: it does not change this room&apos;s server push rules.</source>
-        <translation>Réglage local : cela ne modifie pas les règles push du serveur pour ce salon.</translation>
+        <translation>Vietinis nustatymas: jis nekeičia šio kambario serverio siunčiamųjų pranešimų taisyklių.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Copy room link</source>
-        <translation>Copier le lien du salon</translation>
+        <translation>Nukopijuokite kambario nuorodą</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Leave room</source>
-        <translation>Quitter le salon</translation>
+        <translation>Palikite kambarį</translation>
     </message>
 </context>
 <context>
@@ -6079,25 +6087,26 @@ Taille : %3</translation>
     <message>
         <location line="+24"/>
         <source>Collapse room updates</source>
-        <translation>Replier les mises à jour du salon</translation>
+        <translation>Sutraukti kambario naujinius</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Expand room updates</source>
-        <translation>Déplier les mises à jour du salon</translation>
+        <translation>Išplėskite kambario naujinius</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Room updated</source>
-        <translation>Salon mis à jour</translation>
+        <translation>Kambarys atnaujintas</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n room update(s)</source>
         <comment>collapsed state-event group</comment>
         <translation>
-            <numerusform>%n mise à jour du salon</numerusform>
-            <numerusform>%n mises à jour du salon</numerusform>
+            <numerusform>%n kambario atnaujinimas</numerusform>
+            <numerusform>%n kambario atnaujinimai</numerusform>
+            <numerusform>%n kambario atnaujinimų</numerusform>
         </translation>
     </message>
     <message>
@@ -6111,57 +6120,57 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/RoomCallBanner.qml" line="+52"/>
         <source>This build can&apos;t join Matrix calls</source>
-        <translation>Cette version ne peut pas rejoindre les appels Matrix</translation>
+        <translation>Ši versija negali prisijungti prie Matrix skambučių</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Checking whether calling is available…</source>
-        <translation>Vérifier si les appels sont disponibles…</translation>
+        <translation>Tikrinama, ar galima skambinti…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No MatrixRTC service on this homeserver</source>
-        <translation>Aucun service MatrixRTC sur ce serveur domestique</translation>
+        <translation>Šiame namų serveryje nėra „MatrixRTC“ paslaugos</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Couldn&apos;t check whether calling is available</source>
-        <translation>Impossible de vérifier si les appels sont disponibles</translation>
+        <translation>Nepavyko patikrinti, ar galima skambinti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This call has ended</source>
-        <translation>Cet appel est terminé</translation>
+        <translation>Šis skambutis baigėsi</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Joining calls isn&apos;t supported yet in this build</source>
-        <translation>Rejoindre des appels n&apos;est pas encore pris en charge dans cette version</translation>
+        <translation>Prisijungimas prie skambučių šioje versijoje dar nepalaikomas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Joining isn&apos;t available</source>
-        <translation>L&apos;adhésion n&apos;est pas disponible</translation>
+        <translation>Prisijungti negalima</translation>
     </message>
     <message>
         <location line="+138"/>
         <source>You are in a call</source>
-        <translation>Vous êtes en communication</translation>
+        <translation>Dalyvaujate skambutyje</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>1 person in call</source>
-        <translation>1 personne en appel</translation>
+        <translation>Skambutyje dalyvauja 1 žmogus</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>%1 people in call</source>
-        <translation>%1 personnes en appel</translation>
+        <translation>Skambutyje dalyvauja %1 žmonių</translation>
     </message>
     <message>
         <location line="+41"/>
         <source>Join</source>
-        <translation>Rejoindre</translation>
+        <translation>Prisijunk</translation>
     </message>
 </context>
 <context>
@@ -6169,12 +6178,12 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/RoomCallGlyph.qml" line="+102"/>
         <source>You are in a call in this room</source>
-        <translation>Vous êtes en communication dans cette salle</translation>
+        <translation>Šiame kambaryje dalyvaujate skambutyje</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>There is a call in this room</source>
-        <translation>Il y a un appel dans cette pièce</translation>
+        <translation>Šiame kambaryje skamba</translation>
     </message>
 </context>
 <context>
@@ -6182,32 +6191,32 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/RoomChannelsPresenter.qml" line="+87"/>
         <source>No conversations yet. Rooms you join, and the spaces they belong to, will show up here.</source>
-        <translation>Aucune conversation pour l&apos;instant. Les salles que vous rejoignez et les espaces auxquels elles appartiennent s’afficheront ici.</translation>
+        <translation>Pokalbių dar nėra. kambariai, prie kurių prisijungiate, ir erdvės, kurioms jie priklauso, bus rodomi čia.</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Nothing in this list matches &quot;%1&quot;.</source>
-        <translation>Rien dans cette liste ne correspond à « %1 ».</translation>
+        <translation>Niekas šiame sąraše neatitinka „%1“.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Nothing unread. Everything in this view has been read.</source>
-        <translation>Rien de non lu. Tout dans cette vue a été lu.</translation>
+        <translation>Nieko neskaityto. Viskas šiame vaizde buvo perskaityta.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>No direct messages yet. Start one with Create Chat.</source>
-        <translation>Pas encore de messages directs. Commencez-en un avec Créer un chat.</translation>
+        <translation>Tiesioginių pokalbių dar nėra. Pradėkite pokalbį pasirinkę „Kurti pokalbį“.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Nothing in this space yet. Open Lobby to add a room.</source>
-        <translation>Rien dans cet espace pour l&apos;instant. Ouvrez le hall pour ajouter une pièce.</translation>
+        <translation>Šioje erdvėje dar nieko nėra. Atidarykite fojė, kad pridėtumėte kambarį.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No rooms outside your spaces. Pick a space on the left, or create a room.</source>
-        <translation>Aucune pièce en dehors de vos espaces. Choisissez un espace sur la gauche ou créez une pièce.</translation>
+        <translation>Visi kambariai yra jūsų erdvėse. Pasirinkite erdvę kairėje arba sukurkite kambarį.</translation>
     </message>
 </context>
 <context>
@@ -6215,87 +6224,87 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/RoomDelegate.qml" line="+12"/>
         <source>Invitation to %1</source>
-        <translation>Invitation à %1</translation>
+        <translation>Kvietimas į %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, %2 mentions</source>
-        <translation>%1, %2 mentions</translation>
+        <translation>%1, %2 paminėjimų</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>%1, muted</source>
-        <translation>%1, en sourdine</translation>
+        <translation>%1, nutildytas</translation>
     </message>
     <message>
         <location line="+126"/>
         <source>Yesterday</source>
-        <translation>Hier</translation>
+        <translation>vakar</translation>
     </message>
     <message>
         <location line="+343"/>
         <source>Space invitation from %1</source>
-        <translation>Invitation à un espace de %1</translation>
+        <translation>%1 kviečia į erdvę</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room invitation from %1</source>
-        <translation>Invitation à un salon de %1</translation>
+        <translation>Kvietimas į kambarį nuo %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Space invitation</source>
-        <translation>Invitation à un espace</translation>
+        <translation>Kvietimas į erdvę</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room invitation</source>
-        <translation>Invitation à un salon</translation>
+        <translation>Kvietimas į kambarį</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Accept</source>
-        <translation>Accepter</translation>
+        <translation>Priimti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Accept room invitation</source>
-        <translation>Accepter l&apos;invitation au salon</translation>
+        <translation>Priimti kambario kvietimą</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Reject</source>
-        <translation>Refuser</translation>
+        <translation>Atmesti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Reject room invitation</source>
-        <translation>Refuser l&apos;invitation au salon</translation>
+        <translation>Atmesti kambario kvietimą</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Upgraded</source>
-        <translation>Mis à niveau</translation>
+        <translation>Atnaujinta</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This room has been upgraded</source>
-        <translation>Ce salon a été mis à niveau</translation>
+        <translation>Šis kambarys buvo atnaujintas</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Join request pending</source>
-        <translation>Demande d&apos;adhésion en attente</translation>
+        <translation>Laukiama prisijungimo užklausa</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Withdraw</source>
-        <translation>Retirer</translation>
+        <translation>Atsitraukti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Withdraw the join request</source>
-        <translation>Retirer la demande d&apos;adhésion</translation>
+        <translation>Atšaukti prisijungimo prašymą</translation>
     </message>
 </context>
 <context>
@@ -6303,37 +6312,37 @@ Taille : %3</translation>
     <message>
         <location filename="../src/app/RoomDiscoveryController.cpp" line="+337"/>
         <source>You are banned from this room.</source>
-        <translation>Vous êtes banni de ce salon.</translation>
+        <translation>Jūs esate užblokuotas šiame kambaryje.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This room is invite-only, or you do not have permission to join it.</source>
-        <translation>Ce salon est sur invitation uniquement, ou vous n&apos;avez pas la permission de le rejoindre.</translation>
+        <translation>Šis kambarys yra tik su kvietimu arba jūs neturite leidimo prie jo prisijungti.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>This room is restricted: joining requires membership of another room or space you are not in.</source>
-        <translation>Ce salon est restreint : le rejoindre exige d&apos;être membre d&apos;un autre salon ou espace auquel vous n&apos;appartenez pas.</translation>
+        <translation>Šis kambarys yra apribotas: norint prisijungti, reikia priklausyti kitam kambariui arba erdvei, kurioje nesate.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>No room with that address could be found.</source>
-        <translation>Aucun salon avec cette adresse n&apos;a été trouvé.</translation>
+        <translation>Kambario su šiuo adresu nepavyko rasti.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The server is rate limiting this action. Try again shortly.</source>
-        <translation>Le serveur limite le débit de cette action. Réessayez sous peu.</translation>
+        <translation>Serveris riboja šį veiksmą. Netrukus bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>That is not a valid room address or link.</source>
-        <translation>Ce n&apos;est pas une adresse ou un lien de salon valide.</translation>
+        <translation>Tai neteisingas kambario adresas arba nuoroda.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Could not reach the server. Try again.</source>
-        <translation>Impossible de joindre le serveur. Réessayez.</translation>
+        <translation>Nepavyko pasiekti serverio. Bandykite dar kartą.</translation>
     </message>
 </context>
 <context>
@@ -6341,106 +6350,106 @@ Taille : %3</translation>
     <message>
         <location filename="../src/app/RoomInfoController.cpp" line="+282"/>
         <source>You do not have permission to change that.</source>
-        <translation>Vous n&apos;avez pas la permission de modifier cela.</translation>
+        <translation>Neturite leidimo to keisti.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The change could not be saved.</source>
-        <translation>La modification n&apos;a pas pu être enregistrée.</translation>
+        <translation>Pakeitimo išsaugoti nepavyko.</translation>
     </message>
     <message>
         <location line="+49"/>
         <location line="+11"/>
         <source>The server refused to leave this room.</source>
-        <translation>Le serveur a refusé de quitter ce salon.</translation>
+        <translation>Serveris atsisakė palikti šį kambarį.</translation>
     </message>
     <message>
         <location line="-10"/>
         <location line="+11"/>
         <source>Leaving the room failed. Check your connection and retry.</source>
-        <translation>Quitter le salon a échoué. Vérifiez votre connexion et réessayez.</translation>
+        <translation>Išeiti iš kambario nepavyko. Patikrinkite ryšį ir bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+107"/>
         <source>The action could not be sent.</source>
-        <translation>L&apos;action n&apos;a pas pu être envoyée.</translation>
+        <translation>Veiksmo išsiųsti nepavyko.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>You do not have permission to do that.</source>
-        <translation>Vous n&apos;avez pas la permission de faire cela.</translation>
+        <translation>Jūs neturite leidimo to daryti.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The action failed. Check your connection and retry.</source>
-        <translation>L&apos;action a échoué. Vérifiez votre connexion et réessayez.</translation>
+        <translation>Veiksmas nepavyko. Patikrinkite ryšį ir bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+12"/>
         <location line="+329"/>
         <source>The invite could not be sent.</source>
-        <translation>L&apos;invitation n&apos;a pas pu être envoyée.</translation>
+        <translation>Nepavyko išsiųsti kvietimo.</translation>
     </message>
     <message>
         <location line="-288"/>
         <location line="+6"/>
         <source>Member</source>
-        <translation>Membre</translation>
+        <translation>narys</translation>
     </message>
     <message>
         <location line="-4"/>
         <source>Administrator</source>
-        <translation>Administrateur</translation>
+        <translation>Administratorius</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Moderator</source>
-        <translation>Modérateur</translation>
+        <translation>Moderatorius</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Custom (%1)</source>
-        <translation>Personnalisé (%1)</translation>
+        <translation>Tinkintas (%1)</translation>
     </message>
     <message>
         <location line="+48"/>
         <location line="+179"/>
         <source>The change could not be sent. Check your connection and retry.</source>
-        <translation>La modification n&apos;a pas pu être envoyée. Vérifiez votre connexion et réessayez.</translation>
+        <translation>Pakeitimo išsiųsti nepavyko. Patikrinkite ryšį ir bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="-156"/>
         <location line="+180"/>
         <source>The server refused that change. Your permissions may have changed.</source>
-        <translation>Le serveur a refusé cette modification. Vos permissions ont peut-être changé.</translation>
+        <translation>Serveris atsisakė šio pakeitimo. Gali būti, kad jūsų leidimai pasikeitė.</translation>
     </message>
     <message>
         <location line="-177"/>
         <location line="+180"/>
         <source>The server is rate limiting this action. Try again shortly.</source>
-        <translation>Le serveur limite le débit de cette action. Réessayez sous peu.</translation>
+        <translation>Serveris riboja šį veiksmą. Netrukus bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="-178"/>
         <location line="+180"/>
         <source>The change failed. Check your connection and retry.</source>
-        <translation>La modification a échoué. Vérifiez votre connexion et réessayez.</translation>
+        <translation>Pakeitimas nepavyko. Patikrinkite ryšį ir bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="-155"/>
         <location line="+37"/>
         <source>The change could not be sent.</source>
-        <translation>La modification n&apos;a pas pu être envoyée.</translation>
+        <translation>Pakeitimo išsiųsti nepavyko.</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>The alias needs a server name.</source>
-        <translation>L&apos;alias a besoin d&apos;un nom de serveur.</translation>
+        <translation>Pseudonimui reikalingas serverio pavadinimas.</translation>
     </message>
     <message>
         <location line="+153"/>
         <source>You do not have permission to invite them.</source>
-        <translation>Vous n&apos;avez pas la permission de les inviter.</translation>
+        <translation>Neturite leidimo jų pakviesti.</translation>
     </message>
 </context>
 <context>
@@ -6448,158 +6457,158 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/RoomInfoPanel.qml" line="+144"/>
         <source>Choose room avatar</source>
-        <translation>Choisir l&apos;avatar du salon</translation>
+        <translation>Pasirinkite kambario avatarą</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</source>
-        <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
+        <translation>Vaizdai (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Room information</source>
-        <translation>Informations du salon</translation>
+        <translation>Informacija apie kambarį</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Members</source>
-        <translation>Membres</translation>
+        <translation>nariai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>1 member</source>
-        <translation>1 membre</translation>
+        <translation>1 narys</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 members</source>
-        <translation>%1 membres</translation>
+        <translation>%1 narių</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Close room information</source>
-        <translation>Fermer les informations du salon</translation>
+        <translation>Uždaryti kambario informaciją</translation>
     </message>
     <message>
         <location line="+36"/>
         <location line="+6"/>
         <source>Overview</source>
-        <translation>Aperçu</translation>
+        <translation>Apžvalga</translation>
     </message>
     <message>
         <location line="-5"/>
         <source>Pinned</source>
-        <translation>Épinglés</translation>
+        <translation>Prisegta</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+5"/>
         <source>People</source>
-        <translation>Personnes</translation>
+        <translation>Žmonės</translation>
     </message>
     <message>
         <location line="-4"/>
         <location line="+5"/>
         <source>Media</source>
-        <translation>Médias</translation>
+        <translation>Medija</translation>
     </message>
     <message>
         <location line="+42"/>
         <source>Notifications</source>
-        <translation>Notifications</translation>
+        <translation>Pranešimai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Notifications (this device)</source>
-        <translation>Notifications (cet appareil)</translation>
+        <translation>Pranešimai (šis įrenginys)</translation>
     </message>
     <message>
         <location line="+18"/>
         <location line="+9"/>
         <source>All messages</source>
-        <translation>Tous les messages</translation>
+        <translation>Visi pranešimai</translation>
     </message>
     <message>
         <location line="-5"/>
         <location line="+6"/>
         <source>Mentions &amp; keywords</source>
-        <translation>Mentions et mots-clés</translation>
+        <translation>Paminėjimai ir raktiniai žodžiai</translation>
     </message>
     <message>
         <location line="-5"/>
         <location line="+6"/>
         <source>Mute</source>
-        <translation>Mettre en sourdine</translation>
+        <translation>Nutildyti</translation>
     </message>
     <message>
         <location line="-5"/>
         <source>Follow account default</source>
-        <translation>Suivre la valeur par défaut du compte</translation>
+        <translation>Sekite paskyros numatytuosius nustatymus</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>Couldn&apos;t save to the server — kept on this device. Retried when you reconnect.</source>
-        <translation>Impossible d&apos;enregistrer sur le serveur — conservé sur cet appareil. Nouvelle tentative à la reconnexion.</translation>
+        <translation>Nepavyko išsaugoti serveryje – saugomas šiame įrenginyje. Bandyta dar kartą, kai vėl prisijungiate.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This room has no override — your account&apos;s settings apply on the server. This device notifies for all messages.</source>
-        <translation>Ce salon n&apos;a pas de réglage spécifique — les paramètres de votre compte s&apos;appliquent sur le serveur. Cet appareil notifie pour tous les messages.</translation>
+        <translation>Šiame kambaryje nėra nepaisymo – jūsų paskyros nustatymai taikomi serveryje. Šis įrenginys praneša apie visus pranešimus.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Saved to your account&apos;s notification settings (server push rules).</source>
-        <translation>Enregistré dans les paramètres de notification de votre compte (règles push du serveur).</translation>
+        <translation>Išsaugota paskyros pranešimų nustatymuose (serverio siunčiamųjų pranešimų taisyklėse).</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Local setting: it does not change this room&apos;s server push rules.</source>
-        <translation>Réglage local : cela ne modifie pas les règles push du serveur pour ce salon.</translation>
+        <translation>Vietinis nustatymas: jis nekeičia šio kambario serverio siunčiamųjų pranešimų taisyklių.</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>(unnamed room)</source>
-        <translation>(salon sans nom)</translation>
+        <translation>(nepavadintas kambarys)</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>End-to-end encrypted</source>
-        <translation>Chiffré de bout en bout</translation>
+        <translation>Užšifruota nuo galo iki galo</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Not encrypted</source>
-        <translation>Non chiffré</translation>
+        <translation>Nešifruota</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>%1 members (%2 invited)</source>
-        <translation>%1 membres (%2 invités)</translation>
+        <translation>%1 nariai (%2 pakviesti)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Copy room ID</source>
-        <translation>Copier l&apos;identifiant du salon</translation>
+        <translation>Nukopijuokite kambario ID</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Edit room</source>
-        <translation>Modifier le salon</translation>
+        <translation>Redaguoti kambarį</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Change avatar…</source>
-        <translation>Changer l&apos;avatar…</translation>
+        <translation>Keisti avatarą…</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Remove avatar</source>
-        <translation>Supprimer l&apos;avatar</translation>
+        <translation>Pašalinti avatarą</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Room name</source>
-        <translation>Nom du salon</translation>
+        <translation>Kambario pavadinimas</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -6607,216 +6616,237 @@ Taille : %3</translation>
         <location line="+179"/>
         <location line="+741"/>
         <source>Save</source>
-        <translation>Enregistrer</translation>
+        <translation>Išsaugoti</translation>
     </message>
     <message>
         <location line="-925"/>
         <source>Topic</source>
-        <translation>Sujet</translation>
+        <translation>Tema</translation>
     </message>
     <message>
         <location line="+49"/>
         <source>Access</source>
-        <translation>Accès</translation>
+        <translation>Prieiga</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Who can join</source>
-        <translation>Qui peut rejoindre</translation>
+        <translation>Kas gali prisijungti</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Invited people only</source>
-        <translation>Personnes invitées uniquement</translation>
+        <translation>Tik pakviesti žmonės</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Anyone with the link</source>
-        <translation>Toute personne disposant du lien</translation>
+        <translation>Visi, turintys nuorodą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ask to join (knock)</source>
-        <translation>Demander à rejoindre (frapper)</translation>
+        <translation>Paprašyti prisijungti (belsti)</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Members of a space can join. Lightning can&apos;t change space-restricted access yet.</source>
-        <translation>Les membres d&apos;un espace peuvent rejoindre. Lightning ne peut pas encore modifier l&apos;accès restreint aux espaces.</translation>
+        <translation>Erdvės nariai gali prisijungti. Lightning dar negali pakeisti erdvės apribotos prieigos.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Published address</source>
-        <translation>Adresse publiée</translation>
+        <translation>Paskelbtas adresas</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>#room-name</source>
-        <translation>#nom-du-salon</translation>
+        <translation>#kambario pavadinimas</translation>
     </message>
     <message>
         <location line="+57"/>
         <source>Publishing an address lets people find and join this room by name. Leave it empty to remove it.</source>
-        <translation>Publier une adresse permet aux personnes de trouver et rejoindre ce salon par son nom. Laissez vide pour la supprimer.</translation>
+        <translation>Paskelbtas adresas leidžia žmonėms rasti šį kambarį pagal pavadinimą ir prie jo prisijungti. Palikite tuščią, jei norite jį pašalinti.</translation>
     </message>
     <message>
         <location line="+17"/>
         <location line="+760"/>
         <source>Leave room</source>
-        <translation>Quitter le salon</translation>
+        <translation>Palikite kambarį</translation>
     </message>
     <message>
         <location line="-722"/>
         <source>No pinned messages</source>
-        <translation>Aucun message épinglé</translation>
+        <translation>Nėra prisegtų pranešimų</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n pinned message(s)</source>
         <translation>
-            <numerusform>%n message épinglé</numerusform>
-            <numerusform>%n messages épinglés</numerusform>
+            <numerusform>%n prisegta žinutė</numerusform>
+            <numerusform>%n prisegtos žinutės</numerusform>
+            <numerusform>%n prisegtų žinučių</numerusform>
         </translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Showing the most recent pins. This room pins more than Lightning loads at once.</source>
-        <translation>Affichage des épinglages les plus récents. Ce salon en épingle plus que Lightning n&apos;en charge à la fois.</translation>
+        <translation>Rodomi naujausi prisegti pranešimai. Šiame kambaryje prisegta daugiau pranešimų, nei Lightning įkelia vienu metu.</translation>
     </message>
     <message>
         <location line="+101"/>
         <source>Message unavailable</source>
-        <translation>Message indisponible</translation>
+        <translation>Pranešimas nepasiekiamas</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>It may have been deleted, or this account cannot see it.</source>
-        <translation>Il a peut-être été supprimé, ou ce compte ne peut pas le voir.</translation>
+        <translation>Jis gali būti ištrintas arba ši paskyra jo nemato.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Message deleted</source>
-        <translation>Message supprimé</translation>
+        <translation>Pranešimas ištrintas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Can&apos;t decrypt this yet</source>
-        <translation>Déchiffrement impossible pour l&apos;instant</translation>
+        <translation>Kol kas nepavyksta iššifruoti</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Image · %1</source>
-        <translation>Image · %1</translation>
+        <translation>Vaizdas · %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Image</source>
-        <translation>Image</translation>
+        <translation>Vaizdas</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Video · %1</source>
-        <translation>Vidéo · %1</translation>
+        <translation>Vaizdo įrašas · %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Video</source>
-        <translation>Vidéo</translation>
+        <translation>Vaizdo įrašas</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Audio · %1</source>
-        <translation>Audio · %1</translation>
+        <translation>Garsas · %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Audio</source>
-        <translation>Audio</translation>
+        <translation>Garsas</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>File · %1</source>
-        <translation>Fichier · %1</translation>
+        <translation>Failas · %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>File</source>
-        <translation>Fichier</translation>
+        <translation>Failas</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Sticker · %1</source>
-        <translation>Autocollant · %1</translation>
+        <translation>Lipdukas · %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sticker</source>
-        <translation>Autocollant</translation>
+        <translation>Lipdukas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Message</source>
-        <translation>Message</translation>
+        <translation>Pranešimas</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Unpin this message</source>
-        <translation>Désépingler ce message</translation>
+        <translation>Atsegti šį pranešimą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unpin</source>
-        <translation>Désépingler</translation>
+        <translation>Atsegti</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>Type name…</source>
-        <translation>Tapez le nom…</translation>
+        <translation>Įveskite pavadinimą…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Filter members by membership</source>
-        <translation>Filtrer les membres par adhésion</translation>
+        <translation>Filtruoti narius pagal narystę</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Showing joined members — click for invited</source>
-        <translation>Affichage des membres rejoints&#xa0;–&#xa0;cliquez pour être invité</translation>
+        <translation>Rodomi prisijungę nariai – spustelėkite, jei norite pakviesti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Showing invited members — click for banned</source>
-        <translation>Afficher les membres invités&#xa0;–&#xa0;cliquez pour être bannis</translation>
+        <translation>Rodomi pakviesti nariai – spustelėkite uždrausti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Showing banned members — click for everyone</source>
-        <translation>Afficher les membres bannis – cliquez pour tout le monde</translation>
+        <translation>Rodomi uždrausti nariai – spustelėkite visiems</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Showing everyone — click for joined</source>
-        <translation>Afficher tout le monde&#xa0;–&#xa0;cliquez pour rejoindre</translation>
+        <translation>Rodomi visi – spustelėkite, kad prisijungtumėte</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Sort members alphabetically</source>
-        <translation>Trier les membres par ordre alphabétique</translation>
+        <translation>Rūšiuoti narius abėcėlės tvarka</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sorted A to Z — click for role order</source>
-        <translation>Triés de A à Z — cliquez pour l&apos;ordre des rôles</translation>
+        <translation>Rūšiuota nuo A iki Z – spustelėkite, norėdami pamatyti vaidmenų tvarką</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sorted by role — click for A to Z</source>
-        <translation>Triés par rôle — cliquez pour A à Z</translation>
+        <translation>Rūšiuojama pagal vaidmenį – spustelėkite nuo A iki Z</translation>
     </message>
     <message>
-        <location line="+99"/>
+        <location line="+9"/>
+        <source>Invite people to this room</source>
+        <translation>Pakvieskite žmones į šį kambarį</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Invite people</source>
+        <translation>Pakvieskite žmones</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Loading members…</source>
+        <translation>Įkeliami nariai…</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Showing the first %1 members of %2.</source>
+        <translation>Rodomi pirmieji %1 %2 nariai.</translation>
+    </message>
+    <message>
+        <location line="+61"/>
         <source>%1 — %2</source>
-        <translation>%1 — %2</translation>
+        <translation>%1 – %2</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -6824,49 +6854,29 @@ Taille : %3</translation>
         <translation>%1 (%2), %3</translation>
     </message>
     <message>
-        <location line="-111"/>
-        <source>Invite people to this room</source>
-        <translation>Inviter des personnes dans ce salon</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Invite people</source>
-        <translation>Inviter des personnes</translation>
-    </message>
-    <message>
-        <location line="+15"/>
-        <source>Loading members…</source>
-        <translation>Chargement des membres…</translation>
-    </message>
-    <message>
-        <location line="+13"/>
-        <source>Showing the first %1 members of %2.</source>
-        <translation>Affichage des %1 premiers membres sur %2.</translation>
-    </message>
-    <message>
-        <location line="+173"/>
+        <location line="+91"/>
         <source>Invited</source>
-        <translation>Invité</translation>
+        <translation>Pakviestas</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Banned</source>
-        <translation>Banni</translation>
+        <translation>Uždrausta</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Media and files shared in the loaded part of this conversation. Scroll the timeline up to load more history.</source>
-        <translation>Médias et fichiers partagés dans la partie chargée de cette conversation. Faites défiler la conversation vers le haut pour charger plus d&apos;historique.</translation>
+        <translation>Medija ir failai, bendrinami įkeltoje šio pokalbio dalyje. Slinkite laiko juosta aukštyn, kad įkeltumėte daugiau istorijos.</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>No media in the loaded history.</source>
-        <translation>Aucun média dans l&apos;historique chargé.</translation>
+        <translation>Įkeltoje istorijoje medijos nėra.</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>(unnamed)</source>
-        <translation>(sans nom)</translation>
+        <translation>(be vardo)</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -6876,22 +6886,22 @@ Taille : %3</translation>
     <message>
         <location line="+36"/>
         <source>Save %1 as…</source>
-        <translation>Enregistrer %1 sous…</translation>
+        <translation>Išsaugoti %1 kaip…</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Leave room?</source>
-        <translation>Quitter le salon ?</translation>
+        <translation>Palikti kambarį?</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>You will stop receiving messages from this room. Server history is not deleted, and you can be invited again later.</source>
-        <translation>Vous ne recevrez plus de messages de ce salon. L&apos;historique du serveur n&apos;est pas supprimé et vous pourrez être invité à nouveau plus tard.</translation>
+        <translation>Nebegausite pranešimų iš šio kambario. Serverio istorija neištrinama ir vėliau galėsite būti pakviesti dar kartą.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
 </context>
 <context>
@@ -6899,112 +6909,112 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/RoomListClassicPresenter.qml" line="+138"/>
         <source>Invites</source>
-        <translation>Invitations</translation>
+        <translation>Kvietimai</translation>
     </message>
     <message>
         <location line="-91"/>
         <source>People</source>
-        <translation>Personnes</translation>
+        <translation>Žmonės</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Rooms</source>
-        <translation>Salons</translation>
+        <translation>Kambariai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unread</source>
-        <translation>Non lu</translation>
+        <translation>Neskaityta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Conversations</source>
-        <translation>Conversations</translation>
+        <translation>Pokalbiai</translation>
     </message>
     <message>
         <location line="+168"/>
         <source>Sign in to see rooms</source>
-        <translation>Connectez-vous pour voir les salons</translation>
+        <translation>Prisijunkite, kad pamatytumėte kambarius</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Loading rooms…</source>
-        <translation>Chargement des salons…</translation>
+        <translation>Įkeliami kambariai…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No matches</source>
-        <translation>Aucune correspondance</translation>
+        <translation>Jokių atitikmenų</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>No direct messages</source>
-        <translation>Pas de messages directs</translation>
+        <translation>Tiesioginių pokalbių nėra</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Nothing unread</source>
-        <translation>Rien de non lu</translation>
+        <translation>Nieko neskaityto</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This Space is empty</source>
-        <translation>Cet espace est vide</translation>
+        <translation>Ši erdvė tuščia</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>No conversations yet</source>
-        <translation>Aucune conversation pour l&apos;instant</translation>
+        <translation>Pokalbių dar nėra</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Your rooms appear here once the first sync finishes.</source>
-        <translation>Vos salons apparaîtront ici une fois la première synchronisation terminée.</translation>
+        <translation>Pasibaigus pirmajam sinchronizavimui, jūsų kambariai rodomi čia.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Nothing in this list matches &quot;%1&quot;.</source>
-        <translation>Rien dans cette liste ne correspond à « %1 ».</translation>
+        <translation>Niekas šiame sąraše neatitinka „%1“.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>No direct messages with people in this Space. All of them are under “All rooms”.</source>
-        <translation>Aucun message direct avec les personnes de cet espace. Tous se trouvent sous «&#xa0;Toutes les chambres&#xa0;».</translation>
+        <translation>Šioje erdvėje nėra tiesioginių pokalbių su žmonėmis. Jie pateikiami skiltyje „Visi kambariai“.</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Direct messages appear here.</source>
-        <translation>Les messages directs apparaissent ici.</translation>
+        <translation>Čia rodomi tiesioginiai pokalbiai.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Rooms with unread messages appear here.</source>
-        <translation>Les salons avec des messages non lus apparaissent ici.</translation>
+        <translation>Čia rodomi kambariai su neskaitytais pranešimais.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Rooms added to this Space will show up here.</source>
-        <translation>Les salons ajoutés à cet espace apparaîtront ici.</translation>
+        <translation>Prie šios erdvės pridėti kambariai bus rodomi čia.</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Start a direct message, or find a room to join.</source>
-        <translation>Démarrez une conversation privée, ou trouvez un salon à rejoindre.</translation>
+        <translation>Pradėkite tiesioginį pokalbį arba raskite kambarį, prie kurio norite prisijungti.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Clear search</source>
-        <translation>Effacer la recherche</translation>
+        <translation>Išvalyti paiešką</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>New message</source>
-        <translation>Nouveau message</translation>
+        <translation>Nauja žinutė</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Explore rooms</source>
-        <translation>Explorer les salons</translation>
+        <translation>Naršykite kambarius</translation>
     </message>
 </context>
 <context>
@@ -7013,7 +7023,7 @@ Taille : %3</translation>
         <location filename="../src/models/RoomListModel.cpp" line="+146"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
-        <translation>Contact %1</translation>
+        <translation>%1 kontaktas</translation>
     </message>
 </context>
 <context>
@@ -7021,27 +7031,27 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/RoomListPane.qml" line="+23"/>
         <source>Rooms</source>
-        <translation>Salons</translation>
+        <translation>Kambariai</translation>
     </message>
     <message>
         <location line="+114"/>
         <source>Sign in to see rooms</source>
-        <translation>Connectez-vous pour voir les salons</translation>
+        <translation>Prisijunkite, kad pamatytumėte kambarius</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Loading rooms…</source>
-        <translation>Chargement des salons…</translation>
+        <translation>Įkeliami kambariai…</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>No rooms in this Space</source>
-        <translation>Aucun salon dans cet espace</translation>
+        <translation>Šioje erdvėje nėra kambarių</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No joined rooms</source>
-        <translation>Aucun salon rejoint</translation>
+        <translation>Nėra kambarių, prie kurių prisijungta</translation>
     </message>
 </context>
 <context>
@@ -7049,13 +7059,13 @@ Taille : %3</translation>
     <message>
         <location filename="../src/app/RoomUpgradeController.cpp" line="+246"/>
         <source>You are not a member of the new room, and it cannot be joined from here.</source>
-        <translation>Vous n&apos;êtes pas membre du nouveau salon et il ne peut pas être rejoint d&apos;ici.</translation>
+        <translation>Jūs nesate naujo kambario narys ir negalite prisijungti prie jo iš čia.</translation>
     </message>
     <message>
         <location line="+12"/>
         <location line="+28"/>
         <source>Could not join the new room right now. Try again.</source>
-        <translation>Impossible de rejoindre le nouveau salon pour le moment. Réessayez.</translation>
+        <translation>Šiuo metu nepavyko prisijungti prie naujo kambario. Bandykite dar kartą.</translation>
     </message>
 </context>
 <context>
@@ -7070,103 +7080,103 @@ Taille : %3</translation>
     <message>
         <location line="-5"/>
         <source>Home</source>
-        <translation>Accueil</translation>
+        <translation>Pradžia</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Direct Messages</source>
-        <translation>Messages directs</translation>
+        <translation>Tiesioginiai pokalbiai</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Other rooms</source>
-        <translation>Autres salons</translation>
+        <translation>Kiti kambariai</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Open Space overview</source>
-        <translation>Ouvrir l&apos;aperçu de l&apos;espace</translation>
+        <translation>Atidaryti erdvės apžvalgą</translation>
     </message>
     <message>
         <location line="+90"/>
         <source>Search</source>
-        <translation>Rechercher</translation>
+        <translation>Ieškoti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search rooms</source>
-        <translation>Rechercher des salons</translation>
+        <translation>Ieškokite kambarių</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Start a new conversation</source>
-        <translation>Démarrer une nouvelle conversation</translation>
+        <translation>Pradėkite naują pokalbį</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>New conversation</source>
-        <translation>Nouvelle conversation</translation>
+        <translation>Naujas pokalbis</translation>
     </message>
     <message>
         <location line="+15"/>
         <location line="+1"/>
         <source>Discover rooms</source>
-        <translation>Découvrir des salons</translation>
+        <translation>Atraskite kambarius</translation>
     </message>
     <message>
         <location line="+85"/>
         <location line="+3"/>
         <location line="+2"/>
         <source>All</source>
-        <translation>Tous</translation>
+        <translation>Visi</translation>
     </message>
     <message>
         <location line="-4"/>
         <location line="+5"/>
         <source>People</source>
-        <translation>Personnes</translation>
+        <translation>Žmonės</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Rooms</source>
-        <translation>Salons</translation>
-    </message>
-    <message>
-        <location line="-5"/>
+        <location line="-4"/>
         <location line="+2"/>
         <location line="+4"/>
         <source>Unreads</source>
-        <translation>Non lus</translation>
+        <translation>Neskaityti</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="-1"/>
+        <source>Rooms</source>
+        <translation>Kambariai</translation>
+    </message>
+    <message>
+        <location line="+86"/>
         <source>Leave room?</source>
-        <translation>Quitter le salon ?</translation>
+        <translation>Palikti kambarį?</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>You will stop receiving messages from &quot;%1&quot;. Server history is not deleted, and you can be invited again later.</source>
-        <translation>Vous ne recevrez plus de messages de « %1 ». L&apos;historique du serveur n&apos;est pas supprimé et vous pourrez être invité à nouveau plus tard.</translation>
+        <translation>Nebegausite pranešimų iš „%1“. Serverio istorija neištrinama ir vėliau galėsite būti pakviesti dar kartą.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Leave room</source>
-        <translation>Quitter le salon</translation>
+        <translation>Palikite kambarį</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Couldn&apos;t leave &quot;%1&quot;</source>
-        <translation>Impossible de quitter « %1 »</translation>
+        <translation>Nepavyko palikti „%1“</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Close</source>
-        <translation>Fermer</translation>
+        <translation>Uždaryti</translation>
     </message>
 </context>
 <context>
@@ -7174,28 +7184,28 @@ Taille : %3</translation>
     <message>
         <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+294"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
-        <translation>Lightning n&apos;a pas pu créer son dossier de stockage local pour ce compte. Vérifiez les permissions du système de fichiers et l&apos;espace disponible.</translation>
+        <translation>„Lightning“ negalėjo sukurti šios paskyros vietinės saugyklos katalogo. Patikrinkite failų sistemos leidimus ir laisvą vietą.</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+364"/>
         <source>Failed to create Rust SDK backend handle.</source>
-        <translation>Échec de la création du handle du backend Rust SDK.</translation>
+        <translation>Nepavyko sukurti Rust SDK posistemės objekto.</translation>
     </message>
     <message>
         <location line="-281"/>
         <source>Homeserver, user, and password are required.</source>
-        <translation>Le serveur d&apos;accueil, l&apos;utilisateur et le mot de passe sont requis.</translation>
+        <translation>Reikalingas namų serveris, vartotojas ir slaptažodis.</translation>
     </message>
     <message>
         <location line="+61"/>
         <source>This account&apos;s local storage name collides with a different account already saved on this device. Remove that account first if you want to sign in with this one.</source>
-        <translation>Le nom de stockage local de ce compte entre en conflit avec un autre compte déjà enregistré sur cet appareil. Supprimez d&apos;abord ce compte si vous souhaitez vous connecter avec celui-ci.</translation>
+        <translation>Šios paskyros vietinės saugyklos pavadinimas susiduria su kita paskyra, jau išsaugota šiame įrenginyje. Pirmiausia pašalinkite tą paskyrą, jei norite prisijungti naudodami šią paskyrą.</translation>
     </message>
     <message>
         <location line="+96"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
-        <translation>Un magasin local inutilisable pour ce compte n&apos;a pas pu être mis de côté. Vérifiez les permissions du système de fichiers et réessayez.</translation>
+        <translation>Netinkamos vietinės šios paskyros saugyklos nepavyko perkelti. Patikrinkite failų sistemos leidimus ir bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+46"/>
@@ -7205,19 +7215,19 @@ Taille : %3</translation>
         <location line="+103"/>
         <location line="+81"/>
         <source>Rust SDK backend could not be initialized.</source>
-        <translation>Le backend Rust SDK n&apos;a pas pu être initialisé.</translation>
+        <translation>Nepavyko inicijuoti Rust SDK posistemės.</translation>
     </message>
     <message>
         <location line="-653"/>
         <location line="+105"/>
         <source>A homeserver is required.</source>
-        <translation>Un serveur d&apos;accueil est requis.</translation>
+        <translation>Reikalingas namų serveris.</translation>
     </message>
     <message>
         <location line="-88"/>
         <location line="+107"/>
         <source>Lightning could not open a local port to receive the sign-in response. Check whether a firewall is blocking loopback connections.</source>
-        <translation>Lightning n&apos;a pas pu ouvrir de port local pour recevoir la réponse de connexion. Vérifiez qu&apos;un pare-feu ne bloque pas les connexions en boucle locale.</translation>
+        <translation>„Lightning“ negalėjo atidaryti vietinio prievado, kad gautų prisijungimo atsakymą. Patikrinkite, ar ugniasienė neblokuoja grįžtamojo ryšio jungčių.</translation>
     </message>
     <message>
         <location line="-89"/>
@@ -7225,7 +7235,7 @@ Taille : %3</translation>
         <location line="+125"/>
         <location line="+54"/>
         <source>The sign-in could not be completed.</source>
-        <translation>La connexion n&apos;a pas pu être finalisée.</translation>
+        <translation>Nepavyko užbaigti prisijungimo.</translation>
     </message>
     <message>
         <location line="-276"/>
@@ -7233,33 +7243,33 @@ Taille : %3</translation>
         <location line="+71"/>
         <location line="+42"/>
         <source>Sign-in was cancelled.</source>
-        <translation>La connexion a été annulée.</translation>
+        <translation>Prisijungimas buvo atšauktas.</translation>
     </message>
     <message>
         <location line="-151"/>
         <source>The server refused the sign-in request.</source>
-        <translation>Le serveur a refusé la demande de connexion.</translation>
+        <translation>Serveris atmetė prisijungimo užklausą.</translation>
     </message>
     <message>
         <location line="+10"/>
         <location line="+111"/>
         <source>The sign-in timed out. Please try again.</source>
-        <translation>La connexion a expiré. Veuillez réessayer.</translation>
+        <translation>Baigėsi prisijungimo laikas. Bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>The sign-in response was incomplete. Please try again.</source>
-        <translation>La réponse de connexion était incomplète. Veuillez réessayer.</translation>
+        <translation>Prisijungimo atsakymas buvo neišsamus. Bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+255"/>
         <source>The server completed sign-in without returning a usable session.</source>
-        <translation>Le serveur a terminé la connexion sans renvoyer de session utilisable.</translation>
+        <translation>Serveris užbaigė prisijungimą negrąžindamas tinkamos seanso.</translation>
     </message>
     <message>
         <location line="+423"/>
         <source>Enter a valid homeserver and Matrix user ID before resetting the local Lightning session.</source>
-        <translation>Saisissez un serveur d&apos;accueil et un identifiant Matrix valides avant de réinitialiser la session Lightning locale.</translation>
+        <translation>Prieš iš naujo nustatydami vietinį „Lightning“ seansą, įveskite galiojantį namų serverį ir „Matrix“ vartotojo ID.</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -7267,17 +7277,17 @@ Taille : %3</translation>
         <location line="+56"/>
         <location line="+1720"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
-        <translation>Lightning n&apos;a pas pu réinitialiser complètement la session locale de ce compte. Vérifiez les journaux de l&apos;application et les permissions du système de fichiers, puis réessayez.</translation>
+        <translation>„Lightning“ nepavyko visiškai iš naujo nustatyti šios paskyros vietinės sesijos. Patikrinkite programų žurnalus ir failų sistemos leidimus, tada bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="-1736"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
-        <translation>Session Lightning locale reconstruite. Le magasin de chiffrement précédent a été mis de côté, pas supprimé, et se trouve toujours dans le dossier de données de ce compte. Vous pouvez vous reconnecter.</translation>
+        <translation>Atkurta vietinė Lightning sesija. Ankstesnė šifravimo saugykla buvo perkelta, neištrinta ir vis dar yra šios paskyros duomenų kataloge. Galite prisijungti dar kartą.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Lightning has no saved session or local data for that account, so there was nothing to reset. Check the Matrix user ID and try signing in.</source>
-        <translation>Lightning n&apos;a aucune session enregistrée ni donnée locale pour ce compte : il n&apos;y avait donc rien à réinitialiser. Vérifiez l&apos;identifiant Matrix et essayez de vous connecter.</translation>
+        <translation>„Lightning“ neturi išsaugotų šios paskyros seansų ar vietinių duomenų, todėl nebuvo ką nustatyti iš naujo. Patikrinkite Matrix vartotojo ID ir pabandykite prisijungti.</translation>
     </message>
     <message>
         <location line="+196"/>
@@ -7288,146 +7298,146 @@ Taille : %3</translation>
         <location line="+37"/>
         <location line="+37"/>
         <source>Not signed in.</source>
-        <translation>Non connecté.</translation>
+        <translation>Neprisijungęs.</translation>
     </message>
     <message>
         <location line="-3290"/>
         <location line="+64"/>
         <location line="+3232"/>
         <source>Unknown room: %1</source>
-        <translation>Salon inconnu : %1</translation>
+        <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
         <location line="-3292"/>
         <location line="+64"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
-        <translation>Envoi impossible vers des salons chiffrés pour l&apos;instant : l&apos;envoi chiffré du Rust SDK n&apos;est pas vérifié.</translation>
+        <translation>Dar negalima siųsti į užšifruotus kambarius: Rust SDK šifruotas siuntimas nepatvirtintas.</translation>
     </message>
     <message>
         <location line="+494"/>
         <source>The sticker could not be sent.</source>
-        <translation>L&apos;autocollant n&apos;a pas pu être envoyé.</translation>
+        <translation>Nepavyko išsiųsti lipduko.</translation>
     </message>
     <message>
         <location line="+778"/>
         <source>Rust SDK backend does not implement %1 yet.</source>
-        <translation>Le backend Rust SDK n&apos;implémente pas encore %1.</translation>
+        <translation>Rust SDK posistemėje funkcija %1 dar neįdiegta.</translation>
     </message>
     <message>
         <location line="+184"/>
         <source>Local Lightning session reset. You can sign in again.</source>
-        <translation>Session Lightning locale réinitialisée. Vous pouvez vous reconnecter.</translation>
+        <translation>Vietinė Lightning sesija nustatyta iš naujo. Galite prisijungti dar kartą.</translation>
     </message>
     <message>
         <location line="+122"/>
         <source>Rust SDK login response did not include a user id.</source>
-        <translation>La réponse de connexion du Rust SDK ne contenait pas d&apos;identifiant utilisateur.</translation>
+        <translation>Rust SDK prisijungimo atsakyme nebuvo vartotojo ID.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Rust SDK login failed.</source>
-        <translation>Échec de la connexion via le Rust SDK.</translation>
+        <translation>Rust SDK prisijungti nepavyko.</translation>
     </message>
     <message>
         <location line="+110"/>
         <source>Matrix session is no longer authorized.</source>
-        <translation>La session Matrix n&apos;est plus autorisée.</translation>
+        <translation>Matrix sesija nebėra autorizuota.</translation>
     </message>
     <message>
         <location line="+91"/>
         <source>Invite action failed. Try again.</source>
-        <translation>L&apos;action d&apos;invitation a échoué. Réessayez.</translation>
+        <translation>Kvietimo veiksmas nepavyko. Bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+190"/>
         <source>The thread reply could not be sent.</source>
-        <translation>La réponse au fil n&apos;a pas pu être envoyée.</translation>
+        <translation>Nepavyko išsiųsti atsakymo į giją.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
-        <translation>Le message n&apos;a pas pu être envoyé. Vous pouvez réessayer depuis l&apos;action Réessayer du message.</translation>
+        <translation>Nepavyko išsiųsti pranešimo. Galite bandyti dar kartą naudodami pranešimo veiksmą Bandyti iš naujo.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The room timeline could not be opened.</source>
-        <translation>La conversation du salon n&apos;a pas pu être ouverte.</translation>
+        <translation>Nepavyko atidaryti kambario laiko juostos.</translation>
     </message>
     <message>
         <location line="+48"/>
         <source>Reload timeline failed: %1</source>
-        <translation>Échec du rechargement de la conversation : %1</translation>
+        <translation>Nepavyko iš naujo įkelti laiko juostos: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Matrix Rust SDK error.</source>
-        <translation>Erreur du Matrix Rust SDK.</translation>
+        <translation>Matrix Rust SDK klaida.</translation>
     </message>
     <message>
         <location line="+55"/>
         <source>Room-key import failed.</source>
-        <translation>L&apos;import des clés de salon a échoué.</translation>
+        <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
     <message>
         <location line="+121"/>
         <source>Rust SDK sync failed.</source>
-        <translation>La synchronisation du Rust SDK a échoué.</translation>
+        <translation>Rust SDK sinchronizavimas nepavyko.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Rust SDK backend error.</source>
-        <translation>Erreur du backend Rust SDK.</translation>
+        <translation>Rust SDK posistemės klaida.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Rust SDK event queue overflowed.</source>
-        <translation>La file d&apos;événements du Rust SDK a débordé.</translation>
+        <translation>Rust SDK įvykių eilė perpildyta.</translation>
     </message>
     <message>
         <location line="+321"/>
         <source>[unable to decrypt yet]</source>
-        <translation>[déchiffrement impossible pour l&apos;instant]</translation>
+        <translation>[dar negaliu iššifruoti]</translation>
     </message>
     <message>
         <location line="+454"/>
         <source>Rust SDK send failed.</source>
-        <translation>Échec de l&apos;envoi via le Rust SDK.</translation>
+        <translation>Rust SDK išsiųsti nepavyko.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Recovery key is empty.</source>
-        <translation>La clé de récupération est vide.</translation>
+        <translation>Atkūrimo raktas tuščias.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Reload timeline: not signed in.</source>
-        <translation>Rechargement de la conversation : non connecté.</translation>
+        <translation>Iš naujo įkelti laiko juostą: neprisijungta.</translation>
     </message>
     <message>
         <location line="+123"/>
         <source>No file selected.</source>
-        <translation>Aucun fichier sélectionné.</translation>
+        <translation>Nepasirinktas joks failas.</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Probe refused: target room is not encrypted.</source>
-        <translation>Sonde refusée : le salon cible n&apos;est pas chiffré.</translation>
+        <translation>Patikra atmesta: pasirinktas kambarys nėra šifruotas.</translation>
     </message>
     <message>
         <location line="+38"/>
         <source>Rust SDK encrypted send probe failed.</source>
-        <translation>La sonde d&apos;envoi chiffré du Rust SDK a échoué.</translation>
+        <translation>Rust SDK užšifruotas siuntimo tyrimas nepavyko.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Encrypted send probe failed: %1</source>
-        <translation>Échec de la sonde d&apos;envoi chiffré : %1</translation>
+        <translation>Šifruotas siuntimo tyrimas nepavyko: %1</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+19"/>
         <source>Send failed: %1</source>
-        <translation>Échec de l&apos;envoi : %1</translation>
+        <translation>Nepavyko išsiųsti: %1</translation>
     </message>
 </context>
 <context>
@@ -7435,7 +7445,7 @@ Taille : %3</translation>
     <message>
         <location filename="../src/matrix/RustTimelineIngest.cpp" line="+354"/>
         <source>[unable to decrypt yet]</source>
-        <translation>[déchiffrement impossible pour l&apos;instant]</translation>
+        <translation>[dar negaliu iššifruoti]</translation>
     </message>
 </context>
 <context>
@@ -7443,67 +7453,67 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/ScreenSharePicker.qml" line="+36"/>
         <source>Choose what to share</source>
-        <translation>Choisissez quoi partager</translation>
+        <translation>Pasirinkite, ką bendrinti</translation>
     </message>
     <message>
         <location line="+118"/>
         <source>Display %1</source>
-        <translation>Afficher %1</translation>
+        <translation>Ekranas %1</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Untitled window</source>
-        <translation>Fenêtre sans titre</translation>
+        <translation>Langas be pavadinimo</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>This screen</source>
-        <translation>Cet écran</translation>
+        <translation>Šis ekranas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Primary</source>
-        <translation>Primaire</translation>
+        <translation>Pirminis</translation>
     </message>
     <message>
         <location line="+232"/>
         <source>Everyone in the call sees the whole display you pick.</source>
-        <translation>Toutes les personnes participant à l&apos;appel voient l&apos;intégralité de l&apos;affichage que vous choisissez.</translation>
+        <translation>Visi skambučio dalyviai mato visą jūsų pasirinktą ekraną.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A screen shares everything on it. A window shares only that window, even if something is in front of it.</source>
-        <translation>Un écran partage tout dessus. Une fenêtre partage uniquement cette fenêtre, même si quelque chose se trouve devant elle.</translation>
+        <translation>Ekranas dalijasi viskuo, kas jame yra. Langas dalijasi tik tuo langu, net jei kažkas yra priešais jį.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Applications</source>
-        <translation>Applications</translation>
+        <translation>Programos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Screens</source>
-        <translation>Écrans</translation>
+        <translation>Ekranai</translation>
     </message>
     <message>
         <location line="+225"/>
         <source>No screens were found.</source>
-        <translation>Aucun écran n&apos;a été trouvé.</translation>
+        <translation>Ekranų nerasta.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No open windows to share.</source>
-        <translation>Aucune fenêtre ouverte à partager.</translation>
+        <translation>Nėra atvirų langų, kuriuos būtų galima bendrinti.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sharing a single window isn&apos;t available on this platform yet. Pick a screen instead.</source>
-        <translation>Le partage d&apos;une seule fenêtre n&apos;est pas encore disponible sur cette plateforme. Choisissez plutôt un écran.</translation>
+        <translation>Vieno lango bendrinimas šioje platformoje dar negalimas. Vietoj to pasirinkite ekraną.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Quality</source>
-        <translation>Qualité</translation>
+        <translation>Kokybė</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -7528,52 +7538,52 @@ Taille : %3</translation>
     <message>
         <location line="+2"/>
         <source>Screen share resolution</source>
-        <translation>Résolution de partage d&apos;écran</translation>
+        <translation>Ekrano bendrinimo skiriamoji geba</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>15 fps</source>
-        <translation>15 images par seconde</translation>
+        <translation>15 kadrų per sekundę</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>30 fps</source>
-        <translation>30 images par seconde</translation>
+        <translation>30 kadrų per sekundę</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>60 fps</source>
-        <translation>60 images par seconde</translation>
+        <translation>60 kadrų per sekundę</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Screen share frame rate</source>
-        <translation>Fréquence d&apos;images du partage d&apos;écran</translation>
+        <translation>Ekrano bendrinimo kadrų dažnis</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>slow</source>
-        <translation>lent</translation>
+        <translation>lėtas</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Share audio</source>
-        <translation>Partager l&apos;audio</translation>
+        <translation>Bendrinkite garsą</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Send what this computer is playing, alongside the picture</source>
-        <translation>Envoyez ce que cet ordinateur joue, à côté de l&apos;image</translation>
+        <translation>Siųskite, ką šis kompiuteris groja, kartu su nuotrauka</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Share</source>
-        <translation>Partager</translation>
+        <translation>Dalintis</translation>
     </message>
 </context>
 <context>
@@ -7581,17 +7591,17 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/SearchMemberSection.qml" line="+41"/>
         <source>%1 selected</source>
-        <translation>%1 sélectionné</translation>
+        <translation>Pasirinktas %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Select room members</source>
-        <translation>Sélectionner des membres du salon</translation>
+        <translation>Pasirinkite kambario narius</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Search room members…</source>
-        <translation>Rechercher des membres du salon…</translation>
+        <translation>Ieškoti kambario narių…</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -7601,7 +7611,7 @@ Taille : %3</translation>
     <message>
         <location line="+45"/>
         <source>Select %1</source>
-        <translation>Sélectionner %1</translation>
+        <translation>Pasirinkite %1</translation>
     </message>
 </context>
 <context>
@@ -7609,189 +7619,189 @@ Taille : %3</translation>
     <message>
         <location filename="../qml/SearchPanel.qml" line="+120"/>
         <source>Use dates in YYYY-MM-DD format.</source>
-        <translation>Utilisez des dates au format AAAA-MM-JJ.</translation>
+        <translation>Naudokite datas formatu YYYY-MM-DD.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The before date must be later than the after date.</source>
-        <translation>La date « avant » doit être postérieure à la date « après ».</translation>
+        <translation>Data prieš turi būti vėlesnė nei data po.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Image</source>
-        <translation>Image</translation>
+        <translation>Vaizdas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Video</source>
-        <translation>Vidéo</translation>
+        <translation>Vaizdo įrašas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Audio</source>
-        <translation>Audio</translation>
+        <translation>Garsas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>File</source>
-        <translation>Fichier</translation>
+        <translation>Failas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Link</source>
-        <translation>Lien</translation>
+        <translation>Nuoroda</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sticker</source>
-        <translation>Autocollant</translation>
+        <translation>Lipdukas</translation>
     </message>
     <message>
         <location line="+28"/>
         <location line="+13"/>
         <source>Search filters</source>
-        <translation>Filtres de recherche</translation>
+        <translation>Paieškos filtrai</translation>
     </message>
     <message>
         <location line="-12"/>
         <source>Search messages</source>
-        <translation>Rechercher des messages</translation>
+        <translation>Ieškoti žinučių</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Cancel filters</source>
-        <translation>Annuler les filtres</translation>
+        <translation>Atšaukti filtrus</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Close search</source>
-        <translation>Fermer la recherche</translation>
+        <translation>Uždaryti paiešką</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Search room history…</source>
-        <translation>Rechercher dans l&apos;historique du salon…</translation>
+        <translation>Ieškoti kambario istorijoje…</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>The server cannot search end-to-end encrypted room history. You can still find text in messages currently loaded on this device.</source>
-        <translation>Le serveur ne peut pas chercher dans l&apos;historique des salons chiffrés de bout en bout. Vous pouvez tout de même trouver du texte dans les messages actuellement chargés sur cet appareil.</translation>
+        <translation>Serveris negali ieškoti nuo galo iki galo užšifruotos kambario istorijos. Šiuo metu į šį įrenginį įkeltuose pranešimuose vis tiek galite rasti tekstą.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Find in loaded messages</source>
-        <translation>Chercher dans les messages chargés</translation>
+        <translation>Rasti įkeltuose pranešimuose</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Server-side search. Additional filters are applied to a bounded result window.</source>
-        <translation>Recherche côté serveur. Les filtres supplémentaires s&apos;appliquent à une fenêtre de résultats bornée.</translation>
+        <translation>Paieška serverio pusėje. Apribotam rezultatų langui taikomi papildomi filtrai.</translation>
     </message>
     <message>
         <location line="+52"/>
         <source>Open message from %1</source>
-        <translation>Ouvrir le message de %1</translation>
+        <translation>Atidaryti pranešimą nuo %1</translation>
     </message>
     <message>
         <location line="+75"/>
         <source>Search could not be completed.</source>
-        <translation>La recherche n&apos;a pas pu aboutir.</translation>
+        <translation>Paieškos užbaigti nepavyko.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No matching messages</source>
-        <translation>Aucun message correspondant</translation>
+        <translation>Nėra atitinkančių pranešimų</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Load more</source>
-        <translation>Charger plus</translation>
+        <translation>Įkelti daugiau</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>From</source>
-        <translation>De</translation>
+        <translation>Iš</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sent by any selected user</source>
-        <translation>Envoyé par l&apos;un des utilisateurs sélectionnés</translation>
+        <translation>Išsiuntė bet kuris pasirinktas vartotojas</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Mentions</source>
-        <translation>Mentions</translation>
+        <translation>Paminėjimai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mentions any selected user</source>
-        <translation>Mentionne l&apos;un des utilisateurs sélectionnés</translation>
+        <translation>Paminėtas bet kuris pasirinktas naudotojas</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Date</source>
-        <translation>Date</translation>
+        <translation>Data</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Use local dates in YYYY-MM-DD format</source>
-        <translation>Utilisez des dates locales au format AAAA-MM-JJ</translation>
+        <translation>Naudokite vietines datas YYYY-MM-DD formatu</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>On or after, YYYY-MM-DD</source>
-        <translation>Le ou après le, AAAA-MM-JJ</translation>
+        <translation>MMMM-MM-DD arba po jo</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Before, YYYY-MM-DD</source>
-        <translation>Avant le, AAAA-MM-JJ</translation>
+        <translation>Prieš MMMM-MM-DD</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Has</source>
-        <translation>Contient</translation>
+        <translation>Turi</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Contains any selected content type</source>
-        <translation>Contient l&apos;un des types de contenu sélectionnés</translation>
+        <translation>Yra bet koks pasirinktas turinio tipas</translation>
     </message>
     <message>
         <location line="+27"/>
         <location line="+4"/>
         <source>Pinned</source>
-        <translation>Épinglé</translation>
+        <translation>Prisegta</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Whether the message is pinned</source>
-        <translation>Si le message est épinglé</translation>
+        <translation>Ar pranešimas prisegtas</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Any</source>
-        <translation>Indifférent</translation>
+        <translation>Bet koks</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Not pinned</source>
-        <translation>Non épinglé</translation>
+        <translation>Neprisegta</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Clear filters</source>
-        <translation>Effacer les filtres</translation>
+        <translation>Išvalyti filtrai</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Apply filters</source>
-        <translation>Appliquer les filtres</translation>
+        <translation>Taikyti filtrus</translation>
     </message>
 </context>
 <context>
@@ -7804,50 +7814,50 @@ Taille : %3</translation>
         <location line="+578"/>
         <location line="+2733"/>
         <source>Account</source>
-        <translation>Compte</translation>
+        <translation>Paskyra</translation>
     </message>
     <message>
         <location line="-3838"/>
         <source>account profile</source>
-        <translation>compte profil</translation>
+        <translation>paskyros profilis</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+4637"/>
         <source>Homeserver</source>
-        <translation>Serveur d&apos;accueil</translation>
+        <translation>Namų serveris</translation>
     </message>
     <message>
         <location line="-4637"/>
         <source>homeserver server url</source>
-        <translation>serveur d&apos;accueil url serveur</translation>
+        <translation>namų serverio serverio url</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+4671"/>
         <source>Start minimized</source>
-        <translation>Démarrer réduit</translation>
+        <translation>Pradėti iki minimumo</translation>
     </message>
     <message>
         <location line="-4671"/>
         <source>startup minimized</source>
-        <translation>démarrage réduit</translation>
+        <translation>paleidimas sumažintas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Account · Startup</source>
-        <translation>Compte · Démarrage</translation>
+        <translation>Paskyra · Paleidimas</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+1247"/>
         <source>Theme</source>
-        <translation>Thème</translation>
+        <translation>tema</translation>
     </message>
     <message>
         <location line="-1246"/>
         <source>theme moss indigo teal light dark graphite midnight nordic purple warm</source>
-        <translation>thème moss indigo teal clair sombre graphite midnight nordic purple warm</translation>
+        <translation>tema samanos indigo žalsvai melsva šviesiai tamsus grafitas vidurnaktis šiaurietiška violetinė šilta</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7860,7 +7870,7 @@ Taille : %3</translation>
         <location line="+582"/>
         <location line="+128"/>
         <source>Appearance</source>
-        <translation>Apparence</translation>
+        <translation>Išvaizda</translation>
     </message>
     <message>
         <location line="-1228"/>
@@ -7868,113 +7878,113 @@ Taille : %3</translation>
         <location line="+774"/>
         <location line="+83"/>
         <source>Match system light/dark</source>
-        <translation>Suivre le mode clair/sombre du système</translation>
+        <translation>Derinkite sistemą šviesiai/tamsiai</translation>
     </message>
     <message>
         <location line="-1795"/>
         <source>match system auto theme</source>
-        <translation>suivre système thème automatique</translation>
+        <translation>atitiktų sistemos automatinę temą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Appearance · Theme</source>
-        <translation>Apparence · Thème</translation>
+        <translation>Išvaizda · Tema</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+1867"/>
         <source>Message layout</source>
-        <translation>Disposition des messages</translation>
+        <translation>Pranešimo išdėstymas</translation>
     </message>
     <message>
         <location line="-1866"/>
         <source>message layout modern bubbles compact</source>
-        <translation>disposition messages moderne bulles compact</translation>
+        <translation>žinutės išdėstymas modernūs burbulai kompaktiški</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+1888"/>
         <source>Text size</source>
-        <translation>Taille du texte</translation>
+        <translation>Teksto dydis</translation>
     </message>
     <message>
         <location line="-1888"/>
         <source>text size font scale</source>
-        <translation>taille texte police échelle</translation>
+        <translation>teksto dydžio šrifto skalė</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+1982"/>
         <location line="+16"/>
         <source>Interface zoom</source>
-        <translation>Zoom de l&apos;interface</translation>
+        <translation>Sąsajos priartinimas</translation>
     </message>
     <message>
         <location line="-1997"/>
         <source>interface zoom scale bigger ui size</source>
-        <translation>zoom interface échelle taille ui plus grand</translation>
+        <translation>sąsajos mastelio keitimas didesnis vartotojo sąsajos dydis</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+2066"/>
         <source>Font</source>
-        <translation>Police</translation>
+        <translation>Šriftas</translation>
     </message>
     <message>
         <location line="-2066"/>
         <source>font family typeface</source>
-        <translation>police famille caractères</translation>
+        <translation>šriftų šeimos šriftas</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+2235"/>
         <source>Code font</source>
-        <translation>Police de code</translation>
+        <translation>Kodo šriftas</translation>
     </message>
     <message>
         <location line="-2234"/>
         <source>code font monospace mono fixed width typeface</source>
-        <translation>code police monospace mono police de caractères à largeur fixe</translation>
+        <translation>kodo šriftas monospace mono fiksuoto pločio šriftas</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+3"/>
         <source>Appearance · Font</source>
-        <translation>Apparence · Police</translation>
+        <translation>Išvaizda · Šriftas</translation>
     </message>
     <message>
         <location line="-2"/>
         <location line="+2294"/>
         <source>Your own fonts</source>
-        <translation>Vos propres polices</translation>
+        <translation>Savo šriftus</translation>
     </message>
     <message>
         <location line="-2293"/>
         <source>import font file ttf otf install custom typeface</source>
-        <translation>importer un fichier de police ttf otf installer une police de caractères personnalisée</translation>
+        <translation>importuoti šrifto failą ttf otf įdiegti pasirinktinį šriftą</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+2706"/>
         <source>Language</source>
-        <translation>Langue</translation>
+        <translation>Kalba</translation>
     </message>
     <message>
         <location line="-2706"/>
         <source>language locale</source>
-        <translation>langue locale</translation>
+        <translation>kalbos lokalę</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+926"/>
         <location line="+1582"/>
         <source>Show room activity</source>
-        <translation>Afficher l&apos;activité du salon</translation>
+        <translation>Rodyti kambario veiklą</translation>
     </message>
     <message>
         <location line="-2507"/>
         <source>room activity membership joins leaves profile</source>
-        <translation>activité salon adhésion arrivées départs profil</translation>
+        <translation>Kambario veiklos narystė prisijungia prie profilio</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7982,155 +7992,155 @@ Taille : %3</translation>
         <location line="+3"/>
         <location line="+4"/>
         <source>Appearance · Timeline</source>
-        <translation>Apparence · Conversation</translation>
+        <translation>Išvaizda · Laiko juosta</translation>
     </message>
     <message>
         <location line="-9"/>
         <location line="+2551"/>
         <source>Mouse-wheel speed</source>
-        <translation>Vitesse de la molette</translation>
+        <translation>Pelės rato greitis</translation>
     </message>
     <message>
         <location line="-2550"/>
         <source>wheel speed scroll timeline</source>
-        <translation>vitesse molette défilement conversation</translation>
+        <translation>rato greičio slinkties laiko juosta</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+954"/>
         <location line="+1575"/>
         <source>Joins, leaves and invites</source>
-        <translation>Rejoint, quitte et invite</translation>
+        <translation>Prisijungimai, išėjimai ir kvietimai</translation>
     </message>
     <message>
         <location line="-2528"/>
         <source>membership join leave invite kick ban activity hide</source>
-        <translation>adhésion rejoindre quitter inviter kick interdire activité cacher</translation>
+        <translation>narystė prisijungti išeiti pakviesti kick uždrausti veiklą slėpti</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+959"/>
         <location line="+1577"/>
         <source>Display name and avatar changes</source>
-        <translation>Modifications du nom d’affichage et de l’avatar</translation>
+        <translation>Rodomas vardas ir pseudoportretas</translation>
     </message>
     <message>
         <location line="-2535"/>
         <source>profile change display name avatar activity hide</source>
-        <translation>profil changer nom d&apos;affichage avatar activité masquer</translation>
+        <translation>profilio keitimas rodomas vardas pseudoportreto veikla slėpti</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+963"/>
         <location line="+1807"/>
         <source>Reduce motion</source>
-        <translation>Réduire les mouvements</translation>
+        <translation>Sumažinti judesį</translation>
     </message>
     <message>
         <location line="-2769"/>
         <source>reduced motion animation accessibility vestibular</source>
-        <translation>animation à mouvement réduit accessibilité vestibulaire</translation>
+        <translation>sumažintas judesys animacija prieinamumas vestibuliarinis</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <location line="+5"/>
         <source>Appearance · Motion and time</source>
-        <translation>Apparence · Mouvement et temps</translation>
+        <translation>Išvaizda · Judesys ir laikas</translation>
     </message>
     <message>
         <location line="-8"/>
         <location line="+966"/>
         <location line="+1814"/>
         <source>Smooth scrolling</source>
-        <translation>Défilement fluide</translation>
+        <translation>Sklandus slinkimas</translation>
     </message>
     <message>
         <location line="-2779"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
-        <translation>molette de défilement fluide, animation de glissement, souris sautillante instantanée</translation>
+        <translation>sklandžiai slinkantis slinkties ratukas slydimo animacija momentinė šokinėjanti pelė</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+2800"/>
         <source>Clock</source>
-        <translation>Horloge</translation>
+        <translation>Laikrodis</translation>
     </message>
     <message>
         <location line="-2799"/>
         <source>clock 24 hour time format am pm timestamp</source>
-        <translation>horloge format de l&apos;heure 24 heures am pm horodatage</translation>
+        <translation>laikrodis 24 valandų laiko formatas am pm laiko žymė</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+965"/>
         <location line="+1890"/>
         <source>Show Space banners</source>
-        <translation>Afficher les bannières de l&apos;espace</translation>
+        <translation>Rodyti erdvių reklamjuostes</translation>
     </message>
     <message>
         <location line="-2854"/>
         <source>space banner header image hide show</source>
-        <translation>espace bannière en-tête image masquer afficher</translation>
+        <translation>erdvės reklamjuostės antraštės vaizdas slėpti rodyti</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+4"/>
         <location line="+3"/>
         <source>Appearance · Panels</source>
-        <translation>Apparence · Panneaux</translation>
+        <translation>Išvaizda · Plokštės</translation>
     </message>
     <message>
         <location line="-5"/>
         <location line="+2887"/>
         <source>Conversation list width</source>
-        <translation>Largeur de la liste de conversations</translation>
+        <translation>Pokalbių sąrašo plotis</translation>
     </message>
     <message>
         <location line="-2886"/>
         <source>room list width panel size sidebar</source>
-        <translation>liste des salles largeur taille du panneau barre latérale</translation>
+        <translation>kambarių sąrašo pločio skydelio dydžio šoninė juosta</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+2901"/>
         <source>Side panel width</source>
-        <translation>Largeur du panneau latéral</translation>
+        <translation>Šoninės plokštės plotis</translation>
     </message>
     <message>
         <location line="-2900"/>
         <source>side panel width members threads size</source>
-        <translation>largeur du panneau latéral dimensions des filetages des éléments</translation>
+        <translation>šoninio skydelio plotis nariai gijos dydis</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+963"/>
         <location line="+1953"/>
         <source>Enter starts a new line</source>
-        <translation>Entrée démarre une nouvelle ligne</translation>
+        <translation>Enter pradeda naują eilutę</translation>
     </message>
     <message>
         <location line="-2915"/>
         <source>enter newline send composer message box return</source>
-        <translation>entrer une nouvelle ligne envoyer la boîte de message du compositeur retourner</translation>
+        <translation>įvesti naują eilutę siųsti rašymo laukas žinutės laukelis grįžti</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+4"/>
         <source>Appearance · Message box</source>
-        <translation>Apparence · Boîte de message</translation>
+        <translation>Išvaizda · Pranešimų dėžutė</translation>
     </message>
     <message>
         <location line="-2"/>
         <location line="+967"/>
         <location line="+1966"/>
         <source>Send text with an attachment as its caption</source>
-        <translation>Envoyer un texte avec une pièce jointe comme légende</translation>
+        <translation>Siųsti tekstą su priedu kaip antraštę</translation>
     </message>
     <message>
         <location line="-2932"/>
         <source>caption attachment upload text description</source>
-        <translation>légende pièce jointe télécharger texte description</translation>
+        <translation>antraštės priedo įkėlimo teksto aprašas</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -8140,87 +8150,87 @@ Taille : %3</translation>
         <location line="+586"/>
         <location line="+1929"/>
         <source>Keyboard shortcuts</source>
-        <translation>Raccourcis clavier</translation>
+        <translation>Spartieji klavišai</translation>
     </message>
     <message>
         <location line="-2963"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
-        <translation>raccourci clavier raccourcis touche touches liaison rebind raccourci clavier</translation>
+        <translation>spartieji klavišai spartieji klavišai klavišų klavišai privalomas perrišimas spartusis klavišas</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+3094"/>
         <source>Reset all shortcuts</source>
-        <translation>Réinitialiser tous les raccourcis</translation>
+        <translation>Iš naujo nustatyti visus sparčiuosius klavišus</translation>
     </message>
     <message>
         <location line="-3093"/>
         <source>reset shortcuts default keys</source>
-        <translation>réinitialiser les touches par défaut des raccourcis</translation>
+        <translation>iš naujo nustatyti sparčiuosius klavišus, numatytuosius klavišus</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Bold, italic and code keys</source>
-        <translation>Touches grasses, italiques et codées</translation>
+        <translation>Pusjuodis, kursyvas ir kodo klavišai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>bold italic strikethrough code quote list formatting keys</source>
-        <translation>gras italique barré code citation liste clés de formatage</translation>
+        <translation>pusjuodis kursyvas perbrauktas kodo citatų sąrašo formatavimo raktai</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Keyboard shortcuts · Message formatting</source>
-        <translation>Raccourcis clavier · Formatage des messages</translation>
+        <translation>Spartieji klavišai · Pranešimo formatavimas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Microphone</source>
-        <translation>Micro</translation>
+        <translation>Mikrofonas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>microphone mic input device voice call audio</source>
-        <translation>microphone dispositif d&apos;entrée micro appel vocal l&apos;audio</translation>
+        <translation>mikrofonas mikrofono įvesties įrenginys balso skambučio garsas</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <location line="+5"/>
         <source>Notifications · Voice &amp; video</source>
-        <translation>Notifications · Voix et vidéo</translation>
+        <translation>Pranešimai · Balsas ir vaizdo įrašai</translation>
     </message>
     <message>
         <location line="-8"/>
         <source>Output device</source>
-        <translation>Périphérique de sortie</translation>
+        <translation>Išvesties įrenginys</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>speaker output headphones device voice call audio</source>
-        <translation>haut-parleur sortie casque appareil voix appel audio</translation>
+        <translation>garsiakalbio išvestis ausinės prietaisas balso skambučio garsas</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Camera</source>
-        <translation>Appareil photo</translation>
+        <translation>Fotoaparatas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>camera webcam video device call</source>
-        <translation>caméra webcam vidéo appareil appel</translation>
+        <translation>kameros internetinės kameros vaizdo įrenginio skambutis</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+869"/>
         <location line="+2718"/>
         <source>Desktop notifications</source>
-        <translation>Notifications du bureau</translation>
+        <translation>Darbalaukio pranešimai</translation>
     </message>
     <message>
         <location line="-3586"/>
         <source>notifications desktop enable</source>
-        <translation>notifications bureau activer</translation>
+        <translation>pranešimų darbalaukio įgalinimas</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -8230,71 +8240,71 @@ Taille : %3</translation>
         <location line="+590"/>
         <location line="+2562"/>
         <source>Notifications</source>
-        <translation>Notifications</translation>
+        <translation>Pranešimai</translation>
     </message>
     <message>
         <location line="-3572"/>
         <location line="+3589"/>
         <source>Notification preview</source>
-        <translation>Aperçu des notifications</translation>
+        <translation>Pranešimo peržiūra</translation>
     </message>
     <message>
         <location line="-3588"/>
         <source>notification preview privacy sender message</source>
-        <translation>aperçu notification confidentialité expéditeur message</translation>
+        <translation>pranešimo peržiūros privatumo siuntėjo pranešimas</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+3622"/>
         <source>Notification sound</source>
-        <translation>Son de notification</translation>
+        <translation>Pranešimo garsas</translation>
     </message>
     <message>
         <location line="-3621"/>
         <source>notification sound mute</source>
-        <translation>son notification muet</translation>
+        <translation>pranešimo garso nutildymas</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+3116"/>
         <source>Share my online status</source>
-        <translation>Partager mon statut en ligne</translation>
+        <translation>Pasidalykite savo būsena internete</translation>
     </message>
     <message>
         <location line="-3115"/>
         <source>presence online idle offline status share</source>
-        <translation>présence en ligne inactif hors ligne statut partager</translation>
+        <translation>buvimas internete neaktyvus neprisijungus būsenos bendrinimas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Privacy &amp; security · Presence</source>
-        <translation>Confidentialité et sécurité · Présence</translation>
+        <translation>Privatumas ir saugumas · Buvimas</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+3138"/>
         <source>Ignored users</source>
-        <translation>Utilisateurs ignorés</translation>
+        <translation>Ignoruojami vartotojai</translation>
     </message>
     <message>
         <location line="-3137"/>
         <source>ignore ignored block user mute person hide</source>
-        <translation>ignorer ignoré bloquer utilisateur masquer personne</translation>
+        <translation>ignoruoti ignoruojamas blokuoti vartotojas nutildyti asmenį slėpti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Privacy &amp; security · Ignored users</source>
-        <translation>Confidentialité et sécurité · Utilisateurs ignorés</translation>
+        <translation>Privatumas ir saugumas · Ignoruojami vartotojai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sign out other sessions</source>
-        <translation>Déconnecter les autres sessions</translation>
+        <translation>Atsijunkite nuo kitų seansų</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>sessions devices sign out remove device delete</source>
-        <translation>sessions appareils déconnexion supprimer appareil</translation>
+        <translation>seansų įrenginiai atsijungti pašalinti įrenginį ištrinti</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -8307,106 +8317,106 @@ Taille : %3</translation>
         <location line="+3978"/>
         <location line="+173"/>
         <source>Sessions</source>
-        <translation>Sessions</translation>
+        <translation>Sesijos</translation>
     </message>
     <message>
         <location line="-5151"/>
         <location line="+836"/>
         <location line="+2382"/>
         <source>Automatically load previews in unencrypted rooms</source>
-        <translation>Charger automatiquement les aperçus dans les salons non chiffrés</translation>
+        <translation>Automatiškai įkelti peržiūras nešifruotuose kambariuose</translation>
     </message>
     <message>
         <location line="-3217"/>
         <source>link preview privacy</source>
-        <translation>aperçu lien confidentialité</translation>
+        <translation>nuorodos peržiūros privatumas</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+4"/>
         <source>Privacy &amp; security · Link previews</source>
-        <translation>Confidentialité et sécurité · Aperçus de liens</translation>
+        <translation>Privatumas ir saugumas · Nuorodų peržiūros</translation>
     </message>
     <message>
         <location line="-2"/>
         <location line="+3220"/>
         <source>Load previews in encrypted rooms</source>
-        <translation>Charger les aperçus dans les salons chiffrés</translation>
+        <translation>Įkelti peržiūras šifruotuose kambariuose</translation>
     </message>
     <message>
         <location line="-3219"/>
         <source>link preview encrypted</source>
-        <translation>aperçu lien chiffré</translation>
+        <translation>nuorodos peržiūra užšifruota</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+3291"/>
         <location line="+7"/>
         <source>Autoplay and prefetch media</source>
-        <translation>Lecture automatique et préchargement des médias</translation>
+        <translation>Automatinis paleidimas ir išankstinis laikmenos gavimas</translation>
     </message>
     <message>
         <location line="-3297"/>
         <source>gif autoplay prefetch video audio media</source>
-        <translation>gif lecture automatique préchargement vidéo audio média</translation>
+        <translation>gif automatinis paleidimas iš anksto paimkite vaizdo įrašo garso laikmeną</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Privacy &amp; security · Media</source>
-        <translation>Confidentialité et sécurité · Médias</translation>
+        <translation>Privatumas ir saugumas · Medija</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+3334"/>
         <source>GIF safe search</source>
-        <translation>Recherche sécurisée des GIF</translation>
+        <translation>GIF saugi paieška</translation>
     </message>
     <message>
         <location line="-3333"/>
         <source>gif safe search rating</source>
-        <translation>gif recherche sécurisée classification</translation>
+        <translation>gif saugios paieškos įvertinimas</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+3"/>
         <location line="+3"/>
         <source>Privacy &amp; security · GIFs</source>
-        <translation>Confidentialité et sécurité · GIF</translation>
+        <translation>Privatumas ir saugumas · GIF</translation>
     </message>
     <message>
         <location line="-5"/>
         <location line="+3359"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
-        <translation>Fournisseur de GIF préféré</translation>
+        <translation>Pageidaujamas GIF teikėjas</translation>
     </message>
     <message>
         <location line="-3365"/>
         <source>gif provider giphy klipy</source>
-        <translation>fournisseur gif giphy klipy</translation>
+        <translation>gif teikėjas giphy klipy</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+3398"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
-        <translation>Conserver les GIF utilisés récemment</translation>
+        <translation>Saugokite neseniai naudotus GIF</translation>
     </message>
     <message>
         <location line="-3400"/>
         <source>gif recents store</source>
-        <translation>gif récents conserver</translation>
+        <translation>gif naujausi saugykla</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+4602"/>
         <source>Security status</source>
-        <translation>État de la sécurité</translation>
+        <translation>Saugumo būsena</translation>
     </message>
     <message>
         <location line="-4601"/>
         <source>e2ee encryption status cross-signing backup</source>
-        <translation>e2ee chiffrement état signature croisée sauvegarde</translation>
+        <translation>e2ee šifravimo būsenos kryžminio pasirašymo atsarginė kopija</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -8414,85 +8424,85 @@ Taille : %3</translation>
         <location line="+594"/>
         <location line="+2067"/>
         <source>Privacy &amp; security</source>
-        <translation>Confidentialité et sécurité</translation>
+        <translation>Privatumas ir saugumas</translation>
     </message>
     <message>
         <location line="-3040"/>
         <location line="+5575"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
-        <translation>Clé de récupération ou phrase secrète</translation>
+        <translation>Atkūrimo raktas arba slaptafrazė</translation>
     </message>
     <message>
         <location line="-5593"/>
         <source>recovery key passphrase backup restore</source>
-        <translation>clé récupération phrase secrète sauvegarde restaurer</translation>
+        <translation>atkūrimo rakto slaptafrazės atsarginės kopijos atkūrimas</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+3"/>
         <location line="+3"/>
         <source>Privacy &amp; security · Recovery</source>
-        <translation>Confidentialité et sécurité · Récupération</translation>
+        <translation>Privatumas ir saugumas · Atkūrimas</translation>
     </message>
     <message>
         <location line="-5"/>
         <location line="+5658"/>
         <source>Import room keys</source>
-        <translation>Importer des clés de salon</translation>
+        <translation>Importuoti kambario raktus</translation>
     </message>
     <message>
         <location line="-5657"/>
         <source>import room keys export</source>
-        <translation>importer clés salon export</translation>
+        <translation>importuoti kambario raktus eksportuoti</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5879"/>
         <source>Danger Zone</source>
-        <translation>Zone de danger</translation>
+        <translation>Pavojaus zona</translation>
     </message>
     <message>
         <location line="-5878"/>
         <source>reset danger local session</source>
-        <translation>réinitialiser danger session locale</translation>
+        <translation>iš naujo nustatyti pavojaus vietinę sesiją</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>sessions devices</source>
-        <translation>sessions appareils</translation>
+        <translation>seansų įrenginiai</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5344"/>
         <source>Current session</source>
-        <translation>Session actuelle</translation>
+        <translation>Dabartinė sesija</translation>
     </message>
     <message>
         <location line="-5343"/>
         <source>device id session status</source>
-        <translation>identifiant appareil état session</translation>
+        <translation>įrenginio ID seanso būsena</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5402"/>
         <source>Verify this session</source>
-        <translation>Vérifier cette session</translation>
+        <translation>Patvirtinkite šią sesiją</translation>
     </message>
     <message>
         <location line="-5401"/>
         <source>verify verification sas cross-signing</source>
-        <translation>vérifier vérification sas signature croisée</translation>
+        <translation>patikrinkite patikrinimą kaip kryžminį pasirašymą</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Backend</source>
-        <translation>Backend</translation>
+        <translation>Posistemė</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>backend rust http mock</source>
-        <translation>backend rust http fictif</translation>
+        <translation>posistemė rust http bandomoji</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -8503,38 +8513,38 @@ Taille : %3</translation>
         <location line="+605"/>
         <location line="+4995"/>
         <source>Labs</source>
-        <translation>Labs</translation>
+        <translation>Laboratorijos</translation>
     </message>
     <message>
         <location line="-5960"/>
         <source>Sync mode</source>
-        <translation>Mode de synchronisation</translation>
+        <translation>Sinchronizavimo režimas</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>sync sliding</source>
-        <translation>synchronisation sliding</translation>
+        <translation>sinchronizuoti stumdomas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Connection</source>
-        <translation>Connexion</translation>
+        <translation>Ryšys</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>connection status</source>
-        <translation>état connexion</translation>
+        <translation>ryšio būsena</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+6002"/>
         <source>Refresh current room</source>
-        <translation>Actualiser le salon actuel</translation>
+        <translation>Atnaujinti esamą kambarį</translation>
     </message>
     <message>
         <location line="-6001"/>
         <source>refresh reload timeline</source>
-        <translation>actualiser recharger conversation</translation>
+        <translation>atnaujinti iš naujo įkėlimo laiko juostą</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -8543,12 +8553,12 @@ Taille : %3</translation>
         <location line="+652"/>
         <location line="+5030"/>
         <source>About</source>
-        <translation>À propos</translation>
+        <translation>Apie</translation>
     </message>
     <message>
         <location line="-6036"/>
         <source>about version license</source>
-        <translation>à propos version licence</translation>
+        <translation>apie versijos licenciją</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -8556,53 +8566,53 @@ Taille : %3</translation>
         <location line="+348"/>
         <location line="+609"/>
         <source>Updates</source>
-        <translation>Mises à jour</translation>
+        <translation>Atnaujinimai</translation>
     </message>
     <message>
         <location line="-958"/>
         <source>update version upgrade check download install</source>
-        <translation>mise à jour version télécharger installer vérifier</translation>
+        <translation>atnaujinimo versija atnaujinimo patikrinimas atsisiųsti įdiegti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Automatically check for updates</source>
-        <translation>Vérifier automatiquement les mises à jour</translation>
+        <translation>Automatiškai tikrinti, ar nėra naujinimų</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>update automatic check background</source>
-        <translation>mise à jour automatique vérification arrière-plan</translation>
+        <translation>atnaujinti automatinio tikrinimo foną</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Updates · Automatic checks</source>
-        <translation>Mises à jour · Vérifications automatiques</translation>
+        <translation>Atnaujinimai · Automatiniai patikrinimai</translation>
     </message>
     <message>
         <location line="+116"/>
         <source>Confirm</source>
-        <translation>Confirmer</translation>
+        <translation>Patvirtinti</translation>
     </message>
     <message>
         <location line="+41"/>
         <location line="+3813"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="-3658"/>
         <source>Needs attention</source>
-        <translation>Attention requise</translation>
+        <translation>Reikia dėmesio</translation>
     </message>
     <message>
         <location line="+165"/>
         <source>Clear saved provider GIFs?</source>
-        <translation>Effacer les GIF de fournisseurs enregistrés ?</translation>
+        <translation>Išvalyti išsaugotus teikėjo GIF failus?</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Clear recent GIFs?</source>
-        <translation>Effacer les GIF récents ?</translation>
+        <translation>Išvalyti naujausius GIF?</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -8610,184 +8620,185 @@ Taille : %3</translation>
         <location line="+215"/>
         <location line="+1503"/>
         <source>Clear</source>
-        <translation>Effacer</translation>
+        <translation>Aišku</translation>
     </message>
     <message>
         <location line="-5209"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
-        <translation>Supprimer de cet appareil tous les GIF de fournisseurs que vous avez enregistrés ? Les GIF enregistrés depuis des conversations ne sont pas affectés. Cette action est irréversible.</translation>
+        <translation>Pašalinti visus teikėjo GIF, kuriuos išsaugojote šiame įrenginyje? GIF failai, kuriuos išsaugojote pokalbiuose, neturi įtakos. To negalima anuliuoti.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Clear the list of recently used GIFs on this device?</source>
-        <translation>Effacer la liste des GIF utilisés récemment sur cet appareil ?</translation>
+        <translation>Išvalyti neseniai šiame įrenginyje naudotų GIF sąrašą?</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Clear images saved on this device?</source>
-        <translation>Effacer les images enregistrées sur cet appareil ?</translation>
+        <translation>Išvalyti šiame įrenginyje išsaugotus vaizdus?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Delete</source>
-        <translation>Supprimer</translation>
+        <translation>Ištrinti</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Delete every image you saved out of a chat from this device? Saved provider GIFs are unaffected — they are only links. This cannot be undone.</source>
-        <translation>Supprimer de cet appareil toutes les images que vous avez enregistrées depuis une conversation ? Les GIF de fournisseurs enregistrés ne sont pas affectés — ce ne sont que des liens. Cette action est irréversible.</translation>
+        <translation>Ištrinti kiekvieną vaizdą, kurį išsaugojote pokalbyje iš šio įrenginio? Išsaugoti teikėjo GIF failai neturi įtakos – tai tik nuorodos. To negalima anuliuoti.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Clear your display name?</source>
-        <translation>Effacer votre nom affiché ?</translation>
+        <translation>Išvalyti rodomą vardą?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Clear name</source>
-        <translation>Effacer le nom</translation>
+        <translation>Aiškus vardas</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>People will see your Matrix ID instead. You can set a new display name at any time.</source>
-        <translation>Les autres verront votre identifiant Matrix à la place. Vous pouvez définir un nouveau nom affiché à tout moment.</translation>
+        <translation>Vietoje to žmonės matys jūsų Matrix ID. Bet kuriuo metu galite nustatyti naują rodomą pavadinimą.</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Settings — %1</source>
-        <translation>Paramètres — %1</translation>
+        <translation>Nustatymai – %1</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+1"/>
         <source>Close settings</source>
-        <translation>Fermer les paramètres</translation>
+        <translation>Uždaryti nustatymus</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Settings</source>
-        <translation>Paramètres</translation>
+        <translation>Nustatymai</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Search settings…</source>
-        <translation>Rechercher dans les paramètres…</translation>
+        <translation>Paieškos nustatymai…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search settings</source>
-        <translation>Rechercher dans les paramètres</translation>
+        <translation>Paieškos nustatymai</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>No matching settings</source>
-        <translation>Aucun paramètre correspondant</translation>
+        <translation>Nėra atitinkančių nustatymų</translation>
     </message>
     <message>
         <location line="+68"/>
         <location line="+954"/>
         <source>Modern</source>
-        <translation>Moderne</translation>
+        <translation>Modernus</translation>
     </message>
     <message>
         <location line="-953"/>
         <location line="+954"/>
         <source>Bubbles</source>
-        <translation>Bulles</translation>
+        <translation>Burbulai</translation>
     </message>
     <message>
         <location line="-953"/>
         <location line="+954"/>
         <source>Compact</source>
-        <translation>Compact</translation>
+        <translation>Kompaktiškas</translation>
     </message>
     <message>
         <location line="-825"/>
         <source>theme</source>
-        <translation>thème</translation>
+        <translation>tema</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>notifications</source>
-        <translation>notifications</translation>
+        <translation>pranešimai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>privacy</source>
-        <translation>confidentialité</translation>
+        <translation>privatumas</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>sessions</source>
-        <translation>sessions</translation>
+        <translation>seansus</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Search for %1</source>
-        <translation>Rechercher %1</translation>
+        <translation>Ieškoti %1</translation>
     </message>
     <message>
         <location line="+76"/>
         <source>Matches · %1 sections · %2 settings</source>
-        <translation>Correspondances · %1 sections · %2 paramètres</translation>
+        <translation>Atitiktys · %1 skyriai · %2 nustatymai</translation>
     </message>
     <message>
         <location line="+75"/>
         <source>Theme, message layout and text size — per account.</source>
-        <translation>Thème, disposition des messages et taille du texte — par compte.</translation>
+        <translation>Tema, pranešimo išdėstymas ir teksto dydis – kiekvienai paskyrai.</translation>
     </message>
     <message>
-        <location line="+51"/>
-        <source>Storm</source>
-        <translation>Storm</translation>
-    </message>
-    <message>
-        <location line="-2"/>
-        <source>Moss Light</source>
-        <translation>Moss Light</translation>
-    </message>
-    <message>
-        <location line="-1"/>
+        <location line="+48"/>
         <source>Indigo Night</source>
-        <translation>Indigo Night</translation>
+        <translation>Indigo naktis</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+1"/>
+        <source>Moss Light</source>
+        <translation>Samanų šviesa</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Deep Teal</source>
-        <translation>Deep Teal</translation>
+        <translation>Giliai žalsvai mėlyna</translation>
     </message>
     <message>
-        <location line="+198"/>
+        <location line="+1"/>
+        <source>Storm</source>
+        <translation>Audra</translation>
+    </message>
+    <message>
+        <location line="+197"/>
         <source>More themes</source>
-        <translation>Plus de thèmes</translation>
+        <translation>Daugiau temų</translation>
     </message>
     <message>
         <location line="+92"/>
         <source>Custom theme</source>
-        <translation>Thème personnalisé</translation>
+        <translation>Pasirinktinė tema</translation>
     </message>
     <message>
         <location line="+59"/>
         <source>Build your own theme</source>
-        <translation>Créez votre propre thème</translation>
+        <translation>Sukurkite savo temą</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Your theme</source>
-        <translation>Votre thème</translation>
+        <translation>Jūsų tema</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Pick a colour for any part of the window and watch a sample room repaint.</source>
-        <translation>Choisissez une couleur pour n&apos;importe quelle partie de la fenêtre et regardez un salon d&apos;exemple se repeindre.</translation>
+        <translation>Pasirinkite bet kurios lango dalies spalvą ir žiūrėkite, kaip perdažytas kambario pavyzdys.</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n colour(s) changed. %1 themes saved.</source>
         <comment>custom theme summary</comment>
         <translation>
-            <numerusform>%n couleur modifiée. %1 thèmes enregistrés.</numerusform>
-            <numerusform>%n couleurs modifiées. %1 thèmes enregistrés.</numerusform>
+            <numerusform>Pakeista %n spalva. %1 temos išsaugotos.</numerusform>
+            <numerusform>%n spalvos pakeistos. %1 temos išsaugotos.</numerusform>
+            <numerusform>Pakeista %n spalvų. %1 temos išsaugotos.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -8795,411 +8806,460 @@ Taille : %3</translation>
         <source>%n colour(s) changed. Pick a colour for any part of the window.</source>
         <comment>custom theme summary</comment>
         <translation>
-            <numerusform>%n couleur modifiée. Choisissez une couleur pour n&apos;importe quelle partie de la fenêtre.</numerusform>
-            <numerusform>%n couleurs modifiées. Choisissez une couleur pour n&apos;importe quelle partie de la fenêtre.</numerusform>
+            <numerusform>Pakeista %n spalva. Pasirinkite bet kurios lango dalies spalvą.</numerusform>
+            <numerusform>%n spalvos pakeistos. Pasirinkite bet kurios lango dalies spalvą.</numerusform>
+            <numerusform>Pakeista %n spalvų. Pasirinkite bet kurios lango dalies spalvą.</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+14"/>
-        <source>Create</source>
-        <translation>Créer</translation>
+        <location line="+13"/>
+        <location line="+2402"/>
+        <source>Edit</source>
+        <translation>Redaguoti</translation>
     </message>
     <message>
-        <location line="+224"/>
+        <location line="-2401"/>
+        <source>Create</source>
+        <translation>Sukurti</translation>
+    </message>
+    <message>
+        <location line="+153"/>
+        <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
+        <translation>Kai įjungta, „Lightning“ veikia pagal sistemos schemą: „Moss Light“ šviesiu režimu, „Indigo Night“ tamsiuoju režimu.</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Conversation list</source>
+        <translation>Pokalbių sąrašas</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Classic</source>
+        <translation>Klasika</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>One list, most recent first, with message previews.</source>
+        <translation>Vienas sąrašas, naujausias pirmas, su pranešimų peržiūromis.</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Channels</source>
+        <translation>Kanalai</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Every space as a collapsible folder of its rooms.</source>
+        <translation>Kiekviena erdvė kaip sulankstomas savo kambarių aplankas.</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Channels lists every space you are in as a folder, with the rooms it contains underneath. Rooms in no space, and your direct messages, stay together in Rooms.</source>
+        <translation>Kanalų rodinyje kiekviena jūsų erdvė pateikiama kaip aplankas, o po juo – tos erdvės kambariai. Jokiai erdvei nepriskirti kambariai ir tiesioginiai pokalbiai lieka skiltyje „Kambariai“.</translation>
+    </message>
+    <message>
+        <location line="+27"/>
         <source>Bubbles applies to direct messages; rooms keep the Modern rows. Compact tightens every timeline.</source>
-        <translation>Les bulles s&apos;appliquent aux conversations privées ; les salons conservent les lignes Modernes. Compact resserre toutes les conversations.</translation>
+        <translation>Burbulai taikomi tiesioginiams pokalbiams; kambariuose lieka modernios eilutės. Glaustas rodinys sutankina visas laiko juostas.</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Message text size</source>
-        <translation>Taille du texte des messages</translation>
+        <translation>Pranešimo teksto dydis</translation>
     </message>
     <message>
         <location line="+66"/>
         <source>Scales message and list text. Interface chrome and icons keep their size.</source>
-        <translation>Met à l&apos;échelle le texte des messages et des listes. L&apos;habillage de l&apos;interface et les icônes conservent leur taille.</translation>
+        <translation>Pakeičia pranešimo ir sąrašo tekstą. Sąsajos chromas ir piktogramos išlaiko savo dydį.</translation>
     </message>
     <message>
         <location line="+87"/>
         <source>Scales the entire interface — text, icons and layout. Ctrl+= and Ctrl+- adjust it anywhere. Takes effect the next time Lightning starts.</source>
-        <translation>Met à l&apos;échelle toute l&apos;interface — texte, icônes et disposition. Ctrl+= et Ctrl+- l&apos;ajustent partout. Prend effet au prochain démarrage de Lightning.</translation>
+        <translation>Pakeičia visą sąsają – tekstą, piktogramas ir išdėstymą. Ctrl+= ir Ctrl+- koreguokite jį bet kur. Įsigalios kitą kartą, kai prasidės Lightning.</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Use the %1 font</source>
-        <translation>Utiliser la police %1</translation>
+        <translation>Naudokite šriftą %1</translation>
     </message>
     <message>
         <location line="+45"/>
         <source>Messages, rooms and settings</source>
-        <translation>Messages, salons et paramètres</translation>
+        <translation>Pranešimai, kambariai ir nustatymai</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Applies to the whole interface. Code, Matrix IDs, icons, and emoji keep their own fonts.</source>
-        <translation>S&apos;applique à toute l&apos;interface. Le code, les identifiants Matrix, les icônes et les émojis conservent leurs propres polices.</translation>
+        <translation>Taikoma visai sąsajai. Kodas, Matrix ID, piktogramos ir jaustukai išlaiko savo šriftus.</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Interface font</source>
-        <translation>Police d&apos;interface</translation>
+        <translation>Sąsajos šriftas</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Interface font family</source>
-        <translation>Famille de polices d&apos;interface</translation>
+        <translation>Sąsajos šriftų šeima</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>“%1” is not installed on this computer, so Lightning is drawing %2 instead. Your choice is kept — install the font and it comes back.</source>
-        <translation>« %1 » n&apos;est pas installé sur cet ordinateur, Lightning dessine donc %2 à la place. Votre choix est conservé : installez la police et elle revient.</translation>
+        <translation>„%1“ šiame kompiuteryje neįdiegta, todėl „Lightning“ piešia %2. Jūsų pasirinkimas išlaikomas – įdiekite šriftą ir jis grįš.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Monospace font family</source>
-        <translation>Famille de polices Monospace</translation>
+        <translation>Monospace šriftų šeima</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>“%1” is not installed, so code is drawn in %2. Your choice is kept.</source>
-        <translation>« %1 » n&apos;est pas installé, le code est donc dessiné dans %2. Votre choix est conservé.</translation>
+        <translation>„%1“ neįdiegtas, todėl kodas nupieštas %2. Jūsų pasirinkimas laikomasi.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>The code font is used for code blocks, keyboard shortcuts and Matrix identifiers.</source>
-        <translation>La police de code est utilisée pour les blocs de code, les raccourcis clavier et les identifiants Matrix.</translation>
+        <translation>Kodo šriftas naudojamas kodų blokams, spartiesiems klavišams ir Matrix identifikatoriams.</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Load a TrueType or OpenType file that is not installed system-wide. Lightning keeps its own copy, so moving or deleting the original changes nothing. Only fonts you pick here are ever loaded.</source>
-        <translation>Chargez un fichier TrueType ou OpenType qui n&apos;est pas installé sur l&apos;ensemble du système. Lightning conserve sa propre copie, donc déplacer ou supprimer l&apos;original ne change rien. Seules les polices que vous choisissez ici sont chargées.</translation>
+        <translation>Įkelkite „TrueType“ arba „OpenType“ failą, kuris neįdiegtas visoje sistemoje. „Lightning“ pasilieka savo kopiją, todėl originalo perkėlimas ar ištrynimas nieko nekeičia. Įkeliami tik čia pasirinkti šriftai.</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Unavailable — the file is gone</source>
-        <translation>Indisponible&#xa0;: le fichier a disparu</translation>
+        <translation>Nepasiekiamas – failo nebėra</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+4"/>
+        <location line="+1868"/>
+        <location line="+304"/>
+        <source>Remove</source>
+        <translation>Pašalinti</translation>
+    </message>
+    <message>
+        <location line="-2171"/>
         <source>Remove this imported font</source>
-        <translation>Supprimer cette police importée</translation>
+        <translation>Pašalinkite šį importuotą šriftą</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Only .ttf and .otf font files can be loaded.</source>
-        <translation>Seuls les fichiers de polices .ttf et .otf peuvent être chargés.</translation>
+        <translation>Galima įkelti tik .ttf ir .otf šriftų failus.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That file is not a font.</source>
-        <translation>Ce fichier n&apos;est pas une police.</translation>
+        <translation>Tas failas nėra šriftas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file is too large to load as a font.</source>
-        <translation>Ce fichier est trop volumineux pour être chargé en tant que police.</translation>
+        <translation>Tas failas per didelis, kad būtų galima įkelti kaip šriftą.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That file is empty.</source>
-        <translation>Ce fichier est vide.</translation>
+        <translation>Tas failas tuščias.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That file could not be read.</source>
-        <translation>Ce fichier n&apos;a pas pu être lu.</translation>
+        <translation>To failo nuskaityti nepavyko.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Only a file on this computer can be loaded.</source>
-        <translation>Seul un fichier sur cet ordinateur peut être chargé.</translation>
+        <translation>Galima įkelti tik šiame kompiuteryje esantį failą.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That font is already loaded.</source>
-        <translation>Cette police est déjà chargée.</translation>
+        <translation>Tas šriftas jau įkeltas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Remove one of your loaded fonts first — Lightning keeps at most %1.</source>
-        <translation>Supprimez d’abord l’une de vos polices chargées : Lightning conserve au maximum %1.</translation>
+        <translation>Pirmiausia pašalinkite vieną iš įkeltų šriftų – „Lightning“ išlaiko daugiausiai %1.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>That font file could not be read as a font.</source>
-        <translation>Ce fichier de police n&apos;a pas pu être lu comme une police.</translation>
+        <translation>To šrifto failo nepavyko nuskaityti kaip šrifto.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning could not save a copy of that font.</source>
-        <translation>Lightning n&apos;a pas pu enregistrer une copie de cette police.</translation>
+        <translation>Lightning nepavyko išsaugoti to šrifto kopijos.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That font could not be loaded.</source>
-        <translation>Cette police n&apos;a pas pu être chargée.</translation>
+        <translation>Šio šrifto įkelti nepavyko.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Load a font file…</source>
-        <translation>Charger un fichier de police…</translation>
+        <translation>Įkelti šrifto failą…</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Choose a font file</source>
-        <translation>Choisissez un fichier de police</translation>
+        <translation>Pasirinkite šrifto failą</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Fonts (*.ttf *.otf)</source>
-        <translation>Polices (*.ttf *.otf)</translation>
+        <translation>Šriftai (*.ttf *.otf)</translation>
     </message>
     <message>
         <location line="+10"/>
         <location line="+453"/>
         <source>Panels</source>
-        <translation>Panneaux</translation>
+        <translation>Plokštės</translation>
     </message>
     <message>
         <location line="-445"/>
         <source>Show the Spaces rail (Ctrl+Shift+B)</source>
-        <translation>Afficher la barre des espaces (Ctrl+Maj+B)</translation>
+        <translation>Rodyti erdvių juostą (Ctrl+Shift+B)</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Show the narrow strip of Spaces down the far edge</source>
-        <translation>Afficher la bande étroite des espaces sur le bord</translation>
+        <translation>Rodyti siaurą erdvių juostą tolimajame krašte</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Show the room list (Ctrl+B)</source>
-        <translation>Afficher la liste des salons (Ctrl+B)</translation>
+        <translation>Rodyti kambarių sąrašą (Ctrl+B)</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Show the column of rooms and people</source>
-        <translation>Afficher la colonne des salons et des personnes</translation>
+        <translation>Parodykite kambarių ir žmonių stulpelį</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Drag the line between two panels to resize them. Widths are remembered.</source>
-        <translation>Faites glisser la ligne entre deux panneaux pour les redimensionner. Les largeurs sont mémorisées.</translation>
+        <translation>Vilkite liniją tarp dviejų skydelių, kad pakeistumėte jų dydį. Pločiai įsimenami.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>System tray</source>
-        <translation>Zone de notification</translation>
+        <translation>Sistemos dėklas</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Keep running in the tray when the window is closed</source>
-        <translation>Continuer à fonctionner dans la zone de notification à la fermeture de la fenêtre</translation>
+        <translation>Kai langas uždarytas, bėgkite dėkle</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Start in the tray</source>
-        <translation>Démarrer dans la zone de notification</translation>
+        <translation>Pradėkite nuo dėklo</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Click the tray icon to bring the window back. Ctrl+Q quits.</source>
-        <translation>Cliquez sur l&apos;icône de la zone de notification pour rouvrir la fenêtre. Ctrl+Q quitte.</translation>
+        <translation>Spustelėkite dėklo piktogramą, kad grąžintumėte langą. Ctrl+Q išjungiamas.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Timeline</source>
-        <translation>Conversation</translation>
+        <translation>Laiko juosta</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Show membership, profile, and room setting updates in timelines</source>
-        <translation>Afficher les mises à jour d&apos;adhésion, de profil et de réglages du salon dans les conversations</translation>
+        <translation>Rodyti narystės, profilio ir kambario nustatymų atnaujinimus laiko juostose</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Hide routine joins, leaves, profile changes, and room setting updates. Messages and decryption warnings remain visible.</source>
-        <translation>Masquer les arrivées, départs, changements de profil et mises à jour de réglages ordinaires. Les messages et les avertissements de déchiffrement restent visibles.</translation>
+        <translation>Slėpti įprastinius prisijungimus, pasitraukimus, profilio pakeitimus ir kambario nustatymų atnaujinimus. Pranešimai ir iššifravimo įspėjimai lieka matomi.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Show membership changes in timelines</source>
-        <translation>Afficher les changements d&apos;adhésion dans les délais</translation>
+        <translation>Rodyti narystės pakeitimus laiko juostose</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Show profile changes in timelines</source>
-        <translation>Afficher les modifications de profil dans les chronologies</translation>
+        <translation>Rodyti profilio pakeitimus laiko juostose</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Standard</source>
-        <translation>Standard</translation>
+        <translation>Standartinis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Fast</source>
-        <translation>Rapide</translation>
+        <translation>Greitai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Very fast</source>
-        <translation>Très rapide</translation>
+        <translation>Labai greitai</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>How far one physical mouse-wheel notch scrolls the timeline</source>
-        <translation>Distance parcourue par la conversation pour un cran physique de molette</translation>
+        <translation>Kaip toli vienas fizinis pelės ratuko įpjova slenka laiko juosta</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>How far one physical mouse-wheel notch moves the timeline. Touchpad and precision scrolling stay fine-grained regardless of this setting.</source>
-        <translation>Distance dont un cran physique de molette déplace la conversation. Le pavé tactile et le défilement de précision restent fins quel que soit ce réglage.</translation>
+        <translation>Kiek vienas fizinis pelės ratuko įpjova perkelia laiko juostą. Nepriklausomai nuo šio nustatymo, jutiklinė dalis ir tikslus slinkimas išlieka smulkūs.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Application icon</source>
-        <translation>Icône de l&apos;application</translation>
+        <translation>Programos piktograma</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Current application icon</source>
-        <translation>Icône actuelle de l&apos;application</translation>
+        <translation>Dabartinės programos piktograma</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Applies to the window and to task switchers that follow the running window. The desktop launcher keeps the packaged Lightning icon.</source>
-        <translation>S&apos;applique à la fenêtre et aux sélecteurs de tâches qui suivent la fenêtre en cours. Le lanceur du bureau conserve l&apos;icône Lightning fournie.</translation>
+        <translation>Taikoma langui ir užduočių perjungikliui, kurie seka veikiantį langą. Darbalaukio paleidimo priemonėje išsaugoma supakuota Lightning piktograma.</translation>
     </message>
     <message>
         <location line="+24"/>
         <location line="+1833"/>
         <source>Choose image…</source>
-        <translation>Choisir une image…</translation>
+        <translation>Pasirinkite vaizdą…</translation>
     </message>
     <message>
         <location line="-1826"/>
         <source>Reset to Lightning default</source>
-        <translation>Rétablir l&apos;icône Lightning par défaut</translation>
+        <translation>Iš naujo nustatyti „Lightning“ numatytuosius nustatymus</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Choose an application icon image</source>
-        <translation>Choisir une image d&apos;icône d&apos;application</translation>
+        <translation>Pasirinkite programos piktogramos vaizdą</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)</source>
-        <translation>Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)</translation>
+        <translation>Vaizdai (*.png *.jpg *.jpeg *.webp *.bmp *.gif)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>All files (*)</source>
-        <translation>Tous les fichiers (*)</translation>
+        <translation>Visi failai (*)</translation>
     </message>
     <message>
         <location line="+55"/>
         <source>Interface language</source>
-        <translation>Langue de l&apos;interface</translation>
+        <translation>Sąsajos kalba</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>This build was compiled without translations, so the interface stays in English.</source>
-        <translation>Cette version a été compilée sans traductions : l&apos;interface reste en anglais.</translation>
+        <translation>Ši versija buvo sudaryta be vertimų, todėl sąsaja lieka anglų kalba.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Following your desktop: %1.</source>
-        <translation>Suit votre bureau : %1.</translation>
+        <translation>Sekite darbalaukį: %1.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The interface changes immediately. A few strings already on screen update when you next open their panel.</source>
-        <translation>L&apos;interface change immédiatement. Quelques textes déjà à l&apos;écran se mettront à jour à la prochaine ouverture de leur panneau.</translation>
+        <translation>Sąsaja pasikeičia iš karto. Kai kitą kartą atidarysite jų skydelį, atnaujinamos kelios ekrane jau esančios eilutės.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Motion and time</source>
-        <translation>Mouvement et temps</translation>
+        <translation>Judesys ir laikas</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Shorten or remove interface animations</source>
-        <translation>Raccourcir ou supprimer les animations de l&apos;interface</translation>
+        <translation>Sutrumpinkite arba pašalinkite sąsajos animacijas</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Glide the view when you turn the mouse wheel. Turning this off moves the same distance instantly.</source>
-        <translation>Faites glisser la vue lorsque vous tournez la molette de la souris. La désactivation de cette option permet de déplacer instantanément la même distance.</translation>
+        <translation>Sukdami pelės ratuką slyskite vaizdu. Tai išjungus, akimirksniu judamas toks pat atstumas.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Shortens or removes interface animations — panel slides, fades and list reorders. Media you play still plays.</source>
-        <translation>Raccourcit ou supprime les animations de l&apos;interface&#xa0;: diapositives de panneaux, fondus et réorganisations de listes. Les médias que vous lisez sont toujours lus.</translation>
+        <translation>Sutrumpina arba pašalina sąsajos animacijas – skydelio skaidres, išnyksta ir sąrašų pertvarkymas. Leidžiama medija vis tiek groja.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Follow the system</source>
-        <translation>Suivez le système</translation>
+        <translation>Sekite sistemą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>12-hour (1:05 PM)</source>
-        <translation>12 heures (13h05)</translation>
+        <translation>12 valandų (1:05 PM)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>24-hour (13:05)</source>
-        <translation>24 heures (13h05)</translation>
+        <translation>24 valandos (13:05)</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Clock format</source>
-        <translation>Format de l&apos;horloge</translation>
+        <translation>Laikrodžio formatas</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Show the whole banner instead of a strip</source>
-        <translation>Afficher la bannière entière au lieu d&apos;une bande</translation>
+        <translation>Vietoj juostelės rodykite visą reklamjuostę</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Conversation list width: %1 px</source>
-        <translation>Largeur de la liste de conversations&#xa0;: %1 px</translation>
+        <translation>Pokalbių sąrašo plotis: %1 px</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Side panel width: %1 px</source>
-        <translation>Largeur du panneau latéral&#xa0;: %1 px</translation>
+        <translation>Šoninės plokštės plotis: %1 px</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Message box</source>
-        <translation>Boîte de message</translation>
+        <translation>Pranešimų dėžutė</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Enter starts a new line; Ctrl+Enter sends.</source>
-        <translation>Enter démarre une nouvelle ligne&#xa0;; Ctrl+Entrée envoie.</translation>
+        <translation>Enter pradeda naują eilutę; Ctrl+Enter siunčia.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter sends; Shift+Enter starts a new line.</source>
-        <translation>Entrez les envois&#xa0;; Shift+Entrée démarre une nouvelle ligne.</translation>
+        <translation>Įveskite siuntimus; Shift + Enter pradeda naują eilutę.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>One event instead of two. Clients that do not understand captions show the attachment without the text.</source>
-        <translation>Un événement au lieu de deux. Les clients qui ne comprennent pas les légendes affichent la pièce jointe sans le texte.</translation>
+        <translation>Vienas įvykis vietoje dviejų. Klientai, kurie nesupranta antraščių, priedą rodo be teksto.</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Per account, like your theme. Press Change and then the combination you want.</source>
-        <translation>Par compte, comme votre thème. Appuyez sur Modifier, puis sur la combinaison souhaitée.</translation>
+        <translation>Kiekvienai paskyrai atskirai, kaip ir tema. Paspauskite „Keisti“, tada – norimą klavišų derinį.</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Some shortcuts share a key. Qt fires neither of two shortcuts on the same combination, so both actions are currently doing nothing. Change one of each pair, or reset everything.</source>
-        <translation>Certains raccourcis partagent une clé. Qt ne déclenche aucun des deux raccourcis sur la même combinaison, donc les deux actions ne font actuellement rien. Changez un de chaque paire ou réinitialisez tout.</translation>
+        <translation>Kai kurie spartieji klavišai turi bendrą raktą. Qt nepaleidžia nė vieno iš dviejų sparčiųjų klavišų toje pačioje kombinacijoje, todėl abu veiksmai šiuo metu nieko nedaro. Pakeiskite vieną iš kiekvienos poros arba nustatykite viską iš naujo.</translation>
     </message>
     <message>
         <location line="+70"/>
@@ -9208,86 +9268,91 @@ Taille : %3</translation>
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation>Un raccourci nécessite Ctrl, Alt ou Super&#xa0;: Lightning prend la touche avant qu&apos;une zone de texte ne la voie, donc une simple lettre vous empêcherait de taper cette lettre n&apos;importe où.
+        <translation>Spartiesiems klavišams reikia klavišų „Ctrl“, „Alt“ arba „Super“: „Lightning“ paima klavišą prieš jį pamatant bet kokiam teksto laukeliui, todėl paprastoji raidė neleistų vesti šios raidės bet kur.
 
-Les clés de formatage des messages s&apos;appliquent uniquement lorsque la boîte de message a le focus. Partout ailleurs, la même clé fait toujours son travail habituel.
+Pranešimo formatavimo raktai taikomi tik tada, kai pranešimų laukelis yra sufokusuotas. Visur kitur tas pats raktas atlieka įprastą funkciją.
 
-L&apos;échappement et les lettres uniques utilisées par le menu de messages lorsqu&apos;il est ouvert sont réservées et ne peuvent pas être attribuées.</translation>
+Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas, yra rezervuotos ir jų negalima priskirti.</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>Network privacy, encryption health, and recovery.</source>
-        <translation>Confidentialité réseau, état du chiffrement et récupération.</translation>
+        <translation>Tinklo privatumas, šifravimo būsena ir atkūrimas.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Presence</source>
-        <translation>Présence</translation>
+        <translation>Buvimas</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Tells your homeserver when you are online or idle, so people you share rooms with can see it. Turning this off publishes offline once and stops updates; whether others&apos; status is visible to you is decided by their servers, not by this switch.</source>
-        <translation>Indique à votre serveur d&apos;accueil quand vous êtes en ligne ou inactif, afin que les personnes avec qui vous partagez des salons puissent le voir. Désactiver cette option publie « hors ligne » une fois et arrête les mises à jour ; la visibilité du statut des autres dépend de leurs serveurs, pas de ce réglage.</translation>
+        <translation>Praneša namų serveriui, kada esate prisijungę arba neaktyvūs, kad bendrų kambarių nariai tai matytų. Išjungus vieną kartą paskelbiama būsena „neprisijungęs“ ir naujiniai nebesiunčiami; ar matote kitų būseną, nustato jų serveriai, o ne šis jungiklis.</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Nobody is ignored. Ignore a person from their profile to hide their messages everywhere, on every device.</source>
-        <translation>Personne n&apos;est ignoré. Ignorez une personne depuis son profil pour masquer ses messages partout, sur tous vos appareils.</translation>
+        <translation>Niekas nėra ignoruojamas. Ignoruokite asmenį iš jo profilio, kad paslėptumėte jo pranešimus visur ir kiekviename įrenginyje.</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Stop ignoring</source>
-        <translation>Ne plus ignorer</translation>
+        <translation>Nustok ignoruoti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Stop ignoring %1</source>
-        <translation>Ne plus ignorer %1</translation>
+        <translation>Nustoti ignoruoti %1</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Ignoring hides a person&apos;s messages and invites in every room. The list is stored in your Matrix account and applies on all your clients.</source>
-        <translation>Ignorer masque les messages et les invitations d&apos;une personne dans tous les salons. La liste est enregistrée dans votre compte Matrix et s&apos;applique à tous vos clients.</translation>
+        <translation>Ignoruojant žmogaus žinutes ir kvietimus slepiasi kiekviename kambaryje. Sąrašas saugomas jūsų Matrix paskyroje ir taikomas visiems jūsų klientams.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Link previews &amp; media</source>
-        <translation>Aperçus de liens et médias</translation>
+        <translation>Nuorodų peržiūros ir medija</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+63"/>
+        <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
+        <translation>Jūsų namų serveris įkelia peržiūrą, todėl susieta svetainė mato jūsų serverį, o ne jus. Jei serveris negali to padaryti — daugelyje serverių peržiūros išjungtos — Lightning įkelia ją tiesiogiai. Tuomet siuntėjo pasirinkta svetainė gali sužinoti jūsų IP adresą ir užklausos laiką. Kreipiantis į namų serverį, jis taip pat sužino, kurios nuorodos peržiūra buvo prašoma; šifruotame kambaryje kitaip jis to nežinotų. JavaScript nevykdomas. Abu jungikliai pagal numatytuosius nustatymus išjungti; palikite juos išjungtus ir kiekvienos žinutės nuorodos kortelėje naudokite mygtuką „Rodyti“, kad spręstumėte po vieną.</translation>
+    </message>
+    <message>
+        <location line="+24"/>
         <source>GIFs</source>
         <translation>GIF</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Always</source>
-        <translation>Toujours</translation>
+        <translation>Visada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>On hover</source>
-        <translation>Au survol</translation>
+        <translation>Užvedus pelės žymeklį</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Never</source>
-        <translation>Jamais</translation>
+        <translation>Niekada</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Also governs passive downloads: GIF, video and audio prefetching. &quot;Never&quot; disables all of them.</source>
-        <translation>Régit aussi les téléchargements passifs : préchargement des GIF, des vidéos et de l&apos;audio. « Jamais » les désactive tous.</translation>
+        <translation>Taip pat valdo pasyvius atsisiuntimus: GIF, vaizdo ir garso išankstinį gavimą. &quot;Never&quot; disables all of them.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>GIF safe search rating</source>
-        <translation>Classification de la recherche sécurisée des GIF</translation>
+        <translation>GIF saugios paieškos įvertinimas</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>G — strict</source>
-        <translation>G — strict</translation>
+        <translation>G – griežtas</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -9302,300 +9367,254 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     <message>
         <location line="+1"/>
         <source>R — all</source>
-        <translation>R — tout</translation>
+        <translation>R - viskas</translation>
     </message>
     <message>
         <location line="+48"/>
         <source>GIPHY: %1 · KLIPY: %2</source>
-        <translation>GIPHY : %1 · KLIPY : %2</translation>
+        <translation>GIPHY: %1 · KLIPY: %2</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+2"/>
         <source>configured</source>
-        <translation>configuré</translation>
+        <translation>sukonfigūruotas</translation>
     </message>
     <message>
         <location line="-2"/>
         <location line="+2"/>
         <source>no API key</source>
-        <translation>pas de clé d&apos;API</translation>
+        <translation>nėra API rakto</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>GIF searches are sent directly to the selected provider. Saved and recent GIFs are stored locally on this device and are not synchronized; search terms are not saved.</source>
-        <translation>Les recherches de GIF sont envoyées directement au fournisseur sélectionné. Les GIF enregistrés et récents sont stockés localement sur cet appareil et ne sont pas synchronisés ; les termes de recherche ne sont pas conservés.</translation>
+        <translation>GIF paieškos siunčiamos tiesiogiai pasirinktam teikėjui. Išsaugoti ir naujausi GIF failai saugomi šiame įrenginyje ir nėra sinchronizuojami; paieškos terminai neišsaugomi.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Clear recent GIFs</source>
-        <translation>Effacer les GIF récents</translation>
+        <translation>Išvalyti naujausius GIF</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Clear saved provider GIFs</source>
-        <translation>Effacer les GIF de fournisseurs enregistrés</translation>
+        <translation>Išvalyti išsaugotus teikėjo GIF</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Images saved from chats</source>
-        <translation>Images enregistrées depuis les conversations</translation>
+        <translation>Vaizdai išsaugoti iš pokalbių</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>%1 image(s), %2 — kept on this device only and removed when you sign out of this account.</source>
-        <translation>%1 image(s), %2 — conservées sur cet appareil uniquement et supprimées lorsque vous vous déconnectez de ce compte.</translation>
+        <translation>%1 vaizdas (-iai), %2 – saugomas tik šiame įrenginyje ir pašalinamas, kai atsijungiate nuo šios paskyros.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Clear all images saved from chats</source>
-        <translation>Effacer toutes les images enregistrées depuis les conversations</translation>
+        <translation>Išvalykite visus pokalbiuose išsaugotus vaizdus</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Hidden images</source>
-        <translation>Images cachées</translation>
+        <translation>Paslėpti vaizdai</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>You have not hidden any images. Hiding one affects only what you see, and nothing is sent.</source>
-        <translation>Vous n&apos;avez masqué aucune image. En masquer un affecte uniquement ce que vous voyez et rien n’est envoyé.</translation>
+        <translation>Jūs nepaslėpėte jokių vaizdų. Slėpimas paveikia tik tai, ką matote, ir nieko nesiunčiama.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>1 image is hidden on this device for this account.</source>
-        <translation>1 image est masquée sur cet appareil pour ce compte.</translation>
+        <translation>Šiame įrenginyje šioje paskyroje paslėptas 1 vaizdas.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 images are hidden on this device for this account.</source>
-        <translation>Les images %1 sont masquées sur cet appareil pour ce compte.</translation>
+        <translation>Šiame įrenginyje šioje paskyroje paslėpti %1 vaizdai.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Show all hidden images</source>
-        <translation>Afficher toutes les images cachées</translation>
+        <translation>Rodyti visus paslėptus vaizdus</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Sender and message</source>
-        <translation>Expéditeur et message</translation>
+        <translation>Siuntėjas ir žinutė</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sender only</source>
-        <translation>Expéditeur uniquement</translation>
+        <translation>Tik siuntėjas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Private</source>
-        <translation>Privé</translation>
+        <translation>Privatus</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Sender only (the default) never shows message text in notifications. Encrypted messages that cannot be decrypted always show a generic notification. Notifications are suppressed while the room is open, focused, and at the latest message.</source>
-        <translation>« Expéditeur uniquement » (le réglage par défaut) n&apos;affiche jamais le texte des messages dans les notifications. Les messages chiffrés qui ne peuvent pas être déchiffrés affichent toujours une notification générique. Les notifications sont supprimées lorsque le salon est ouvert, au premier plan et positionné sur le dernier message.</translation>
+        <translation>Tik siuntėjas (numatytasis) pranešimuose niekada nerodo pranešimo teksto. Užšifruoti pranešimai, kurių negalima iššifruoti, visada rodo bendrą pranešimą. Pranešimai išjungiami, kol kambarys atidarytas, sufokusuotas ir naujausias pranešimas.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Off</source>
-        <translation>Désactivé</translation>
+        <translation>Išjungta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mentions and direct messages</source>
-        <translation>Mentions et conversations privées</translation>
+        <translation>Paminėjimai ir tiesioginiai pokalbiai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>All notifications</source>
-        <translation>Toutes les notifications</translation>
+        <translation>Visi pranešimai</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>The sound plays only when a notification is shown, so muted and active rooms stay silent. Bursts are coalesced into a single alert.</source>
-        <translation>Le son n&apos;est joué que lorsqu&apos;une notification est affichée : les salons en sourdine et actifs restent silencieux. Les rafales sont regroupées en une seule alerte.</translation>
+        <translation>Garsas grojamas tik tada, kai rodomas pranešimas, todėl nutildyti ir aktyvūs kambariai tyli. Plyšiai sujungiami į vieną įspėjimą.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Voice &amp; video</source>
-        <translation>Voix et vidéo</translation>
+        <translation>Balsas ir vaizdo įrašas</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Ring for incoming voice calls</source>
-        <translation>Sonnerie pour les appels vocaux entrants</translation>
+        <translation>Skambėti įeinantiems balso skambučiams</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Repeat the call sound while an incoming voice call is ringing. Turning this off still shows the call — it only silences the ring.</source>
-        <translation>Répéter le son d&apos;appel pendant qu&apos;un appel vocal entrant sonne. Désactiver cette option affiche toujours l&apos;appel — cela ne fait que couper la sonnerie.</translation>
+        <translation>Pakartokite skambučio garsą, kai skamba įeinantis balso skambutis. Išjungus tai vis tiek rodomas skambutis – tik nutildomas skambutis.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Per-room notification modes (set from Room information) are saved to your account&apos;s notification settings (server push rules). </source>
-        <translation>Les modes de notification par salon (définis depuis les Informations du salon) sont enregistrés dans les paramètres de notification de votre compte (règles push du serveur). </translation>
+        <translation>Kiekvieno kambario pranešimų režimai (nustatomi kambario informacijoje) išsaugomi paskyros pranešimų nustatymuose (serverio siunčiamųjų pranešimų taisyklėse). </translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Per-room notification modes (set from Room information) apply to this device only — they are not server push rules. </source>
-        <translation>Les modes de notification par salon (définis depuis les Informations du salon) s&apos;appliquent à cet appareil uniquement — ce ne sont pas des règles push du serveur. </translation>
+        <translation>Kiekvieno kambario pranešimų režimai (nustatomi kambario informacijoje) taikomi tik šiam įrenginiui – tai nėra serverio siunčiamųjų pranešimų taisyklės. </translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Push registration for mobile-style notifications is not implemented.</source>
-        <translation>L&apos;enregistrement push pour les notifications de type mobile n&apos;est pas implémenté.</translation>
+        <translation>Tiesioginė registracija mobiliesiems pranešimams neįdiegta.</translation>
     </message>
     <message>
         <location line="+133"/>
         <source>(signed out)</source>
-        <translation>(déconnecté)</translation>
+        <translation>(atsijungęs)</translation>
     </message>
     <message>
         <location line="+51"/>
         <location line="+2"/>
         <source>Copy Matrix ID</source>
-        <translation>Copier l&apos;identifiant Matrix</translation>
+        <translation>Nukopijuokite Matrix ID</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Copied</source>
-        <translation>Copié</translation>
+        <translation>Nukopijuota</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Device %1</source>
-        <translation>Appareil %1</translation>
+        <translation>Įrenginys %1</translation>
     </message>
     <message>
         <location line="+19"/>
         <location line="+43"/>
         <source>Display name</source>
-        <translation>Nom affiché</translation>
+        <translation>Rodomas vardas</translation>
     </message>
     <message>
         <location line="-24"/>
         <source>Not set</source>
-        <translation>Non défini</translation>
-    </message>
-    <message>
-        <location line="-2394"/>
-        <location line="+2402"/>
-        <source>Edit</source>
-        <translation>Modifier</translation>
-    </message>
-    <message>
-        <location line="-2248"/>
-        <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
-        <translation>Lorsqu&apos;il est allumé, Lightning suit le schéma du système&#xa0;: Moss Light en mode clair, Indigo Night en mode sombre.</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Conversation list</source>
-        <translation>Liste de conversations</translation>
-    </message>
-    <message>
-        <location line="+10"/>
-        <source>Classic</source>
-        <translation>Classique</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>One list, most recent first, with message previews.</source>
-        <translation>Une liste, la plus récente en premier, avec des aperçus des messages.</translation>
+        <translation>Nenustatyta</translation>
     </message>
     <message>
         <location line="+9"/>
-        <source>Channels</source>
-        <translation>Canaux</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Every space as a collapsible folder of its rooms.</source>
-        <translation>Chaque espace comme un dossier pliable de ses pièces.</translation>
-    </message>
-    <message>
-        <location line="+19"/>
-        <source>Channels lists every space you are in as a folder, with the rooms it contains underneath. Rooms in no space, and your direct messages, stay together in Rooms.</source>
-        <translation>Channels répertorie chaque espace dans lequel vous vous trouvez sous forme de dossier, avec les pièces qu&apos;il contient en dessous. Les pièces dans aucun espace et vos messages directs restent ensemble dans les pièces.</translation>
-    </message>
-    <message>
-        <location line="+1523"/>
-        <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
-        <translation>Votre serveur domestique charge l&apos;aperçu, de sorte que le site lié voit votre serveur plutôt que vous. Si votre serveur ne le peut pas (beaucoup ont les aperçus désactivés), Lightning le charge directement à la place, ce qui peut révéler votre adresse IP et demander une synchronisation avec un site choisi par l&apos;expéditeur. Demander à votre serveur domestique lui indique également quel lien a été prévisualisé, ce qu&apos;il ne saurait autrement dans une pièce cryptée. Aucun JavaScript n&apos;est exécuté. Les deux commutateurs sont désactivés par défaut&#xa0;; laissez-les de côté et utilisez le bouton «&#xa0;Afficher&#xa0;» sur la carte de lien de chaque message pour en décider un à la fois.</translation>
-    </message>
-    <message>
-        <location line="+682"/>
         <source>Edit display name</source>
-        <translation>Modifier le nom affiché</translation>
+        <translation>Redaguoti rodomą pavadinimą</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Your display name</source>
-        <translation>Votre nom affiché</translation>
+        <translation>Jūsų rodomas vardas</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>%1 / %2 characters</source>
-        <translation>%1 / %2 caractères</translation>
+        <translation>%1 / %2 simbolių</translation>
     </message>
     <message>
         <location line="+23"/>
         <location line="+229"/>
         <source>Saving…</source>
-        <translation>Enregistrement…</translation>
+        <translation>Išsaugoma…</translation>
     </message>
     <message>
         <location line="-229"/>
         <location line="+229"/>
         <source>Save</source>
-        <translation>Enregistrer</translation>
+        <translation>Išsaugoti</translation>
     </message>
     <message>
         <location line="-180"/>
         <source>Profile picture</source>
-        <translation>Photo de profil</translation>
+        <translation>Profilio nuotrauka</translation>
     </message>
     <message>
         <location line="+35"/>
         <source>Uploading…</source>
-        <translation>Téléchargement…</translation>
+        <translation>Įkeliama…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Change picture</source>
-        <translation>Changer l&apos;image</translation>
+        <translation>Keisti paveikslėlį</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>You choose which part of the image to use.</source>
-        <translation>Vous choisissez quelle partie de l’image utiliser.</translation>
+        <translation>Jūs pasirenkate, kurią vaizdo dalį naudoti.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Choose a profile picture</source>
-        <translation>Choisissez une photo de profil</translation>
+        <translation>Pasirinkite profilio nuotrauką</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+342"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)</source>
-        <translation>Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)</translation>
+        <translation>Vaizdai (*.png *.jpg *.jpeg *.webp *.gif *.bmp)</translation>
     </message>
     <message>
         <location line="-306"/>
         <source>About you</source>
-        <translation>À propos de vous</translation>
+        <translation>Apie tave</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>A short note about yourself. Anyone who opens your profile can read it.</source>
-        <translation>Un petit mot sur vous-même. Toute personne qui ouvre votre profil peut le lire.</translation>
+        <translation>Trumpa pastaba apie save. Kiekvienas, kuris atidaro jūsų profilį, gali jį perskaityti.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Say something about yourself</source>
-        <translation>Dis quelque chose sur toi</translation>
+        <translation>Papasakok ką nors apie save</translation>
     </message>
     <message>
         <location line="+22"/>
@@ -9605,527 +9624,521 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     <message>
         <location line="+44"/>
         <source>Your homeserver does not support profile bios yet.</source>
-        <translation>Votre serveur domestique ne prend pas encore en charge les bios de profil.</translation>
+        <translation>Jūsų namų serveris dar nepalaiko profilio aprašų.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Open Privacy &amp; security</source>
-        <translation>Ouvrir Confidentialité et sécurité</translation>
+        <translation>Atidarykite Privatumas ir sauga</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>To sign out, use the account menu at the bottom of the sidebar.</source>
-        <translation>Pour vous déconnecter, utilisez le menu du compte en bas de la barre latérale.</translation>
+        <translation>Norėdami atsijungti, naudokite paskyros meniu šoninės juostos apačioje.</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Profile banner</source>
-        <translation>Bannière de profil</translation>
+        <translation>Profilio reklamjuostė</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>No banner</source>
-        <translation>Aucune bannière</translation>
+        <translation>Nėra banerio</translation>
     </message>
     <message>
-        <location line="-2153"/>
-        <location line="+1868"/>
-        <location line="+304"/>
-        <source>Remove</source>
-        <translation>Supprimer</translation>
-    </message>
-    <message>
-        <location line="+27"/>
+        <location line="+46"/>
         <source>That file is not an image Lightning can upload. PNG, JPEG, GIF, WebP and BMP work; the file&apos;s contents decide, not its name.</source>
-        <translation>Ce fichier n’est pas une image que Lightning peut télécharger. Travail PNG, JPEG, GIF, WebP et BMP&#xa0;; c&apos;est le contenu du fichier qui décide, pas son nom.</translation>
+        <translation>Šis failas nėra vaizdas, kurį gali įkelti „Lightning“. PNG, JPEG, GIF, WebP ir BMP darbas; lemia failo turinys, o ne pavadinimas.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your homeserver refused the banner.</source>
-        <translation>Votre serveur domestique a refusé la bannière.</translation>
+        <translation>Jūsų namų serveris atmetė reklamjuostę.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The banner could not be saved (%1).</source>
-        <translation>La bannière n&apos;a pas pu être enregistrée (%1).</translation>
+        <translation>Reklamjuostės išsaugoti nepavyko (%1).</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Your homeserver does not support profile banners yet. They need extended profile fields (MSC4133), which most servers have not enabled. Nothing is wrong with your image.</source>
-        <translation>Votre serveur domestique ne prend pas encore en charge les bannières de profil. Ils ont besoin de champs de profil étendus (MSC4133), que la plupart des serveurs n&apos;ont pas activés. Rien ne va pas avec votre image.</translation>
+        <translation>Jūsų namų serveris dar nepalaiko profilio reklamjuosčių. Joms reikia išplėstinių profilio laukų (MSC4133), kurių dauguma serverių neįjungė. Jūsų paveikslėlis tvarkingas.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>A wide image shown behind your profile card, about 3:1. It is part of your public profile, so anyone who can see your account can see it. Saved under both the standard and the Commet field names, so clients that already show banners will show yours.</source>
-        <translation>Une image large affichée derrière votre carte de profil, environ 3:1. Elle fait partie de votre profil public : toute personne pouvant voir votre compte peut la voir. Enregistrée à la fois sous le nom de champ standard et sous celui de Commet, afin que les clients qui affichent déjà les bannières montrent la vôtre.</translation>
+        <translation>Platus vaizdas, rodomas už jūsų profilio kortelės, maždaug 3:1. Tai yra jūsų viešojo profilio dalis, todėl ją gali matyti visi, kurie gali matyti jūsų paskyrą. Išsaugotas ir standartiniu, ir Commet laukų pavadinimais, todėl klientai, kurie jau rodo reklamjuostes, parodys jūsų.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Choose a banner image</source>
-        <translation>Choisir une image de bannière</translation>
+        <translation>Pasirinkite reklamjuostės vaizdą</translation>
     </message>
     <message>
         <location line="+48"/>
         <source>Changing the homeserver takes effect at the next sign-in.</source>
-        <translation>Le changement de serveur d&apos;accueil prend effet à la prochaine connexion.</translation>
+        <translation>Namų serverio pakeitimas įsigalioja kitą kartą prisijungus.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Startup</source>
-        <translation>Démarrage</translation>
+        <translation>Paleidimas</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Secret backend: %1</source>
-        <translation>Backend de secrets : %1</translation>
+        <translation>Slaptųjų duomenų posistemė: %1</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Access tokens are stored via the system Secret Service. Logout clears them.</source>
-        <translation>Les jetons d&apos;accès sont stockés via le Secret Service du système. La déconnexion les efface.</translation>
+        <translation>Prieigos raktai saugomi naudojant sistemos Secret Service. Atsijungus jie pašalinami.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Insecure fallback active: access tokens are stored in QSettings (plaintext). Install a Secret Service provider (e.g. gnome-keyring, KWallet with libsecret support) and restart to enable secure storage.</source>
-        <translation>Repli non sécurisé actif : les jetons d&apos;accès sont stockés dans QSettings (en clair). Installez un fournisseur Secret Service (p. ex. gnome-keyring, KWallet avec prise en charge de libsecret) et redémarrez pour activer le stockage sécurisé.</translation>
+        <translation>Naudojama nesaugi atsarginė parinktis: prieigos raktai QSettings saugomi atviruoju tekstu. Įdiekite Secret Service teikėją (pvz., gnome-keyring arba KWallet su libsecret palaikymu) ir paleiskite programą iš naujo, kad įjungtumėte saugią saugyklą.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Crypto backend: %1</source>
-        <translation>Backend de chiffrement : %1</translation>
+        <translation>Šifravimo posistemė: %1</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>E2EE status: %1</source>
-        <translation>État du chiffrement de bout en bout : %1</translation>
+        <translation>E2EE būsena: %1</translation>
     </message>
     <message>
         <location line="+25"/>
         <location line="+528"/>
         <source>Refresh</source>
-        <translation>Actualiser</translation>
+        <translation>Atnaujinti</translation>
     </message>
     <message>
         <location line="-455"/>
         <source>Request keys again</source>
-        <translation>Redemander les clés</translation>
+        <translation>Dar kartą paprašykite raktų</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Verify this session again</source>
-        <translation>Vérifier à nouveau cette session</translation>
+        <translation>Dar kartą patvirtinkite šią sesiją</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Verify another session to request keys</source>
-        <translation>Vérifier une autre session pour demander les clés</translation>
+        <translation>Norėdami prašyti raktų, patvirtinkite kitą seansą</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Yes</source>
-        <translation>Oui</translation>
+        <translation>Taip</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No</source>
-        <translation>Non</translation>
+        <translation>Nr</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Unknown</source>
-        <translation>Inconnu</translation>
+        <translation>Nežinoma</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Current session verified: %1</source>
-        <translation>Session actuelle vérifiée : %1</translation>
+        <translation>Dabartinė sesija patvirtinta: %1</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Cross-signing: ready</source>
-        <translation>Signature croisée : prête</translation>
+        <translation>Kryžminis pasirašymas: paruošta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Cross-signing: not complete on this session</source>
-        <translation>Signature croisée : incomplète sur cette session</translation>
+        <translation>Kryžminis pasirašymas: šioje sesijoje nebaigta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Cross-signing: not set up</source>
-        <translation>Signature croisée : non configurée</translation>
+        <translation>Kryžminis pasirašymas: nenustatyta</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Key backup: active on this session</source>
-        <translation>Sauvegarde de clés : active sur cette session</translation>
+        <translation>Rakto atsarginė kopija: aktyvi šioje sesijoje</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Key backup: exists, but this session cannot use it yet</source>
-        <translation>Sauvegarde de clés : existante, mais cette session ne peut pas encore l&apos;utiliser</translation>
+        <translation>Atsarginė rakto kopija: yra, bet ši sesija dar negali jos naudoti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Key backup: none found</source>
-        <translation>Sauvegarde de clés : aucune trouvée</translation>
+        <translation>Atsarginė rakto kopija: nerasta</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Recovery: set up</source>
-        <translation>Récupération : configurée</translation>
+        <translation>Atkūrimas: nustatyti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Recovery: set up, but secrets are missing here</source>
-        <translation>Récupération : configurée, mais des secrets manquent ici</translation>
+        <translation>Atkūrimas: nustatyta, bet čia trūksta paslapčių</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Recovery: not set up</source>
-        <translation>Récupération : non configurée</translation>
+        <translation>Atkūrimas: nenustatytas</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Encryption sync: active</source>
-        <translation>Synchronisation du chiffrement : active</translation>
+        <translation>Šifravimo sinchronizavimas: aktyvus</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Encryption sync: ready</source>
-        <translation>Synchronisation du chiffrement : prête</translation>
+        <translation>Šifravimo sinchronizavimas: paruoštas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Encryption sync: waiting</source>
-        <translation>Synchronisation du chiffrement : en attente</translation>
+        <translation>Šifravimo sinchronizavimas: laukiama</translation>
     </message>
     <message>
         <location line="+28"/>
         <location line="+8"/>
         <source>Hide recovery diagnostics</source>
-        <translation>Masquer les diagnostics de récupération</translation>
+        <translation>Slėpti atkūrimo diagnostiką</translation>
     </message>
     <message>
         <location line="-7"/>
         <location line="+8"/>
         <source>Recovery diagnostics</source>
-        <translation>Diagnostics de récupération</translation>
+        <translation>Atkūrimo diagnostika</translation>
     </message>
     <message>
         <location line="+55"/>
         <source>Own identity: %1</source>
-        <translation>Identité propre : %1</translation>
+        <translation>Nuosavo tapatybė: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>verified</source>
-        <translation>vérifiée</translation>
+        <translation>patikrinta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>not verified on this session</source>
-        <translation>non vérifiée sur cette session</translation>
+        <translation>nepatvirtinta šioje sesijoje</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+11"/>
         <source>not checked yet</source>
-        <translation>pas encore vérifiée</translation>
+        <translation>dar nepatikrinta</translation>
     </message>
     <message>
         <location line="-5"/>
         <source>Cross-signing private keys: %1</source>
-        <translation>Clés privées de signature croisée : %1</translation>
+        <translation>Kryžminio pasirašymo privatūs raktai: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>present</source>
-        <translation>présentes</translation>
+        <translation>pateikti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>missing on this session</source>
-        <translation>manquantes sur cette session</translation>
+        <translation>trūksta šioje sesijoje</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>sent</source>
-        <translation>envoyée</translation>
+        <translation>išsiųstas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>pending</source>
-        <translation>en attente</translation>
+        <translation>laukiama</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>nothing missing</source>
-        <translation>rien ne manque</translation>
+        <translation>nieko netrūksta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>blocked — identity not verified</source>
-        <translation>bloquée — identité non vérifiée</translation>
+        <translation>užblokuotas – tapatybė nepatikrinta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>no verified session to ask</source>
-        <translation>aucune session vérifiée à interroger</translation>
+        <translation>nėra patvirtintos sesijos, kurios būtų galima paklausti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>could not be created</source>
-        <translation>n&apos;a pas pu être créée</translation>
+        <translation>nepavyko sukurti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>not sent yet</source>
-        <translation>pas encore envoyée</translation>
+        <translation>dar neišsiųstas</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>Secret request: %1 (%n attempt(s))</source>
         <translation>
-            <numerusform>Demande de secret : %1 (%n tentative)</numerusform>
-            <numerusform>Demande de secret : %1 (%n tentatives)</numerusform>
+            <numerusform>Slaptoji užklausa: %1 (%n bandymas)</numerusform>
+            <numerusform>Slaptoji užklausa: %1 (%n bandymai)</numerusform>
+            <numerusform>Slaptoji užklausa: %1 (%n bandymų)</numerusform>
         </translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Verified sessions available: %1</source>
-        <translation>Sessions vérifiées disponibles : %1</translation>
+        <translation>Galimos patvirtintos sesijos: %1</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Backup key usable: %1</source>
-        <translation>Clé de sauvegarde utilisable : %1</translation>
+        <translation>Galima naudoti atsarginį raktą: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>yes</source>
-        <translation>oui</translation>
+        <translation>taip</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>no</source>
-        <translation>non</translation>
+        <translation>ne</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Room keys imported: %1</source>
-        <translation>Clés de salon importées : %1</translation>
+        <translation>Importuoti kambario raktai: %1</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>This account&apos;s Matrix sessions and device verification.</source>
-        <translation>Sessions Matrix de ce compte et vérification des appareils.</translation>
+        <translation>Šios paskyros Matrix seansai ir įrenginio patvirtinimas.</translation>
     </message>
     <message>
         <location line="+50"/>
         <source>IDENTITY</source>
-        <translation>IDENTITÉ</translation>
+        <translation>TAPATYBĖ</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 DEVICES</source>
-        <translation>%1 APPAREILS</translation>
+        <translation>%1 ĮRENGINIAI</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>CROSS-SIGN</source>
-        <translation>SIGNATURE CROISÉE</translation>
+        <translation>KRYŽIAUS ŽENKLAS</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>%1 of 3 checks complete</source>
-        <translation>%1 vérifications sur 3 terminées</translation>
+        <translation>%1 iš 3 patikrinimų atlikta</translation>
     </message>
     <message>
         <location line="+70"/>
         <source>Manage this in the account page that just opened, then press Refresh here.</source>
-        <translation>Gérez cela dans la page de compte qui vient de s&apos;ouvrir, puis appuyez sur Actualiser ici.</translation>
+        <translation>Tvarkykite tai ką tik atidarytame paskyros puslapyje, tada paspauskite čia Atnaujinti.</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Loading…</source>
-        <translation>Chargement…</translation>
+        <translation>Įkeliama…</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>The session list could not be loaded.</source>
-        <translation>La liste des sessions n&apos;a pas pu être chargée.</translation>
+        <translation>Nepavyko įkelti seansų sąrašo.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Press Refresh to load this account&apos;s sessions.</source>
-        <translation>Appuyez sur Actualiser pour charger les sessions de ce compte.</translation>
+        <translation>Norėdami įkelti šios paskyros seansus, paspauskite Atnaujinti.</translation>
     </message>
     <message>
         <location line="+67"/>
         <source>This session</source>
-        <translation>Cette session</translation>
+        <translation>Ši sesija</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Verified</source>
-        <translation>Vérifiée</translation>
+        <translation>Patvirtinta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not verified</source>
-        <translation>Non vérifiée</translation>
+        <translation>Nepatvirtinta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No encryption</source>
-        <translation>Pas de chiffrement</translation>
+        <translation>Jokio šifravimo</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>last seen %1</source>
-        <translation>vue pour la dernière fois %1</translation>
+        <translation>paskutinį kartą matytas %1</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Sign out</source>
-        <translation>Se déconnecter</translation>
+        <translation>Atsijungti</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sign out session %1</source>
-        <translation>Déconnecter la session %1</translation>
+        <translation>Atsijungimo seansas %1</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Sign out all other sessions</source>
-        <translation>Déconnecter toutes les autres sessions</translation>
+        <translation>Atsijunkite nuo visų kitų seansų</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Signing out a session may require your account password. Verification below always requires explicit confirmation on both sessions.</source>
-        <translation>Déconnecter une session peut nécessiter le mot de passe de votre compte. La vérification ci-dessous exige toujours une confirmation explicite sur les deux sessions.</translation>
+        <translation>Norint atsijungti nuo seanso, gali reikėti paskyros slaptažodžio. Toliau nurodytam patvirtinimui visada reikalingas aiškus abiejų seansų patvirtinimas.</translation>
     </message>
     <message>
         <location line="+45"/>
         <source>Device ID: %1</source>
-        <translation>Identifiant d&apos;appareil : %1</translation>
+        <translation>Įrenginio ID: %1</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>(not yet available)</source>
-        <translation>(pas encore disponible)</translation>
+        <translation>(dar nepasiekiamas)</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Verify this session using another session already signed in to this Matrix account. This does not import room keys — key import is a separate action below.</source>
-        <translation>Vérifiez cette session à l&apos;aide d&apos;une autre session déjà connectée à ce compte Matrix. Cela n&apos;importe pas les clés de salon — l&apos;import de clés est une action distincte ci-dessous.</translation>
+        <translation>Patvirtinkite šią sesiją naudodami kitą seansą, jau prisijungę prie šios Matrix paskyros. Tai neimportuoja kambario raktų – raktų importavimas yra atskiras veiksmas toliau.</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Verify again</source>
-        <translation>Vérifier à nouveau</translation>
+        <translation>Patvirtinkite dar kartą</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>This Lightning session is verified through Matrix cross-signing.</source>
-        <translation>Cette session Lightning est vérifiée par la signature croisée Matrix.</translation>
+        <translation>Ši Lightning sesija patvirtinta naudojant Matrix kryžminį pasirašymą.</translation>
     </message>
     <message>
         <location line="+68"/>
         <source>This session is not verified. Verify it to prove it is yours, so your other sessions share encryption keys with it.</source>
-        <translation>Cette session n&apos;est pas vérifiée. Vérifiez-la pour prouver qu&apos;elle est la vôtre, afin que vos autres sessions partagent leurs clés de chiffrement avec elle.</translation>
+        <translation>Ši sesija nepatvirtinta. Patvirtinkite jį, kad įrodytumėte, kad tai jūsų, kad kiti jūsų seansai su juo bendrintų šifravimo raktus.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This session is verified through Matrix cross-signing.</source>
-        <translation>Cette session est vérifiée par la signature croisée Matrix.</translation>
+        <translation>Ši sesija patvirtinama naudojant Matrix kryžminį pasirašymą.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This account has no cross-signing identity yet, so there is nothing to verify against.</source>
-        <translation>Ce compte n&apos;a pas encore d&apos;identité de signature croisée : il n&apos;y a donc rien à vérifier.</translation>
+        <translation>Ši paskyra dar neturi kryžminio pasirašymo tapatybės, todėl nėra ko patvirtinti.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Checking this session&apos;s verification state…</source>
-        <translation>Vérification de l&apos;état de cette session…</translation>
+        <translation>Tikrinama šios sesijos patvirtinimo būsena…</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Stop reminding me</source>
-        <translation>Ne plus me le rappeler</translation>
+        <translation>Nustok man priminti</translation>
     </message>
     <message>
         <location line="+41"/>
         <source>Some old messages may show &quot;[unable to decrypt yet]&quot; until you restore your recovery key here, or until another verified device shares the room keys.</source>
-        <translation>Certains anciens messages peuvent afficher « [déchiffrement impossible pour l&apos;instant] » jusqu&apos;à ce que vous restauriez votre clé de récupération ici, ou qu&apos;un autre appareil vérifié partage les clés du salon.</translation>
+        <translation>Kai kuriuose senuose pranešimuose gali būti rodoma „[dar nepavyko iššifruoti]“, kol čia atkursite atkūrimo raktą arba kol kitas patvirtintas įrenginys bendrins kambario raktus.</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Restoring…</source>
-        <translation>Restauration…</translation>
+        <translation>Atkuriama…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Restore keys</source>
-        <translation>Restaurer les clés</translation>
+        <translation>Atkurti raktus</translation>
     </message>
     <message>
         <location line="+5"/>
         <location line="+30"/>
         <source>Recovery started</source>
-        <translation>Récupération démarrée</translation>
+        <translation>Prasidėjo atsigavimas</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Recovery complete. New messages should decrypt as keys arrive. Some old messages may still require another verified device to share keys.</source>
-        <translation>Récupération terminée. Les nouveaux messages devraient se déchiffrer au fur et à mesure de l&apos;arrivée des clés. Certains anciens messages peuvent encore nécessiter le partage de clés par un autre appareil vérifié.</translation>
+        <translation>Atkūrimas baigtas. Nauji pranešimai turėtų iššifruoti, kai gaunami raktai. Kai kuriems seniems pranešimams vis tiek gali prireikti kito patvirtinto įrenginio, kad būtų galima bendrinti raktus.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Recovery failed: %1</source>
-        <translation>Échec de la récupération : %1</translation>
+        <translation>Nepavyko atkurti: %1</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Import an encrypted Matrix room-key export from another session. Imported keys may unlock older encrypted messages, but they do not verify this session.</source>
-        <translation>Importez un export chiffré de clés de salon Matrix depuis une autre session. Les clés importées peuvent déverrouiller d&apos;anciens messages chiffrés, mais elles ne vérifient pas cette session.</translation>
+        <translation>Importuokite šifruotą Matrix kambario rakto eksportą iš kitos sesijos. Importuoti raktai gali atrakinti senesnius šifruotus pranešimus, tačiau jie nepatvirtina šios sesijos.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Choose key export</source>
-        <translation>Choisir un export de clés</translation>
+        <translation>Pasirinkite rakto eksportavimą</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>(no file selected)</source>
-        <translation>(aucun fichier sélectionné)</translation>
+        <translation>(nepasirinktas failas)</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Export passphrase</source>
-        <translation>Phrase secrète de l&apos;export</translation>
+        <translation>Eksportuoti slaptafrazę</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Importing…</source>
-        <translation>Import en cours…</translation>
+        <translation>Importuojama…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Import</source>
-        <translation>Importer</translation>
+        <translation>Importuoti</translation>
     </message>
     <message>
         <location line="+87"/>
         <source>Select encrypted Matrix room-key export</source>
-        <translation>Sélectionner un export chiffré de clés de salon Matrix</translation>
+        <translation>Pasirinkite šifruotą Matrix kambario rakto eksportavimą</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Importing room keys…</source>
-        <translation>Import des clés de salon…</translation>
+        <translation>Importuojami kambario raktai…</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -10133,85 +10146,85 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
 Imported sessions: %1
 Affected rooms: %2
 Note: importing keys does not verify this session.</source>
-        <translation>Import des clés de salon terminé.
-Sessions importées : %1
-Salons concernés : %2
-Remarque : importer des clés ne vérifie pas cette session.</translation>
+        <translation>kambario rakto importavimas baigtas.
+Importuotos sesijos: %1
+Paveikti kambariai: %2
+Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Verification establishes trust in this session. Secure Backup and room-key imports provide decryption keys for message history. These are separate operations.</source>
-        <translation>La vérification établit la confiance dans cette session. La sauvegarde sécurisée et l&apos;import de clés de salon fournissent des clés de déchiffrement pour l&apos;historique des messages. Ce sont des opérations distinctes.</translation>
+        <translation>Patvirtinimas sukuria pasitikėjimą šia sesija. Saugus atsarginis kopijavimas ir kambario raktų importavimas suteikia pranešimų istorijos iššifravimo raktus. Tai yra atskiros operacijos.</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Hide</source>
-        <translation>Masquer</translation>
+        <translation>Slėpti</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Show</source>
-        <translation>Afficher</translation>
+        <translation>Rodyti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Toggle danger zone</source>
-        <translation>Afficher ou masquer la zone de danger</translation>
+        <translation>Perjungti pavojaus zoną</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Reset deletes only Lightning&apos;s local Rust SDK store for this account (also available from a terminal: matrix-client --reset-crypto-store). It does not touch server messages or Element data. You will need to sign in again afterwards.</source>
-        <translation>La réinitialisation supprime uniquement le magasin Rust SDK local de Lightning pour ce compte (également disponible depuis un terminal : matrix-client --reset-crypto-store). Elle ne touche ni les messages du serveur ni les données Element. Vous devrez vous reconnecter ensuite.</translation>
+        <translation>Atstatant ištrinama tik vietinė šios paskyros Lightning Rust SDK saugykla (tą patį galima atlikti terminale: matrix-client --reset-crypto-store). Serverio pranešimai ir Element duomenys nekeičiami. Po to reikės prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Reset local Lightning session</source>
-        <translation>Réinitialiser la session Lightning locale</translation>
+        <translation>Atstatyti vietinį Lightning seansą</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Reset local Lightning session?</source>
-        <translation>Réinitialiser la session Lightning locale ?</translation>
+        <translation>Atstatyti vietinį Lightning seansą?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reset</source>
-        <translation>Réinitialiser</translation>
+        <translation>Nustatyti iš naujo</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>This deletes Lightning&apos;s local Matrix Rust SDK store and any saved smoke session for this account. Server messages, Element data, and other accounts are untouched. You will need to sign in again after this.</source>
-        <translation>Cela supprime le magasin Matrix Rust SDK local de Lightning et toute session de test enregistrée pour ce compte. Les messages du serveur, les données Element et les autres comptes ne sont pas touchés. Vous devrez vous reconnecter après cette opération.</translation>
+        <translation>Taip ištrinama vietinė šios paskyros Lightning Matrix Rust SDK saugykla ir visi išsaugoti bandomieji seansai. Serverio pranešimai, Element duomenys ir kitos paskyros nekeičiami. Po to reikės prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>No experimental features are available in this build. Diagnostics live here.</source>
-        <translation>Aucune fonctionnalité expérimentale n&apos;est disponible dans cette version. Les diagnostics se trouvent ici.</translation>
+        <translation>Šiame versijoje nėra jokių eksperimentinių funkcijų. Čia gyvena diagnostika.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Backend: %1</source>
-        <translation>Backend : %1</translation>
+        <translation>Posistemė: %1</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Sync mode: %1</source>
-        <translation>Mode de synchronisation : %1</translation>
+        <translation>Sinchronizavimo režimas: %1</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Connection: %1</source>
-        <translation>Connexion : %1</translation>
+        <translation>Ryšys: %1</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Rebuilds the open room&apos;s timeline from the SDK. Safe at any time.</source>
-        <translation>Reconstruit la conversation du salon ouvert à partir du SDK. Sans risque à tout moment.</translation>
+        <translation>Iš naujo sukuria atidaryto kambario laiko juostą iš SDK. Tai saugu atlikti bet kada.</translation>
     </message>
     <message>
         <location line="+50"/>
         <source>Lightning logo</source>
-        <translation>Logo Lightning</translation>
+        <translation>Lightning logotipas</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -10221,17 +10234,17 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+11"/>
         <source>A native C++/Qt Matrix desktop client. No Electron, no web view.</source>
-        <translation>Un client Matrix de bureau natif en C++/Qt. Pas d&apos;Electron, pas de vue web.</translation>
+        <translation>Vietinė C++/Qt Matrix darbalaukio programa. Be Electron ir žiniatinklio rodinio.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Matrix engine: matrix-sdk 0.18.0 / matrix-sdk-ui 0.18.0 (Rust)</source>
-        <translation>Moteur Matrix : matrix-sdk 0.18.0 / matrix-sdk-ui 0.18.0 (Rust)</translation>
+        <translation>Matrix variklis: matrix-sdk 0.18.0 / matrix-sdk-ui 0.18.0 (Rust)</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>License: GPL-3.0-or-later</source>
-        <translation>Licence : GPL-3.0-or-later</translation>
+        <translation>Licencija: GPL-3.0 arba naujesnė</translation>
     </message>
 </context>
 <context>
@@ -10241,132 +10254,132 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <location line="+79"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
-        <translation>Le partage d&apos;écran n&apos;est pas disponible sur ce bureau.</translation>
+        <translation>Ekrano bendrinimas šiame darbalaukyje negalimas.</translation>
     </message>
     <message>
         <location line="-211"/>
         <location line="+589"/>
         <source>Screen sharing couldn&apos;t start.</source>
-        <translation>Le partage d&apos;écran n&apos;a pas pu démarrer.</translation>
+        <translation>Nepavyko pradėti bendrinti ekrano.</translation>
     </message>
     <message>
         <location line="-531"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
-        <translation>Le partage d&apos;écran sur Wayland nécessite xdg-desktop-portal et il ne répond pas. Installez ou démarrez le portail pour votre bureau — par exemple xdg-desktop-portal-kde ou xdg-desktop-portal-gnome — puis réessayez.</translation>
+        <translation>Ekrano bendrinimui „Wayland“ reikia xdg-desktop-portal, ir jis nereaguoja. Įdiekite arba paleiskite darbalaukio portalą, pvz., xdg-desktop-portal-kde arba xdg-desktop-portal-gnome, tada bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Screen sharing needs GStreamer&apos;s %1 element, which isn&apos;t installed. Install the gst-plugins-good package and try again.</source>
-        <translation>Le partage d&apos;écran nécessite l&apos;élément %1 de GStreamer, qui n&apos;est pas installé. Installez le package gst-plugins-good et réessayez.</translation>
+        <translation>Ekrano bendrinimui reikalingas GStreamer elementas %1, kuris neįdiegtas. Įdiekite paketą gst-plugins-good ir bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Screen sharing isn&apos;t available: no display server was found.</source>
-        <translation>Le partage d&apos;écran n&apos;est pas disponible&#xa0;: aucun serveur d&apos;affichage n&apos;a été trouvé.</translation>
+        <translation>Ekrano bendrinimas nepasiekiamas: ekrano serveris nerastas.</translation>
     </message>
     <message>
         <location line="+241"/>
         <location line="+42"/>
         <source>No display is available to share.</source>
-        <translation>Aucun affichage n&apos;est disponible pour le partage.</translation>
+        <translation>Nėra ekrano, kurį būtų galima bendrinti.</translation>
     </message>
     <message>
         <location line="+68"/>
         <source>That display isn&apos;t connected any more.</source>
-        <translation>Cet écran n&apos;est plus connecté.</translation>
+        <translation>Tas ekranas nebeprijungtas.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Couldn&apos;t start sharing that window.</source>
-        <translation>Impossible de commencer à partager cette fenêtre.</translation>
+        <translation>Nepavyko pradėti bendrinti šio lango.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Couldn&apos;t start sharing that display.</source>
-        <translation>Impossible de commencer à partager cet écran.</translation>
+        <translation>Nepavyko pradėti bendrinti šio ekrano.</translation>
     </message>
     <message>
         <location line="+135"/>
         <source>You don&apos;t have permission to join this call.</source>
-        <translation>Vous n&apos;êtes pas autorisé à rejoindre cet appel.</translation>
+        <translation>Neturite leidimo prisijungti prie šio skambučio.</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+261"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
-        <translation>Les appels ne sont pas disponibles sur ce serveur domestique.</translation>
+        <translation>Šiame namų serveryje skambinti negalima.</translation>
     </message>
     <message>
         <location line="-259"/>
         <source>Too many attempts. Try again in a moment.</source>
-        <translation>Trop de tentatives. Réessayez dans un instant.</translation>
+        <translation>Per daug bandymų. Po akimirkos bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+263"/>
         <source>Couldn&apos;t connect to the call.</source>
-        <translation>Impossible de se connecter à l&apos;appel.</translation>
+        <translation>Nepavyko prisijungti prie skambučio.</translation>
     </message>
     <message>
         <location line="-261"/>
         <source>The calling service is having trouble.</source>
-        <translation>Le service appelant rencontre des problèmes.</translation>
+        <translation>Skambinimo tarnyba turi problemų.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The window you were sharing was closed.</source>
-        <translation>La fenêtre que vous partagiez était fermée.</translation>
+        <translation>Langas, kurį bendrinote, buvo uždarytas.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your camera stopped.</source>
-        <translation>Votre caméra s&apos;est arrêtée.</translation>
+        <translation>Jūsų fotoaparatas sustojo.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your camera isn&apos;t available.</source>
-        <translation>Votre caméra n&apos;est pas disponible.</translation>
+        <translation>Jūsų fotoaparatas nepasiekiamas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your microphone isn&apos;t available.</source>
-        <translation>Votre micro n&apos;est pas disponible.</translation>
+        <translation>Jūsų mikrofonas nepasiekiamas.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The call ended unexpectedly.</source>
-        <translation>L&apos;appel s&apos;est terminé de manière inattendue.</translation>
+        <translation>Skambutis netikėtai baigėsi.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>This build can&apos;t join Matrix calls.</source>
-        <translation>Cette version ne peut pas rejoindre les appels Matrix.</translation>
+        <translation>Ši versija negali prisijungti prie Matrix skambučių.</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+5"/>
         <source>This build has no calling media support.</source>
-        <translation>Cette version n&apos;a pas de support multimédia d&apos;appel.</translation>
+        <translation>Ši programos versija nepalaiko skambučių medijos.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Calling isn&apos;t ready yet.</source>
-        <translation>L&apos;appel n&apos;est pas encore prêt.</translation>
+        <translation>Skambinti dar neparengta.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
-        <translation>Cette salle est cryptée et les appels cryptés ne sont pas encore disponibles sur cette version.</translation>
+        <translation>Šis kambarys yra užšifruotas, o šifruoti skambučiai šioje versijoje dar nepasiekiami.</translation>
     </message>
     <message>
         <location line="+107"/>
         <source>Couldn&apos;t announce you in the call.</source>
-        <translation>Je n&apos;ai pas pu vous annoncer lors de l&apos;appel.</translation>
+        <translation>Nepavyko jūsų paskelbti skambučio metu.</translation>
     </message>
     <message>
         <location line="+135"/>
         <source>The call ended because the connection was lost.</source>
-        <translation>L&apos;appel a pris fin car la connexion a été perdue.</translation>
+        <translation>Skambutis nutrūko, nes nutrūko ryšys.</translation>
     </message>
 </context>
 <context>
@@ -10374,229 +10387,229 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+45"/>
         <source>Application</source>
-        <translation>Demande</translation>
+        <translation>Taikymas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Navigation</source>
-        <translation>Navigation</translation>
+        <translation>Navigacija</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>View</source>
-        <translation>Voir</translation>
+        <translation>Žiūrėti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Conversation</source>
-        <translation>Conversation</translation>
+        <translation>Pokalbis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Message formatting</source>
-        <translation>Formatage des messages</translation>
+        <translation>Pranešimo formatavimas</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Quit Lightning</source>
-        <translation>Quitter Lightning</translation>
+        <translation>Išeik iš Lightning</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Focus the Settings search field</source>
-        <translation>Concentrez le champ de recherche Paramètres</translation>
+        <translation>Sufokusuokite nustatymų paieškos lauką</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Open the quick switcher</source>
-        <translation>Ouvrez le commutateur rapide</translation>
+        <translation>Atidarykite greitąjį perjungiklį</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Open the quick switcher in command mode</source>
-        <translation>Ouvrez le commutateur rapide en mode commande</translation>
+        <translation>Atidarykite greitąjį perjungiklį komandų režimu</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Search message history</source>
-        <translation>Rechercher l&apos;historique des messages</translation>
+        <translation>Ieškoti pranešimų istorijoje</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Create a room or Space</source>
-        <translation>Créer une pièce ou un espace</translation>
+        <translation>Sukurkite kambarį arba erdvę</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Show or hide the conversation list</source>
-        <translation>Afficher ou masquer la liste des conversations</translation>
+        <translation>Rodyti arba slėpti pokalbių sąrašą</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Show or hide the Spaces rail</source>
-        <translation>Afficher ou masquer le rail Espaces</translation>
+        <translation>Rodyti arba slėpti erdvių juostą</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Increase interface zoom</source>
-        <translation>Augmenter le zoom de l&apos;interface</translation>
+        <translation>Padidinkite sąsajos mastelį</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Decrease interface zoom</source>
-        <translation>Diminuer le zoom de l&apos;interface</translation>
+        <translation>Sumažinti sąsajos mastelį</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Reset interface zoom</source>
-        <translation>Réinitialiser le zoom de l&apos;interface</translation>
+        <translation>Iš naujo nustatykite sąsajos mastelį</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Find in the loaded timeline</source>
-        <translation>Rechercher dans la timeline chargée</translation>
+        <translation>Raskite įkeltoje laiko juostoje</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Mark the open conversation as read</source>
-        <translation>Marquer la conversation ouverte comme lue</translation>
+        <translation>Pažymėkite atidarytą pokalbį kaip skaitytą</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Bold</source>
-        <translation>Gras</translation>
+        <translation>Paryškintas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Italic</source>
-        <translation>Italique</translation>
+        <translation>Kursyvas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Strikethrough</source>
-        <translation>Barré</translation>
+        <translation>Perbraukta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Inline code</source>
-        <translation>Code en ligne</translation>
+        <translation>Inline kodas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Bulleted list</source>
-        <translation>Liste à puces</translation>
+        <translation>Sąrašas su ženkleliais</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Quote</source>
-        <translation>Citation</translation>
+        <translation>Citata</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>closing the find bar, room information, a thread or Settings</source>
-        <translation>fermer la barre de recherche, les informations sur la salle, un fil de discussion ou les paramètres</translation>
+        <translation>paieškos juostos, kambario informacijos, gijos arba nustatymų uždarymas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>the emoji picker&apos;s skin-tone selector</source>
-        <translation>le sélecteur de tons chair du sélecteur d&apos;emoji</translation>
+        <translation>jaustukų rinkiklio odos atspalvio parinkiklis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>the message menu&apos;s Copy accelerator</source>
-        <translation>l&apos;accélérateur de copie du menu des messages</translation>
+        <translation>pranešimų meniu Kopijavimo spartintuvas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>the message menu&apos;s Reply accelerator</source>
-        <translation>l&apos;accélérateur de réponse du menu de messages</translation>
+        <translation>pranešimų meniu atsakymo spartusis klavišas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>the message menu&apos;s Thread accelerator</source>
-        <translation>l&apos;accélérateur de discussion du menu de messages</translation>
+        <translation>Gijos spartusis klavišas pranešimo meniu</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>the message menu&apos;s Edit accelerator</source>
-        <translation>l&apos;accélérateur Modifier du menu Message</translation>
+        <translation>pranešimų meniu Redagavimo spartintuvas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>the screenshot-demo controls</source>
-        <translation>les commandes de capture d&apos;écran-démo</translation>
+        <translation>ekrano kopijos demonstracinės versijos valdikliai</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>paging the timeline and the media grids</source>
-        <translation>paginer la chronologie et les grilles multimédias</translation>
+        <translation>laiko juostos ir medijos tinklelių puslapius</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+1"/>
         <source>paging the timeline</source>
-        <translation>paginer la chronologie</translation>
+        <translation>laiko juostos puslapius</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>jumping to the earliest loaded message</source>
-        <translation>passer au premier message chargé</translation>
+        <translation>pereina prie anksčiausiai įkelto pranešimo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>jumping to the latest message</source>
-        <translation>passer au dernier message</translation>
+        <translation>pereina prie naujausios žinutės</translation>
     </message>
     <message>
         <location line="+194"/>
         <location line="+60"/>
         <source>Unknown action.</source>
-        <translation>Action inconnue.</translation>
+        <translation>Nežinomas veiksmas.</translation>
     </message>
     <message>
         <location line="-56"/>
         <source>That is not a key combination Lightning can store.</source>
-        <translation>Ce n’est pas une combinaison de touches que Lightning peut stocker.</translation>
+        <translation>Tai nėra klavišų kombinacija, kurią Lightning gali saugoti.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Use Ctrl, Alt or Super. A shortcut without one of those is taken before any text field sees the key, so it would stop you typing that character anywhere in Lightning.</source>
-        <translation>Utilisez Ctrl, Alt ou Super. Un raccourci sans l&apos;un de ceux-ci est pris avant qu&apos;un champ de texte ne voie la clé, cela vous empêcherait donc de taper ce caractère n&apos;importe où dans Lightning.</translation>
+        <translation>Naudokite Ctrl, Alt arba Super. Spartusis klavišas be kurio nors iš jų paimamas prieš bet kuriame teksto lauke pamatant raktą, todėl negalėtumėte rašyti šio simbolio bet kur „Lightning“.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Use Ctrl, Alt or Super. Without one, typing the character in the message box is all that would happen.</source>
-        <translation>Utilisez Ctrl, Alt ou Super. Sans cela, il suffit de taper le caractère dans la zone de message.</translation>
+        <translation>Naudokite Ctrl, Alt arba Super. Jei jo nebūtų, viskas, kas nutiktų, būtų įvesti simbolį pranešimo laukelyje.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>%1 is already used for %2. Two shortcuts on one key make Qt fire neither of them.</source>
-        <translation>%1 est déjà utilisé pour %2. Deux raccourcis sur une touche font que Qt ne déclenche aucun d&apos;eux.</translation>
+        <translation>%1 jau naudojamas %2. Du vieno klavišo spartieji klavišai neleidžia Qt suaktyvinti nė vieno iš jų.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>%1 is already used for “%2”. Two shortcuts on one key make Qt fire neither of them.</source>
-        <translation>%1 est déjà utilisé pour « %2 ». Deux raccourcis sur une touche font que Qt ne déclenche aucun d&apos;eux.</translation>
+        <translation>%1 jau naudojamas „%2“. Du vieno klavišo spartieji klavišai neleidžia Qt suaktyvinti nė vieno iš jų.</translation>
     </message>
     <message>
         <location line="+70"/>
         <source>Also used for %1 — neither will work.</source>
-        <translation>Également utilisé pour %1 — aucun des deux ne fonctionnera.</translation>
+        <translation>Taip pat naudojamas %1 – nei vienas neveiks.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Also used for “%1” — neither will work.</source>
-        <translation>Également utilisé pour « %1 » – aucun des deux ne fonctionnera.</translation>
+        <translation>Taip pat naudojamas „%1“ – nė vienas neveiks.</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>While the message box has focus this runs instead of “%1”.</source>
-        <translation>Bien que la boîte de message ait le focus, elle s&apos;exécute à la place de « %1 ».</translation>
+        <translation>Kol pranešimo laukelis yra sufokusuotas, jis veikia vietoj „%1“.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>While the message box has focus, “%1” runs instead.</source>
-        <translation>Pendant que la boîte de message a le focus, « %1 » s&apos;exécute à la place.</translation>
+        <translation>Kol pranešimų laukelis yra sufokusuotas, vietoj jo veikia „%1“.</translation>
     </message>
 </context>
 <context>
@@ -10604,42 +10617,42 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/ShortcutRow.qml" line="+128"/>
         <source>Press a combination…</source>
-        <translation>Appuyez sur une combinaison…</translation>
+        <translation>Paspauskite derinį…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not set</source>
-        <translation>Non défini</translation>
+        <translation>Nenustatyta</translation>
     </message>
     <message>
         <location line="+64"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Change</source>
-        <translation>Changement</translation>
+        <translation>Keisti</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Cancel capturing a new shortcut for %1</source>
-        <translation>Annuler la capture d&apos;un nouveau raccourci pour %1</translation>
+        <translation>Atšaukti naujo %1 sparčiojo klavišo fiksavimą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Capture a new shortcut for %1</source>
-        <translation>Capturez un nouveau raccourci pour %1</translation>
+        <translation>Užfiksuokite naują %1 spartųjį klavišą</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Reset</source>
-        <translation>Réinitialiser</translation>
+        <translation>Nustatyti iš naujo</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Reset %1 to %2</source>
-        <translation>Réinitialiser %1 à %2</translation>
+        <translation>Iš naujo nustatyti %1 į %2</translation>
     </message>
 </context>
 <context>
@@ -10647,54 +10660,54 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../src/models/SpaceChannelModel.cpp" line="+598"/>
         <source>Create Room</source>
-        <translation>Créer une salle</translation>
+        <translation>Sukurti kambarį</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Join with Address</source>
-        <translation>Rejoindre avec l&apos;adresse</translation>
+        <translation>Prisijunkite naudodami adresą</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Explore Spaces</source>
-        <translation>Explorer les espaces</translation>
+        <translation>Naršykite erdves</translation>
     </message>
     <message>
         <location line="+5"/>
         <location line="+116"/>
         <source>Message Search</source>
-        <translation>Recherche de messages</translation>
+        <translation>Pranešimų paieška</translation>
     </message>
     <message>
         <location line="-74"/>
         <location line="+44"/>
         <source>Invites</source>
-        <translation>Invitations</translation>
+        <translation>Kvietimai</translation>
     </message>
     <message>
         <location line="-37"/>
         <source>Rooms</source>
-        <translation>Salons</translation>
+        <translation>Kambariai</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Create Chat</source>
-        <translation>Créer une discussion</translation>
+        <translation>Sukurti pokalbį</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Chats</source>
-        <translation>Discussions</translation>
+        <translation>Pokalbiai</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Lobby</source>
-        <translation>Hall d&apos;entrée</translation>
+        <translation>Fojė</translation>
     </message>
     <message>
         <location line="+122"/>
         <source>People</source>
-        <translation>Personnes</translation>
+        <translation>Žmonės</translation>
     </message>
 </context>
 <context>
@@ -10702,17 +10715,17 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../src/spaces/SpaceManager.cpp" line="+242"/>
         <source>All rooms</source>
-        <translation>Tous les salons</translation>
+        <translation>Visi kambariai</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Other rooms</source>
-        <translation>Autres salons</translation>
+        <translation>Kiti kambariai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Rooms not in any Space</source>
-        <translation>Salons hors de tout espace</translation>
+        <translation>Jokiai erdvei nepriskirti kambariai</translation>
     </message>
 </context>
 <context>
@@ -10720,369 +10733,369 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/SpaceSettingsDialog.qml" line="+105"/>
         <source>General</source>
-        <translation>Général</translation>
+        <translation>Generolas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Members</source>
-        <translation>Membres</translation>
+        <translation>nariai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Permissions</source>
-        <translation>Autorisations</translation>
+        <translation>Leidimai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Developer tools</source>
-        <translation>Outils de développement</translation>
+        <translation>Kūrėjo įrankiai</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Users</source>
-        <translation>Utilisateurs</translation>
+        <translation>Vartotojai</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The level every member starts at. Raising it grants EVERYONE in the space everything at that level.</source>
-        <translation>Le niveau auquel chaque membre commence. L&apos;élever accorde à TOUT LE MONDE dans l&apos;espace tout à ce niveau.</translation>
+        <translation>Lygis, nuo kurio prasideda kiekvienas narys. Jos pakėlimas suteikia VISIEMS erdvėje viską, kas yra tame lygyje.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Default power</source>
-        <translation>Puissance par défaut</translation>
+        <translation>Numatytoji galia</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Manage</source>
-        <translation>Gérer</translation>
+        <translation>Tvarkyti</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Manage space rooms</source>
-        <translation>Gérer les salles d&apos;espace</translation>
+        <translation>Valdyti erdvės kambarius</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Message events</source>
-        <translation>Événements de messages</translation>
+        <translation>Pranešimų įvykiai</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Moderation</source>
-        <translation>Modération</translation>
+        <translation>Moderavimas</translation>
     </message>
     <message>
         <location line="+5"/>
         <location line="+870"/>
         <source>Invite</source>
-        <translation>Inviter</translation>
+        <translation>Pakviesti</translation>
     </message>
     <message>
         <location line="-869"/>
         <source>Kick</source>
-        <translation>Coup de pied</translation>
+        <translation>Pašalinti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ban</source>
-        <translation>Bannir</translation>
+        <translation>Uždrausti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Remove messages</source>
-        <translation>Supprimer des messages</translation>
+        <translation>Pašalinti pranešimus</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Space profile</source>
-        <translation>Profil spatial</translation>
+        <translation>Erdvės profilis</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Space avatar</source>
-        <translation>Avatar spatial</translation>
+        <translation>Erdvės avataras</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+300"/>
         <source>Space name</source>
-        <translation>Nom de l&apos;espace</translation>
+        <translation>Erdvės pavadinimas</translation>
     </message>
     <message>
         <location line="-299"/>
         <location line="+343"/>
         <source>Space topic</source>
-        <translation>Sujet de l&apos;espace</translation>
+        <translation>Erdvės tema</translation>
     </message>
     <message>
         <location line="-339"/>
         <source>Settings</source>
-        <translation>Paramètres</translation>
+        <translation>Nustatymai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Set &quot;Edit power levels&quot; above your own level and you can never lower it again.</source>
-        <translation>Réglez « Modifier les niveaux de puissance » au-dessus de votre propre niveau et vous ne pourrez plus jamais le baisser.</translation>
+        <translation>Nustatykite „Redaguoti galios lygius“ aukščiau savo lygio ir daugiau niekada jo nebegalėsite sumažinti.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Change space access</source>
-        <translation>Modifier l&apos;accès à l&apos;espace</translation>
+        <translation>Pakeiskite prieigą prie erdvės</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Publish address</source>
-        <translation>Publier l&apos;adresse</translation>
+        <translation>Paskelbti adresą</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Edit power levels</source>
-        <translation>Modifier les niveaux de puissance</translation>
+        <translation>Redaguoti galios lygius</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Upgrade space</source>
-        <translation>Espace de mise à niveau</translation>
+        <translation>Atnaujinkite erdvę</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Other settings</source>
-        <translation>Autres paramètres</translation>
+        <translation>Kiti nustatymai</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Space</source>
-        <translation>Espace</translation>
+        <translation>Erdvė</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Close space settings</source>
-        <translation>Fermer les paramètres de l&apos;espace</translation>
+        <translation>Uždarykite erdvės nustatymus</translation>
     </message>
     <message>
         <location line="+100"/>
         <source>Loading this space&apos;s members. What you can change depends on them, so the controls stay disabled until they arrive.</source>
-        <translation>Chargement des membres de cet espace. Ce que vous pouvez modifier dépend d&apos;eux, donc les commandes restent désactivées jusqu&apos;à leur arrivée.</translation>
+        <translation>Įkeliami šios erdvės nariai. Nuo jų priklauso, ką galite keisti, todėl valdikliai bus išjungti, kol nariai bus įkelti.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Choose space avatar</source>
-        <translation>Choisissez un avatar spatial</translation>
+        <translation>Pasirinkite erdvės avatarą</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</source>
-        <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
+        <translation>Vaizdai (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Choose a banner image</source>
-        <translation>Choisir une image de bannière</translation>
+        <translation>Pasirinkite reklamjuostės vaizdą</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp)</source>
-        <translation>Images (*.png *.jpg *.jpeg *.gif *.webp)</translation>
+        <translation>Vaizdai (*.png *.jpg *.jpeg *.gif *.webp)</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Profile</source>
-        <translation>Profil</translation>
+        <translation>Profilis</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Change avatar…</source>
-        <translation>Changer l&apos;avatar…</translation>
+        <translation>Keisti avatarą…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Remove avatar</source>
-        <translation>Supprimer l&apos;avatar</translation>
+        <translation>Pašalinti avatarą</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Name</source>
-        <translation>Nom</translation>
+        <translation>Vardas</translation>
     </message>
     <message>
         <location line="+35"/>
         <source>Rename</source>
-        <translation>Renommer</translation>
+        <translation>Pervardyti</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Topic</source>
-        <translation>Sujet</translation>
+        <translation>Tema</translation>
     </message>
     <message>
         <location line="+31"/>
         <location line="+311"/>
         <source>Save</source>
-        <translation>Enregistrer</translation>
+        <translation>Išsaugoti</translation>
     </message>
     <message>
         <location line="-286"/>
         <source>Banner</source>
-        <translation>Bannière</translation>
+        <translation>Baneris</translation>
     </message>
     <message>
         <location line="+89"/>
         <source>No banner</source>
-        <translation>Aucune bannière</translation>
+        <translation>Nėra banerio</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Change banner…</source>
-        <translation>Changer de bannière…</translation>
+        <translation>Keisti reklamjuostę…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Upload banner…</source>
-        <translation>Télécharger la bannière…</translation>
+        <translation>Įkelti reklamjuostę…</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Remove banner</source>
-        <translation>Supprimer la bannière</translation>
+        <translation>Pašalinti reklamjuostę</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>The banner could not be saved (%1).</source>
-        <translation>La bannière n&apos;a pas pu être enregistrée (%1).</translation>
+        <translation>Reklamjuostės išsaugoti nepavyko (%1).</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Options</source>
-        <translation>Options</translation>
+        <translation>Parinktys</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Space access</source>
-        <translation>Accès à l&apos;espace</translation>
+        <translation>Prieiga prie erdvės</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Change how people can join the space.</source>
-        <translation>Changez la façon dont les gens peuvent rejoindre l&apos;espace.</translation>
+        <translation>Pakeiskite, kaip žmonės gali prisijungti prie erdvės.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Invited people only</source>
-        <translation>Personnes invitées uniquement</translation>
+        <translation>Tik pakviesti žmonės</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Anyone with the link</source>
-        <translation>Toute personne disposant du lien</translation>
+        <translation>Visi, turintys nuorodą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ask to join (knock)</source>
-        <translation>Demander à rejoindre (frapper)</translation>
+        <translation>Paprašyti prisijungti (belsti)</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Members of another space can join. Lightning can&apos;t change space-restricted access yet.</source>
-        <translation>Les membres d&apos;un autre espace peuvent adhérer. Lightning ne peut pas encore modifier l&apos;accès limité à l&apos;espace.</translation>
+        <translation>Gali prisijungti kitos erdvės nariai. Lightning dar negali pakeisti erdvės apribotos prieigos.</translation>
     </message>
     <message>
         <location line="+12"/>
         <location line="+779"/>
         <source>Published address</source>
-        <translation>Adresse publiée</translation>
+        <translation>Paskelbtas adresas</translation>
     </message>
     <message>
         <location line="-770"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
-        <translation>Une adresse publiée permet aux gens de trouver et de rejoindre cet espace par leur nom. Laissez-le vide pour le supprimer.</translation>
+        <translation>Paskelbtas adresas leidžia žmonėms rasti šią erdvę pagal pavadinimą ir prie jos prisijungti. Norėdami adresą pašalinti, palikite lauką tuščią.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>#space-name</source>
-        <translation>#nom-espace</translation>
+        <translation>#erdvės pavadinimas</translation>
     </message>
     <message>
         <location line="+47"/>
         <source>Advanced</source>
-        <translation>Avancé</translation>
+        <translation>Išplėstinė</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Current version: %1</source>
-        <translation>Version actuelle&#xa0;: %1</translation>
+        <translation>Dabartinė versija: %1</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>You have the permission to upgrade this space, but Lightning can&apos;t perform an upgrade yet: it is irreversible and would orphan every room the space lists.</source>
-        <translation>Vous avez la permission de mettre à niveau cet espace, mais Lightning ne peut pas encore effectuer de mise à niveau&#xa0;: elle est irréversible et rendrait orphelines toutes les pièces répertoriées dans l&apos;espace.</translation>
+        <translation>Turite leidimą naujovinti šią erdvę, tačiau Lightning to dar negali atlikti: veiksmas negrįžtamas, o visi erdvėje nurodyti kambariai liktų be jos.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Only someone allowed to send m.room.tombstone can upgrade this space. Lightning can&apos;t perform an upgrade yet.</source>
-        <translation>Seule une personne autorisée à envoyer m.room.tombstone peut améliorer cet espace. Lightning ne peut pas encore effectuer de mise à niveau.</translation>
+        <translation>Šią erdvę atnaujinti gali tik m.room.tombstone įvykį siųsti galintis asmuo. Lightning dar negali atlikti atnaujinimo.</translation>
     </message>
     <message>
         <location line="+48"/>
         <source>%1 members</source>
-        <translation>%1 membres</translation>
+        <translation>%1 narių</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>%1 joined · %2 invited</source>
-        <translation>%1 a rejoint · %2 invité</translation>
+        <translation>%1 prisijungė · %2 pakviestas</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>This space has more members than Lightning loads at once, so the list below is a part of it — sorted alphabetically it is missing names from the middle, not just the end.</source>
-        <translation>Cet espace contient plus de membres que Lightning n&apos;en charge à la fois, donc la liste ci-dessous en fait partie : triée par ordre alphabétique, il manque les noms au milieu, pas seulement à la fin.</translation>
+        <translation>Šioje erdvėje yra daugiau narių nei „Lightning“ įkelia iš karto, todėl toliau pateiktas sąrašas yra jo dalis – surūšiuota abėcėlės tvarka, trūksta vardų viduryje, o ne tik pabaigoje.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Search members</source>
-        <translation>Rechercher des membres</translation>
+        <translation>Ieškoti narių</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Everyone</source>
-        <translation>Tout le monde</translation>
+        <translation>Visi</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Joined</source>
-        <translation>Rejoint</translation>
+        <translation>Prisijungė</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+116"/>
         <source>Invited</source>
-        <translation>Invité</translation>
+        <translation>Pakviestas</translation>
     </message>
     <message>
         <location line="-115"/>
         <location line="+114"/>
         <source>Banned</source>
-        <translation>Banni</translation>
+        <translation>Uždrausta</translation>
     </message>
     <message>
         <location line="-112"/>
         <source>Filter by membership</source>
-        <translation>Filtrer par adhésion</translation>
+        <translation>Filtruoti pagal narystę</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>By role</source>
-        <translation>Par rôle</translation>
+        <translation>Pagal vaidmenį</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>A to Z</source>
-        <translation>De A à Z</translation>
+        <translation>A iki Z</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sort members</source>
-        <translation>Trier les membres</translation>
+        <translation>Rūšiuoti narius</translation>
     </message>
     <message>
         <location line="+38"/>
@@ -11092,132 +11105,132 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+118"/>
         <source>You can only require a level at or below your own, and only set a member&apos;s role below your own — never for someone at or above it. A space using a custom level shows that number rather than being relabelled.</source>
-        <translation>Vous ne pouvez exiger qu&apos;un niveau égal ou inférieur au vôtre, et définir le rôle d&apos;un membre uniquement en dessous du vôtre, jamais pour quelqu&apos;un de niveau égal ou supérieur. Un espace utilisant un niveau personnalisé affiche ce numéro plutôt que d&apos;être réétiqueté.</translation>
+        <translation>Galite reikalauti tik savo arba žemesnio lygio ir suteikti nariui tik už savąjį žemesnį vaidmenį – niekada ne tokį patį ar aukštesnį. Jei erdvėje naudojamas pasirinktinis lygis, rodomas jo skaičius, o ne kitas pavadinimas.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>You don&apos;t have permission to change roles or permissions in this space.</source>
-        <translation>Vous n&apos;êtes pas autorisé à modifier les rôles ou les autorisations dans cet espace.</translation>
+        <translation>Neturite leidimo keisti vaidmenų ar leidimų šioje erdvėje.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>This space&apos;s permission levels haven&apos;t loaded on this backend, so they are not shown.</source>
-        <translation>Les niveaux d&apos;autorisation de cet espace n&apos;ont pas été chargés sur ce backend, ils ne sont donc pas affichés.</translation>
+        <translation>Šios erdvės leidimų lygiai šioje posistemėje neįkelti, todėl nerodomi.</translation>
     </message>
     <message>
         <location line="+87"/>
         <source>Member (%1)</source>
-        <translation>Membre (%1)</translation>
+        <translation>Narys (%1)</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Moderator (50)</source>
-        <translation>Modérateur (50)</translation>
+        <translation>Moderatorius (50)</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Administrator (100)</source>
-        <translation>Administrateur (100)</translation>
+        <translation>Administratorius (100)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Custom (%1)</source>
-        <translation>Personnalisé (%1)</translation>
+        <translation>Tinkintas (%1)</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Not known</source>
-        <translation>Pas connu</translation>
+        <translation>Nežinoma</translation>
     </message>
     <message>
         <location line="+48"/>
         <source>Level</source>
-        <translation>Niveau</translation>
+        <translation>Lygis</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Custom level for %1</source>
-        <translation>Niveau personnalisé pour %1</translation>
+        <translation>Priskirtas lygis, skirtas %1</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Apply custom level to %1</source>
-        <translation>Appliquer un niveau personnalisé à %1</translation>
+        <translation>Taikyti tinkintą lygį %1</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Member roles</source>
-        <translation>Rôles des membres</translation>
+        <translation>Narių vaidmenys</translation>
     </message>
     <message>
         <location line="+47"/>
         <source>Admin</source>
-        <translation>Admin</translation>
+        <translation>Administratorius</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Moderator</source>
-        <translation>Modérateur</translation>
+        <translation>Moderatorius</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Member</source>
-        <translation>Membre</translation>
+        <translation>narys</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Read-only. Everything here is what this device currently knows about the space.</source>
-        <translation>Lecture seule. Tout ici correspond à ce que cet appareil sait actuellement de l&apos;espace.</translation>
+        <translation>Tik skaityti. Viskas čia yra tai, ką šis įrenginys šiuo metu žino apie erdvę.</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Space ID</source>
-        <translation>ID d&apos;espace</translation>
+        <translation>Erdvės ID</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Space version</source>
-        <translation>Version spatiale</translation>
+        <translation>Erdvės versija</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>None</source>
-        <translation>Aucun</translation>
+        <translation>Nėra</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Join rule</source>
-        <translation>Rejoindre la règle</translation>
+        <translation>Prisijunkite prie taisyklės</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Your power level</source>
-        <translation>Votre niveau de puissance</translation>
+        <translation>Jūsų galios lygis</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Default power level</source>
-        <translation>Niveau de puissance par défaut</translation>
+        <translation>Numatytasis galios lygis</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Members loaded</source>
-        <translation>Membres chargés</translation>
+        <translation>Nariai įkelti</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Direct children</source>
-        <translation>Diriger les enfants</translation>
+        <translation>Tiesioginiai vaikai</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Copy %1</source>
-        <translation>Copier %1</translation>
+        <translation>Kopijuoti %1</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>A full room-state and account-data inspector isn&apos;t built yet.</source>
-        <translation>Un inspecteur complet de l’état des salles et des données de compte n’a pas encore été créé.</translation>
+        <translation>Viso kambario būsenos ir paskyros duomenų inspektorius dar nesukurtas.</translation>
     </message>
 </context>
 <context>
@@ -11225,38 +11238,38 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/SpacesPanel.qml" line="+45"/>
         <source>Spaces</source>
-        <translation>Espaces</translation>
+        <translation>Erdvės</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Expand spaces</source>
-        <translation>Déplier les espaces</translation>
+        <translation>Išplėskite erdves</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Collapse spaces</source>
-        <translation>Replier les espaces</translation>
+        <translation>Sutraukti erdves</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>No spaces</source>
-        <translation>Aucun espace</translation>
+        <translation>Erdvių nėra</translation>
     </message>
     <message>
         <location line="+18"/>
         <location line="+1"/>
         <source>Search spaces</source>
-        <translation>Rechercher des espaces</translation>
+        <translation>Ieškoti erdvių</translation>
     </message>
     <message>
         <location line="+86"/>
         <source>All rooms</source>
-        <translation>Tous les salons</translation>
+        <translation>Visi kambariai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Other rooms</source>
-        <translation>Autres salons</translation>
+        <translation>Kiti kambariai</translation>
     </message>
 </context>
 <context>
@@ -11264,191 +11277,191 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/SpacesRail.qml" line="+423"/>
         <source>Folder: %1</source>
-        <translation>Dossier : %1</translation>
+        <translation>Aplankas: %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>All rooms</source>
-        <translation>Tous les salons</translation>
+        <translation>Visi kambariai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Direct Messages</source>
-        <translation>Messages directs</translation>
+        <translation>Tiesioginiai pokalbiai</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Other rooms</source>
-        <translation>Autres salons</translation>
+        <translation>Kiti kambariai</translation>
     </message>
     <message>
         <location line="+121"/>
         <source>Collapse space</source>
-        <translation>Espace réduit</translation>
+        <translation>Sutraukti erdvę</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Expand space</source>
-        <translation>Agrandir l&apos;espace</translation>
+        <translation>Išplėsti erdvę</translation>
     </message>
     <message>
         <location line="+357"/>
         <location line="+3"/>
         <source>Show more rooms</source>
-        <translation>Afficher plus de salons</translation>
+        <translation>Rodyti daugiau kambarių</translation>
     </message>
     <message>
         <location line="+22"/>
         <location line="+1"/>
         <source>Create a Space</source>
-        <translation>Créer un espace</translation>
+        <translation>Sukurkite erdvę</translation>
     </message>
     <message>
         <location line="+56"/>
         <source>Settings — this session is not verified</source>
-        <translation>Paramètres — cette session n&apos;est pas vérifiée</translation>
+        <translation>Nustatymai – ši sesija nepatvirtinta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings — a Lightning update is available</source>
-        <translation>Paramètres — une mise à jour de Lightning est disponible</translation>
+        <translation>Nustatymai – galimas „Lightning“ naujinimas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Settings</source>
-        <translation>Paramètres</translation>
+        <translation>Nustatymai</translation>
     </message>
     <message>
         <location line="+64"/>
         <source>Account menu for %1</source>
-        <translation>Menu du compte de %1</translation>
+        <translation>%1 paskyros meniu</translation>
     </message>
     <message>
         <location line="+32"/>
         <location line="+3"/>
         <source>Connected</source>
-        <translation>Connecté</translation>
+        <translation>Prisijungta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Connected to your homeserver</source>
-        <translation>Connecté à votre serveur d&apos;accueil</translation>
+        <translation>Prisijungta prie jūsų namų serverio</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not connected to your homeserver</source>
-        <translation>Non connecté à votre serveur d&apos;accueil</translation>
+        <translation>Neprisijungęs prie namų serverio</translation>
     </message>
     <message>
         <location line="+84"/>
         <source>Expand folder</source>
-        <translation>Déplier le dossier</translation>
+        <translation>Išskleisti aplanką</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Collapse folder</source>
-        <translation>Replier le dossier</translation>
+        <translation>Sutraukti aplanką</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Rename folder…</source>
-        <translation>Renommer le dossier…</translation>
+        <translation>Pervardyti aplanką…</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Delete folder</source>
-        <translation>Supprimer le dossier</translation>
+        <translation>Ištrinti aplanką</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Mark as read</source>
-        <translation>Marquer comme lu</translation>
+        <translation>Pažymėti kaip skaitytą</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Unmute space</source>
-        <translation>Réactiver l&apos;espace</translation>
+        <translation>Įjungti erdvės garsą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mute space</source>
-        <translation>Espace muet</translation>
+        <translation>Nutildyti erdvę</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Invite</source>
-        <translation>Inviter</translation>
+        <translation>Pakviesti</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+160"/>
         <source>Copy link</source>
-        <translation>Copier le lien</translation>
+        <translation>Nukopijuoti nuorodą</translation>
     </message>
     <message>
         <location line="-149"/>
         <source>Share link…</source>
-        <translation>Partager le lien…</translation>
+        <translation>Bendrinti nuorodą…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Space settings</source>
-        <translation>Paramètres de l&apos;espace</translation>
+        <translation>Erdvės nustatymai</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>New folder…</source>
-        <translation>Nouveau dossier…</translation>
+        <translation>Naujas aplankas…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Move out of folder</source>
-        <translation>Sortir du dossier</translation>
+        <translation>Perkelti iš aplanko</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Move to “%1”</source>
-        <translation>Déplacer vers « %1 »</translation>
+        <translation>Perkelti į „%1“</translation>
     </message>
     <message>
         <location line="+63"/>
         <source>Share space</source>
-        <translation>Partager l&apos;espace</translation>
+        <translation>Bendrinkite erdvę</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Anyone with this link can find “%1”. Whether they can join still depends on the space&apos;s access setting.</source>
-        <translation>Toute personne disposant de ce lien peut trouver « %1 ». Leur possibilité de rejoindre dépend toujours des paramètres d&apos;accès de l&apos;espace.</translation>
+        <translation>Kiekvienas, turintis šią nuorodą, gali rasti „%1“. Ar jie gali prisijungti, priklauso nuo erdvės prieigos nustatymo.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This space has no shareable address yet.</source>
-        <translation>Cet espace n&apos;a pas encore d&apos;adresse partageable.</translation>
+        <translation>Šioje erdvėje dar nėra bendrinamo adreso.</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Open in browser</source>
-        <translation>Ouvrir dans le navigateur</translation>
+        <translation>Atidaryti naršyklėje</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Rename folder</source>
-        <translation>Renommer le dossier</translation>
+        <translation>Pervardyti aplanką</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>New folder</source>
-        <translation>Nouveau dossier</translation>
+        <translation>Naujas aplankas</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Folders are only on this device. Other clients, and everyone else, see your spaces unchanged.</source>
-        <translation>Les dossiers se trouvent uniquement sur cet appareil. Les autres clients, et tout le monde, voient vos espaces inchangés.</translation>
+        <translation>Aplankai yra tik šiame įrenginyje. Kiti klientai ir visi kiti jūsų erdves mato nepakeistas.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Folder name</source>
-        <translation>Nom du dossier</translation>
+        <translation>Aplanko pavadinimas</translation>
     </message>
 </context>
 <context>
@@ -11456,112 +11469,112 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/StickerPicker.qml" line="+162"/>
         <source>Stickers</source>
-        <translation>Autocollants</translation>
+        <translation>Lipdukai</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Choose a sticker</source>
-        <translation>Choisissez un autocollant</translation>
+        <translation>Pasirinkite lipduką</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif)</source>
-        <translation>Images (*.png *.jpg *.jpeg *.webp *.gif)</translation>
+        <translation>Vaizdai (*.png *.jpg *.jpeg *.webp *.gif)</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Add a sticker from this computer</source>
-        <translation>Ajouter un autocollant depuis cet ordinateur</translation>
+        <translation>Pridėkite lipduką iš šio kompiuterio</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Add a sticker</source>
-        <translation>Ajouter un autocollant</translation>
+        <translation>Pridėkite lipduką</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Reload sticker packs</source>
-        <translation>Recharger les packs d&apos;autocollants</translation>
+        <translation>Iš naujo įkelkite lipdukų pakuotes</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reload packs</source>
-        <translation>Recharger les packs</translation>
+        <translation>Perkraukite pakuotes</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Close sticker picker</source>
-        <translation>Fermer le sélecteur d&apos;autocollants</translation>
+        <translation>Uždarykite animuotųjų paveiksliukų rinkiklį</translation>
     </message>
     <message>
         <location line="+113"/>
         <source>Use this room&apos;s stickers in every room</source>
-        <translation>Utilisez les autocollants de cette pièce dans chaque pièce</translation>
+        <translation>Naudokite šio kambario lipdukus kiekviename kambaryje</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Use everywhere</source>
-        <translation>Utiliser partout</translation>
+        <translation>Naudokite visur</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>A room&apos;s stickers are always available inside that room. This makes them available everywhere else too.</source>
-        <translation>Les autocollants d&apos;une pièce sont toujours disponibles à l&apos;intérieur de cette pièce. Cela les rend également disponibles partout ailleurs.</translation>
+        <translation>Kambario lipdukai visada yra tame kambaryje. Dėl to jie pasiekiami ir visur kitur.</translation>
     </message>
     <message>
         <location line="+105"/>
         <source>Unavailable</source>
-        <translation>Indisponible</translation>
+        <translation>Nepasiekiamas</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Stickers are unavailable on this backend</source>
-        <translation>Les autocollants ne sont pas disponibles sur ce backend</translation>
+        <translation>Šioje posistemėje lipdukai nepasiekiami</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Loading your sticker packs…</source>
-        <translation>Chargement de vos packs d&apos;autocollants…</translation>
+        <translation>Įkeliami lipdukų paketai…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You have no sticker packs</source>
-        <translation>Vous n&apos;avez pas de pack d&apos;autocollants</translation>
+        <translation>Neturite lipdukų paketų</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your packs hold no stickers</source>
-        <translation>Vos packs ne contiennent pas d&apos;autocollants</translation>
+        <translation>Jūsų pakuotėse nėra lipdukų</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This pack has no stickers</source>
-        <translation>Ce pack n&apos;a pas d&apos;autocollants</translation>
+        <translation>Šioje pakuotėje nėra lipdukų</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Right-click any sticker in a chat and choose “Add to my stickers” to start your own pack. Packs a room shares appear here too.</source>
-        <translation>Cliquez avec le bouton droit sur n’importe quel autocollant dans une discussion et choisissez « Ajouter à mes autocollants » pour démarrer votre propre pack. Les packs partagés par une chambre apparaissent également ici.</translation>
+        <translation>Dešiniuoju pelės mygtuku spustelėkite bet kurį lipduką pokalbyje ir pasirinkite „Pridėti prie mano lipdukų“, kad sukurtumėte savo paketą. Čia taip pat rodomi kambario bendrinimo paketai.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>A pack can hold custom emoji instead of stickers. Those appear in the message box, not here.</source>
-        <translation>Un pack peut contenir des emoji personnalisés au lieu d’autocollants. Ceux-ci apparaissent dans la boîte de message, pas ici.</translation>
+        <translation>Pakuotėje vietoj lipdukų gali būti tinkintų jaustukų. Jie rodomi pranešimų laukelyje, o ne čia.</translation>
     </message>
     <message>
         <location line="+35"/>
         <source>Your pack</source>
-        <translation>Votre pack</translation>
+        <translation>Jūsų pakuotė</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Shared by %1</source>
-        <translation>Partagé par %1</translation>
+        <translation>Bendrino %1</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>send</source>
-        <translation>envoyer</translation>
+        <translation>siųsti</translation>
     </message>
 </context>
 <context>
@@ -11569,137 +11582,138 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/ThemeEditorDialog.qml" line="+87"/>
         <source>Theme imported.</source>
-        <translation>Thème importé.</translation>
+        <translation>Tema importuota.</translation>
     </message>
     <message>
         <location line="+167"/>
         <source>Custom theme</source>
-        <translation>Thème personnalisé</translation>
+        <translation>Pasirinktinė tema</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Click any part of the sample window, or a role on the left.</source>
-        <translation>Cliquez sur n&apos;importe quelle partie de la fenêtre d&apos;exemple, ou sur un rôle à gauche.</translation>
+        <translation>Spustelėkite bet kurią pavyzdinio lango dalį arba vaidmenį kairėje.</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n colour(s) changed. Everything else follows the theme you started from.</source>
         <comment>custom theme, count of edited roles</comment>
         <translation>
-            <numerusform>%n couleur modifiée. Tout le reste suit le thème dont vous êtes parti.</numerusform>
-            <numerusform>%n couleurs modifiées. Tout le reste suit le thème dont vous êtes parti.</numerusform>
+            <numerusform>Pakeista %n spalva. Visa kita atitinka temą, nuo kurios pradėjote.</numerusform>
+            <numerusform>%n spalvos pakeistos. Visa kita atitinka temą, nuo kurios pradėjote.</numerusform>
+            <numerusform>Pakeista %n spalvų. Visa kita atitinka temą, nuo kurios pradėjote.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Reset every colour?</source>
-        <translation>Réinitialiser toutes les couleurs ?</translation>
+        <translation>Iš naujo nustatyti kiekvieną spalvą?</translation>
     </message>
     <message>
         <location line="+10"/>
         <location line="+17"/>
         <source>Reset to default</source>
-        <translation>Réinitialiser</translation>
+        <translation>Iš naujo nustatyti numatytuosius</translation>
     </message>
     <message>
         <location line="-7"/>
         <source>Keep</source>
-        <translation>Conserver</translation>
+        <translation>Laikyti</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Use this theme</source>
-        <translation>Utiliser ce thème</translation>
+        <translation>Naudokite šią temą</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Done</source>
-        <translation>Terminé</translation>
+        <translation>Atlikta</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Your themes</source>
-        <translation>Vos thèmes</translation>
+        <translation>Jūsų temos</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Untitled</source>
-        <translation>Sans titre</translation>
+        <translation>Be pavadinimo</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Theme name</source>
-        <translation>Nom du thème</translation>
+        <translation>Temos pavadinimas</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Name this theme</source>
-        <translation>Nommez ce thème</translation>
+        <translation>Pavadinkite šią temą</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>New</source>
-        <translation>Nouveau</translation>
+        <translation>Nauja</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Duplicate</source>
-        <translation>Dupliquer</translation>
+        <translation>Pasikartoti</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Share</source>
-        <translation>Partager</translation>
+        <translation>Dalintis</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Theme copied — paste it to share it.</source>
-        <translation>Thème copié — collez-le pour le partager.</translation>
+        <translation>Tema nukopijuota – įklijuokite ją ir bendrinkite.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Import</source>
-        <translation>Importer</translation>
+        <translation>Importuoti</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Delete</source>
-        <translation>Supprimer</translation>
+        <translation>Ištrinti</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Paste a shared theme</source>
-        <translation>Coller un thème partagé</translation>
+        <translation>Įklijuokite bendrinamą temą</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Paste a shared theme, then Enter</source>
-        <translation>Collez un thème partagé, puis Entrée</translation>
+        <translation>Įklijuokite bendrinamą temą, tada Enter</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Start from</source>
-        <translation>Partir de</translation>
+        <translation>Pradėkite nuo</translation>
     </message>
     <message>
         <location line="+208"/>
         <source>Reset %1 to the base theme</source>
-        <translation>Rétablir %1 depuis le thème de base</translation>
+        <translation>Iš naujo nustatykite %1 į pagrindinę temą</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>A sample window, not one of your rooms. Click a part of it to recolour it.</source>
-        <translation>Une fenêtre d&apos;exemple, pas l&apos;un de vos salons. Cliquez sur une partie pour la recolorer.</translation>
+        <translation>Lango pavyzdys, o ne vienas iš jūsų kambarių. Spustelėkite jos dalį, kad pakeistumėte spalvą.</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Nothing selected</source>
-        <translation>Rien de sélectionné</translation>
+        <translation>Nieko nepasirinkta</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Click a part of the sample window in the middle, or a role in the list on the left, and its colour opens here.</source>
-        <translation>Cliquez sur une partie de la fenêtre d&apos;exemple au centre, ou sur un rôle de la liste à gauche, et sa couleur s&apos;ouvrira ici.</translation>
+        <translation>Spustelėkite pavyzdinio lango dalį viduryje arba vaidmenį sąraše kairėje ir čia atsidarys jo spalva.</translation>
     </message>
 </context>
 <context>
@@ -11708,12 +11722,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <location filename="../qml/ThemePreviewDemo.qml" line="+65"/>
         <location line="+13"/>
         <source>Design</source>
-        <translation>Design</translation>
+        <translation>Dizainas</translation>
     </message>
     <message>
         <location line="-13"/>
         <source>Shipped the new palette</source>
-        <translation>Nouvelle palette livrée</translation>
+        <translation>Išsiųsta nauja paletė</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -11726,40 +11740,61 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="-304"/>
         <source>Storm looks good now</source>
-        <translation>Storm rend bien maintenant</translation>
+        <translation>Audra dabar atrodo gerai</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+17"/>
         <source>Alex</source>
-        <translation>Alex</translation>
+        <translation>Aleksas</translation>
     </message>
     <message>
         <location line="-17"/>
         <source>See you at six</source>
-        <translation>À six heures</translation>
+        <translation>Iki pasimatymo šeštą</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+12"/>
         <source>Releases</source>
-        <translation>Versions</translation>
+        <translation>Išleidimai</translation>
     </message>
     <message>
         <location line="-12"/>
         <source>v0.7.4 is out</source>
-        <translation>La v0.7.4 est sortie</translation>
+        <translation>0.7.4 versija išėjo</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+6"/>
+        <source>Lobby</source>
+        <translation>Fojė</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Message Search</source>
+        <translation>Pranešimų paieška</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+132"/>
+        <source>Rooms</source>
+        <translation>Kambariai</translation>
+    </message>
+    <message>
+        <location line="-131"/>
+        <source>Creative Studio</source>
+        <translation>Kūrybinė studija</translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <location line="+322"/>
         <source>Sam</source>
-        <translation>Sam</translation>
+        <translation>Semas</translation>
     </message>
     <message>
         <location line="-322"/>
         <source>Robin</source>
-        <translation>Robin</translation>
+        <translation>Robinas</translation>
     </message>
     <message>
         <location line="+0"/>
@@ -11769,63 +11804,42 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+114"/>
         <source>Search</source>
-        <translation>Rechercher</translation>
+        <translation>Ieškoti</translation>
     </message>
     <message>
-        <location line="-122"/>
-        <location line="+132"/>
-        <source>Rooms</source>
-        <translation>Salons</translation>
-    </message>
-    <message>
-        <location line="-134"/>
-        <source>Lobby</source>
-        <translation>Hall d&apos;entrée</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Message Search</source>
-        <translation>Recherche de messages</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Creative Studio</source>
-        <translation>Studio de création</translation>
-    </message>
-    <message>
-        <location line="+337"/>
+        <location line="+216"/>
         <source>The new ladder reads much better.</source>
-        <translation>La nouvelle échelle se lit bien mieux.</translation>
+        <translation>Naujos kopėčios skaito daug geriau.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Agreed — shipping it.</source>
-        <translation>D&apos;accord — on l&apos;expédie.</translation>
+        <translation>Sutinku - siuntimas.</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>See</source>
-        <translation>Voir</translation>
+        <translation>Žr</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>the notes</source>
-        <translation>les notes</translation>
+        <translation>užrašai</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>@you</source>
-        <translation>@vous</translation>
+        <translation>@tu</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>git push</source>
-        <translation>git push</translation>
+        <translation>git stumti</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Release notes</source>
-        <translation>Notes de version</translation>
+        <translation>Išleidimo pastabos</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -11835,22 +11849,22 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+32"/>
         <source>Message</source>
-        <translation>Message</translation>
+        <translation>Pranešimas</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Send</source>
-        <translation>Envoyer</translation>
+        <translation>Siųsti</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>People</source>
-        <translation>Personnes</translation>
+        <translation>Žmonės</translation>
     </message>
     <message>
         <location line="+45"/>
         <source>Invite</source>
-        <translation>Inviter</translation>
+        <translation>Pakviesti</translation>
     </message>
 </context>
 <context>
@@ -11858,34 +11872,34 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../src/threads/ThreadController.cpp" line="+463"/>
         <source>Attachments are not supported on this backend.</source>
-        <translation>Les pièces jointes ne sont pas prises en charge par ce backend.</translation>
+        <translation>Ši posistemė nepalaiko priedų.</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>The clipboard image could not be read.</source>
-        <translation>L&apos;image du presse-papiers n&apos;a pas pu être lue.</translation>
+        <translation>Nepavyko nuskaityti iškarpinės vaizdo.</translation>
     </message>
     <message>
         <location line="+59"/>
         <source>The attachment could not be queued.</source>
-        <translation>La pièce jointe n&apos;a pas pu être mise en file d&apos;attente.</translation>
+        <translation>Priedo nepavyko įtraukti į eilę.</translation>
     </message>
     <message>
         <location line="+17"/>
         <location line="+31"/>
         <location line="+25"/>
         <source>The voice message could not be sent.</source>
-        <translation>Le message vocal n&apos;a pas pu être envoyé.</translation>
+        <translation>Balso pranešimo išsiųsti nepavyko.</translation>
     </message>
     <message>
         <location line="-47"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
-        <translation>Le message vocal dépasse la limite d&apos;envoi du serveur (%1).</translation>
+        <translation>Balso pranešimas yra didesnis nei serverio įkėlimo limitas (%1).</translation>
     </message>
     <message>
         <location line="+63"/>
         <source>Upload failed. Retry or remove.</source>
-        <translation>Échec de l&apos;envoi. Réessayez ou supprimez.</translation>
+        <translation>Įkelti nepavyko. Bandykite dar kartą arba pašalinkite.</translation>
     </message>
 </context>
 <context>
@@ -11893,243 +11907,245 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/ThreadPanel.qml" line="+78"/>
         <source>Yesterday</source>
-        <translation>Hier</translation>
+        <translation>vakar</translation>
     </message>
     <message>
         <location line="+102"/>
         <source>Back to threads</source>
-        <translation>Retour aux fils</translation>
+        <translation>Grįžti į gijas</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Thread</source>
-        <translation>Fil</translation>
+        <translation>Gija</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Threads</source>
-        <translation>Fils</translation>
+        <translation>Gijos</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Unfollow</source>
-        <translation>Ne plus suivre</translation>
+        <translation>Nebestebėti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Follow</source>
-        <translation>Suivre</translation>
+        <translation>Sekite</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Stop following this thread</source>
-        <translation>Ne plus suivre ce fil</translation>
+        <translation>Nebesekti šios gijos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Follow this thread</source>
-        <translation>Suivre ce fil</translation>
+        <translation>Sekti šią giją</translation>
     </message>
     <message>
         <location line="+11"/>
         <location line="+1"/>
         <source>Close thread</source>
-        <translation>Fermer le fil</translation>
+        <translation>Uždaryti giją</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Loading threads…</source>
-        <translation>Chargement des fils…</translation>
+        <translation>Įkeliamos gijos…</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Threads could not be loaded.</source>
-        <translation>Les fils n&apos;ont pas pu être chargés.</translation>
+        <translation>Gijų nepavyko įkelti.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No threads in this room yet.</source>
-        <translation>Aucun fil dans ce salon pour l&apos;instant.</translation>
+        <translation>Šiame kambaryje dar nėra gijų.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Reply in a thread from a message&apos;s menu to start one.</source>
-        <translation>Répondez dans un fil depuis le menu d&apos;un message pour en démarrer un.</translation>
+        <translation>Norėdami pradėti giją, pranešimo meniu pasirinkite atsakymą gijoje.</translation>
     </message>
     <message numerus="yes">
         <location line="+54"/>
         <location line="+87"/>
         <source>%n reply(s)</source>
         <translation>
-            <numerusform>%n réponse</numerusform>
-            <numerusform>%n réponses</numerusform>
+            <numerusform>%n atsakymas</numerusform>
+            <numerusform>%n atsakymai</numerusform>
+            <numerusform>%n atsakymų</numerusform>
         </translation>
     </message>
     <message>
         <location line="-84"/>
         <source>Unread</source>
-        <translation>Non lu</translation>
+        <translation>Neskaityta</translation>
     </message>
     <message>
         <location line="+110"/>
         <source>Loading…</source>
-        <translation>Chargement…</translation>
+        <translation>Įkeliama…</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Load more threads</source>
-        <translation>Charger plus de fils</translation>
+        <translation>Įkelti daugiau gijų</translation>
     </message>
     <message>
         <location line="+86"/>
         <source>Open in room</source>
-        <translation>Ouvrir dans le salon</translation>
+        <translation>Atidaryti kambaryje</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Message deleted</source>
-        <translation>Message supprimé</translation>
+        <translation>Pranešimas ištrintas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unable to decrypt this message</source>
-        <translation>Impossible de déchiffrer ce message</translation>
+        <translation>Nepavyko iššifruoti šios žinutės</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>The original message is unavailable.</source>
-        <translation>Le message d&apos;origine est indisponible.</translation>
+        <translation>Pradinė žinutė nepasiekiama.</translation>
     </message>
     <message numerus="yes">
         <location line="+27"/>
         <source>%n reply(s)</source>
         <comment>replies in the open thread</comment>
         <translation>
-            <numerusform>%n réponse</numerusform>
-            <numerusform>%n réponses</numerusform>
+            <numerusform>%n atsakymas</numerusform>
+            <numerusform>%n atsakymai</numerusform>
+            <numerusform>%n atsakymų</numerusform>
         </translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Loading thread…</source>
-        <translation>Chargement du fil…</translation>
+        <translation>Įkeliama gija…</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>This thread&apos;s first message is no longer available.</source>
-        <translation>Le premier message de ce fil n&apos;est plus disponible.</translation>
+        <translation>Pirmoji šios gijos žinutė nebepasiekiama.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The thread could not be loaded.</source>
-        <translation>Le fil n&apos;a pas pu être chargé.</translation>
+        <translation>Gijos nepavyko įkelti.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Retry</source>
-        <translation>Réessayer</translation>
+        <translation>Bandykite dar kartą</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>No replies yet. Start the conversation below.</source>
-        <translation>Aucune réponse pour l&apos;instant. Démarrez la conversation ci-dessous.</translation>
+        <translation>Dar nėra atsakymų. Pradėkite pokalbį žemiau.</translation>
     </message>
     <message>
         <location line="+330"/>
         <source>Loading older replies…</source>
-        <translation>Chargement des réponses plus anciennes…</translation>
+        <translation>Įkeliami senesni atsakymai…</translation>
     </message>
     <message>
         <location line="+72"/>
         <location line="+48"/>
         <source>Replying to %1</source>
-        <translation>Réponse à %1</translation>
+        <translation>Atsakymas į %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>someone</source>
-        <translation>quelqu&apos;un</translation>
+        <translation>kas nors</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Cancel reply</source>
-        <translation>Annuler la réponse</translation>
+        <translation>Atšaukti atsakymą</translation>
     </message>
     <message>
         <location line="+102"/>
         <source>Failed</source>
-        <translation>Échec</translation>
+        <translation>Nepavyko</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sending…</source>
-        <translation>Envoi…</translation>
+        <translation>Siunčiama…</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Retry sending %1</source>
-        <translation>Réessayer d&apos;envoyer %1</translation>
+        <translation>Bandyti dar kartą siųsti %1</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Remove attachment %1</source>
-        <translation>Supprimer la pièce jointe %1</translation>
+        <translation>Pašalinti priedą %1</translation>
     </message>
     <message>
         <location line="+35"/>
         <location line="+590"/>
         <source>Attach files</source>
-        <translation>Joindre des fichiers</translation>
+        <translation>Pridėkite failus</translation>
     </message>
     <message>
         <location line="-589"/>
         <source>Attach</source>
-        <translation>Joindre</translation>
+        <translation>Prikabinti</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Reply in thread</source>
-        <translation>Répondre dans le fil</translation>
+        <translation>Atsakyti gijoje</translation>
     </message>
     <message>
         <location line="+118"/>
         <source>Add to dictionary</source>
-        <translation>Ajouter au dictionnaire</translation>
+        <translation>Pridėti į žodyną</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Ignore</source>
-        <translation>Ignorer</translation>
+        <translation>Ignoruoti</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Cut</source>
-        <translation>Couper</translation>
+        <translation>Iškirpti</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Copy</source>
-        <translation>Copier</translation>
+        <translation>Kopijuoti</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Paste</source>
-        <translation>Coller</translation>
+        <translation>Įklijuoti</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Select all</source>
-        <translation>Tout sélectionner</translation>
+        <translation>Pasirinkite viską</translation>
     </message>
     <message>
         <location line="+112"/>
         <source>Insert emoji</source>
-        <translation>Insérer un émoji</translation>
+        <translation>Įdėkite jaustuką</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Insert a GIF</source>
-        <translation>Insérer un GIF</translation>
+        <translation>Įdėkite GIF</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -12140,79 +12156,79 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="-9"/>
         <source>GIFs are unavailable on this backend</source>
-        <translation>Les GIF ne sont pas disponibles sur ce backend</translation>
+        <translation>Šioje posistemėje GIF nepasiekiami</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>Insert a sticker</source>
-        <translation>Insérer un autocollant</translation>
+        <translation>Įklijuokite lipduką</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sticker</source>
-        <translation>Autocollant</translation>
+        <translation>Lipdukas</translation>
     </message>
     <message>
         <location line="+24"/>
         <location line="+1"/>
         <source>Record a voice message</source>
-        <translation>Enregistrer un message vocal</translation>
+        <translation>Įrašykite balso pranešimą</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>A recording is already in progress.</source>
-        <translation>Un enregistrement est déjà en cours.</translation>
+        <translation>Jau vyksta įrašymas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Voice recording is unavailable.</source>
-        <translation>L&apos;enregistrement vocal est indisponible.</translation>
+        <translation>Balso įrašymas nepasiekiamas.</translation>
     </message>
     <message>
         <location line="+75"/>
         <source>Resume recording</source>
-        <translation>Reprendre l&apos;enregistrement</translation>
+        <translation>Tęsti įrašymą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Pause recording</source>
-        <translation>Mettre l&apos;enregistrement en pause</translation>
+        <translation>Pristabdyti įrašymą</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Discard the recording</source>
-        <translation>Abandonner l&apos;enregistrement</translation>
+        <translation>Išmeskite įrašą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Discard</source>
-        <translation>Abandonner</translation>
+        <translation>Išmesti</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Finish and review</source>
-        <translation>Terminer et écouter</translation>
+        <translation>Baigti ir peržiūrėti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Done</source>
-        <translation>Terminé</translation>
+        <translation>Atlikta</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Send the voice message</source>
-        <translation>Envoyer le message vocal</translation>
+        <translation>Siųsti balso pranešimą</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+39"/>
         <source>Send</source>
-        <translation>Envoyer</translation>
+        <translation>Siųsti</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>Send thread reply</source>
-        <translation>Envoyer la réponse au fil</translation>
+        <translation>Siųsti atsakymą gijoje</translation>
     </message>
 </context>
 <context>
@@ -12220,7 +12236,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/ThreadSummaryCard.qml" line="+58"/>
         <source>Image</source>
-        <translation>Image</translation>
+        <translation>Vaizdas</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -12230,81 +12246,83 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+1"/>
         <source>Video</source>
-        <translation>Vidéo</translation>
+        <translation>Vaizdo įrašas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Audio</source>
-        <translation>Audio</translation>
+        <translation>Garsas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>File</source>
-        <translation>Fichier</translation>
+        <translation>Failas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Message removed</source>
-        <translation>Message supprimé</translation>
+        <translation>Pranešimas pašalintas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Encrypted reply</source>
-        <translation>Réponse chiffrée</translation>
+        <translation>Šifruotas atsakymas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sticker</source>
-        <translation>Autocollant</translation>
+        <translation>Lipdukas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Poll</source>
-        <translation>Sondage</translation>
+        <translation>Apklausa</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+4"/>
         <source>New reply</source>
-        <translation>Nouvelle réponse</translation>
+        <translation>Naujas atsakymas</translation>
     </message>
     <message numerus="yes">
         <location line="+7"/>
         <source>%n reply(s)</source>
         <translation>
-            <numerusform>%n réponse</numerusform>
-            <numerusform>%n réponses</numerusform>
+            <numerusform>%n atsakymas</numerusform>
+            <numerusform>%n atsakymai</numerusform>
+            <numerusform>%n atsakymų</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Replies</source>
-        <translation>Réponses</translation>
+        <translation>Atsakymai</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Open thread</source>
-        <translation>Ouvrir le fil</translation>
+        <translation>Atidaryti giją</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%1, %n reply(s)</source>
         <comment>thread card, reply count</comment>
         <translation>
-            <numerusform>%1, %n réponse</numerusform>
-            <numerusform>%1, %n réponses</numerusform>
+            <numerusform>%1, %n atsakymas</numerusform>
+            <numerusform>%1, %n atsakymai</numerusform>
+            <numerusform>%1, %n atsakymų</numerusform>
         </translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1, latest reply from %2</source>
-        <translation>%1, dernière réponse de %2</translation>
+        <translation>%1, paskutinis atsakymas iš %2</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1: %2</source>
         <comment>thread card, name then message preview</comment>
-        <translation>%1 : %2</translation>
+        <translation>%1: %2</translation>
     </message>
 </context>
 <context>
@@ -12312,67 +12330,67 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../src/models/TimelineModel.cpp" line="+676"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
-        <translation>%1 a changé son nom affiché de « %2 » en « %3 » et a changé son avatar.</translation>
+        <translation>%1 pakeitė rodomą pavadinimą iš „%2“ į „%3“ ir pakeitė savo avatarą.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 changed their display name from “%2” to “%3”.</source>
-        <translation>%1 a changé son nom affiché de « %2 » en « %3 ».</translation>
+        <translation>%1 pakeitė rodomą pavadinimą iš „%2“ į „%3“.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>%1 set their display name to “%2” and changed their avatar.</source>
-        <translation>%1 a défini son nom affiché sur « %2 » et a changé son avatar.</translation>
+        <translation>%1 nustatė rodomą pavadinimą į „%2“ ir pakeitė avatarą.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 set their display name to “%2”.</source>
-        <translation>%1 a défini son nom affiché sur « %2 ».</translation>
+        <translation>%1 nustatė rodomą pavadinimą į „%2“.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>%1 cleared their display name and changed their avatar.</source>
-        <translation>%1 a effacé son nom affiché et a changé son avatar.</translation>
+        <translation>%1 išvalė rodomą vardą ir pakeitė avatarą.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 cleared their display name.</source>
-        <translation>%1 a effacé son nom affiché.</translation>
+        <translation>%1 išvalė rodomą pavadinimą.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 changed their avatar.</source>
-        <translation>%1 a changé son avatar.</translation>
+        <translation>%1 pakeitė savo avatarą.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>%1 updated their profile.</source>
-        <translation>%1 a mis à jour son profil.</translation>
+        <translation>%1 atnaujino savo profilį.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>%1 started a video call.</source>
-        <translation>%1 a démarré un appel vidéo.</translation>
+        <translation>%1 pradėjo vaizdo skambutį.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 started a call.</source>
-        <translation>%1 a démarré un appel.</translation>
+        <translation>%1 pradėjo skambutį.</translation>
     </message>
     <message>
         <location line="+1126"/>
         <source>%1 is typing…</source>
-        <translation>%1 est en train d&apos;écrire…</translation>
+        <translation>%1 rašo…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 and %2 are typing…</source>
-        <translation>%1 et %2 sont en train d&apos;écrire…</translation>
+        <translation>%1 ir %2 rašo…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 people are typing…</source>
-        <translation>%1 personnes sont en train d&apos;écrire…</translation>
+        <translation>%1 žmonių rašo…</translation>
     </message>
 </context>
 <context>
@@ -12380,675 +12398,682 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/TimelinePane.qml" line="+492"/>
         <source>Seen by 1 person</source>
-        <translation>Vu par 1 personne</translation>
+        <translation>Matė 1 žmogus</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Seen by %1 people</source>
-        <translation>Vu par %1 personnes</translation>
+        <translation>Matė %1 žmonių</translation>
     </message>
     <message numerus="yes">
         <location line="+86"/>
         <source>…and %n more (names not loaded)</source>
         <translation>
-            <numerusform>…et %n de plus (noms non chargés)</numerusform>
-            <numerusform>…et %n de plus (noms non chargés)</numerusform>
+            <numerusform>…ir dar %n (vardai neįkelti)</numerusform>
+            <numerusform>…ir dar %n (vardai neįkelti)</numerusform>
+            <numerusform>…ir dar %n (vardai neįkelti)</numerusform>
         </translation>
     </message>
     <message>
         <location line="+159"/>
         <source>Save file as…</source>
-        <translation>Enregistrer le fichier sous…</translation>
+        <translation>Išsaugoti failą kaip…</translation>
     </message>
     <message>
         <location line="+126"/>
         <location line="+5480"/>
         <source>Space</source>
-        <translation>Espace</translation>
+        <translation>Erdvė</translation>
     </message>
     <message>
         <location line="-5479"/>
         <source>Home</source>
-        <translation>Accueil</translation>
+        <translation>Pradžia</translation>
     </message>
     <message>
         <location line="+16"/>
         <location line="+2"/>
         <source>Room encrypted</source>
-        <translation>Salon chiffré</translation>
+        <translation>Kambarys užšifruotas</translation>
     </message>
     <message>
         <location line="+49"/>
         <location line="+1"/>
         <source>Start a voice call</source>
-        <translation>Démarrer un appel vocal</translation>
+        <translation>Pradėkite balso skambutį</translation>
     </message>
     <message>
         <location line="+18"/>
         <location line="+1"/>
         <source>Pinned messages</source>
-        <translation>Messages épinglés</translation>
+        <translation>Prisegti pranešimai</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Threads</source>
-        <translation>Fils</translation>
+        <translation>Gijos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Threads in this room</source>
-        <translation>Fils de ce salon</translation>
+        <translation>Gijos šiame kambaryje</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Search messages</source>
-        <translation>Rechercher des messages</translation>
+        <translation>Ieškoti žinučių</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search room messages</source>
-        <translation>Rechercher dans les messages du salon</translation>
+        <translation>Ieškokite kambario pranešimų</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Members</source>
-        <translation>Membres</translation>
+        <translation>nariai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room members</source>
-        <translation>Membres du salon</translation>
+        <translation>Kambario nariai</translation>
     </message>
     <message>
         <location line="+10"/>
         <location line="+1"/>
         <location line="+4300"/>
         <source>Room information</source>
-        <translation>Informations du salon</translation>
+        <translation>Informacija apie kambarį</translation>
     </message>
     <message>
         <location line="-4079"/>
         <source>This room has been upgraded.</source>
-        <translation>Ce salon a été mis à niveau.</translation>
+        <translation>Šis kambarys buvo atnaujintas.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Continue in new room</source>
-        <translation>Continuer dans le nouveau salon</translation>
+        <translation>Tęskite naujame kambaryje</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Continue in the new room</source>
-        <translation>Continuer dans le nouveau salon</translation>
+        <translation>Tęskite naujame kambaryje</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Opens the room that replaced this one, joining it first if you are not already a member.</source>
-        <translation>Ouvre le salon qui a remplacé celui-ci, en le rejoignant d&apos;abord si vous n&apos;en êtes pas déjà membre.</translation>
+        <translation>Atidaro kambarį, kuris pakeitė šį, ir pirmiausia prie jo prisijungia, jei dar nesate narys.</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>This room replaced an earlier one.</source>
-        <translation>Ce salon en a remplacé un plus ancien.</translation>
+        <translation>Šis kambarys pakeitė ankstesnį kambarį.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Previous room</source>
-        <translation>Salon précédent</translation>
+        <translation>Ankstesnis kambarys</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Open the previous room</source>
-        <translation>Ouvrir le salon précédent</translation>
+        <translation>Atidarykite ankstesnį kambarį</translation>
     </message>
     <message>
         <location line="+52"/>
         <source>Loaded</source>
-        <translation>Chargés</translation>
+        <translation>Pakrauta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>History</source>
-        <translation>Historique</translation>
+        <translation>Istorija</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Search this room&apos;s history…</source>
-        <translation>Rechercher dans l&apos;historique de ce salon…</translation>
+        <translation>Ieškoti šio kambario istorijoje…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search visible messages…</source>
-        <translation>Rechercher dans les messages visibles…</translation>
+        <translation>Ieškoti matomų pranešimų…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Search room history</source>
-        <translation>Rechercher dans l&apos;historique du salon</translation>
+        <translation>Ieškoti kambario istorijoje</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Find in loaded messages</source>
-        <translation>Chercher dans les messages chargés</translation>
+        <translation>Rasti įkeltuose pranešimuose</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>%1 of %2</source>
-        <translation>%1 sur %2</translation>
+        <translation>%1 iš %2</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No matches</source>
-        <translation>Aucune correspondance</translation>
+        <translation>Jokių atitikmenų</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Previous match</source>
-        <translation>Correspondance précédente</translation>
+        <translation>Ankstesnės rungtynės</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Next match</source>
-        <translation>Correspondance suivante</translation>
+        <translation>Kitos rungtynės</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Close find</source>
-        <translation>Fermer la recherche</translation>
+        <translation>Uždaryti radinį</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Jump to message from %1</source>
-        <translation>Aller au message de %1</translation>
+        <translation>Pereiti prie pranešimo nuo %1</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Searching…</source>
-        <translation>Recherche…</translation>
+        <translation>Ieškoma…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Loading more…</source>
-        <translation>Chargement…</translation>
+        <translation>Įkeliama daugiau…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No messages found in this room&apos;s history</source>
-        <translation>Aucun message trouvé dans l&apos;historique de ce salon</translation>
+        <translation>Šio kambario istorijoje pranešimų nerasta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The search could not be completed.</source>
-        <translation>La recherche n&apos;a pas pu aboutir.</translation>
+        <translation>Paieškos užbaigti nepavyko.</translation>
     </message>
     <message>
         <location line="+3474"/>
         <source>Loading older messages…</source>
-        <translation>Chargement des messages plus anciens…</translation>
+        <translation>Įkeliami senesni pranešimai…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Could not load older messages —</source>
-        <translation>Impossible de charger les messages plus anciens —</translation>
+        <translation>Nepavyko įkelti senesnių pranešimų —</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Retry loading older messages</source>
-        <translation>Réessayer de charger les messages plus anciens</translation>
+        <translation>Pabandykite dar kartą įkelti senesnius pranešimus</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Retry</source>
-        <translation>Réessayer</translation>
+        <translation>Bandykite dar kartą</translation>
     </message>
     <message>
         <location line="+118"/>
         <source>Loading conversation…</source>
-        <translation>Chargement de la conversation…</translation>
+        <translation>Įkeliamas pokalbis…</translation>
     </message>
     <message>
         <location line="+48"/>
         <source>No messages yet</source>
-        <translation>Aucun message pour l&apos;instant</translation>
+        <translation>Pranešimų dar nėra</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>No messages here yet. Say hello.</source>
-        <translation>Aucun message ici pour l&apos;instant. Dites bonjour.</translation>
+        <translation>Čia dar nėra pranešimų. Pasisveikink.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No messages here yet. Start the conversation.</source>
-        <translation>Aucun message ici pour l&apos;instant. Lancez la conversation.</translation>
+        <translation>Čia dar nėra pranešimų. Pradėkite pokalbį.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Messages are end-to-end encrypted</source>
-        <translation>Les messages sont chiffrés de bout en bout</translation>
+        <translation>Pranešimai yra šifruojami nuo galo iki galo</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Invite people</source>
-        <translation>Inviter des personnes</translation>
+        <translation>Pakvieskite žmones</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>Jump to latest</source>
-        <translation>Aller au plus récent</translation>
+        <translation>Pereiti prie naujausio</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Return to the newest message</source>
-        <translation>Revenir au message le plus récent</translation>
+        <translation>Grįžti į naujausią pranešimą</translation>
     </message>
     <message>
         <location line="+606"/>
         <source>Room added — waiting for the server to confirm.</source>
-        <translation>Salon ajouté — en attente de confirmation du serveur.</translation>
+        <translation>kambarys pridėtas – laukiama, kol serveris patvirtins.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The room could not be added to this Space.</source>
-        <translation>Le salon n&apos;a pas pu être ajouté à cet espace.</translation>
+        <translation>Kambario nepavyko pridėti prie šios erdvės.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Room removed from this Space. The room itself is untouched.</source>
-        <translation>Salon retiré de cet espace. Le salon lui-même n&apos;est pas touché.</translation>
+        <translation>Kambarys pašalintas iš šios erdvės. Pats kambarys nepaliestas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The room could not be removed — you may not have permission.</source>
-        <translation>Le salon n&apos;a pas pu être retiré — vous n&apos;avez peut-être pas la permission.</translation>
+        <translation>Kambario pašalinti nepavyko — galbūt neturite leidimo.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>The suggested flag could not be changed — you may not have permission.</source>
-        <translation>L&apos;indicateur « suggéré » n&apos;a pas pu être modifié — vous n&apos;avez peut-être pas la permission.</translation>
+        <translation>Siūlomos vėliavėlės pakeisti nepavyko – galbūt neturite leidimo.</translation>
     </message>
     <message>
         <location line="+185"/>
         <source>Choose a banner image</source>
-        <translation>Choisir une image de bannière</translation>
+        <translation>Pasirinkite reklamjuostės vaizdą</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp)</source>
-        <translation>Images (*.png *.jpg *.jpeg *.gif *.webp)</translation>
+        <translation>Vaizdai (*.png *.jpg *.jpeg *.gif *.webp)</translation>
     </message>
     <message>
         <location line="+83"/>
         <source>Crop the banner</source>
-        <translation>Recadrer la bannière</translation>
+        <translation>Apkarpykite reklamjuostę</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show the whole banner</source>
-        <translation>Afficher toute la bannière</translation>
+        <translation>Rodyti visą reklamjuostę</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Hide space banners</source>
-        <translation>Masquer les bannières spatiales</translation>
+        <translation>Slėpti erdvių reklamjuostes</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Change banner</source>
-        <translation>Changer la bannière</translation>
+        <translation>Keisti reklamjuostę</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Add a banner</source>
-        <translation>Ajouter une bannière</translation>
+        <translation>Pridėti reklamjuostę</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Remove banner</source>
-        <translation>Supprimer la bannière</translation>
+        <translation>Pašalinti reklamjuostę</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>The banner could not be saved (%1).</source>
-        <translation>La bannière n&apos;a pas pu être enregistrée (%1).</translation>
+        <translation>Reklamjuostės išsaugoti nepavyko (%1).</translation>
     </message>
     <message numerus="yes">
         <location line="+65"/>
         <source>%n room(s)</source>
         <comment>rooms inside a Space</comment>
         <translation>
-            <numerusform>%n salon</numerusform>
-            <numerusform>%n salons</numerusform>
+            <numerusform>%n kambarys</numerusform>
+            <numerusform>%n kambariai</numerusform>
+            <numerusform>%n kambarių</numerusform>
         </translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 • %2 unread</source>
-        <translation>%1 • %2 non lus</translation>
+        <translation>%1 • %2 neskaityta</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Create room here</source>
-        <translation>Créer un salon ici</translation>
+        <translation>Sukurkite kambarį čia</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Invite</source>
-        <translation>Inviter</translation>
+        <translation>Pakviesti</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Add existing room</source>
-        <translation>Ajouter un salon existant</translation>
+        <translation>Pridėti esamą kambarį</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Hide people</source>
-        <translation>Masquer les personnes</translation>
+        <translation>Slėpti žmones</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>People (%1)</source>
-        <translation>Personnes (%1)</translation>
+        <translation>Žmonės (%1)</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Hide settings</source>
-        <translation>Masquer les paramètres</translation>
+        <translation>Slėpti nustatymus</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Space settings</source>
-        <translation>Paramètres de l&apos;espace</translation>
+        <translation>Erdvės nustatymai</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Show banner</source>
-        <translation>Afficher la bannière</translation>
+        <translation>Rodyti reklamjuostę</translation>
     </message>
     <message>
         <location line="+42"/>
         <source>People in this Space</source>
-        <translation>Personnes dans cet espace</translation>
+        <translation>Žmonės šioje erdvėje</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Members of the Space itself. Its rooms each have their own members.</source>
-        <translation>Membres de l&apos;espace lui-même. Chacun de ses salons a ses propres membres.</translation>
+        <translation>Pačios erdvės nariai. Kiekvienas jos kambarys turi savo narius.</translation>
     </message>
     <message>
         <location line="+67"/>
         <source>Showing the first 60 of %1.</source>
-        <translation>Affichage des 60 premiers sur %1.</translation>
+        <translation>Rodomi pirmieji 60 iš %1.</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Choose Space avatar</source>
-        <translation>Choisir l&apos;avatar de l&apos;espace</translation>
+        <translation>Pasirinkti erdvės avatarą</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</source>
-        <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
+        <translation>Vaizdai (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Avatar</source>
-        <translation>Avatar</translation>
+        <translation>Avataras</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Change avatar…</source>
-        <translation>Changer l&apos;avatar…</translation>
+        <translation>Keisti avatarą…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Change the Space avatar</source>
-        <translation>Changer l&apos;avatar de l&apos;espace</translation>
+        <translation>Keisti erdvės avatarą</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Remove avatar</source>
-        <translation>Supprimer l&apos;avatar</translation>
+        <translation>Pašalinti avatarą</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Remove the Space avatar</source>
-        <translation>Supprimer l&apos;avatar de l&apos;espace</translation>
+        <translation>Pašalinti erdvės avatarą</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Name</source>
-        <translation>Nom</translation>
+        <translation>Vardas</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Space name</source>
-        <translation>Nom de l&apos;espace</translation>
+        <translation>Erdvės pavadinimas</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Rename</source>
-        <translation>Renommer</translation>
+        <translation>Pervardyti</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Topic</source>
-        <translation>Sujet</translation>
+        <translation>Tema</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Space topic</source>
-        <translation>Sujet de l&apos;espace</translation>
+        <translation>Erdvės tema</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Save</source>
-        <translation>Enregistrer</translation>
+        <translation>Išsaugoti</translation>
     </message>
     <message>
         <location line="+24"/>
         <location line="+615"/>
         <source>Leave Space</source>
-        <translation>Quitter l&apos;espace</translation>
+        <translation>Palikite erdvę</translation>
     </message>
     <message>
         <location line="-609"/>
         <source>Leaving does not remove the rooms inside it.</source>
-        <translation>Quitter l&apos;espace ne supprime pas les salons qu&apos;il contient.</translation>
+        <translation>Išėjus iš erdvės joje esantys kambariai nepašalinami.</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>ROOMS AND SPACES</source>
-        <translation>SALONS ET ESPACES</translation>
+        <translation>KAMBARIAI IR ERDVĖS</translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
         <source>%n selected</source>
         <translation>
-            <numerusform>%n sélectionné</numerusform>
-            <numerusform>%n sélectionnés</numerusform>
+            <numerusform>%n pasirinktas</numerusform>
+            <numerusform>%n pasirinkti</numerusform>
+            <numerusform>%n pasirinkta</numerusform>
         </translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+498"/>
         <source>Remove</source>
-        <translation>Retirer</translation>
+        <translation>Pašalinti</translation>
     </message>
     <message>
         <location line="-486"/>
         <source>Mark as not suggested</source>
-        <translation>Marquer comme non suggéré</translation>
+        <translation>Pažymėti kaip nesiūlomą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mark as suggested</source>
-        <translation>Marquer comme suggéré</translation>
+        <translation>Pažymėti kaip siūlomą</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Search names and descriptions</source>
-        <translation>Rechercher dans les noms et descriptions</translation>
+        <translation>Ieškokite pavadinimų ir aprašymų</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search rooms and spaces</source>
-        <translation>Rechercher des salons et des espaces</translation>
+        <translation>Ieškokite kambarių ir erdvių</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>No rooms or spaces match “%1”.</source>
-        <translation>Aucun salon ni espace ne correspond à « %1 ».</translation>
+        <translation>Nė vienas kambarys ar erdvė neatitinka „%1“.</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>No rooms yet</source>
-        <translation>Aucun salon pour l&apos;instant</translation>
+        <translation>Kambarių dar nėra</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Create a room here or add one of your existing rooms to organise it under this Space.</source>
-        <translation>Créez un salon ici ou ajoutez l&apos;un de vos salons existants pour l&apos;organiser sous cet espace.</translation>
+        <translation>Sukurkite kambarį čia arba pridėkite vieną iš esamų kambarių, kad sutvarkytumėte jį šioje erdvėje.</translation>
     </message>
     <message>
         <location line="+93"/>
         <location line="+487"/>
         <source>Room</source>
-        <translation>Salon</translation>
+        <translation>Kambarys</translation>
     </message>
     <message>
         <location line="-428"/>
         <source>Joined</source>
-        <translation>Rejoint</translation>
+        <translation>Prisijungė</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Suggested</source>
-        <translation>Suggéré</translation>
+        <translation>Siūloma</translation>
     </message>
     <message numerus="yes">
         <location line="+27"/>
         <source>Space · %n room(s)</source>
         <translation>
-            <numerusform>Espace · %n salon</numerusform>
-            <numerusform>Espace · %n salons</numerusform>
+            <numerusform>Erdvė · %n kambarys</numerusform>
+            <numerusform>Erdvė · %n kambariai</numerusform>
+            <numerusform>Erdvė · %n kambarių</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Space · %n room(s) inside</source>
         <translation>
-            <numerusform>Espace · %n salon à l&apos;intérieur</numerusform>
-            <numerusform>Espace · %n salons à l&apos;intérieur</numerusform>
+            <numerusform>Erdvė · %n kambarys viduje</numerusform>
+            <numerusform>Erdvė · %n kambariai viduje</numerusform>
+            <numerusform>Erdvė · %n kambarių viduje</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+6"/>
         <source>%n member(s)</source>
         <translation>
-            <numerusform>%n membre</numerusform>
-            <numerusform>%n membres</numerusform>
+            <numerusform>%n narys</numerusform>
+            <numerusform>%n nariai</numerusform>
+            <numerusform>%n narių</numerusform>
         </translation>
     </message>
     <message>
         <location line="+59"/>
         <source>Request pending</source>
-        <translation>Demande en attente</translation>
+        <translation>Užklausa laukiama</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Ask to join</source>
-        <translation>Demander à rejoindre</translation>
+        <translation>Paprašykite prisijungti</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Join</source>
-        <translation>Rejoindre</translation>
+        <translation>Prisijunk</translation>
     </message>
     <message>
         <location line="+63"/>
         <source>Select %1</source>
-        <translation>Sélectionner %1</translation>
+        <translation>Pasirinkite %1</translation>
     </message>
     <message numerus="yes">
         <location line="+45"/>
         <source>Remove %n room(s) from this Space?</source>
         <translation>
-            <numerusform>Retirer %n salon de cet espace ?</numerusform>
-            <numerusform>Retirer %n salons de cet espace ?</numerusform>
+            <numerusform>Pašalinti %n kambarį iš šios erdvės?</numerusform>
+            <numerusform>Pašalinti %n kambarius iš šios erdvės?</numerusform>
+            <numerusform>Pašalinti %n kambarių iš šios erdvės?</numerusform>
         </translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The rooms keep existing and you stay in them — they just leave this Space&apos;s list.</source>
-        <translation>Les salons continuent d&apos;exister et vous y restez — ils quittent seulement la liste de cet espace.</translation>
+        <translation>Kambariai išlieka, o jūs juose liekate – jie tiesiog palieka šios erdvės sąrašą.</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+57"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="-18"/>
         <source>Leave %1?</source>
-        <translation>Quitter %1 ?</translation>
+        <translation>Išeiti iš %1?</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+68"/>
         <source>this Space</source>
-        <translation>cet espace</translation>
+        <translation>ši erdvė</translation>
     </message>
     <message>
         <location line="-61"/>
         <source>The rooms inside stay untouched.</source>
-        <translation>Les salons qu&apos;il contient ne sont pas touchés.</translation>
+        <translation>Kambariai viduje lieka nepaliesti.</translation>
     </message>
     <message>
         <location line="+60"/>
         <source>Add a room to %1</source>
-        <translation>Ajouter un salon à %1</translation>
+        <translation>Pridėkite kambarį prie %1</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Search your rooms…</source>
-        <translation>Rechercher dans vos salons…</translation>
+        <translation>Ieškokite savo kambarių…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search rooms to add</source>
-        <translation>Rechercher des salons à ajouter</translation>
+        <translation>Ieškokite kambarių, kad galėtumėte pridėti</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>No rooms to add.</source>
-        <translation>Aucun salon à ajouter.</translation>
+        <translation>Nėra kambarių, kuriuos būtų galima pridėti.</translation>
     </message>
     <message>
         <location line="+45"/>
         <source>Already added</source>
-        <translation>Déjà ajouté</translation>
+        <translation>Jau pridėta</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Add</source>
-        <translation>Ajouter</translation>
+        <translation>Pridėti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Add %1 to the Space</source>
-        <translation>Ajouter %1 à l&apos;espace</translation>
+        <translation>Pridėkite %1 į erdvę</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Close</source>
-        <translation>Fermer</translation>
+        <translation>Uždaryti</translation>
     </message>
     <message>
         <location line="+65"/>
         <source>Drop files to attach</source>
-        <translation>Déposez des fichiers pour les joindre</translation>
+        <translation>Numeskite failus, kuriuos norite pridėti</translation>
     </message>
 </context>
 <context>
@@ -13058,8 +13083,9 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <source>%n unread message(s)</source>
         <comment>system tray tooltip</comment>
         <translation>
-            <numerusform>%n message non lu</numerusform>
-            <numerusform>%n messages non lus</numerusform>
+            <numerusform>%n neskaitytas pranešimas</numerusform>
+            <numerusform>%n neskaityti pranešimai</numerusform>
+            <numerusform>%n neskaitytų pranešimų</numerusform>
         </translation>
     </message>
 </context>
@@ -13068,23 +13094,23 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/TrustCard.qml" line="+52"/>
         <source>Trust status for %1</source>
-        <translation>État de confiance pour %1</translation>
+        <translation>%1 pasitikėjimo būsena</translation>
     </message>
     <message>
         <location line="+121"/>
         <source>TRUST CHAIN</source>
-        <translation>CHAÎNE DE CONFIANCE</translation>
+        <translation>PASITIKĖJIMO GRANDINĖ</translation>
     </message>
     <message>
         <location line="+170"/>
         <location line="+16"/>
         <source>Verify</source>
-        <translation>Vérifier</translation>
+        <translation>Patvirtinti</translation>
     </message>
     <message>
         <location line="-9"/>
         <source>Verify this session</source>
-        <translation>Vérifier cette session</translation>
+        <translation>Patvirtinkite šią sesiją</translation>
     </message>
 </context>
 <context>
@@ -13092,12 +13118,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/TrustMeter.qml" line="+20"/>
         <source>Trust %1 of %2</source>
-        <translation>Confiance %1 sur %2</translation>
+        <translation>Pasitikėti %1 iš %2</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>TRUST</source>
-        <translation>CONFIANCE</translation>
+        <translation>PASITIKĖTI</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -13115,37 +13141,37 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../src/app/UiaController.cpp" line="+102"/>
         <source>Sign-out was cancelled.</source>
-        <translation>La déconnexion a été annulée.</translation>
+        <translation>Atsijungimas buvo atšauktas.</translation>
     </message>
     <message>
         <location line="+38"/>
         <source>The session was signed out.</source>
-        <translation>La session a été déconnectée.</translation>
+        <translation>Sesija buvo atsijungta.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>The account&apos;s session-management page could not be determined.</source>
-        <translation>La page de gestion des sessions du compte n&apos;a pas pu être déterminée.</translation>
+        <translation>Nepavyko nustatyti paskyros seanso valdymo puslapio.</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>The server refused the sign-out. The password may be wrong, or the session may not be yours to remove.</source>
-        <translation>Le serveur a refusé la déconnexion. Le mot de passe est peut-être incorrect, ou cette session ne vous appartient peut-être pas.</translation>
+        <translation>Serveris atsisakė atsijungti. Gali būti, kad slaptažodis yra neteisingas arba seansas gali būti pašalintas ne jums.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>That session no longer exists.</source>
-        <translation>Cette session n&apos;existe plus.</translation>
+        <translation>To seanso nebėra.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The server is rate limiting this action. Try again shortly.</source>
-        <translation>Le serveur limite le débit de cette action. Réessayez sous peu.</translation>
+        <translation>Serveris riboja šį veiksmą. Netrukus bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Could not reach the server. Try again.</source>
-        <translation>Impossible de joindre le serveur. Réessayez.</translation>
+        <translation>Nepavyko pasiekti serverio. Bandykite dar kartą.</translation>
     </message>
 </context>
 <context>
@@ -13153,38 +13179,38 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/UiaPromptDialog.qml" line="+59"/>
         <source>Confirm it&apos;s you</source>
-        <translation>Confirmez que c&apos;est bien vous</translation>
+        <translation>Patvirtinkite, kad tai jūs</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>The server requires your account password to sign out the selected session.</source>
-        <translation>Le serveur exige le mot de passe de votre compte pour déconnecter la session sélectionnée.</translation>
+        <translation>Serveris reikalauja paskyros slaptažodžio, kad atsijungtų nuo pasirinktos sesijos.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server requires an authentication step Lightning does not support yet (%1). Use another client or the server&apos;s account page for this action.</source>
-        <translation>Le serveur exige une étape d&apos;authentification que Lightning ne prend pas encore en charge (%1). Utilisez un autre client ou la page de compte du serveur pour cette action.</translation>
+        <translation>Serveriui reikalingas autentifikavimo veiksmas, kurio „Lightning“ dar nepalaiko (%1). Šiam veiksmui naudokite kitą klientą arba serverio paskyros puslapį.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>That password was not accepted. Try again.</source>
-        <translation>Ce mot de passe n&apos;a pas été accepté. Réessayez.</translation>
+        <translation>Tas slaptažodis nebuvo priimtas. Bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+1"/>
         <source>Account password</source>
-        <translation>Mot de passe du compte</translation>
+        <translation>Paskyros slaptažodis</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Confirm</source>
-        <translation>Confirmer</translation>
+        <translation>Patvirtinti</translation>
     </message>
 </context>
 <context>
@@ -13192,67 +13218,67 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/UpdateAvailableDialog.qml" line="+117"/>
         <source>Update available</source>
-        <translation>Mise à jour disponible</translation>
+        <translation>Galimas atnaujinimas</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Lightning %1 is available (you have %2).</source>
-        <translation>Lightning %1 est disponible (vous avez la %2).</translation>
+        <translation>Lightning %1 yra (turite %2).</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Download size: %1</source>
-        <translation>Taille du téléchargement : %1</translation>
+        <translation>Atsisiuntimo dydis: %1</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Update method: %1</source>
-        <translation>Méthode de mise à jour : %1</translation>
+        <translation>Atnaujinimo metodas: %1</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>What&apos;s new</source>
-        <translation>Nouveautés</translation>
+        <translation>Kas naujo</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Release notes</source>
-        <translation>Notes de version</translation>
+        <translation>Išleidimo pastabos</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Updates for this installation are managed by Flatpak.</source>
-        <translation>Les mises à jour de cette installation sont gérées par Flatpak.</translation>
+        <translation>Šio diegimo atnaujinimus tvarko „Flatpak“.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Updates for this installation are managed by Snap.</source>
-        <translation>Les mises à jour de cette installation sont gérées par Snap.</translation>
+        <translation>Šio diegimo atnaujinimus valdo „Snap“.</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Copied</source>
-        <translation>Copié</translation>
+        <translation>Nukopijuota</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Copy</source>
-        <translation>Copier</translation>
+        <translation>Kopijuoti</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Later</source>
-        <translation>Plus tard</translation>
+        <translation>Vėliau</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Get update instructions</source>
-        <translation>Obtenir les instructions de mise à jour</translation>
+        <translation>Gaukite atnaujinimo instrukcijas</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Update now</source>
-        <translation>Mettre à jour maintenant</translation>
+        <translation>Atnaujinkite dabar</translation>
     </message>
 </context>
 <context>
@@ -13260,22 +13286,22 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/UpdateAvailablePrompt.qml" line="+96"/>
         <source>Lightning %1 is available</source>
-        <translation>Lightning %1 est disponible</translation>
+        <translation>Yra „Lightning“ %1</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>You have %1.</source>
-        <translation>Vous avez la %1.</translation>
+        <translation>Jūs turite %1.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Not now</source>
-        <translation>Pas maintenant</translation>
+        <translation>Ne dabar</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Update</source>
-        <translation>Mettre à jour</translation>
+        <translation>Atnaujinti</translation>
     </message>
 </context>
 <context>
@@ -13283,210 +13309,210 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/UpdatesSettingsSection.qml" line="+124"/>
         <source>Updates</source>
-        <translation>Mises à jour</translation>
+        <translation>Atnaujinimai</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Check for and install new Lightning releases. Every download is verified against a signed manifest before it is ever installed.</source>
-        <translation>Vérifiez et installez les nouvelles versions de Lightning. Chaque téléchargement est vérifié par rapport à un manifeste signé avant toute installation.</translation>
+        <translation>Patikrinkite ir įdiekite naujų „Lightning“ leidimų. Kiekvienas atsisiuntimas prieš jį įdiegiant patikrinamas pagal pasirašytą aprašą.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>This installation</source>
-        <translation>Cette installation</translation>
+        <translation>Ši instaliacija</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Version %1</source>
-        <translation>Version %1</translation>
+        <translation>%1 versija</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Installation type: %1</source>
-        <translation>Type d&apos;installation : %1</translation>
+        <translation>Diegimo tipas: %1</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Update channel: Stable</source>
-        <translation>Canal de mise à jour : stable</translation>
+        <translation>Atnaujinti kanalą: stabilus</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Automatic checks</source>
-        <translation>Vérifications automatiques</translation>
+        <translation>Automatiniai patikrinimai</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+6"/>
         <source>Automatically check for updates</source>
-        <translation>Vérifier automatiquement les mises à jour</translation>
+        <translation>Automatiškai tikrinti, ar nėra naujinimų</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>On by default; turn it off here at any time. Lightning periodically checks our release server for a newer version. The request never includes any account, device, or Matrix information, and creates no tracking identifier; Lightning sends only its own version number.</source>
-        <translation>Activé par défaut ; désactivez-le ici à tout moment. Lightning consulte régulièrement notre serveur de versions pour savoir s&apos;il en existe une plus récente. La requête ne contient jamais d&apos;information de compte, d&apos;appareil ou Matrix, et ne crée aucun identifiant de suivi ; Lightning n&apos;envoie que son propre numéro de version.</translation>
+        <translation>Įjungta pagal numatytuosius nustatymus; bet kada čia išjunkite. Lightning periodiškai tikrina, ar mūsų leidimo serveryje nėra naujesnės versijos. Užklausoje niekada nėra jokios paskyros, įrenginio ar Matrix informacijos ir nesukuriamas stebėjimo identifikatorius; Lightning siunčia tik savo versijos numerį.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Last checked: %1</source>
-        <translation>Dernière vérification : %1</translation>
+        <translation>Paskutinį kartą tikrinta: %1</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Checking…</source>
-        <translation>Vérification…</translation>
+        <translation>Tikrinama…</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Check for updates</source>
-        <translation>Rechercher des mises à jour</translation>
+        <translation>Patikrinkite, ar nėra atnaujinimų</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Automatic installation is disabled for this build. A manual check may still report whether a newer version exists.</source>
-        <translation>L&apos;installation automatique est désactivée pour cette version. Une vérification manuelle peut tout de même indiquer si une version plus récente existe.</translation>
+        <translation>Šios versijos automatinis diegimas išjungtas. Neautomatinis patikrinimas vis tiek gali pranešti, ar yra naujesnė versija.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Status</source>
-        <translation>État</translation>
+        <translation>Būsena</translation>
     </message>
     <message>
         <location line="+49"/>
         <location line="+359"/>
         <location line="+45"/>
         <source>Dismiss</source>
-        <translation>Ignorer</translation>
+        <translation>Atsisakyti</translation>
     </message>
     <message>
         <location line="-391"/>
         <source>Updates haven&apos;t been checked yet.</source>
-        <translation>Les mises à jour n&apos;ont pas encore été vérifiées.</translation>
+        <translation>Atnaujinimai dar nebuvo patikrinti.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Checking for updates…</source>
-        <translation>Recherche de mises à jour…</translation>
+        <translation>Tikrinama, ar yra naujinių…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Lightning is up to date.</source>
-        <translation>Lightning est à jour.</translation>
+        <translation>Lightning yra atnaujinta.</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Lightning %1 is available (you have %2).</source>
-        <translation>Lightning %1 est disponible (vous avez la %2).</translation>
+        <translation>Lightning %1 yra (turite %2).</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Download size: %1</source>
-        <translation>Taille du téléchargement : %1</translation>
+        <translation>Atsisiuntimo dydis: %1</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Update method: %1</source>
-        <translation>Méthode de mise à jour : %1</translation>
+        <translation>Atnaujinimo metodas: %1</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Updates for this installation are managed by Flatpak.</source>
-        <translation>Les mises à jour de cette installation sont gérées par Flatpak.</translation>
+        <translation>Šio diegimo atnaujinimus tvarko „Flatpak“.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Updates for this installation are managed by Snap.</source>
-        <translation>Les mises à jour de cette installation sont gérées par Snap.</translation>
+        <translation>Šio diegimo atnaujinimus valdo „Snap“.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Get update instructions</source>
-        <translation>Obtenir les instructions de mise à jour</translation>
+        <translation>Gaukite atnaujinimo instrukcijas</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Copied</source>
-        <translation>Copié</translation>
+        <translation>Nukopijuota</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Copy</source>
-        <translation>Copier</translation>
+        <translation>Kopijuoti</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Update now</source>
-        <translation>Mettre à jour maintenant</translation>
+        <translation>Atnaujinkite dabar</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Later</source>
-        <translation>Plus tard</translation>
+        <translation>Vėliau</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Downloading update…</source>
-        <translation>Téléchargement de la mise à jour…</translation>
+        <translation>Atsisiunčiamas naujinys…</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>%1 of %2</source>
-        <translation>%1 sur %2</translation>
+        <translation>%1 iš %2</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Cancel</source>
-        <translation>Annuler</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Verifying download…</source>
-        <translation>Vérification du téléchargement…</translation>
+        <translation>Tikrinamas atsisiuntimas…</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Update %1 downloaded and verified.</source>
-        <translation>Mise à jour %1 téléchargée et vérifiée.</translation>
+        <translation>Atsisiųstas ir patvirtintas naujinys %1.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Install and restart</source>
-        <translation>Installer et redémarrer</translation>
+        <translation>Įdiekite ir paleiskite iš naujo</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Install without restarting</source>
-        <translation>Installer sans redémarrer</translation>
+        <translation>Įdiekite neperkraunant</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Installing…</source>
-        <translation>Installation…</translation>
+        <translation>Diegiama…</translation>
     </message>
     <message>
         <location line="+35"/>
         <source>Lightning %1 is ready to install.</source>
-        <translation>Lightning %1 est prêt à être installé.</translation>
+        <translation>„Lightning“ %1 paruoštas įdiegti.</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>The last update could not be installed (%1).</source>
-        <translation>La dernière mise à jour n&apos;a pas pu être installée (%1).</translation>
+        <translation>Nepavyko įdiegti paskutinio naujinimo (%1).</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The last update was installed successfully.</source>
-        <translation>La dernière mise à jour a été installée avec succès.</translation>
+        <translation>Paskutinis naujinimas buvo sėkmingai įdiegtas.</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Lightning never installs an update that fails verification. There is no way to bypass this check.</source>
-        <translation>Lightning n&apos;installe jamais une mise à jour dont la vérification échoue. Il n&apos;existe aucun moyen de contourner ce contrôle.</translation>
+        <translation>„Lightning“ niekada neįdiegia naujinimo, kurio nepavyksta patvirtinti. Šio patikrinimo negalima apeiti.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Retry</source>
-        <translation>Réessayer</translation>
+        <translation>Bandykite dar kartą</translation>
     </message>
 </context>
 <context>
@@ -13494,32 +13520,32 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/UserPicker.qml" line="+77"/>
         <source>Type a name, an @user ID, or a #room address…</source>
-        <translation>Saisissez un nom, un identifiant @utilisateur ou une adresse #salon…</translation>
+        <translation>Įveskite vardą, @naudotojo ID arba #kambario adresą…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search people, or enter a full Matrix ID…</source>
-        <translation>Recherchez des personnes, ou saisissez un identifiant Matrix complet…</translation>
+        <translation>Ieškokite žmonių arba įveskite visą Matrix ID…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search for a user</source>
-        <translation>Rechercher un utilisateur</translation>
+        <translation>Ieškokite vartotojo</translation>
     </message>
     <message>
         <location line="+69"/>
         <source>Searching…</source>
-        <translation>Recherche…</translation>
+        <translation>Ieškoma…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No results</source>
-        <translation>Aucun résultat</translation>
+        <translation>Jokių rezultatų</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search failed. Check your connection and try again.</source>
-        <translation>Échec de la recherche. Vérifiez votre connexion et réessayez.</translation>
+        <translation>Paieška nepavyko. Patikrinkite ryšį ir bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+40"/>
@@ -13529,12 +13555,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+52"/>
         <source>From your server</source>
-        <translation>Depuis votre serveur</translation>
+        <translation>Iš jūsų serverio</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Exact Matrix ID</source>
-        <translation>Identifiant Matrix exact</translation>
+        <translation>Tikslus Matrix ID</translation>
     </message>
 </context>
 <context>
@@ -13542,22 +13568,22 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/VerificationDialog.qml" line="+122"/>
         <source>Session verification</source>
-        <translation>Vérification de session</translation>
+        <translation>Seanso patikrinimas</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Verify this session</source>
-        <translation>Vérifier cette session</translation>
+        <translation>Patvirtinkite šią sesiją</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Close</source>
-        <translation>Fermer</translation>
+        <translation>Uždaryti</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Verifying proves this device is really yours, so your other sessions will share encryption keys with it and encrypted history becomes readable here.</source>
-        <translation>La vérification prouve que cet appareil est bien le vôtre : vos autres sessions partageront alors leurs clés de chiffrement avec lui et l&apos;historique chiffré deviendra lisible ici.</translation>
+        <translation>Patvirtinimas įrodo, kad šis įrenginys tikrai priklauso jūsų, todėl kiti jūsų seansai su juo bendrins šifravimo raktus, o šifruota istorija bus skaitoma čia.</translation>
     </message>
 </context>
 <context>
@@ -13566,122 +13592,122 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <location filename="../qml/VerificationPanel.qml" line="+69"/>
         <location line="+29"/>
         <source>Confirming verification…</source>
-        <translation>Confirmation de la vérification…</translation>
+        <translation>Patvirtinamas patvirtinimas…</translation>
     </message>
     <message>
         <location line="-27"/>
         <source>Your other device scanned the code. Confirm below only if that device says the verification succeeded.</source>
-        <translation>Votre autre appareil a scanné le code. Ne confirmez ci-dessous que si cet appareil indique que la vérification a réussi.</translation>
+        <translation>Kitas įrenginys nuskaitė kodą. Patvirtinkite toliau tik tuo atveju, jei įrenginys teigia, kad patvirtinimas pavyko.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Scan this code with your other device to verify this session.</source>
-        <translation>Scannez ce code avec votre autre appareil pour vérifier cette session.</translation>
+        <translation>Nuskaitykite šį kodą su kitu įrenginiu, kad patvirtintumėte šią sesiją.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Sending verification request…</source>
-        <translation>Envoi de la demande de vérification…</translation>
+        <translation>Siunčiama patvirtinimo užklausa…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Verification request sent. Accept it in another session, such as Element.</source>
-        <translation>Demande de vérification envoyée. Acceptez-la dans une autre session, par exemple Element.</translation>
+        <translation>Patvirtinimo užklausa išsiųsta. Priimkite ją kitoje sesijoje, pvz., programoje Element.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Incoming verification request from %1</source>
-        <translation>Demande de vérification entrante de %1</translation>
+        <translation>Gaunama patvirtinimo užklausa iš %1</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Both sessions accepted. Exchanging keys — the emojis will appear here shortly.</source>
-        <translation>Les deux sessions ont accepté. Échange des clés — les émojis apparaîtront ici sous peu.</translation>
+        <translation>Abu seansai patvirtinti. Keičiamasi raktais – netrukus čia pasirodys jaustukai.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Compare all seven emojis with the other session. Confirm only if every emoji matches in the same order.</source>
-        <translation>Comparez les sept émojis avec l&apos;autre session. Ne confirmez que si chaque émoji correspond, dans le même ordre.</translation>
+        <translation>Palyginkite visus septynis jaustukus su kita sesija. Patvirtinkite, tik jei visi jaustukai sutampa ta pačia tvarka.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Waiting for your other device to confirm…</source>
-        <translation>En attente de confirmation de votre autre appareil…</translation>
+        <translation>Laukiama, kol kitas įrenginys patvirtins…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Verification complete. This session is now verified; Lightning is refreshing the trust state and requesting encryption keys.</source>
-        <translation>Vérification terminée. Cette session est maintenant vérifiée ; Lightning actualise l&apos;état de confiance et demande les clés de chiffrement.</translation>
+        <translation>Patvirtinimas baigtas. Ši sesija dabar patvirtinta; „Lightning“ atnaujina pasitikėjimo būseną ir prašo šifravimo raktų.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Verification cancelled.</source>
-        <translation>Vérification annulée.</translation>
+        <translation>Patvirtinimas atšauktas.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Verification failed: %1</source>
-        <translation>Échec de la vérification : %1</translation>
+        <translation>Patvirtinimas nepavyko: %1</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Verification failed.</source>
-        <translation>La vérification a échoué.</translation>
+        <translation>Patvirtinimas nepavyko.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Waiting…</source>
-        <translation>En attente…</translation>
+        <translation>Laukiama…</translation>
     </message>
     <message>
         <location line="+65"/>
         <source>Verification QR code — scan with your other device</source>
-        <translation>Code QR de vérification — scannez-le avec votre autre appareil</translation>
+        <translation>Patvirtinimo QR kodas – nuskaitykite naudodami kitą įrenginį</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Only confirm if the other device reports success.</source>
-        <translation>Ne confirmez que si l&apos;autre appareil indique une réussite.</translation>
+        <translation>Patvirtinkite tik tuo atveju, jei kitas įrenginys praneša apie sėkmę.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Can&apos;t scan? Choose emoji verification on the other device instead.</source>
-        <translation>Impossible de scanner ? Choisissez plutôt la vérification par émojis sur l&apos;autre appareil.</translation>
+        <translation>Negalite nuskaityti? Vietoj to pasirinkite jaustukų patvirtinimą kitame įrenginyje.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>It reported success</source>
-        <translation>Il a indiqué une réussite</translation>
+        <translation>Tai pranešė apie sėkmę</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>It did not</source>
-        <translation>Il ne l&apos;a pas fait</translation>
+        <translation>To nepadarė</translation>
     </message>
     <message>
         <location line="+67"/>
         <source>Accept</source>
-        <translation>Accepter</translation>
+        <translation>Priimti</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>They match</source>
-        <translation>Ils correspondent</translation>
+        <translation>Jie sutampa</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>They do not match</source>
-        <translation>Ils ne correspondent pas</translation>
+        <translation>Jie nesutampa</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Cancel verification</source>
-        <translation>Annuler la vérification</translation>
+        <translation>Atšaukti patvirtinimą</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Dismiss</source>
-        <translation>Ignorer</translation>
+        <translation>Atsisakyti</translation>
     </message>
 </context>
 <context>
@@ -13689,27 +13715,27 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/VerifySessionPrompt.qml" line="+76"/>
         <source>This session is not verified</source>
-        <translation>Cette session n&apos;est pas vérifiée</translation>
+        <translation>Ši sesija nepatvirtinta</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Verify this session</source>
-        <translation>Vérifier cette session</translation>
+        <translation>Patvirtinkite šią sesiją</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Until you do, your other sessions won&apos;t share encryption keys with this one, so some encrypted messages may stay unreadable here.</source>
-        <translation>Tant que vous ne le faites pas, vos autres sessions ne partageront pas leurs clés de chiffrement avec celle-ci : certains messages chiffrés pourront rester illisibles ici.</translation>
+        <translation>Kol to nepadarysite, kitose jūsų seansose šifravimo raktai nebus bendrinami su šiuo, todėl kai kurie šifruoti pranešimai čia gali likti neįskaitomi.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Verify</source>
-        <translation>Vérifier</translation>
+        <translation>Patvirtinti</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Not now</source>
-        <translation>Pas maintenant</translation>
+        <translation>Ne dabar</translation>
     </message>
 </context>
 <context>
@@ -13717,57 +13743,57 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/VideoControlBar.qml" line="+85"/>
         <source>Pause video</source>
-        <translation>Mettre la vidéo en pause</translation>
+        <translation>Pristabdyti vaizdo įrašą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Play video</source>
-        <translation>Lire la vidéo</translation>
+        <translation>Leisti vaizdo įrašą</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Seek position</source>
-        <translation>Position de lecture</translation>
+        <translation>Siekite pozicijos</translation>
     </message>
     <message>
         <location line="+60"/>
         <source>Playback speed %1x</source>
-        <translation>Vitesse de lecture %1x</translation>
+        <translation>Atkūrimo greitis %1x</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>More playback controls</source>
-        <translation>Plus de commandes de lecture</translation>
+        <translation>Daugiau atkūrimo valdiklių</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Expand video</source>
-        <translation>Agrandir la vidéo</translation>
+        <translation>Išskleisti vaizdo įrašą</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Exit expanded video</source>
-        <translation>Quitter la vidéo agrandie</translation>
+        <translation>Išeikite iš išplėsto vaizdo įrašo</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Close player</source>
-        <translation>Fermer le lecteur</translation>
+        <translation>Uždaryti grotuvą</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Unmute</source>
-        <translation>Réactiver le son</translation>
+        <translation>Įjungti garsą</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Mute</source>
-        <translation>Couper le son</translation>
+        <translation>Nutildyti</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Speed: %1×</source>
-        <translation>Vitesse : %1×</translation>
+        <translation>Greitis: %1×</translation>
     </message>
 </context>
 <context>
@@ -13775,12 +13801,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/VideoPlayerCard.qml" line="+324"/>
         <source>This video cannot be played</source>
-        <translation>Cette vidéo ne peut pas être lue</translation>
+        <translation>Šio vaizdo įrašo paleisti negalima</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Retry</source>
-        <translation>Réessayer</translation>
+        <translation>Bandykite dar kartą</translation>
     </message>
 </context>
 <context>
@@ -13788,42 +13814,42 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/VoiceConnectedBar.qml" line="+47"/>
         <source>Voice connected</source>
-        <translation>Voix connectée</translation>
+        <translation>Balsas prijungtas</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Connecting…</source>
-        <translation>Connexion…</translation>
+        <translation>Jungiamasi…</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Unmute microphone</source>
-        <translation>Activer le microphone</translation>
+        <translation>Įjungti mikrofono garsą</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Mute microphone</source>
-        <translation>Couper le microphone</translation>
+        <translation>Nutildyti mikrofoną</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Undeafen</source>
-        <translation>Insourdissant</translation>
+        <translation>Nekurčias</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Deafen</source>
-        <translation>Assourdir</translation>
+        <translation>Kurčias</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Return to call</source>
-        <translation>Retourner à l&apos;appel</translation>
+        <translation>Grįžti į skambutį</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Leave call</source>
-        <translation>Quitter l&apos;appel</translation>
+        <translation>Palikite skambutį</translation>
     </message>
 </context>
 <context>
@@ -13831,32 +13857,32 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/VoicePreviewBar.qml" line="+78"/>
         <source>Pause the preview</source>
-        <translation>Mettre l&apos;aperçu en pause</translation>
+        <translation>Pristabdykite peržiūrą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Play the recording back</source>
-        <translation>Écouter l&apos;enregistrement</translation>
+        <translation>Atkurkite įrašą</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Discard the recording</source>
-        <translation>Abandonner l&apos;enregistrement</translation>
+        <translation>Išmeskite įrašą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Discard</source>
-        <translation>Abandonner</translation>
+        <translation>Išmesti</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Send the voice message</source>
-        <translation>Envoyer le message vocal</translation>
+        <translation>Siųsti balso pranešimą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Send</source>
-        <translation>Envoyer</translation>
+        <translation>Siųsti</translation>
     </message>
 </context>
 <context>
@@ -13864,37 +13890,37 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../src/media/VoiceRecorder.cpp" line="+65"/>
         <source>The recording reached the maximum length and was discarded.</source>
-        <translation>L&apos;enregistrement a atteint la durée maximale et a été abandonné.</translation>
+        <translation>Įrašas pasiekė didžiausią ilgį ir buvo atmestas.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>The recording could not be finalized.</source>
-        <translation>L&apos;enregistrement n&apos;a pas pu être finalisé.</translation>
+        <translation>Įrašymo nepavyko užbaigti.</translation>
     </message>
     <message>
         <location line="+60"/>
         <source>Nothing was recorded.</source>
-        <translation>Rien n&apos;a été enregistré.</translation>
+        <translation>Nieko nebuvo įrašyta.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Recording failed.</source>
-        <translation>Échec de l&apos;enregistrement.</translation>
+        <translation>Įrašyti nepavyko.</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>No microphone or audio encoder is available.</source>
-        <translation>Aucun microphone ni encodeur audio n&apos;est disponible.</translation>
+        <translation>Nėra mikrofono ar garso kodavimo įrenginio.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Recording storage could not be prepared.</source>
-        <translation>Le stockage de l&apos;enregistrement n&apos;a pas pu être préparé.</translation>
+        <translation>Nepavyko paruošti įrašų saugyklos.</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Recording could not start.</source>
-        <translation>L&apos;enregistrement n&apos;a pas pu démarrer.</translation>
+        <translation>Nepavyko pradėti įrašymo.</translation>
     </message>
 </context>
 <context>
@@ -13902,42 +13928,42 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../src/main.cpp" line="+1311"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
-        <translation>Client Matrix natif Qt/QML. Backend : --backend={mock,http,rust}. Par défaut : rust (http dans les versions sans le Rust SDK).</translation>
+        <translation>Vietinė Qt/QML Matrix programa. Posistemė: --backend={mock,http,rust}. Numatytoji: rust (versijose be Rust SDK – http).</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Compatibility alias for --backend=mock.</source>
-        <translation>Alias de compatibilité pour --backend=mock.</translation>
+        <translation>Suderinamumo pseudonimas --backend=mock.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Windows: open a visible diagnostic console.</source>
-        <translation>Windows&#xa0;: ouvrez une console de diagnostic visible.</translation>
+        <translation>„Windows“: atidarykite matomą diagnostikos pultą.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Mirror the diagnostic log to this file as well as the console.</source>
-        <translation>Mettez en miroir le journal de diagnostic dans ce fichier ainsi que dans la console.</translation>
+        <translation>Dubliuokite diagnostikos žurnalą šiame faile ir konsolėje.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Development-only: boot the mock backend with deterministic demo data for screenshots.</source>
-        <translation>Développement uniquement : démarre le backend fictif avec des données de démonstration déterministes pour les captures d&apos;écran.</translation>
+        <translation>Tik kūrimui: paleisti bandomąją posistemę su nekintamais demonstraciniais ekrano kopijų duomenimis.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Development-only screenshot-demo option.</source>
-        <translation>Option de démonstration réservée au développement.</translation>
+        <translation>Tik kūrimo ekrano kopijos ir demonstracinės versijos parinktis.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Development-only: start with the demo controls hidden.</source>
-        <translation>Développement uniquement : démarre avec les contrôles de démonstration masqués.</translation>
+        <translation>Tik kūrimui: pradėkite nuo paslėptų demonstracinių valdiklių.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Backend to run: mock, http, or rust. Default: rust (http in builds without the Rust SDK).</source>
-        <translation>Backend à exécuter : mock, http ou rust. Par défaut : rust (http dans les versions sans le Rust SDK).</translation>
+        <translation>Paleidžiama posistemė: mock, http arba rust. Numatytoji: rust (versijose be Rust SDK – http).</translation>
     </message>
 </context>
 </TS>

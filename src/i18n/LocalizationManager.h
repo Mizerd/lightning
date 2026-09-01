@@ -44,7 +44,7 @@ class LocalizationManager : public QObject
     Q_PROPERTY(bool rightToLeft READ rightToLeft NOTIFY languageChanged)
     // False in a build configured without Qt's Linguist tools: every string
     // then renders as its English source. Surfaced so the Settings page can
-    // say so rather than offering ten languages that all look identical.
+    // say so rather than offering languages that all look identical.
     Q_PROPERTY(bool translationsAvailable READ translationsAvailable CONSTANT)
 
 public:
