@@ -129,6 +129,12 @@ Item {
           keywords: qsTr("caption attachment upload text description"),
           section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
           control: "sendTextAsCaption" },
+        { title: qsTr("Check spelling as you type"),
+          keywords: qsTr("spell spelling checker dictionary typo underline language"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box") },
+        { title: qsTr("Spelling language"),
+          keywords: qsTr("spell spelling language dictionary automatic system"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box") },
 
         { title: qsTr("Keyboard shortcuts"),
           keywords: qsTr("keyboard shortcut shortcuts key keys binding rebind hotkey"),
@@ -3053,6 +3059,100 @@ Item {
                                     text: app.settings.enterInsertsNewline
                                         ? qsTr("Enter starts a new line; Ctrl+Enter sends.")
                                         : qsTr("Enter sends; Shift+Enter starts a new line.")
+                                }
+                                // v0.9 spell checking: an application
+                                // preference, independent of the UI language
+                                // (a user reading Lightning in English still
+                                // types Lithuanian). The engine is the
+                                // operating system's own; when it has no
+                                // dictionary the row says so instead of
+                                // pretending.
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "spellCheckEnabledCheck"
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Check spelling as you type")
+                                    checked: app.settings.spellCheckEnabled
+                                    onToggled: app.settings.spellCheckEnabled = checked
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    spacing: AppTheme.spacing8
+                                    enabled: app.settings.spellCheckEnabled
+                                    Label {
+                                        text: qsTr("Spelling language")
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                    }
+                                    AppComboBox {
+                                        id: spellLanguageCombo
+                                        objectName: "spellLanguageCombo"
+                                        storm: true
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: 320
+                                        textRole: "label"
+                                        valueRole: "tag"
+                                        model: app.spell ? app.spell.languageOptions : []
+                                        Accessible.name: qsTr("Spelling language")
+                                        // A combo NEVER binds currentIndex —
+                                        // see AppComboBox.
+                                        Component.onCompleted:
+                                            syncToValue(app.settings.spellCheckLanguage)
+                                        onModelChanged:
+                                            syncToValue(app.settings.spellCheckLanguage)
+                                        Connections {
+                                            target: app.settings
+                                            function onSpellCheckLanguageChanged() {
+                                                spellLanguageCombo.syncToValue(
+                                                    app.settings.spellCheckLanguage)
+                                            }
+                                        }
+                                        onActivated: app.settings.spellCheckLanguage =
+                                                         currentValue === undefined
+                                                         ? "" : currentValue
+                                    }
+                                }
+                                Label {
+                                    objectName: "spellCheckDetail"
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    color: app.spell && app.spell.available
+                                           ? AppTheme.stormTextMuted : AppTheme.stormText
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: {
+                                        if (!app.spell)
+                                            return ""
+                                        if (app.spell.available) {
+                                            var engine = app.spell.backendName === "windows"
+                                                ? qsTr("Windows spell checker")
+                                                : app.spell.backendName === "macos"
+                                                  ? qsTr("macOS spell checker")
+                                                  : qsTr("Enchant (system dictionaries)")
+                                            return engine + " · " + qsTr("Dictionary: %1")
+                                                .arg(app.spell.languageLabel.length > 0
+                                                     ? app.spell.languageLabel
+                                                     : app.spell.language)
+                                        }
+                                        var reason = app.spell.unavailableReason
+                                        var os = Qt.platform.os
+                                        if (reason === "no-platform")
+                                            return qsTr("Spell checking is not available in this build for this operating system.")
+                                        if (reason === "no-library") {
+                                            if (os === "windows")
+                                                return qsTr("Spell checking is unavailable: the Windows spell-checking service could not be started.")
+                                            return qsTr("Spell checking is unavailable because the enchant-2 spelling library is not installed on this system.")
+                                        }
+                                        var wanted = app.settings.spellCheckLanguage.length > 0
+                                            ? app.settings.spellCheckLanguage : qsTr("your system language")
+                                        var how = os === "windows"
+                                            ? qsTr("Add the language under Windows Settings › Time & language › Language to install its spelling.")
+                                            : os === "osx"
+                                              ? qsTr("Add the language under System Settings › Keyboard › Text Input.")
+                                              : qsTr("Install your distribution's spelling dictionary for that language (usually a hunspell package). Inside Flatpak or Snap only the runtime's own dictionaries are visible.")
+                                        return qsTr("Spell checking is unavailable because no system dictionary is installed for %1.").arg(wanted) + " " + how
+                                    }
                                 }
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText

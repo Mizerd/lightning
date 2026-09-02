@@ -45,7 +45,9 @@ public:
         return { QStringLiteral("world") };
     }
     void addToPersonalDictionary(const QString &) override {}
-    QString language() const override { return QStringLiteral("en_US"); }
+    QString language() const override { return QStringLiteral("en-US"); }
+    QStringList availableLanguages() const override
+    { return { QStringLiteral("en-US") }; }
     QString name() const override { return QStringLiteral("fake"); }
 };
 

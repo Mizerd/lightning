@@ -42,12 +42,15 @@ public:
         m_added << word;
         m_known << word;
     }
-    QString language() const override { return QStringLiteral("en_US"); }
+    QString language() const override { return m_language; }
+    QStringList availableLanguages() const override
+    { return { QStringLiteral("en-US"), QStringLiteral("lt-LT"), QStringLiteral("en-GB") }; }
     QString name() const override { return QStringLiteral("fake"); }
 
     mutable QStringList m_asked;
     QStringList m_added;
     QStringList m_known;
+    QString m_language = QStringLiteral("en-US");
 };
 
 // Convenience: the checker plus a borrowed pointer to the backend inside it.
@@ -124,6 +127,215 @@ class ComposerSpellTest : public QObject
 private Q_SLOTS:
 
     // ---- 1: input method hints ----------------------------------------
+
+    // ── v0.9 spell-checking round: exclusions, Unicode ranges, language ──
+
+    void codeIsNeverChecked()
+    {
+        Fixture f({ QStringLiteral("hello"), QStringLiteral("and"), QStringLiteral("then"),
+                    QStringLiteral("twice") });
+        const QString text = QStringLiteral(
+            "`teh` and ``teh `` twice``\n```\ninside teh\n```\nand `teh in span` then teh");
+        const QVariantList ranges = f.checker.misspelledRanges(text);
+        QCOMPARE(ranges.size(), 1);
+        QCOMPARE(ranges.first().toMap().value(QStringLiteral("start")).toInt(),
+                 text.lastIndexOf(QStringLiteral("teh")));
+        QVERIFY(!f.backend->m_asked.contains(QStringLiteral("inside")));
+        QVERIFY(!f.backend->m_asked.contains(QStringLiteral("span")));
+        QVERIFY(!f.backend->m_asked.contains(QStringLiteral("twice")));
+    }
+
+    void richParagraphSeparatorsEndALineTooAndAnInlineSpanIsNotAFence()
+    {
+        Fixture f({ QStringLiteral("hello") });
+        // A rich TextEdit's getText() separates paragraphs with U+2029, not
+        // '\n'. A lone backtick in one paragraph must not swallow the next.
+        const QString rich = QStringLiteral("a ` stray") + QChar::ParagraphSeparator
+            + QStringLiteral("teh");
+        const QVariantList ranges = f.checker.misspelledRanges(rich);
+        QCOMPARE(ranges.size(), 1);
+        QCOMPARE(ranges.first().toMap().value(QStringLiteral("start")).toInt(),
+                 rich.indexOf(QStringLiteral("teh")));
+        // ```teh``` on its own line is an inline span (CommonMark: an info
+        // string may not contain backticks), not a fence over the rest.
+        const QString span = QStringLiteral("```teh```\nteh");
+        const QVariantList afterSpan = f.checker.misspelledRanges(span);
+        QCOMPARE(afterSpan.size(), 1);
+        QCOMPARE(afterSpan.first().toMap().value(QStringLiteral("start")).toInt(),
+                 span.lastIndexOf(QStringLiteral("teh")));
+    }
+
+    void anUnterminatedFenceExcludesTheRestOfTheDraft()
+    {
+        Fixture f;
+        QCOMPARE(f.checker.misspelledRanges(QStringLiteral("hello\n```\nteh\nteh")).size(), 0);
+    }
+
+    void markdownLinkDestinationsAreSkippedButTheirTextIsChecked()
+    {
+        Fixture f({ QStringLiteral("hello"), QStringLiteral("docs"), QStringLiteral("see"),
+                    QStringLiteral("and") });
+        const QString text =
+            QStringLiteral("see [teh docs](https://example.org/teh) and [teh](docs) teh");
+        const QVariantList ranges = f.checker.misspelledRanges(text);
+        QList<int> starts;
+        for (const QVariant &v : ranges)
+            starts << v.toMap().value(QStringLiteral("start")).toInt();
+        QCOMPARE(starts, (QList<int>{ 5, 45, 56 }));
+        QVERIFY(!f.backend->m_asked.contains(QStringLiteral("docs")));
+        QVERIFY(!f.backend->m_asked.contains(QStringLiteral("example")));
+    }
+
+    void domainsPathsCommandsAndShortcodesAreNotWords()
+    {
+        Fixture f;
+        const QString text = QStringLiteral(
+            "/topic teh matrix.org notes.txt /usr/teh ~/teh :teh: @teh:x.org #teh:x.org teh");
+        const QVariantList ranges = f.checker.misspelledRanges(text);
+        QCOMPARE(ranges.size(), 2);
+        QCOMPARE(ranges.first().toMap().value(QStringLiteral("start")).toInt(), 7);
+        QCOMPARE(ranges.last().toMap().value(QStringLiteral("start")).toInt(),
+                 text.lastIndexOf(QStringLiteral("teh")));
+        QVERIFY(!f.backend->m_asked.contains(QStringLiteral("org")));
+        QVERIFY(!f.backend->m_asked.contains(QStringLiteral("txt")));
+        QVERIFY(!f.backend->m_asked.contains(QStringLiteral("topic")));
+    }
+
+    void strikeThroughAndEmphasisMarkersDoNotHideTheWord()
+    {
+        Fixture f;
+        const QString text = QStringLiteral("~~teh~~ **teh** *teh* _teh_ hello");
+        const QVariantList ranges = f.checker.misspelledRanges(text);
+        QList<int> starts;
+        for (const QVariant &v : ranges)
+            starts << v.toMap().value(QStringLiteral("start")).toInt();
+        // `_teh_` is deliberately NOT checked: an underscore marks an
+        // identifier far more often than emphasis in a chat.
+        QCOMPARE(starts, (QList<int>{ 2, 10, 17 }));
+    }
+
+    void emojiAndNonBmpTextDoNotShiftTheRanges()
+    {
+        Fixture f;
+        // U+1F600 and U+1D518 are surrogate pairs: two UTF-16 units each.
+        const QString text = QString::fromUtf8("😀 teh 😀teh😀 𝔘 teh");
+        const QVariantList ranges = f.checker.misspelledRanges(text);
+        QCOMPARE(ranges.size(), 3);
+        int from = 0;
+        for (const QVariant &v : ranges) {
+            const QVariantMap r = v.toMap();
+            const int expected = text.indexOf(QStringLiteral("teh"), from);
+            QCOMPARE(r.value(QStringLiteral("start")).toInt(), expected);
+            QCOMPARE(r.value(QStringLiteral("length")).toInt(), 3);
+            QCOMPARE(text.mid(expected, 3), QStringLiteral("teh"));
+            from = expected + 3;
+        }
+    }
+
+    void lithuanianCombiningMarksAndParagraphsAreWholeWords()
+    {
+        Fixture f({ QString::fromUtf8("ąžuolas"), QStringLiteral("hello") });
+        const QString decomposed = QStringLiteral("cafe") + QChar(0x0301);
+        const QString text = QString::fromUtf8("ąžuolas teh\n\n") + decomposed
+            + QStringLiteral(" teh\nhello");
+        const QVariantList ranges = f.checker.misspelledRanges(text);
+        QCOMPARE(ranges.size(), 3);
+        QVERIFY(f.backend->m_asked.contains(decomposed));
+        QVERIFY(!f.backend->m_asked.contains(QStringLiteral("cafe")));
+        QCOMPARE(f.backend->m_asked.count(QString::fromUtf8("ąžuolas")), 1);
+    }
+
+    void changingTheLanguageRecreatesTheBackendAndForgetsEveryAnswer()
+    {
+        SpellChecker checker;
+        QStringList requested;
+        checker.setBackendFactoryForTest([&requested](const QString &tag, QString *failure,
+                                                      QStringList *offered)
+                                             -> std::unique_ptr<SpellBackend> {
+            requested << tag;
+            *offered = { QStringLiteral("en-US"), QStringLiteral("lt-LT") };
+            if (tag == QStringLiteral("xx-XX")) {
+                *failure = QStringLiteral("no-dictionary");
+                return {};
+            }
+            auto b = std::make_unique<FakeBackend>(
+                QStringList{ tag == QStringLiteral("lt-LT") ? QStringLiteral("labas")
+                                                            : QStringLiteral("hello") });
+            b->m_language = tag.isEmpty() ? QStringLiteral("en-US") : tag;
+            return b;
+        });
+        checker.initialize();
+        QCOMPARE(requested, QStringList{ QString() });
+        QVERIFY(checker.available());
+        QCOMPARE(checker.preferredLanguage(), QString());
+        QCOMPARE(checker.language(), QStringLiteral("en-US"));
+        QCOMPARE(checker.misspelledRanges(QStringLiteral("labas hello")).size(), 1);
+
+        QSignalSpy dictionary(&checker, &SpellChecker::dictionaryChanged);
+        checker.setPreferredLanguage(QStringLiteral("lt_LT")); // POSIX in, BCP-47 kept
+        QCOMPARE(checker.preferredLanguage(), QStringLiteral("lt-LT"));
+        QCOMPARE(requested.last(), QStringLiteral("lt-LT"));
+        QCOMPARE(dictionary.size(), 1);
+        const QVariantList ranges = checker.misspelledRanges(QStringLiteral("labas hello"));
+        QCOMPARE(ranges.size(), 1);
+        QCOMPARE(ranges.first().toMap().value(QStringLiteral("start")).toInt(), 6);
+        QCOMPARE(checker.languageLabel(), QStringLiteral("Lithuanian (Lithuania)"));
+
+        const QVariantList options = checker.languageOptions();
+        QVERIFY(options.size() >= 4);
+        QCOMPARE(options.first().toMap().value(QStringLiteral("tag")).toString(), QString());
+        QStringList labels;
+        for (const QVariant &v : options)
+            labels << v.toMap().value(QStringLiteral("label")).toString();
+        QVERIFY(labels.contains(QStringLiteral("English (United Kingdom)")));
+        QVERIFY(labels.contains(QStringLiteral("English (United States)")));
+        QVERIFY(labels.contains(QStringLiteral("Lithuanian (Lithuania)")));
+
+        checker.setPreferredLanguage(QStringLiteral("xx-XX"));
+        QVERIFY(!checker.available());
+        QCOMPARE(checker.unavailableReason(), QStringLiteral("no-dictionary"));
+        QVERIFY(checker.misspelledRanges(QStringLiteral("labas hello")).isEmpty());
+        // The picker still offers what the platform CAN check, so the user
+        // has a way out of a preference the machine cannot honour.
+        QCOMPARE(checker.availableLanguages(),
+                 (QStringList{ QStringLiteral("en-US"), QStringLiteral("lt-LT") }));
+        QCOMPARE(checker.languageOptions().size(), 3);
+        QCOMPARE(checker.preferredLanguage(), QStringLiteral("xx-XX"));
+        const int before = requested.size();
+        checker.setPreferredLanguage(QStringLiteral("xx_XX"));
+        QCOMPARE(requested.size(), before);
+    }
+
+    void disablingRemovesEveryRangeAndEnablingBringsThemBack()
+    {
+        Fixture f;
+        const QString text = QStringLiteral("teh hello teh");
+        QCOMPARE(f.checker.misspelledRanges(text).size(), 2);
+        f.checker.setEnabled(false);
+        QVERIFY(f.checker.misspelledRanges(text).isEmpty());
+        f.checker.setEnabled(true);
+        QCOMPARE(f.checker.misspelledRanges(text).size(), 2);
+    }
+
+    void aPathologicalDraftIsNotCheckedAtAll()
+    {
+        Fixture f;
+        const QString text =
+            QStringLiteral("teh ").repeated(SpellChecker::kMaxCheckedChars / 4 + 8);
+        QVERIFY(text.size() > SpellChecker::kMaxCheckedChars);
+        QVERIFY(f.checker.misspelledRanges(text).isEmpty());
+        QVERIFY(f.backend->m_asked.isEmpty());
+    }
+
+    void labelsNameLanguagesTheWayAPickerShould()
+    {
+        QCOMPARE(SpellChecker::labelForTag(QStringLiteral("lt")), QStringLiteral("Lithuanian"));
+        QCOMPARE(SpellChecker::labelForTag(QStringLiteral("en_GB")),
+                 QStringLiteral("English (United Kingdom)"));
+        QCOMPARE(SpellChecker::labelForTag(QStringLiteral("de-DE")),
+                 QStringLiteral("German (Germany)"));
+        QCOMPARE(SpellChecker::labelForTag(QString()), QString());
+    }
 
     void neitherComposerSuppressesPlatformPrediction()
     {

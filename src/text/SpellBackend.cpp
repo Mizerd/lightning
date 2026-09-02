@@ -5,6 +5,20 @@
 #include <QLocale>
 #include <QtGlobal>
 
+QString spellTagToBcp47(const QString &tag)
+{
+    QString out = tag.trimmed();
+    out.replace(QLatin1Char('_'), QLatin1Char('-'));
+    return out;
+}
+
+QString spellTagToPosix(const QString &tag)
+{
+    QString out = tag.trimmed();
+    out.replace(QLatin1Char('-'), QLatin1Char('_'));
+    return out;
+}
+
 namespace {
 
 // The dictionary tags to try, in order, for a preferred tag. "en_GB" is asked
@@ -13,13 +27,12 @@ namespace {
 // silently checking British text against an American dictionary.
 [[maybe_unused]] QStringList candidateTags(const QString &preferred)
 {
-    QString wanted = preferred;
+    QString wanted = spellTagToPosix(preferred);
     if (wanted.isEmpty())
         wanted = QLocale::system().name(); // "en_GB"
-    wanted.replace(QLatin1Char('-'), QLatin1Char('_'));
 
     QStringList tags;
-    if (!wanted.isEmpty()) {
+    if (!wanted.isEmpty() && wanted != QLatin1String("C")) {
         tags << wanted;
         const int sep = wanted.indexOf(QLatin1Char('_'));
         if (sep > 0)
@@ -28,11 +41,21 @@ namespace {
     // Last resort. Deliberately NOT a silent default for a user whose system
     // language has a dictionary installed — it is only reached when theirs
     // resolved to nothing at all, and --spell-status reports what was used.
-    if (!tags.contains(QStringLiteral("en_US")))
-        tags << QStringLiteral("en_US");
-    if (!tags.contains(QStringLiteral("en")))
-        tags << QStringLiteral("en");
+    // An EXPLICIT preference gets no fallback at all: a user who chose
+    // Lithuanian must not be checked against English behind their back.
+    if (preferred.isEmpty()) {
+        if (!tags.contains(QStringLiteral("en_US")))
+            tags << QStringLiteral("en_US");
+        if (!tags.contains(QStringLiteral("en")))
+            tags << QStringLiteral("en");
+    }
     return tags;
+}
+
+[[maybe_unused]] void setFailure(SpellBackendFailure *failure, const char *reason)
+{
+    if (failure)
+        *failure = QString::fromLatin1(reason);
 }
 
 } // namespace
@@ -49,11 +72,12 @@ namespace {
 // for both interfaces in the mingw-w64 headers Debian ships, where this whole
 // file also passes `-fsyntax-only` under x86_64-w64-mingw32-g++ with Q_OS_WIN
 // defined. But a toolchain that lacks it must still BUILD; a release pipeline
-// is not the place to discover a missing header. Without it Windows simply has no backend and `--spell-status` says
-// so out loud, which is the check that makes the absence visible instead of
-// silent. (That is the standing lesson from the packaged builds that shipped
-// for months with no media engine: a feature assembled at package time needs
-// something that asks the SHIPPED artifact whether it works.)
+// is not the place to discover a missing header. Without it Windows simply
+// has no backend and `--spell-status` says so out loud, which is the check
+// that makes the absence visible instead of silent. (That is the standing
+// lesson from the packaged builds that shipped for months with no media
+// engine: a feature assembled at package time needs something that asks the
+// SHIPPED artifact whether it works.)
 #if defined(__has_include)
 #  if __has_include(<spellcheck.h>)
 #    define LIGHTNING_HAVE_WIN_SPELLCHECK 1
@@ -61,7 +85,6 @@ namespace {
 #endif
 
 #if defined(LIGHTNING_HAVE_WIN_SPELLCHECK)
-
 #include <spellcheck.h>
 
 namespace {
@@ -83,6 +106,11 @@ const CLSID kSpellCheckerFactoryClsid = {
     { 0xbd, 0xfa, 0xe7, 0x4f, 0x1d, 0xb7, 0xc1, 0xdc }
 };
 
+// Every call below happens on the thread that created the checker (the GUI
+// thread in the application, the probe's main thread in --spell-status):
+// ISpellChecker is apartment-threaded and is never handed to another thread.
+// The checks are per WORD and cached by SpellChecker, so nothing here is
+// long enough to move off the GUI thread.
 class WindowsSpellBackend final : public SpellBackend
 {
 public:
@@ -98,7 +126,7 @@ public:
 
     // Returns false when this machine has no checker for any candidate tag,
     // which is normal on a Windows install carrying no proofing language.
-    bool open(const QStringList &tags)
+    bool open(const QStringList &tags, SpellBackendFailure *failure)
     {
         // COM MUST BE INITIALISED ON THIS THREAD, and assuming somebody else
         // did it is how the one command that proves this works would report
@@ -128,15 +156,15 @@ public:
         HRESULT hr = CoCreateInstance(kSpellCheckerFactoryClsid, nullptr,
                                       CLSCTX_INPROC_SERVER,
                                       IID_PPV_ARGS(&m_factory));
-        if (FAILED(hr) || !m_factory)
+        if (FAILED(hr) || !m_factory) {
+            setFailure(failure, "no-library");
             return false;
-
+        }
+        readSupportedLanguages();
         for (const QString &tag : tags) {
             // Windows wants a BCP-47 tag ("en-GB"), not the POSIX spelling.
-            QString bcp47 = tag;
-            bcp47.replace(QLatin1Char('_'), QLatin1Char('-'));
+            const QString bcp47 = spellTagToBcp47(tag);
             const std::wstring wide = bcp47.toStdWString();
-
             BOOL supported = FALSE;
             if (FAILED(m_factory->IsSupported(wide.c_str(), &supported))
                 || !supported) {
@@ -145,10 +173,11 @@ public:
             if (SUCCEEDED(m_factory->CreateSpellChecker(wide.c_str(),
                                                         &m_checker))
                 && m_checker) {
-                m_language = tag;
+                m_language = bcp47;
                 return true;
             }
         }
+        setFailure(failure, "no-dictionary");
         return false;
     }
 
@@ -198,34 +227,61 @@ public:
         if (!m_checker)
             return;
         const std::wstring wide = word.toStdWString();
+        // The USER'S Windows custom dictionary, which every other Windows
+        // application then honours. Nothing is installed or registered: this
+        // is the same list the user edits in Windows Settings.
         m_checker->Add(wide.c_str());
     }
 
     QString language() const override { return m_language; }
+    QStringList availableLanguages() const override { return m_languages; }
     QString name() const override { return QStringLiteral("windows"); }
 
 private:
+    void readSupportedLanguages()
+    {
+        IEnumString *languages = nullptr;
+        if (FAILED(m_factory->get_SupportedLanguages(&languages)) || !languages)
+            return;
+        LPOLESTR item = nullptr;
+        while (languages->Next(1, &item, nullptr) == S_OK && item) {
+            m_languages << QString::fromWCharArray(item);
+            CoTaskMemFree(item);
+            item = nullptr;
+            if (m_languages.size() >= 256)
+                break;
+        }
+        languages->Release();
+    }
+
     ISpellCheckerFactory *m_factory = nullptr;
     ISpellChecker *m_checker = nullptr;
     QString m_language;
+    QStringList m_languages;
     bool m_ownsComInit = false;
 };
 
 } // namespace
 
 std::unique_ptr<SpellBackend> createPlatformSpellBackend(
-    const QString &preferredLanguage)
+    const QString &preferredLanguage, SpellBackendFailure *failure,
+    QStringList *availableLanguages)
 {
     auto backend = std::make_unique<WindowsSpellBackend>();
-    if (!backend->open(candidateTags(preferredLanguage)))
+    const bool opened = backend->open(candidateTags(preferredLanguage), failure);
+    if (availableLanguages)
+        *availableLanguages = backend->availableLanguages();
+    if (!opened)
         return {};
     return backend;
 }
 
 #else // no <spellcheck.h>
 
-std::unique_ptr<SpellBackend> createPlatformSpellBackend(const QString &)
+std::unique_ptr<SpellBackend> createPlatformSpellBackend(
+    const QString &, SpellBackendFailure *failure, QStringList *)
 {
+    setFailure(failure, "no-platform");
     return {};
 }
 
@@ -238,9 +294,9 @@ std::unique_ptr<SpellBackend> createPlatformSpellBackend(const QString &)
 
 namespace {
 
-// Only the eight entry points a composer needs. Resolved by NAME through
-// QLibrary rather than linked, so the build gains no dependency and a machine
-// with no enchant answers "unavailable" instead of failing to start.
+// Only the entry points a composer needs. Resolved by NAME through QLibrary
+// rather than linked, so the build gains no dependency and a machine with no
+// enchant answers "unavailable" instead of failing to start.
 struct EnchantApi
 {
     using BrokerInit = void *(*)();
@@ -248,6 +304,9 @@ struct EnchantApi
     using BrokerRequestDict = void *(*)(void *, const char *);
     using BrokerFreeDict = void (*)(void *, void *);
     using BrokerDictExists = int (*)(void *, const char *);
+    using DictDescribeFn = void (*)(const char *, const char *, const char *,
+                                    const char *, void *);
+    using BrokerListDicts = void (*)(void *, DictDescribeFn, void *);
     using DictCheck = int (*)(void *, const char *, ssize_t);
     using DictSuggest = char **(*)(void *, const char *, ssize_t, size_t *);
     using DictFreeStringList = void (*)(void *, char **);
@@ -258,6 +317,7 @@ struct EnchantApi
     BrokerRequestDict requestDict = nullptr;
     BrokerFreeDict freeDict = nullptr;
     BrokerDictExists dictExists = nullptr;
+    BrokerListDicts listDicts = nullptr; // optional: the picker degrades
     DictCheck check = nullptr;
     DictSuggest suggest = nullptr;
     DictFreeStringList freeStringList = nullptr;
@@ -284,7 +344,7 @@ public:
         // out from under them at process exit buys nothing.
     }
 
-    bool open(const QStringList &tags)
+    bool open(const QStringList &tags, SpellBackendFailure *failure)
     {
         // Both spellings, because a distribution may ship only the versioned
         // soname (no -dev package, hence no bare .so symlink).
@@ -297,9 +357,10 @@ public:
             if (m_library.load())
                 break;
         }
-        if (!m_library.isLoaded())
+        if (!m_library.isLoaded()) {
+            setFailure(failure, "no-library");
             return false;
-
+        }
         auto resolve = [this](const char *symbol) {
             return m_library.resolve(symbol);
         };
@@ -313,6 +374,8 @@ public:
             resolve("enchant_broker_free_dict"));
         m_api.dictExists = reinterpret_cast<EnchantApi::BrokerDictExists>(
             resolve("enchant_broker_dict_exists"));
+        m_api.listDicts = reinterpret_cast<EnchantApi::BrokerListDicts>(
+            resolve("enchant_broker_list_dicts"));
         m_api.check =
             reinterpret_cast<EnchantApi::DictCheck>(resolve("enchant_dict_check"));
         m_api.suggest =
@@ -321,23 +384,27 @@ public:
             resolve("enchant_dict_free_string_list"));
         m_api.add =
             reinterpret_cast<EnchantApi::DictAdd>(resolve("enchant_dict_add"));
-        if (!m_api.complete())
+        if (!m_api.complete()) {
+            setFailure(failure, "no-library");
             return false;
-
+        }
         m_broker = m_api.brokerInit();
-        if (!m_broker)
+        if (!m_broker) {
+            setFailure(failure, "no-library");
             return false;
-
+        }
+        readAvailableLanguages();
         for (const QString &tag : tags) {
-            const QByteArray utf8 = tag.toUtf8();
+            const QByteArray utf8 = spellTagToPosix(tag).toUtf8();
             if (m_api.dictExists(m_broker, utf8.constData()) != 1)
                 continue;
             m_dict = m_api.requestDict(m_broker, utf8.constData());
             if (m_dict) {
-                m_language = tag;
+                m_language = spellTagToBcp47(tag);
                 return true;
             }
         }
+        setFailure(failure, "no-dictionary");
         return false;
     }
 
@@ -384,35 +451,63 @@ public:
     }
 
     QString language() const override { return m_language; }
+    QStringList availableLanguages() const override { return m_languages; }
     QString name() const override { return QStringLiteral("enchant"); }
 
 private:
+    static void describeDict(const char *tag, const char *, const char *,
+                             const char *, void *userData)
+    {
+        auto *out = static_cast<QStringList *>(userData);
+        if (!tag || out->size() >= 256)
+            return;
+        const QString bcp47 = spellTagToBcp47(QString::fromUtf8(tag));
+        if (!out->contains(bcp47))
+            out->append(bcp47);
+    }
+
+    void readAvailableLanguages()
+    {
+        if (!m_api.listDicts)
+            return;
+        // Provider order, one entry per tag: hunspell and aspell both
+        // carrying en_US is one dictionary to the picker.
+        m_api.listDicts(m_broker, &EnchantSpellBackend::describeDict,
+                        &m_languages);
+    }
+
     QLibrary m_library;
     EnchantApi m_api;
     void *m_broker = nullptr;
     void *m_dict = nullptr;
     QString m_language;
+    QStringList m_languages;
 };
 
 } // namespace
 
 std::unique_ptr<SpellBackend> createPlatformSpellBackend(
-    const QString &preferredLanguage)
+    const QString &preferredLanguage, SpellBackendFailure *failure,
+    QStringList *availableLanguages)
 {
     auto backend = std::make_unique<EnchantSpellBackend>();
-    if (!backend->open(candidateTags(preferredLanguage)))
+    const bool opened = backend->open(candidateTags(preferredLanguage), failure);
+    if (availableLanguages)
+        *availableLanguages = backend->availableLanguages();
+    if (!opened)
         return {};
     return backend;
 }
 
 // ---------------------------------------------------------------------------
-// Everything else, macOS included. See SpellBackend.h for why macOS is not
-// claimed here rather than half-claimed.
+// macOS is SpellBackendMac.mm (NSSpellChecker). Everything else: no backend.
 // ---------------------------------------------------------------------------
-#else
+#elif !defined(Q_OS_MACOS)
 
-std::unique_ptr<SpellBackend> createPlatformSpellBackend(const QString &)
+std::unique_ptr<SpellBackend> createPlatformSpellBackend(
+    const QString &, SpellBackendFailure *failure, QStringList *)
 {
+    setFailure(failure, "no-platform");
     return {};
 }
 

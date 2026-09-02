@@ -4610,9 +4610,22 @@ set(LIGHTNING_SPELL_SOURCES
     src/text/SpellChecker.h
     src/text/SpellChecker.cpp
 )
+# macOS: NSSpellChecker lives in an Objective-C++ unit (AppKit never reaches
+# the common C++). OBJCXX is enabled here, where it is first needed, and
+# every consumer of the spell sources links AppKit for it.
+if(APPLE)
+    enable_language(OBJCXX)
+    list(APPEND LIGHTNING_SPELL_SOURCES src/text/SpellBackendMac.mm)
+endif()
 target_sources(lightning-matrix PRIVATE ${LIGHTNING_SPELL_SOURCES})
+if(APPLE)
+    target_link_libraries(lightning-matrix PRIVATE "-framework AppKit")
+endif()
 if(TARGET lightning-app-testlib)
     target_sources(lightning-app-testlib PRIVATE ${LIGHTNING_SPELL_SOURCES})
+    if(APPLE)
+        target_link_libraries(lightning-app-testlib PUBLIC "-framework AppKit")
+    endif()
 endif()
 
 # Composer spell checking + the tray badge (2026-08-28). Deliberately a
@@ -4636,6 +4649,10 @@ if(BUILD_TESTING)
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(composer-spell-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+    if(APPLE)
+        target_sources(composer-spell-test PRIVATE src/text/SpellBackendMac.mm)
+        target_link_libraries(composer-spell-test PRIVATE "-framework AppKit")
+    endif()
     add_test(NAME composer-spell COMMAND composer-spell-test)
 endif()
 

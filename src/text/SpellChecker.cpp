@@ -3,6 +3,9 @@
 #include "text/SpellBackend.h"
 
 #include <QChar>
+#include <QLocale>
+
+#include <algorithm>
 
 namespace {
 
@@ -18,22 +21,30 @@ bool chunkIsCheckable(QStringView chunk)
     if (chunk.isEmpty())
         return false;
     // Matrix ids and aliases (#room:server, !id:server, @user:server), emoji
-    // shortcodes (:smile:) and shell/home paths (~/x) all announce
-    // themselves in their first character.
+    // shortcodes (:smile:) and home paths (~/x) all announce themselves in
+    // their first characters. A lone `~` is left alone so `~~struck~~`
+    // words are still checked.
     const QChar first = chunk.front();
-    if (first == u'#' || first == u'!' || first == u':' || first == u'~'
-        || first == u'@') {
+    if (first == u'#' || first == u'!' || first == u':' || first == u'@')
         return false;
-    }
+    if (first == u'~' && chunk.size() > 1 && chunk.at(1) != u'~')
+        return false;
     if (chunk.contains(u"://"))
         return false;
-    for (const QChar c : chunk) {
+    for (int i = 0; i < chunk.size(); ++i) {
+        const QChar c = chunk.at(i);
         // A digit anywhere makes the chunk an identifier, a version, a time
         // or a measurement — never a word to correct. `@` catches mxids and
         // e-mail addresses mid-sentence; the slashes catch paths and dates;
         // a backtick is a code span.
         if (c.isDigit() || c == u'@' || c == u'/' || c == u'\\' || c == u'`'
             || c == u'_') {
+            return false;
+        }
+        // A dot with a letter on both sides is a domain name or a file name
+        // ("matrix.org", "notes.txt"), not a sentence.
+        if (c == u'.' && i > 0 && i + 1 < chunk.size() && chunk.at(i - 1).isLetter()
+            && chunk.at(i + 1).isLetter()) {
             return false;
         }
     }
@@ -80,10 +91,124 @@ bool wordIsWorthChecking(QStringView word)
     return true;
 }
 
+struct Span {
+    int start;
+    int end; // exclusive
+};
+
+// Regions of the text that are never natural language: fenced ``` blocks,
+// inline `code spans` (which may hold spaces, so the chunk rule above cannot
+// see their middle words) and Markdown link destinations `](…)`. Computed
+// once per pass, in document order.
+QList<Span> excludedSpans(const QString &text)
+{
+    QList<Span> spans;
+    const int n = text.size();
+    int lineStart = 0;
+    bool inFence = false;
+    int fenceStart = 0;
+    // A line ends at '\n' (the Markdown editor) OR at U+2029 (what a rich
+    // TextEdit's getText() puts between paragraphs), so no rule ever runs
+    // "to the end of the line" across the whole draft.
+    auto nextLineEnd = [&](int from) {
+        for (int k = from; k < n; ++k) {
+            const QChar c = text.at(k);
+            if (c == QLatin1Char('\n') || c == QChar::ParagraphSeparator
+                || c == QChar::LineSeparator) {
+                return k;
+            }
+        }
+        return n;
+    };
+    // A fence is a line that is ONLY a run of three or more backticks (or
+    // tildes) plus an info string; a backtick anywhere after the run makes
+    // it an inline span on its own line (CommonMark), not a fence.
+    auto isFenceLine = [](QStringView trimmed) {
+        if (!(trimmed.startsWith(u"```") || trimmed.startsWith(u"~~~")))
+            return false;
+        const QChar marker = trimmed.front();
+        int run = 0;
+        while (run < trimmed.size() && trimmed.at(run) == marker)
+            ++run;
+        return !trimmed.mid(run).contains(QLatin1Char('`'));
+    };
+    while (lineStart <= n) {
+        const int lineEnd = nextLineEnd(lineStart);
+        const QStringView line = QStringView{ text }.mid(lineStart, lineEnd - lineStart);
+        const QStringView trimmed = line.trimmed();
+        if (isFenceLine(trimmed)) {
+            if (!inFence) {
+                inFence = true;
+                fenceStart = lineStart;
+            } else {
+                inFence = false;
+                spans.append({ fenceStart, lineEnd });
+            }
+        } else if (!inFence) {
+            // Inline code: backtick RUNS pair up on one line (CommonMark:
+            // ``a ` b`` is one span delimited by double backticks). An
+            // unmatched opening run excludes the rest of the line — while
+            // it is being typed that is what the user means.
+            auto runEnd = [&](int at) {
+                int e = at;
+                while (e < lineEnd && text.at(e) == QLatin1Char('`'))
+                    ++e;
+                return e;
+            };
+            int i = lineStart;
+            while (i < lineEnd) {
+                const int open = text.indexOf(QLatin1Char('`'), i);
+                if (open < 0 || open >= lineEnd)
+                    break;
+                const int openEnd = runEnd(open);
+                const int close = text.indexOf(QLatin1Char('`'), openEnd);
+                if (close < 0 || close >= lineEnd) {
+                    spans.append({ open, lineEnd });
+                    break;
+                }
+                const int closeEnd = runEnd(close);
+                spans.append({ open, closeEnd });
+                i = closeEnd;
+            }
+            // Markdown link destinations: `](` up to the closing `)`.
+            i = lineStart;
+            while (i < lineEnd) {
+                const int open = text.indexOf(QLatin1String("]("), i);
+                if (open < 0 || open >= lineEnd)
+                    break;
+                int close = text.indexOf(QLatin1Char(')'), open + 2);
+                if (close < 0 || close >= lineEnd)
+                    close = lineEnd - 1;
+                spans.append({ open + 2, close + 1 });
+                i = close + 1;
+            }
+        }
+        lineStart = lineEnd + 1;
+    }
+    if (inFence)
+        spans.append({ fenceStart, n }); // an unterminated fence runs to the end
+    std::sort(spans.begin(), spans.end(),
+              [](const Span &a, const Span &b) { return a.start < b.start; });
+    return spans;
+}
+
+bool insideExcluded(const QList<Span> &spans, int start, int length)
+{
+    const int end = start + length;
+    for (const Span &s : spans) {
+        if (s.start >= end)
+            break;
+        if (start < s.end && s.start < end)
+            return true;
+    }
+    return false;
+}
+
 // Walks `text` and calls `fn(start, length)` for every word worth checking.
 template <typename F>
 void forEachWord(const QString &text, F &&fn)
 {
+    const QList<Span> excluded = excludedSpans(text);
     const int n = text.size();
     int i = 0;
     while (i < n) {
@@ -112,6 +237,8 @@ void forEachWord(const QString &text, F &&fn)
             }
             const int wordLength = j - wordStart;
             if (wordLength <= 0)
+                continue;
+            if (insideExcluded(excluded, wordStart, wordLength))
                 continue;
             const QStringView word =
                 QStringView{ text }.mid(wordStart, wordLength);
@@ -147,9 +274,27 @@ SpellChecker::~SpellChecker() = default;
 
 void SpellChecker::initialize(const QString &preferredLanguage)
 {
-    m_backend = createPlatformSpellBackend(preferredLanguage);
+    m_preferredLanguage = spellTagToBcp47(preferredLanguage);
+    resolve();
+}
+
+void SpellChecker::resolve()
+{
+    QString failure;
+    QStringList offered;
+    std::unique_ptr<SpellBackend> next = m_factory
+        ? m_factory(m_preferredLanguage, &failure, &offered)
+        : createPlatformSpellBackend(m_preferredLanguage, &failure, &offered);
+    m_backend = std::move(next);
+    m_unavailableReason = m_backend ? QString() : failure;
+    // What the platform can check survives a failed open: the picker must
+    // keep offering it, or a stored preference the machine no longer has
+    // would leave the user with no way to choose another.
+    m_languages = m_backend ? m_backend->availableLanguages() : offered;
+    // A different dictionary can answer differently for every word.
     m_cache.clear();
     Q_EMIT availabilityChanged();
+    Q_EMIT dictionaryChanged();
 }
 
 void SpellChecker::setEnabled(bool enabled)
@@ -160,21 +305,85 @@ void SpellChecker::setEnabled(bool enabled)
     Q_EMIT enabledChanged();
 }
 
+void SpellChecker::setPreferredLanguage(const QString &tag)
+{
+    const QString normalized = spellTagToBcp47(tag);
+    if (normalized == m_preferredLanguage)
+        return;
+    m_preferredLanguage = normalized;
+    resolve();
+}
+
 QString SpellChecker::language() const
 {
-    return m_backend ? m_backend->language() : QString{};
+    return m_backend ? m_backend->language() : QString();
+}
+
+QString SpellChecker::languageLabel() const
+{
+    return labelForTag(language());
 }
 
 QString SpellChecker::backendName() const
 {
-    return m_backend ? m_backend->name() : QString{};
+    return m_backend ? m_backend->name() : QString();
+}
+
+QString SpellChecker::labelForTag(const QString &tag)
+{
+    const QString bcp47 = spellTagToBcp47(tag);
+    if (bcp47.isEmpty())
+        return {};
+    const QLocale locale(bcp47);
+    if (locale.language() == QLocale::C || locale.language() == QLocale::AnyLanguage)
+        return bcp47;
+    QString label = QLocale::languageToString(locale.language());
+    // A territory is shown only when the tag carried one: "English (United
+    // Kingdom)" against "English (United States)", but plain "Lithuanian"
+    // for "lt".
+    if (bcp47.contains(QLatin1Char('-')) && locale.territory() != QLocale::AnyTerritory)
+        label += QStringLiteral(" (") + QLocale::territoryToString(locale.territory())
+            + QLatin1Char(')');
+    return label;
+}
+
+QVariantList SpellChecker::languageOptions() const
+{
+    QVariantList out;
+    out.append(QVariantMap{ { QStringLiteral("tag"), QString() },
+                            { QStringLiteral("label"), tr("Automatic (system language)") } });
+    QList<QPair<QString, QString>> rows;
+    for (const QString &tag : m_languages) {
+        const QString bcp47 = spellTagToBcp47(tag);
+        bool seen = false;
+        for (const auto &row : rows)
+            if (row.first == bcp47)
+                seen = true;
+        if (!seen)
+            rows.append({ bcp47, labelForTag(bcp47) });
+    }
+    std::stable_sort(rows.begin(), rows.end(),
+                     [](const auto &a, const auto &b) {
+                         return a.second.localeAwareCompare(b.second) < 0;
+                     });
+    for (const auto &row : rows)
+        out.append(QVariantMap{ { QStringLiteral("tag"), row.first },
+                                { QStringLiteral("label"), row.second } });
+    return out;
 }
 
 void SpellChecker::setBackendForTest(std::unique_ptr<SpellBackend> backend)
 {
     m_backend = std::move(backend);
+    m_unavailableReason = m_backend ? QString() : QStringLiteral("no-dictionary");
+    m_languages = m_backend ? m_backend->availableLanguages() : QStringList();
     m_cache.clear();
     Q_EMIT availabilityChanged();
+}
+
+void SpellChecker::setBackendFactoryForTest(BackendFactory factory)
+{
+    m_factory = std::move(factory);
 }
 
 bool SpellChecker::wordIsCorrect(const QString &word) const
@@ -184,7 +393,7 @@ bool SpellChecker::wordIsCorrect(const QString &word) const
     const auto cached = m_cache.constFind(word);
     if (cached != m_cache.constEnd())
         return cached.value();
-    const bool correct = m_backend->isCorrect(word);
+    const bool correct = !m_backend || m_backend->isCorrect(word);
     if (m_cache.size() >= kMaxCachedWords)
         m_cache.clear();
     m_cache.insert(word, correct);
@@ -196,7 +405,7 @@ QVariantList SpellChecker::misspelledRanges(const QString &text,
                                             const QVariantList &skipRanges) const
 {
     QVariantList out;
-    if (!m_backend || !m_enabled || text.isEmpty())
+    if (!m_backend || !m_enabled || text.isEmpty() || text.size() > kMaxCheckedChars)
         return out;
 
     forEachWord(text, [&](int start, int length) {
@@ -224,7 +433,7 @@ QVariantMap SpellChecker::wordAt(const QString &text, int position) const
         { QStringLiteral("start"), -1 },
         { QStringLiteral("length"), 0 },
     };
-    if (text.isEmpty())
+    if (text.isEmpty() || text.size() > kMaxCheckedChars)
         return out;
     forEachWord(text, [&](int start, int length) {
         if (position < start || position > start + length)

@@ -179,6 +179,13 @@ Item {
         sendLaterDialog.openFor(snapshot)
     }
     onRichModeChanged: {
+        // The other editor's ranges belong to the other document.
+        root.spellUnderlines = []
+        root.richSpellUnderlines = []
+        if (root.richMode)
+            richSpellTimer.restart()
+        else
+            spellTimer.restart()
         if (root.richMode) {
             root.richSyncing = true
             app.richComposer.loadMarkdown(richInput.textDocument,
@@ -631,6 +638,9 @@ Item {
     // [{x, y, w}] in `input`'s own coordinates. The rectangles are children
     // of the TextArea, so they scroll with a long draft for free.
     property var spellUnderlines: []
+    // The same, for the rich editor: the two editors never show at once,
+    // but each keeps its own geometry.
+    property var richSpellUnderlines: []
     // The word the context menu was opened on, and nothing else: cleared on
     // every open so a stale suggestion can never be applied to new text.
     property string spellMenuWord: ""
@@ -638,18 +648,26 @@ Item {
     property int spellMenuLength: 0
     property var spellMenuSuggestions: []
 
-    function refreshSpellUnderlines() {
-        if (!root.spellActive || input.text.length === 0) {
-            if (root.spellUnderlines.length > 0)
-                root.spellUnderlines = []
-            return
-        }
-        // The caret position is passed so the word being typed is not
-        // underlined mid-word, and the composer's own re-anchored mention
-        // ranges are passed so a member's display name is never "misspelled".
-        var ranges = app.spell.misspelledRanges(input.text,
-                                                input.cursorPosition,
-                                                app.composer.mentionRanges)
+    // The text the checker sees for the current editor, and the ranges it
+    // must leave alone: mention pills in both modes (a member's display
+    // name is never "misspelled"), plus code fragments and code blocks in
+    // rich mode. Rich positions are document positions — the same UTF-16
+    // units getText() and positionToRectangle() use.
+    function spellEditorText() {
+        return root.richMode ? richInput.getText(0, richInput.length) : input.text
+    }
+    function spellSkipRanges() {
+        // Rich mode: document-derived ranges ONLY. mentionRanges are offsets
+        // into the Markdown MIRROR, which differ from the document's whenever
+        // formatting is present; rich mention pills are anchors the document
+        // scan already covers.
+        if (root.richMode)
+            return app.richComposer.spellSkipRanges(richInput.textDocument)
+        return app.composer.mentionRanges
+    }
+
+    // [{x, y, w}] under every range, in `editor`'s own coordinates.
+    function spellUnderlineRects(editor, ranges) {
         var out = []
         for (var i = 0; i < ranges.length; ++i) {
             var start = ranges[i].start
@@ -660,14 +678,14 @@ Item {
             // is not longer than the field. The guard bounds the pathological
             // case rather than trusting the geometry.
             while (p < end && guard++ < 64) {
-                var head = input.positionToRectangle(p)
+                var head = editor.positionToRectangle(p)
                 var q = end
-                var tail = input.positionToRectangle(q)
+                var tail = editor.positionToRectangle(q)
                 if (tail.y !== head.y) {
                     while (q > p + 1
-                           && input.positionToRectangle(q).y !== head.y)
+                           && editor.positionToRectangle(q).y !== head.y)
                         --q
-                    tail = input.positionToRectangle(q)
+                    tail = editor.positionToRectangle(q)
                 }
                 var w = tail.x - head.x
                 if (w > 0)
@@ -677,7 +695,38 @@ Item {
                 p = q
             }
         }
-        root.spellUnderlines = out
+        return out
+    }
+
+    function refreshSpellUnderlines() {
+        if (!root.spellActive || root.richMode || input.text.length === 0) {
+            if (root.spellUnderlines.length > 0)
+                root.spellUnderlines = []
+            return
+        }
+        // The caret position is passed so the word being typed is not
+        // underlined mid-word, and the composer's own re-anchored mention
+        // ranges are passed so a member's display name is never "misspelled".
+        var ranges = app.spell.misspelledRanges(input.text,
+                                                input.cursorPosition,
+                                                app.composer.mentionRanges)
+        root.spellUnderlines = root.spellUnderlineRects(input, ranges)
+    }
+
+    // Rich mode: the same policy over the document's plain text, with the
+    // document's code and mention fragments excluded. Underlines are pixels
+    // beside the editor; nothing is written into the document, so no
+    // decoration can reach formatted_body, the clipboard, undo or a draft.
+    function refreshRichSpellUnderlines() {
+        if (!root.spellActive || !root.richMode || richInput.length === 0) {
+            if (root.richSpellUnderlines.length > 0)
+                root.richSpellUnderlines = []
+            return
+        }
+        var ranges = app.spell.misspelledRanges(root.spellEditorText(),
+                                                richInput.cursorPosition,
+                                                root.spellSkipRanges())
+        root.richSpellUnderlines = root.spellUnderlineRects(richInput, ranges)
     }
 
     // Fills spellMenu* for the word under the pointer, or clears them when
@@ -690,14 +739,15 @@ Item {
         root.spellMenuSuggestions = []
         if (!root.spellActive)
             return
-        var hit = app.spell.wordAt(input.text, input.positionAt(mx, my))
+        var editor = root.activeEditor()
+        var text = root.spellEditorText()
+        var hit = app.spell.wordAt(text, editor.positionAt(mx, my))
         if (!hit || hit.word === "")
             return
         // Only a word the dictionary actually REJECTS gets a menu. Offering
         // "did you mean" on a correctly spelled word is the kind of thing
         // that makes people turn a checker off.
-        var wrong = app.spell.misspelledRanges(input.text, -1,
-                                               app.composer.mentionRanges)
+        var wrong = app.spell.misspelledRanges(text, -1, root.spellSkipRanges())
         var rejected = false
         for (var i = 0; i < wrong.length; ++i) {
             if (wrong[i].start === hit.start) {
@@ -718,16 +768,31 @@ Item {
             || replacement === "")
             return
         var at = root.spellMenuStart
-        input.remove(at, at + root.spellMenuLength)
-        input.insert(at, replacement)
-        input.cursorPosition = at + replacement.length
+        if (root.richMode) {
+            // Exactly the misspelled range, with its own character format
+            // kept: a bold or linked word stays bold or linked.
+            app.richComposer.replaceRange(richInput.textDocument, at,
+                                          root.spellMenuLength, replacement)
+            richInput.cursorPosition = at + replacement.length
+        } else {
+            input.remove(at, at + root.spellMenuLength)
+            input.insert(at, replacement)
+            input.cursorPosition = at + replacement.length
+        }
         root.focusEditor()
     }
 
     Connections {
         target: app.spell
         // Adding or ignoring a word makes every drawn underline stale.
-        function onDictionaryChanged() { root.refreshSpellUnderlines() }
+        function onDictionaryChanged() {
+            root.refreshSpellUnderlines()
+            root.refreshRichSpellUnderlines()
+        }
+        function onEnabledChanged() {
+            root.refreshSpellUnderlines()
+            root.refreshRichSpellUnderlines()
+        }
     }
 
     function insertMention(userId, displayName) {
@@ -1792,6 +1857,43 @@ Item {
                         TextArea.flickable: TextArea {
                             id: richInput
                             objectName: "composerRichInput"
+                            onWidthChanged: richSpellTimer.restart()
+                            // Spell underlines for the rich editor: same
+                            // debounce, same pixels, own geometry.
+                            Timer {
+                                id: richSpellTimer
+                                objectName: "composerRichSpellTimer"
+                                interval: 150
+                                repeat: false
+                                onTriggered: root.refreshRichSpellUnderlines()
+                            }
+                            Repeater {
+                                objectName: "composerRichSpellUnderlines"
+                                model: root.richSpellUnderlines
+                                delegate: Rectangle {
+                                    objectName: "composerRichSpellUnderline"
+                                    required property var modelData
+                                    x: modelData.x
+                                    y: modelData.y
+                                    width: modelData.w
+                                    height: 2
+                                    radius: 1
+                                    color: Qt.alpha(AppTheme.danger, 0.85)
+                                }
+                            }
+                            // The same context menu as the markdown editor:
+                            // spelling rows for the word under the pointer,
+                            // then the editing rows, which follow the active
+                            // editor.
+                            MouseArea {
+                                anchors.fill: parent
+                                acceptedButtons: Qt.RightButton
+                                onClicked: (mouse) => {
+                                    root.focusEditor()
+                                    root.prepareSpellMenu(mouse.x, mouse.y)
+                                    composerEditMenu.popup()
+                                }
+                            }
                             textFormat: TextEdit.RichText
                             placeholderText: input.placeholderText
                             placeholderTextColor: AppTheme.textMuted
@@ -1809,6 +1911,7 @@ Item {
                             enabled: app.currentRoomId !== ""
                             background: Rectangle { color: "transparent" }
                             onTextChanged: {
+                                richSpellTimer.restart()
                                 if (root.richSyncing || !root.richMode)
                                     return
                                 // The markdown mirror (see root.richMode).
@@ -1826,6 +1929,7 @@ Item {
                             onCursorPositionChanged: {
                                 root.refreshFormatState()
                                 root.updateRichMentionState()
+                                richSpellTimer.restart()
                             }
                             Keys.onReturnPressed: (event) => {
                                 if (commandPopup.visible) {
@@ -2271,27 +2375,27 @@ Item {
                             }
                             AppMenuItem {
                                 text: qsTr("Cut")
-                                enabled: input.selectedText.length > 0
-                                onTriggered: input.cut()
+                                enabled: root.activeEditor().selectedText.length > 0
+                                onTriggered: root.activeEditor().cut()
                             }
                             AppMenuItem {
                                 text: qsTr("Copy")
-                                enabled: input.selectedText.length > 0
-                                onTriggered: input.copy()
+                                enabled: root.activeEditor().selectedText.length > 0
+                                onTriggered: root.activeEditor().copy()
                             }
                             AppMenuItem {
                                 objectName: "composerPasteItem"
                                 text: qsTr("Paste")
                                 onTriggered: {
                                     if (!app.composer.pasteFromClipboard())
-                                        input.paste()
+                                        root.activeEditor().paste()
                                 }
                             }
                             AppMenuSeparator {}
                             AppMenuItem {
                                 text: qsTr("Select all")
-                                enabled: input.length > 0
-                                onTriggered: input.selectAll()
+                                enabled: root.activeEditor().length > 0
+                                onTriggered: root.activeEditor().selectAll()
                             }
                         }
                         Keys.onPressed: (event) => {

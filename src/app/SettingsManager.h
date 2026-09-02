@@ -305,6 +305,16 @@ class SettingsManager : public QObject
     // the composer in a mode the build does not have.
     Q_PROPERTY(QString composerMode READ composerMode WRITE setComposerMode
                    NOTIFY composerModeChanged)
+    // v0.9 spell checking: an APPLICATION preference (never account data,
+    // never synced): whether the composer checks spelling, and which
+    // dictionary — "" is Automatic (the system's own language preference),
+    // otherwise a BCP-47 tag such as "lt-LT". Independent of the UI
+    // language on purpose: a user reading Lightning in English still types
+    // Lithuanian.
+    Q_PROPERTY(bool spellCheckEnabled READ spellCheckEnabled
+                   WRITE setSpellCheckEnabled NOTIFY spellCheckEnabledChanged)
+    Q_PROPERTY(QString spellCheckLanguage READ spellCheckLanguage
+                   WRITE setSpellCheckLanguage NOTIFY spellCheckLanguageChanged)
     // Composer: text typed alongside an attachment is sent as that
     // attachment's CAPTION (one event) rather than as a separate message.
     // The caption parameter has been plumbed to the SDK the whole time and
@@ -673,6 +683,10 @@ public:
     bool enterInsertsNewline() const;
     void setEnterInsertsNewline(bool v);
     QString composerMode() const;
+    bool spellCheckEnabled() const;
+    void setSpellCheckEnabled(bool enabled);
+    QString spellCheckLanguage() const;
+    void setSpellCheckLanguage(const QString &tag);
     void setComposerMode(const QString &mode);
     bool sendTextAsCaption() const;
     void setSendTextAsCaption(bool v);
@@ -935,6 +949,8 @@ Q_SIGNALS:
     void clockFormatChanged();
     void enterInsertsNewlineChanged();
     void composerModeChanged();
+    void spellCheckEnabledChanged();
+    void spellCheckLanguageChanged();
     void sendTextAsCaptionChanged();
     void timelineWheelSpeedChanged();
     void mediaVolumeChanged();

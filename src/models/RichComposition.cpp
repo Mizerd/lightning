@@ -442,3 +442,53 @@ QVariantMap formatState(const QTextDocument &document, int selectionStart,
 }
 
 } // namespace RichComposition
+
+QVariantList RichComposition::spellSkipRanges(const QTextDocument &document)
+{
+    QVariantList out;
+    auto push = [&out](int start, int length) {
+        if (length > 0)
+            out.append(QVariantMap{ { QStringLiteral("start"), start },
+                                    { QStringLiteral("length"), length } });
+    };
+    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+        if (isCodeBlock(block)) {
+            push(block.position(), block.length());
+            continue;
+        }
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            if (!fragment.isValid())
+                continue;
+            const QTextCharFormat cf = fragment.charFormat();
+            const bool code = cf.fontFixedPitch();
+            const bool mention = cf.isAnchor()
+                && !matrixToUserId(cf.anchorHref()).isEmpty();
+            if (code || mention)
+                push(fragment.position(), fragment.length());
+        }
+    }
+    return out;
+}
+
+void RichComposition::replaceRange(QTextDocument *document, int start, int length,
+                                   const QString &replacement)
+{
+    if (!document || start < 0 || length <= 0
+        || start + length > document->characterCount() - 1) {
+        return;
+    }
+    QTextCursor cursor(document);
+    cursor.setPosition(start);
+    cursor.setPosition(start + length, QTextCursor::KeepAnchor);
+    // The format of the range's FIRST character, read before the selection
+    // is replaced: insertText with an explicit format keeps a bold or linked
+    // word bold or linked, where the cursor's own format could be the one
+    // just past the word.
+    QTextCursor probe(document);
+    probe.setPosition(start + 1);
+    const QTextCharFormat keep = probe.charFormat();
+    cursor.beginEditBlock();
+    cursor.insertText(replacement, keep);
+    cursor.endEditBlock();
+}

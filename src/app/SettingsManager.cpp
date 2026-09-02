@@ -74,6 +74,8 @@ constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
 constexpr auto kClockFormat         = "ui/clockFormat";
 constexpr auto kEnterNewline        = "composer/enterInsertsNewline";
 constexpr auto kComposerMode        = "composer/mode";
+constexpr auto kSpellCheckEnabled   = "composer/spellCheck";
+constexpr auto kSpellCheckLanguage  = "composer/spellLanguage";
 constexpr auto kTextAsCaption       = "composer/textAsCaption";
 // Shortcut overrides live in their own group, one key per action id.
 constexpr auto kShortcutsGroup      = "shortcuts";
@@ -2165,6 +2167,36 @@ void SettingsManager::setComposerMode(const QString &mode)
         return;
     m_store->setValue(kComposerMode, normalized);
     Q_EMIT composerModeChanged();
+}
+
+bool SettingsManager::spellCheckEnabled() const
+{
+    return m_store->value(kSpellCheckEnabled, true).toBool();
+}
+
+void SettingsManager::setSpellCheckEnabled(bool enabled)
+{
+    if (spellCheckEnabled() == enabled)
+        return;
+    m_store->setValue(kSpellCheckEnabled, enabled);
+    Q_EMIT spellCheckEnabledChanged();
+}
+
+QString SettingsManager::spellCheckLanguage() const
+{
+    return m_store->value(kSpellCheckLanguage, QString()).toString().trimmed();
+}
+
+void SettingsManager::setSpellCheckLanguage(const QString &tag)
+{
+    const QString normalized = tag.trimmed();
+    if (spellCheckLanguage() == normalized)
+        return;
+    if (normalized.isEmpty())
+        m_store->remove(kSpellCheckLanguage);
+    else
+        m_store->setValue(kSpellCheckLanguage, normalized);
+    Q_EMIT spellCheckLanguageChanged();
 }
 
 bool SettingsManager::sendTextAsCaption() const

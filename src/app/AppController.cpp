@@ -215,13 +215,20 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // here for the composer chip to preview. One store, both composers.
     m_composer->attachments()->setStagedImages(&m_stagedImages);
 
-    // The composer's spell checker, resolved against the SYSTEM locale
-    // rather than the UI language: a user reading Lightning in English still
-    // types Lithuanian, and it is the keyboard that decides which dictionary
-    // is the right one. Resolving costs one dlopen (Linux) or one
-    // CoCreateInstance (Windows) and answers "unavailable" honestly when the
-    // machine has no dictionary; `--spell-status` prints what happened.
-    m_spell.initialize();
+    // The composer's spell checker, resolved against the user's spelling
+    // preference ("" = the SYSTEM locale rather than the UI language: a user
+    // reading Lightning in English still types Lithuanian, and it is the
+    // keyboard that decides which dictionary is the right one). Resolving
+    // costs one dlopen (Linux), one CoCreateInstance (Windows) or one AppKit
+    // singleton (macOS) and answers "unavailable" honestly when the machine
+    // has no dictionary; `--spell-status` prints what happened. Both knobs
+    // are application settings: Settings writes them, this pushes them in.
+    m_spell.initialize(m_settings->spellCheckLanguage());
+    m_spell.setEnabled(m_settings->spellCheckEnabled());
+    connect(m_settings.get(), &SettingsManager::spellCheckEnabledChanged, this,
+            [this] { m_spell.setEnabled(m_settings->spellCheckEnabled()); });
+    connect(m_settings.get(), &SettingsManager::spellCheckLanguageChanged, this,
+            [this] { m_spell.setPreferredLanguage(m_settings->spellCheckLanguage()); });
 
     // System tray. Created only while the user has asked for it — an icon in
     // somebody's tray for a feature they never turned on is noise — and only

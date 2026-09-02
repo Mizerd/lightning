@@ -130,3 +130,17 @@ bool RichComposerBridge::isSafeLinkTarget(const QString &url) const
 {
     return RichComposition::isSafeLinkTarget(url);
 }
+
+QVariantList RichComposerBridge::spellSkipRanges(QQuickTextDocument *document) const
+{
+    if (QTextDocument *doc = unwrap(document))
+        return RichComposition::spellSkipRanges(*doc);
+    return {};
+}
+
+void RichComposerBridge::replaceRange(QQuickTextDocument *document, int start,
+                                      int length, const QString &replacement)
+{
+    if (QTextDocument *doc = unwrap(document))
+        RichComposition::replaceRange(doc, start, length, replacement);
+}

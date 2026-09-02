@@ -67,6 +67,12 @@ public:
 
     Q_INVOKABLE bool isSafeLinkTarget(const QString &url) const;
 
+    // v0.9 spell checking in rich mode; see RichComposition::spellSkipRanges
+    // and ::replaceRange.
+    Q_INVOKABLE QVariantList spellSkipRanges(QQuickTextDocument *document) const;
+    Q_INVOKABLE void replaceRange(QQuickTextDocument *document, int start, int length,
+                                  const QString &replacement);
+
 Q_SIGNALS:
     void composerChanged();
 

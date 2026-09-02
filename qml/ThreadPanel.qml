@@ -1341,6 +1341,38 @@ Rectangle {
                             TextArea.flickable: TextArea {
                                 id: threadRichInput
                                 objectName: "threadRichInput"
+                                onWidthChanged: threadRichSpellTimer.restart()
+                                Timer {
+                                    id: threadRichSpellTimer
+                                    objectName: "threadRichSpellTimer"
+                                    interval: 150
+                                    repeat: false
+                                    onTriggered: panel.refreshThreadRichSpellUnderlines()
+                                }
+                                Repeater {
+                                    objectName: "threadRichSpellUnderlines"
+                                    model: panel.threadRichSpellUnderlines
+                                    delegate: Rectangle {
+                                        objectName: "threadRichSpellUnderline"
+                                        required property var modelData
+                                        x: modelData.x
+                                        y: modelData.y
+                                        width: modelData.w
+                                        height: 2
+                                        radius: 1
+                                        color: Qt.alpha(AppTheme.danger, 0.85)
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    acceptedButtons: Qt.RightButton
+                                    onClicked: (mouse) => {
+                                        threadRichInput.forceActiveFocus()
+                                        panel.prepareThreadSpellMenu(mouse.x,
+                                                                     mouse.y)
+                                        threadComposerEditMenu.popup()
+                                    }
+                                }
                                 textFormat: TextEdit.RichText
                                 placeholderText: qsTr("Reply in thread")
                                 placeholderTextColor: AppTheme.textMuted
@@ -1351,6 +1383,7 @@ Rectangle {
                                 color: AppTheme.text
                                 font.pixelSize: AppTheme.scaled(13)
                                 onTextChanged: {
+                                    threadRichSpellTimer.restart()
                                     if (panel.richSyncing || !panel.richMode)
                                         return
                                     panel.richSyncing = true
@@ -1359,8 +1392,10 @@ Rectangle {
                                     panel.richSyncing = false
                                     panel.updateThreadRichMentionState()
                                 }
-                                onCursorPositionChanged:
+                                onCursorPositionChanged: {
                                     panel.updateThreadRichMentionState()
+                                    threadRichSpellTimer.restart()
+                                }
                                 Keys.onShortcutOverride: (event) => {
                                     if (app.shortcuts.editorActionForKey(
                                             event.key, event.modifiers) !== "")
@@ -1574,27 +1609,27 @@ Rectangle {
                                 }
                                 AppMenuItem {
                                     text: qsTr("Cut")
-                                    enabled: threadComposerInput.selectedText.length > 0
-                                    onTriggered: threadComposerInput.cut()
+                                    enabled: panel.activeThreadEditor().selectedText.length > 0
+                                    onTriggered: panel.activeThreadEditor().cut()
                                 }
                                 AppMenuItem {
                                     text: qsTr("Copy")
-                                    enabled: threadComposerInput.selectedText.length > 0
-                                    onTriggered: threadComposerInput.copy()
+                                    enabled: panel.activeThreadEditor().selectedText.length > 0
+                                    onTriggered: panel.activeThreadEditor().copy()
                                 }
                                 AppMenuItem {
                                     objectName: "threadComposerPasteItem"
                                     text: qsTr("Paste")
                                     onTriggered: {
                                         if (!app.thread.pasteFromClipboard())
-                                            threadComposerInput.paste()
+                                            panel.activeThreadEditor().paste()
                                     }
                                 }
                                 AppMenuSeparator {}
                                 AppMenuItem {
                                     text: qsTr("Select all")
-                                    enabled: threadComposerInput.length > 0
-                                    onTriggered: threadComposerInput.selectAll()
+                                    enabled: panel.activeThreadEditor().length > 0
+                                    onTriggered: panel.activeThreadEditor().selectAll()
                                 }
                             }
                             // Qt sends a ShortcutOverride to the FOCUS ITEM
@@ -2238,17 +2273,27 @@ Rectangle {
     property int threadSpellMenuLength: 0
     property var threadSpellMenuSuggestions: []
 
-    function refreshThreadSpellUnderlines() {
-        if (!panel.threadSpellActive
-            || threadComposerInput.text.length === 0) {
-            if (panel.threadSpellUnderlines.length > 0)
-                panel.threadSpellUnderlines = []
-            return
-        }
-        var ranges = app.spell.misspelledRanges(
-            threadComposerInput.text,
-            threadComposerInput.cursorPosition,
-            app.thread.mentionRanges)
+    // Rich-mode underlines keep their own geometry; the editors never show
+    // at once. See the room composer for the mechanism and the reasons.
+    property var threadRichSpellUnderlines: []
+
+    function activeThreadEditor() {
+        return panel.richMode ? threadRichInput : threadComposerInput
+    }
+    function threadSpellEditorText() {
+        return panel.richMode ? threadRichInput.getText(0, threadRichInput.length)
+                              : threadComposerInput.text
+    }
+    function threadSpellSkipRanges() {
+        // Rich mode: document-derived ranges ONLY. The composer's
+        // mentionRanges are offsets into the Markdown MIRROR, which differ
+        // from the document's whenever formatting is present; rich mention
+        // pills are anchors the document scan already covers.
+        if (panel.richMode)
+            return app.richComposer.spellSkipRanges(threadRichInput.textDocument)
+        return app.thread.mentionRanges
+    }
+    function threadSpellUnderlineRects(editor, ranges) {
         var out = []
         for (var i = 0; i < ranges.length; ++i) {
             var start = ranges[i].start
@@ -2256,15 +2301,14 @@ Rectangle {
             var p = start
             var guard = 0
             while (p < end && guard++ < 64) {
-                var head = threadComposerInput.positionToRectangle(p)
+                var head = editor.positionToRectangle(p)
                 var q = end
-                var tail = threadComposerInput.positionToRectangle(q)
+                var tail = editor.positionToRectangle(q)
                 if (tail.y !== head.y) {
                     while (q > p + 1
-                           && threadComposerInput.positionToRectangle(q).y
-                              !== head.y)
+                           && editor.positionToRectangle(q).y !== head.y)
                         --q
-                    tail = threadComposerInput.positionToRectangle(q)
+                    tail = editor.positionToRectangle(q)
                 }
                 var w = tail.x - head.x
                 if (w > 0)
@@ -2274,7 +2318,36 @@ Rectangle {
                 p = q
             }
         }
-        panel.threadSpellUnderlines = out
+        return out
+    }
+
+    function refreshThreadSpellUnderlines() {
+        if (!panel.threadSpellActive || panel.richMode
+            || threadComposerInput.text.length === 0) {
+            if (panel.threadSpellUnderlines.length > 0)
+                panel.threadSpellUnderlines = []
+            return
+        }
+        var ranges = app.spell.misspelledRanges(
+            threadComposerInput.text,
+            threadComposerInput.cursorPosition,
+            app.thread.mentionRanges)
+        panel.threadSpellUnderlines =
+            panel.threadSpellUnderlineRects(threadComposerInput, ranges)
+    }
+
+    function refreshThreadRichSpellUnderlines() {
+        if (!panel.threadSpellActive || !panel.richMode
+            || threadRichInput.length === 0) {
+            if (panel.threadRichSpellUnderlines.length > 0)
+                panel.threadRichSpellUnderlines = []
+            return
+        }
+        var ranges = app.spell.misspelledRanges(panel.threadSpellEditorText(),
+                                                threadRichInput.cursorPosition,
+                                                panel.threadSpellSkipRanges())
+        panel.threadRichSpellUnderlines =
+            panel.threadSpellUnderlineRects(threadRichInput, ranges)
     }
 
     function prepareThreadSpellMenu(mx, my) {
@@ -2284,12 +2357,13 @@ Rectangle {
         panel.threadSpellMenuSuggestions = []
         if (!panel.threadSpellActive)
             return
-        var hit = app.spell.wordAt(threadComposerInput.text,
-                                   threadComposerInput.positionAt(mx, my))
+        var editor = panel.activeThreadEditor()
+        var text = panel.threadSpellEditorText()
+        var hit = app.spell.wordAt(text, editor.positionAt(mx, my))
         if (!hit || hit.word === "")
             return
-        var wrong = app.spell.misspelledRanges(threadComposerInput.text, -1,
-                                               app.thread.mentionRanges)
+        var wrong = app.spell.misspelledRanges(text, -1,
+                                               panel.threadSpellSkipRanges())
         var rejected = false
         for (var i = 0; i < wrong.length; ++i) {
             if (wrong[i].start === hit.start) {
@@ -2311,16 +2385,28 @@ Rectangle {
             || replacement === "")
             return
         var at = panel.threadSpellMenuStart
-        threadComposerInput.remove(at, at + panel.threadSpellMenuLength)
-        threadComposerInput.insert(at, replacement)
-        threadComposerInput.cursorPosition = at + replacement.length
-        threadComposerInput.forceActiveFocus()
+        if (panel.richMode) {
+            app.richComposer.replaceRange(threadRichInput.textDocument, at,
+                                          panel.threadSpellMenuLength, replacement)
+            threadRichInput.cursorPosition = at + replacement.length
+            threadRichInput.forceActiveFocus()
+        } else {
+            threadComposerInput.remove(at, at + panel.threadSpellMenuLength)
+            threadComposerInput.insert(at, replacement)
+            threadComposerInput.cursorPosition = at + replacement.length
+            threadComposerInput.forceActiveFocus()
+        }
     }
 
     Connections {
         target: app.spell
         function onDictionaryChanged() {
             panel.refreshThreadSpellUnderlines()
+            panel.refreshThreadRichSpellUnderlines()
+        }
+        function onEnabledChanged() {
+            panel.refreshThreadSpellUnderlines()
+            panel.refreshThreadRichSpellUnderlines()
         }
     }
 
@@ -2483,6 +2569,14 @@ Rectangle {
     // rather than hidden state.
     property string commandErrorText: ""
     onRichModeChanged: {
+        panel.threadSpellUnderlines = []
+        panel.threadRichSpellUnderlines = []
+        // The Markdown field's text is a binding the rich mirror kept
+        // current, so switching back fires no textChanged: refresh here.
+        if (panel.richMode)
+            threadRichSpellTimer.restart()
+        else
+            threadSpellTimer.restart()
         if (panel.richMode) {
             panel.richSyncing = true
             app.richComposer.loadMarkdown(threadRichInput.textDocument,

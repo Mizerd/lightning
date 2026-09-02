@@ -1,5 +1,8 @@
 #pragma once
 
+#include <QTextDocument>
+#include <QVariantList>
+
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -33,6 +36,18 @@ class QTextDocument;
 // toMarkdown() ARE used for draft-only mode switching, where a cosmetic
 // difference between Qt versions cannot reach the protocol.
 namespace RichComposition {
+
+// v0.9 spell checking in rich mode. Ranges of the document's plain text
+// (`QTextDocument::toRawText` positions == cursor positions) that are NOT
+// natural language and must never be underlined: fenced code blocks, inline
+// code fragments (fixed pitch) and mention pills (anchors to a user). Link
+// anchor TEXT is checked — the destination is not in the text at all.
+QVariantList spellSkipRanges(const QTextDocument &document);
+// Replaces exactly [start, start+length) with `replacement`, keeping the
+// character format the range started with, so a suggestion applied inside a
+// bold or linked word stays bold or linked. One undo step.
+void replaceRange(QTextDocument *document, int start, int length,
+                  const QString &replacement);
 
 struct Composed {
     // The plain m.text fallback: list markers ("- ", "1. "), "> " quote

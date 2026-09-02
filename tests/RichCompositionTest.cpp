@@ -295,6 +295,83 @@ private Q_SLOTS:
         QVERIFY(back.contains(QStringLiteral("`code`")));
         QVERIFY(back.contains(QStringLiteral("https://example.org")));
     }
+    // ── v0.9 spell checking in rich mode ─────────────────────────────
+
+    void spellSkipRangesCoverCodeAndMentionsButNotLinkText()
+    {
+        QTextDocument doc;
+        QTextCursor c(&doc);
+        c.insertText(QStringLiteral("see "));
+        QTextCharFormat code;
+        code.setFontFixedPitch(true);
+        c.insertText(QStringLiteral("teh_var"), code);
+        c.insertText(QStringLiteral(" and "), QTextCharFormat());
+        QTextCharFormat mention;
+        mention.setAnchor(true);
+        mention.setAnchorHref(QStringLiteral("https://matrix.to/#/@teh:example.org"));
+        c.insertText(QStringLiteral("@Teh"), mention);
+        c.insertText(QStringLiteral(" and "), QTextCharFormat());
+        QTextCharFormat link;
+        link.setAnchor(true);
+        link.setAnchorHref(QStringLiteral("https://example.org/teh"));
+        c.insertText(QStringLiteral("teh docs"), link);
+        c.insertText(QStringLiteral(" teh"), QTextCharFormat());
+        const QVariantList skip = RichComposition::spellSkipRanges(doc);
+        QCOMPARE(skip.size(), 2);
+        const QString plain = doc.toRawText();
+        QCOMPARE(plain.mid(skip.at(0).toMap().value(QStringLiteral("start")).toInt(),
+                           skip.at(0).toMap().value(QStringLiteral("length")).toInt()),
+                 QStringLiteral("teh_var"));
+        QCOMPARE(plain.mid(skip.at(1).toMap().value(QStringLiteral("start")).toInt(),
+                           skip.at(1).toMap().value(QStringLiteral("length")).toInt()),
+                 QStringLiteral("@Teh"));
+    }
+
+    void spellSkipRangesCoverAWholeCodeBlock()
+    {
+        QTextDocument doc;
+        doc.setMarkdown(QStringLiteral("hello\n\n```\nteh code\n```\n\nteh"));
+        const QVariantList skip = RichComposition::spellSkipRanges(doc);
+        QVERIFY(!skip.isEmpty());
+        const QString plain = doc.toRawText();
+        bool coversCode = false;
+        for (const QVariant &v : skip) {
+            const QVariantMap r = v.toMap();
+            const QString slice = plain.mid(r.value(QStringLiteral("start")).toInt(),
+                                            r.value(QStringLiteral("length")).toInt());
+            if (slice.contains(QStringLiteral("teh code")))
+                coversCode = true;
+            QVERIFY(!slice.startsWith(QStringLiteral("hello")));
+        }
+        QVERIFY(coversCode);
+    }
+
+    void replacingASuggestionKeepsTheWordsFormatting()
+    {
+        QTextDocument doc;
+        QTextCursor c(&doc);
+        c.insertText(QStringLiteral("a "));
+        QTextCharFormat bold;
+        bold.setFontWeight(QFont::Bold);
+        bold.setAnchor(true);
+        bold.setAnchorHref(QStringLiteral("https://example.org/"));
+        c.insertText(QStringLiteral("teh"), bold);
+        c.insertText(QStringLiteral(" end"), QTextCharFormat());
+        RichComposition::replaceRange(&doc, 2, 3, QStringLiteral("the"));
+        QCOMPARE(doc.toRawText(), QStringLiteral("a the end"));
+        QTextCursor probe(&doc);
+        probe.setPosition(3);
+        QCOMPARE(probe.charFormat().fontWeight(), int(QFont::Bold));
+        QVERIFY(probe.charFormat().isAnchor());
+        QCOMPARE(probe.charFormat().anchorHref(), QStringLiteral("https://example.org/"));
+        probe.setPosition(7);
+        QVERIFY(!probe.charFormat().isAnchor());
+        const RichComposition::Composed composed = RichComposition::compose(doc);
+        QVERIFY(!composed.html.contains(QStringLiteral("SpellCheck")));
+        QVERIFY(composed.html.contains(QStringLiteral("the")));
+        RichComposition::replaceRange(&doc, 100, 3, QStringLiteral("x"));
+        QCOMPARE(doc.toRawText(), QStringLiteral("a the end"));
+    }
 };
 
 // QTEST_MAIN, not GUILESS: toMarkdown() consults QFontDatabase, which
