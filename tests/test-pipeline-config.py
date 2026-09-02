@@ -290,6 +290,24 @@ for producer in ["validate-deb", "validate-rpm", "validate-flatpak",
 # file; without it in that job's artifacts the mirror cannot carry it.
 check("dist/SHA256SUMS" in doc["publish-packages"]["artifacts"]["paths"],
       "publish-packages hands SHA256SUMS downstream for the mirror")
+# The mirror release must carry the RELEASE'S OWN NOTES, not only the "this is
+# a mirror" notice. GitHub is where most readers land, and a page explaining
+# what a mirror is while saying nothing about what changed is the wrong page.
+# Both descriptions resolve from the same dist/release-notes.md that
+# finalize-release uses for GitLab, so the two cannot drift.
+check("resolve-source" in needs_names("mirror-release-to-github"),
+      "the mirror receives resolve-source's artifacts (release-notes.md lives there)")
+check("dist/release-notes.md" in doc["resolve-source"]["artifacts"]["paths"],
+      "resolve-source hands the release notes downstream")
+with open(os.path.join(HERE, os.pardir, "scripts",
+                       "mirror-release-to-github.sh"), encoding="utf-8") as fh:
+    _mirror_sh = fh.read()
+check("dist/release-notes.md" in _mirror_sh,
+      "the mirror release body includes the release notes")
+check(_mirror_sh.index("dist/release-notes.md")
+      < _mirror_sh.index("This is a read-only mirror"),
+      "the release notes come before the mirror notice in the body")
+
 mirror_before = " ".join(
     str(x) for x in resolve_extends("mirror-release-to-github").get("before_script", []))
 check("curl" in mirror_before and "jq" in mirror_before,

@@ -260,7 +260,35 @@ status="$(gh_get "${api_base}/releases/tags/${RELEASE_TAG}" "$release_json")" ||
 
 mirror_notes() { # output
     local canonical="${LIGHTNING_RELEASE_BASE_URL:-https://gitlab.smetonis.net/Mizerd/lightning}/-/releases/${RELEASE_TAG}"
-    cat >"$1" <<EOF
+    # THE RELEASE NOTES COME FIRST, and they are the same bytes the GitLab
+    # release carries: resolve-source writes dist/release-notes.md from
+    # project 6's docs/releases/<tag>.md, this job already `needs` that
+    # artifact, and finalize-release resolves the GitLab description from the
+    # very same file. Two pages describing one release must not describe it
+    # differently.
+    #
+    # This page used to be the mirror notice ALONE, so the GitHub release said
+    # what the mirror is and nothing whatever about what changed — and GitHub
+    # is where most people actually land. The notice is kept, because "GitHub
+    # decides nothing" is a real invariant and not decoration, but it belongs
+    # BELOW the thing the reader came for.
+    #
+    # A missing notes file is a WARNING, never fatal. By the time this job
+    # runs the tag and the GitLab release already exist, and failing after
+    # that point is the most expensive failure this pipeline has — it cost the
+    # 0.7.5 round a hand-finished release. Boilerplate alone is a worse page,
+    # not a broken one.
+    : >"$1"
+    local notes_src="$ROOT/dist/release-notes.md"
+    if [[ -s "$notes_src" ]]; then
+        cat "$notes_src" >>"$1"
+        printf '\n\n---\n\n' >>"$1"
+        printf 'Mirror release notes: using %s\n' "$notes_src" >&2
+    else
+        printf 'WARNING: %s is missing or empty; the mirror release will carry only the mirror notice\n' \
+            "$notes_src" >&2
+    fi
+    cat >>"$1" <<EOF
 **This is a read-only mirror. It is not a release authority.**
 
 The canonical Lightning ${PACKAGE_VERSION} release lives on GitLab:
