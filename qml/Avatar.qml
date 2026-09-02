@@ -247,6 +247,7 @@ Rectangle {
         visible: root.presentationState === "missing"
                  || root.presentationState === "failed"
         text: root._initials(root.name)
+        textFormat: Text.PlainText
         // The ink the DISC can carry, not a fixed white. Since the discs
         // follow the theme's accent (AppTheme.avatarColor), half of them
         // are pale — that alternation is what keeps two rooms apart once

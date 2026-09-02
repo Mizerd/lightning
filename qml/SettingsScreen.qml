@@ -1510,6 +1510,7 @@ Item {
                                             }
                                             Label {
                                                 text: themeCard.modelData.name
+                                                textFormat: Text.PlainText
                                                 color: AppTheme.stormText
                                                 font.pixelSize: AppTheme.textBody
                                                 font.weight: AppTheme.weightStrong
@@ -1617,6 +1618,7 @@ Item {
                                         }
                                         Label {
                                             text: miniThemeCard.modelData.name
+                                            textFormat: Text.PlainText
                                             color: miniThemeCard.selectedTheme
                                                    ? AppTheme.stormText
                                                    : AppTheme.stormTextSecondary
@@ -1705,6 +1707,7 @@ Item {
                                               : app.customTheme.name.length > 0
                                                 ? app.customTheme.name
                                                 : qsTr("Your theme")
+                                        textFormat: Text.PlainText
                                         color: AppTheme.stormText
                                         font.pixelSize: AppTheme.textBody
                                         font.weight: AppTheme.weightStrong
@@ -4977,6 +4980,7 @@ Item {
                                                  : AppTheme.stormText
                                         font.pixelSize: AppTheme.textBody
                                         text: app.cryptoBootstrap.statusMessage
+                                        textFormat: Text.PlainText
                                         Accessible.role: Accessible.StaticText
                                         Accessible.name: text
                                     }
@@ -5839,6 +5843,7 @@ Item {
                                                                && modelData.displayName.length > 0)
                                                               ? modelData.displayName
                                                               : modelData.deviceId
+                                                        textFormat: Text.PlainText
                                                         color: AppTheme.stormText
                                                         font.pixelSize: AppTheme.textBody
                                                         font.weight: AppTheme.weightStrong
@@ -6279,6 +6284,7 @@ Item {
                                     visible: recoveryPanel.statusText !== ""
                                     color: recoveryPanel.statusColor
                                     text: recoveryPanel.statusText
+                                    textFormat: Text.PlainText
                                 }
                                 QtObject {
                                     id: recoveryPanel
@@ -6450,6 +6456,7 @@ Item {
                                     visible: importPanel.statusText !== ""
                                     color: importPanel.statusColor
                                     text: importPanel.statusText
+                                    textFormat: Text.PlainText
                                 }
                                 QtObject {
                                     id: importPanel

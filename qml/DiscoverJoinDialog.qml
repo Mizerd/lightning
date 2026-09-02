@@ -596,6 +596,7 @@ Dialog {
                                 text: root.resolved.name
                                       || root.resolved.alias
                                       || root.resolved.target || ""
+                                textFormat: Text.PlainText
                                 color: AppTheme.stormText
                                 font.family: AppTheme.menuFont
                                 font.pixelSize: AppTheme.textSubtitle

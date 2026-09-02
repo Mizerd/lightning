@@ -134,6 +134,7 @@ Item {
                     Label {
                         objectName: "homeWelcomeName"
                         text: root.displayName
+                        textFormat: Text.PlainText
                         color: AppTheme.text
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textDisplay
@@ -216,6 +217,7 @@ Item {
                         Layout.fillWidth: true
                         text: app.cryptoBootstrap
                               ? app.cryptoBootstrap.statusMessage : ""
+                        textFormat: Text.PlainText
                         // Same reason as the offline card above: secondary
                         // ink on accentSoft is 3.80:1 on Lightning Light.
                         color: AppTheme.textPrimary
@@ -352,6 +354,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: recentRow.modelData.name
                                       || qsTr("Conversation")
+                                textFormat: Text.PlainText
                                 color: AppTheme.text
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)
@@ -499,6 +502,7 @@ Item {
                                 Label {
                                     text: spacePill.modelData.name
                                           || qsTr("Space")
+                                    textFormat: Text.PlainText
                                     color: AppTheme.text
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMeta

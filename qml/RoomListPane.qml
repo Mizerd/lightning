@@ -75,6 +75,7 @@ Rectangle {
                         spacing: AppTheme.spacingXS
                         Label {
                             text: model.name
+                            textFormat: Text.PlainText
                             color: parent.parent.selected ? AppTheme.accentText : AppTheme.text
                             font.pixelSize: 12
                         }

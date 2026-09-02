@@ -413,6 +413,7 @@ Popup {
                                     text: themeChip.modelData.name.length > 0
                                           ? themeChip.modelData.name
                                           : qsTr("Untitled")
+                                    textFormat: Text.PlainText
                                     color: themeChip.current
                                            ? AppTheme.editorAccentInk
                                            : AppTheme.editorText
@@ -681,6 +682,7 @@ Popup {
                                     Label {
                                         Layout.fillWidth: true
                                         text: baseChip.modelData.name
+                                        textFormat: Text.PlainText
                                         color: AppTheme.editorText
                                         font.family: AppTheme.uiFont
                                         font.pixelSize: AppTheme.textMeta
@@ -739,6 +741,7 @@ Popup {
                                     Label {
                                         Layout.topMargin: AppTheme.spacing6
                                         text: modelData.name
+                                        textFormat: Text.PlainText
                                         color: AppTheme.editorTextMuted
                                         font.family: AppTheme.menuSectionFont
                                         font.pixelSize: AppTheme.menuSectionSize

@@ -190,6 +190,7 @@ Rectangle {
                         text: model.spaceId === ""       ? qsTr("All rooms")
                             : model.spaceId === "@orphans" ? qsTr("Other rooms")
                             : (model.name || "")
+                        textFormat: Text.PlainText
                         color: isSelected ? AppTheme.selectedText : AppTheme.textPrimary
                         font.pixelSize: AppTheme.textBody
                         font.weight: isSelected ? AppTheme.weightStrong

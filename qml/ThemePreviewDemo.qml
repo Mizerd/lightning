@@ -247,6 +247,7 @@ Item {
                             }
                             Text {
                                 text: fakeChannelRow.modelData.name
+                                textFormat: Text.PlainText
                                 color: fakeChannelRow.isSelected ? root.c("selectedText", "textPrimary") : (fakeChannelRow.isFolder ? root.c("textMuted", "textSecondary") : root.c("textSecondary", "textSecondary"))
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.textMeta
@@ -294,6 +295,7 @@ Item {
                                 spacing: 0
                                 Text {
                                     text: fakeRoomRow.modelData.name
+                                    textFormat: Text.PlainText
                                     color: fakeRoomRow.isSelected
                                            ? root.c("selectedText", "textPrimary")
                                            : root.c("textPrimary", "textPrimary")

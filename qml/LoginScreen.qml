@@ -981,6 +981,7 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                             visible: repairPanel.statusText !== ""
                             text: repairPanel.statusText
+                            textFormat: Text.PlainText
                             color: repairPanel.statusOk ? AppTheme.success : AppTheme.danger
                             font.pixelSize: AppTheme.textMeta
                         }

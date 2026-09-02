@@ -432,6 +432,7 @@ Rectangle {
                             Label {
                                 Layout.fillWidth: true
                                 text: root.roomData.name || qsTr("(unnamed room)")
+                                textFormat: Text.PlainText
                                 color: AppTheme.textPrimary
                                 font.pixelSize: AppTheme.textTitle
                                 font.weight: AppTheme.weightStrong
@@ -790,6 +791,7 @@ Rectangle {
                                     Label {
                                         Layout.fillWidth: true
                                         text: spaceRow.modelData.name
+                                        textFormat: Text.PlainText
                                         color: AppTheme.text
                                         font.pixelSize: AppTheme.textBody
                                         elide: Label.ElideRight
@@ -1294,6 +1296,7 @@ Rectangle {
                                     text: pinDelegate.resolved
                                           ? pinDelegate.senderName
                                           : qsTr("Message unavailable")
+                                    textFormat: Text.PlainText
                                     // Identity ink, as in the timeline. An
                                     // UNRESOLVED pin has no sender to hash,
                                     // so it keeps the neutral ink — colouring
@@ -1677,6 +1680,7 @@ Rectangle {
                                     Layout.fillWidth: true
                                     text: member.displayName.length > 0
                                           ? member.displayName : member.userId
+                                    textFormat: Text.PlainText
                                     // Identity ink — the member list is the
                                     // one place a reader scans for a specific
                                     // person, and it was a column of

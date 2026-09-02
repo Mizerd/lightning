@@ -129,6 +129,7 @@ Item {
                     Layout.fillWidth: true
                     text: root.displayName.length > 0 ? root.displayName
                                                        : root.userId
+                    textFormat: Text.PlainText
                     color: AppTheme.stormText
                     font.family: AppTheme.brandFont
                     font.pixelSize: AppTheme.fontTrustName
@@ -324,6 +325,7 @@ Item {
                     Layout.fillWidth: true
                     visible: root.statusText.length > 0
                     text: root.statusText
+                    textFormat: Text.PlainText
                     color: AppTheme.stormTextMuted
                     font.pixelSize: AppTheme.fontChip
                     wrapMode: Text.WordWrap

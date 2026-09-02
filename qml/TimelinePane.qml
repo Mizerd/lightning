@@ -550,6 +550,7 @@ Rectangle {
                                 text: readerDelegate.modelData
                                           .displayName
                                       || readerDelegate.modelData.userId
+                                textFormat: Text.PlainText
                                 color: AppTheme.stormText
                                 font.family: AppTheme.menuFont
                                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)
@@ -5262,6 +5263,7 @@ Rectangle {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         text: root.currentRoom.name || qsTr("No messages yet")
+                        textFormat: Text.PlainText
                         color: AppTheme.text
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.scaled(AppTheme.textDisplay)
@@ -6372,6 +6374,7 @@ Rectangle {
                             Label {
                                 objectName: "spaceHomeName"
                                 text: spaceHome.info.name || qsTr("Space")
+                                textFormat: Text.PlainText
                                 color: AppTheme.text
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.scaled(AppTheme.textDisplay)
@@ -6576,6 +6579,7 @@ Rectangle {
                                                 Layout.fillWidth: true
                                                 text: spaceMemberChip.modelData.displayName
                                                       || spaceMemberChip.modelData.userId
+                                                textFormat: Text.PlainText
                                                 color: AppTheme.textPrimary
                                                 font.pixelSize: AppTheme.textMeta
                                                 elide: Label.ElideRight
@@ -6981,6 +6985,7 @@ Rectangle {
                                         Label {
                                             text: unifiedRow.modelData.name
                                                   || qsTr("Room")
+                                            textFormat: Text.PlainText
                                             color: AppTheme.text
                                             font.family: AppTheme.uiFont
                                             font.pixelSize: AppTheme.scaled(
@@ -7343,6 +7348,7 @@ Rectangle {
                     Label {
                         text: qsTr("Leave %1?")
                             .arg(spaceHome.info.name || qsTr("this Space"))
+                        textFormat: Text.PlainText
                         color: AppTheme.stormText
                         font.family: AppTheme.menuFont
                         font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
@@ -7411,6 +7417,7 @@ Rectangle {
                     Label {
                         text: qsTr("Add a room to %1")
                             .arg(spaceHome.info.name || qsTr("this Space"))
+                        textFormat: Text.PlainText
                         color: AppTheme.stormText
                         font.family: AppTheme.menuFont
                         font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
@@ -7468,6 +7475,7 @@ Rectangle {
                                 Label {
                                     Layout.fillWidth: true
                                     text: modelData.name || qsTr("Room")
+                                    textFormat: Text.PlainText
                                     color: AppTheme.stormText
                                     font.family: AppTheme.menuFont
                                     font.pixelSize: AppTheme.scaled(

@@ -203,6 +203,7 @@ AppDialog {
             }
             Label {
                 text: root.info.name || qsTr("Space")
+                textFormat: Text.PlainText
                 elide: Label.ElideRight
                 Layout.maximumWidth: 260
                 color: AppTheme.stormText
@@ -1123,6 +1124,7 @@ AppDialog {
                                                 elide: Label.ElideRight
                                                 text: memberRow.modelData.displayName
                                                       || memberRow.uid
+                                                textFormat: Text.PlainText
                                                 color: AppTheme.stormText
                                                 font.family: AppTheme.uiFont
                                                 font.pixelSize: AppTheme.textBody
@@ -1485,6 +1487,7 @@ AppDialog {
                                     elide: Label.ElideRight
                                     text: roleRow.modelData.displayName
                                           || roleRow.uid
+                                    textFormat: Text.PlainText
                                     color: AppTheme.stormText
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textBody

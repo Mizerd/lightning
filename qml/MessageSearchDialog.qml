@@ -177,6 +177,7 @@ Dialog {
                             }
                             Label {
                                 text: qsTr("in %1").arg(resultRow.roomName)
+                                textFormat: Text.PlainText
                                 color: AppTheme.stormTextMuted
                                 font.family: AppTheme.menuFont
                                 // Was an unscaled 11 beside a scaled sender

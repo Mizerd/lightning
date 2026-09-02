@@ -271,6 +271,7 @@ Item {
                 spacing: AppTheme.spacing6
                 Label {
                     text: model.name
+                    textFormat: Text.PlainText
                     // Read rows dim to secondary ink; unread/selected keep
                     // full primary ink (handoff §2). A muted room never
                     // claims the unread emphasis — that is what muting it

@@ -106,6 +106,7 @@ ColumnLayout {
                         Layout.fillWidth: true
                         text: memberRow.modelData.displayName
                               || memberRow.modelData.userId
+                        textFormat: Text.PlainText
                         // Identity ink: the whole point of this list is
                         // picking one person out of it.
                         color: AppTheme.userColor(

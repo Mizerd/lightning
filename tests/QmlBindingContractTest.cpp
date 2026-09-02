@@ -15,6 +15,97 @@ class QmlBindingContractTest : public QObject
                                                : QString{};
     }
 
+    // One text-rendering element and the properties declared at ITS OWN brace
+    // depth. Depth matters: a `Label { ... Label { textFormat: ... } }` must
+    // not let the inner declaration satisfy a check on the outer one, and a
+    // fixed character window after a name is defeated by any comment added
+    // inside the block — a shape that has cost this suite four cases.
+    struct TextElement {
+        int line = 0;
+        QStringList properties;
+
+        // The value of `name:` as written, or an empty string. Multi-line
+        // expressions (the ternaries this codebase writes for display names)
+        // are joined, so the whole expression is matched, not its first line.
+        QString property(const QString &name) const
+        {
+            const QString prefix = name + QLatin1Char(':');
+            for (const QString &p : properties) {
+                if (p.startsWith(prefix))
+                    return p;
+            }
+            return {};
+        }
+    };
+
+    static QList<TextElement> textElements(const QString &source)
+    {
+        static const QRegularExpression opener(
+            QStringLiteral("\\b(Label|Text|AppLabel|ToolTip)\\s*\\{"));
+        QList<TextElement> found;
+        QRegularExpressionMatchIterator it = opener.globalMatch(source);
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            const int open = m.capturedEnd() - 1;
+            int depth = 0;
+            int end = open;
+            while (end < source.size()) {
+                const QChar c = source.at(end);
+                if (c == QLatin1Char('{')) {
+                    ++depth;
+                } else if (c == QLatin1Char('}')) {
+                    if (--depth == 0)
+                        break;
+                }
+                ++end;
+            }
+            TextElement element;
+            element.line = source.left(m.capturedStart()).count(QLatin1Char('\n')) + 1;
+            // Collect depth-1 lines, joining continuations so a property's
+            // whole expression is one entry.
+            depth = 0;
+            QString current;
+            for (int i = open; i <= end && i < source.size(); ++i) {
+                const QChar c = source.at(i);
+                if (c == QLatin1Char('{')) {
+                    ++depth;
+                    if (depth > 1)
+                        current.append(c);
+                    continue;
+                }
+                if (c == QLatin1Char('}')) {
+                    --depth;
+                    if (depth >= 1)
+                        current.append(c);
+                    continue;
+                }
+                if (c == QLatin1Char('\n')) {
+                    if (depth == 1 && !current.trimmed().isEmpty()) {
+                        const QString trimmed = current.trimmed();
+                        // A line that opens a new property starts a new entry;
+                        // anything else continues the previous one.
+                        static const QRegularExpression newProperty(
+                            QStringLiteral("^[A-Za-z_][A-Za-z0-9_.]*\\s*:"));
+                        if (!element.properties.isEmpty()
+                            && !newProperty.match(trimmed).hasMatch()
+                            && !trimmed.startsWith(QLatin1String("//"))) {
+                            element.properties.last().append(QLatin1Char(' '));
+                            element.properties.last().append(trimmed);
+                        } else {
+                            element.properties << trimmed;
+                        }
+                    }
+                    current.clear();
+                    continue;
+                }
+                if (depth >= 1)
+                    current.append(c);
+            }
+            found << element;
+        }
+        return found;
+    }
+
     // The `stateActivity` Item through the sibling `layout` ColumnLayout
     // that follows it in MessageDelegate.qml.
     static QString stateActivityBlock(const QString &delegate)
@@ -406,45 +497,67 @@ private Q_SLOTS:
     // shape, which has cost this suite four cases already.
     void unsanitizedServerTextIsAlwaysPlainText()
     {
-        struct Sink { const char *file; const char *expression; };
-        // Each is a Label bound to text the SERVER controls: a room topic
-        // (any member with the power level), a public-directory topic (a
-        // stranger's homeserver), a room name reaching the Activity Center
-        // through an unsolicited invite, and an arbitrary reaction key.
-        const QList<Sink> sinks = {
-            { "TimelinePane.qml", "text: (root.currentRoom.topic || \"\")" },
-            { "TimelinePane.qml", "text: spaceHome.info.topic || \"\"" },
-            { "RoomInfoPanel.qml", "text: root.roomData.topic || \"\"" },
-            { "DiscoverJoinDialog.qml", "text: root.resolved.topic || \"\"" },
-            { "ActivityCenterPanel.qml", "text: row.roomName" },
-            { "ActivityCenterPanel.qml",
-              "text: root.kindLabel(row.kind, row.reactionKey)" },
-        };
+        // A RULE OVER THE WHOLE TREE, not a list of the sinks two audits
+        // happened to look at. The first version of this case named six, and
+        // a sweep written the same day found twenty-eight more of exactly the
+        // same shape — room and space names in the room list, Home, search
+        // results, Room Information and Space settings, and the display name
+        // on the verification card. A list closes the instances; only a sweep
+        // closes the class.
+        //
+        // Identifiers whose VALUE is chosen by a remote party: another user,
+        // a room's state, or a foreign homeserver. `qsTr("literal")` alone is
+        // ours and is skipped; `qsTr("in %1").arg(roomName)` is not.
+        static const QRegularExpression remotelyChosen(QStringLiteral(
+            "\\b(topic|roomName|spaceName|displayName|senderName|memberName"
+            "|authorName|reactionKey|statusText|statusMessage|aliasText"
+            "|canonicalAlias|packName|stickerName|deviceName|sessionName"
+            "|\\.name)\\b"));
+        static const QRegularExpression ourOwnLiteral(
+            QStringLiteral("^text\\s*:\\s*qsTr\\([^)]*\\)\\s*$"));
+
         int checked = 0;
-        for (const Sink &sink : sinks) {
-            const QString source = read(QString::fromLatin1(sink.file));
-            QVERIFY2(!source.isEmpty(), sink.file);
-            const QString expression = QString::fromLatin1(sink.expression);
-            const int at = source.indexOf(expression);
-            QVERIFY2(at >= 0,
-                     qPrintable(QStringLiteral("%1: no binding %2")
-                                    .arg(QString::fromLatin1(sink.file),
-                                         expression)));
-            // The declaration sits in the same Label as the binding. Stop at
-            // the next `Label {` so a neighbouring correct Label can never
-            // satisfy this for an unfixed one.
-            const int next = source.indexOf(QStringLiteral("Label {"),
-                                            at + expression.size());
-            const int end = next < 0 ? source.size() : next;
-            const QString block = source.mid(at, end - at);
-            QVERIFY2(block.contains(QStringLiteral("textFormat: Text.PlainText")),
-                     qPrintable(QStringLiteral("%1: %2 is not PlainText")
-                                    .arg(QString::fromLatin1(sink.file),
-                                         expression)));
-            ++checked;
+        QStringList offenders;
+        const QDir dir(QStringLiteral(QML_DIR));
+        const QStringList files =
+            dir.entryList(QStringList{ QStringLiteral("*.qml") }, QDir::Files);
+        QVERIFY2(files.size() > 20, "the qml directory did not enumerate");
+
+        for (const QString &name : files) {
+            const QString source = read(name);
+            if (source.isEmpty())
+                continue;
+            for (const TextElement &element : textElements(source)) {
+                const QString binding = element.property(QStringLiteral("text"));
+                if (binding.isEmpty())
+                    continue;
+                if (ourOwnLiteral.match(binding).hasMatch())
+                    continue;
+                if (!remotelyChosen.match(binding).hasMatch())
+                    continue;
+                ++checked;
+                // Its OWN declaration, at its own brace depth — a nested
+                // child's textFormat must never be credited to its parent.
+                if (element.property(QStringLiteral("textFormat")).isEmpty()) {
+                    offenders << QStringLiteral("%1:%2  %3")
+                                     .arg(name)
+                                     .arg(element.line)
+                                     .arg(binding.left(70));
+                }
+            }
         }
-        // A sweep that matched nothing must fail rather than pass silently.
-        QCOMPARE(checked, sinks.size());
+        // A sweep that matched nothing passes vacuously, which is worse than
+        // no sweep: it reads as coverage.
+        QVERIFY2(checked > 25,
+                 qPrintable(QStringLiteral("the sweep only examined %1 bindings; "
+                                           "it is no longer finding them")
+                                .arg(checked)));
+        QVERIFY2(offenders.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "%1 element(s) render remotely-chosen text without "
+                     "textFormat, so Text.AutoText will render HTML in them:\n  %2")
+                                .arg(offenders.size())
+                                .arg(offenders.join(QStringLiteral("\n  ")))));
     }
 
     void paginationVisibilityDoesNotDependOnGeometry()
