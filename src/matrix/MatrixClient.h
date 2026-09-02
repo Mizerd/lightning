@@ -1185,6 +1185,12 @@ Q_SIGNALS:
     // Carries no credential — the login token comes back on the callback —
     // but it is single-use, so it is not logged.
     void ssoBrowserUrlReady(const QString &url);
+    // The system browser could not be launched for a browser sign-in (OAuth
+    // or SSO). The flow itself stays alive — the 5-minute timeout and Cancel
+    // still apply — this only lets the UI say WHY nothing appeared instead
+    // of sitting on a silent "waiting for browser" (2026-09-01: the launch
+    // result used to be discarded).
+    void browserLaunchFailed();
     // What the server advertises for m.login.sso. `providers` is a list of
     // {id, name, icon} maps; EMPTY with sso true means one unnamed flow, which
     // is the common case. `icon` is an mxc: URI or empty — never an http URL,

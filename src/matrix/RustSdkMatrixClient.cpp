@@ -975,7 +975,11 @@ void RustSdkMatrixClient::drainAuthEvents()
                 continue;
             // Open the system browser here so the flow works even if the UI
             // ignores the signal; the signal drives the waiting/cancel state.
-            lightning::urls::openExternally(QUrl(url));
+            // A failed launch is REPORTED, not fatal: the flow (timeout,
+            // Cancel) stays alive, the UI just gets to say why nothing
+            // appeared.
+            if (!lightning::urls::openExternally(QUrl(url)))
+                Q_EMIT browserLaunchFailed();
             Q_EMIT oauthBrowserUrlReady(url);
             continue;
         }
@@ -1031,7 +1035,8 @@ void RustSdkMatrixClient::drainAuthEvents()
             const QString url = event.value(QStringLiteral("url")).toString();
             if (url.isEmpty())
                 continue;
-            lightning::urls::openExternally(QUrl(url));
+            if (!lightning::urls::openExternally(QUrl(url)))
+                Q_EMIT browserLaunchFailed();
             Q_EMIT ssoBrowserUrlReady(url);
             continue;
         }

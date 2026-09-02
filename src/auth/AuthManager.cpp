@@ -72,6 +72,16 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         setLoginStage(QStringLiteral("waiting_for_browser"));
     });
 
+    // 2026-09-01: a failed browser LAUNCH used to be silent — the backend
+    // discarded openExternally()'s result and the UI sat in
+    // waiting_for_browser until the 5-minute timeout. The flow deliberately
+    // stays alive (Cancel and the timeout still apply; the user may open a
+    // browser themselves on some setups), but the reason is now on screen.
+    connect(m_client, &MatrixClient::browserLaunchFailed, this, [this] {
+        setLastError(tr("Couldn't open your web browser. "
+                        "Cancel and try again, or sign in another way."));
+    });
+
     connect(m_client, &MatrixClient::oauthBrowserUrlReady, this, [this](const QString &) {
         // The backend has opened the system browser. The URL itself is
         // deliberately not stored or surfaced here.
