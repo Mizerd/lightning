@@ -616,6 +616,18 @@ Rectangle {
                     spacing: AppTheme.spacing8
                     visible: app.roomInfo.canChangeJoinRule
                              || app.roomInfo.canChangeAlias
+                             || app.roomInfo.canChangeHistoryVisibility
+                             || app.roomInfo.canChangeGuestAccess
+                    // Directory visibility is not room state: ask the server
+                    // when this block is on screen for a room.
+                    onVisibleChanged: if (visible) app.roomInfo.requestDirectoryVisibility()
+                    Connections {
+                        target: app.roomInfo
+                        function onRoomIdChanged() {
+                            if (roomAdminBlock.visible)
+                                app.roomInfo.requestDirectoryVisibility()
+                        }
+                    }
 
                     Label {
                         text: qsTr("Access")
@@ -679,19 +691,283 @@ Rectangle {
                                     joinRuleCombo.ruleValues[index])
                             }
                         }
-                        Label {
+                        // v0.9 (phase 4): space-restricted access is
+                        // editable. The kind (restricted vs. knock +
+                        // restricted) and the allowed spaces are ONE write,
+                        // and a configuration another client wrote renders
+                        // as-is: allow rules of a kind this client cannot
+                        // show are preserved on save and disclosed below.
+                        // AppSwitch is a bare toggle whose owner binds
+                        // `checked` and flips it from toggled(); the label
+                        // sits beside it, and `checked` inside a handler is
+                        // the value BEFORE the flip.
+                        RowLayout {
                             Layout.fillWidth: true
-                            visible: parent.restricted
-                            lineHeight: AppTheme.lineHeightBody
-                            lineHeightMode: Text.ProportionalHeight
-                            wrapMode: Text.WordWrap
-                            color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.textMeta
-                            text: qsTr("Members of a space can join. "
-                                       + "Lightning can't change "
-                                       + "space-restricted access yet.")
+                            spacing: AppTheme.spacing8
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Members of selected spaces can join")
+                                color: AppTheme.text
+                                font.pixelSize: AppTheme.textBody
+                                wrapMode: Text.WordWrap
+                            }
+                            AppSwitch {
+                                id: restrictedSwitch
+                                objectName: "roomRestrictedSwitch"
+                                checked: restrictedSwitch.parent.parent.restricted
+                                enabled: !app.roomInfo.editPending
+                                onToggled: {
+                                    if (!checked) {
+                                        var ids = restrictedPicker.selectedIds()
+                                        if (ids.length === 0) {
+                                            // Nothing chosen yet: open the
+                                            // picker so a choice can be
+                                            // made first.
+                                            restrictedPicker.expanded = true
+                                            return
+                                        }
+                                        app.roomInfo.setRestrictedJoinRule(
+                                            "restricted", ids)
+                                    } else {
+                                        app.roomInfo.setJoinRule("invite")
+                                    }
+                                }
+                            }
+                        }
+                        ColumnLayout {
+                            id: restrictedPicker
+                            objectName: "roomRestrictedPicker"
+                            Layout.fillWidth: true
+                            spacing: 2
+                            property bool expanded: false
+                            visible: parent.restricted || expanded
+                            function selectedIds() {
+                                var ids = []
+                                for (var i = 0; i < spaceRepeater.count; ++i) {
+                                    var row = spaceRepeater.itemAt(i)
+                                    if (row && row.checked)
+                                        ids.push(row.spaceId)
+                                }
+                                return ids
+                            }
+                            function apply(kind) {
+                                var ids = selectedIds()
+                                if (ids.length === 0)
+                                    return
+                                app.roomInfo.setRestrictedJoinRule(kind, ids)
+                            }
+                            Label {
+                                text: qsTr("Spaces whose members may join")
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.textMeta
+                            }
+                            Repeater {
+                                id: spaceRepeater
+                                model: app.roomInfo.joinedSpaces
+                                delegate: RowLayout {
+                                    id: spaceRow
+                                    required property var modelData
+                                    readonly property string spaceId: modelData.roomId
+                                    // Local selection: the server's list
+                                    // seeds it and re-seeds it after every
+                                    // roster refresh; a flip before saving
+                                    // is what the picker reads.
+                                    property bool checked:
+                                        app.roomInfo.restrictedAllowedRooms
+                                            .indexOf(modelData.roomId) >= 0
+                                    Connections {
+                                        target: app.roomInfo
+                                        function onMembersChanged() {
+                                            spaceRow.checked =
+                                                app.roomInfo.restrictedAllowedRooms
+                                                    .indexOf(spaceRow.spaceId) >= 0
+                                        }
+                                    }
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: spaceRow.modelData.name
+                                        color: AppTheme.text
+                                        font.pixelSize: AppTheme.textBody
+                                        elide: Label.ElideRight
+                                    }
+                                    AppSwitch {
+                                        checked: spaceRow.checked
+                                        enabled: !app.roomInfo.editPending
+                                        onToggled: {
+                                            spaceRow.checked = !spaceRow.checked
+                                            if (restrictedPicker.parent.restricted)
+                                                restrictedPicker.apply(
+                                                    app.roomInfo.joinRule)
+                                        }
+                                    }
+                                }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: app.roomInfo.joinedSpaces.length === 0
+                                wrapMode: Text.WordWrap
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.textMeta
+                                text: qsTr("Join a space first; only spaces "
+                                           + "you are in can be chosen.")
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: app.roomInfo.restrictedHasUnknownRules
+                                wrapMode: Text.WordWrap
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.textMeta
+                                text: qsTr("This room also allows joins by a "
+                                           + "rule Lightning can't show. It "
+                                           + "is kept when you save.")
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: restrictedPicker.parent.restricted
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Others may ask to join (knock)")
+                                    color: AppTheme.text
+                                    font.pixelSize: AppTheme.textBody
+                                    wrapMode: Text.WordWrap
+                                }
+                                AppSwitch {
+                                    objectName: "roomKnockRestrictedSwitch"
+                                    checked: app.roomInfo.joinRule === "knock_restricted"
+                                    enabled: !app.roomInfo.editPending
+                                    onToggled: restrictedPicker.apply(
+                                                   !checked ? "knock_restricted"
+                                                            : "restricted")
+                                }
+                            }
+                            AppButton {
+                                visible: !restrictedPicker.parent.restricted
+                                kind: "primary"
+                                size: "sm"
+                                text: qsTr("Restrict to these spaces")
+                                enabled: !app.roomInfo.editPending
+                                         && restrictedPicker.selectedIds().length > 0
+                                onClicked: restrictedPicker.apply("restricted")
+                            }
                         }
                     }
+
+                    // History visibility (m.room.history_visibility).
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+                        visible: app.roomInfo.canChangeHistoryVisibility
+                        Label {
+                            text: qsTr("Who can read history")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.textMeta
+                        }
+                        AppComboBox {
+                            id: historyCombo
+                            objectName: "roomHistoryVisibilityCombo"
+                            Layout.fillWidth: true
+                            model: [
+                                qsTr("Members, from when they were invited"),
+                                qsTr("Members, from when they joined"),
+                                qsTr("Members, everything"),
+                                qsTr("Anyone, even without joining")
+                            ]
+                            readonly property var values:
+                                ["invited", "joined", "shared", "world_readable"]
+                            property int displayedIndex: 2
+                            function refresh() {
+                                var idx = values.indexOf(
+                                    app.roomInfo.historyVisibility)
+                                displayedIndex = idx >= 0 ? idx : 2
+                            }
+                            Component.onCompleted: refresh()
+                            currentIndex: displayedIndex
+                            enabled: !app.roomInfo.editPending
+                            Connections {
+                                target: app.roomInfo
+                                function onMembersChanged() { historyCombo.refresh() }
+                            }
+                            onActivated: (index) =>
+                                app.roomInfo.setHistoryVisibility(
+                                    historyCombo.values[index])
+                        }
+                    }
+
+                    // Guest access (m.room.guest_access).
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: app.roomInfo.canChangeGuestAccess
+                        spacing: AppTheme.spacing8
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Guests can join")
+                            color: AppTheme.text
+                            font.pixelSize: AppTheme.textBody
+                        }
+                        AppSwitch {
+                            objectName: "roomGuestAccessSwitch"
+                            checked: app.roomInfo.guestAccess === "can_join"
+                            enabled: !app.roomInfo.editPending
+                            onToggled: app.roomInfo.setGuestAccess(
+                                           !checked ? "can_join" : "forbidden")
+                        }
+                    }
+
+                    // Directory visibility (the server's public room list).
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: app.roomInfo.canChangeAlias
+                        spacing: AppTheme.spacing8
+                        Label {
+                            Layout.fillWidth: true
+                            text: app.roomInfo.directoryPublished < 0
+                                  ? qsTr("Listed in the room directory (checking…)")
+                                  : qsTr("Listed in the room directory")
+                            color: AppTheme.text
+                            font.pixelSize: AppTheme.textBody
+                            wrapMode: Text.WordWrap
+                        }
+                        AppSwitch {
+                            objectName: "roomDirectorySwitch"
+                            checked: app.roomInfo.directoryPublished === 1
+                            enabled: !app.roomInfo.editPending
+                                     && app.roomInfo.directoryPublished >= 0
+                            onToggled: app.roomInfo.setDirectoryPublished(!checked)
+                        }
+                    }
+
+                    // v0.9 (phase 8): room version + upgrade. The version
+                    // is disclosed to anyone who can see this block; the
+                    // Upgrade control only to someone allowed to send
+                    // m.room.tombstone (own_can_upgrade), and it opens a
+                    // confirmation, never acts on the click itself.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: app.roomInfo.roomVersion.length > 0
+                        spacing: AppTheme.spacing8
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Room version %1").arg(app.roomInfo.roomVersion)
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.textMeta
+                        }
+                        AppButton {
+                            objectName: "roomUpgradeButton"
+                            visible: app.roomInfo.canUpgradeRoom
+                                     && !app.roomUpgrade.upgraded
+                            kind: "secondary"
+                            size: "sm"
+                            text: qsTr("Upgrade room…")
+                            onClicked: {
+                                roomUpgradeDialog.kind = "room"
+                                roomUpgradeDialog.openFor()
+                            }
+                        }
+                    }
+                    RoomUpgradeDialog { id: roomUpgradeDialog }
 
                     // Canonical alias. A bare localpart is completed with
                     // the account's own server by the controller.
@@ -760,6 +1036,70 @@ Rectangle {
                                 onClicked:
                                     app.roomInfo.setCanonicalAlias(
                                         editAlias.text)
+                            }
+                        }
+                        // v0.9 (phase 4): alternative addresses. The whole
+                        // list is one write; removing one demotes it from
+                        // the room's state and deliberately keeps its
+                        // directory mapping (see set_room_alt_aliases).
+                        Label {
+                            Layout.topMargin: AppTheme.spacing4
+                            text: qsTr("Alternative addresses")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.textMeta
+                        }
+                        Repeater {
+                            model: app.roomInfo.altAliases
+                            delegate: RowLayout {
+                                required property string modelData
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: modelData
+                                    color: AppTheme.text
+                                    font.pixelSize: AppTheme.textBody
+                                    elide: Label.ElideMiddle
+                                }
+                                AppButton {
+                                    kind: "ghost"
+                                    size: "sm"
+                                    text: qsTr("Remove")
+                                    enabled: !app.roomInfo.editPending
+                                    onClicked: {
+                                        var next = app.roomInfo.altAliases
+                                                       .filter(function (a) {
+                                                           return a !== modelData
+                                                       })
+                                        app.roomInfo.setAltAliases(next)
+                                    }
+                                }
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing8
+                            AppTextField {
+                                id: newAltAlias
+                                objectName: "roomAltAliasField"
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 60
+                                placeholderText: qsTr("#another-name")
+                                onAccepted: addAltAlias.clicked()
+                            }
+                            AppButton {
+                                id: addAltAlias
+                                kind: "secondary"
+                                size: "sm"
+                                text: qsTr("Add")
+                                enabled: !app.roomInfo.editPending
+                                         && newAltAlias.text.trim().length > 0
+                                onClicked: {
+                                    var next = app.roomInfo.altAliases.slice()
+                                    next.push(newAltAlias.text.trim())
+                                    app.roomInfo.setAltAliases(next)
+                                    newAltAlias.text = ""
+                                }
                             }
                         }
                         Label {

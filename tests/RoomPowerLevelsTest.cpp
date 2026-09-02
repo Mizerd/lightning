@@ -108,6 +108,62 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
+    // v0.9 room access (phase 4).
+    int restrictedCalls = 0;
+    QStringList lastAllowed;
+    QString lastHistoryVisibility;
+    QString lastGuestAccess;
+    QStringList lastAltAliases;
+    int directoryRequests = 0;
+    int lastDirectoryPublished = -1;
+    quint64 setRoomJoinRule(const QString &, const QString &rule,
+                            const QStringList &allowedRoomIds) override
+    {
+        if (refuseWrites)
+            return 0;
+        ++restrictedCalls;
+        lastJoinRule = rule;
+        lastAllowed = allowedRoomIds;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
+    quint64 setRoomHistoryVisibility(const QString &,
+                                     const QString &visibility) override
+    {
+        if (refuseWrites)
+            return 0;
+        lastHistoryVisibility = visibility;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
+    quint64 setRoomGuestAccess(const QString &, const QString &access) override
+    {
+        if (refuseWrites)
+            return 0;
+        lastGuestAccess = access;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
+    void requestRoomDirectoryVisibility(const QString &) override
+    {
+        ++directoryRequests;
+    }
+    quint64 setRoomDirectoryVisibility(const QString &, bool published) override
+    {
+        if (refuseWrites)
+            return 0;
+        lastDirectoryPublished = published ? 1 : 0;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
+    quint64 setRoomAltAliases(const QString &, const QStringList &aliases) override
+    {
+        if (refuseWrites)
+            return 0;
+        lastAltAliases = aliases;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
     quint64 setRoomCanonicalAlias(const QString &, const QString &alias) override
     {
         if (refuseWrites)
@@ -159,6 +215,14 @@ QVariantMap adminSnapshot(qlonglong ownPl, const QVariantList &members,
     s.insert(QStringLiteral("usersDefaultPowerLevel"), usersDefault);
     s.insert(QStringLiteral("joinRule"), joinRule);
     s.insert(QStringLiteral("canonicalAlias"), alias);
+    // v0.9 room access: gates on, a plain configuration.
+    s.insert(QStringLiteral("canChangeHistoryVisibility"), true);
+    s.insert(QStringLiteral("canChangeGuestAccess"), true);
+    s.insert(QStringLiteral("historyVisibility"), QStringLiteral("shared"));
+    s.insert(QStringLiteral("guestAccess"), QStringLiteral("forbidden"));
+    s.insert(QStringLiteral("altAliases"), QStringList());
+    s.insert(QStringLiteral("restrictedAllowedRooms"), QStringList());
+    s.insert(QStringLiteral("restrictedHasUnknownRules"), false);
     s.insert(QStringLiteral("members"), members);
     return s;
 }
@@ -395,6 +459,134 @@ private Q_SLOTS:
         ctl.setJoinRule(QStringLiteral("public"));
         QCOMPARE(client.joinRuleCalls, 1);
         QCOMPARE(client.lastJoinRule, QStringLiteral("public"));
+    }
+
+    // ── v0.9 room access (phase 4) ────────────────────────────────────
+
+    void restrictedJoinRuleCarriesTheAllowListAndRefusesAnEmptyOne()
+    {
+        FakeClient client;
+        RoomInfoController ctl;
+        ctl.setClient(&client);
+        seed(ctl, client);
+
+        // Empty allow list: refused HERE, nothing sent — an empty list would
+        // lock the room to invite-only while claiming otherwise.
+        ctl.setRestrictedJoinRule(QStringLiteral("restricted"), {});
+        QCOMPARE(client.restrictedCalls, 0);
+        QVERIFY(!ctl.editError().isEmpty());
+        QVERIFY(!ctl.editPending());
+
+        // Non-room tokens are dropped, duplicates collapse, the kind rides
+        // along.
+        ctl.setRestrictedJoinRule(
+            QStringLiteral("knock_restricted"),
+            { QStringLiteral("!space:example.org"), QStringLiteral("junk"),
+              QStringLiteral("!space:example.org") });
+        QCOMPARE(client.restrictedCalls, 1);
+        QCOMPARE(client.lastJoinRule, QStringLiteral("knock_restricted"));
+        QCOMPARE(client.lastAllowed,
+                 QStringList{ QStringLiteral("!space:example.org") });
+        QVERIFY(ctl.editPending());
+        // A successful write re-reads the roster (the rule rides the
+        // member snapshot).
+        const int before = client.memberCalls;
+        Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
+                                       QStringLiteral("join_rule"), true,
+                                       QString());
+        QCOMPARE(client.memberCalls, before + 1);
+    }
+
+    void historyVisibilityAndGuestAccessAreGatedAndValidated()
+    {
+        FakeClient client;
+        RoomInfoController ctl;
+        ctl.setClient(&client);
+        seed(ctl, client);
+        QCOMPARE(ctl.historyVisibility(), QStringLiteral("shared"));
+        QCOMPARE(ctl.guestAccess(), QStringLiteral("forbidden"));
+
+        ctl.setHistoryVisibility(QStringLiteral("everyone")); // not a value
+        QVERIFY(client.lastHistoryVisibility.isEmpty());
+        ctl.setHistoryVisibility(QStringLiteral("shared"));   // unchanged
+        QVERIFY(client.lastHistoryVisibility.isEmpty());
+        ctl.setHistoryVisibility(QStringLiteral("world_readable"));
+        QCOMPARE(client.lastHistoryVisibility, QStringLiteral("world_readable"));
+        Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
+                                       QStringLiteral("history_visibility"),
+                                       true, QString());
+        QVERIFY(!ctl.editPending());
+
+        ctl.setGuestAccess(QStringLiteral("can_join"));
+        QCOMPARE(client.lastGuestAccess, QStringLiteral("can_join"));
+
+        // Without the gate the setter is inert.
+        Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
+                                       QStringLiteral("guest_access"), true,
+                                       QString());
+        QVariantMap gated = adminSnapshot(100, { memberRow(kMe, 100, true) },
+                                          true);
+        gated.insert(QStringLiteral("canChangeGuestAccess"), false);
+        Q_EMIT client.roomMembersReceived(client.lastOpId, kRoom, gated);
+        QVERIFY(!ctl.canChangeGuestAccess());
+        client.lastGuestAccess.clear();
+        ctl.setGuestAccess(QStringLiteral("can_join"));
+        QVERIFY(client.lastGuestAccess.isEmpty());
+    }
+
+    void directoryVisibilityIsATriStateReadFromTheServer()
+    {
+        FakeClient client;
+        RoomInfoController ctl;
+        ctl.setClient(&client);
+        seed(ctl, client);
+        QCOMPARE(ctl.directoryPublished(), -1);
+
+        ctl.requestDirectoryVisibility();
+        QCOMPARE(client.directoryRequests, 1);
+        Q_EMIT client.roomDirectoryVisibilityReceived(kRoom, true, true);
+        QCOMPARE(ctl.directoryPublished(), 1);
+        // Another room's answer is ignored.
+        Q_EMIT client.roomDirectoryVisibilityReceived(
+            QStringLiteral("!other:example.org"), true, false);
+        QCOMPARE(ctl.directoryPublished(), 1);
+        // A failed read is "unknown", never a guessed value.
+        Q_EMIT client.roomDirectoryVisibilityReceived(kRoom, false, false);
+        QCOMPARE(ctl.directoryPublished(), -1);
+
+        Q_EMIT client.roomDirectoryVisibilityReceived(kRoom, true, false);
+        ctl.setDirectoryPublished(true);
+        QCOMPARE(client.lastDirectoryPublished, 1);
+        // A successful write re-reads rather than assumes.
+        Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
+                                       QStringLiteral("directory_visibility"),
+                                       true, QString());
+        QCOMPARE(client.directoryRequests, 2);
+
+        // Leaving the room forgets the answer.
+        ctl.setRoomId(QStringLiteral("!other:example.org"));
+        QCOMPARE(ctl.directoryPublished(), -1);
+    }
+
+    void altAliasesAreCompletedDedupedAndSentAsOneList()
+    {
+        FakeClient client;
+        RoomInfoController ctl;
+        ctl.setClient(&client);
+        seed(ctl, client);
+
+        ctl.setAltAliases({ QStringLiteral("lounge"),
+                            QStringLiteral("#lounge:example.org"),
+                            QStringLiteral("#other:example.org") });
+        // "lounge" completes to the account's server and collapses with
+        // its explicit twin.
+        QCOMPARE(client.lastAltAliases,
+                 (QStringList{ QStringLiteral("#lounge:example.org"),
+                               QStringLiteral("#other:example.org") }));
+        Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
+                                       QStringLiteral("alt_aliases"), true,
+                                       QString());
+        QVERIFY(!ctl.editPending());
     }
 
     void joinRuleRefreshesTheRosterOnlyOnSuccess()

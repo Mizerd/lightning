@@ -888,19 +888,33 @@ AppDialog {
                                     font.pixelSize: AppTheme.textMeta
                                     text: root.infoIsOurs
                                           && app.roomInfo.canUpgradeRoom
-                                          ? qsTr("You have the permission to "
-                                                 + "upgrade this space, but "
-                                                 + "Lightning can't perform an "
-                                                 + "upgrade yet: it is "
-                                                 + "irreversible and would "
-                                                 + "orphan every room the "
-                                                 + "space lists.")
+                                          ? qsTr("Upgrading is irreversible: "
+                                                 + "it creates a new space and "
+                                                 + "marks this one as replaced. "
+                                                 + "The rooms this space lists "
+                                                 + "stay listed by the OLD "
+                                                 + "space; re-add them to the "
+                                                 + "new one afterwards.")
                                           : qsTr("Only someone allowed to send "
                                                  + "m.room.tombstone can "
-                                                 + "upgrade this space. "
-                                                 + "Lightning can't perform an "
-                                                 + "upgrade yet.")
+                                                 + "upgrade this space.")
                                 }
+                                // v0.9 (phase 8): the upgrade flow, gated on
+                                // the tombstone power. Opens a confirmation.
+                                AppButton {
+                                    objectName: "spaceUpgradeButton"
+                                    visible: root.infoIsOurs
+                                             && app.roomInfo.canUpgradeRoom
+                                             && !app.roomUpgrade.upgraded
+                                    kind: "secondary"
+                                    size: "sm"
+                                    text: qsTr("Upgrade space…")
+                                    onClicked: {
+                                        spaceUpgradeDialog.kind = "space"
+                                        spaceUpgradeDialog.openFor()
+                                    }
+                                }
+                                RoomUpgradeDialog { id: spaceUpgradeDialog }
                             }
                         }
 

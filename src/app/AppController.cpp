@@ -1012,6 +1012,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // navigateRequested is emitted ONLY from a user action on the banner.
     // Nothing observes a tombstone and moves the user by itself.
     m_roomUpgrade->setDiscovery(m_discovery.get());
+    // v0.9: the upgrade flow re-parents the replacement into the same
+    // Spaces on request, through the Space manager's own child write.
+    m_roomUpgrade->setSpaces(m_spaces.get());
     connect(m_roomUpgrade.get(), &RoomUpgradeController::navigateRequested,
             this, &AppController::openRoom);
     // v0.7.x message forwarding: `forwarded` fires

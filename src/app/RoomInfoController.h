@@ -77,10 +77,39 @@ class RoomInfoController : public QObject
     Q_PROPERTY(qlonglong usersDefaultPowerLevel READ usersDefaultPowerLevel
                    NOTIFY membersChanged)
     // "invite" | "public" | "knock" | "private" | "restricted" |
-    // "knock_restricted", or "" when not known. Only the first three are
-    // settable (see setJoinRule).
+    // "knock_restricted", or "" when not known. The first three are set
+    // through setJoinRule; the restricted pair through
+    // setRestrictedJoinRule with its allow list (v0.9, phase 4).
     Q_PROPERTY(QString joinRule READ joinRule NOTIFY membersChanged)
     Q_PROPERTY(QString canonicalAlias READ canonicalAlias NOTIFY membersChanged)
+    // v0.9 room access (phase 4). All ride the member snapshot like the
+    // join rule; "" = not known. historyVisibility: invited | joined |
+    // shared | world_readable. guestAccess: can_join | forbidden.
+    // restrictedAllowedRooms: the room ids whose members may join a
+    // restricted room, as another client may have written them;
+    // restrictedHasUnknownRules is TRUE when that list also carries allow
+    // rules of a kind this client cannot render (they are preserved on
+    // save, never dropped). directoryPublished is a tri-state read on
+    // demand from the server's public list: -1 unknown, 0 private, 1
+    // published.
+    Q_PROPERTY(QString historyVisibility READ historyVisibility
+                   NOTIFY membersChanged)
+    Q_PROPERTY(QString guestAccess READ guestAccess NOTIFY membersChanged)
+    Q_PROPERTY(QStringList altAliases READ altAliases NOTIFY membersChanged)
+    Q_PROPERTY(QStringList restrictedAllowedRooms READ restrictedAllowedRooms
+                   NOTIFY membersChanged)
+    Q_PROPERTY(bool restrictedHasUnknownRules READ restrictedHasUnknownRules
+                   NOTIFY membersChanged)
+    Q_PROPERTY(bool canChangeHistoryVisibility READ canChangeHistoryVisibility
+                   NOTIFY membersChanged)
+    Q_PROPERTY(bool canChangeGuestAccess READ canChangeGuestAccess
+                   NOTIFY membersChanged)
+    Q_PROPERTY(int directoryPublished READ directoryPublished
+                   NOTIFY directoryVisibilityChanged)
+    // Room ids of the account's joined Spaces, for the restricted-access
+    // picker: {roomId, name}. Read from the client's room list — never
+    // fetched — so it is complete for what this account already knows.
+    Q_PROPERTY(QVariantList joinedSpaces READ joinedSpaces NOTIFY membersChanged)
     // 2026-08-26 Space settings — the room's REAL m.room.power_levels
     // thresholds, one integer per FIXED key (see powerLevelKeys()). Before
     // this, only the derived `can*` booleans existed: the UI could say
@@ -92,12 +121,11 @@ class RoomInfoController : public QObject
     // render as nothing rather than as "anyone may".
     Q_PROPERTY(QVariantMap powerLevels READ powerLevels NOTIFY membersChanged)
     // The room version as the SDK reports it ("6", "10", "org.matrix.msc…"),
-    // or empty when the room state has not settled. Display only: Lightning
-    // implements no upgrade, so this never gates a control.
+    // or empty when the room state has not settled.
     Q_PROPERTY(QString roomVersion READ roomVersion NOTIFY membersChanged)
     // Whether this account may send m.room.tombstone, i.e. whether an
-    // upgrade would be permitted. Reported honestly next to the version;
-    // it enables nothing, because no upgrade path exists here.
+    // upgrade would be permitted. v0.9 (phase 8): this gates the Upgrade
+    // control, whose flow lives in RoomUpgradeController.
     Q_PROPERTY(bool canUpgradeRoom READ canUpgradeRoom NOTIFY membersChanged)
     Q_PROPERTY(bool powerMatrixPending READ powerMatrixPending
                    NOTIFY powerMatrixStateChanged)
@@ -317,6 +345,28 @@ public:
     // and sending one with an empty list would silently lock the room to
     // invite-only while claiming otherwise.
     Q_INVOKABLE void setJoinRule(const QString &rule);
+    // v0.9: restricted / knock_restricted with the allowed room (Space)
+    // ids. Refused client-side with an empty list — that would lock the
+    // room to invite-only while claiming otherwise.
+    Q_INVOKABLE void setRestrictedJoinRule(const QString &rule,
+                                           const QStringList &allowedRoomIds);
+    Q_INVOKABLE void setHistoryVisibility(const QString &visibility);
+    Q_INVOKABLE void setGuestAccess(const QString &access);
+    Q_INVOKABLE void setDirectoryPublished(bool published);
+    Q_INVOKABLE void setAltAliases(const QStringList &aliases);
+    // Ask the server whether this room is in its public directory (the
+    // access block calls this when it opens; the answer lands on
+    // directoryPublished).
+    Q_INVOKABLE void requestDirectoryVisibility();
+    QString historyVisibility() const { return m_historyVisibility; }
+    QString guestAccess() const { return m_guestAccess; }
+    QStringList altAliases() const { return m_altAliases; }
+    QStringList restrictedAllowedRooms() const { return m_restrictedAllowedRooms; }
+    bool restrictedHasUnknownRules() const { return m_restrictedHasUnknownRules; }
+    bool canChangeHistoryVisibility() const { return m_canChangeHistoryVisibility; }
+    bool canChangeGuestAccess() const { return m_canChangeGuestAccess; }
+    int directoryPublished() const { return m_directoryPublished; }
+    QVariantList joinedSpaces() const;
     // An empty alias clears the canonical alias. A bare localpart is
     // completed with the account's own server so the user does not have to
     // type "#name:server" by hand.
@@ -371,6 +421,8 @@ Q_SIGNALS:
     void mutualRoomsChanged();
     void roomIdChanged();
     void membersChanged();
+    // v0.9 room access: the on-demand directory-visibility tri-state.
+    void directoryVisibilityChanged();
     void editStateChanged();
     void leaveStateChanged();
     // The active room was left; AppController closes the timeline. Fired for
@@ -469,6 +521,19 @@ private:
     qlonglong m_usersDefaultPowerLevel = 0;
     QString m_joinRule;
     QString m_canonicalAlias;
+    QString m_historyVisibility;
+    QString m_guestAccess;
+    QStringList m_altAliases;
+    QStringList m_restrictedAllowedRooms;
+    bool m_restrictedHasUnknownRules = false;
+    bool m_canChangeHistoryVisibility = false;
+    bool m_canChangeGuestAccess = false;
+    int m_directoryPublished = -1;
+    // Alias validation shared by the canonical and alternative paths.
+    QString completeAlias(const QString &alias, QString *error) const;
+    // One dispatcher for every single-field write: claims the edit op or
+    // reports the refusal.
+    void dispatchEdit(quint64 opId);
     QVariantMap m_powerLevels;
     QString m_roomVersion;
     bool m_canUpgradeRoom = false;

@@ -934,10 +934,45 @@ char *mx_rust_set_room_power_level_key(void *client,
 /* Join rule: "invite", "public" or "knock". Rules carrying an allow-rule
  * list (restricted / knock_restricted) are refused here on purpose.
  * Result: room_edit_result with field "join_rule". */
+/* v0.9: `allowed_room_ids` (nullable newline-separated) is the allow list
+ * for "restricted" / "knock_restricted"; ignored for the other rules. */
 char *mx_rust_set_room_join_rule(void *client,
                                  const char *room_id,
                                  const char *rule,
+                                 const char *allowed_room_ids,
                                  unsigned long long op_id);
+/* v0.9 room access. History visibility: invited | joined | shared |
+ * world_readable. Guest access: can_join | forbidden. Directory visibility
+ * READ answers on the room_directory_visibility poll event; the writer sets
+ * published (true) or private (false). Alt aliases: the whole list, newline
+ * separated; each field answers on room_edit_result. */
+char *mx_rust_set_room_history_visibility(void *client,
+                                          const char *room_id,
+                                          const char *visibility,
+                                          unsigned long long op_id);
+char *mx_rust_set_room_guest_access(void *client,
+                                    const char *room_id,
+                                    const char *access,
+                                    unsigned long long op_id);
+char *mx_rust_request_room_directory_visibility(void *client,
+                                                const char *room_id);
+char *mx_rust_set_room_directory_visibility(void *client,
+                                            const char *room_id,
+                                            bool published,
+                                            unsigned long long op_id);
+char *mx_rust_set_room_alt_aliases(void *client,
+                                   const char *room_id,
+                                   const char *aliases,
+                                   unsigned long long op_id);
+/* v0.9 room upgrade. Versions from the homeserver's /capabilities
+ * (poll event room_versions {ok, default, available:[{version, stable}]});
+ * the upgrade is the standard /upgrade endpoint (poll event
+ * room_upgrade_result {op_id, room_id, ok, replacement_room_id, category}). */
+char *mx_rust_request_room_versions(void *client);
+char *mx_rust_upgrade_room(void *client,
+                           const char *room_id,
+                           const char *new_version,
+                           unsigned long long op_id);
 /* Canonical alias; an empty alias clears it. Publishes the directory
  * mapping first when the alias does not already resolve to this room.
  * Result: room_edit_result with field "canonical_alias". */

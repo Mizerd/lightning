@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 
 class MatrixClient;
 class RoomDiscoveryController;
@@ -66,6 +67,22 @@ class RoomUpgradeController : public QObject
     Q_PROPERTY(QString error READ error NOTIFY changed)
     // A join started from the banner is in flight.
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
+    // v0.9 room upgrade (phase 8), the SEND side. Versions come from the
+    // homeserver's /capabilities on request (versionsKnown flips when the
+    // answer lands; availableVersions is [{version, stable}] in display
+    // order; defaultVersion is the server's own default and the
+    // recommendation). upgradeBusy covers the /upgrade request and the
+    // optional re-parenting that follows; upgradeError is the sanitized
+    // reason a request was refused; lastReplacementRoomId is the room the
+    // last successful upgrade created.
+    Q_PROPERTY(bool versionsKnown READ versionsKnown NOTIFY versionsChanged)
+    Q_PROPERTY(QString defaultVersion READ defaultVersion NOTIFY versionsChanged)
+    Q_PROPERTY(QVariantList availableVersions READ availableVersions
+                   NOTIFY versionsChanged)
+    Q_PROPERTY(bool upgradeBusy READ upgradeBusy NOTIFY upgradeStateChanged)
+    Q_PROPERTY(QString upgradeError READ upgradeError NOTIFY upgradeStateChanged)
+    Q_PROPERTY(QString lastReplacementRoomId READ lastReplacementRoomId
+                   NOTIFY upgradeStateChanged)
 
 public:
     enum SuccessorAccess {
@@ -106,6 +123,24 @@ public:
     // already in, so there is no join step.
     Q_INVOKABLE void goToPredecessor();
 
+    // v0.9 send side. requestRoomVersions asks the server; upgradeRoom runs
+    // the standard /upgrade for the controller's room and, when
+    // `addToSameSpaces` is set, adds the replacement to every Space the old
+    // room is a child of (each an ordinary m.space.child write through the
+    // Space manager, reported through its own outcome signal). Aliases,
+    // power levels and the rest of the copied state are the SERVER's job on
+    // /upgrade (the endpoint's contract) — nothing here approximates them.
+    // On success the controller navigates to the replacement.
+    void setSpaces(class SpaceManager *spaces) { m_spaces = spaces; }
+    Q_INVOKABLE void requestRoomVersions();
+    Q_INVOKABLE void upgradeRoom(const QString &newVersion, bool addToSameSpaces);
+    bool versionsKnown() const { return m_versionsKnown; }
+    QString defaultVersion() const { return m_defaultVersion; }
+    QVariantList availableVersions() const { return m_availableVersions; }
+    bool upgradeBusy() const { return m_upgradeOp != 0; }
+    QString upgradeError() const { return m_upgradeError; }
+    QString lastReplacementRoomId() const { return m_lastReplacementRoomId; }
+
     // True when `roomId` is a join THIS controller started from the banner
     // and then abandoned, because the user moved to another room (or signed
     // out) before it settled. Discover's roomJoined -> openRoom connection
@@ -120,6 +155,8 @@ Q_SIGNALS:
     void changed();
     // Ask AppController to open a room. Emitted only from a user action.
     void navigateRequested(const QString &roomId);
+    void versionsChanged();
+    void upgradeStateChanged();
 
 private:
     // Recompute successor/predecessor/access/chain from the client's room
@@ -143,4 +180,20 @@ private:
     // A join we started and then walked away from. See
     // consumeAbandonedJoin.
     QString m_abandonedJoinRoomId;
+
+    // v0.9 send side.
+    class SpaceManager *m_spaces = nullptr;
+    bool m_versionsKnown = false;
+    QString m_defaultVersion;
+    QVariantList m_availableVersions;
+    quint64 m_upgradeOp = 0;
+    QString m_upgradeRoomId;      // the room the pending op upgrades
+    bool m_upgradeAddToSpaces = false;
+    QString m_upgradeError;
+    QString m_lastReplacementRoomId;
+    void onRoomVersionsReceived(bool ok, const QString &defaultVersion,
+                                const QVariantList &available);
+    void onRoomUpgradeFinished(quint64 opId, const QString &roomId, bool ok,
+                               const QString &replacementRoomId,
+                               const QString &category);
 };

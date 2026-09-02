@@ -777,11 +777,43 @@ public:
                                          const QString &key, qlonglong level)
     { Q_UNUSED(roomId); Q_UNUSED(key); Q_UNUSED(level); return 0; }
 
-    // "invite" | "public" | "knock". Rules that carry an allow-rule list
-    // (restricted) are deliberately not settable. Answers on
-    // roomEditFinished with field "join_rule".
+    // "invite" | "public" | "knock". Answers on roomEditFinished with field
+    // "join_rule".
     virtual quint64 setRoomJoinRule(const QString &roomId, const QString &rule)
     { Q_UNUSED(roomId); Q_UNUSED(rule); return 0; }
+    // v0.9 room access (phase 4). "restricted" | "knock_restricted" with
+    // the allowed room (Space) ids; the default forwards to the plain rule
+    // setter, which refuses those rules on backends without the allow-list
+    // lane. historyVisibility: invited | joined | shared | world_readable
+    // (field "history_visibility"); guestAccess: can_join | forbidden
+    // (field "guest_access"); directory visibility is READ on demand
+    // (roomDirectoryVisibilityReceived) and written as published/private
+    // (field "directory_visibility"); altAliases replaces the whole list
+    // (field "alt_aliases"). 0 = unsupported on this backend.
+    virtual quint64 setRoomJoinRule(const QString &roomId, const QString &rule,
+                                    const QStringList &allowedRoomIds)
+    { Q_UNUSED(allowedRoomIds); return setRoomJoinRule(roomId, rule); }
+    virtual quint64 setRoomHistoryVisibility(const QString &roomId,
+                                             const QString &visibility)
+    { Q_UNUSED(roomId); Q_UNUSED(visibility); return 0; }
+    virtual quint64 setRoomGuestAccess(const QString &roomId,
+                                       const QString &access)
+    { Q_UNUSED(roomId); Q_UNUSED(access); return 0; }
+    virtual void requestRoomDirectoryVisibility(const QString &roomId)
+    { Q_UNUSED(roomId); }
+    virtual quint64 setRoomDirectoryVisibility(const QString &roomId,
+                                               bool published)
+    { Q_UNUSED(roomId); Q_UNUSED(published); return 0; }
+    virtual quint64 setRoomAltAliases(const QString &roomId,
+                                      const QStringList &aliases)
+    { Q_UNUSED(roomId); Q_UNUSED(aliases); return 0; }
+    // v0.9 room upgrade (phase 8). The homeserver's supported room versions
+    // (roomVersionsReceived) and the standard /upgrade endpoint, which
+    // answers on roomUpgradeFinished with the replacement room id. 0 =
+    // unsupported on this backend.
+    virtual void requestRoomVersions() {}
+    virtual quint64 upgradeRoom(const QString &roomId, const QString &newVersion)
+    { Q_UNUSED(roomId); Q_UNUSED(newVersion); return 0; }
     // An empty alias clears the canonical alias. Answers on
     // roomEditFinished with field "canonical_alias".
     virtual quint64 setRoomCanonicalAlias(const QString &roomId,
@@ -1477,6 +1509,17 @@ Q_SIGNALS:
     void roomEditFinished(quint64 opId, const QString &roomId,
                           const QString &field, bool ok,
                           const QString &category);
+    // v0.9: answer to requestRoomDirectoryVisibility. `published` is
+    // meaningful only when ok.
+    void roomDirectoryVisibilityReceived(const QString &roomId, bool ok,
+                                         bool published);
+    // v0.9 room upgrade. `available` is [{version, stable}] in display
+    // order; `defaultVersion` is what the server creates rooms with.
+    void roomVersionsReceived(bool ok, const QString &defaultVersion,
+                              const QVariantList &available);
+    void roomUpgradeFinished(quint64 opId, const QString &roomId, bool ok,
+                             const QString &replacementRoomId,
+                             const QString &category);
     void roomLeaveFinished(quint64 opId, const QString &roomId, bool ok,
                            const QString &category);
     // op is "kick" or "ban"; category is a sanitized error class on failure.

@@ -422,6 +422,21 @@ public:
                                 qlonglong level) override;
     quint64 setRoomPowerLevelKey(const QString &roomId, const QString &key,
                                  qlonglong level) override;
+    // v0.9 room upgrade (phase 8).
+    void requestRoomVersions() override;
+    quint64 upgradeRoom(const QString &roomId, const QString &newVersion) override;
+    // v0.9 room access (phase 4).
+    quint64 setRoomJoinRule(const QString &roomId, const QString &rule,
+                            const QStringList &allowedRoomIds) override;
+    quint64 setRoomHistoryVisibility(const QString &roomId,
+                                     const QString &visibility) override;
+    quint64 setRoomGuestAccess(const QString &roomId,
+                               const QString &access) override;
+    void requestRoomDirectoryVisibility(const QString &roomId) override;
+    quint64 setRoomDirectoryVisibility(const QString &roomId,
+                                       bool published) override;
+    quint64 setRoomAltAliases(const QString &roomId,
+                              const QStringList &aliases) override;
     quint64 setRoomJoinRule(const QString &roomId,
                             const QString &rule) override;
     quint64 setRoomCanonicalAlias(const QString &roomId,

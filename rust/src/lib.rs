@@ -6251,13 +6251,106 @@ pub unsafe extern "C" fn mx_rust_set_room_join_rule(
     ptr: *mut c_void,
     room_id: *const c_char,
     rule: *const c_char,
+    allowed_room_ids: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         let rule = unsafe { cstr_arg(rule) }?;
-        rooms::set_room_join_rule(bridge, room_id, rule, op_id).map(|_| String::new())
+        let allowed = unsafe { cstr_list_arg(allowed_room_ids) }?;
+        rooms::set_room_join_rule(bridge, room_id, rule, allowed, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// v0.9 room access (phase 4). Each answers on room_edit_result with the
+/// named field; the directory visibility READ answers on
+/// room_directory_visibility {room_id, visibility, ok}.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_history_visibility(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    visibility: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let visibility = unsafe { cstr_arg(visibility) }?;
+        rooms::set_room_history_visibility(bridge, room_id, visibility, op_id)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_guest_access(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    access: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let access = unsafe { cstr_arg(access) }?;
+        rooms::set_room_guest_access(bridge, room_id, access, op_id)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_request_room_directory_visibility(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        rooms::request_room_directory_visibility(bridge, room_id).map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_directory_visibility(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    published: bool,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        rooms::set_room_directory_visibility(bridge, room_id, published, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// v0.9 room upgrade (phase 8). Version list answers on `room_versions`;
+/// the upgrade answers on `room_upgrade_result` with the replacement id.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_request_room_versions(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        rooms::request_room_versions(bridge).map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_upgrade_room(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    new_version: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let new_version = unsafe { cstr_arg(new_version) }?;
+        rooms::upgrade_room(bridge, room_id, new_version, op_id).map(|_| String::new())
+    })
+}
+
     })
 }
 

@@ -827,6 +827,7 @@ set(APP_QML_FILES
     qml/MessageComposerBar.qml
     qml/MentionPopup.qml
     qml/SlashCommandPopup.qml
+    qml/RoomUpgradeDialog.qml
     qml/AnchoredPopup.qml
     qml/PopupResizeGrip.qml
     qml/EmojiPicker.qml

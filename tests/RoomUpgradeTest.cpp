@@ -45,6 +45,20 @@ public:
     int joinCalls = 0;
     QString lastJoinTarget;
     quint64 lastJoinOp = 0;
+    // v0.9 send side.
+    int versionRequests = 0;
+    QString lastUpgradeVersion;
+    quint64 lastUpgradeOp = 0;
+    bool refuseUpgrades = false;
+    void requestRoomVersions() override { ++versionRequests; }
+    quint64 upgradeRoom(const QString &, const QString &newVersion) override
+    {
+        if (refuseUpgrades)
+            return 0;
+        lastUpgradeVersion = newVersion;
+        lastUpgradeOp = nextOp++;
+        return lastUpgradeOp;
+    }
 
     void setRooms(const QList<RoomInfo> &rooms)
     {
@@ -158,6 +172,87 @@ class RoomUpgradeTest : public QObject
 
 private Q_SLOTS:
     // 1. The basic fact: an active room carrying a tombstone reports it.
+    // ── v0.9 send side (phase 8) ──────────────────────────────────────
+
+    void versionsComeFromTheServerAndAFailedReadLeavesNothingToPick()
+    {
+        Harness h;
+        h.upgrade.requestRoomVersions();
+        QCOMPARE(h.client.versionRequests, 1);
+        QVERIFY(!h.upgrade.versionsKnown());
+        Q_EMIT h.client.roomVersionsReceived(
+            true, QStringLiteral("10"),
+            { QVariantMap{ { QStringLiteral("version"), QStringLiteral("10") },
+                           { QStringLiteral("stable"), true } },
+              QVariantMap{ { QStringLiteral("version"), QStringLiteral("11") },
+                           { QStringLiteral("stable"), false } } });
+        QVERIFY(h.upgrade.versionsKnown());
+        QCOMPARE(h.upgrade.defaultVersion(), QStringLiteral("10"));
+        QCOMPARE(h.upgrade.availableVersions().size(), 2);
+        // A failed read empties the list rather than keeping a stale one.
+        Q_EMIT h.client.roomVersionsReceived(false, QString(), {});
+        QVERIFY(!h.upgrade.versionsKnown());
+        QVERIFY(h.upgrade.availableVersions().isEmpty());
+    }
+
+    void upgradeRefusesAVersionTheServerDidNotAdvertise()
+    {
+        Harness h;
+        h.client.setRooms({ room(kOld) });
+        h.upgrade.setRoomId(kOld);
+        Q_EMIT h.client.roomVersionsReceived(
+            true, QStringLiteral("10"),
+            { QVariantMap{ { QStringLiteral("version"), QStringLiteral("10") },
+                           { QStringLiteral("stable"), true } } });
+        h.upgrade.upgradeRoom(QStringLiteral("99"), false);
+        QVERIFY(h.client.lastUpgradeVersion.isEmpty());
+        QVERIFY(!h.upgrade.upgradeError().isEmpty());
+        QVERIFY(!h.upgrade.upgradeBusy());
+    }
+
+    void aSuccessfulUpgradeNavigatesToTheReplacement()
+    {
+        Harness h;
+        h.client.setRooms({ room(kOld) });
+        h.upgrade.setRoomId(kOld);
+        Q_EMIT h.client.roomVersionsReceived(
+            true, QStringLiteral("10"),
+            { QVariantMap{ { QStringLiteral("version"), QStringLiteral("10") },
+                           { QStringLiteral("stable"), true } } });
+        h.upgrade.upgradeRoom(QStringLiteral("10"), false);
+        QCOMPARE(h.client.lastUpgradeVersion, QStringLiteral("10"));
+        QVERIFY(h.upgrade.upgradeBusy());
+        // A stale answer (another op id) changes nothing.
+        Q_EMIT h.client.roomUpgradeFinished(h.client.lastUpgradeOp + 7, kOld,
+                                            true, kNew, QString());
+        QVERIFY(h.upgrade.upgradeBusy());
+        QVERIFY(h.navigations.isEmpty());
+        Q_EMIT h.client.roomUpgradeFinished(h.client.lastUpgradeOp, kOld, true,
+                                            kNew, QString());
+        QVERIFY(!h.upgrade.upgradeBusy());
+        QCOMPARE(h.upgrade.lastReplacementRoomId(), kNew);
+        QCOMPARE(h.navigations, QStringList{ kNew });
+    }
+
+    void aRefusedUpgradeReportsWhyAndStaysPut()
+    {
+        Harness h;
+        h.client.setRooms({ room(kOld) });
+        h.upgrade.setRoomId(kOld);
+        Q_EMIT h.client.roomVersionsReceived(
+            true, QStringLiteral("10"),
+            { QVariantMap{ { QStringLiteral("version"), QStringLiteral("10") },
+                           { QStringLiteral("stable"), true } } });
+        h.upgrade.upgradeRoom(QStringLiteral("10"), false);
+        Q_EMIT h.client.roomUpgradeFinished(h.client.lastUpgradeOp, kOld, false,
+                                            QString(),
+                                            QStringLiteral("forbidden"));
+        QVERIFY(!h.upgrade.upgradeBusy());
+        QVERIFY(h.upgrade.upgradeError().contains(QStringLiteral("not allowed")));
+        QVERIFY(h.navigations.isEmpty());
+        QVERIFY(h.upgrade.lastReplacementRoomId().isEmpty());
+    }
+
     void tombstonedRoomReportsItsSuccessor()
     {
         Harness h;

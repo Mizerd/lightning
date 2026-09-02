@@ -30,6 +30,19 @@ void RoomInfoController::setClient(MatrixClient *client)
                 this, &RoomInfoController::onRoomMembersReceived);
         connect(m_client, &MatrixClient::roomEditFinished,
                 this, &RoomInfoController::onRoomEditFinished);
+        // v0.9 room access: the on-demand directory-visibility answer. A
+        // failed read leaves the tri-state at "unknown", which the switch
+        // renders disabled rather than as a guessed value.
+        connect(m_client, &MatrixClient::roomDirectoryVisibilityReceived, this,
+                [this](const QString &roomId, bool ok, bool published) {
+                    if (roomId != m_roomId)
+                        return;
+                    const int next = ok ? (published ? 1 : 0) : -1;
+                    if (next == m_directoryPublished)
+                        return;
+                    m_directoryPublished = next;
+                    Q_EMIT directoryVisibilityChanged();
+                });
         connect(m_client, &MatrixClient::roomLeaveFinished,
                 this, &RoomInfoController::onRoomLeaveFinished);
         connect(m_client, &MatrixClient::moderationFinished,
@@ -80,6 +93,11 @@ void RoomInfoController::setRoomId(const QString &roomId)
         return;
     }
     m_roomId = roomId;
+    // Directory visibility belongs to the room it was read for.
+    if (m_directoryPublished != -1) {
+        m_directoryPublished = -1;
+        Q_EMIT directoryVisibilityChanged();
+    }
     // Room switch invalidates every in-flight operation for the old room.
     m_membersOp = 0;
     m_editOp = 0;
@@ -212,6 +230,21 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
     m_joinRule = snapshot.value(QStringLiteral("joinRule")).toString();
     m_canonicalAlias =
         snapshot.value(QStringLiteral("canonicalAlias")).toString();
+    // v0.9 room access (phase 4). Absent keys read as "" / empty / false —
+    // a backend that does not send them offers nothing rather than
+    // defaults that would claim a configuration the room may not have.
+    m_historyVisibility =
+        snapshot.value(QStringLiteral("historyVisibility")).toString();
+    m_guestAccess = snapshot.value(QStringLiteral("guestAccess")).toString();
+    m_altAliases = snapshot.value(QStringLiteral("altAliases")).toStringList();
+    m_restrictedAllowedRooms =
+        snapshot.value(QStringLiteral("restrictedAllowedRooms")).toStringList();
+    m_restrictedHasUnknownRules =
+        snapshot.value(QStringLiteral("restrictedHasUnknownRules")).toBool();
+    m_canChangeHistoryVisibility =
+        snapshot.value(QStringLiteral("canChangeHistoryVisibility")).toBool();
+    m_canChangeGuestAccess =
+        snapshot.value(QStringLiteral("canChangeGuestAccess")).toBool();
     // 2026-08-26: the room's real thresholds. A backend that does not send
     // them leaves the map EMPTY rather than defaulted — the Permissions
     // matrix then renders nothing instead of inventing a permission model.
@@ -293,9 +326,16 @@ void RoomInfoController::onRoomEditFinished(quint64 opId, const QString &roomId,
     // nothing to re-read.
     if (ok
         && (field == QLatin1String("join_rule")
-            || field == QLatin1String("canonical_alias"))) {
+            || field == QLatin1String("canonical_alias")
+            || field == QLatin1String("history_visibility")
+            || field == QLatin1String("guest_access")
+            || field == QLatin1String("alt_aliases"))) {
         refreshMembers();
     }
+    // Directory visibility is not room state: nothing re-syncs it, so a
+    // successful write is re-read from the server rather than assumed.
+    if (ok && field == QLatin1String("directory_visibility"))
+        requestDirectoryVisibility();
 }
 
 void RoomInfoController::leaveRoom()
@@ -616,6 +656,18 @@ void RoomInfoController::onPowerLevelChangeFinished(quint64 opId,
         refreshMembers();
 }
 
+void RoomInfoController::dispatchEdit(quint64 opId)
+{
+    if (opId == 0) {
+        m_editError = tr("The change could not be sent.");
+        Q_EMIT editStateChanged();
+        return;
+    }
+    m_editOp = opId;
+    m_editError.clear();
+    Q_EMIT editStateChanged();
+}
+
 void RoomInfoController::setJoinRule(const QString &rule)
 {
     if (!m_client || m_roomId.isEmpty() || !supported())
@@ -628,15 +680,151 @@ void RoomInfoController::setJoinRule(const QString &rule)
     }
     if (rule == m_joinRule)
         return;
-    const quint64 opId = m_client->setRoomJoinRule(m_roomId, rule);
-    if (opId == 0) {
-        m_editError = tr("The change could not be sent.");
+    dispatchEdit(m_client->setRoomJoinRule(m_roomId, rule));
+}
+
+void RoomInfoController::setRestrictedJoinRule(const QString &rule,
+                                               const QStringList &allowedRoomIds)
+{
+    if (!m_client || m_roomId.isEmpty() || !supported())
+        return;
+    if (!m_canChangeJoinRule || m_editOp != 0)
+        return;
+    if (rule != QLatin1String("restricted")
+        && rule != QLatin1String("knock_restricted"))
+        return;
+    QStringList ids;
+    for (const QString &id : allowedRoomIds) {
+        const QString trimmed = id.trimmed();
+        if (trimmed.startsWith(QLatin1Char('!')) && !ids.contains(trimmed))
+            ids.append(trimmed);
+    }
+    if (ids.isEmpty() && !m_restrictedHasUnknownRules) {
+        // Refused here for the same reason the Rust edge refuses it: an
+        // empty allow list is invite-only wearing a restricted label.
+        m_editError = tr("Choose at least one space whose members may join.");
         Q_EMIT editStateChanged();
         return;
     }
-    m_editOp = opId;
-    m_editError.clear();
-    Q_EMIT editStateChanged();
+    if (rule == m_joinRule && ids == m_restrictedAllowedRooms)
+        return;
+    dispatchEdit(m_client->setRoomJoinRule(m_roomId, rule, ids));
+}
+
+void RoomInfoController::setHistoryVisibility(const QString &visibility)
+{
+    if (!m_client || m_roomId.isEmpty() || !supported())
+        return;
+    if (!m_canChangeHistoryVisibility || m_editOp != 0)
+        return;
+    if (visibility != QLatin1String("invited")
+        && visibility != QLatin1String("joined")
+        && visibility != QLatin1String("shared")
+        && visibility != QLatin1String("world_readable"))
+        return;
+    if (visibility == m_historyVisibility)
+        return;
+    dispatchEdit(m_client->setRoomHistoryVisibility(m_roomId, visibility));
+}
+
+void RoomInfoController::setGuestAccess(const QString &access)
+{
+    if (!m_client || m_roomId.isEmpty() || !supported())
+        return;
+    if (!m_canChangeGuestAccess || m_editOp != 0)
+        return;
+    if (access != QLatin1String("can_join") && access != QLatin1String("forbidden"))
+        return;
+    if (access == m_guestAccess)
+        return;
+    dispatchEdit(m_client->setRoomGuestAccess(m_roomId, access));
+}
+
+void RoomInfoController::setDirectoryPublished(bool published)
+{
+    if (!m_client || m_roomId.isEmpty() || !supported())
+        return;
+    // Publishing to the directory is gated like the alias controls: the
+    // server enforces its own policy (some refuse everyone but admins), and
+    // that refusal surfaces through the ordinary edit error.
+    if (!m_canChangeAlias || m_editOp != 0)
+        return;
+    if (m_directoryPublished == (published ? 1 : 0))
+        return;
+    dispatchEdit(m_client->setRoomDirectoryVisibility(m_roomId, published));
+}
+
+void RoomInfoController::requestDirectoryVisibility()
+{
+    if (!m_client || m_roomId.isEmpty() || !supported())
+        return;
+    m_client->requestRoomDirectoryVisibility(m_roomId);
+}
+
+QString RoomInfoController::completeAlias(const QString &alias,
+                                          QString *error) const
+{
+    QString value = alias.trimmed();
+    if (value.isEmpty())
+        return value;
+    // Accept a bare localpart and complete it with the account's own
+    // server; typing "#name:server.example" by hand is not something to
+    // require of the user.
+    if (!value.startsWith(QLatin1Char('#')))
+        value.prepend(QLatin1Char('#'));
+    if (!value.contains(QLatin1Char(':'))) {
+        const QString own = m_client ? m_client->currentUserId() : QString();
+        const int colon = own.indexOf(QLatin1Char(':'));
+        if (colon < 0 || colon + 1 >= own.size()) {
+            if (error)
+                *error = tr("The alias needs a server name.");
+            return QString();
+        }
+        value += own.mid(colon);
+    }
+    return value;
+}
+
+void RoomInfoController::setAltAliases(const QStringList &aliases)
+{
+    if (!m_client || m_roomId.isEmpty() || !supported())
+        return;
+    if (!m_canChangeAlias || m_editOp != 0)
+        return;
+    QStringList completed;
+    for (const QString &alias : aliases) {
+        QString error;
+        const QString value = completeAlias(alias, &error);
+        if (!error.isEmpty()) {
+            m_editError = error;
+            Q_EMIT editStateChanged();
+            return;
+        }
+        if (!value.isEmpty() && !completed.contains(value)
+            && value != m_canonicalAlias)
+            completed.append(value);
+    }
+    if (completed == m_altAliases)
+        return;
+    dispatchEdit(m_client->setRoomAltAliases(m_roomId, completed));
+}
+
+QVariantList RoomInfoController::joinedSpaces() const
+{
+    QVariantList out;
+    if (!m_client)
+        return out;
+    const QList<RoomInfo> rooms = m_client->rooms();
+    for (const RoomInfo &room : rooms) {
+        if (!room.isSpace || room.membership != RoomInfo::Joined)
+            continue;
+        out.append(QVariantMap{
+            { QStringLiteral("roomId"), room.id },
+            { QStringLiteral("name"),
+              room.name.isEmpty() ? room.id : room.name },
+        });
+    }
+    return out;
 }
 
 void RoomInfoController::setCanonicalAlias(const QString &alias)
@@ -645,35 +833,16 @@ void RoomInfoController::setCanonicalAlias(const QString &alias)
         return;
     if (!m_canChangeAlias || m_editOp != 0)
         return;
-    QString value = alias.trimmed();
-    if (!value.isEmpty()) {
-        // Accept a bare localpart and complete it with the account's own
-        // server; typing "#name:server.example" by hand is not something to
-        // require of the user.
-        if (!value.startsWith(QLatin1Char('#')))
-            value.prepend(QLatin1Char('#'));
-        if (!value.contains(QLatin1Char(':'))) {
-            const QString own = m_client->currentUserId();
-            const int colon = own.indexOf(QLatin1Char(':'));
-            if (colon < 0 || colon + 1 >= own.size()) {
-                m_editError = tr("The alias needs a server name.");
-                Q_EMIT editStateChanged();
-                return;
-            }
-            value += own.mid(colon);
-        }
-    }
-    if (value == m_canonicalAlias)
-        return;
-    const quint64 opId = m_client->setRoomCanonicalAlias(m_roomId, value);
-    if (opId == 0) {
-        m_editError = tr("The change could not be sent.");
+    QString error;
+    const QString value = completeAlias(alias, &error);
+    if (!error.isEmpty()) {
+        m_editError = error;
         Q_EMIT editStateChanged();
         return;
     }
-    m_editOp = opId;
-    m_editError.clear();
-    Q_EMIT editStateChanged();
+    if (value == m_canonicalAlias)
+        return;
+    dispatchEdit(m_client->setRoomCanonicalAlias(m_roomId, value));
 }
 
 // ---------------------------------------------------------------------------

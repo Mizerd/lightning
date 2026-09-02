@@ -5772,12 +5772,102 @@ quint64 RustSdkMatrixClient::setRoomPowerLevelKey(const QString &roomId,
 quint64 RustSdkMatrixClient::setRoomJoinRule(const QString &roomId,
                                              const QString &rule)
 {
+    return setRoomJoinRule(roomId, rule, QStringList());
+}
+
+quint64 RustSdkMatrixClient::setRoomJoinRule(const QString &roomId,
+                                             const QString &rule,
+                                             const QStringList &allowedRoomIds)
+{
     if (!m_rustHandle || roomId.isEmpty() || rule.isEmpty())
         return 0;
     const quint64 opId = nextOpId();
     const QByteArray room = roomId.toUtf8();
     const QByteArray value = rule.toUtf8();
+    const QByteArray allowed = allowedRoomIds.join(QLatin1Char('\n')).toUtf8();
     const QString result = takeRustString(mx_rust_set_room_join_rule(
+        m_rustHandle, room.constData(), value.constData(),
+        allowedRoomIds.isEmpty() ? nullptr : allowed.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::setRoomHistoryVisibility(const QString &roomId,
+                                                      const QString &visibility)
+{
+    if (!m_rustHandle || roomId.isEmpty() || visibility.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray value = visibility.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_history_visibility(
+        m_rustHandle, room.constData(), value.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::setRoomGuestAccess(const QString &roomId,
+                                                const QString &access)
+{
+    if (!m_rustHandle || roomId.isEmpty() || access.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray value = access.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_guest_access(
+        m_rustHandle, room.constData(), value.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+void RustSdkMatrixClient::requestRoomDirectoryVisibility(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return;
+    const QByteArray room = roomId.toUtf8();
+    takeRustString(mx_rust_request_room_directory_visibility(
+        m_rustHandle, room.constData()));
+}
+
+quint64 RustSdkMatrixClient::setRoomDirectoryVisibility(const QString &roomId,
+                                                        bool published)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_directory_visibility(
+        m_rustHandle, room.constData(), published, opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+void RustSdkMatrixClient::requestRoomVersions()
+{
+    if (!m_rustHandle)
+        return;
+    takeRustString(mx_rust_request_room_versions(m_rustHandle));
+}
+
+quint64 RustSdkMatrixClient::upgradeRoom(const QString &roomId,
+                                         const QString &newVersion)
+{
+    if (!m_rustHandle || roomId.isEmpty() || newVersion.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray version = newVersion.trimmed().toUtf8();
+    const QString result = takeRustString(mx_rust_upgrade_room(
+        m_rustHandle, room.constData(), version.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::setRoomAltAliases(const QString &roomId,
+                                               const QStringList &aliases)
+{
+    // An EMPTY list is meaningful (it clears every alternative alias).
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray value = aliases.join(QLatin1Char('\n')).toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_alt_aliases(
         m_rustHandle, room.constData(), value.constData(), opId));
     return result.isEmpty() ? opId : 0;
 }
@@ -7699,6 +7789,40 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         snapshot.insert(
             QStringLiteral("canonicalAlias"),
             event.value(QStringLiteral("canonical_alias")).toString());
+        // v0.9 room access (phase 4): the room's history visibility, guest
+        // access, alternative aliases and restricted allow list, plus the
+        // two power gates that are not among the older own_can_* flags.
+        {
+            const QJsonObject access =
+                event.value(QStringLiteral("access")).toObject();
+            snapshot.insert(QStringLiteral("historyVisibility"),
+                            access.value(QStringLiteral("history_visibility"))
+                                .toString());
+            snapshot.insert(QStringLiteral("guestAccess"),
+                            access.value(QStringLiteral("guest_access"))
+                                .toString());
+            QStringList altAliases;
+            for (const QJsonValue &v :
+                 access.value(QStringLiteral("alt_aliases")).toArray())
+                altAliases.append(v.toString());
+            snapshot.insert(QStringLiteral("altAliases"), altAliases);
+            QStringList allowed;
+            for (const QJsonValue &v :
+                 access.value(QStringLiteral("restricted_allow")).toArray())
+                allowed.append(v.toString());
+            snapshot.insert(QStringLiteral("restrictedAllowedRooms"), allowed);
+            snapshot.insert(
+                QStringLiteral("restrictedHasUnknownRules"),
+                access.value(QStringLiteral("restricted_has_unknown")).toBool());
+            snapshot.insert(
+                QStringLiteral("canChangeHistoryVisibility"),
+                access.value(QStringLiteral("own_can_change_history_visibility"))
+                    .toBool());
+            snapshot.insert(
+                QStringLiteral("canChangeGuestAccess"),
+                access.value(QStringLiteral("own_can_change_guest_access"))
+                    .toBool());
+        }
         snapshot.insert(QStringLiteral("category"),
                         event.value(QStringLiteral("category")).toString());
         // A cache-only snapshot that precedes the synced roster under the
@@ -7774,6 +7898,41 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                                 event.value(QStringLiteral("field")).toString(),
                                 event.value(QStringLiteral("ok")).toBool(),
                                 event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_versions")) {
+        QVariantList available;
+        for (const QJsonValue &v :
+             event.value(QStringLiteral("available")).toArray()) {
+            const QJsonObject row = v.toObject();
+            available.append(QVariantMap{
+                { QStringLiteral("version"),
+                  row.value(QStringLiteral("version")).toString() },
+                { QStringLiteral("stable"),
+                  row.value(QStringLiteral("stable")).toBool() },
+            });
+        }
+        Q_EMIT roomVersionsReceived(
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("default")).toString(), available);
+        return true;
+    }
+
+    if (type == QLatin1String("room_upgrade_result")) {
+        Q_EMIT roomUpgradeFinished(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("replacement_room_id")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_directory_visibility")) {
+        Q_EMIT roomDirectoryVisibilityReceived(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("published")).toBool());
         return true;
     }
 

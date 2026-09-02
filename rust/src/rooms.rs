@@ -1744,6 +1744,43 @@ async fn members_snapshot_json(
             .canonical_alias()
             .map(|a| a.to_string())
             .unwrap_or_default();
+        // v0.9 room access (phase 4). The restricted allow list is reported
+        // as ROOM IDS so the UI can render a configuration another client
+        // wrote and edit it without dropping entries — an allow rule of an
+        // unknown kind is carried through as an opaque marker the editor
+        // must preserve (see set_room_join_rule).
+        let (restricted_allow, restricted_has_unknown) = {
+            use matrix_sdk::ruma::room::{AllowRule, JoinRule};
+            match room.join_rule() {
+                Some(JoinRule::Restricted(r)) | Some(JoinRule::KnockRestricted(r)) => {
+                    let mut ids = Vec::new();
+                    let mut unknown = false;
+                    for rule in &r.allow {
+                        match rule {
+                            AllowRule::RoomMembership(m) => {
+                                ids.push(m.room_id.to_string())
+                            }
+                            _ => unknown = true,
+                        }
+                    }
+                    (ids, unknown)
+                }
+                _ => (Vec::new(), false),
+            }
+        };
+        let history_visibility = match room.history_visibility() {
+            Some(v) => v.as_str().to_owned(),
+            None => String::new(),
+        };
+        let guest_access = room.guest_access().as_str().to_owned();
+        let alt_aliases: Vec<String> =
+            room.alt_aliases().iter().map(|a| a.to_string()).collect();
+        let can_change_history_visibility = own_member
+            .as_ref()
+            .is_some_and(|m| m.can_send_state(StateEventType::RoomHistoryVisibility));
+        let can_change_guest_access = own_member
+            .as_ref()
+            .is_some_and(|m| m.can_send_state(StateEventType::RoomGuestAccess));
 
         // Built BEFORE the snapshot rather than inline in it. `json!` expands
         // recursively, and this object pushed the already-large snapshot past
@@ -1769,6 +1806,19 @@ async fn members_snapshot_json(
             "m.room.power_levels":
                 state_level(StateEventType::RoomPowerLevels),
             "m.room.tombstone": state_level(StateEventType::RoomTombstone),
+            "m.room.history_visibility":
+                state_level(StateEventType::RoomHistoryVisibility),
+            "m.room.guest_access": state_level(StateEventType::RoomGuestAccess),
+        });
+        // Hoisted for the same macro-recursion reason as the power levels.
+        let access_json = json!({
+            "history_visibility": history_visibility,
+            "guest_access": guest_access,
+            "alt_aliases": alt_aliases,
+            "restricted_allow": restricted_allow,
+            "restricted_has_unknown": restricted_has_unknown,
+            "own_can_change_history_visibility": can_change_history_visibility,
+            "own_can_change_guest_access": can_change_guest_access,
         });
 
         json!({
@@ -1806,6 +1856,7 @@ async fn members_snapshot_json(
             "power_levels": power_levels_json,
             "join_rule": join_rule,
             "canonical_alias": canonical_alias,
+            "access": access_json,
             "members": rows,
         })
     }
@@ -2094,24 +2145,55 @@ pub(crate) fn set_room_power_level_key(
     Ok(())
 }
 
-/// Set the room's join rule. Only the three rules that carry no additional
-/// configuration are accepted — see `join_rule_str` for why `restricted` is
-/// deliberately not settable here.
+/// Set the room's join rule.
+///
+/// v0.9 (phase 4): `restricted` and `knock_restricted` are accepted with
+/// `allowed_room_ids` — the Spaces (or rooms) whose members may join, each
+/// becoming an `m.room_membership` allow rule. UNKNOWN allow-rule kinds a
+/// previous client wrote are PRESERVED verbatim from the current state,
+/// never dropped: editing which spaces grant access must not silently strip
+/// a rule this client cannot render. An empty allow list is refused — it
+/// would lock the room to invite-only while claiming otherwise.
 pub(crate) fn set_room_join_rule(
     bridge: &RustClient,
     room_id: String,
     rule: String,
+    allowed_room_ids: Vec<String>,
     op_id: u64,
 ) -> Result<(), String> {
     use matrix_sdk::ruma::events::room::join_rules::RoomJoinRulesEventContent;
-    use matrix_sdk::ruma::room::JoinRule;
+    use matrix_sdk::ruma::room::{AllowRule, JoinRule, Restricted};
 
     let client = require_client(bridge)?;
     let room = joined_room(&client, &room_id)?;
+    let restricted = || -> Result<Restricted, String> {
+        let mut allow: Vec<AllowRule> = Vec::new();
+        for id in &allowed_room_ids {
+            let room_id = RoomId::parse(id)
+                .map_err(|_| "invalid allowed room id".to_owned())?;
+            allow.push(AllowRule::room_membership(room_id));
+        }
+        // Carry through every rule of a kind this client does not render.
+        if let Some(JoinRule::Restricted(current))
+        | Some(JoinRule::KnockRestricted(current)) = room.join_rule()
+        {
+            for existing in current.allow {
+                if !matches!(existing, AllowRule::RoomMembership(_)) {
+                    allow.push(existing);
+                }
+            }
+        }
+        if allow.is_empty() {
+            return Err("a restricted room needs at least one allowed space".to_owned());
+        }
+        Ok(Restricted::new(allow))
+    };
     let join_rule = match rule.as_str() {
         "invite" => JoinRule::Invite,
         "public" => JoinRule::Public,
         "knock" => JoinRule::Knock,
+        "restricted" => JoinRule::Restricted(restricted()?),
+        "knock_restricted" => JoinRule::KnockRestricted(restricted()?),
         _ => return Err("unsupported join rule".to_owned()),
     };
     let events = Arc::clone(&bridge.events);
@@ -2203,6 +2285,337 @@ pub(crate) fn set_room_canonical_alias(
         emit_edit_result(
             &events, op_id, lifecycle, &room_id, "canonical_alias", result,
         );
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// v0.9 room access (phase 4): history visibility, guest access, directory
+// visibility, alternative aliases. Every write is the SDK's own request
+// (RoomPrivacySettings or a plain state event); the client only chooses
+// values and reports the server's answer.
+// ---------------------------------------------------------------------------
+
+pub(crate) fn set_room_history_visibility(
+    bridge: &RustClient,
+    room_id: String,
+    visibility: String,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::events::room::history_visibility::HistoryVisibility;
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let value = match visibility.as_str() {
+        "invited" => HistoryVisibility::Invited,
+        "joined" => HistoryVisibility::Joined,
+        "shared" => HistoryVisibility::Shared,
+        "world_readable" => HistoryVisibility::WorldReadable,
+        _ => return Err("unsupported history visibility".to_owned()),
+    };
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = room
+            .privacy_settings()
+            .update_room_history_visibility(value)
+            .await
+            .map_err(|err| classify_room_error(&err.to_string()).to_owned());
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        emit_edit_result(
+            &events, op_id, lifecycle, &room_id, "history_visibility", result,
+        );
+    });
+    Ok(())
+}
+
+pub(crate) fn set_room_guest_access(
+    bridge: &RustClient,
+    room_id: String,
+    access: String,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::events::room::guest_access::{
+        GuestAccess, RoomGuestAccessEventContent,
+    };
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let value = match access.as_str() {
+        "can_join" => GuestAccess::CanJoin,
+        "forbidden" => GuestAccess::Forbidden,
+        _ => return Err("unsupported guest access".to_owned()),
+    };
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = room
+            .send_state_event(RoomGuestAccessEventContent::new(value))
+            .await
+            .map(|_| ())
+            .map_err(|err| classify_room_error(&err.to_string()).to_owned());
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        emit_edit_result(&events, op_id, lifecycle, &room_id, "guest_access", result);
+    });
+    Ok(())
+}
+
+/// Directory visibility is not room state — it lives on the server's
+/// public room list — so it is fetched on demand and answered as its own
+/// poll event rather than riding the member snapshot.
+pub(crate) fn request_room_directory_visibility(
+    bridge: &RustClient,
+    room_id: String,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::api::client::room::Visibility;
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let answer = room.privacy_settings().get_room_visibility().await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        match answer {
+            Ok(visibility) => enqueue(
+                &events,
+                json!({
+                    "type": "room_directory_visibility",
+                    "lifecycle": lifecycle,
+                    "room_id": room_id,
+                    "ok": true,
+                    "published": visibility == Visibility::Public,
+                }),
+            ),
+            Err(err) => enqueue(
+                &events,
+                json!({
+                    "type": "room_directory_visibility",
+                    "lifecycle": lifecycle,
+                    "room_id": room_id,
+                    "ok": false,
+                    "category": classify_room_error(&err.to_string()),
+                }),
+            ),
+        }
+    });
+    Ok(())
+}
+
+pub(crate) fn set_room_directory_visibility(
+    bridge: &RustClient,
+    room_id: String,
+    published: bool,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::api::client::room::Visibility;
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = room
+            .privacy_settings()
+            .update_room_visibility(if published {
+                Visibility::Public
+            } else {
+                Visibility::Private
+            })
+            .await
+            .map_err(|err| classify_room_error(&err.to_string()).to_owned());
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        emit_edit_result(
+            &events, op_id, lifecycle, &room_id, "directory_visibility", result,
+        );
+    });
+    Ok(())
+}
+
+/// Replace the alternative-alias list. Same two-step rule as the canonical
+/// alias: an alias must resolve to this room before m.room.canonical_alias
+/// may list it, so any alias not already pointing here is published first.
+/// The canonical alias is preserved untouched, and a removed alias keeps its
+/// directory mapping (demoting is not deleting — see the canonical path).
+pub(crate) fn set_room_alt_aliases(
+    bridge: &RustClient,
+    room_id: String,
+    aliases: Vec<String>,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::events::room::canonical_alias::RoomCanonicalAliasEventContent;
+    use matrix_sdk::ruma::{OwnedRoomAliasId, RoomAliasId};
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let mut parsed: Vec<OwnedRoomAliasId> = Vec::new();
+    for alias in &aliases {
+        let trimmed = alias.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let id = RoomAliasId::parse(trimmed).map_err(|_| "invalid room alias".to_owned())?;
+        if !parsed.contains(&id) {
+            parsed.push(id);
+        }
+    }
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    let room_id_for_task = room_id.clone();
+    bridge.spawn_room_action(async move {
+        let result = async {
+            for alias in &parsed {
+                let already_here = match client.resolve_room_alias(alias).await {
+                    Ok(response) => response.room_id.as_str() == room_id_for_task,
+                    Err(_) => false,
+                };
+                if !already_here {
+                    client
+                        .create_room_alias(alias, room.room_id())
+                        .await
+                        .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+                }
+            }
+            let mut content = RoomCanonicalAliasEventContent::new();
+            content.alias = room.canonical_alias();
+            content.alt_aliases = parsed;
+            room.send_state_event(content)
+                .await
+                .map(|_| ())
+                .map_err(|err| classify_room_error(&err.to_string()).to_owned())
+        }
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        emit_edit_result(&events, op_id, lifecycle, &room_id, "alt_aliases", result);
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// v0.9 room upgrade (phase 8). The version list comes from the homeserver's
+// /capabilities (never a hard-coded table), the upgrade is the standard
+// /upgrade endpoint via ruma, and the server is what carries state, power
+// levels and aliases into the replacement (the endpoint's contract); this
+// client never approximates that by hand.
+// ---------------------------------------------------------------------------
+
+pub(crate) fn request_room_versions(bridge: &RustClient) -> Result<(), String> {
+    use matrix_sdk::ruma::api::client::discovery::get_capabilities::v3::RoomVersionStability;
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let answer = client.homeserver_capabilities().room_versions().await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        match answer {
+            Ok(versions) => {
+                let mut available: Vec<serde_json::Value> = versions
+                    .available
+                    .iter()
+                    .map(|(id, stability)| {
+                        json!({
+                            "version": id.to_string(),
+                            "stable": *stability == RoomVersionStability::Stable,
+                        })
+                    })
+                    .collect();
+                // Sort numerically where the ids are numbers ("1".."12"),
+                // otherwise lexically after them, so the picker reads in
+                // order and the recommendation is deterministic.
+                available.sort_by(|a, b| {
+                    let key = |v: &serde_json::Value| {
+                        let s = v["version"].as_str().unwrap_or_default();
+                        (s.parse::<u32>().map(|n| (0, n)).unwrap_or((1, 0)),
+                         s.to_owned())
+                    };
+                    key(a).cmp(&key(b))
+                });
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "room_versions",
+                        "lifecycle": lifecycle,
+                        "ok": true,
+                        "default": versions.default.to_string(),
+                        "available": available,
+                    }),
+                );
+            }
+            Err(err) => enqueue(
+                &events,
+                json!({
+                    "type": "room_versions",
+                    "lifecycle": lifecycle,
+                    "ok": false,
+                    "category": classify_room_error(&err.to_string()),
+                }),
+            ),
+        }
+    });
+    Ok(())
+}
+
+pub(crate) fn upgrade_room(
+    bridge: &RustClient,
+    room_id: String,
+    new_version: String,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::api::client::room::upgrade_room;
+    use matrix_sdk::ruma::RoomVersionId;
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let version: RoomVersionId = new_version
+        .trim()
+        .parse()
+        .map_err(|_| "invalid room version".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let request = upgrade_room::v3::Request::new(room.room_id().to_owned(), version);
+        let answer = client.send(request).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        match answer {
+            Ok(response) => enqueue(
+                &events,
+                json!({
+                    "type": "room_upgrade_result",
+                    "op_id": op_id,
+                    "lifecycle": lifecycle,
+                    "room_id": room_id,
+                    "ok": true,
+                    "replacement_room_id": response.replacement_room.to_string(),
+                }),
+            ),
+            Err(err) => enqueue(
+                &events,
+                json!({
+                    "type": "room_upgrade_result",
+                    "op_id": op_id,
+                    "lifecycle": lifecycle,
+                    "room_id": room_id,
+                    "ok": false,
+                    "category": classify_room_error(&err.to_string()),
+                }),
+            ),
+        }
     });
     Ok(())
 }

@@ -3,6 +3,7 @@
 #include "app/RoomDiscoveryController.h"
 #include "matrix/MatrixClient.h"
 #include "matrix/RoomInfo.h"
+#include "spaces/SpaceManager.h"
 
 #include <QCoreApplication>
 
@@ -36,6 +37,10 @@ void RoomUpgradeController::setClient(MatrixClient *client)
         // a restored one cannot disagree.
         connect(m_client, &MatrixClient::roomsChanged, this,
                 &RoomUpgradeController::refresh);
+        connect(m_client, &MatrixClient::roomVersionsReceived, this,
+                &RoomUpgradeController::onRoomVersionsReceived);
+        connect(m_client, &MatrixClient::roomUpgradeFinished, this,
+                &RoomUpgradeController::onRoomUpgradeFinished);
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
             // Not merely a refresh: a join we started must not be able to
             // navigate the next account into the previous account's room.
@@ -50,6 +55,20 @@ void RoomUpgradeController::setClient(MatrixClient *client)
             m_error.clear();
             if (notify)
                 Q_EMIT changed();
+            // v0.9: an upgrade in flight dies with the session (its answer
+            // must not navigate the next account), and the cached version
+            // list belongs to the previous homeserver.
+            const bool upgradeNotify = m_upgradeOp != 0 || !m_upgradeError.isEmpty();
+            m_upgradeOp = 0;
+            m_upgradeRoomId.clear();
+            m_upgradeAddToSpaces = false;
+            m_upgradeError.clear();
+            m_versionsKnown = false;
+            m_defaultVersion.clear();
+            m_availableVersions.clear();
+            Q_EMIT versionsChanged();
+            if (upgradeNotify)
+                Q_EMIT upgradeStateChanged();
             refresh();
         });
     }
@@ -314,4 +333,110 @@ bool RoomUpgradeController::consumeAbandonedJoin(const QString &roomId)
     // banner again, or from Discover — must navigate normally.
     m_abandonedJoinRoomId.clear();
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// v0.9 room upgrade: the send side
+// ---------------------------------------------------------------------------
+
+void RoomUpgradeController::requestRoomVersions()
+{
+    if (!m_client)
+        return;
+    m_client->requestRoomVersions();
+}
+
+void RoomUpgradeController::onRoomVersionsReceived(bool ok,
+                                                   const QString &defaultVersion,
+                                                   const QVariantList &available)
+{
+    // A failed read leaves the picker without a list rather than with a
+    // guessed one: an upgrade to a version the server did not advertise is
+    // exactly the mistake a hard-coded table would make.
+    m_versionsKnown = ok;
+    m_defaultVersion = ok ? defaultVersion : QString();
+    m_availableVersions = ok ? available : QVariantList();
+    Q_EMIT versionsChanged();
+}
+
+void RoomUpgradeController::upgradeRoom(const QString &newVersion,
+                                        bool addToSameSpaces)
+{
+    if (!m_client || m_roomId.isEmpty() || upgradeBusy())
+        return;
+    const QString version = newVersion.trimmed();
+    // Only a version the server advertised, never free text: the server
+    // would refuse anyway, but refusing here keeps the request honest and
+    // the error local.
+    bool advertised = false;
+    for (const QVariant &row : std::as_const(m_availableVersions)) {
+        if (row.toMap().value(QStringLiteral("version")).toString() == version) {
+            advertised = true;
+            break;
+        }
+    }
+    if (!m_versionsKnown || !advertised) {
+        m_upgradeError = QCoreApplication::translate(
+            "RoomUpgradeController",
+            "Pick a room version the server supports.");
+        Q_EMIT upgradeStateChanged();
+        return;
+    }
+    const quint64 opId = m_client->upgradeRoom(m_roomId, version);
+    if (opId == 0) {
+        m_upgradeError = QCoreApplication::translate(
+            "RoomUpgradeController", "The upgrade could not be requested.");
+        Q_EMIT upgradeStateChanged();
+        return;
+    }
+    m_upgradeOp = opId;
+    m_upgradeRoomId = m_roomId;
+    m_upgradeAddToSpaces = addToSameSpaces;
+    m_upgradeError.clear();
+    Q_EMIT upgradeStateChanged();
+}
+
+void RoomUpgradeController::onRoomUpgradeFinished(quint64 opId,
+                                                  const QString &roomId,
+                                                  bool ok,
+                                                  const QString &replacementRoomId,
+                                                  const QString &category)
+{
+    if (opId == 0 || opId != m_upgradeOp)
+        return;
+    m_upgradeOp = 0;
+    if (!ok || replacementRoomId.isEmpty()) {
+        // Sanitized category only — never server text.
+        m_upgradeError = category == QLatin1String("forbidden")
+            ? QCoreApplication::translate(
+                  "RoomUpgradeController",
+                  "The server refused the upgrade: you are not allowed to "
+                  "upgrade this room.")
+            : QCoreApplication::translate(
+                  "RoomUpgradeController",
+                  "The upgrade did not complete. Nothing was changed.");
+        Q_EMIT upgradeStateChanged();
+        return;
+    }
+    m_lastReplacementRoomId = replacementRoomId;
+    // Optional re-parenting: every Space that lists the OLD room gets the
+    // replacement as a child too. Each is the Space manager's ordinary
+    // m.space.child write, reported through its own outcome signal; a
+    // Space where this account lacks the power simply refuses that one
+    // entry, and the old child is deliberately left in place (removing it
+    // would hide the old room's history from the Space).
+    if (m_upgradeAddToSpaces && m_spaces) {
+        const QVariantList spaces = m_spaces->allSpaces();
+        for (const QVariant &value : spaces) {
+            const QString spaceId =
+                value.toMap().value(QStringLiteral("spaceId")).toString();
+            if (spaceId.isEmpty() || !m_spaces->includesRoom(spaceId, roomId))
+                continue;
+            m_spaces->addRoomToSpace(spaceId, replacementRoomId);
+        }
+    }
+    Q_EMIT upgradeStateChanged();
+    // The replacement is joined by the upgrade itself (the server creates
+    // it with the upgrader as a member), so the navigation is direct.
+    Q_EMIT navigateRequested(replacementRoomId);
 }
