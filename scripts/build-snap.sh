@@ -28,7 +28,7 @@ test -f "$TEMPLATE" || die "snap.yaml template missing"
 rm -rf "$SNAP_WORK"
 mkdir -p "$SNAP_WORK"
 tar -C "$SNAP_WORK" -I zstd -xf "$APPDIR_TAR"
-test -x "$SNAP_WORK/appdir/usr/bin/matrix-client" || die "AppDir payload incomplete"
+test -x "$SNAP_WORK/appdir/usr/bin/lightning-matrix" || die "AppDir payload incomplete"
 # The call media plugins ride in from the AppImage job's AppDir. A snap with
 # none is a snap that installs, launches and then refuses every call, so the
 # absence is fatal here rather than at a user.
@@ -65,7 +65,7 @@ export GST_PLUGIN_PATH_1_0="$SNAP/usr/lib/gstreamer-1.0"
 # registry cache has to live in the user's own (snap-confined) cache dir.
 export GST_REGISTRY_1_0="${XDG_CACHE_HOME:-$HOME/.cache}/lightning/gst-registry.bin"
 mkdir -p "$(dirname "$GST_REGISTRY_1_0")" 2>/dev/null || true
-exec "$SNAP/usr/bin/matrix-client" --backend=rust "$@"
+exec "$SNAP/usr/bin/lightning-matrix" --backend=rust "$@"
 EOF
 chmod 0755 "$TREE/bin/lightning-launch"
 

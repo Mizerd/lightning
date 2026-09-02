@@ -164,7 +164,7 @@ unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null ||
 
 # Native packages use system libraries in standard paths. Remove the
 # build-generated RPATH from both staged executables for every format.
-patchelf --remove-rpath "$STAGE_DIR/usr/bin/matrix-client"
+patchelf --remove-rpath "$STAGE_DIR/usr/bin/lightning-matrix"
 patchelf --remove-rpath "$STAGE_DIR/usr/bin/lightning-updater"
 
 # Since Lightning 0.7 the source installs its own desktop entry and hicolor
@@ -183,12 +183,12 @@ install -Dm0644 "$SOURCE_DIR/LICENSE" \
 install -Dm0644 "$SOURCE_DIR/README.md" \
     "$STAGE_DIR/usr/share/doc/lightning/README.md"
 
-test -x "$STAGE_DIR/usr/bin/matrix-client"
-"$STAGE_DIR/usr/bin/matrix-client" --version
+test -x "$STAGE_DIR/usr/bin/lightning-matrix"
+"$STAGE_DIR/usr/bin/lightning-matrix" --version
 
 # Fail closed on the Rust-only release invariant: the staged binary must ship
 # only the Rust backend (no HTTP/mock compiled in, no runtime fallback).
-staged_build_info="$("$STAGE_DIR/usr/bin/matrix-client" --build-info)"
+staged_build_info="$("$STAGE_DIR/usr/bin/lightning-matrix" --build-info)"
 printf '%s\n' "$staged_build_info"
 mkdir -p "$ROOT/dist"
 printf '%s\n' "$staged_build_info" >"$ROOT/dist/build-info-linux.txt"
@@ -214,7 +214,7 @@ printf '%s\n' "$staged_build_info" | grep -qx 'mock_backend_compiled: false' \
 #
 # The command exits non-zero whenever the engine cannot be used, so its status
 # is deliberately not the test.
-call_media_status="$(timeout 60s "$STAGE_DIR/usr/bin/matrix-client" --call-media-status 2>&1 || true)"
+call_media_status="$(timeout 60s "$STAGE_DIR/usr/bin/lightning-matrix" --call-media-status 2>&1 || true)"
 printf '%s\n' "$call_media_status"
 printf '%s\n' "$call_media_status" >"$ROOT/dist/call-media-status-build.txt"
 printf '%s\n' "$call_media_status" | grep -qx 'call media engine built in: yes' || \

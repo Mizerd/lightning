@@ -61,7 +61,7 @@ Check "Qt6Core.dll present" (Test-Path (Join-Path $InstallDir "Qt6Core.dll"))
 
 # --- 2/3. --version and --build-info ----------------------------------------
 $versionOut = & $exe --version 2>&1 | Out-String
-Check "--version prints matrix-client" ($versionOut -match "matrix-client\s+\d+\.\d+\.\d+")
+Check "--version prints Lightning" ($versionOut -match "Lightning\s+\d+\.\d+\.\d+")
 
 $buildInfoOut = & $exe --build-info 2>&1 | Out-String
 $buildInfoOut | Set-Content -Path $buildInfoLog -Encoding UTF8

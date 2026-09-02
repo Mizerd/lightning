@@ -56,7 +56,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/lightning.desktop
 appstreamcli validate --no-net %{buildroot}%{_datadir}/metainfo/lightning.metainfo.xml
 
 %files
-%{_bindir}/matrix-client
+%{_bindir}/lightning-matrix
 # The update helper, installed alongside the application by cmake --install.
 # %install copies the WHOLE staged tree and rpm's default
 # _unpackaged_files_terminate_build is 1, so omitting this line does not ship a

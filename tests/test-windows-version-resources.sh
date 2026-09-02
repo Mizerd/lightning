@@ -36,15 +36,15 @@ SRC="$WORK/src"
 mkdir -p "$SRC"
 cat >"$SRC/CMakeLists.txt" <<'EOF'
 cmake_minimum_required(VERSION 3.21)
-project(matrix-client LANGUAGES C)
+project(lightning LANGUAGES C)
 file(WRITE "${CMAKE_BINARY_DIR}/main.c" "int main(void){return 0;}\n")
-add_executable(matrix-client "${CMAKE_BINARY_DIR}/main.c")
+add_executable(lightning-matrix "${CMAKE_BINARY_DIR}/main.c")
 add_executable(lightning-updater "${CMAKE_BINARY_DIR}/main.c")
 # Report what the deferred calls actually attached, so the test asserts the
 # real target property rather than the absence of an error.
 cmake_language(DEFER DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" CALL report_link_options)
 function(report_link_options)
-    get_target_property(app matrix-client LINK_OPTIONS)
+    get_target_property(app lightning-matrix LINK_OPTIONS)
     get_target_property(upd lightning-updater LINK_OPTIONS)
     message(STATUS "APP_LINK_OPTIONS=${app}")
     message(STATUS "UPD_LINK_OPTIONS=${upd}")
@@ -85,8 +85,8 @@ if configure -DLIGHTNING_APP_VERSION_OBJECT="$APP_OBJ" \
              -DLIGHTNING_UPDATER_VERSION_OBJECT="$UPD_OBJ"; then
     ok "configure succeeds with both objects supplied"
     grep -q "APP_LINK_OPTIONS=$APP_OBJ" "$WORK/cmake.log" \
-        && ok "matrix-client links the application version resource" \
-        || bad "matrix-client did not get the application resource"
+        && ok "lightning-matrix links the application version resource" \
+        || bad "lightning-matrix did not get the application resource"
     grep -q "UPD_LINK_OPTIONS=$UPD_OBJ" "$WORK/cmake.log" \
         && ok "lightning-updater links the update-helper version resource" \
         || bad "lightning-updater did not get the helper resource"

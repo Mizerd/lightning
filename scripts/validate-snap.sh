@@ -47,7 +47,7 @@ for plug in ("network", "wayland", "x11", "desktop",
     assert plug in app["plugs"], plug
 print("snap.yaml valid")
 EOF
-test -x "$audit/prime/usr/bin/matrix-client" || die "snap application binary missing"
+test -x "$audit/prime/usr/bin/lightning-matrix" || die "snap application binary missing"
 # A snap is refreshed by snapd, so Lightning never RUNS the helper here — but
 # the snap is repacked from the AppImage job's AppDir, so a helper missing from
 # this payload means it was also missing from the AppImage, where it IS used.
@@ -61,12 +61,12 @@ test -x "$audit/prime/bin/lightning-launch" || die "launcher missing"
 version_output=$(cd /tmp && env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
     "$audit/prime/bin/lightning-launch" --version)
 # The launcher forces --backend=rust; --version prints before backend init.
-[ "$version_output" = "matrix-client $BASE_VERSION" ] \
+[ "$version_output" = "Lightning $BASE_VERSION" ] \
     || die "--version mismatch: $version_output"
 
 set +e
 ( cd /tmp && timeout 20s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
-    "$audit/prime/usr/bin/matrix-client" --backend=rust \
+    "$audit/prime/usr/bin/lightning-matrix" --backend=rust \
     ) > dist/snap-launch.log 2>&1
 status=$?
 set -e

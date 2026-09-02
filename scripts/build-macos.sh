@@ -300,10 +300,10 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
 # downstream (compile, staging, packaging) can see or persist them.
 unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null || true
 
-cmake --build "$BUILD_DIR" --parallel "${BUILD_JOBS:-4}" --target matrix-client
+cmake --build "$BUILD_DIR" --parallel "${BUILD_JOBS:-4}" --target lightning-matrix
 
-BUILT_BINARY="$BUILD_DIR/matrix-client"
-[[ -x "$BUILT_BINARY" ]] || die "matrix-client was not produced at $BUILT_BINARY"
+BUILT_BINARY="$BUILD_DIR/lightning-matrix"
+[[ -x "$BUILT_BINARY" ]] || die "lightning-matrix was not produced at $BUILT_BINARY"
 
 # Fail closed on the Rust-only invariant before anything is bundled, matching
 # the Linux path: a macOS build that silently compiled the HTTP or mock backend

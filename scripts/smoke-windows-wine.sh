@@ -71,7 +71,7 @@ run_call_media_status() {
 run_version() {
     local exe="$1" log="$2"
     timeout 60s wine64 "$exe" --version >"$log" 2>&1
-    grep -Fq "matrix-client $version" "$log" || die "Wine --version output mismatch: $exe"
+    grep -Fq "Lightning $version" "$log" || die "Wine --version output mismatch: $exe"
 }
 
 # The call media plugins are dlopen'd from `gstreamer-1.0/` beside the

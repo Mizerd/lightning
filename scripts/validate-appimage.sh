@@ -26,7 +26,7 @@ file "$app" | grep -q 'ELF 64-bit' || die "not an ELF AppImage"
 export APPIMAGE_EXTRACT_AND_RUN=1
 
 version_output=$(cd /tmp && "$ROOT/$app" --version)
-[ "$version_output" = "matrix-client $BASE_VERSION" ] \
+[ "$version_output" = "Lightning $BASE_VERSION" ] \
     || die "--version mismatch: $version_output"
 
 set +e
@@ -78,7 +78,7 @@ cleanup() { rm -rf "$audit"; }
 trap cleanup EXIT
 ( cd "$audit" && "$ROOT/$app" --appimage-extract >/dev/null )
 tree="$audit/squashfs-root"
-test -x "$tree/usr/bin/matrix-client" || die "binary missing in payload"
+test -x "$tree/usr/bin/lightning-matrix" || die "binary missing in payload"
 # The update helper ships beside the application. Without it the in-app updater
 # has nothing to hand a verified AppImage to and the feature is inert.
 test -x "$tree/usr/bin/lightning-updater" || die "update helper missing in payload"
@@ -150,7 +150,7 @@ for ximage_need in $ximage_needs; do
 done
 [ -z "$ximage_missing" ] \
     || die "the bundled ximagesrc cannot load: unresolved$ximage_missing"
-readelf -d "$tree/usr/bin/matrix-client" | grep -E 'RPATH|RUNPATH' \
+readelf -d "$tree/usr/bin/lightning-matrix" | grep -E 'RPATH|RUNPATH' \
     | grep -vE '\$ORIGIN' | grep -q . && die "non-relative RPATH in payload binary"
 readelf -d "$tree/usr/bin/lightning-updater" | grep -E 'RPATH|RUNPATH' \
     | grep -vE '\$ORIGIN' | grep -q . && die "non-relative RPATH in the update helper"

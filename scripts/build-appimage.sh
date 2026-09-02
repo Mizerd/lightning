@@ -46,7 +46,7 @@ fetch_tool "$PLUGIN_QT_URL" "$PLUGIN_QT_SHA256" "$TOOLS/linuxdeploy-plugin-qt"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR"
 cp -a "$STAGE/usr" "$APPDIR/usr"
-strip --strip-unneeded "$APPDIR/usr/bin/matrix-client"
+strip --strip-unneeded "$APPDIR/usr/bin/lightning-matrix"
 test -x "$APPDIR/usr/bin/lightning-updater" || die "update helper missing from the staged tree"
 strip --strip-unneeded "$APPDIR/usr/bin/lightning-updater"
 
@@ -433,7 +433,7 @@ HOOK
 "$TOOLS/linuxdeploy" --appdir "$APPDIR" \
     --desktop-file "$APPDIR/usr/share/applications/lightning.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/192x192/apps/lightning.png" \
-    --executable "$APPDIR/usr/bin/matrix-client" \
+    --executable "$APPDIR/usr/bin/lightning-matrix" \
     --executable "$APPDIR/usr/bin/lightning-updater" \
     --library /lib/x86_64-linux-gnu/libgpg-error.so.0 \
     "${LINUXDEPLOY_PLUGIN_ARGS[@]}" \

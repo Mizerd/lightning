@@ -24,7 +24,7 @@ audit_root="$(mktemp -d)"
 cleanup() { rm -rf "$audit_root"; }
 trap cleanup EXIT
 dpkg-deb --extract "$package" "$audit_root"
-binary="$audit_root/usr/bin/matrix-client"
+binary="$audit_root/usr/bin/lightning-matrix"
 [[ -x "$binary" ]] || die "packaged executable is missing"
 # The update helper ships beside the application in every format. Without it the
 # in-app updater has nothing to hand a verified .deb to and the feature is inert.
@@ -50,19 +50,19 @@ if find "$audit_root" -xdev -type f \( -perm -4000 -o -perm -2000 \) -print -qui
 fi
 
 apt-get install -y "$package"
-test -x /usr/bin/matrix-client
+test -x /usr/bin/lightning-matrix
 test -x /usr/bin/lightning-updater
 desktop-file-validate /usr/share/applications/lightning.desktop
 appstreamcli validate --no-net /usr/share/metainfo/lightning.metainfo.xml
-version_output="$(cd /tmp && /usr/bin/matrix-client --version)"
+version_output="$(cd /tmp && /usr/bin/lightning-matrix --version)"
 printf '%s\n' "$version_output" | tee "$ROOT/dist/deb-version.txt"
-[[ "$version_output" == "matrix-client $BASE_VERSION" ]] || die "installed DEB version output is wrong"
-if ldd /usr/bin/matrix-client | tee "$ROOT/dist/deb-ldd.txt" | grep -q 'not found'; then
+[[ "$version_output" == "Lightning $BASE_VERSION" ]] || die "installed DEB version output is wrong"
+if ldd /usr/bin/lightning-matrix | tee "$ROOT/dist/deb-ldd.txt" | grep -q 'not found'; then
     die "installed DEB executable has missing shared libraries"
 fi
 
 set +e
-(cd /tmp && timeout 15s env QT_QPA_PLATFORM=offscreen /usr/bin/matrix-client --backend=rust) \
+(cd /tmp && timeout 15s env QT_QPA_PLATFORM=offscreen /usr/bin/lightning-matrix --backend=rust) \
     >"$ROOT/dist/deb-headless.log" 2>&1
 headless_status=$?
 set -e
@@ -80,7 +80,7 @@ fi
 # the GStreamer plugin Depends resolved, because the engine's element probe runs
 # against whatever apt actually pulled in.
 set +e
-(cd /tmp && timeout 60s /usr/bin/matrix-client --call-media-status) \
+(cd /tmp && timeout 60s /usr/bin/lightning-matrix --call-media-status) \
     >"$ROOT/dist/deb-call-media-status.txt" 2>&1
 call_media_status=$?
 set -e
@@ -98,7 +98,7 @@ gif_env_clear() {
         -u LIGHTNING_GIPHY_API_KEY -u LIGHTNING_KLIPY_API_KEY \
         -u LIGHTNING_BUILD_GIPHY_API_KEY -u LIGHTNING_BUILD_KLIPY_API_KEY "$@"
 }
-status_out="$(cd /tmp && gif_env_clear /usr/bin/matrix-client --gif-status)"
+status_out="$(cd /tmp && gif_env_clear /usr/bin/lightning-matrix --gif-status)"
 printf '%s\n' "$status_out" | tee "$ROOT/dist/deb-gif-status.txt"
 if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
     printf '%s\n' "$status_out" | grep -qx 'GIPHY configured: yes' || \
@@ -107,7 +107,7 @@ if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
         die "packaged DEB reports KLIPY unconfigured with keys unset"
     # Bounded real trending request per provider using only the embedded keys.
     set +e
-    (cd /tmp && gif_env_clear /usr/bin/matrix-client --gif-selftest) \
+    (cd /tmp && gif_env_clear /usr/bin/lightning-matrix --gif-selftest) \
         >"$ROOT/dist/deb-gif-selftest.txt" 2>&1
     selftest_rc=$?
     set -e

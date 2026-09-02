@@ -8,7 +8,7 @@ TEST_ROOT="$(mktemp -d)"
 cleanup() { rm -rf "$TEST_ROOT"; }
 trap cleanup EXIT
 mkdir -p "$TEST_ROOT/work/lightning" "$TEST_ROOT/dist"
-printf 'project(matrix-client\n    VERSION 1.2.3\n    LANGUAGES CXX\n)\n' >"$TEST_ROOT/work/lightning/CMakeLists.txt"
+printf 'project(lightning\n    VERSION 1.2.3\n    LANGUAGES CXX\n)\n' >"$TEST_ROOT/work/lightning/CMakeLists.txt"
 
 write_info() {
     local ref="$1" tag="$2"

@@ -213,7 +213,7 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
 # The generator has written the header; drop the key values from the build
 # environment so nothing downstream (compile, staging, packaging) sees them.
 unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null || true
-# The production matrix-client is a GUI-subsystem PE on Windows (WIN32_EXECUTABLE
+# The production lightning-matrix is a GUI-subsystem PE on Windows (WIN32_EXECUTABLE
 # set in the app CMake); --version / --help / --build-info still print to a
 # parent console. No subsystem flag is passed here.
 #
@@ -223,7 +223,7 @@ unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null ||
 # from the staged tree below, so a helper that is not built here is a helper
 # that ships in none of the three packages -- and the update feature is inert.
 cmake --build "$BUILD_DIR" --parallel "${BUILD_JOBS:-4}" \
-    --target matrix-client lightning-updater
+    --target lightning-matrix lightning-updater
 
 python3 "$SCRIPT_DIR/stage-windows-runtime.py" \
     --source "$SOURCE_DIR" --build "$BUILD_DIR" --stage "$STAGE_DIR"

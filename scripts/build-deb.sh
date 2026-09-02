@@ -18,7 +18,7 @@ cp -a "$STAGE/." "$PKGROOT/"
 # Strip the release binaries (lintian error: unstripped-binary-or-object).
 # The update helper is a second shipped ELF and lintian holds it to the same
 # rule, so leaving it unstripped would fail validate-deb's --fail-on error.
-strip "$PKGROOT/usr/bin/matrix-client"
+strip "$PKGROOT/usr/bin/lightning-matrix"
 strip "$PKGROOT/usr/bin/lightning-updater"
 
 install -Dm0644 "$ROOT/packaging/common/copyright" \
@@ -53,7 +53,7 @@ EOF
 # catch a helper that grows a dependency the package does not declare.
 SHLIBS_OUT="$ROOT/work/shlibdeps.out"
 if ! ( cd "$ROOT/work" && dpkg-shlibdeps -O \
-        -e "$PKGROOT/usr/bin/matrix-client" \
+        -e "$PKGROOT/usr/bin/lightning-matrix" \
         -e "$PKGROOT/usr/bin/lightning-updater" ) >"$SHLIBS_OUT" 2>&1; then
     printf 'dpkg-shlibdeps failed:\n' >&2
     cat "$SHLIBS_OUT" >&2

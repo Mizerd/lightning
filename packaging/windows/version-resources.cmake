@@ -23,7 +23,7 @@
 #   point both targets exist. Nothing else about the build is touched.
 #
 # Inputs (all set by scripts/build-windows.sh):
-#   LIGHTNING_APP_VERSION_OBJECT      windres object for matrix-client
+#   LIGHTNING_APP_VERSION_OBJECT      windres object for lightning-matrix
 #   LIGHTNING_UPDATER_VERSION_OBJECT  windres object for lightning-updater
 
 if(CMAKE_VERSION VERSION_LESS 3.19)
@@ -56,7 +56,7 @@ endfunction()
 if(LIGHTNING_APP_VERSION_OBJECT AND LIGHTNING_UPDATER_VERSION_OBJECT)
     cmake_language(DEFER DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         CALL _lightning_attach_version_resource
-             matrix-client "${LIGHTNING_APP_VERSION_OBJECT}")
+             lightning-matrix "${LIGHTNING_APP_VERSION_OBJECT}")
     cmake_language(DEFER DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         CALL _lightning_attach_version_resource
              lightning-updater "${LIGHTNING_UPDATER_VERSION_OBJECT}")

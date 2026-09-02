@@ -116,7 +116,7 @@ modules:
       # is a runtime question the build sandbox is the wrong place to judge,
       # so only the compiled-in line is asserted -- validate-flatpak.sh runs
       # the same command against the installed app on the real runtime.
-      - /app/bin/matrix-client --call-media-status
+      - /app/bin/lightning-matrix --call-media-status
         > call-media-status.txt 2>&1 || true
       - cat call-media-status.txt
       - grep -qx 'call media engine built in: yes' call-media-status.txt
@@ -129,11 +129,11 @@ modules:
     post-install:
       # Flatpak exports require app-id-named desktop, icon, and metainfo
       # files. The source installs them under the plain "lightning" name.
-      - printf '#!/bin/sh\nexec /app/bin/matrix-client --backend=rust "$@"\n'
+      - printf '#!/bin/sh\nexec /app/bin/lightning-matrix --backend=rust "$@"\n'
         > /app/bin/lightning && chmod 0755 /app/bin/lightning
       - mkdir -p /app/share/applications
       - sed -e 's/^Icon=lightning$/Icon=org.lightning_matrix.Lightning/'
-        -e 's/^Exec=matrix-client --backend=rust$/Exec=lightning/'
+        -e 's/^Exec=lightning-matrix --backend=rust$/Exec=lightning/'
         /app/share/applications/lightning.desktop
         > /app/share/applications/org.lightning_matrix.Lightning.desktop
       - rm /app/share/applications/lightning.desktop

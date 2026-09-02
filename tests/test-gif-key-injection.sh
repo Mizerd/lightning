@@ -95,12 +95,12 @@ case "\$1" in
   --install)
     # DESTDIR install: stage fake executables so the caller's checks pass.
     # BOTH are staged, because the real install rule installs both
-    # (install(TARGETS matrix-client lightning-updater ...)) and
+    # (install(TARGETS lightning-matrix lightning-updater ...)) and
     # configure-build.sh now refuses a stage without the update helper.
     dest="\${DESTDIR:?}"
     mkdir -p "\$dest/usr/bin"
-    printf '#!/bin/sh\nif [ "\$1" = "--call-media-status" ]; then\n  state=\$(cat "%s" 2>/dev/null || echo yes)\n  echo "call media engine built in: \$state"\n  [ "\$state" = yes ] || { echo "RESULT: calls will be refused by this build (configured without GStreamer)."; exit 1; }\n  echo "RESULT: calls can be placed and answered."\n  exit 0\nfi\necho "matrix-client 0.6.2"\necho "matrix_backend: rust"\necho "http_backend_compiled: false"\necho "mock_backend_compiled: false"\n' "$ENGINE_STATE" > "\$dest/usr/bin/matrix-client"
-    chmod +x "\$dest/usr/bin/matrix-client"
+    printf '#!/bin/sh\nif [ "\$1" = "--call-media-status" ]; then\n  state=\$(cat "%s" 2>/dev/null || echo yes)\n  echo "call media engine built in: \$state"\n  [ "\$state" = yes ] || { echo "RESULT: calls will be refused by this build (configured without GStreamer)."; exit 1; }\n  echo "RESULT: calls can be placed and answered."\n  exit 0\nfi\necho "Lightning 0.6.2"\necho "matrix_backend: rust"\necho "http_backend_compiled: false"\necho "mock_backend_compiled: false"\n' "$ENGINE_STATE" > "\$dest/usr/bin/lightning-matrix"
+    chmod +x "\$dest/usr/bin/lightning-matrix"
     printf '#!/bin/sh\nexit 0\n' > "\$dest/usr/bin/lightning-updater"
     chmod +x "\$dest/usr/bin/lightning-updater"
     exit 0 ;;
@@ -119,7 +119,7 @@ chmod +x "$BIN"/*
 # Minimal fake Lightning source tree configure-build.sh requires.
 SRC="$WORK/proj/work/lightning"
 mkdir -p "$SRC/rust"
-printf 'project(matrix-client VERSION 0.6.2)\n' >"$SRC/CMakeLists.txt"
+printf 'project(lightning VERSION 0.6.2)\n' >"$SRC/CMakeLists.txt"
 printf '[package]\nname="x"\n' >"$SRC/rust/Cargo.toml"
 printf '# lock\n' >"$SRC/rust/Cargo.lock"
 printf 'GPL\n' >"$SRC/LICENSE"; printf '# readme\n' >"$SRC/README.md"

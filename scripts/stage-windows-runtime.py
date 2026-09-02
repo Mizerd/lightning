@@ -186,7 +186,7 @@ def main() -> None:
     parser.add_argument("--stage", type=pathlib.Path, required=True)
     args = parser.parse_args()
 
-    executable = args.build / "matrix-client.exe"
+    executable = args.build / "lightning-matrix.exe"
     if not executable.is_file():
         raise SystemExit(f"Windows application executable is missing: {executable}")
     # The update helper ships beside the application in every Windows package

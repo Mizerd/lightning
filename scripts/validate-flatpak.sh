@@ -36,16 +36,16 @@ grep -q "GPL-3.0-or-later" dist/flatpak-info.txt \
 
 run_app() {
     flatpak run --user --command=sh "$APP_ID" -c \
-        "QT_QPA_PLATFORM=offscreen exec /app/bin/matrix-client $*"
+        "QT_QPA_PLATFORM=offscreen exec /app/bin/lightning-matrix $*"
 }
 
 version_output=$(run_app --version)
-[ "$version_output" = "matrix-client $BASE_VERSION" ] \
+[ "$version_output" = "Lightning $BASE_VERSION" ] \
     || die "--version mismatch: $version_output"
 
 set +e
 timeout 20s flatpak run --user --command=sh "$APP_ID" -c \
-    "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/matrix-client --backend=rust" \
+    "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/lightning-matrix --backend=rust" \
     > dist/flatpak-launch.log 2>&1
 status=$?
 set -e
@@ -61,7 +61,7 @@ grep -Eiq "module .* is not installed|could not find|failed to load|error while 
 # that can see an engine-less build at all.
 set +e
 timeout 60s flatpak run --user --command=sh "$APP_ID" -c \
-    "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/matrix-client --call-media-status" \
+    "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/lightning-matrix --call-media-status" \
     > dist/flatpak-call-media-status.txt 2>&1
 call_media_status=$?
 set -e
@@ -72,13 +72,13 @@ gif_env_clear="env -u GIPHY_API_KEY -u KLIPY_API_KEY \
  -u LIGHTNING_GIPHY_API_KEY -u LIGHTNING_KLIPY_API_KEY \
  -u LIGHTNING_BUILD_GIPHY_API_KEY -u LIGHTNING_BUILD_KLIPY_API_KEY"
 flatpak run --user --command=sh "$APP_ID" -c \
-    "$gif_env_clear QT_QPA_PLATFORM=offscreen /app/bin/matrix-client --gif-status" \
+    "$gif_env_clear QT_QPA_PLATFORM=offscreen /app/bin/lightning-matrix --gif-status" \
     | tee dist/flatpak-gif-status.txt
 if [ "${PUBLISH_PACKAGES:-false}" = "true" ]; then
     grep -q "GIPHY configured: yes" dist/flatpak-gif-status.txt || die "GIPHY not embedded"
     grep -q "KLIPY configured: yes" dist/flatpak-gif-status.txt || die "KLIPY not embedded"
     flatpak run --user --command=sh "$APP_ID" -c \
-        "$gif_env_clear QT_QPA_PLATFORM=offscreen /app/bin/matrix-client --gif-selftest" \
+        "$gif_env_clear QT_QPA_PLATFORM=offscreen /app/bin/lightning-matrix --gif-selftest" \
         | tee dist/flatpak-gif-selftest.txt
     grep -q "GIPHY request: ok" dist/flatpak-gif-selftest.txt || die "GIPHY selftest failed"
     grep -q "KLIPY request: ok" dist/flatpak-gif-selftest.txt || die "KLIPY selftest failed"
