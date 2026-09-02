@@ -479,6 +479,35 @@ ApplicationWindow {
         property: "sendTextAsCaption"
         value: app.settings ? app.settings.sendTextAsCaption : false
     }
+    // v0.9 slash commands: the composer only ASKS for these — mode is a
+    // setting, and display-name changes carry AppController's op-id
+    // bookkeeping. Wired here because this is the one place that owns both
+    // sides, same rationale as the caption binding above.
+    Connections {
+        target: app.composer
+        function onComposerModeToggleRequested() {
+            if (!app.settings)
+                return
+            app.settings.composerMode =
+                app.settings.composerMode === "rich" ? "markdown" : "rich"
+        }
+        function onDisplayNameChangeRequested(name) {
+            app.submitOwnDisplayName(name)
+        }
+    }
+    // The thread panel's composer issues the same two requests.
+    Connections {
+        target: app.thread
+        function onComposerModeToggleRequested() {
+            if (!app.settings)
+                return
+            app.settings.composerMode =
+                app.settings.composerMode === "rich" ? "markdown" : "rich"
+        }
+        function onDisplayNameChangeRequested(name) {
+            app.submitOwnDisplayName(name)
+        }
+    }
     // The user-authored palette (Settings → Appearance → Custom theme).
     // Pushed in the same way as the theme id, so selecting Custom and editing
     // a colour repaint through exactly one path. CustomThemeStore has already

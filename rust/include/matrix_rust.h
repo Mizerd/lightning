@@ -11,6 +11,7 @@
  */
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -442,16 +443,26 @@ char *mx_rust_timeline_paginate_back(void *client,
                                      unsigned short count);
 /* `mention_user_ids` (v0.7) is a nullable newline-separated list of full MXIDs
  * placed in m.mentions; NULL/empty attaches no mentions. The body already
- * carries the matrix.to markdown links for those users. */
+ * carries the matrix.to markdown links for those users.
+ *
+ * `body_spec` (v0.9 formatted sends) is a nullable JSON object selecting how
+ * the body is interpreted:
+ *   {"format":"markdown"|"plain"|"html","html":"…","msgtype":"text"|"emote"}
+ * NULL/empty is the historical markdown path exactly. "plain" sends the body
+ * verbatim (no markdown parsing); "html" sends the caller's plain body plus
+ * the given Matrix-subset formatted body (strict-sanitized again in Rust).
+ * Unknown values are refused with an error, never defaulted. */
 char *mx_rust_timeline_send_text(void *client,
                                  const char *room_id,
                                  const char *body,
-                                 const char *mention_user_ids);
+                                 const char *mention_user_ids,
+                                 const char *body_spec);
 char *mx_rust_timeline_send_reply(void *client,
                                   const char *room_id,
                                   const char *in_reply_to_event_id,
                                   const char *body,
-                                  const char *mention_user_ids);
+                                  const char *mention_user_ids,
+                                  const char *body_spec);
 /* v0.6.0: SDK-backed thread timelines. One thread panel at a time; it
  * belongs to the open room and is closed automatically by room switches. */
 char *mx_rust_thread_open(void *client,
@@ -469,7 +480,8 @@ char *mx_rust_thread_send_text(void *client,
                                const char *root_event_id,
                                const char *body,
                                const char *in_reply_to,
-                               const char *mention_user_ids);
+                               const char *mention_user_ids,
+                               const char *body_spec);
 /* v0.6.0 checkpoint 9: list the account's devices/sessions (server list
  * merged with SDK crypto trust). Result: `device_list` poll event with
  * presentation-safe fields only — never device keys or tokens. */
@@ -499,7 +511,8 @@ char *mx_rust_timeline_edit(void *client,
                             const char *room_id,
                             const char *target_event_id,
                             const char *new_body,
-                            const char *mention_user_ids);
+                            const char *mention_user_ids,
+                            const char *body_spec);
 char *mx_rust_timeline_toggle_reaction(void *client,
                                        const char *room_id,
                                        const char *target_event_id,

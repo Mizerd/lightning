@@ -47,6 +47,16 @@ QString takeRustString(char *raw)
     return out;
 }
 
+// v0.9 formatted sends: serialize the body spec for the FFI. Empty map =
+// empty bytes = the historical markdown path (callers pass nullptr then).
+QByteArray bodySpecJson(const QVariantMap &spec)
+{
+    if (spec.isEmpty())
+        return {};
+    return QJsonDocument(QJsonObject::fromVariantMap(spec))
+        .toJson(QJsonDocument::Compact);
+}
+
 // JSON poll path: the Rust string is already UTF-8, and QJsonDocument
 // parses UTF-8 bytes — the previous QString round trip transcoded every
 // polled event UTF-8 -> UTF-16 -> UTF-8 on the GUI thread (up to 512
@@ -1853,7 +1863,7 @@ void RustSdkMatrixClient::sendTextMessage(const QString &roomId, const QString &
         const QByteArray bodyBytes = body.toUtf8();
         const QString result = takeRustString(mx_rust_timeline_send_text(
             m_rustHandle, roomBytes.constData(), bodyBytes.constData(),
-            nullptr));
+            nullptr, nullptr));
         if (!result.isEmpty()) {
             Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                      ? result.mid(7)
@@ -1917,7 +1927,7 @@ void RustSdkMatrixClient::sendTextMessage(const QString &roomId,
         mentionUserIds.join(QLatin1Char('\n')).toUtf8();
     const QString result = takeRustString(mx_rust_timeline_send_text(
         m_rustHandle, roomBytes.constData(), bodyBytes.constData(),
-        mentionBytes.constData()));
+        mentionBytes.constData(), nullptr));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
@@ -1942,7 +1952,7 @@ void RustSdkMatrixClient::sendReply(const QString &roomId,
     const QByteArray bodyBytes = body.toUtf8();
     const QString result = takeRustString(mx_rust_timeline_send_reply(
         m_rustHandle, roomBytes.constData(), targetBytes.constData(),
-        bodyBytes.constData(), nullptr));
+        bodyBytes.constData(), nullptr, nullptr));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
@@ -1966,7 +1976,7 @@ void RustSdkMatrixClient::sendReply(const QString &roomId,
         mentionUserIds.join(QLatin1Char('\n')).toUtf8();
     const QString result = takeRustString(mx_rust_timeline_send_reply(
         m_rustHandle, roomBytes.constData(), targetBytes.constData(),
-        bodyBytes.constData(), mentionBytes.constData()));
+        bodyBytes.constData(), mentionBytes.constData(), nullptr));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
@@ -1987,7 +1997,7 @@ void RustSdkMatrixClient::editMessage(const QString &roomId,
     const QByteArray bodyBytes = newBody.toUtf8();
     const QString result = takeRustString(mx_rust_timeline_edit(
         m_rustHandle, roomBytes.constData(), targetBytes.constData(),
-        bodyBytes.constData(), nullptr));
+        bodyBytes.constData(), nullptr, nullptr));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
@@ -2011,7 +2021,119 @@ void RustSdkMatrixClient::editMessage(const QString &roomId,
         mentionUserIds.join(QLatin1Char('\n')).toUtf8();
     const QString result = takeRustString(mx_rust_timeline_edit(
         m_rustHandle, roomBytes.constData(), targetBytes.constData(),
-        bodyBytes.constData(), mentionBytes.constData()));
+        bodyBytes.constData(), mentionBytes.constData(), nullptr));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
+// ---- v0.9 formatted sends. One real path per lane: the spec overloads
+// carry the full guard set; empty specs fall back to the historical
+// overloads (which keep their no-timeline fallbacks). A NON-empty spec is
+// never silently degraded — losing a formatted body behind the user's back
+// is worse than an honest refusal, and the composer only sends into the
+// open room, whose timeline is live by construction.
+void RustSdkMatrixClient::sendTextMessage(const QString &roomId,
+                                          const QString &body,
+                                          const QStringList &mentionUserIds,
+                                          const QVariantMap &bodySpec)
+{
+    if (bodySpec.isEmpty()) {
+        sendTextMessage(roomId, body, mentionUserIds);
+        return;
+    }
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT errorOccurred(tr("Not signed in."));
+        return;
+    }
+    if (!m_rooms.contains(roomId)) {
+        Q_EMIT errorOccurred(tr("Unknown room: %1").arg(roomId));
+        return;
+    }
+    if (isRoomEncrypted(roomId) && !rustSupportsE2ee()) {
+        Q_EMIT errorOccurred(tr(
+            "Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified."));
+        return;
+    }
+    if (!timelineActiveFor(roomId)) {
+        refuseSend("sendTextMessage(formatted)");
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray bodyBytes = body.toUtf8();
+    const QByteArray mentionBytes =
+        mentionUserIds.join(QLatin1Char('\n')).toUtf8();
+    const QByteArray specBytes = bodySpecJson(bodySpec);
+    const QString result = takeRustString(mx_rust_timeline_send_text(
+        m_rustHandle, roomBytes.constData(), bodyBytes.constData(),
+        mentionUserIds.isEmpty() ? nullptr : mentionBytes.constData(),
+        specBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
+void RustSdkMatrixClient::sendReply(const QString &roomId,
+                                    const QString &replyToEventId,
+                                    const QString &body,
+                                    const QStringList &mentionUserIds,
+                                    const QVariantMap &bodySpec)
+{
+    if (bodySpec.isEmpty()) {
+        sendReply(roomId, replyToEventId, body, mentionUserIds);
+        return;
+    }
+    if (!timelineActiveFor(roomId)) {
+        refuseSend("sendReply(formatted)");
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray targetBytes = replyToEventId.toUtf8();
+    const QByteArray bodyBytes = body.toUtf8();
+    const QByteArray mentionBytes =
+        mentionUserIds.join(QLatin1Char('\n')).toUtf8();
+    const QByteArray specBytes = bodySpecJson(bodySpec);
+    const QString result = takeRustString(mx_rust_timeline_send_reply(
+        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
+        bodyBytes.constData(),
+        mentionUserIds.isEmpty() ? nullptr : mentionBytes.constData(),
+        specBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
+void RustSdkMatrixClient::editMessage(const QString &roomId,
+                                      const QString &targetEventId,
+                                      const QString &newBody,
+                                      const QStringList &mentionUserIds,
+                                      const QVariantMap &bodySpec)
+{
+    if (bodySpec.isEmpty()) {
+        editMessage(roomId, targetEventId, newBody, mentionUserIds);
+        return;
+    }
+    if (!timelineActiveFor(roomId)) {
+        refuseSend("editMessage(formatted)");
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray targetBytes = targetEventId.toUtf8();
+    const QByteArray bodyBytes = newBody.toUtf8();
+    const QByteArray mentionBytes =
+        mentionUserIds.join(QLatin1Char('\n')).toUtf8();
+    const QByteArray specBytes = bodySpecJson(bodySpec);
+    const QString result = takeRustString(mx_rust_timeline_edit(
+        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
+        bodyBytes.constData(),
+        mentionUserIds.isEmpty() ? nullptr : mentionBytes.constData(),
+        specBytes.constData()));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
@@ -2789,6 +2911,17 @@ void RustSdkMatrixClient::sendThreadReplyTo(const QString &roomId,
                                             const QString &body,
                                             const QStringList &mentionUserIds)
 {
+    sendThreadReplyTo(roomId, threadRootEventId, inReplyToEventId, body,
+                      mentionUserIds, QVariantMap());
+}
+
+void RustSdkMatrixClient::sendThreadReplyTo(const QString &roomId,
+                                            const QString &threadRootEventId,
+                                            const QString &inReplyToEventId,
+                                            const QString &body,
+                                            const QStringList &mentionUserIds,
+                                            const QVariantMap &bodySpec)
+{
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
         || threadRootEventId.isEmpty() || body.trimmed().isEmpty()) {
         refuseSend("sendThreadReply");
@@ -2800,11 +2933,13 @@ void RustSdkMatrixClient::sendThreadReplyTo(const QString &roomId,
     const QByteArray replyBytes = inReplyToEventId.toUtf8();
     const QByteArray mentionBytes =
         mentionUserIds.join(QLatin1Char('\n')).toUtf8();
+    const QByteArray specBytes = bodySpecJson(bodySpec);
     const QString result = takeRustString(mx_rust_thread_send_text(
         m_rustHandle, roomBytes.constData(), rootBytes.constData(),
         bodyBytes.constData(),
         inReplyToEventId.isEmpty() ? nullptr : replyBytes.constData(),
-        mentionUserIds.isEmpty() ? nullptr : mentionBytes.constData()));
+        mentionUserIds.isEmpty() ? nullptr : mentionBytes.constData(),
+        specBytes.isEmpty() ? nullptr : specBytes.constData()));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)

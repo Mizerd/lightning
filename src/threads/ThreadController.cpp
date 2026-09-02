@@ -1,5 +1,7 @@
 #include "threads/ThreadController.h"
 
+#include "models/SlashCommands.h"
+
 #include "app/DraftStore.h"
 #include "matrix/MatrixClient.h"
 #include "models/UserLookup.h"
@@ -350,15 +352,19 @@ void ThreadController::close()
 
 void ThreadController::sendText(const QString &body)
 {
+    sendTextInternal(body, /*allowCommands=*/true);
+}
+
+void ThreadController::sendTextBypassingCommands(const QString &body)
+{
+    sendTextInternal(body, /*allowCommands=*/false);
+}
+
+void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
+{
     if (!m_client || m_state == Closed || m_roomId.isEmpty()
         || m_rootEventId.isEmpty())
         return;
-    // Attachments go first — each becomes its own SDK local echo in the
-    // thread — then the text as a separate thread message, matching the room
-    // composer's "files + comment" behaviour.
-    dispatchAttachments();
-    if (body.trimmed().isEmpty())
-        return;   // attachment-only send is valid.
     // v0.7: expand inserted @-mentions into matrix.to markdown links and the
     // deduped MXID list. The refs index into m_text (the tracked composer
     // text); a caller that does not sync text (no mentions possible) falls
@@ -368,18 +374,124 @@ void ThreadController::sendText(const QString &body)
     if (outBody.isEmpty())
         outBody = body.trimmed();
     const QStringList mentionIds = expansion.userIds;
+
+    // v0.9 slash commands, same rules as the room composer: parsed BEFORE
+    // attachments dispatch, so a refused command leaves the tray untouched
+    // too. Content commands (/me, /shrug, /spoiler) go out through the
+    // thread lane; room administration acts on the thread's room.
+    if (allowCommands && !outBody.isEmpty()) {
+        const SlashCommands::Parse parsed = SlashCommands::parse(outBody);
+        switch (parsed.kind) {
+        case SlashCommands::Parse::NotACommand:
+            break;
+        case SlashCommands::Parse::Escaped:
+            outBody = parsed.literalText.trimmed();
+            break;
+        case SlashCommands::Parse::Unknown:
+            setCommandError(tr("Unknown command /%1. It was not sent.")
+                                .arg(parsed.name));
+            return;
+        case SlashCommands::Parse::Known: {
+            SlashCommands::Actions actions;
+            actions.send = [this](const QString &b, const QStringList &ids,
+                                  const QVariantMap &spec) {
+                sendThreadBody(b, ids, spec);
+            };
+            actions.join = [this](const QString &target) {
+                m_client->joinRoomByIdOrAlias(target, QStringList());
+            };
+            actions.invite = [this](const QString &userId) {
+                m_client->inviteUsers(m_roomId, { userId });
+            };
+            actions.kick = [this](const QString &userId, const QString &reason) {
+                m_client->kickUser(m_roomId, userId, reason);
+            };
+            actions.ban = [this](const QString &userId, const QString &reason) {
+                m_client->banUser(m_roomId, userId, reason);
+            };
+            actions.unban = [this](const QString &userId, const QString &reason) {
+                m_client->unbanUser(m_roomId, userId, reason);
+            };
+            actions.setTopic = [this](const QString &topic) {
+                m_client->setRoomTopic(m_roomId, topic);
+            };
+            actions.setRoomName = [this](const QString &name) {
+                m_client->setRoomName(m_roomId, name);
+            };
+            actions.setDisplayName = [this](const QString &name) {
+                Q_EMIT displayNameChangeRequested(name);
+            };
+            actions.toggleComposerMode = [this] {
+                Q_EMIT composerModeToggleRequested();
+                clearComposerText();
+            };
+            actions.clearComposer = [this] {
+                m_attachments->clearAll();
+                cancelReply();
+                clearComposerText();
+            };
+            const SlashCommands::Outcome outcome =
+                SlashCommands::execute(parsed, mentionIds, actions);
+            if (!outcome.error.isEmpty()) {
+                setCommandError(outcome.error);
+                return;
+            }
+            if (outcome.retireDraft)
+                retireComposerDraft();
+            return;
+        }
+        }
+    }
+
+    // Attachments go first — each becomes its own SDK local echo in the
+    // thread — then the text as a separate thread message, matching the room
+    // composer's "files + comment" behaviour.
+    dispatchAttachments();
+    if (outBody.isEmpty())
+        return;   // attachment-only send is valid.
+    sendThreadBody(outBody, mentionIds, QVariantMap());
+    retireComposerDraft();
+}
+
+void ThreadController::sendPrepared(const QString &body, const QString &html,
+                                    const QStringList &mentionUserIds)
+{
+    if (!m_client || m_state == Closed || m_roomId.isEmpty()
+        || m_rootEventId.isEmpty() || body.trimmed().isEmpty())
+        return;
+    dispatchAttachments();
+    // Empty html = an unformatted rich-mode message: the PLAIN lane, sent
+    // verbatim rather than re-read as markdown.
+    sendThreadBody(body, mentionUserIds,
+                   html.isEmpty()
+                       ? QVariantMap{ { QStringLiteral("format"),
+                                        QStringLiteral("plain") } }
+                       : QVariantMap{ { QStringLiteral("format"),
+                                        QStringLiteral("html") },
+                                      { QStringLiteral("html"), html } });
+    retireComposerDraft();
+}
+
+void ThreadController::sendThreadBody(const QString &body,
+                                      const QStringList &mentionIds,
+                                      const QVariantMap &bodySpec)
+{
     // Always the backend's SDK thread path (sendThreadReplyTo) — never
     // sendTextMessage, so a thread reply can never land as an ordinary room
     // message. An active reply target makes it a rich reply within the thread;
     // an empty in-reply-to is a plain thread reply.
     if (!m_replyToEventId.isEmpty()) {
         m_client->sendThreadReplyTo(m_roomId, m_rootEventId, m_replyToEventId,
-                                    outBody, mentionIds);
+                                    body, mentionIds, bodySpec);
         cancelReply();
     } else {
-        m_client->sendThreadReplyTo(m_roomId, m_rootEventId, QString(), outBody,
-                                    mentionIds);
+        m_client->sendThreadReplyTo(m_roomId, m_rootEventId, QString(), body,
+                                    mentionIds, bodySpec);
     }
+}
+
+void ThreadController::retireComposerDraft()
+{
     // A dispatched send retires the draft; a pending debounce must not
     // resurrect the text (delivery state lives on the SDK local echo).
     m_draftDebounce.stop();
@@ -388,12 +500,22 @@ void ThreadController::sendText(const QString &body)
     clearComposerText();
 }
 
+void ThreadController::setCommandError(const QString &error)
+{
+    if (m_commandError == error)
+        return;
+    m_commandError = error;
+    Q_EMIT commandErrorChanged();
+}
+
 void ThreadController::setText(const QString &text)
 {
     if (m_text == text)
         return;
     m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, text);
     m_text = text;
+    // Any edit invalidates a standing command refusal.
+    setCommandError(QString());
     Q_EMIT textChanged();
     Q_EMIT mentionRangesChanged();
     if (m_drafts && !m_restoringDraft && !timelineId().isEmpty())

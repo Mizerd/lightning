@@ -2,6 +2,7 @@
 
 #include "models/AttachmentQueueModel.h"
 #include "models/MentionTokenizer.h"
+#include "models/SlashCommands.h"
 
 #include <QList>
 #include <QObject>
@@ -47,6 +48,21 @@ class MessageComposer : public QObject
     // refs; re-announced on every text change (the refs re-anchor there).
     Q_PROPERTY(QVariantList mentionRanges READ mentionRanges
                    NOTIFY mentionRangesChanged)
+    // v0.9 slash commands. `commandError` is a non-destructive refusal (an
+    // unknown command or missing arguments): the draft stays, the message is
+    // not sent, and the QML bar shows the text with a "send as a message"
+    // affordance (sendBypassingCommands). Cleared by any text change, a room
+    // change, or a successful send. `commandCompletions` is the popup model
+    // while the command word is being typed: [{name, argsHint, description,
+    // enabled}] — `enabled` reflects commandPermissions, a courtesy hint
+    // pushed in from QML (RoomInfoController's can* booleans); the server
+    // stays the enforcer.
+    Q_PROPERTY(QString commandError READ commandError
+                   NOTIFY commandErrorChanged)
+    Q_PROPERTY(QVariantList commandCompletions READ commandCompletions
+                   NOTIFY commandCompletionsChanged)
+    Q_PROPERTY(QVariantMap commandPermissions READ commandPermissions
+                   WRITE setCommandPermissions NOTIFY commandPermissionsChanged)
 
 public:
     explicit MessageComposer(QObject *parent = nullptr);
@@ -112,6 +128,27 @@ public:
     }
 
     Q_INVOKABLE void send();
+    // "Send as a message" on the unknown-command error bar: the same send,
+    // with command parsing skipped, so "/typo hello" can still be posted
+    // deliberately.
+    Q_INVOKABLE void sendBypassingCommands();
+    // v0.9 scheduled send (phase 11): the message the composer WOULD send
+    // now — {body, mentionIds, bodySpec(empty = markdown), roomId,
+    // threadRootId, replyToEventId} — without sending it. The scheduler
+    // takes the snapshot and the composer is cleared by the caller.
+    Q_INVOKABLE QVariantMap composedMessage() const;
+    // v0.9 rich composer: send a PRE-COMPOSED (plainBody, html, mentions)
+    // triple — both bodies derived from one QTextDocument by
+    // RichComposition, handed over by RichComposerBridge. Context routing
+    // (edit / thread / reply / room) and the send tail are identical to the
+    // markdown path. Attachments dispatch alongside; the text-as-caption
+    // convenience deliberately does NOT apply to a formatted message (a
+    // caption is plain text).
+    Q_INVOKABLE void sendPrepared(const QString &body, const QString &html,
+                                  const QStringList &mentionUserIds);
+    // Replace the in-progress command word with the chosen completion
+    // ("/ki" -> "/kick "). Returns the new cursor position.
+    Q_INVOKABLE int acceptCommandCompletion(const QString &name);
     Q_INVOKABLE void clear();
     Q_INVOKABLE void beginReply(const QString &eventId,
                                 const QString &sender,
@@ -200,11 +237,25 @@ public:
                                         int selectionStart,
                                         int selectionEnd) const;
 
+    QString commandError() const { return m_commandError; }
+    QVariantList commandCompletions() const;
+    QVariantMap commandPermissions() const { return m_commandPermissions; }
+    void setCommandPermissions(const QVariantMap &permissions);
+
 Q_SIGNALS:
     void textChanged();
     void mentionRangesChanged();
     void roomIdChanged();
     void canSendChanged();
+    void commandErrorChanged();
+    void commandCompletionsChanged();
+    void commandPermissionsChanged();
+    // /markdown: the composer MODE is presentation state owned by QML/
+    // settings, so the command only asks; nothing here flips it.
+    void composerModeToggleRequested();
+    // /nick: display-name changes carry op-id bookkeeping owned by
+    // AppController (submitOwnDisplayName); the command only asks.
+    void displayNameChangeRequested(const QString &name);
     void replyStateChanged();
     void editStateChanged();
     void threadStateChanged();
@@ -223,6 +274,21 @@ private:
     void updateCanSend();
     void refreshTypingState();
     void stopTyping();
+    // The one send implementation behind send()/sendBypassingCommands().
+    void sendInternal(bool allowCommands);
+    // Route one composed body through the current context (thread / reply /
+    // room) with a v0.9 body spec; empty spec = the markdown path.
+    void sendComposed(const QString &body, const QStringList &mentionIds,
+                      const QVariantMap &bodySpec);
+    // Execute a parsed slash command. Returns true when the command was
+    // handled (successfully or with a commandError) and the ordinary text
+    // send must not run.
+    bool executeCommand(const SlashCommands::Parse &parsed,
+                        const QStringList &mentionIds);
+    void setCommandError(const QString &error);
+    // stopTyping + cancelReplyOrEdit + clear, the tail every successful
+    // send and content-sending command shares.
+    void finishSuccessfulSend();
     void dispatchAttachments();
     // One entry, once it is dispatchable (a video waits for its poster).
     void dispatchAttachment(int row);
@@ -244,6 +310,8 @@ private:
     QString m_threadRootId;
     QString m_threadPreview;
     QList<mention::MentionRef> m_mentionRefs;
+    QString m_commandError;
+    QVariantMap m_commandPermissions;
     // Voice send ops in flight. Each carries the recording file it owns AND
     // the room it was sent to. The file is deleted when the op resolves (the
     // SDK reads the bytes into its queue at queueing time and never re-reads

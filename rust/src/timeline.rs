@@ -72,7 +72,7 @@ use crate::enqueue;
 /// `m.mentions` is attached. `add_mentions` MUST be called on message content
 /// BEFORE any relation-adding method (reply / replacement) for the mentions to
 /// be set correctly.
-fn mentions_from_ids(ids: Vec<String>) -> Option<Mentions> {
+pub(crate) fn mentions_from_ids(ids: Vec<String>) -> Option<Mentions> {
     // "@room" is the whole-room mention, and it travels in the SAME list as
     // the user ids on purpose. It is not a user id and never can be — a
     // Matrix id needs a domain, so UserId::parse rejects it and no real user
@@ -768,6 +768,7 @@ impl TimelineRegistry {
     /// encryption path. A non-empty `in_reply_to` produces a rich reply TO
     /// THAT EVENT within the thread (the thread-focused timeline enforces
     /// ReplyWithinThread semantics itself).
+    #[allow(clippy::too_many_arguments)]
     pub fn send_thread_text(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -777,6 +778,7 @@ impl TimelineRegistry {
         body: String,
         in_reply_to: Option<String>,
         mention_user_ids: Vec<String>,
+        spec: SendBodySpec,
     ) -> Result<(), String> {
         let reply_to = match &in_reply_to {
             Some(id) if !id.trim().is_empty() => Some(
@@ -801,23 +803,19 @@ impl TimelineRegistry {
                 let body = body.clone();
                 let reply_to = reply_to.clone();
                 let mentions = mentions.clone();
+                let spec = spec.clone();
                 async move {
                     match reply_to {
                         Some(reply_to) => {
                             let mut content =
-                                RoomMessageEventContentWithoutRelation::text_markdown(
-                                    &body,
-                                );
-                            set_mention_plain_body(&mut content.msgtype, &body);
+                                composed_content_without_relation(&body, &spec);
                             if let Some(mentions) = mentions {
                                 content = content.add_mentions(mentions);
                             }
                             timeline.send_reply(content, reply_to).await.is_ok()
                         }
                         None => {
-                            let mut message =
-                                RoomMessageEventContent::text_markdown(&body);
-                            set_mention_plain_body(&mut message.msgtype, &body);
+                            let mut message = composed_content(&body, &spec);
                             if let Some(mentions) = mentions {
                                 message = message.add_mentions(mentions);
                             }
@@ -1220,15 +1218,17 @@ impl TimelineRegistry {
     }
 
     /// Send a text message through the SDK timeline (send queue + SDK-owned
-    /// local echo). The body is parsed as markdown by the SDK (formatting
-    /// toolbar); plain text without markdown stays a plain m.text event.
-    /// Encryption is transparent for encrypted rooms.
+    /// local echo). By default the body is parsed as markdown by the SDK
+    /// (formatting toolbar); `spec` selects the plain or html lane instead
+    /// (v0.9 formatted sends — see parse_body_spec). Encryption is
+    /// transparent for encrypted rooms.
     pub fn send_text(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
         room_id: String,
         body: String,
         mention_user_ids: Vec<String>,
+        spec: SendBodySpec,
     ) -> Result<(), String> {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
             return Err("No live timeline is open for that room.".to_owned());
@@ -1237,8 +1237,7 @@ impl TimelineRegistry {
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let mut message = RoomMessageEventContent::text_markdown(&body);
-            set_mention_plain_body(&mut message.msgtype, &body);
+            let mut message = composed_content(&body, &spec);
             if let Some(mentions) = mentions {
                 message = message.add_mentions(mentions);
             }
@@ -1340,6 +1339,7 @@ impl TimelineRegistry {
         in_reply_to: String,
         body: String,
         mention_user_ids: Vec<String>,
+        spec: SendBodySpec,
     ) -> Result<(), String> {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
             return Err("No live timeline is open for that room.".to_owned());
@@ -1350,9 +1350,7 @@ impl TimelineRegistry {
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let mut content =
-                RoomMessageEventContentWithoutRelation::text_markdown(&body);
-            set_mention_plain_body(&mut content.msgtype, &body);
+            let mut content = composed_content_without_relation(&body, &spec);
             if let Some(mentions) = mentions {
                 content = content.add_mentions(mentions);
             }
@@ -1462,6 +1460,7 @@ impl TimelineRegistry {
         target_event_id: String,
         new_body: String,
         mention_user_ids: Vec<String>,
+        spec: SendBodySpec,
     ) -> Result<(), String> {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
             return Err("No live timeline is open for that room.".to_owned());
@@ -1476,9 +1475,7 @@ impl TimelineRegistry {
             // ruma's make_replacement puts the new mentions in m.new_content and
             // the top-level content carries only the newly added mentions, so
             // attach them to the WithoutRelation content before wrapping it.
-            let mut message =
-                RoomMessageEventContentWithoutRelation::text_markdown(&new_body);
-            set_mention_plain_body(&mut message.msgtype, &new_body);
+            let mut message = composed_content_without_relation(&new_body, &spec);
             if let Some(mentions) = mentions {
                 message = message.add_mentions(mentions);
             }
@@ -3541,9 +3538,163 @@ fn set_mention_plain_body(msgtype: &mut MessageType, markdown: &str) {
     if plain == markdown {
         return;
     }
-    if let MessageType::Text(text) = msgtype {
-        text.body = plain;
+    match msgtype {
+        MessageType::Text(text) => text.body = plain,
+        // The /me lane sends emotes through the same markdown path, so an
+        // emote carrying a mention needs the identical plain-body reduction.
+        MessageType::Emote(emote) => emote.body = plain,
+        _ => {}
     }
+}
+
+// ── v0.9 formatted sends ─────────────────────────────────────────────────
+//
+// The composer historically sent MARKDOWN and the SDK converted it. Rich
+// text mode and slash commands need two more shapes the markdown path
+// cannot express:
+//
+//   * "plain"  — the body is sent verbatim as m.text/m.emote with NO
+//     markdown parsing (e.g. /shrug's ¯\_(ツ)_/¯, whose underscores
+//     markdown would eat);
+//   * "html"   — C++ supplies BOTH the plain body and the formatted body,
+//     generated from one canonical QTextDocument so they cannot diverge
+//     (rich composer, /spoiler's data-mx-spoiler span).
+//
+// The spec crosses the FFI as one optional JSON argument so the four send
+// entry points (send, reply, thread, edit) share a single vocabulary and
+// future fields extend one place. Empty/absent means today's markdown path
+// exactly.
+//
+// SECURITY: the outgoing HTML is sanitized HERE, at the boundary, with
+// ruma's strict Matrix-subset sanitizer — belt and braces over the C++
+// serializer, so no caller can smuggle script/event handlers/unsafe URLs
+// into a formatted_body even if the C++ side regresses.
+
+/// How an outgoing text body is interpreted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BodyFormat {
+    Markdown,
+    Plain,
+    Html,
+}
+
+/// Parsed form of the FFI `body_spec` argument.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SendBodySpec {
+    pub(crate) format: BodyFormat,
+    /// Matrix-subset HTML; only meaningful (and required) for `Html`.
+    pub(crate) html: String,
+    /// true = m.emote (the /me lane), false = m.text.
+    pub(crate) emote: bool,
+}
+
+impl Default for SendBodySpec {
+    fn default() -> Self {
+        Self { format: BodyFormat::Markdown, html: String::new(), emote: false }
+    }
+}
+
+/// Parse `{"format":"markdown"|"plain"|"html","html":"…","msgtype":"text"|"emote"}`.
+/// Empty input is the default markdown/text spec. Unknown values are
+/// REFUSED, not defaulted — a typo'd caller must fail loudly rather than
+/// silently sending the wrong shape.
+pub(crate) fn parse_body_spec(spec: &str) -> Result<SendBodySpec, String> {
+    if spec.trim().is_empty() {
+        return Ok(SendBodySpec::default());
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(spec).map_err(|_| "Invalid body spec.".to_owned())?;
+    let format = match value["format"].as_str().unwrap_or("markdown") {
+        "markdown" => BodyFormat::Markdown,
+        "plain" => BodyFormat::Plain,
+        "html" => BodyFormat::Html,
+        _ => return Err("Unknown body format.".to_owned()),
+    };
+    let html = value["html"].as_str().unwrap_or_default().to_owned();
+    if format == BodyFormat::Html && html.trim().is_empty() {
+        return Err("HTML body spec without HTML content.".to_owned());
+    }
+    if format != BodyFormat::Html && !html.is_empty() {
+        return Err("HTML content outside the html format.".to_owned());
+    }
+    let emote = match value["msgtype"].as_str().unwrap_or("text") {
+        "text" => false,
+        "emote" => true,
+        _ => return Err("Unknown body msgtype.".to_owned()),
+    };
+    Ok(SendBodySpec { format, html, emote })
+}
+
+/// Strict-sanitize the formatted half of an outgoing message in place.
+/// A no-op for messages without a formatted body.
+fn sanitize_outgoing_formatted(msgtype: &mut MessageType) {
+    use matrix_sdk::ruma::html::{HtmlSanitizerMode, RemoveReplyFallback};
+    let formatted = match msgtype {
+        MessageType::Text(text) => text.formatted.as_mut(),
+        MessageType::Emote(emote) => emote.formatted.as_mut(),
+        _ => None,
+    };
+    if let Some(formatted) = formatted {
+        formatted.sanitize_html(HtmlSanitizerMode::Strict, RemoveReplyFallback::No);
+    }
+}
+
+/// Build the outgoing message content for one (body, spec) pair. The
+/// markdown lane keeps its historical mention plain-body reduction; the
+/// html lane trusts the C++ side's plain body verbatim (it was derived from
+/// the same document) and strict-sanitizes the formatted half.
+pub(crate) fn composed_content(body: &str, spec: &SendBodySpec) -> RoomMessageEventContent {
+    let mut message = match (spec.format, spec.emote) {
+        (BodyFormat::Markdown, false) => RoomMessageEventContent::text_markdown(body),
+        (BodyFormat::Markdown, true) => RoomMessageEventContent::emote_markdown(body),
+        (BodyFormat::Plain, false) => RoomMessageEventContent::text_plain(body),
+        (BodyFormat::Plain, true) => RoomMessageEventContent::emote_plain(body),
+        (BodyFormat::Html, false) => {
+            RoomMessageEventContent::text_html(body, spec.html.clone())
+        }
+        (BodyFormat::Html, true) => {
+            RoomMessageEventContent::emote_html(body, spec.html.clone())
+        }
+    };
+    match spec.format {
+        BodyFormat::Markdown => set_mention_plain_body(&mut message.msgtype, body),
+        BodyFormat::Plain => {}
+        BodyFormat::Html => sanitize_outgoing_formatted(&mut message.msgtype),
+    }
+    message
+}
+
+/// The WithoutRelation twin of [`composed_content`], for replies/edits.
+pub(crate) fn composed_content_without_relation(
+    body: &str,
+    spec: &SendBodySpec,
+) -> RoomMessageEventContentWithoutRelation {
+    let mut message = match (spec.format, spec.emote) {
+        (BodyFormat::Markdown, false) => {
+            RoomMessageEventContentWithoutRelation::text_markdown(body)
+        }
+        (BodyFormat::Markdown, true) => {
+            RoomMessageEventContentWithoutRelation::emote_markdown(body)
+        }
+        (BodyFormat::Plain, false) => {
+            RoomMessageEventContentWithoutRelation::text_plain(body)
+        }
+        (BodyFormat::Plain, true) => {
+            RoomMessageEventContentWithoutRelation::emote_plain(body)
+        }
+        (BodyFormat::Html, false) => {
+            RoomMessageEventContentWithoutRelation::text_html(body, spec.html.clone())
+        }
+        (BodyFormat::Html, true) => {
+            RoomMessageEventContentWithoutRelation::emote_html(body, spec.html.clone())
+        }
+    };
+    match spec.format {
+        BodyFormat::Markdown => set_mention_plain_body(&mut message.msgtype, body),
+        BodyFormat::Plain => {}
+        BodyFormat::Html => sanitize_outgoing_formatted(&mut message.msgtype),
+    }
+    message
 }
 
 /// The MSC1767 fallback body lists the question and numbered answers so
@@ -4192,6 +4343,106 @@ mod tests {
             MessageType::Text(text) => {
                 assert!(text.formatted.is_none());
                 assert_eq!(text.body, "hello world");
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    // ── v0.9 formatted sends (parse_body_spec / composed_content) ────────
+
+    #[test]
+    fn body_spec_defaults_and_refusals() {
+        use super::{parse_body_spec, BodyFormat, SendBodySpec};
+        assert_eq!(parse_body_spec("").unwrap(), SendBodySpec::default());
+        assert_eq!(parse_body_spec("  ").unwrap(), SendBodySpec::default());
+        let emote = parse_body_spec(r#"{"msgtype":"emote"}"#).unwrap();
+        assert!(emote.emote);
+        assert_eq!(emote.format, BodyFormat::Markdown);
+        // Refused, never defaulted: a typo'd caller must fail loudly.
+        assert!(parse_body_spec(r#"{"format":"htm"}"#).is_err());
+        assert!(parse_body_spec(r#"{"msgtype":"notice"}"#).is_err());
+        assert!(parse_body_spec("not json").is_err());
+        // html format requires html content; html content requires the format.
+        assert!(parse_body_spec(r#"{"format":"html"}"#).is_err());
+        assert!(parse_body_spec(r#"{"format":"plain","html":"<b>x</b>"}"#).is_err());
+    }
+
+    #[test]
+    fn html_spec_sends_both_bodies_from_the_caller() {
+        use super::{composed_content, parse_body_spec};
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        let spec =
+            parse_body_spec(r#"{"format":"html","html":"<strong>hi</strong>"}"#)
+                .unwrap();
+        let content = composed_content("hi", &spec);
+        match content.msgtype {
+            MessageType::Text(text) => {
+                assert_eq!(text.body, "hi");
+                let formatted = text.formatted.expect("formatted body");
+                assert_eq!(formatted.body, "<strong>hi</strong>");
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn outgoing_html_is_strict_sanitized_at_the_boundary() {
+        use super::{composed_content, parse_body_spec};
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        // Belt and braces over the C++ serializer: script, event handlers
+        // and unsafe URL schemes must not survive even if a caller regresses.
+        let spec = parse_body_spec(
+            r#"{"format":"html","html":"<b onclick=\"x()\">b</b><script>evil()</script><a href=\"javascript:evil()\">l</a>"}"#,
+        )
+        .unwrap();
+        let content = composed_content("b l", &spec);
+        match content.msgtype {
+            MessageType::Text(text) => {
+                let formatted = text.formatted.expect("formatted body");
+                assert!(!formatted.body.contains("script"),
+                        "script survived: {}", formatted.body);
+                assert!(!formatted.body.contains("onclick"),
+                        "event handler survived: {}", formatted.body);
+                assert!(!formatted.body.contains("javascript:"),
+                        "unsafe scheme survived: {}", formatted.body);
+                assert!(formatted.body.contains("<b>b</b>"));
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn plain_spec_never_parses_markdown() {
+        use super::{composed_content, parse_body_spec};
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        // The /shrug case: markdown would eat the escaped underscore.
+        let spec = parse_body_spec(r#"{"format":"plain"}"#).unwrap();
+        let content = composed_content(r"¯\_(ツ)_/¯ **not bold**", &spec);
+        match content.msgtype {
+            MessageType::Text(text) => {
+                assert!(text.formatted.is_none());
+                assert_eq!(text.body, r"¯\_(ツ)_/¯ **not bold**");
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn emote_spec_builds_an_emote_with_markdown_and_mention_reduction() {
+        use super::{composed_content, parse_body_spec};
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        let spec = parse_body_spec(r#"{"msgtype":"emote"}"#).unwrap();
+        let markdown =
+            "waves at [Alice](https://matrix.to/#/@alice:example.org)";
+        let content = composed_content(markdown, &spec);
+        match content.msgtype {
+            MessageType::Emote(emote) => {
+                // The /me lane inherits the markdown path's plain-body
+                // mention reduction: the anchor stays in formatted_body,
+                // the plain body carries the label alone.
+                assert_eq!(emote.body, "waves at Alice");
+                let formatted = emote.formatted.expect("formatted body");
+                assert!(formatted.body.contains("matrix.to/#/@alice:example.org"));
             }
             other => panic!("unexpected msgtype: {other:?}"),
         }

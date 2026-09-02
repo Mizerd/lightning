@@ -511,7 +511,8 @@ QString MessageHtml::sanitize(
     const QString &html,
     const std::function<QString(const QString &)> &resolveDisplayName,
     const QString &ownUserId,
-    const MentionStyle &mentionStyle)
+    const MentionStyle &mentionStyle,
+    bool revealSpoilers)
 {
     // Defensive bound: never process an unreasonably large formatted body.
     static constexpr qsizetype kMaxInput = 64 * 1024;
@@ -522,6 +523,10 @@ QString MessageHtml::sanitize(
     int dropDepth = 0;      // inside a dropped-content element
     int mentionSwallow = 0; // inside a mention whose text we already replaced
     QList<bool> anchorEmitted; // did each open <a> emit an <a> we must close?
+    // Per open <span>: was it emitted as a spoiler (anchor-wrapped)? The
+    // stack is what keeps a plain </span> from closing a spoiler anchor and
+    // vice versa when spans nest.
+    QList<bool> spanIsSpoiler;
 
     const qsizetype n = in.size();
     qsizetype i = 0;
@@ -578,7 +583,29 @@ QString MessageHtml::sanitize(
                 continue;
             }
             const QString href = extractHref(t.raw);
+            // Inside a COVERED spoiler nothing is a link: the whole slab is
+            // the reveal toggle, and a nested anchor would otherwise take the
+            // click the user meant as "show me" and open a browser or a
+            // profile. Revealed, the links come back.
+            const bool coveredSpoiler = !revealSpoilers && spanIsSpoiler.contains(true);
             const QString mentionUser = matrixToUserId(href);
+            if (!mentionUser.isEmpty() && coveredSpoiler) {
+                QString disp =
+                    resolveDisplayName ? resolveDisplayName(mentionUser) : QString();
+                if (disp == mentionUser)
+                    disp.clear();
+                if (disp.startsWith(QLatin1Char('@')))
+                    disp = disp.mid(1);
+                if (disp.isEmpty())
+                    disp = localpart(mentionUser);
+                out += (QStringLiteral("@") + disp).toHtmlEscaped();
+                ++mentionSwallow; // drop the sender's original inner text + </a>
+                continue;
+            }
+            if (coveredSpoiler) {
+                anchorEmitted.append(false); // inner text flows, no href
+                continue;
+            }
             if (!mentionUser.isEmpty()) {
                 QString disp =
                     resolveDisplayName ? resolveDisplayName(mentionUser) : QString();
@@ -654,6 +681,50 @@ QString MessageHtml::sanitize(
         if (mentionSwallow > 0)
             continue; // drop any other markup inside a replaced mention
 
+        if (name == QLatin1String("span")) {
+            // v0.9 spoilers (spec §11.36): a data-mx-spoiler span becomes a
+            // click-to-reveal run. Covered = a solid codeBackground slab
+            // (background AND text in the same ink — Qt paints an inline
+            // background as a full-line-height slab, which is exactly the
+            // cover a spoiler wants); revealed keeps the slab as background
+            // only. Both states wrap the run in the internal spoiler:toggle
+            // anchor the delegate routes back to the model, never to a
+            // browser. The optional reason value is deliberately ignored;
+            // every other span stays attribute-stripped as before.
+            static const QRegularExpression spoilerAttr(
+                QStringLiteral("(?:\\A|\\s)data-mx-spoiler(?:\\s*=|\\s|\\z)"),
+                QRegularExpression::CaseInsensitiveOption);
+            if (t.closing) {
+                if (!spanIsSpoiler.isEmpty() && spanIsSpoiler.takeLast())
+                    out += QLatin1String("</span></a>");
+                else
+                    out += QLatin1String("</span>");
+                continue;
+            }
+            const bool spoiler = spoilerAttr.match(t.raw).hasMatch();
+            const QString &cover = mentionStyle.codeBackground;
+            if (spoiler) {
+                out += QStringLiteral(
+                    "<a href=\"spoiler:toggle\" "
+                    "style=\"text-decoration:none\">");
+                if (!revealSpoilers && !cover.isEmpty()) {
+                    out += QStringLiteral("<span style=\"background-color:")
+                        + cover.toHtmlEscaped() + QStringLiteral(";color:")
+                        + cover.toHtmlEscaped() + QStringLiteral("\">");
+                } else if (!cover.isEmpty()) {
+                    out += QStringLiteral("<span style=\"background-color:")
+                        + cover.toHtmlEscaped() + QStringLiteral("\">");
+                } else {
+                    out += QStringLiteral("<span>");
+                }
+                spanIsSpoiler.append(true);
+            } else {
+                out += QStringLiteral("<span>");
+                spanIsSpoiler.append(false);
+            }
+            continue;
+        }
+
         if (allowedTags().contains(name)) {
             if (t.closing) {
                 out += QStringLiteral("</") + name + QStringLiteral(">");
@@ -676,7 +747,11 @@ QString MessageHtml::sanitize(
         // Unknown tag: dropped; its text content still flows through.
     }
 
-    // Close any anchors left open by malformed input.
+    // Close any anchors/spans left open by malformed input.
+    while (!spanIsSpoiler.isEmpty()) {
+        out += spanIsSpoiler.takeLast() ? QLatin1String("</span></a>")
+                                        : QLatin1String("</span>");
+    }
     while (!anchorEmitted.isEmpty()) {
         if (anchorEmitted.takeLast())
             out += QLatin1String("</a>");
@@ -695,7 +770,8 @@ QList<MessageHtml::Segment> MessageHtml::segments(
     const QString &html,
     const std::function<QString(const QString &)> &resolveDisplayName,
     const QString &ownUserId,
-    const MentionStyle &mentionStyle)
+    const MentionStyle &mentionStyle,
+    bool revealSpoilers)
 {
     // The ordinary message: exactly one RichText segment whose text IS
     // sanitize()'s output. It is the SAME call, on the untouched input —
@@ -705,7 +781,8 @@ QList<MessageHtml::Segment> MessageHtml::segments(
     if (!containsCodeBlock(html)) {
         return QList<Segment>{
             Segment{SegmentKind::RichText,
-                    sanitize(html, resolveDisplayName, ownUserId, mentionStyle),
+                    sanitize(html, resolveDisplayName, ownUserId, mentionStyle,
+                             revealSpoilers),
                     QString()}};
     }
 
@@ -741,7 +818,8 @@ QList<MessageHtml::Segment> MessageHtml::segments(
         // the href policy and the mention rewriting, and a second copy of any
         // of that here would be a second sanitizer to keep in step.
         const QString rich =
-            sanitize(source, resolveDisplayName, ownUserId, mentionStyle);
+            sanitize(source, resolveDisplayName, ownUserId, mentionStyle,
+                     revealSpoilers);
         if (!richTextCarriesContent(rich))
             return;
         if (out.size() >= kMaxSegments) {

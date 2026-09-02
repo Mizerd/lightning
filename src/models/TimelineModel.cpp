@@ -232,6 +232,10 @@ void TimelineModel::setRoomId(const QString &roomId)
     // A room/thread switch clears search state — never carry a query or its
     // plaintext matches across timelines.
     endSearch();
+    // Spoiler reveals belong to the timeline they were made in. (Theme
+    // changes and member hydration deliberately do NOT clear them — a
+    // repaint must not re-hide what the user chose to look at.)
+    m_spoilersRevealed.clear();
     reload();
     refreshTypingText();
     Q_EMIT paginationChanged();
@@ -942,7 +946,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             m_selfUserId,
             MessageHtml::MentionStyle{m_mentionAccentColor,
                                       m_mentionLinkColor,
-                                      m_codeBackgroundColor});
+                                      m_codeBackgroundColor},
+            m_spoilersRevealed.contains(e.eventId));
         if (!e.eventId.isEmpty())
             m_sanitizedHtmlCache.insert(e.eventId, sanitized);
         return sanitized;
@@ -974,7 +979,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             m_selfUserId,
             MessageHtml::MentionStyle{m_mentionAccentColor,
                                       m_mentionLinkColor,
-                                      m_codeBackgroundColor});
+                                      m_codeBackgroundColor},
+            m_spoilersRevealed.contains(e.eventId));
         QVariantList out;
         bool hasCodeBlock = false;
         for (const auto &segment : parsed) {
@@ -2052,7 +2058,11 @@ QString TimelineModel::sanitizedHtmlForEvent(const QString &eventId) const
         },
         m_selfUserId,
         MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionLinkColor,
-                                  m_codeBackgroundColor});
+                                  m_codeBackgroundColor},
+        // Edit recovery must see the event's own text: the user is editing
+        // their OWN spoiler, and a covered body would hand the composer an
+        // unreadable slab.
+        /*revealSpoilers=*/true);
 }
 
 QString TimelineModel::realRoomIdForEvent(const QString &eventId) const
@@ -2234,6 +2244,28 @@ void TimelineModel::forgetRenderedHtml(const QString &eventId)
         return;
     m_sanitizedHtmlCache.remove(eventId);
     m_messageSegmentsCache.remove(eventId);
+}
+
+void TimelineModel::toggleSpoilers(const QString &eventId)
+{
+    // v0.9 spoilers: reveal state lives HERE, not in the delegate — a
+    // timeline row is destroyed the moment it leaves the cache buffer, so
+    // delegate-local state would re-hide on every scroll-past. Model-level
+    // state survives delegate churn and dies with the timeline, which is
+    // the right lifetime for "I chose to look at this".
+    if (eventId.isEmpty())
+        return;
+    if (!m_spoilersRevealed.remove(eventId))
+        m_spoilersRevealed.insert(eventId);
+    forgetRenderedHtml(eventId);
+    for (int row = 0; row < m_events.size(); ++row) {
+        if (m_events.at(row).eventId == eventId) {
+            const QModelIndex idx = index(row);
+            Q_EMIT dataChanged(idx, idx,
+                               { FormattedBodyRole, MessageSegmentsRole });
+            break;
+        }
+    }
 }
 
 void TimelineModel::clearRenderedHtml()

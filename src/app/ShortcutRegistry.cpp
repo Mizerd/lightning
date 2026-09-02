@@ -121,6 +121,15 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
           tr("Bulleted list"), QStringLiteral("Ctrl+Shift+8"), EditorContext },
         { QStringLiteral("composer.quote"), composeCat,
           tr("Quote"), QStringLiteral("Ctrl+Shift+9"), EditorContext },
+        // v0.9 rich composer. Underline has no markdown form, so in markdown
+        // mode this is a no-op; in rich mode it is the standard Ctrl+U.
+        // Link is NOT Ctrl+K: that is the quick switcher everywhere in this
+        // app, and Ctrl+Shift+K is taken globally too — Ctrl+Shift+L is the
+        // free editor-context sequence.
+        { QStringLiteral("composer.underline"), composeCat,
+          tr("Underline"), QStringLiteral("Ctrl+U"), EditorContext },
+        { QStringLiteral("composer.link"), composeCat,
+          tr("Link"), QStringLiteral("Ctrl+Shift+L"), EditorContext },
     };
 
     // SEQUENCES THAT STAY HARD-CODED. They are not rows — none of them is a

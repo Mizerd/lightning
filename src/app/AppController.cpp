@@ -1,5 +1,7 @@
 #include "app/AppController.h"
 
+#include "app/RichComposerBridge.h"
+
 #include <algorithm>
 
 #include "app/CustomAppIcon.h"
@@ -204,6 +206,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_timelineView = std::make_unique<ReverseListProxyModel>(this);
     m_timelineView->setSourceModel(m_timeline.get());
     m_composer     = std::make_unique<MessageComposer>(this);
+    m_richComposer = std::make_unique<RichComposerBridge>(this);
+    m_richComposer->setComposer(m_composer.get());
     // Clipboard images never become files, so their bytes are registered
     // here for the composer chip to preview. One store, both composers.
     m_composer->attachments()->setStagedImages(&m_stagedImages);
@@ -298,6 +302,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_roomUpgrade  = std::make_unique<RoomUpgradeController>(this);
     m_thread       = std::make_unique<ThreadController>(this);
     m_thread->attachments()->setStagedImages(&m_stagedImages);
+    // The rich composer bridge serves both composers; the thread one exists
+    // only from here on.
+    m_richComposer->setThread(m_thread.get());
     m_conversations= std::make_unique<ConversationController>(this);
     m_discovery = std::make_unique<RoomDiscoveryController>(this);
     m_messageSearch = std::make_unique<MessageSearchController>(this);
@@ -2058,6 +2065,7 @@ TimelineModel *AppController::timeline() const { return m_timeline.get(); }
 QAbstractItemModel *AppController::timelineView() const
 { return m_timelineView.get(); }
 MessageComposer *AppController::composer() const { return m_composer.get(); }
+QObject *AppController::richComposer() const { return m_richComposer.get(); }
 MediaManager *AppController::media() const { return m_media.get(); }
 CryptoManager *AppController::crypto() const { return m_crypto.get(); }
 SpaceManager *AppController::spaces() const { return m_spaces.get(); }

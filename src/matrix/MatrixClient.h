@@ -165,6 +165,37 @@ public:
         sendReply(roomId, replyToEventId, body);
     }
 
+    // ---- v0.9 formatted sends.
+    //
+    // `bodySpec` selects how the body is interpreted:
+    //   {"format": "markdown"|"plain"|"html", "html": "…",
+    //    "msgtype": "text"|"emote"}
+    // Empty map = the historical markdown path. "plain" sends the body
+    // verbatim (no markdown parsing — the /shrug case); "html" carries a
+    // Matrix-subset formatted body generated from the same canonical
+    // document as the plain body (rich composer, /spoiler); msgtype
+    // "emote" is the /me lane. The default impls forward to the mention
+    // overloads, DROPPING the spec — consistent with the mock/HTTP
+    // backends' existing plain-text-only, non-authoritative status. The
+    // Rust backend overrides these and refuses (rather than silently
+    // degrades) when it cannot honour a formatted spec.
+    virtual void sendTextMessage(const QString &roomId, const QString &body,
+                                 const QStringList &mentionUserIds,
+                                 const QVariantMap &bodySpec)
+    {
+        Q_UNUSED(bodySpec);
+        sendTextMessage(roomId, body, mentionUserIds);
+    }
+    virtual void sendReply(const QString &roomId,
+                           const QString &replyToEventId,
+                           const QString &body,
+                           const QStringList &mentionUserIds,
+                           const QVariantMap &bodySpec)
+    {
+        Q_UNUSED(bodySpec);
+        sendReply(roomId, replyToEventId, body, mentionUserIds);
+    }
+
     // v0.4.1: reply into a thread rooted at `threadRootEventId`. Default
     // falls back to sendReply — the HTTP backend still delivers the message
     // and it's marked as an in-reply-to on the server. Concrete backends
@@ -280,6 +311,19 @@ public:
         sendThreadReplyTo(roomId, threadRootEventId, inReplyToEventId, body);
     }
 
+    // v0.9 formatted thread sends; see the room-level bodySpec overloads.
+    virtual void sendThreadReplyTo(const QString &roomId,
+                                   const QString &threadRootEventId,
+                                   const QString &inReplyToEventId,
+                                   const QString &body,
+                                   const QStringList &mentionUserIds,
+                                   const QVariantMap &bodySpec)
+    {
+        Q_UNUSED(bodySpec);
+        sendThreadReplyTo(roomId, threadRootEventId, inReplyToEventId, body,
+                          mentionUserIds);
+    }
+
     virtual void editMessage(const QString &roomId,
                              const QString &targetEventId,
                              const QString &newBody) = 0;
@@ -293,6 +337,17 @@ public:
     {
         Q_UNUSED(mentionUserIds);
         editMessage(roomId, targetEventId, newBody);
+    }
+
+    // v0.9 formatted edits; see the bodySpec send overloads.
+    virtual void editMessage(const QString &roomId,
+                             const QString &targetEventId,
+                             const QString &newBody,
+                             const QStringList &mentionUserIds,
+                             const QVariantMap &bodySpec)
+    {
+        Q_UNUSED(bodySpec);
+        editMessage(roomId, targetEventId, newBody, mentionUserIds);
     }
     virtual void redactEvent(const QString &roomId,
                              const QString &eventId,

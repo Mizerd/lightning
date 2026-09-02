@@ -453,6 +453,10 @@ void MessageComposer::setText(const QString &t)
     m_text = t;
     Q_EMIT textChanged();
     Q_EMIT mentionRangesChanged();
+    // Any edit invalidates a standing command refusal and can change the
+    // command-completion match set.
+    setCommandError(QString());
+    Q_EMIT commandCompletionsChanged();
     updateCanSend();
     refreshTypingState();
     // Coalesced draft persistence; never during a restore (the restore IS
@@ -484,6 +488,9 @@ void MessageComposer::setRoomId(const QString &r)
     m_text.clear();
     m_mentionRefs.clear();
     restoreDraft();
+    // A command refusal belongs to the room it was issued in.
+    setCommandError(QString());
+    Q_EMIT commandCompletionsChanged();
     Q_EMIT textChanged();
     Q_EMIT mentionRangesChanged();
     Q_EMIT roomIdChanged();
@@ -497,13 +504,51 @@ bool MessageComposer::canSend() const
 
 void MessageComposer::send()
 {
+    sendInternal(/*allowCommands=*/true);
+}
+
+void MessageComposer::sendBypassingCommands()
+{
+    sendInternal(/*allowCommands=*/false);
+}
+
+void MessageComposer::sendInternal(bool allowCommands)
+{
     if (!m_canSend || !m_client) return;
     // v0.7: expand inserted @-mentions into matrix.to markdown links and
     // collect the deduped MXIDs for m.mentions. With no mentions this is the
     // trimmed text and an empty id list, so the previous behaviour is exact.
     const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
-    const QString body = expansion.body.trimmed();
+    QString body = expansion.body.trimmed();
     const QStringList mentionIds = expansion.userIds;
+
+    // v0.9 slash commands. Only a fresh message can be one — an EDIT of a
+    // message that happens to start with "/" is text being edited, not a
+    // command being issued. The parse runs on the expanded body, which is
+    // safe because a mention ref can never sit at position 0 covering the
+    // leading slash.
+    if (allowCommands && m_editingEventId.isEmpty()) {
+        const SlashCommands::Parse parsed = SlashCommands::parse(body);
+        switch (parsed.kind) {
+        case SlashCommands::Parse::NotACommand:
+            break;
+        case SlashCommands::Parse::Escaped:
+            // "//hello" sends "/hello" as an ordinary message.
+            body = parsed.literalText.trimmed();
+            break;
+        case SlashCommands::Parse::Unknown:
+            // Non-destructive refusal: the draft stays, and the error bar
+            // offers sendBypassingCommands for a deliberate literal send.
+            setCommandError(tr("Unknown command /%1. It was not sent.")
+                                .arg(parsed.name));
+            return;
+        case SlashCommands::Parse::Known:
+            if (executeCommand(parsed, mentionIds))
+                return;
+            break;
+        }
+    }
+
     if (!m_editingEventId.isEmpty()) {
         // Edit mode edits text only; attachments stay queued.
         if (body.isEmpty()) return;
@@ -520,23 +565,189 @@ void MessageComposer::send()
         // on it when it goes.
         const bool captioned = takeTextAsCaption(body, mentionIds);
         dispatchAttachments();
-        if (!body.isEmpty() && !captioned) {
-            if (!m_threadRootId.isEmpty()) {
-                // v0.4.1: thread replies. Mock preserves thread grouping;
-                // HTTP falls back to sendReply via the interface default.
-                m_client->sendThreadReplyTo(m_roomId, m_threadRootId, QString(),
-                                            body, mentionIds);
-            } else if (!m_replyingToEventId.isEmpty()) {
-                m_client->sendReply(m_roomId, m_replyingToEventId, body,
-                                    mentionIds);
-            } else {
-                m_client->sendTextMessage(m_roomId, body, mentionIds);
-            }
-        }
+        if (!body.isEmpty() && !captioned)
+            sendComposed(body, mentionIds, QVariantMap());
     }
+    finishSuccessfulSend();
+}
+
+void MessageComposer::sendPrepared(const QString &body, const QString &html,
+                                   const QStringList &mentionUserIds)
+{
+    if (!m_client || m_roomId.isEmpty() || body.trimmed().isEmpty())
+        return;
+    // An unformatted rich-mode message travels the PLAIN lane: the body is
+    // sent verbatim, never re-read as markdown (a WYSIWYG editor showing
+    // "*not bold*" must send exactly that).
+    const QVariantMap spec = html.isEmpty()
+        ? QVariantMap{ { QStringLiteral("format"), QStringLiteral("plain") } }
+        : QVariantMap{ { QStringLiteral("format"), QStringLiteral("html") },
+                       { QStringLiteral("html"), html } };
+    if (!m_editingEventId.isEmpty()) {
+        m_client->editMessage(m_roomId, m_editingEventId, body,
+                              mentionUserIds, spec);
+    } else {
+        dispatchAttachments();
+        sendComposed(body, mentionUserIds, spec);
+    }
+    finishSuccessfulSend();
+}
+
+QVariantMap MessageComposer::composedMessage() const
+{
+    const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
+    return QVariantMap{
+        { QStringLiteral("body"), expansion.body.trimmed() },
+        { QStringLiteral("mentionIds"), expansion.userIds },
+        { QStringLiteral("bodySpec"), QVariantMap() },
+        { QStringLiteral("roomId"), m_roomId },
+        { QStringLiteral("threadRootId"), m_threadRootId },
+        { QStringLiteral("replyToEventId"), m_replyingToEventId },
+    };
+}
+
+void MessageComposer::sendComposed(const QString &body,
+                                   const QStringList &mentionIds,
+                                   const QVariantMap &bodySpec)
+{
+    if (!m_client || body.isEmpty())
+        return;
+    if (!m_threadRootId.isEmpty()) {
+        // v0.4.1: thread replies. Mock preserves thread grouping; HTTP
+        // falls back to sendReply via the interface default.
+        m_client->sendThreadReplyTo(m_roomId, m_threadRootId, QString(), body,
+                                    mentionIds, bodySpec);
+    } else if (!m_replyingToEventId.isEmpty()) {
+        m_client->sendReply(m_roomId, m_replyingToEventId, body, mentionIds,
+                            bodySpec);
+    } else {
+        m_client->sendTextMessage(m_roomId, body, mentionIds, bodySpec);
+    }
+}
+
+void MessageComposer::finishSuccessfulSend()
+{
     stopTyping();
     cancelReplyOrEdit();
     clear();
+}
+
+bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
+                                     const QStringList &mentionIds)
+{
+    // The command semantics live in SlashCommands::execute, shared with the
+    // thread panel's composer; this adapter supplies THIS composer's lanes.
+    // Every action is a real backend verb with an explicit room id (the
+    // op-id results surface through the existing moderation toasts; a
+    // permission refusal comes back from the server the way it does from
+    // the member list's buttons), except the two that only ASK: mode is a
+    // setting QML owns, display-name changes carry AppController's op-id
+    // bookkeeping.
+    SlashCommands::Actions actions;
+    actions.send = [this](const QString &body, const QStringList &ids,
+                          const QVariantMap &spec) {
+        sendComposed(body, ids, spec);
+    };
+    actions.join = [this](const QString &target) {
+        m_client->joinRoomByIdOrAlias(target, QStringList());
+    };
+    actions.invite = [this](const QString &userId) {
+        m_client->inviteUsers(m_roomId, { userId });
+    };
+    actions.kick = [this](const QString &userId, const QString &reason) {
+        m_client->kickUser(m_roomId, userId, reason);
+    };
+    actions.ban = [this](const QString &userId, const QString &reason) {
+        m_client->banUser(m_roomId, userId, reason);
+    };
+    actions.unban = [this](const QString &userId, const QString &reason) {
+        m_client->unbanUser(m_roomId, userId, reason);
+    };
+    actions.setTopic = [this](const QString &topic) {
+        m_client->setRoomTopic(m_roomId, topic);
+    };
+    actions.setRoomName = [this](const QString &name) {
+        m_client->setRoomName(m_roomId, name);
+    };
+    actions.setDisplayName = [this](const QString &name) {
+        Q_EMIT displayNameChangeRequested(name);
+    };
+    actions.toggleComposerMode = [this] {
+        // The draft is deliberately KEPT across a mode switch; only the
+        // command text itself is removed so it is never sent later.
+        Q_EMIT composerModeToggleRequested();
+        clear();
+    };
+    actions.clearComposer = [this] {
+        // Documented semantics: /clear empties the COMPOSER — the draft and
+        // the queued attachments. It never touches the timeline, the local
+        // cache, or anything server-side; those live in the SDK's event
+        // cache and clearing them would force even the live tail to
+        // refetch (CLAUDE.md §16: never RoomEventCache::clear()).
+        if (m_attachments)
+            m_attachments->clearAll();
+        stopTyping();
+        cancelReplyOrEdit();
+        clear();
+    };
+
+    const SlashCommands::Outcome outcome =
+        SlashCommands::execute(parsed, mentionIds, actions);
+    if (!outcome.error.isEmpty()) {
+        setCommandError(outcome.error);
+        return true;
+    }
+    if (outcome.retireDraft)
+        finishSuccessfulSend();
+    return true;
+}
+
+QVariantList MessageComposer::commandCompletions() const
+{
+    QVariantList out;
+    // Completion only while a command word is being typed in a FRESH
+    // message; an edit is never a command.
+    if (!m_editingEventId.isEmpty())
+        return out;
+    const QList<SlashCommands::Command> matches =
+        SlashCommands::completions(m_text);
+    for (const SlashCommands::Command &command : matches) {
+        const bool enabled = command.permissionKey.isEmpty()
+            || m_commandPermissions.value(command.permissionKey, true).toBool();
+        out.append(QVariantMap{
+            { QStringLiteral("name"), command.name },
+            { QStringLiteral("argsHint"), command.argsHint },
+            { QStringLiteral("description"), command.description },
+            { QStringLiteral("enabled"), enabled },
+        });
+    }
+    return out;
+}
+
+void MessageComposer::setCommandPermissions(const QVariantMap &permissions)
+{
+    if (m_commandPermissions == permissions)
+        return;
+    m_commandPermissions = permissions;
+    Q_EMIT commandPermissionsChanged();
+    Q_EMIT commandCompletionsChanged();
+}
+
+void MessageComposer::setCommandError(const QString &error)
+{
+    if (m_commandError == error)
+        return;
+    m_commandError = error;
+    Q_EMIT commandErrorChanged();
+}
+
+int MessageComposer::acceptCommandCompletion(const QString &name)
+{
+    if (!SlashCommands::find(name))
+        return -1;
+    const QString newText = QLatin1Char('/') + name + QLatin1Char(' ');
+    setText(newText);
+    return newText.length();
 }
 
 void MessageComposer::clear()

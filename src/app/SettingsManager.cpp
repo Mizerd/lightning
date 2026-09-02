@@ -73,6 +73,7 @@ constexpr auto kReducedMotion       = "ui/reducedMotion";
 constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
 constexpr auto kClockFormat         = "ui/clockFormat";
 constexpr auto kEnterNewline        = "composer/enterInsertsNewline";
+constexpr auto kComposerMode        = "composer/mode";
 constexpr auto kTextAsCaption       = "composer/textAsCaption";
 // Shortcut overrides live in their own group, one key per action id.
 constexpr auto kShortcutsGroup      = "shortcuts";
@@ -2073,6 +2074,28 @@ void SettingsManager::setEnterInsertsNewline(bool v)
         return;
     m_store->setValue(kEnterNewline, v);
     Q_EMIT enterInsertsNewlineChanged();
+}
+
+QString SettingsManager::composerMode() const
+{
+    // Anything but "rich" reads as markdown — fail-closed to the mode every
+    // build has, so a downgraded or hand-edited config cannot strand the
+    // composer in a mode this build cannot render.
+    const QString stored =
+        m_store->value(kComposerMode, QStringLiteral("markdown")).toString();
+    return stored == QLatin1String("rich") ? stored
+                                           : QStringLiteral("markdown");
+}
+
+void SettingsManager::setComposerMode(const QString &mode)
+{
+    const QString normalized = mode == QLatin1String("rich")
+        ? QStringLiteral("rich")
+        : QStringLiteral("markdown");
+    if (composerMode() == normalized)
+        return;
+    m_store->setValue(kComposerMode, normalized);
+    Q_EMIT composerModeChanged();
 }
 
 bool SettingsManager::sendTextAsCaption() const

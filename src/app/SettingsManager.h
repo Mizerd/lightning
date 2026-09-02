@@ -7,6 +7,8 @@
 #include <QSettings>
 #include <QSize>
 #include <QString>
+#include <QVariantList>
+#include <QVariantMap>
 #include <memory>
 
 class SecretStore;
@@ -296,6 +298,13 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool enterInsertsNewline READ enterInsertsNewline
                    WRITE setEnterInsertsNewline
                    NOTIFY enterInsertsNewlineChanged)
+    // v0.9 composer mode: "markdown" (the historical source editor) or
+    // "rich" (the WYSIWYG editor). Device-global like the Enter behaviour —
+    // it describes how this keyboard composes, not who is logged in. Any
+    // value but "rich" reads as markdown, so a downgrade can never strand
+    // the composer in a mode the build does not have.
+    Q_PROPERTY(QString composerMode READ composerMode WRITE setComposerMode
+                   NOTIFY composerModeChanged)
     // Composer: text typed alongside an attachment is sent as that
     // attachment's CAPTION (one event) rather than as a separate message.
     // The caption parameter has been plumbed to the SDK the whole time and
@@ -648,6 +657,8 @@ public:
 
     bool enterInsertsNewline() const;
     void setEnterInsertsNewline(bool v);
+    QString composerMode() const;
+    void setComposerMode(const QString &mode);
     bool sendTextAsCaption() const;
     void setSendTextAsCaption(bool v);
 
@@ -908,6 +919,7 @@ Q_SIGNALS:
     void callParticipantVolumeChanged(const QString &userId, int percent);
     void clockFormatChanged();
     void enterInsertsNewlineChanged();
+    void composerModeChanged();
     void sendTextAsCaptionChanged();
     void timelineWheelSpeedChanged();
     void mediaVolumeChanged();

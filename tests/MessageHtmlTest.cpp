@@ -90,6 +90,91 @@ private Q_SLOTS:
                  QStringLiteral("<span>x</span>"));
     }
 
+    // ── v0.9 spoilers (spec §11.36) ─────────────────────────────────────
+    //
+    // Before this landed the sanitizer stripped data-mx-spoiler with every
+    // other attribute and KEPT the text — every incoming spoiler arrived
+    // pre-revealed. The regression bar here is therefore the covered case.
+
+    void aCoveredSpoilerIsASolidSlabBehindItsOwnToggleAnchor()
+    {
+        const MessageHtml::MentionStyle style{
+            QString(), QString(), QStringLiteral("#22262e")};
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral("<span data-mx-spoiler>the twist</span>"),
+            nullptr, QString(), style, /*revealSpoilers=*/false);
+        // The internal toggle anchor, never a browser target.
+        QVERIFY(out.contains(QStringLiteral("href=\"spoiler:toggle\"")));
+        // Cover = background AND text in the same ink: the run is a slab.
+        QVERIFY(out.contains(
+            QStringLiteral("background-color:#22262e;color:#22262e")));
+        // The text is still present (selection copies it — same as
+        // Element); what hides it is the ink, which is the covered
+        // contract this case pins.
+        QVERIFY(out.contains(QStringLiteral("the twist")));
+        QVERIFY(out.contains(QStringLiteral("</span></a>")));
+    }
+
+    void aRevealedSpoilerKeepsTheBackgroundButShowsTheText()
+    {
+        const MessageHtml::MentionStyle style{
+            QString(), QString(), QStringLiteral("#22262e")};
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral("<span data-mx-spoiler=\"reason\">t</span>"),
+            nullptr, QString(), style, /*revealSpoilers=*/true);
+        QVERIFY(out.contains(QStringLiteral("href=\"spoiler:toggle\"")));
+        QVERIFY(out.contains(QStringLiteral("background-color:#22262e")));
+        // Revealed: the text ink is NOT the cover ink.
+        QVERIFY(!out.contains(
+            QStringLiteral("background-color:#22262e;color:#22262e")));
+    }
+
+    void aPlainSpanBesideASpoilerCLosesItsOwnTagOnly()
+    {
+        const MessageHtml::MentionStyle style{
+            QString(), QString(), QStringLiteral("#22262e")};
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral(
+                "<span>a</span><span data-mx-spoiler>b</span><span>c</span>"),
+            nullptr, QString(), style, false);
+        // Exactly one anchor pair, wrapped around the middle span only.
+        QCOMPARE(out.count(QStringLiteral("<a ")), 1);
+        QCOMPARE(out.count(QStringLiteral("</a>")), 1);
+        QVERIFY(out.indexOf(QStringLiteral("</a>"))
+                < out.indexOf(QStringLiteral("<span>c")));
+    }
+
+    void anUnclosedSpoilerSpanIsClosedAtTheEnd()
+    {
+        const MessageHtml::MentionStyle style{
+            QString(), QString(), QStringLiteral("#22262e")};
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral("<span data-mx-spoiler>never closed"),
+            nullptr, QString(), style, false);
+        QVERIFY(out.endsWith(QStringLiteral("</span></a>")));
+    }
+
+    void spoilerAttributeVariantsAreRecognisedAndFakesAreNot()
+    {
+        const MessageHtml::MentionStyle style{
+            QString(), QString(), QStringLiteral("#22262e")};
+        const auto covered = [&](const QString &html) {
+            return MessageHtml::sanitize(html, nullptr, QString(), style,
+                                         false)
+                .contains(QStringLiteral("spoiler:toggle"));
+        };
+        QVERIFY(covered(QStringLiteral("<span data-mx-spoiler>x</span>")));
+        QVERIFY(covered(
+            QStringLiteral("<span data-mx-spoiler=\"why\">x</span>")));
+        QVERIFY(covered(
+            QStringLiteral("<span DATA-MX-SPOILER>x</span>")));
+        // A LOOKALIKE attribute must not become a spoiler.
+        QVERIFY(!covered(
+            QStringLiteral("<span data-mx-spoilerish>x</span>")));
+        QVERIFY(!covered(
+            QStringLiteral("<span notdata-mx-spoiler=\"1\">x</span>")));
+    }
+
     void scriptAndStyleContentIsDropped()
     {
         QCOMPARE(sanitize(QStringLiteral("a<script>alert(1)</script>b")),

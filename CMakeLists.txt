@@ -443,6 +443,8 @@ set(APP_SOURCES
     src/app/ForwardController.cpp
     src/app/DraftStore.h
     src/app/DraftStore.cpp
+    src/app/RichComposerBridge.h
+    src/app/RichComposerBridge.cpp
     src/app/SessionDiagnostics.h
     src/app/SessionDiagnostics.cpp
     src/app/GuiStallTracer.h
@@ -553,6 +555,10 @@ set(APP_SOURCES
     src/models/MentionHighlighter.cpp
     src/models/MarkdownFormat.h
     src/models/MarkdownFormat.cpp
+    src/models/SlashCommands.h
+    src/models/SlashCommands.cpp
+    src/models/RichComposition.h
+    src/models/RichComposition.cpp
     src/models/EmojiCatalog.h
     src/models/EmojiCatalog.cpp
     src/models/AttachmentQueueModel.h
@@ -820,6 +826,7 @@ set(APP_QML_FILES
     qml/ShortcutRow.qml
     qml/MessageComposerBar.qml
     qml/MentionPopup.qml
+    qml/SlashCommandPopup.qml
     qml/AnchoredPopup.qml
     qml/PopupResizeGrip.qml
     qml/EmojiPicker.qml
@@ -2341,6 +2348,8 @@ if(BUILD_TESTING)
         src/models/MentionTokenizer.cpp
         src/models/MarkdownFormat.h
         src/models/MarkdownFormat.cpp
+        src/models/SlashCommands.h
+        src/models/SlashCommands.cpp
         src/models/AttachmentQueueModel.h
         src/models/AttachmentQueueModel.cpp
         src/media/StagedImageStore.h
@@ -2728,6 +2737,8 @@ if(BUILD_TESTING)
         src/models/MentionTokenizer.cpp
         src/models/MarkdownFormat.h
         src/models/MarkdownFormat.cpp
+        src/models/SlashCommands.h
+        src/models/SlashCommands.cpp
         src/models/AttachmentQueueModel.h
         src/models/AttachmentQueueModel.cpp
         src/media/StagedImageStore.h
@@ -3111,6 +3122,8 @@ if(BUILD_TESTING)
         tests/ThreadControllerTest.cpp
         src/threads/ThreadController.h
         src/threads/ThreadController.cpp
+        src/models/SlashCommands.h
+        src/models/SlashCommands.cpp
         src/threads/ThreadManager.h
         src/threads/ThreadManager.cpp
         src/models/MentionTokenizer.h
@@ -3953,6 +3966,34 @@ if(BUILD_TESTING)
     target_link_libraries(markdown-format-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME markdown-format COMMAND markdown-format-test)
 
+    # v0.9 slash commands: registry, parse rules (// escape, letters-only
+    # command words), and completion matching. Pure, no composer needed.
+    qt_add_executable(slash-commands-test
+        tests/SlashCommandsTest.cpp
+        src/models/SlashCommands.h
+        src/models/SlashCommands.cpp
+        src/models/MentionTokenizer.h
+        src/models/MentionTokenizer.cpp
+    )
+    target_include_directories(slash-commands-test PRIVATE src)
+    target_link_libraries(slash-commands-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME slash-commands COMMAND slash-commands-test)
+
+    # v0.9 rich composer: the QTextDocument -> Matrix serializer. Every
+    # formatting type's HTML shape, the plain fallback derived beside it,
+    # the whitelist property, and link-target safety.
+    qt_add_executable(rich-composition-test
+        tests/RichCompositionTest.cpp
+        src/models/RichComposition.h
+        src/models/RichComposition.cpp
+    )
+    target_include_directories(rich-composition-test PRIVATE src)
+    target_link_libraries(rich-composition-test
+        PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME rich-composition COMMAND rich-composition-test)
+    set_tests_properties(rich-composition PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.7 outgoing @-mentions: pure tokenizer (trigger boundaries, inline
     # code / fenced-block rejection, query capture + cap, ref shifting, and
     # matrix.to link expansion).
@@ -4011,6 +4052,17 @@ if(BUILD_TESTING)
     target_link_libraries(sso-callback-test
         PRIVATE lightning-app-testlib Qt6::Test)
     add_test(NAME sso-callback COMMAND sso-callback-test)
+
+    # v0.9 slash commands, composer half: which backend verb a command runs,
+    # with which arguments and body spec, and the draft-preservation contract
+    # (a refusal never destroys what the user typed).
+    qt_add_executable(slash-command-composer-test
+        tests/SlashCommandComposerTest.cpp
+    )
+    target_include_directories(slash-command-composer-test PRIVATE src)
+    target_link_libraries(slash-command-composer-test
+        PRIVATE lightning-app-testlib Qt6::Test)
+    add_test(NAME slash-command-composer COMMAND slash-command-composer-test)
 
     # The opt-in sync-latency tracer: inert when disabled, no room ids, an
     # unobserved stage is not reported as instant, bounded journey table, and

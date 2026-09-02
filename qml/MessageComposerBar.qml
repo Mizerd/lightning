@@ -69,7 +69,7 @@ Item {
         // Qt.callLater(root.forceActiveFocus) hands the engine an unbound
         // function, which is the kind of thing that silently does nothing.
         if (app.composer.hasAttachments && app.composer.canSend)
-            Qt.callLater(function () { input.forceActiveFocus() })
+            Qt.callLater(function () { root.focusEditor() })
     }
     // Which modifier means SEND is now a setting. Default (false): Enter
     // sends, Shift+Enter inserts a newline. Inverted (true): Ctrl+Enter
@@ -91,7 +91,7 @@ Item {
             return
         }
         event.accepted = true
-        app.composer.send()
+        root.submitComposer()
     }
     Keys.onEnterPressed: (event) => {
         if (!root._returnShouldSend(event.modifiers)
@@ -101,9 +101,15 @@ Item {
             return
         }
         event.accepted = true
-        app.composer.send()
+        root.submitComposer()
     }
     function refreshFormatState() {
+        if (root.richMode) {
+            formatFlags = app.richComposer.formatState(richInput.textDocument,
+                                                       richInput.selectionStart,
+                                                       richInput.selectionEnd)
+            return
+        }
         formatFlags = app.composer.formatState(input.text,
                                                input.selectionStart,
                                                input.selectionEnd)
@@ -125,21 +131,190 @@ Item {
     function _composerFormatFor(key, modifiers) {
         return app.shortcuts.editorActionForKey(key, modifiers)
     }
+    // v0.9 composer modes. "markdown" is the historical source editor
+    // (`input`); "rich" is the WYSIWYG editor (`richInput`), whose
+    // QTextDocument is the canonical message and whose wire bodies come from
+    // RichComposition through app.richComposer. The two editors are both
+    // instantiated and visibility-exclusive, so every `input.` reference in
+    // this file keeps working and the rich editor adds its own handlers.
+    //
+    // The composer's text property is the MARKDOWN MIRROR in both modes: the
+    // rich editor pushes toMarkdown() on every edit, which is what keeps
+    // canSend, typing notices, drafts and slash commands identical across
+    // modes — and what makes a mode switch draft-preserving in both
+    // directions (markdown -> rich loads the mirror; rich -> markdown needs
+    // nothing, the markdown editor is already bound to it).
+    readonly property bool richMode: app.settings
+                                     && app.settings.composerMode === "rich"
+    property bool richSyncing: false
+    function activeInput() { return root.richMode ? richInput : input }
+    function submitComposer() {
+        if (root.richMode)
+            app.richComposer.sendDocument(richInput.textDocument)
+        else
+            app.composer.send()
+    }
+    // v0.9 (phase 11): the composed message WITHOUT sending, for the
+    // scheduler — markdown mode hands over the expanded markdown, rich mode
+    // the serialized document (both bodies from one document).
+    readonly property int pendingScheduledCount: {
+        if (!app.scheduledSends || app.currentRoomId === "")
+            return 0
+        var tick = app.scheduledSends.pendingCount // dependency
+        return app.scheduledSends.pendingForRoom(app.currentRoomId).length
+    }
+    SendLaterDialog { id: sendLaterDialog }
+    function openSendLater() {
+        if (!app.composer.canSend || app.composer.text.trim().length === 0) {
+            sendLaterDialog.openFor({})
+            return
+        }
+        var snapshot = app.composer.composedMessage()
+        if (root.richMode) {
+            var composed = app.richComposer.composeDocument(richInput.textDocument)
+            snapshot.body = composed.body
+            snapshot.html = composed.html
+            snapshot.mentionIds = composed.mentionIds
+        }
+        sendLaterDialog.openFor(snapshot)
+    }
+    onRichModeChanged: {
+        if (root.richMode) {
+            root.richSyncing = true
+            app.richComposer.loadMarkdown(richInput.textDocument,
+                                          app.composer.text)
+            root.richSyncing = false
+            mentionPopup.close()
+            commandPopup.close()
+            Qt.callLater(function () { richInput.forceActiveFocus() })
+        } else {
+            mentionPopup.close()
+            commandPopup.close()
+            Qt.callLater(function () { root.focusEditor() })
+        }
+        refreshFormatState()
+    }
+    // Reverse sync: a draft restore, an edit begin or a post-send clear
+    // rewrites the composer text from C++; the rich document must follow.
+    // The markdown comparison skips the echo of the editor's own push.
+    Connections {
+        target: app.composer
+        function onTextChanged() {
+            if (!root.richMode || root.richSyncing)
+                return
+            var current = app.richComposer.toMarkdown(richInput.textDocument)
+            if (current.trim() === app.composer.text.trim())
+                return
+            root.richSyncing = true
+            app.richComposer.loadMarkdown(richInput.textDocument,
+                                          app.composer.text)
+            root.richSyncing = false
+        }
+    }
     function applyFormat(format) {
+        if (root.richMode) {
+            root.applyRichFormat(format, "")
+            return
+        }
+        // Underline has no markdown form; the shortcut is a rich-mode key.
+        if (format === "underline")
+            return
         var result = app.composer.toggleFormat(format, input.text,
                                                input.selectionStart,
                                                input.selectionEnd)
         input.text = result.text
         app.composer.text = result.text
         input.select(result.selectionStart, result.selectionEnd)
-        input.forceActiveFocus()
+        root.focusEditor()
         refreshFormatState()
+    }
+    function applyRichFormat(format, argument) {
+        if (format === "link" && argument === ""
+                && root.formatFlags["link"] !== true) {
+            // A new link needs a target. A selected URL is its own target;
+            // anything else asks through the link dialog.
+            var selected = richInput.selectedText
+            if (selected.length > 0
+                    && app.richComposer.isSafeLinkTarget(selected)) {
+                argument = selected
+            } else {
+                linkDialog.openFor(richInput.selectionStart,
+                                   richInput.selectionEnd)
+                return
+            }
+        }
+        app.richComposer.toggleFormat(richInput.textDocument,
+                                      richInput.selectionStart,
+                                      richInput.selectionEnd, format,
+                                      argument)
+        richInput.forceActiveFocus()
+        refreshFormatState()
+    }
+    // Rich-mode @-mentions: the same token scan as markdown mode, over the
+    // editor's PLAIN text, whose offsets are the document's cursor offsets.
+    // Insertion writes a matrix.to anchor, which the serializer turns into
+    // the formatted link plus an m.mentions id.
+    function updateRichMentionState() {
+        if (!root.richMode)
+            return
+        if (app.currentRoomId === "") {
+            mentionPopup.close()
+            return
+        }
+        var plain = richInput.getText(0, richInput.length)
+        var tok = app.composer.mentionTokenAt(plain, richInput.cursorPosition)
+        if (tok && tok.active === true) {
+            root.mentionTokenStart = tok.start
+            app.mentionSuggestions.roomId = app.currentRoomId
+            app.mentionSuggestions.query = tok.query
+            mentionPopup.query = tok.query
+            var p = richFlick.mapToItem(Overlay.overlay, 0, 0)
+            mentionPopup.anchorInputTop = Qt.point(p.x, p.y)
+            mentionPopup.anchorWidth = richFlick.width
+            if (!mentionPopup.visible)
+                mentionPopup.open()
+        } else {
+            root.mentionTokenStart = -1
+            mentionPopup.close()
+        }
+    }
+    function escapeHtmlText(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    }
+    function insertRichMention(userId, displayName) {
+        var start = root.mentionTokenStart
+        var end = richInput.cursorPosition
+        if (start < 0 || end < start)
+            return
+        var name = displayName && displayName.length > 0
+                   ? displayName : String(userId).substring(1)
+        richInput.remove(start, end)
+        // The trailing space sits OUTSIDE the anchor so typing after the
+        // pill continues as ordinary text, not as more link.
+        richInput.insert(start, "<a href=\"https://matrix.to/#/"
+                         + encodeURIComponent(userId) + "\">@"
+                         + root.escapeHtmlText(name) + "</a> ")
+        richInput.cursorPosition = start + name.length + 2
+        mentionPopup.close()
+        richInput.forceActiveFocus()
+    }
+
+    // The editor that owns the caret in the current mode. Every "give the
+    // composer focus back" path goes through here, so rich mode never hands
+    // focus (or an emoji) to the hidden markdown editor.
+    function activeEditor() {
+        return root.richMode ? richInput : input
+    }
+    function focusEditor() {
+        activeEditor().forceActiveFocus()
     }
 
     function openEmojiPicker() {
-        emojiSelectionStart = input.selectionStart
-        emojiSelectionEnd = input.selectionEnd
-        emojiCursorPosition = input.cursorPosition
+        var editor = root.activeEditor()
+        emojiSelectionStart = editor.selectionStart
+        emojiSelectionEnd = editor.selectionEnd
+        emojiCursorPosition = editor.cursorPosition
         // The COMPOSER CARD, not the button: the picker sits directly on
         // top of the card with a hairline gap and its right edge lined up
         // with the card's. AnchoredPopup makes the card the popup's parent,
@@ -150,20 +325,22 @@ Item {
     }
 
     function insertEmoji(emoji) {
+        var editor = root.activeEditor()
         var start = Math.min(emojiSelectionStart, emojiSelectionEnd)
         var end = Math.max(emojiSelectionStart, emojiSelectionEnd)
         if (start === end) start = end = emojiCursorPosition
-        input.remove(start, end)
-        input.insert(start, emoji)
-        input.cursorPosition = start + emoji.length
-        app.composer.text = input.text
+        editor.remove(start, end)
+        editor.insert(start, emoji)
+        editor.cursorPosition = start + emoji.length
+        if (!root.richMode)
+            app.composer.text = input.text
         // review M1: while the sticky picker stays open, focus STAYS with
         // it — stealing focus back here killed keyboard multi-pick (the
         // grid's Return/Space path needs the grid focused) and routed
         // Escape to the composer's cancel-edit handler instead of closing
         // the picker. The picker's onClosed already restores input focus.
         if (!emojiPicker.opened || emojiPicker.closeAfterSelection)
-            input.forceActiveFocus()
+            root.focusEditor()
     }
 
     EmojiPicker {
@@ -192,6 +369,142 @@ Item {
         // refreshMentionHighlight's loop rationale.
         onVisibleChanged: root.refreshMentionHighlight()
     }
+
+    // v0.9 slash commands: completion popup while the command word is being
+    // typed. Same non-focus-taking construction as the mention popup; the
+    // input forwards the navigation keys (command popup first — the two can
+    // never be open together, since an active command word cannot contain an
+    // @-token).
+    property bool commandPopupDismissed: false
+    SlashCommandPopup {
+        id: commandPopup
+        completions: app.composer.commandCompletions
+        onChosen: (name) => {
+            var pos = app.composer.acceptCommandCompletion(name)
+            if (pos >= 0)
+                input.cursorPosition = pos
+        }
+    }
+    function updateCommandPopupState() {
+        var comps = app.composer.commandCompletions
+        var flick = root.richMode ? richFlick : inputFlick
+        if (comps.length > 0 && !root.commandPopupDismissed
+                && root.activeInput().activeFocus && app.currentRoomId !== "") {
+            var p = flick.mapToItem(Overlay.overlay, 0, 0)
+            commandPopup.anchorInputTop = Qt.point(p.x, p.y)
+            commandPopup.anchorWidth = flick.width
+            if (!commandPopup.visible)
+                commandPopup.open()
+        } else if (commandPopup.visible && comps.length === 0) {
+            commandPopup.close()
+        }
+    }
+    Connections {
+        target: app.composer
+        function onCommandCompletionsChanged() { root.updateCommandPopupState() }
+    }
+    // v0.9 rich composer: the link-target prompt. Only a target that the
+    // serializer would emit is accepted (the same policy the toolbar and
+    // the wire share), so an unsafe scheme cannot enter the document.
+    Dialog {
+        id: linkDialog
+        objectName: "composerLinkDialog"
+        modal: true
+        Overlay.modal: Rectangle { color: AppTheme.modalScrim }
+        focus: true
+        standardButtons: Dialog.NoButton
+        closePolicy: Popup.CloseOnEscape
+        parent: Overlay.overlay
+        width: Math.min(420, parent ? parent.width - AppTheme.spacing24 * 2 : 420)
+        anchors.centerIn: parent
+        padding: AppTheme.spacing16
+        property int selStart: 0
+        property int selEnd: 0
+        function openFor(start, end) {
+            selStart = start
+            selEnd = end
+            linkField.text = ""
+            open()
+            Qt.callLater(function () { linkField.forceActiveFocus() })
+        }
+        function apply() {
+            var target = linkField.text.trim()
+            if (!app.richComposer.isSafeLinkTarget(target))
+                return
+            app.richComposer.toggleFormat(richInput.textDocument,
+                                          linkDialog.selStart,
+                                          linkDialog.selEnd, "link", target)
+            close()
+            richInput.forceActiveFocus()
+            root.refreshFormatState()
+        }
+        background: Rectangle {
+            radius: AppTheme.radiusLg
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorder
+            border.width: 1
+        }
+        contentItem: ColumnLayout {
+            spacing: AppTheme.spacing12
+            Label {
+                text: qsTr("Add link")
+                color: AppTheme.stormText
+                font.family: AppTheme.menuFont
+                font.pixelSize: AppTheme.textTitle
+                font.weight: AppTheme.weightBold
+            }
+            AppTextField {
+                id: linkField
+                objectName: "composerLinkField"
+                Layout.fillWidth: true
+                storm: true
+                placeholderText: qsTr("https://…")
+                onAccepted: linkDialog.apply()
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: linkField.text.trim().length > 0
+                         && !app.richComposer.isSafeLinkTarget(linkField.text.trim())
+                text: qsTr("Only http, https, mailto and matrix links can be added.")
+                color: AppTheme.danger
+                font.pixelSize: AppTheme.fontChip
+                wrapMode: Text.Wrap
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                AppButton {
+                    text: qsTr("Cancel")
+                    kind: "ghost"
+                    onClicked: linkDialog.close()
+                }
+                AppButton {
+                    objectName: "composerLinkApply"
+                    text: qsTr("Add link")
+                    kind: "primary"
+                    enabled: app.richComposer.isSafeLinkTarget(linkField.text.trim())
+                    onClicked: linkDialog.apply()
+                }
+            }
+        }
+    }
+    // Permission COURTESY hints for the completion rows, only when the
+    // room-info controller happens to be inspecting the composer's room —
+    // it is repointable (Space settings), so its booleans are meaningless
+    // for any other room. A missing key counts as allowed; the server is
+    // the enforcer either way.
+    Binding {
+        target: app.composer
+        property: "commandPermissions"
+        value: app.roomInfo.roomId === app.currentRoomId
+               ? { "kick": app.roomInfo.canKick,
+                   "ban": app.roomInfo.canBan,
+                   "unban": app.roomInfo.canUnban,
+                   "invite": app.roomInfo.canInvite,
+                   "topic": app.roomInfo.canEditTopic,
+                   "roomname": app.roomInfo.canEditName }
+               : ({})
+    }
     // Format-only rehighlights re-emit textChanged with an unchanged value
     // and cursor (QSyntaxHighlighter marks the document changed even for
     // pure format passes); rescanning then would loop the highlighter and
@@ -200,6 +513,10 @@ Item {
     property string lastMentionScanText: ""
     property int lastMentionScanCursor: -1
     function updateMentionState() {
+        // Rich mode scans its own editor (updateRichMentionState); the
+        // hidden markdown field's text changes are the mirror, not typing.
+        if (root.richMode)
+            return
         if (input.text === root.lastMentionScanText
             && input.cursorPosition === root.lastMentionScanCursor)
             return
@@ -404,7 +721,7 @@ Item {
         input.remove(at, at + root.spellMenuLength)
         input.insert(at, replacement)
         input.cursorPosition = at + replacement.length
-        input.forceActiveFocus()
+        root.focusEditor()
     }
 
     Connections {
@@ -414,6 +731,10 @@ Item {
     }
 
     function insertMention(userId, displayName) {
+        if (root.richMode) {
+            root.insertRichMention(userId, displayName)
+            return
+        }
         var newCursor = app.composer.insertMention(userId, displayName,
                                                    root.mentionTokenStart,
                                                    input.cursorPosition)
@@ -421,7 +742,7 @@ Item {
             input.text = app.composer.text
         input.cursorPosition = newCursor
         mentionPopup.close()
-        input.forceActiveFocus()
+        root.focusEditor()
     }
     Connections {
         target: app
@@ -975,6 +1296,45 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 0
 
+                // v0.9 slash commands: the non-destructive refusal strip. An
+                // unknown command or missing arguments lands here — the
+                // draft stays in the box, nothing was sent, and "Send as
+                // message" posts the text literally for the deliberate case.
+                Item {
+                    id: commandErrorRow
+                    objectName: "composerCommandError"
+                    visible: app.composer.commandError.length > 0
+                    Layout.fillWidth: true
+                    Layout.leftMargin: AppTheme.spacing12 + 2
+                    Layout.rightMargin: AppTheme.spacing8
+                    Layout.topMargin: visible ? AppTheme.spacing8 : 0
+                    implicitHeight: visible ? commandErrorLayout.implicitHeight : 0
+
+                    RowLayout {
+                        id: commandErrorLayout
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        spacing: AppTheme.spacing8
+
+                        Label {
+                            Layout.fillWidth: true
+                            textFormat: Text.PlainText
+                            elide: Label.ElideRight
+                            text: app.composer.commandError
+                            color: AppTheme.danger
+                            font.pixelSize: AppTheme.scaled(12)
+                        }
+                        AppButton {
+                            objectName: "composerSendAnywayButton"
+                            text: qsTr("Send as message")
+                            kind: "ghost"
+                            size: "sm"
+                            visible: app.composer.canSend
+                            onClicked: app.composer.sendBypassingCommands()
+                        }
+                    }
+                }
+
                 // Reply / Edit / Thread context strip.
                 //
                 // Element draws the message you are answering as the SAME
@@ -1267,6 +1627,60 @@ Item {
                             onClicked: root.applyFormat(modelData.key)
                         }
                     }
+                    // v0.9 rich-only controls. The bundled icon font is a
+                    // SUBSET with no underline / numbered-list glyphs, so
+                    // these are text chips rather than tofu.
+                    AppButton {
+                        objectName: "composerFormat_underline"
+                        visible: root.richMode
+                        kind: "ghost"
+                        size: "sm"
+                        // U + COMBINING LOW LINE: AppButton's label sets its
+                        // own font, so a font.underline here would not reach
+                        // it; the glyph carries the underline itself.
+                        text: "U̲"
+                        enabled: app.currentRoomId !== ""
+                        Accessible.name: qsTr("Underline")
+                        ToolTip.text: qsTr("Underline")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.applyFormat("underline")
+                    }
+                    AppButton {
+                        objectName: "composerFormat_orderedlist"
+                        visible: root.richMode
+                        kind: "ghost"
+                        size: "sm"
+                        text: "1."
+                        enabled: app.currentRoomId !== ""
+                        Accessible.name: qsTr("Numbered list")
+                        ToolTip.text: qsTr("Numbered list")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.applyFormat("orderedlist")
+                    }
+                    // Mode switch. Draft-preserving in both directions (see
+                    // richMode); the same switch answers /markdown. It sits
+                    // LEFT of the spacer: the row's empty right side is the
+                    // theme's raised surface the design-acceptance samples
+                    // read, and must stay empty.
+                    AppButton {
+                        objectName: "composerModeToggle"
+                        kind: "ghost"
+                        size: "sm"
+                        text: root.richMode ? qsTr("Rich text") : qsTr("Markdown")
+                        Accessible.name: root.richMode
+                                         ? qsTr("Switch to Markdown composing")
+                                         : qsTr("Switch to rich-text composing")
+                        ToolTip.text: Accessible.name
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: {
+                            if (app.settings)
+                                app.settings.composerMode =
+                                    root.richMode ? "markdown" : "rich"
+                        }
+                    }
                     Item { Layout.fillWidth: true }
                 }
 
@@ -1350,9 +1764,171 @@ Item {
                         onClicked: root.toolbarExpanded = !root.toolbarExpanded
                     }
 
+                    // v0.9 rich composer: the WYSIWYG editor. Same growth,
+                    // padding and inset rules as the markdown field beside
+                    // it (see inputFlick's comments for why each exists);
+                    // visibility-exclusive with it on root.richMode.
+                    Flickable {
+                        id: richFlick
+                        objectName: "composerRichInputFlick"
+                        visible: root.richMode
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 120
+                        Layout.alignment: Qt.AlignVCenter
+                        Layout.maximumHeight: AppTheme.scaled(140)
+                        implicitHeight: richInput.implicitHeight
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        flickableDirection: Flickable.VerticalFlick
+                        function clampContentToTop() {
+                            if (contentHeight <= height && contentY !== 0)
+                                contentY = 0
+                        }
+                        onContentYChanged: clampContentToTop()
+                        onContentHeightChanged: clampContentToTop()
+                        onHeightChanged: clampContentToTop()
+                        ScrollBar.vertical: AppScrollBar { thin: true }
+
+                        TextArea.flickable: TextArea {
+                            id: richInput
+                            objectName: "composerRichInput"
+                            textFormat: TextEdit.RichText
+                            placeholderText: input.placeholderText
+                            placeholderTextColor: AppTheme.textMuted
+                            font: app.textFontWithEmoji(AppTheme.uiFont,
+                                                        AppTheme.scaled(14))
+                            topPadding: AppTheme.spacing6
+                            bottomPadding: AppTheme.spacing6
+                            topInset: 0
+                            bottomInset: 0
+                            leftInset: 0
+                            rightInset: 0
+                            inputMethodHints: Qt.ImhNone
+                            verticalAlignment: TextEdit.AlignVCenter
+                            wrapMode: TextArea.Wrap
+                            enabled: app.currentRoomId !== ""
+                            background: Rectangle { color: "transparent" }
+                            onTextChanged: {
+                                if (root.richSyncing || !root.richMode)
+                                    return
+                                // The markdown mirror (see root.richMode).
+                                root.richSyncing = true
+                                app.composer.text =
+                                    app.richComposer.toMarkdown(textDocument)
+                                root.richSyncing = false
+                                root.refreshFormatState()
+                                root.updateRichMentionState()
+                                root.commandPopupDismissed = false
+                                root.updateCommandPopupState()
+                            }
+                            onSelectionStartChanged: root.refreshFormatState()
+                            onSelectionEndChanged: root.refreshFormatState()
+                            onCursorPositionChanged: {
+                                root.refreshFormatState()
+                                root.updateRichMentionState()
+                            }
+                            Keys.onReturnPressed: (event) => {
+                                if (commandPopup.visible) {
+                                    commandPopup.accept()
+                                    event.accepted = true
+                                    return
+                                }
+                                if (mentionPopup.visible) {
+                                    mentionPopup.accept()
+                                    event.accepted = true
+                                    return
+                                }
+                                if (!root._returnShouldSend(event.modifiers)) {
+                                    event.accepted = false
+                                    return
+                                }
+                                event.accepted = true
+                                root.submitComposer()
+                                richInput.forceActiveFocus()
+                            }
+                            Keys.onShortcutOverride: (event) => {
+                                if (root._composerFormatFor(event.key,
+                                                            event.modifiers) !== "")
+                                    event.accepted = true
+                            }
+                            Keys.onUpPressed: (event) => {
+                                if (commandPopup.visible) {
+                                    commandPopup.moveUp()
+                                    event.accepted = true
+                                } else if (mentionPopup.visible) {
+                                    mentionPopup.moveUp()
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
+                                }
+                            }
+                            Keys.onDownPressed: (event) => {
+                                if (commandPopup.visible) {
+                                    commandPopup.moveDown()
+                                    event.accepted = true
+                                } else if (mentionPopup.visible) {
+                                    mentionPopup.moveDown()
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
+                                }
+                            }
+                            Keys.onTabPressed: (event) => {
+                                if (commandPopup.visible) {
+                                    commandPopup.accept()
+                                    event.accepted = true
+                                } else if (mentionPopup.visible) {
+                                    mentionPopup.accept()
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
+                                }
+                            }
+                            Keys.onEscapePressed: (event) => {
+                                if (commandPopup.visible) {
+                                    root.commandPopupDismissed = true
+                                    commandPopup.close()
+                                    event.accepted = true
+                                } else if (mentionPopup.visible) {
+                                    mentionPopup.close()
+                                    event.accepted = true
+                                } else if (app.composer.isReplying
+                                           || app.composer.isEditing
+                                           || app.composer.inThread) {
+                                    app.composer.cancelReplyOrEdit()
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
+                                }
+                            }
+                            Keys.onPressed: (event) => {
+                                // Clipboard images / file URLs become
+                                // attachments exactly as in markdown mode;
+                                // formatted TEXT pastes into the document
+                                // (Qt keeps formatting, never markup — the
+                                // serializer's whitelist is what reaches
+                                // the wire).
+                                if (event.matches(StandardKey.Paste)
+                                        && app.composer.pasteFromClipboard()) {
+                                    event.accepted = true
+                                    return
+                                }
+                                var formatAction =
+                                    root._composerFormatFor(event.key,
+                                                            event.modifiers)
+                                if (formatAction !== "") {
+                                    event.accepted = true
+                                    root.applyFormat(
+                                        formatAction.substring("composer.".length))
+                                }
+                            }
+                        }
+                    }
+
                     Flickable {
                         id: inputFlick
                         objectName: "composerInputFlick"
+                        visible: !root.richMode
                         Layout.fillWidth: true
                         // 2026-08-18 tester report ("kai sushrinkini app iki
                         // max net nematai pilnos vienos raides ka typini"):
@@ -1505,6 +2081,10 @@ Item {
                             if (app.composer.text !== text) app.composer.text = text
                             root.refreshFormatState()
                             root.updateMentionState()
+                            // A dismissed command popup reopens once the
+                            // text moves on (the standard completion feel).
+                            root.commandPopupDismissed = false
+                            root.updateCommandPopupState()
                             spellTimer.restart()
                         }
                         onSelectionStartChanged: root.refreshFormatState()
@@ -1518,8 +2098,13 @@ Item {
                         // unchanged but their geometry is not.
                         onWidthChanged: spellTimer.restart()
                         Keys.onReturnPressed: (event) => {
-                            // While the mention popup is open, Return picks the
-                            // highlighted member instead of sending.
+                            // While a completion popup is open, Return picks
+                            // the highlighted entry instead of sending.
+                            if (commandPopup.visible) {
+                                commandPopup.accept()
+                                event.accepted = true
+                                return
+                            }
                             if (mentionPopup.visible) {
                                 mentionPopup.accept()
                                 event.accepted = true
@@ -1531,7 +2116,7 @@ Item {
                             }
                             event.accepted = true
                             app.composer.send()
-                            input.forceActiveFocus()
+                            root.focusEditor()
                         }
                         Keys.onShortcutOverride: (event) => {
                             if (root._composerFormatFor(event.key,
@@ -1539,7 +2124,10 @@ Item {
                                 event.accepted = true
                         }
                         Keys.onUpPressed: (event) => {
-                            if (mentionPopup.visible) {
+                            if (commandPopup.visible) {
+                                commandPopup.moveUp()
+                                event.accepted = true
+                            } else if (mentionPopup.visible) {
                                 mentionPopup.moveUp()
                                 event.accepted = true
                             } else {
@@ -1547,7 +2135,10 @@ Item {
                             }
                         }
                         Keys.onDownPressed: (event) => {
-                            if (mentionPopup.visible) {
+                            if (commandPopup.visible) {
+                                commandPopup.moveDown()
+                                event.accepted = true
+                            } else if (mentionPopup.visible) {
                                 mentionPopup.moveDown()
                                 event.accepted = true
                             } else {
@@ -1555,7 +2146,10 @@ Item {
                             }
                         }
                         Keys.onTabPressed: (event) => {
-                            if (mentionPopup.visible) {
+                            if (commandPopup.visible) {
+                                commandPopup.accept()
+                                event.accepted = true
+                            } else if (mentionPopup.visible) {
                                 mentionPopup.accept()
                                 event.accepted = true
                             } else {
@@ -1563,10 +2157,16 @@ Item {
                             }
                         }
                         Keys.onEscapePressed: (event) => {
-                            // Escape closes the mention popup WITHOUT touching
-                            // reply/edit state; only when it is closed does it
-                            // fall through to cancelling a reply/edit.
-                            if (mentionPopup.visible) {
+                            // Escape closes an open completion popup WITHOUT
+                            // touching reply/edit state; only with both
+                            // closed does it fall through to cancelling a
+                            // reply/edit. A dismissed command popup stays
+                            // closed until the text changes again.
+                            if (commandPopup.visible) {
+                                root.commandPopupDismissed = true
+                                commandPopup.close()
+                                event.accepted = true
+                            } else if (mentionPopup.visible) {
                                 mentionPopup.close()
                                 event.accepted = true
                             } else if (app.composer.isReplying
@@ -1598,7 +2198,7 @@ Item {
                             anchors.fill: parent
                             acceptedButtons: Qt.RightButton
                             onClicked: (mouse) => {
-                                input.forceActiveFocus()
+                                root.focusEditor()
                                 // Resolved BEFORE the menu opens, so every
                                 // spelling row's `visible` binding is already
                                 // settled when it appears.
@@ -2125,8 +2725,8 @@ Item {
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: {
-                            app.composer.send()
-                            input.forceActiveFocus()
+                            root.submitComposer()
+                            root.activeInput().forceActiveFocus()
                         }
                     }
                 }
@@ -2198,7 +2798,7 @@ Item {
     }
     function placeEditCaret() {
         input.cursorPosition = input.length
-        input.forceActiveFocus()
+        root.focusEditor()
     }
     function placeDraftCaret() {
         if (app.composer.isEditing)

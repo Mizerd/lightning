@@ -51,6 +51,10 @@ class ThreadController : public QObject
     // tracked (the room composer keeps its own text on MessageComposer). The
     // thread panel two-way-binds its TextArea to this.
     Q_PROPERTY(QString text READ text WRITE setText NOTIFY textChanged)
+    // v0.9 slash commands in the thread composer: the same non-destructive
+    // refusal contract as MessageComposer::commandError — the draft stays,
+    // nothing was sent, and the panel offers sendTextBypassingCommands.
+    Q_PROPERTY(QString commandError READ commandError NOTIFY commandErrorChanged)
     // Mention ranges [{start, length}] for the thread composer's chip
     // highlighter; mirrors MessageComposer::mentionRanges.
     Q_PROPERTY(QVariantList mentionRanges READ mentionRanges
@@ -164,6 +168,14 @@ public:
     // target turns it into a rich reply within the thread and is cleared
     // after dispatch.
     Q_INVOKABLE void sendText(const QString &body);
+    // "Send as a message" on the unknown-command refusal: the same send
+    // with command parsing skipped.
+    Q_INVOKABLE void sendTextBypassingCommands(const QString &body);
+    // v0.9 rich composer: send a pre-composed (plainBody, html, mentions)
+    // triple through the thread lane — see MessageComposer::sendPrepared.
+    Q_INVOKABLE void sendPrepared(const QString &body, const QString &html,
+                                  const QStringList &mentionUserIds);
+    QString commandError() const { return m_commandError; }
     // v0.7 outgoing @-mentions in the thread composer — mirrors
     // MessageComposer's ref-aware token detection and insertion.
     Q_INVOKABLE QVariantMap mentionTokenAt(const QString &text,
@@ -229,6 +241,12 @@ Q_SIGNALS:
     void supportedChanged();
     void stateChanged();
     void textChanged();
+    void commandErrorChanged();
+    // /markdown and /nick only ASK, exactly as in MessageComposer: the mode
+    // is a setting QML owns; display-name changes carry AppController's
+    // op-id bookkeeping.
+    void composerModeToggleRequested();
+    void displayNameChangeRequested(const QString &name);
     void mentionRangesChanged();
     void replyStateChanged();
     void followStateChanged();
@@ -282,6 +300,14 @@ private:
     QString m_text;
     QList<mention::MentionRef> m_mentionRefs;
     void clearComposerText();
+    // v0.9: the one send implementation behind sendText/bypass, the shared
+    // thread lane every content path uses, and the draft-retire tail.
+    void sendTextInternal(const QString &body, bool allowCommands);
+    void sendThreadBody(const QString &body, const QStringList &mentionIds,
+                        const QVariantMap &bodySpec);
+    void retireComposerDraft();
+    void setCommandError(const QString &error);
+    QString m_commandError;
     // v0.7.x drafts: same discipline as MessageComposer — the debounce is
     // stopped before every thread change and the save reads the current
     // thread, so a stale timer cannot write across threads.

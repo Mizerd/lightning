@@ -564,6 +564,16 @@ Item {
     // this delegate — the single TextEdit and each rich-text segment —
     // must route identically.
     function openMessageLink(link) {
+        // v0.9 spoilers: the internal reveal/re-hide toggle. Handled first
+        // and NEVER routed toward the browser — the scheme exists only
+        // inside sanitize()'s own output.
+        if (link === "spoiler:toggle") {
+            // Through timelineModel, not app.timeline: the thread panel's
+            // rows resolve against app.thread.model.
+            if (root.timelineModel && root.timelineModel.toggleSpoilers)
+                root.timelineModel.toggleSpoilers(model.eventId)
+            return
+        }
         if (link.indexOf("mention:") === 0) {
             if (root.timelineView
                 && root.timelineView.openSenderProfile) {

@@ -64,17 +64,33 @@ struct MentionStyle {
     // nearly invisible on a dark timeline ground.
     QString linkColor;
     QString codeBackground; // subtle surface behind inline `code`/```blocks```
-                            // (empty = leave code unstyled)
+                            // (empty = leave code unstyled). Doubles as the
+                            // spoiler cover slab: a hidden spoiler renders
+                            // background AND text in this ink, so the run is
+                            // a solid box until clicked. A caller that
+                            // renders untrusted bodies must supply it —
+                            // without an ink a covered spoiler's text is NOT
+                            // hidden (there is nothing to paint the cover
+                            // with); TimelineModel always pushes one.
 };
 
 // resolveDisplayName maps a Matrix user id to a room display name (empty or
 // the id itself when unknown — the sanitizer falls back to the localpart).
 // ownUserId, when it matches a mention target, marks a self-mention (bold).
+//
+// v0.9 spoilers (spec §11.36): a <span data-mx-spoiler> survives as a
+// click-to-reveal run — wrapped in the internal <a href="spoiler:toggle">
+// anchor and, while `revealSpoilers` is false, covered by a solid
+// codeBackground slab (background and text in the same ink). Revealed keeps
+// the slab as background only, marking where the spoiler was. The attribute
+// itself is still stripped like every other; only this recognized shape
+// changes presentation, and the reason value it may carry is ignored.
 QString sanitize(
     const QString &html,
     const std::function<QString(const QString &userId)> &resolveDisplayName,
     const QString &ownUserId,
-    const MentionStyle &mentionStyle = {});
+    const MentionStyle &mentionStyle = {},
+    bool revealSpoilers = false);
 
 // v0.7.4: fenced code blocks are not rich text.
 //
@@ -185,6 +201,7 @@ QList<Segment> segments(
     const QString &html,
     const std::function<QString(const QString &userId)> &resolveDisplayName,
     const QString &ownUserId,
-    const MentionStyle &mentionStyle = {});
+    const MentionStyle &mentionStyle = {},
+    bool revealSpoilers = false);
 
 } // namespace MessageHtml

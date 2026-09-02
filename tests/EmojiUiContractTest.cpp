@@ -116,11 +116,16 @@ private Q_SLOTS:
         QCOMPARE(pane.count("app.composer.reactTo(targetEventId, emoji)"), 1);
         QCOMPARE(thread.count("app.composer.reactTo(targetEventId, emoji)"), 1);
         QVERIFY(pane.contains("sharedReactionPicker.targetEventId = eventId"));
-        QVERIFY(composer.contains("input.selectionStart"));
-        QVERIFY(composer.contains("input.selectionEnd"));
-        QVERIFY(composer.contains("input.remove(start, end)"));
-        QVERIFY(composer.contains("input.insert(start, emoji)"));
-        QVERIFY(composer.contains("input.cursorPosition = start + emoji.length"));
+        // v0.9 rich composer: the picker snapshots and inserts into whichever
+        // editor owns the caret in the current mode (markdown TextArea or
+        // the WYSIWYG editor), never the hidden one.
+        QVERIFY(composer.contains("var editor = root.activeEditor()"));
+        QVERIFY(composer.contains("return root.richMode ? richInput : input"));
+        QVERIFY(composer.contains("editor.selectionStart"));
+        QVERIFY(composer.contains("editor.selectionEnd"));
+        QVERIFY(composer.contains("editor.remove(start, end)"));
+        QVERIFY(composer.contains("editor.insert(start, emoji)"));
+        QVERIFY(composer.contains("editor.cursorPosition = start + emoji.length"));
     }
 };
 QTEST_MAIN(EmojiUiContractTest)

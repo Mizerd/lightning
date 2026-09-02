@@ -4968,15 +4968,17 @@ pub unsafe extern "C" fn mx_rust_timeline_send_text(
     room_id: *const c_char,
     body: *const c_char,
     mention_user_ids: *const c_char,
+    body_spec: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         let body = unsafe { cstr_arg(body) }?;
         let mentions = unsafe { cstr_list_arg(mention_user_ids) }?;
+        let spec = timeline::parse_body_spec(&unsafe { cstr_opt_arg(body_spec) }?)?;
         bridge
             .timelines
-            .send_text(&bridge.runtime, room_id, body, mentions)
+            .send_text(&bridge.runtime, room_id, body, mentions, spec)
             .map(|_| String::new())
     })
 }
@@ -4988,6 +4990,7 @@ pub unsafe extern "C" fn mx_rust_timeline_send_reply(
     in_reply_to_event_id: *const c_char,
     body: *const c_char,
     mention_user_ids: *const c_char,
+    body_spec: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
@@ -4995,9 +4998,10 @@ pub unsafe extern "C" fn mx_rust_timeline_send_reply(
         let reply_to = unsafe { cstr_arg(in_reply_to_event_id) }?;
         let body = unsafe { cstr_arg(body) }?;
         let mentions = unsafe { cstr_list_arg(mention_user_ids) }?;
+        let spec = timeline::parse_body_spec(&unsafe { cstr_opt_arg(body_spec) }?)?;
         bridge
             .timelines
-            .send_reply(&bridge.runtime, room_id, reply_to, body, mentions)
+            .send_reply(&bridge.runtime, room_id, reply_to, body, mentions, spec)
             .map(|_| String::new())
     })
 }
@@ -5060,6 +5064,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
     body: *const c_char,
     in_reply_to: *const c_char,
     mention_user_ids: *const c_char,
+    body_spec: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
@@ -5075,6 +5080,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
             if value.trim().is_empty() { None } else { Some(value) }
         };
         let mentions = unsafe { cstr_list_arg(mention_user_ids) }?;
+        let spec = timeline::parse_body_spec(&unsafe { cstr_opt_arg(body_spec) }?)?;
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
             return Err("Rust SDK session is not logged in.".to_owned());
         };
@@ -5082,6 +5088,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
             .timelines
             .send_thread_text(
                 &bridge.runtime, client, room_id, root, body, reply_to, mentions,
+                spec,
             )
             .map(|_| String::new())
     })
@@ -5350,6 +5357,7 @@ pub unsafe extern "C" fn mx_rust_timeline_edit(
     target_event_id: *const c_char,
     new_body: *const c_char,
     mention_user_ids: *const c_char,
+    body_spec: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
@@ -5357,9 +5365,10 @@ pub unsafe extern "C" fn mx_rust_timeline_edit(
         let target = unsafe { cstr_arg(target_event_id) }?;
         let new_body = unsafe { cstr_arg(new_body) }?;
         let mentions = unsafe { cstr_list_arg(mention_user_ids) }?;
+        let spec = timeline::parse_body_spec(&unsafe { cstr_opt_arg(body_spec) }?)?;
         bridge
             .timelines
-            .edit(&bridge.runtime, room_id, target, new_body, mentions)
+            .edit(&bridge.runtime, room_id, target, new_body, mentions, spec)
             .map(|_| String::new())
     })
 }
@@ -5385,6 +5394,15 @@ pub unsafe extern "C" fn mx_rust_timeline_toggle_reaction(
 
 /// Parse an optional newline-separated FFI list argument. NULL or an empty
 /// string yields an empty list; entries are trimmed and blanks dropped.
+/// Optional string FFI argument: NULL is the empty string, not an error.
+/// For arguments whose absence is a meaningful default (the v0.9 body spec).
+unsafe fn cstr_opt_arg(value: *const c_char) -> Result<String, String> {
+    if value.is_null() {
+        return Ok(String::new());
+    }
+    unsafe { cstr_arg(value) }
+}
+
 unsafe fn cstr_list_arg(value: *const c_char) -> Result<Vec<String>, String> {
     if value.is_null() {
         return Ok(Vec::new());

@@ -265,6 +265,11 @@ class AppController : public QObject
     Q_PROPERTY(TimelineModel* timeline READ timeline CONSTANT)
     Q_PROPERTY(QAbstractItemModel* timelineView READ timelineView CONSTANT)
     Q_PROPERTY(MessageComposer* composer READ composer CONSTANT)
+    // v0.9 rich composer: the QML-facing document bridge (serialize + send,
+    // toolbar formatting, draft-only markdown conversion). Typed QObject*
+    // for the same reason as the spell checker below — no QML type
+    // registration needed, everything QML calls is Q_INVOKABLE.
+    Q_PROPERTY(QObject* richComposer READ richComposer CONSTANT)
     /// The composer's spell checker. Typed QObject* rather than
     /// SpellChecker* on purpose: it needs no QML type registration to be
     /// used from QML, and every method QML calls on it is Q_INVOKABLE.
@@ -551,6 +556,7 @@ public:
     TimelineModel *timeline() const;
     QAbstractItemModel *timelineView() const;
     MessageComposer *composer() const;
+    QObject *richComposer() const;
     MentionSuggestionModel *mentionSuggestions() const
     { return m_mentionSuggestions.get(); }
     EmojiCatalog *emojiCatalog() const { return m_emojiCatalog.get(); }
@@ -1238,6 +1244,7 @@ private:
     std::unique_ptr<TimelineModel> m_timeline;
     std::unique_ptr<ReverseListProxyModel> m_timelineView;
     std::unique_ptr<MessageComposer> m_composer;
+    std::unique_ptr<class RichComposerBridge> m_richComposer;
     std::unique_ptr<DraftStore> m_draftStore;
     std::unique_ptr<MentionSuggestionModel> m_mentionSuggestions;
     std::unique_ptr<EmojiCatalog> m_emojiCatalog;

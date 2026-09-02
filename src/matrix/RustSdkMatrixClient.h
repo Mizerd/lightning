@@ -234,6 +234,21 @@ public:
                      const QString &targetEventId,
                      const QString &newBody,
                      const QStringList &mentionUserIds) override;
+    // v0.9 formatted sends: the bodySpec crosses the FFI as one JSON
+    // argument; Rust re-validates it and strict-sanitizes any HTML.
+    void sendTextMessage(const QString &roomId, const QString &body,
+                         const QStringList &mentionUserIds,
+                         const QVariantMap &bodySpec) override;
+    void sendReply(const QString &roomId,
+                   const QString &replyToEventId,
+                   const QString &body,
+                   const QStringList &mentionUserIds,
+                   const QVariantMap &bodySpec) override;
+    void editMessage(const QString &roomId,
+                     const QString &targetEventId,
+                     const QString &newBody,
+                     const QStringList &mentionUserIds,
+                     const QVariantMap &bodySpec) override;
     void redactEvent(const QString &roomId,
                      const QString &eventId,
                      const QString &reason = QString()) override;
@@ -339,6 +354,12 @@ public:
                            const QString &inReplyToEventId,
                            const QString &body,
                            const QStringList &mentionUserIds) override;
+    void sendThreadReplyTo(const QString &roomId,
+                           const QString &threadRootEventId,
+                           const QString &inReplyToEventId,
+                           const QString &body,
+                           const QStringList &mentionUserIds,
+                           const QVariantMap &bodySpec) override;
     void retryDecryption(const QString &roomId) override;
     bool supportsThreadList() const override { return true; }
     void openThreadList(const QString &roomId) override;

@@ -1319,9 +1319,112 @@ Rectangle {
                             ToolTip.delay: 500
                             onClicked: threadAttachDialog.open()
                         }
+                        // v0.9 rich composer for the thread panel; same
+                        // growth rules as threadInputFlick, visibility-
+                        // exclusive with it on panel.richMode.
+                        Flickable {
+                            id: threadRichFlick
+                            objectName: "threadRichInputFlick"
+                            visible: panel.richMode
+                            Layout.fillWidth: true
+                            Layout.maximumHeight: AppTheme.scaled(110)
+                            implicitHeight: threadRichInput.implicitHeight
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            flickableDirection: Flickable.VerticalFlick
+                            ScrollBar.vertical: AppScrollBar { thin: true }
+                            ToolTip.visible: panel.richMode
+                                             && app.thread.commandError.length > 0
+                            ToolTip.text: app.thread.commandError + " "
+                                          + qsTr("Press Enter again to send it as a message.")
+
+                            TextArea.flickable: TextArea {
+                                id: threadRichInput
+                                objectName: "threadRichInput"
+                                textFormat: TextEdit.RichText
+                                placeholderText: qsTr("Reply in thread")
+                                placeholderTextColor: AppTheme.textMuted
+                                inputMethodHints: Qt.ImhNone
+                                wrapMode: TextArea.Wrap
+                                enabled: app.thread.state === ThreadController.Ready
+                                background: Rectangle { color: "transparent" }
+                                color: AppTheme.text
+                                font.pixelSize: AppTheme.scaled(13)
+                                onTextChanged: {
+                                    if (panel.richSyncing || !panel.richMode)
+                                        return
+                                    panel.richSyncing = true
+                                    app.thread.text =
+                                        app.richComposer.toMarkdown(textDocument)
+                                    panel.richSyncing = false
+                                    panel.updateThreadRichMentionState()
+                                }
+                                onCursorPositionChanged:
+                                    panel.updateThreadRichMentionState()
+                                Keys.onShortcutOverride: (event) => {
+                                    if (app.shortcuts.editorActionForKey(
+                                            event.key, event.modifiers) !== "")
+                                        event.accepted = true
+                                }
+                                Keys.onPressed: (event) => {
+                                    if (threadMentionPopup.visible) {
+                                        if (event.key === Qt.Key_Down) {
+                                            threadMentionPopup.moveDown()
+                                            event.accepted = true; return
+                                        }
+                                        if (event.key === Qt.Key_Up) {
+                                            threadMentionPopup.moveUp()
+                                            event.accepted = true; return
+                                        }
+                                        if (event.key === Qt.Key_Tab
+                                            || event.key === Qt.Key_Return
+                                            || event.key === Qt.Key_Enter) {
+                                            threadMentionPopup.accept()
+                                            event.accepted = true; return
+                                        }
+                                        if (event.key === Qt.Key_Escape) {
+                                            threadMentionPopup.close()
+                                            event.accepted = true; return
+                                        }
+                                    }
+                                    var richFormatAction =
+                                        app.shortcuts.editorActionForKey(
+                                            event.key, event.modifiers)
+                                    if (richFormatAction !== "") {
+                                        event.accepted = true
+                                        panel.applyThreadFormat(
+                                            richFormatAction.substring(
+                                                "composer.".length))
+                                        return
+                                    }
+                                    if ((event.key === Qt.Key_Return
+                                         || event.key === Qt.Key_Enter)
+                                        && !(event.modifiers & Qt.ShiftModifier)) {
+                                        panel.sendComposerText()
+                                        event.accepted = true
+                                    } else if (event.key === Qt.Key_Escape) {
+                                        if (app.thread.inReply)
+                                            app.thread.cancelReply()
+                                        else
+                                            panel.closeRequested()
+                                        event.accepted = true
+                                    } else if (event.matches(StandardKey.Paste)
+                                               && app.thread.pasteFromClipboard()) {
+                                        event.accepted = true
+                                    }
+                                }
+                            }
+                        }
                         Flickable {
                             id: threadInputFlick
+                            visible: !panel.richMode
                             Layout.fillWidth: true
+                            // v0.9 slash commands: the refusal, with the
+                            // literal-send escape spelled out.
+                            ToolTip.visible: !panel.richMode
+                                             && app.thread.commandError.length > 0
+                            ToolTip.text: app.thread.commandError + " "
+                                          + qsTr("Press Enter again to send it as a message.")
                             // Grows to ~6 lines at the current text scale,
                             // then scrolls with the caret kept in view — a
                             // bare TextArea cannot scroll, so the cap alone
@@ -1885,8 +1988,11 @@ Rectangle {
                             fill: true
                             iconName: "send"
                             iconSize: 16
+                            // app.thread.text is the markdown mirror in
+                            // both modes, so one condition serves both
+                            // editors.
                             enabled: app.thread.state === ThreadController.Ready
-                                     && (threadComposerInput.text.trim().length > 0
+                                     && (app.thread.text.trim().length > 0
                                          || app.thread.hasAttachments)
                             Accessible.name: qsTr("Send thread reply")
                             ToolTip.text: qsTr("Send")
@@ -2040,6 +2146,8 @@ Rectangle {
     property string lastThreadMentionScanText: ""
     property int lastThreadMentionScanCursor: -1
     function updateThreadMentionState() {
+        if (panel.richMode)
+            return // the rich editor scans itself (updateThreadRichMentionState)
         if (threadComposerInput.text === panel.lastThreadMentionScanText
             && threadComposerInput.cursorPosition
                === panel.lastThreadMentionScanCursor)
@@ -2217,6 +2325,10 @@ Rectangle {
     }
 
     function insertThreadMention(userId, displayName) {
+        if (panel.richMode) {
+            panel.insertThreadRichMention(userId, displayName)
+            return
+        }
         var newCursor = app.thread.insertMention(
             userId, displayName, panel.threadMentionTokenStart,
             threadComposerInput.cursorPosition)
@@ -2231,6 +2343,17 @@ Rectangle {
         function onTextChanged() {
             if (threadComposerInput.text !== app.thread.text)
                 threadComposerInput.text = app.thread.text
+            // Rich mode follows a C++-side rewrite (draft restore, clear
+            // after send) unless this is the echo of its own push.
+            if (!panel.richMode || panel.richSyncing)
+                return
+            var current = app.richComposer.toMarkdown(threadRichInput.textDocument)
+            if (current.trim() === app.thread.text.trim())
+                return
+            panel.richSyncing = true
+            app.richComposer.loadMarkdown(threadRichInput.textDocument,
+                                          app.thread.text)
+            panel.richSyncing = false
         }
     }
 
@@ -2327,6 +2450,12 @@ Rectangle {
     // own text and selection is correct and is the reason there is no second
     // implementation of the markdown rules here. Do not copy them.
     function applyThreadFormat(format) {
+        if (panel.richMode) {
+            panel.applyThreadRichFormat(format)
+            return
+        }
+        if (format === "underline")
+            return // no markdown form; a rich-mode key
         var result = app.composer.toggleFormat(format,
                                                threadComposerInput.text,
                                                threadComposerInput.selectionStart,
@@ -2340,16 +2469,131 @@ Rectangle {
         threadComposerInput.forceActiveFocus()
     }
 
+    // v0.9 composer modes in the thread panel — the same two-editor design
+    // as MessageComposerBar (see its richMode comment): app.thread.text is
+    // the MARKDOWN MIRROR in both modes, the rich editor pushes toMarkdown()
+    // per edit, and the wire bodies come from RichComposition over the live
+    // document via app.richComposer.sendDocumentToThread.
+    readonly property bool richMode: app.settings
+                                     && app.settings.composerMode === "rich"
+    property bool richSyncing: false
+    // A standing command refusal: the FIRST send refused and kept the
+    // draft; a second send of the SAME text posts it literally. The tooltip
+    // on the field says so, which is what makes the second press a choice
+    // rather than hidden state.
+    property string commandErrorText: ""
+    onRichModeChanged: {
+        if (panel.richMode) {
+            panel.richSyncing = true
+            app.richComposer.loadMarkdown(threadRichInput.textDocument,
+                                          app.thread.text)
+            panel.richSyncing = false
+            threadMentionPopup.close()
+            Qt.callLater(function () { threadRichInput.forceActiveFocus() })
+        } else {
+            threadMentionPopup.close()
+            Qt.callLater(function () { threadComposerInput.forceActiveFocus() })
+        }
+    }
     function sendComposerText() {
         if (app.thread.state !== ThreadController.Ready)
             return
+        if (panel.richMode) {
+            var plain = threadRichInput.getText(0, threadRichInput.length).trim()
+            if (plain.length === 0 && !app.thread.hasAttachments)
+                return
+            if (app.thread.commandError.length > 0
+                    && panel.commandErrorText === plain) {
+                app.thread.sendTextBypassingCommands(plain)
+            } else {
+                app.richComposer.sendDocumentToThread(threadRichInput.textDocument)
+            }
+            panel.commandErrorText = app.thread.commandError.length > 0 ? plain : ""
+            if (app.thread.commandError.length === 0) {
+                replyList.followLatest = true
+                replyList.scrollToEndDeferredIfFollowing()
+            }
+            return
+        }
         var body = threadComposerInput.text.trim()
         if (body.length === 0 && !app.thread.hasAttachments)
             return
-        // sendText dispatches any queued attachments first, then the text.
-        app.thread.sendText(body)
+        // sendText dispatches any queued attachments first, then the text —
+        // unless it is a refused slash command, in which case the draft
+        // stays and a second send of the same text posts it literally.
+        if (app.thread.commandError.length > 0 && panel.commandErrorText === body)
+            app.thread.sendTextBypassingCommands(body)
+        else
+            app.thread.sendText(body)
+        if (app.thread.commandError.length > 0) {
+            panel.commandErrorText = body
+            return
+        }
+        panel.commandErrorText = ""
         threadComposerInput.text = ""
         replyList.followLatest = true
         replyList.scrollToEndDeferredIfFollowing()
+    }
+    function applyThreadRichFormat(format) {
+        var argument = ""
+        if (format === "link") {
+            var selected = threadRichInput.selectedText
+            if (selected.length > 0
+                    && app.richComposer.isSafeLinkTarget(selected))
+                argument = selected
+            else if (!app.richComposer.formatState(
+                         threadRichInput.textDocument,
+                         threadRichInput.selectionStart,
+                         threadRichInput.selectionEnd)["link"])
+                return // no link dialog in the panel: select a URL to link it
+        }
+        app.richComposer.toggleFormat(threadRichInput.textDocument,
+                                      threadRichInput.selectionStart,
+                                      threadRichInput.selectionEnd, format,
+                                      argument)
+        threadRichInput.forceActiveFocus()
+    }
+    function updateThreadRichMentionState() {
+        if (!panel.richMode)
+            return
+        if (!app.thread.active) {
+            threadMentionPopup.close()
+            return
+        }
+        var plain = threadRichInput.getText(0, threadRichInput.length)
+        var tok = app.thread.mentionTokenAt(plain, threadRichInput.cursorPosition)
+        if (tok && tok.active === true) {
+            panel.threadMentionTokenStart = tok.start
+            app.mentionSuggestions.roomId = app.thread.roomId
+            app.mentionSuggestions.query = tok.query
+            threadMentionPopup.query = tok.query
+            var p = threadRichFlick.mapToItem(Overlay.overlay, 0, 0)
+            threadMentionPopup.anchorInputTop = Qt.point(p.x, p.y)
+            threadMentionPopup.anchorWidth = threadRichFlick.width
+            if (!threadMentionPopup.visible)
+                threadMentionPopup.open()
+        } else {
+            panel.threadMentionTokenStart = -1
+            threadMentionPopup.close()
+        }
+    }
+    function escapeHtmlText(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    }
+    function insertThreadRichMention(userId, displayName) {
+        var start = panel.threadMentionTokenStart
+        var end = threadRichInput.cursorPosition
+        if (start < 0 || end < start)
+            return
+        var name = displayName && displayName.length > 0
+                   ? displayName : String(userId).substring(1)
+        threadRichInput.remove(start, end)
+        threadRichInput.insert(start, "<a href=\"https://matrix.to/#/"
+                               + encodeURIComponent(userId) + "\">@"
+                               + panel.escapeHtmlText(name) + "</a> ")
+        threadRichInput.cursorPosition = start + name.length + 2
+        threadMentionPopup.close()
+        threadRichInput.forceActiveFocus()
     }
 }

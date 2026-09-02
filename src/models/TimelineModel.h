@@ -5,6 +5,7 @@
 #include <QAbstractListModel>
 #include <QHash>
 #include <QList>
+#include <QSet>
 #include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
@@ -535,6 +536,15 @@ private:
     mutable QHash<QString, QVariantList> m_messageSegmentsCache;
     void forgetRenderedHtml(const QString &eventId);
     void clearRenderedHtml();
+
+public:
+    // v0.9 spoilers: flip one event's click-to-reveal state (delegate
+    // routes the internal spoiler:toggle anchor here). Model-level so the
+    // choice survives delegate churn; dies with the timeline.
+    Q_INVOKABLE void toggleSpoilers(const QString &eventId);
+
+private:
+    QSet<QString> m_spoilersRevealed;
     QString m_selfUserId;
     QList<TimelineEvent> m_events;
     // Loaded thread replies per root event id. IsThreadRootRole and
