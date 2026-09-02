@@ -1374,7 +1374,8 @@ Rectangle {
                                     }
                                 }
                                 textFormat: TextEdit.RichText
-                                placeholderText: qsTr("Reply in thread")
+                                placeholderText: panel.threadRichBlank
+                                                 ? qsTr("Reply in thread") : ""
                                 placeholderTextColor: AppTheme.textMuted
                                 inputMethodHints: Qt.ImhNone
                                 wrapMode: TextArea.Wrap
@@ -1384,6 +1385,7 @@ Rectangle {
                                 font.pixelSize: AppTheme.scaled(13)
                                 onTextChanged: {
                                     threadRichSpellTimer.restart()
+                                    panel.refreshThreadRichBlank()
                                     if (panel.richSyncing || !panel.richMode)
                                         return
                                     panel.richSyncing = true
@@ -2276,6 +2278,14 @@ Rectangle {
     // Rich-mode underlines keep their own geometry; the editors never show
     // at once. See the room composer for the mechanism and the reasons.
     property var threadRichSpellUnderlines: []
+    // See the room composer: `length` is characters, and an empty list item
+    // has none while still drawing its marker over the placeholder.
+    property bool threadRichBlank: true
+    function refreshThreadRichBlank() {
+        panel.threadRichBlank =
+            !app.richComposer
+            || app.richComposer.documentIsBlank(threadRichInput.textDocument)
+    }
 
     function activeThreadEditor() {
         return panel.richMode ? threadRichInput : threadComposerInput
@@ -2571,6 +2581,7 @@ Rectangle {
     onRichModeChanged: {
         panel.threadSpellUnderlines = []
         panel.threadRichSpellUnderlines = []
+        panel.refreshThreadRichBlank()
         // The Markdown field's text is a binding the rich mirror kept
         // current, so switching back fires no textChanged: refresh here.
         if (panel.richMode)
@@ -2646,6 +2657,8 @@ Rectangle {
                                       threadRichInput.selectionEnd, format,
                                       argument)
         threadRichInput.forceActiveFocus()
+        // Structure changes what is DRAWN without changing a character.
+        panel.refreshThreadRichBlank()
     }
     function updateThreadRichMentionState() {
         if (!panel.richMode)

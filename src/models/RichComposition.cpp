@@ -492,3 +492,23 @@ void RichComposition::replaceRange(QTextDocument *document, int start, int lengt
     cursor.insertText(replacement, keep);
     cursor.endEditBlock();
 }
+
+bool RichComposition::documentIsBlank(const QTextDocument &document)
+{
+    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+        if (!block.text().isEmpty())
+            return false;
+        // Structure with no text in it is still something on screen: a list
+        // marker, a quote bar, a code slab, a heading's own metrics.
+        if (block.textList() != nullptr)
+            return false;
+        const QTextBlockFormat bf = block.blockFormat();
+        if (bf.intProperty(QTextFormat::BlockQuoteLevel) > 0
+            || bf.headingLevel() > 0
+            || bf.hasProperty(QTextFormat::BlockCodeLanguage)
+            || bf.hasProperty(QTextFormat::BlockCodeFence)) {
+            return false;
+        }
+    }
+    return true;
+}

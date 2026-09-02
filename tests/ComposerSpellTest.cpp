@@ -1,4 +1,5 @@
 #include <QFile>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QString>
 #include <QStringList>
@@ -335,6 +336,69 @@ private Q_SLOTS:
         QCOMPARE(SpellChecker::labelForTag(QStringLiteral("de-DE")),
                  QStringLiteral("German (Germany)"));
         QCOMPARE(SpellChecker::labelForTag(QString()), QString());
+    }
+
+    // 2026-09-02, from a live report: the command popup drew ~15 two-line
+    // rows out of a Column while its own height stopped at eight, so the
+    // tail rendered BELOW the panel, outside the background and unreachable.
+    void theCommandPopupClipsItsRowsAndCanScroll()
+    {
+        const QString popup = qmlCodeLines(qmlSource(QStringLiteral("SlashCommandPopup.qml")));
+        QVERIFY2(!popup.isEmpty(), "SlashCommandPopup.qml missing");
+        // A real list, not a Column that can overflow its own panel.
+        QVERIFY(popup.contains(QStringLiteral("ListView {")));
+        QVERIFY(popup.contains(QStringLiteral("id: commandList")));
+        QVERIFY(popup.contains(QStringLiteral("clip: true")));
+        QVERIFY(popup.contains(QStringLiteral("ScrollBar.vertical: AppScrollBar")));
+        // The keyboard drives the list, and the list follows it.
+        QVERIFY(popup.contains(QStringLiteral(
+            "commandList.positionViewAtIndex(currentIndex, ListView.Contain)")));
+        // The row height must cover BOTH lines a row draws.
+        const QRegularExpression rowH(
+            QStringLiteral("rowH:\\s*AppTheme\\.scaled\\((\\d+)\\)"));
+        const QRegularExpressionMatch m = rowH.match(popup);
+        QVERIFY2(m.hasMatch(), "rowH is not declared as a scaled constant");
+        QVERIFY2(m.captured(1).toInt() >= 48,
+                 qPrintable(QStringLiteral("rowH %1 is too short for a two-line row")
+                                .arg(m.captured(1))));
+    }
+
+    // The two rich-only toolbar chips are two characters wide; AppButton's
+    // 72px minimum turned each into a gap in the toolbar row.
+    void theRichToolbarChipsAreChipsNotButtonWidthGaps()
+    {
+        const QString bar = qmlCodeLines(qmlSource(QStringLiteral("MessageComposerBar.qml")));
+        QVERIFY2(!bar.isEmpty(), "MessageComposerBar.qml missing");
+        for (const QString &name : { QStringLiteral("composerFormat_underline"),
+                                     QStringLiteral("composerFormat_orderedlist") }) {
+            const int at = bar.indexOf(QStringLiteral("objectName: \"") + name);
+            QVERIFY2(at > 0, qPrintable(name));
+            // Anchored on the declaration, not on a fixed window after it.
+            const int end = bar.indexOf(QStringLiteral("onClicked"), at);
+            QVERIFY(end > at);
+            QVERIFY2(bar.mid(at, end - at).contains(QStringLiteral("minWidth: 0")),
+                     qPrintable(name + QStringLiteral(" still takes the 72px button minimum")));
+        }
+    }
+
+    // The rich editor's placeholder must go the moment the document draws
+    // anything — an empty list item has no characters and still shows "1.".
+    void bothRichComposersGateTheirPlaceholderOnTheDocument()
+    {
+        const QString bar = qmlCodeLines(qmlSource(QStringLiteral("MessageComposerBar.qml")));
+        const QString thread = qmlCodeLines(qmlSource(QStringLiteral("ThreadPanel.qml")));
+        QVERIFY(bar.contains(QStringLiteral("property bool richBlank: true")));
+        QVERIFY(bar.contains(QStringLiteral(
+            "app.richComposer.documentIsBlank(richInput.textDocument)")));
+        QVERIFY(bar.contains(QStringLiteral("placeholderText: root.richBlank")));
+        QVERIFY(thread.contains(QStringLiteral("property bool threadRichBlank: true")));
+        QVERIFY(thread.contains(QStringLiteral(
+            "app.richComposer.documentIsBlank(threadRichInput.textDocument)")));
+        QVERIFY(thread.contains(QStringLiteral("placeholderText: panel.threadRichBlank")));
+        // A format toggle changes no characters, so it must refresh the flag
+        // itself or the placeholder would linger under a list marker.
+        QVERIFY(bar.contains(QStringLiteral("root.refreshRichBlank()")));
+        QVERIFY(thread.contains(QStringLiteral("panel.refreshThreadRichBlank()")));
     }
 
     void neitherComposerSuppressesPlatformPrediction()

@@ -297,6 +297,55 @@ private Q_SLOTS:
     }
     // ── v0.9 spell checking in rich mode ─────────────────────────────
 
+    // 2026-09-02, from a live report: pressing the numbered-list button put
+    // "1." in the editor and the placeholder "Message #room" stayed drawn
+    // underneath it. An empty list item has NO characters, so the
+    // TextArea's own emptiness test still said empty.
+    void structureWithNoTextIsNotABlankDocument()
+    {
+        QTextDocument empty;
+        QVERIFY(RichComposition::documentIsBlank(empty));
+
+        QTextDocument typed;
+        QTextCursor tc(&typed);
+        tc.insertText(QStringLiteral("a"));
+        QVERIFY(!RichComposition::documentIsBlank(typed));
+
+        // An ordered list with nothing typed into it: Qt draws "1.".
+        QTextDocument list;
+        QTextCursor lc(&list);
+        lc.insertList(QTextListFormat::ListDecimal);
+        QVERIFY(!RichComposition::documentIsBlank(list));
+
+        QTextDocument bullets;
+        QTextCursor bc(&bullets);
+        bc.insertList(QTextListFormat::ListDisc);
+        QVERIFY(!RichComposition::documentIsBlank(bullets));
+
+        // A quote bar and a code slab draw too.
+        QTextDocument quote;
+        QTextCursor qc(&quote);
+        QTextBlockFormat qf = qc.blockFormat();
+        qf.setProperty(QTextFormat::BlockQuoteLevel, 1);
+        qc.setBlockFormat(qf);
+        QVERIFY(!RichComposition::documentIsBlank(quote));
+
+        QTextDocument code;
+        QTextCursor cc(&code);
+        QTextBlockFormat cf = cc.blockFormat();
+        cf.setProperty(QTextFormat::BlockCodeFence, QStringLiteral("```"));
+        cc.setBlockFormat(cf);
+        QVERIFY(!RichComposition::documentIsBlank(code));
+
+        // Blank paragraphs are still blank: a document the user emptied by
+        // pressing Return twice must get its placeholder back.
+        QTextDocument paragraphs;
+        QTextCursor pc(&paragraphs);
+        pc.insertBlock();
+        pc.insertBlock();
+        QVERIFY(RichComposition::documentIsBlank(paragraphs));
+    }
+
     void spellSkipRangesCoverCodeAndMentionsButNotLinkText()
     {
         QTextDocument doc;

@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QRawFont>
 #include <QLoggingCategory>
 #include <QSaveFile>
 #include <QSet>
@@ -116,6 +117,43 @@ QString FontManager::importedFontsDir()
     return root + QLatin1String("/fonts");
 }
 
+// The faces that are not TEXT faces at all: the colour emoji families this
+// application itself probes for (AppController::emojiFontFamily) and the
+// bundled icon subset. Offering one as the interface font paints the whole
+// interface through fallback; offering one as the monospace font is how
+// every digit in the app became an emoji glyph.
+bool FontManager::isNonTextFace(const QString &family)
+{
+    static const char *const kNames[] = {
+        "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Twemoji",
+        "JoyPixels",        "EmojiOne Color",    "Noto Emoji",
+        "Material Symbols Rounded",
+    };
+    for (const char *name : kNames) {
+        if (family.compare(QLatin1String(name), Qt::CaseInsensitive) == 0)
+            return true;
+    }
+    return false;
+}
+
+bool FontManager::facesLatinText(const QString &family)
+{
+    QFont probe(family);
+    // NoFontMerging or the answer comes from whatever Qt would fall back to,
+    // which is exactly the substitution being detected.
+    probe.setStyleStrategy(QFont::NoFontMerging);
+    const QRawFont raw = QRawFont::fromFont(probe);
+    if (!raw.isValid())
+        return false;
+    // The alphabet AND the digits: an emoji face has 0-9 (keycap bases) and
+    // no letters, so digits alone would still admit it.
+    for (const char32_t c : { U'A', U'a', U'0', U'9' }) {
+        if (!raw.supportsCharacter(c))
+            return false;
+    }
+    return true;
+}
+
 void FontManager::refreshFamilyCache()
 {
     m_familyCache.clear();
@@ -151,14 +189,19 @@ void FontManager::refreshFamilyCache()
         // person picks a user interface in.
         if (family.startsWith(QLatin1Char('.')))
             continue;
-        if (family.compare(QLatin1String("Material Symbols Rounded"),
-                           Qt::CaseInsensitive) != 0
-            && !seen.contains(family.toLower())) {
+        if (!isNonTextFace(family) && !seen.contains(family.toLower())) {
             seen.insert(family.toLower());
             m_uiFamilies.append(family);
         }
+        // A monospace face is for code, JSON and timestamps: it must be
+        // fixed pitch AND able to draw letters and digits. isFixedPitch()
+        // alone admits every emoji and icon face. The Latin probe is the
+        // expensive half, so it runs only for the handful of families that
+        // already claim fixed pitch (10 of 274 on the machine this was
+        // measured on; ~100 ms over ALL families, under 5 ms over these).
         if (!monoSeen.contains(family.toLower())
-            && QFontDatabase::isFixedPitch(family)) {
+            && QFontDatabase::isFixedPitch(family) && !isNonTextFace(family)
+            && facesLatinText(family)) {
             monoSeen.insert(family.toLower());
             m_monoFamilies.append(family);
         }
@@ -199,29 +242,66 @@ QString FontManager::storedMonospaceFamily() const
     return m_settings ? m_settings->monoFont() : defaultMonospaceFamily();
 }
 
+namespace {
+bool listHas(const QStringList &list, const QString &family)
+{
+    const QString needle = family.trimmed();
+    if (needle.isEmpty())
+        return false;
+    for (const QString &entry : list) {
+        if (entry.compare(needle, Qt::CaseInsensitive) == 0)
+            return true;
+    }
+    return false;
+}
+} // namespace
+
+// USABLE means "one this surface would offer". Availability used to ask only
+// whether the family is installed, which said yes to an emoji face the
+// picker should never have listed — and then drew every digit with it.
 bool FontManager::uiFamilyAvailable() const
 {
-    return hasFamily(storedUiFamily());
+    return listHas(m_uiFamilies, storedUiFamily());
 }
 
 bool FontManager::monospaceFamilyAvailable() const
 {
-    return hasFamily(storedMonospaceFamily());
+    return listHas(m_monoFamilies, storedMonospaceFamily());
+}
+
+QString FontManager::uiFamilyUnavailableReason() const
+{
+    const QString stored = storedUiFamily();
+    if (listHas(m_uiFamilies, stored))
+        return {};
+    return hasFamily(stored) ? QStringLiteral("unusable")
+                             : QStringLiteral("missing");
+}
+
+QString FontManager::monospaceFamilyUnavailableReason() const
+{
+    const QString stored = storedMonospaceFamily();
+    if (listHas(m_monoFamilies, stored))
+        return {};
+    return hasFamily(stored) ? QStringLiteral("unusable")
+                             : QStringLiteral("missing");
 }
 
 QString FontManager::uiFamily() const
 {
     // THE fallback rule. The stored value is read, not written: a font that is
     // missing today may be installed again tomorrow, and rewriting the setting
-    // would destroy the user's choice on its behalf.
+    // would destroy the user's choice on its behalf. The same holds for a
+    // face that cannot draw this surface — the choice is kept and Settings
+    // says which of the two reasons applies.
     const QString stored = storedUiFamily();
-    return hasFamily(stored) ? stored : defaultUiFamily();
+    return listHas(m_uiFamilies, stored) ? stored : defaultUiFamily();
 }
 
 QString FontManager::monospaceFamily() const
 {
     const QString stored = storedMonospaceFamily();
-    return hasFamily(stored) ? stored : defaultMonospaceFamily();
+    return listHas(m_monoFamilies, stored) ? stored : defaultMonospaceFamily();
 }
 
 void FontManager::setUiFamily(const QString &family)

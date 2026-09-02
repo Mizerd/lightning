@@ -30,9 +30,15 @@ Popup {
     padding: AppTheme.menuPadding
 
     readonly property int count: completions ? completions.length : 0
-    readonly property int rowH: AppTheme.scaled(40)
+    // A row is two lines — the command with its argument hint, then the
+    // description — so 40px was never enough: the Column drew every one of
+    // the ~15 commands at its natural height and the popup's own height
+    // stopped at eight, so the tail spilled out BELOW the panel, unclipped
+    // and unreachable. The list is a real ListView now: clipped, scrollable,
+    // and the height follows what fits.
+    readonly property int rowH: AppTheme.scaled(52)
     readonly property int headerH: AppTheme.scaled(24)
-    readonly property int visibleRows: Math.max(1, Math.min(count, 8))
+    readonly property int visibleRows: Math.max(1, Math.min(count, 6))
 
     width: Math.max(280, Math.min(anchorWidth, 420))
     height: headerH + visibleRows * rowH + padding * 2
@@ -56,10 +62,12 @@ Popup {
     function moveDown() {
         if (count > 0)
             currentIndex = (currentIndex + 1) % count
+        commandList.positionViewAtIndex(currentIndex, ListView.Contain)
     }
     function moveUp() {
         if (count > 0)
             currentIndex = (currentIndex - 1 + count) % count
+        commandList.positionViewAtIndex(currentIndex, ListView.Contain)
     }
     function accept() {
         if (count === 0)
@@ -111,14 +119,33 @@ Popup {
             color: AppTheme.stormTextFaint
         }
 
-        Repeater {
+        ListView {
+            id: commandList
+            objectName: "slashCommandPopupList"
+            width: parent.width
+            height: root.height - root.headerH - root.padding * 2
+            // The whole point: nothing may be drawn outside the panel.
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
             model: root.completions
+            currentIndex: root.currentIndex
+            // The list follows the keyboard, and the keyboard follows the
+            // editor — the popup itself never takes focus.
+            interactive: contentHeight > height
+
+            ScrollBar.vertical: AppScrollBar {
+                thin: true
+                objectName: "slashCommandPopupScrollBar"
+                policy: commandList.contentHeight > commandList.height
+                        ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+            }
+
             delegate: Rectangle {
                 required property var modelData
                 required property int index
                 readonly property bool selected: index === root.currentIndex
                 readonly property bool rowEnabled: modelData.enabled !== false
-                width: parent.width
+                width: ListView.view.width
                 height: root.rowH
                 radius: AppTheme.radiusSm
                 color: selected ? AppTheme.stormSelection : "transparent"

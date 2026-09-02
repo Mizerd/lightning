@@ -225,6 +225,67 @@ private Q_SLOTS:
         QCOMPARE(fonts.uiFamily(), real);
     }
 
+    // 2026-09-02, from a live report: every digit in the app rendered as an
+    // emoji glyph because "Noto Color Emoji" was offered in the MONOSPACE
+    // picker and chosen. Qt says isFixedPitch = true for it (every emoji is
+    // one advance wide) and it carries 0-9 as keycap bases, so digits came
+    // from the emoji face while letters fell back elsewhere.
+    void anIconOrEmojiFaceIsNotATextFaceAndIsNeverOffered()
+    {
+        if (m_fontsSource.isEmpty())
+            QSKIP("no real font available in this environment");
+        // The bundled icon SUBSET is exactly this class of face and is
+        // always available to the test, unlike a host emoji font.
+        const QString icons = QString::fromLatin1(SOURCE_DIR
+            "/data/fonts/MaterialSymbolsRounded-subset.ttf");
+        QVERIFY2(QFileInfo::exists(icons), qPrintable(icons));
+        QVERIFY(QFontDatabase::addApplicationFont(icons) >= 0);
+        QVERIFY(QFontDatabase::addApplicationFont(
+                    QString::fromLatin1(SOURCE_DIR "/data/fonts/JetBrainsMono[wght].ttf")) >= 0);
+
+        // The predicate asks the FACE, not Qt's writing-system table.
+        QVERIFY(!FontManager::facesLatinText(QStringLiteral("Material Symbols Rounded")));
+        QVERIFY(FontManager::facesLatinText(QStringLiteral("JetBrains Mono")));
+        // Named emoji faces are refused whether or not this host has them.
+        QVERIFY(FontManager::isNonTextFace(QStringLiteral("Noto Color Emoji")));
+        QVERIFY(FontManager::isNonTextFace(QStringLiteral("noto color emoji")));
+        QVERIFY(FontManager::isNonTextFace(QStringLiteral("Segoe UI Emoji")));
+        QVERIFY(FontManager::isNonTextFace(QStringLiteral("Material Symbols Rounded")));
+        QVERIFY(!FontManager::isNonTextFace(QStringLiteral("JetBrains Mono")));
+        QVERIFY(!FontManager::isNonTextFace(QStringLiteral("Manrope")));
+
+        SettingsManager settings;
+        FontManager manager(&settings);
+        // Neither list offers it, on either surface.
+        for (const QString &family : manager.uiFamilies())
+            QVERIFY2(!FontManager::isNonTextFace(family), qPrintable(family));
+        for (const QString &family : manager.monospaceFamilies()) {
+            QVERIFY2(!FontManager::isNonTextFace(family), qPrintable(family));
+            QVERIFY2(FontManager::facesLatinText(family), qPrintable(family));
+        }
+
+        // A stored one is INSTALLED and still not used: the surface falls
+        // back to the bundled face, the reason is "unusable" rather than
+        // "missing", and the choice itself is kept for the user to change.
+        settings.setMonoFont(QStringLiteral("Material Symbols Rounded"));
+        QCOMPARE(manager.storedMonospaceFamily(),
+                 QStringLiteral("Material Symbols Rounded"));
+        QVERIFY(!manager.monospaceFamilyAvailable());
+        QCOMPARE(manager.monospaceFamilyUnavailableReason(),
+                 QStringLiteral("unusable"));
+        QCOMPARE(manager.monospaceFamily(), QStringLiteral("JetBrains Mono"));
+        settings.setUiFont(QStringLiteral("Material Symbols Rounded"));
+        QVERIFY(!manager.uiFamilyAvailable());
+        QCOMPARE(manager.uiFamilyUnavailableReason(), QStringLiteral("unusable"));
+        QCOMPARE(manager.uiFamily(), QStringLiteral("Manrope"));
+
+        // A family this computer does not have is a DIFFERENT answer, so
+        // Settings can say which of the two happened.
+        settings.setMonoFont(QStringLiteral("A Font Nobody Has 12345"));
+        QCOMPARE(manager.monospaceFamilyUnavailableReason(),
+                 QStringLiteral("missing"));
+    }
+
     void theFamilyListsAreUsableAndBundledFacesLeadTheUiList()
     {
         SettingsManager settings;

@@ -144,3 +144,10 @@ void RichComposerBridge::replaceRange(QQuickTextDocument *document, int start,
     if (QTextDocument *doc = unwrap(document))
         RichComposition::replaceRange(doc, start, length, replacement);
 }
+
+bool RichComposerBridge::documentIsBlank(QQuickTextDocument *document) const
+{
+    if (QTextDocument *doc = unwrap(document))
+        return RichComposition::documentIsBlank(*doc);
+    return true;
+}

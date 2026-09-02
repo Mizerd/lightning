@@ -2305,11 +2305,17 @@ Item {
                                     font.pixelSize: AppTheme.textMeta
                                     // Deliberately says the choice is KEPT.
                                     text: root.fontManager
-                                        ? qsTr("\u201C%1\u201D is not installed on this "
+                                        ? (root.fontManager.uiFamilyUnavailableReason === "unusable"
+                                           ? qsTr("\u201C%1\u201D has no letters to draw text "
+                                                  + "with — it is an emoji or icon face — so "
+                                                  + "Lightning is using %2. Pick another font "
+                                                  + "above.")
+                                                 .arg(root.fontManager.storedUiFamily)
+                                           : qsTr("\u201C%1\u201D is not installed on this "
                                                + "computer, so Lightning is drawing %2 "
                                                + "instead. Your choice is kept — install "
                                                + "the font and it comes back.")
-                                              .arg(root.fontManager.storedUiFamily)
+                                              .arg(root.fontManager.storedUiFamily))
                                               .arg(root.fontManager.uiFamily)
                                         : ""
                                 }
@@ -2350,10 +2356,17 @@ Item {
                                     color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.textMeta
                                     text: root.fontManager
-                                        ? qsTr("\u201C%1\u201D is not installed, so code "
+                                        ? (root.fontManager.monospaceFamilyUnavailableReason === "unusable"
+                                           ? qsTr("\u201C%1\u201D cannot draw letters and "
+                                                  + "digits — it is an emoji or icon face — so "
+                                                  + "code is drawn in %2. Pick another font "
+                                                  + "above.")
+                                                 .arg(root.fontManager.storedMonospaceFamily)
+                                                 .arg(root.fontManager.monospaceFamily)
+                                           : qsTr("\u201C%1\u201D is not installed, so code "
                                                + "is drawn in %2. Your choice is kept.")
                                               .arg(root.fontManager.storedMonospaceFamily)
-                                              .arg(root.fontManager.monospaceFamily)
+                                              .arg(root.fontManager.monospaceFamily))
                                         : ""
                                 }
                                 Label {

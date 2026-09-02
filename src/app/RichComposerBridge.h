@@ -70,6 +70,10 @@ public:
     // v0.9 spell checking in rich mode; see RichComposition::spellSkipRanges
     // and ::replaceRange.
     Q_INVOKABLE QVariantList spellSkipRanges(QQuickTextDocument *document) const;
+    // Whether the rich editor is showing NOTHING — see
+    // RichComposition::documentIsBlank. The composers gate their placeholder
+    // on it, because an empty list item has no characters and still draws.
+    Q_INVOKABLE bool documentIsBlank(QQuickTextDocument *document) const;
     Q_INVOKABLE void replaceRange(QQuickTextDocument *document, int start, int length,
                                   const QString &replacement);
 

@@ -182,6 +182,7 @@ Item {
         // The other editor's ranges belong to the other document.
         root.spellUnderlines = []
         root.richSpellUnderlines = []
+        root.refreshRichBlank()
         if (root.richMode)
             richSpellTimer.restart()
         else
@@ -256,6 +257,9 @@ Item {
                                       argument)
         richInput.forceActiveFocus()
         refreshFormatState()
+        // A list/quote/code toggle changes what is DRAWN without changing a
+        // single character, so nothing else would refresh this.
+        root.refreshRichBlank()
     }
     // Rich-mode @-mentions: the same token scan as markdown mode, over the
     // editor's PLAIN text, whose offsets are the document's cursor offsets.
@@ -641,6 +645,15 @@ Item {
     // The same, for the rich editor: the two editors never show at once,
     // but each keeps its own geometry.
     property var richSpellUnderlines: []
+    // Whether the RICH editor is showing nothing at all. `length` counts
+    // characters, so an empty ordered-list item leaves it at 0 and the
+    // TextArea keeps painting its placeholder UNDER the "1." Qt draws.
+    // Recomputed wherever the document can have changed.
+    property bool richBlank: true
+    function refreshRichBlank() {
+        root.richBlank = !app.richComposer
+                         || app.richComposer.documentIsBlank(richInput.textDocument)
+    }
     // The word the context menu was opened on, and nothing else: cleared on
     // every open so a stale suggestion can never be applied to new text.
     property string spellMenuWord: ""
@@ -1700,6 +1713,10 @@ Item {
                         visible: root.richMode
                         kind: "ghost"
                         size: "sm"
+                        // AppButton's 72px minWidth is for a real button with
+                        // a word on it; on a two-character chip beside 28px
+                        // icon buttons it reads as a gap in the toolbar.
+                        minWidth: 0
                         // U + COMBINING LOW LINE: AppButton's label sets its
                         // own font, so a font.underline here would not reach
                         // it; the glyph carries the underline itself.
@@ -1716,6 +1733,7 @@ Item {
                         visible: root.richMode
                         kind: "ghost"
                         size: "sm"
+                        minWidth: 0
                         text: "1."
                         enabled: app.currentRoomId !== ""
                         Accessible.name: qsTr("Numbered list")
@@ -1895,7 +1913,10 @@ Item {
                                 }
                             }
                             textFormat: TextEdit.RichText
-                            placeholderText: input.placeholderText
+                            // Empty once the document draws anything at all,
+                            // structure included (see richBlank).
+                            placeholderText: root.richBlank
+                                             ? input.placeholderText : ""
                             placeholderTextColor: AppTheme.textMuted
                             font: app.textFontWithEmoji(AppTheme.uiFont,
                                                         AppTheme.scaled(14))
@@ -1912,6 +1933,7 @@ Item {
                             background: Rectangle { color: "transparent" }
                             onTextChanged: {
                                 richSpellTimer.restart()
+                                root.refreshRichBlank()
                                 if (root.richSyncing || !root.richMode)
                                     return
                                 // The markdown mirror (see root.richMode).

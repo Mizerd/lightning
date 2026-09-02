@@ -81,6 +81,10 @@ class FontManager : public QObject
                    NOTIFY selectionChanged)
     // False when the stored choice is not on this host — the disclosure that
     // keeps the fallback from being a silent lie.
+    Q_PROPERTY(QString uiFamilyUnavailableReason READ uiFamilyUnavailableReason
+                   NOTIFY selectionChanged)
+    Q_PROPERTY(QString monospaceFamilyUnavailableReason
+                   READ monospaceFamilyUnavailableReason NOTIFY selectionChanged)
     Q_PROPERTY(bool uiFamilyAvailable READ uiFamilyAvailable
                    NOTIFY selectionChanged)
     Q_PROPERTY(bool monospaceFamilyAvailable READ monospaceFamilyAvailable
@@ -118,6 +122,13 @@ public:
     QString storedUiFamily() const;
     QString storedMonospaceFamily() const;
     bool uiFamilyAvailable() const;
+    // "" when the stored family is in use; "missing" when this computer does
+    // not have it; "unusable" when it is installed but is not a face this
+    // surface can be drawn in (an emoji or icon face). Settings needs the
+    // distinction: one is fixed by installing a font, the other by choosing
+    // a different one.
+    QString uiFamilyUnavailableReason() const;
+    QString monospaceFamilyUnavailableReason() const;
     bool monospaceFamilyAvailable() const;
 
     QVariantList importedFonts() const;
@@ -151,6 +162,22 @@ public:
     // that names one family) and the "wOFF"/"wOF2" web wrappers, which are a
     // transport format and not what a desktop font picker offers.
     static bool looksLikeSfnt(const QByteArray &head);
+    // Can this FACE draw the alphabet and digits a monospace surface is for?
+    // Asked of the face itself (QRawFont with font merging OFF), never of
+    // Qt's writing-system table: `QFontDatabase::isFixedPitch()` is TRUE for
+    // an emoji face — every emoji is one advance wide — and "Noto Color
+    // Emoji" carries digit glyphs as keycap bases, so a user who picked it
+    // from the monospace list got emoji digits inside every timestamp, JSON
+    // dump and code span while letters fell back to another face. Measured
+    // 2026-09-02: isFixedPitch("Noto Color Emoji") = true,
+    // writingSystems = {Symbol}, and a text run split between Hack (letters)
+    // and Noto Color Emoji (digits).
+    //
+    // Deliberately NOT applied to the UI list: Lightning ships Arabic,
+    // Bengali and Hindi catalogs, and those faces carry no Latin at all.
+    static bool facesLatinText(const QString &family);
+    // A colour-emoji or icon face: never a text face, on any surface.
+    static bool isNonTextFace(const QString &family);
     // .ttf / .otf only, case-insensitive. The extension is a necessary and
     // never a sufficient condition — looksLikeSfnt() decides.
     static bool hasFontExtension(const QString &fileName);

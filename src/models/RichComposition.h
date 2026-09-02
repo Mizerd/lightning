@@ -43,6 +43,13 @@ namespace RichComposition {
 // code fragments (fixed pitch) and mention pills (anchors to a user). Link
 // anchor TEXT is checked — the destination is not in the text at all.
 QVariantList spellSkipRanges(const QTextDocument &document);
+// True when the document holds nothing a reader would see. NOT the same as
+// "no characters": a list item, a quote or a code block is empty of text and
+// still draws — Qt paints "1." for an empty ordered-list item — while
+// QQuickTextEdit's `length` counts characters only, so a TextArea whose
+// placeholder is bound to the usual emptiness keeps drawing it UNDER the
+// list marker. Structure counts as content here.
+bool documentIsBlank(const QTextDocument &document);
 // Replaces exactly [start, start+length) with `replacement`, keeping the
 // character format the range started with, so a suggestion applied inside a
 // bold or linked word stays bold or linked. One undo step.
