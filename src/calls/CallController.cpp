@@ -286,11 +286,19 @@ void CallController::onRemoteCandidates(const QString &roomId,
                                         const QString &partyId, bool own,
                                         const QVariantList &candidates)
 {
-    Q_UNUSED(partyId);
     if (own)
         return; // our other device's candidates are not for our engine
     if (!m_mediaBackend || !sessionLive() || m_session.rtc
         || roomId != m_session.roomId || callId != m_session.callId)
+        return;
+    // Once the remote party is known, only its candidates are trickled into
+    // the engine: a candidate is a STUN check to an address of the sender's
+    // choosing, and this signal carries no sender for a user match, so the
+    // party id -- locked from the invite or the first answer -- is the
+    // discriminator. Before that lock (outbound, nobody has answered) any
+    // answering device may legitimately trickle, per MSC2746.
+    if (!m_session.remotePartyId.isEmpty()
+        && partyId != m_session.remotePartyId)
         return;
     // Inbound + still ringing: the engine has no session yet (it starts
     // in answer()); hold the caller's trickle until then. Bounded.
@@ -407,7 +415,7 @@ bool CallController::sessionLive() const
     return false;
 }
 
-bool CallController::placeCall(const QString &roomId)
+bool CallController::placeCall(const QString &roomId, const QString &invitee)
 {
     m_lastRefusal.clear();
     if (!m_mediaBackend) {
@@ -436,6 +444,8 @@ bool CallController::placeCall(const QString &roomId)
     session.direction = Direction::Outbound;
     session.lifetimeMs = 60000;
     session.offerPending = true;
+    session.invitee = invitee;
+    session.remoteUserId = invitee;
     m_session = session;
     m_busyRejectsThisSession = 0;
     m_endReason = EndReason::None;
@@ -555,6 +565,7 @@ bool CallController::placeCallWithOffer(const QString &roomId,
     session.direction = Direction::Outbound;
     session.lifetimeMs = lifetime;
     session.invitee = invitee;
+    session.remoteUserId = invitee;
     const quint64 opId = m_client->callInvite(
         roomId, session.callId, session.ourPartyId, QStringLiteral("offer"),
         offerSdp, static_cast<quint64>(lifetime), invitee);
@@ -722,6 +733,13 @@ void CallController::onLoggedOut()
     m_turnUris.clear();
     m_turnUsername.clear();
     m_turnPassword.clear();
+    // Push the clear DOWN. The backend keeps its own copy and applies it to
+    // the next session; without this the first call on the next account
+    // started with the previous account's homeserver TURN credentials
+    // already on webrtcbin, relaying account B's call through account A's
+    // server until B's own fetch returned.
+    if (m_mediaBackend)
+        m_mediaBackend->setIceServers({}, {}, {});
     resetAudioIntent();
     if (sessionLive())
         endSession(EndReason::SessionLost);
@@ -829,6 +847,7 @@ void CallController::handleInvite(const CallSignal &signal)
     session.ourPartyId = freshPartyId();
     session.remotePartyId = signal.partyId;
     session.senderId = signal.sender;
+    session.remoteUserId = signal.sender;
     session.inviteEventId = signal.eventId;
     session.invitee = signal.invitee;
     session.direction = Direction::Inbound;
@@ -855,10 +874,14 @@ void CallController::handleAnswer(const CallSignal &signal)
     }
     if (m_state != State::Inviting)
         return;
+    if (!fromExpectedPeer(signal))
+        return;
     if (m_session.remotePartyId.isEmpty()) {
         // First answer locks the party (MSC2746 multi-device rule) and is
-        // named on the wire exactly once.
+        // named on the wire exactly once -- and locks the USER, so a later
+        // signal from anyone else in the room is not this call's.
         m_session.remotePartyId = signal.partyId;
+        m_session.remoteUserId = signal.sender;
         if (m_client && !m_session.selectAnswerSent) {
             m_session.selectAnswerSent = true;
             trackOp(m_client->callSelectAnswer(
@@ -893,6 +916,11 @@ void CallController::handleHangup(const CallSignal &signal)
             endSession(EndReason::DeclinedElsewhere);
         return;
     }
+    // A hangup from anyone but the peer is not a hangup. While ringing it
+    // would also have synthesised a "missed call" from someone who never
+    // called.
+    if (!fromExpectedPeer(signal))
+        return;
     endSession(EndReason::RemoteHangup);
 }
 
@@ -906,6 +934,8 @@ void CallController::handleReject(const CallSignal &signal)
             endSession(EndReason::DeclinedElsewhere);
         return;
     }
+    if (!fromExpectedPeer(signal))
+        return;
     if (m_state == State::Inviting)
         endSession(EndReason::RemoteReject);
 }
@@ -918,6 +948,11 @@ void CallController::handleSelectAnswer(const CallSignal &signal)
     // it cannot have been us — answering moves this device to Connecting
     // atomically with sending its m.call.answer — so the call settled
     // elsewhere.
+    //
+    // Only the CALLER selects an answer. A select_answer from any other
+    // member would otherwise silence the ring on every device at once.
+    if (!signal.own && !fromExpectedPeer(signal))
+        return;
     if (m_state == State::Ringing
         && signal.selectedPartyId != m_session.ourPartyId)
         endSession(EndReason::AnsweredElsewhere);
@@ -1054,6 +1089,18 @@ bool CallController::matchesSession(const CallSignal &signal) const
     return sessionLive() && !m_session.rtc
         && signal.roomId == m_session.roomId
         && signal.callId == m_session.callId;
+}
+
+bool CallController::fromExpectedPeer(const CallSignal &signal) const
+{
+    // (room, call_id) says which CALL a signal is about; it does not say
+    // WHO may speak for the other side, and call_id is readable by every
+    // member of the room. Once the peer is known, only they are the peer.
+    // matrix-js-sdk makes the same check (`getSender() !==
+    // getOpponentMember()`).
+    if (m_session.remoteUserId.isEmpty())
+        return true; // outbound, no invitee, no answer yet: nobody to bind to
+    return signal.sender == m_session.remoteUserId;
 }
 
 bool CallController::recentlyEnded(const QString &callId) const

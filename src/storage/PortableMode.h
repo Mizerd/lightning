@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDateTime>
 #include <QString>
 
 // Portable-installation mode — the single authority for "is this copy of
@@ -127,10 +128,32 @@ QString tempDir();
 // decision, and because the voice recorder must reach it without linking the
 // whole media bridge.
 QString mediaScratchRoot();
-// Remove scratch directories left by a previous run that crashed before its
-// QTemporaryDir destructor ran. Called once at startup, portable mode only;
-// returns the number removed. Never touches a directory that is not ours.
+// Test seam: point mediaScratchRoot() at a private directory so a sweep test
+// never runs against the real OS temp directory (where a concurrently running
+// Lightning keeps live scratch). Empty restores the real decision.
+void setMediaScratchRootOverrideForTest(const QString &root);
+// Marks a scratch directory this process created as LIVE for as long as the
+// process runs, by holding a lock file inside it. The sweep below probes that
+// lock: a directory whose lock is held by a running process is skipped, one
+// whose holder has died (or that was never marked) is a candidate. Without
+// this a SECOND Lightning instance would delete the first instance's
+// directories out from under a playing QMediaPlayer -- the names are unique
+// per process, but the sweep matches by prefix.
+void holdScratchDirLive(const QString &dir);
+// Drops the lock for `dir` (call it BEFORE destroying the QTemporaryDir, so
+// the descriptor does not outlive the directory). Forgetting it is not a
+// leak for long: the next hold prunes every entry whose directory is gone.
+void releaseScratchDir(const QString &dir);
+inline constexpr char kScratchLiveLockName[] = ".lightning-live.lock";
+
+// Removes stale `lightning-*` scratch directories under mediaScratchRoot()
+// that belong to this user: what a crash left behind before a QTemporaryDir
+// destructor could run. Decrypted encrypted-room media lives there, so this
+// runs on EVERY install type at startup, not only in portable mode. A
+// directory is stale when its live lock is absent-and-old, or present but no
+// longer held (see holdScratchDirLive). `now` is injectable for tests.
 int cleanStaleTempDirs();
+int cleanStaleTempDirs(const QDateTime &now);
 // Where the updater does its work: the extraction staging directory and the
 // displaced previous version. Inside `data`, which is what keeps a portable
 // update from writing into the PARENT of the folder — and `data` is the one

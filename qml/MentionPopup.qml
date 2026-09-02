@@ -283,6 +283,8 @@ Popup {
                         // Muted MXID under the name (always shown when there is a
                         // display name, and required when the name is ambiguous).
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             Layout.fillWidth: true
                             visible: (model.ambiguous === true)
                                      || (model.displayName

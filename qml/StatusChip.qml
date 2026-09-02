@@ -96,6 +96,8 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
         }
         Text {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             objectName: "chipLabel"
             visible: root.label.length > 0
             text: root.label

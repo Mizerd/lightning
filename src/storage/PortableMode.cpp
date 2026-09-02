@@ -9,7 +9,16 @@
 #include <QMutexLocker>
 #include <QStringList>
 #include <QUuid>
+#include <QDateTime>
+#include <QLockFile>
+#include <QTimeZone>
 #include <QtGlobal>
+#include <memory>
+#include <unordered_map>
+
+#ifndef Q_OS_WIN
+#include <unistd.h>
+#endif
 
 #include <optional>
 
@@ -252,8 +261,27 @@ QString configDir()  { return subdir(QLatin1String("/config")); }
 QString tempDir()    { return subdir(QLatin1String("/temp")); }
 QString updateWorkDir() { return subdir(QLatin1String("/update-work")); }
 
+namespace {
+QString &scratchRootOverride()
+{
+    static QString root;
+    return root;
+}
+} // namespace
+
+void setMediaScratchRootOverrideForTest(const QString &root)
+{
+    QMutexLocker locker(&stateMutex());
+    scratchRootOverride() = root;
+}
+
 QString mediaScratchRoot()
 {
+    {
+        QMutexLocker locker(&stateMutex());
+        if (!scratchRootOverride().isEmpty())
+            return scratchRootOverride();
+    }
     // ONE definition for every decrypted-media path. A second call site that
     // reached for QDir::tempPath() directly would write decrypted payloads
     // outside a portable folder and nothing would report it.
@@ -370,13 +398,81 @@ QString prepareDataRoot()
     return {};
 }
 
+namespace {
+QMutex &liveScratchMutex()
+{
+    static QMutex mutex;
+    return mutex;
+}
+// Keyed by the directory, so a creator can release exactly its own lock,
+// and so entries whose directory is already gone (a QTemporaryDir that was
+// destroyed without a release call) can be pruned rather than leaking one
+// open descriptor per account switch. std::unordered_map: the element is
+// move-only, which QHash does not accept.
+std::unordered_map<QString, std::unique_ptr<QLockFile>> &liveScratchLocks()
+{
+    static std::unordered_map<QString, std::unique_ptr<QLockFile>> locks;
+    return locks;
+}
+void pruneDeadScratchLocksLocked()
+{
+    auto &locks = liveScratchLocks();
+    for (auto it = locks.begin(); it != locks.end();) {
+        if (!QFileInfo(it->first).isDir())
+            it = locks.erase(it); // unlocks and closes the descriptor
+        else
+            ++it;
+    }
+}
+// Unmarked directories are only ever swept once they are at least this old,
+// so a directory created by a code path that has not registered its lock
+// yet (or by an older build) is not taken for a leftover while it is in use.
+constexpr qint64 kUnmarkedScratchMinAgeMs = 60 * 60 * 1000;
+} // namespace
+
+void holdScratchDirLive(const QString &dir)
+{
+    if (dir.isEmpty() || !QFileInfo(dir).isDir())
+        return;
+    const QString key = QDir(dir).absolutePath();
+    auto lock = std::make_unique<QLockFile>(
+        QDir(dir).absoluteFilePath(QLatin1String(kScratchLiveLockName)));
+    // Never stale by AGE: a lock is stale only when its holder is gone,
+    // which QLockFile decides from the pid it recorded.
+    lock->setStaleLockTime(0);
+    if (!lock->tryLock(0))
+        return; // somebody else's directory after all; do not claim it
+    QMutexLocker guard(&liveScratchMutex());
+    pruneDeadScratchLocksLocked();
+    liveScratchLocks()[key] = std::move(lock);
+}
+
+void releaseScratchDir(const QString &dir)
+{
+    QMutexLocker guard(&liveScratchMutex());
+    liveScratchLocks().erase(QDir(dir).absolutePath());
+    pruneDeadScratchLocksLocked();
+}
+
 int cleanStaleTempDirs()
 {
-    const QString root = tempDir();
+    return cleanStaleTempDirs(QDateTime::currentDateTimeUtc());
+}
+
+int cleanStaleTempDirs(const QDateTime &now)
+{
+    // The scratch ROOT, not the portable temp dir: decrypted video, audio
+    // and GIF payloads are written under mediaScratchRoot(), which is
+    // QDir::tempPath() on every ordinary install. This used to read
+    // tempDir() and run only in portable mode, so on a deb, rpm, Flatpak,
+    // AppImage or source build a crash left encrypted-room media in /tmp
+    // forever, with nothing that would ever remove it.
+    const QString root = mediaScratchRoot();
     if (root.isEmpty())
         return 0;
-    // Only OUR prefixes, and only directories. A portable folder is the
-    // user's own, and this runs unattended at startup — it must not be
+    // Only OUR prefixes, only directories, and only OUR OWN. /tmp is shared:
+    // a directory with one of our names that belongs to another user is not
+    // ours to touch. This runs unattended at startup — it must not be
     // capable of removing anything it did not create.
     static const QStringList kOurs = {
         QStringLiteral("lightning-voice-*"),
@@ -391,6 +487,29 @@ int cleanStaleTempDirs()
         // removeRecursively() would follow it out of the folder.
         if (info.isSymLink())
             continue;
+#ifndef Q_OS_WIN
+        if (info.ownerId() != ::getuid())
+            continue;
+#endif
+        // LIVE? A directory marked by holdScratchDirLive() carries a lock
+        // file; if its holder is still running the lock cannot be taken and
+        // the directory is in use -- a second instance's, or a concurrent
+        // run of ours. A lock whose holder died can be taken, and then the
+        // directory is exactly the leftover this sweep exists for.
+        const QString lockPath =
+            QDir(info.absoluteFilePath()).absoluteFilePath(QLatin1String(kScratchLiveLockName));
+        if (QFileInfo::exists(lockPath)) {
+            QLockFile probe(lockPath);
+            probe.setStaleLockTime(0);
+            if (!probe.tryLock(0))
+                continue;
+            probe.unlock();
+        } else if (info.lastModified(QTimeZone::UTC).msecsTo(now)
+                   < kUnmarkedScratchMinAgeMs) {
+            // Unmarked and recent: possibly a creator that has not
+            // registered its lock, so it is left for a later sweep.
+            continue;
+        }
         QDir victim(info.absoluteFilePath());
         if (victim.removeRecursively())
             ++removed;

@@ -84,7 +84,13 @@ VoiceRecorder::VoiceRecorder(QObject *parent)
     });
 }
 
-VoiceRecorder::~VoiceRecorder() = default; // temp dir wipes the recordings
+VoiceRecorder::~VoiceRecorder()
+{
+    // Release the liveness lock BEFORE the QTemporaryDir member wipes the
+    // recordings, so no descriptor outlives the directory.
+    if (m_dir && m_dir->isValid())
+        lightning::portable::releaseScratchDir(m_dir->path());
+}
 
 bool VoiceRecorder::available()
 {
@@ -101,6 +107,11 @@ bool VoiceRecorder::ensureCaptureChain()
         m_dir = std::make_unique<QTemporaryDir>(
             lightning::portable::mediaScratchRoot()
             + QStringLiteral("/lightning-voice-XXXXXX"));
+        // Marked live for as long as it exists, or the startup sweep of a
+        // second instance would remove it (see holdScratchDirLive). Released
+        // in the destructor before the QTemporaryDir goes.
+        if (m_dir->isValid())
+            lightning::portable::holdScratchDirLive(m_dir->path());
         if (!m_dir->isValid()) {
             m_dir.reset();
             return false;

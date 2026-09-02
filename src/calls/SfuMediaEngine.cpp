@@ -560,6 +560,11 @@ void SfuMediaEngine::start()
 
 void SfuMediaEngine::stop()
 {
+    // Keys can be installed BEFORE start(): a to-device key arrives while the
+    // controller is still Preparing, and onSfuJoined is what calls start().
+    // A join that is abandoned before then must still drop them, so the
+    // clear sits before the never-started early return.
+    clearKeys();
     if (!m_active && !m_publisher.pipeline && !m_subscriber.pipeline)
         return;
     m_generation.fetch_add(1);
@@ -3366,7 +3371,17 @@ SfuMediaEngine::recvCryptorFor(const QString &name)
     // A name we have never seen gets a ring OF ITS OWN rather than sharing
     // anyone else's: decrypting one participant's frames with another's key
     // is silent corruption, and no key at all is an honest drop.
+    //
+    // BOUNDED. Names arrive from remote input -- a media key's Olm-vouched
+    // sender, the SFU's participant list -- and each ring holds sixteen key
+    // slots, so an unbounded map is a per-call memory amplifier for anyone
+    // who can address this device. 128 participants times a handful of
+    // aliases is far inside the cap; past it a new name gets a DETACHED ring
+    // that is never stored, which decrypts nothing and remembers nothing.
+    constexpr int kMaxReceiveRings = 1024;
     auto cryptor = std::make_shared<CallFrameCryptor>();
+    if (m_recvCryptors.size() >= kMaxReceiveRings)
+        return cryptor;
     m_recvCryptors.insert(name, cryptor);
     return cryptor;
 }
@@ -3515,9 +3530,15 @@ void SfuMediaEngine::installDecryptProbe(GstPad *pad, bool video,
                       cryptoProbeCtxFree);
 }
 
-bool SfuMediaEngine::tokenIsLive(quintptr token, Target *target) const
+bool SfuMediaEngine::tokenIsLive(quintptr token, quint64 generation,
+                                 Target *target) const
 {
     if (!m_active)
+        return false;
+    // Generation first: start() and stop() each bump it, so a callback that
+    // fired under a previous session cannot match even if the allocator
+    // reused the element's address.
+    if (generation != m_generation.load())
         return false;
     if (m_publisher.webrtc
         && token == reinterpret_cast<quintptr>(m_publisher.webrtc)) {
@@ -3534,11 +3555,11 @@ bool SfuMediaEngine::tokenIsLive(quintptr token, Target *target) const
     return false;
 }
 
-void SfuMediaEngine::handleLocalDescription(quintptr token, bool offer,
-                                            const QString &sdp)
+void SfuMediaEngine::handleLocalDescription(quintptr token, quint64 generation,
+                                            bool offer, const QString &sdp)
 {
     Target target = Target::Publisher;
-    if (!tokenIsLive(token, &target)) {
+    if (!tokenIsLive(token, generation, &target)) {
         // A queued callback from a closed session — correct to drop, but it
         // used to be SILENT, and a dropped offer is indistinguishable from
         // an offer that was never created. LiveKit answers a session with no
@@ -3617,19 +3638,21 @@ void SfuMediaEngine::handleLocalDescription(quintptr token, bool offer,
                             sdp);
 }
 
-void SfuMediaEngine::handleLocalCandidate(quintptr token, int mlineIndex,
+void SfuMediaEngine::handleLocalCandidate(quintptr token, quint64 generation,
+                                          int mlineIndex,
                                           const QString &candidate)
 {
     Target target = Target::Publisher;
-    if (!tokenIsLive(token, &target))
+    if (!tokenIsLive(token, generation, &target))
         return;
     Q_EMIT localCandidate(static_cast<int>(target),
                           candidateInitJson(candidate, mlineIndex));
 }
 
-void SfuMediaEngine::handleFailure(quintptr token, const QString &category)
+void SfuMediaEngine::handleFailure(quintptr token, quint64 generation,
+                                   const QString &category)
 {
-    if (!tokenIsLive(token))
+    if (!tokenIsLive(token, generation))
         return;
     Q_EMIT failed(category);
 }
@@ -3752,8 +3775,9 @@ void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
 
     const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
     auto *engine = ctx->engine;
-    marshal(engine, [engine, token, sdp] {
-        engine->handleLocalDescription(token, /*offer=*/true, sdp);
+    const quint64 generation = engine->m_generation.load();
+    marshal(engine, [engine, token, generation, sdp] {
+        engine->handleLocalDescription(token, generation, /*offer=*/true, sdp);
     });
 }
 
@@ -3835,8 +3859,9 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
 
     const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
     auto *engine = ctx->engine;
-    marshal(engine, [engine, token, sdp] {
-        engine->handleLocalDescription(token, /*offer=*/false, sdp);
+    const quint64 generation = engine->m_generation.load();
+    marshal(engine, [engine, token, generation, sdp] {
+        engine->handleLocalDescription(token, generation, /*offer=*/false, sdp);
     });
 }
 
@@ -3845,10 +3870,11 @@ void SfuMediaEngine::onIceCandidate(GstElement *webrtc, unsigned mlineIndex,
 {
     auto *engine = static_cast<SfuMediaEngine *>(userData);
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
+    const quint64 generation = engine->m_generation.load();
     const QString line = QString::fromUtf8(candidate ? candidate : "");
     const int mline = static_cast<int>(mlineIndex);
-    marshal(engine, [engine, token, mline, line] {
-        engine->handleLocalCandidate(token, mline, line);
+    marshal(engine, [engine, token, generation, mline, line] {
+        engine->handleLocalCandidate(token, generation, mline, line);
     });
 }
 
@@ -4033,6 +4059,7 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         mediaKind = QStringLiteral("audio");
 
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
+    const quint64 generation = engine->m_generation.load();
     // The volume element keeps the "outvol" PREFIX so deafen reaches every
     // received track regardless of who sent it, and carries the stream id as
     // a suffix so ONE participant can be turned down without touching anyone
@@ -4082,15 +4109,17 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         if (bin)
             gst_object_unref(bin);
         gst_object_unref(pipeline);
-        marshal(engine, [engine, token] {
-            engine->handleFailure(token, QStringLiteral("media_receive"));
+        marshal(engine, [engine, token, generation] {
+            engine->handleFailure(token, generation,
+                                  QStringLiteral("media_receive"));
         });
         return;
     }
     if (!gst_bin_add(GST_BIN(pipeline), bin)) {
         gst_object_unref(pipeline);
-        marshal(engine, [engine, token] {
-            engine->handleFailure(token, QStringLiteral("media_receive"));
+        marshal(engine, [engine, token, generation] {
+            engine->handleFailure(token, generation,
+                                  QStringLiteral("media_receive"));
         });
         return;
     }
@@ -4139,8 +4168,9 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         gst_object_unref(sinkPad);
     gst_object_unref(pipeline);
     if (linked != GST_PAD_LINK_OK) {
-        marshal(engine, [engine, token] {
-            engine->handleFailure(token, QStringLiteral("media_receive"));
+        marshal(engine, [engine, token, generation] {
+            engine->handleFailure(token, generation,
+                                  QStringLiteral("media_receive"));
         });
         return;
     }

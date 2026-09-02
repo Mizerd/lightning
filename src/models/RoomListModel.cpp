@@ -251,6 +251,9 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 // DM bubble layout); omitting it made every DM header
                 // avatar render as a rounded square.
                 { QStringLiteral("isDirect"),  r.isDirect },
+                // Every m.direct target. The legacy call lane needs to know
+                // whether "direct" means exactly ONE other person.
+                { QStringLiteral("directUserIds"), r.directUserIds },
                 // One fallback-colour policy everywhere (see RoomInfo.h).
                 { QStringLiteral("identityColorKey"), identityColorKey(r) },
             };

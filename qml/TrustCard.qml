@@ -137,6 +137,8 @@ Item {
                     elide: Label.ElideRight
                 }
                 Label {
+                    // Remote or externally chosen text: never markup.
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: root.userId
                     color: AppTheme.stormTextMuted
@@ -289,6 +291,7 @@ Item {
                                 Label {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: modelData.label || ""
+                                    textFormat: Text.PlainText
                                     color: stepItem.stepComplete
                                            ? AppTheme.stormTextSecondary
                                            : AppTheme.stormTextMuted

@@ -264,6 +264,8 @@ Rectangle {
         }
 
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             visible: root.ringing
             lineHeight: AppTheme.lineHeightBody

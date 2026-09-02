@@ -17,6 +17,7 @@
 #include "update/UpdateManager.h"
 #include "update/UpdateManifest.h"
 #include "update/UpdateTrustStore.h"
+#include "updater/ArtifactDigest.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -137,6 +138,9 @@ QJsonObject manifestObject(const QString &version, bool withDebArtifact = true,
     manifest.insert(QStringLiteral("version"), version);
     manifest.insert(QStringLiteral("channel"), QStringLiteral("stable"));
     manifest.insert(QStringLiteral("tag"), QStringLiteral("v") + version);
+    // Required since the freshness rule: a manifest with no expiry is
+    // refused, and one past its expiry is a failure rather than "up to date".
+    manifest.insert(QStringLiteral("expires"), QStringLiteral("2099-01-01T00:00:00Z"));
     manifest.insert(QStringLiteral("release_notes"), QStringLiteral("Notes for ") + version);
     if (withDebArtifact) {
         const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
@@ -436,6 +440,14 @@ private slots:
     void aMirrorResponseIsNeverReadAsMetadata();
     void cancellingBetweenAttemptsStopsTheFallback();
     void updateSourcesNeverUseTheGitHubApi();
+
+    // --- freshness, prerelease policy, and the hand-over digest ---
+    void anExpiredManifestIsAFailureNotUpToDate();
+    void aPrereleaseIsRefusedWhateverChannelTheManifestClaims();
+    void installHandsTheHelperTheVerifiedDigest();
+    void installRefusesAnArtifactModifiedAfterVerification();
+    void aDeferredInstallReHashesAtQuitAndRecordsTheRefusal();
+    void aNewDownloadDisarmsAPendingDeferredInstall();
 };
 
 void UpdateManagerStateTest::initTestCase()
@@ -1672,6 +1684,180 @@ void UpdateManagerStateTest::updateSourcesNeverUseTheGitHubApi()
                                     .arg(info.fileName(), token)));
         }
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// Freshness. A signature proves who produced the document, never that it is
+// the current one: without an expiry, a captured `latest` pair could be
+// replayed to hold every installation on a vulnerable version forever while
+// the UI said "up to date".
+// ---------------------------------------------------------------------------
+
+void UpdateManagerStateTest::anExpiredManifestIsAFailureNotUpToDate()
+{
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    manager->setNowForTest(QDateTime::fromString(QStringLiteral("2026-09-02T12:00:00Z"),
+                                                 Qt::ISODate));
+    QJsonObject manifest = manifestObject(QStringLiteral("0.8.0"));
+    manifest.insert(QStringLiteral("expires"), QStringLiteral("2026-09-01T00:00:00Z"));
+    ingest(manager.get(), manifest);
+    QCOMPARE(manager->state(), UpdateManager::Failed);
+    QVERIFY(!manager->updateAvailable());
+    QVERIFY2(manager->errorMessage().contains(QStringLiteral("expired")),
+             qPrintable(manager->errorMessage()));
+
+    // The same document a day earlier is simply an update.
+    const auto fresh = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    fresh->setNowForTest(QDateTime::fromString(QStringLiteral("2026-08-31T12:00:00Z"),
+                                               Qt::ISODate));
+    ingest(fresh.get(), manifest);
+    QCOMPARE(fresh->state(), UpdateManager::UpdateAvailable);
+}
+
+void UpdateManagerStateTest::aPrereleaseIsRefusedWhateverChannelTheManifestClaims()
+{
+    // The old rule read the manifest's OWN `channel`: a document calling
+    // itself "beta" walked straight past "the stable channel never offers a
+    // prerelease". The build decides, not the document.
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    QJsonObject manifest = manifestObject(QStringLiteral("0.8.0-rc1"));
+    manifest.insert(QStringLiteral("channel"), QStringLiteral("beta"));
+    ingest(manager.get(), manifest);
+    QCOMPARE(manager->state(), UpdateManager::UpToDate);
+    QVERIFY(!manager->updateAvailable());
+    QVERIFY(manager->statusDetail().contains(QStringLiteral("pre-release")));
+}
+
+// ---------------------------------------------------------------------------
+// The hand-over digest. The download verified the bytes as they streamed in;
+// everything after that trusted the PATH, and for deb/rpm that path is read
+// by a root process after a PolicyKit prompt the user was expecting anyway.
+// ---------------------------------------------------------------------------
+
+void UpdateManagerStateTest::installHandsTheHelperTheVerifiedDigest()
+{
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    QStringList arguments;
+    manager->setProcessLauncherForTest([&](const QString &, const QStringList &a) {
+        arguments = a;
+        return true;
+    });
+    manager->setStagedArtifactForTest(m_artifactPath);
+    manager->installAndRestart();
+    const int index = arguments.indexOf(QStringLiteral("--sha256"));
+    QVERIFY(index >= 0);
+    QCOMPARE(arguments.at(index + 1), updater::sha256HexOfFile(m_artifactPath));
+    QCOMPARE(arguments.at(index + 1), manager->stagedArtifactSha256ForTest());
+}
+
+void UpdateManagerStateTest::installRefusesAnArtifactModifiedAfterVerification()
+{
+    QTemporaryDir staging;
+    QVERIFY(staging.isValid());
+    const QString artifact = QDir(staging.path()).absoluteFilePath(
+        QStringLiteral("lightning_0.8.0_amd64.deb"));
+    {
+        QFile file(artifact);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(payloadBytes());
+    }
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    manager->setStagingRootForTest(staging.path());
+    int launches = 0;
+    manager->setProcessLauncherForTest([&](const QString &, const QStringList &) {
+        ++launches;
+        return true;
+    });
+    manager->setStagedArtifactForTest(artifact);
+    QCOMPARE(manager->state(), UpdateManager::ReadyToInstall);
+
+    // Same length, different bytes: exactly what a swap looks like.
+    {
+        QFile file(artifact);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write(tamperedBytes());
+    }
+    manager->installAndRestart();
+    QCOMPARE(launches, 0);
+    QCOMPARE(manager->state(), UpdateManager::Failed);
+    QVERIFY2(manager->errorMessage().contains(QStringLiteral("no longer matches")),
+             qPrintable(manager->errorMessage()));
+    // The bytes that failed are gone; nothing can pick them up later.
+    QVERIFY(!QFileInfo::exists(artifact));
+}
+
+void UpdateManagerStateTest::aDeferredInstallReHashesAtQuitAndRecordsTheRefusal()
+{
+    QTemporaryDir staging;
+    QVERIFY(staging.isValid());
+    const QString artifact = QDir(staging.path()).absoluteFilePath(
+        QStringLiteral("lightning_0.8.0_amd64.deb"));
+    {
+        QFile file(artifact);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(payloadBytes());
+    }
+    int launches = 0;
+    {
+        const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+        manager->setStagingRootForTest(staging.path());
+        manager->setProcessLauncherForTest([&](const QString &, const QStringList &) {
+            ++launches;
+            return true;
+        });
+        manager->setStagedArtifactForTest(artifact);
+        manager->installUpdate(); // armed for quit: the LONG window
+        QCOMPARE(manager->state(), UpdateManager::RestartRequired);
+
+        QFile file(artifact);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write(tamperedBytes());
+        file.close();
+
+        QMetaObject::invokeMethod(QCoreApplication::instance(), "aboutToQuit");
+        QCOMPARE(launches, 0);
+        QVERIFY(!QFileInfo::exists(artifact));
+    }
+    // The UI was gone when the refusal happened, so it is reported the only
+    // way it can be: through the status document the next launch consumes.
+    const auto next = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    next->setStagingRootForTest(staging.path());
+    QCOMPARE(next->lastUpdateResult(), UpdateManager::InstallFailed);
+    QCOMPARE(next->lastUpdateError(), QStringLiteral("artifact-digest-mismatch"));
+    QCOMPARE(next->lastUpdateMode(), QStringLiteral("linux-deb"));
+}
+
+void UpdateManagerStateTest::aNewDownloadDisarmsAPendingDeferredInstall()
+{
+    QTemporaryDir staging;
+    QVERIFY(staging.isValid());
+    ByteSourceRecorder source;
+    const auto manager = makeDownloadManager(staging.path(), &source);
+    int launches = 0;
+    manager->setProcessLauncherForTest([&](const QString &, const QStringList &) {
+        ++launches;
+        return true;
+    });
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+    source.serve(artifactUrl(version, filename), payloadBytes());
+    ingest(manager.get(), downloadableManifest(version));
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
+    manager->installUpdate();
+    QCOMPARE(manager->state(), UpdateManager::RestartRequired);
+
+    // Check again and download again: the armed install named a file this
+    // attempt deletes, so it must be disarmed rather than fire at quit
+    // against a path that no longer exists.
+    ingest(manager.get(), downloadableManifest(version));
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
+    QMetaObject::invokeMethod(QCoreApplication::instance(), "aboutToQuit");
+    QCOMPARE(launches, 0);
+    QVERIFY(!QFileInfo::exists(
+        QDir(staging.path()).absoluteFilePath(QStringLiteral("update-status.json"))));
 }
 
 QTEST_GUILESS_MAIN(UpdateManagerStateTest)

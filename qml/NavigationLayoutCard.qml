@@ -159,6 +159,8 @@ AbstractButton {
         Loader {
             active: root.title.length > 0
             sourceComponent: Label {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 text: root.title
                 color: AppTheme.stormText
                 font.pixelSize: AppTheme.textBody
@@ -168,6 +170,8 @@ AbstractButton {
         Loader {
             active: root.subtitle.length > 0
             sourceComponent: Label {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 width: root.width - AppTheme.spacing12 * 2
                 text: root.subtitle
                 wrapMode: Text.WordWrap

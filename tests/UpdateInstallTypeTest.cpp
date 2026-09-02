@@ -14,10 +14,14 @@
 
 #include <QHash>
 #include <QSet>
+#include <QDir>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QtTest/QtTest>
 
 using lightning::update::canInstallAutomatically;
 using lightning::update::detectInstall;
+using lightning::update::fileLooksLikeAppImage;
 using lightning::update::InstallDetection;
 using lightning::update::InstallEnvironment;
 using lightning::update::InstallType;
@@ -45,6 +49,11 @@ InstallEnvironment makeEnvironment(const QHash<QString, QString> &variables,
         return variables.value(QString::fromLatin1(name));
     };
     environment.pathExists = [existingPaths](const QString &path) {
+        return existingPaths.contains(path);
+    };
+    // In this fixture every existing path is taken to carry the AppImage
+    // magic; appImageClaimNeedsTheAppImageMagic overrides the hook to say no.
+    environment.looksLikeAppImage = [existingPaths](const QString &path) {
         return existingPaths.contains(path);
     };
     environment.compileTimeId = compileTimeId;
@@ -94,6 +103,8 @@ private slots:
     void installMarkerIsIgnoredOffWindows();
     void installMarkerNeverNamesANonWindowsType();
     void automaticInstallAgreesWithTheUpdaterHelper();
+    void appImageClaimNeedsTheAppImageMagic();
+    void appImageMagicIsReadFromTheFile();
 };
 
 void UpdateInstallTypeTest::idsRoundTripForEveryType()
@@ -416,6 +427,50 @@ void UpdateInstallTypeTest::automaticInstallAgreesWithTheUpdaterHelper()
                                      accepted ? QStringLiteral("true")
                                               : QStringLiteral("false"))));
     }
+}
+
+
+void UpdateInstallTypeTest::appImageClaimNeedsTheAppImageMagic()
+{
+    // $APPIMAGE is an environment variable and it becomes the updater's
+    // --target: the file that is chmod +x'd and replaced. An existing path
+    // that is NOT an AppImage does not make this an AppImage install.
+    const QString path = QStringLiteral("/home/user/notes.txt");
+    InstallEnvironment environment =
+        makeEnvironment({ { QStringLiteral("APPIMAGE"), path } }, { path }, QString());
+    environment.looksLikeAppImage = [](const QString &) { return false; };
+    const InstallDetection refused = detectInstall(environment);
+    QCOMPARE(refused.type, InstallType::Development);
+    QVERIFY(!refused.automaticInstallAllowed);
+
+    // A hand-built environment that never set the hook accepts nothing.
+    environment.looksLikeAppImage = nullptr;
+    QCOMPARE(detectInstall(environment).type, InstallType::Development);
+}
+
+void UpdateInstallTypeTest::appImageMagicIsReadFromTheFile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto write = [&](const char *name, const QByteArray &bytes) {
+        const QString path = QDir(dir.path()).absoluteFilePath(QString::fromLatin1(name));
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly))
+            return QString();
+        file.write(bytes);
+        return path;
+    };
+    QByteArray elf = QByteArrayLiteral("\x7f" "ELF");
+    elf += QByteArray(4, '\x01');
+    const QByteArray appImage2 = elf + QByteArrayLiteral("AI\x02") + QByteArray(32, '\0');
+    const QByteArray appImage1 = elf + QByteArrayLiteral("AI\x01") + QByteArray(32, '\0');
+    const QByteArray plainElf = elf + QByteArray(35, '\0');
+    QVERIFY(fileLooksLikeAppImage(write("type2.AppImage", appImage2)));
+    QVERIFY(fileLooksLikeAppImage(write("type1.AppImage", appImage1)));
+    QVERIFY(!fileLooksLikeAppImage(write("plain.elf", plainElf)));
+    QVERIFY(!fileLooksLikeAppImage(write("text.txt", QByteArrayLiteral("hello"))));
+    QVERIFY(!fileLooksLikeAppImage(write("short", QByteArrayLiteral("\x7f" "ELF"))));
+    QVERIFY(!fileLooksLikeAppImage(QDir(dir.path()).absoluteFilePath(QStringLiteral("absent"))));
 }
 
 QTEST_APPLESS_MAIN(UpdateInstallTypeTest)

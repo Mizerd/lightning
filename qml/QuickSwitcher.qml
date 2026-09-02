@@ -511,6 +511,8 @@ Popup {
                     // legacy themes (review finding).
                     contentItem: Label {
                         id: chipLabel
+                        // Remote or externally chosen text: never markup.
+                        textFormat: Text.PlainText
                         text: scopeChip.modelData.label
                         color: scopeChip.selected ? AppTheme.boltInk
                                                   : scopeChip.hovered ? AppTheme.stormText
@@ -651,6 +653,8 @@ Popup {
                             elide: Label.ElideRight
                         }
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             Layout.fillWidth: true
                             visible: (model.subtitle || "").length > 0
                             text: model.subtitle || ""
@@ -778,6 +782,8 @@ Popup {
                             elide: Label.ElideRight
                         }
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             Layout.fillWidth: true
                             visible: (model.subtitle || "").length > 0
                             text: model.subtitle || ""

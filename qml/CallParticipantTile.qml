@@ -531,6 +531,8 @@ Item {
                         }
                     }
                     Text {
+                        // Remote or externally chosen text: never markup.
+                        textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: root._label
                         // Deliberately a fixed light ink, not a theme text
@@ -556,6 +558,8 @@ Item {
             anchors.topMargin: 8
             width: parent.width - 12
             sourceComponent: Text {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 text: root._label
                 color: AppTheme.stormText
                 font.pixelSize: root.compact ? 11 : 13
@@ -798,6 +802,8 @@ Item {
                     color: AppTheme.stormTextSecondary
                 }
                 Text {
+                    // Remote or externally chosen text: never markup.
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     // No Loader: this label is never empty. `_label` falls
                     // back to the user id, and the popup cannot be opened on

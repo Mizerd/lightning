@@ -105,6 +105,8 @@ ItemDelegate {
             anchors.rightMargin: root.comingSoon ? 84 : 14
             anchors.verticalCenter: parent.verticalCenter
             sourceComponent: Label {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 text: root.label
                 elide: Text.ElideRight
                 maximumLineCount: 1

@@ -309,6 +309,9 @@ ColumnLayout {
                 lineHeightMode: Text.ProportionalHeight
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
+                // statusDetail can carry a channel note straight out of the
+                // signed manifest: remote text, so never markup.
+                textFormat: Text.PlainText
                 text: root.um ? root.um.statusDetail : ""
             }
 
@@ -712,6 +715,9 @@ ColumnLayout {
                     lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormDanger
                     font.weight: AppTheme.weightStrong
+                    // Error text embeds manifest-derived detail (artifact
+                    // keys); plain text only.
+                    textFormat: Text.PlainText
                     text: root.um ? root.um.errorMessage : ""
                 }
                 Label {

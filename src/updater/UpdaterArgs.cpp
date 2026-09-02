@@ -1,5 +1,7 @@
 #include "updater/UpdaterArgs.h"
 
+#include "updater/ArtifactDigest.h"
+
 #include <QDir>
 #include <QFileInfo>
 #include <QHash>
@@ -93,6 +95,7 @@ QString parseErrorName(ArgsError error)
     case ArgsError::ArtifactEmpty: return QStringLiteral("artifact-empty");
     case ArgsError::StatusParentMissing: return QStringLiteral("status-parent-missing");
     case ArgsError::InvalidPid: return QStringLiteral("invalid-pid");
+    case ArgsError::InvalidDigest: return QStringLiteral("invalid-digest");
     }
     return QStringLiteral("unknown");
 }
@@ -131,13 +134,14 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         QStringLiteral("--mode"),   QStringLiteral("--artifact"),
         QStringLiteral("--pid"),    QStringLiteral("--target"),
         QStringLiteral("--relaunch"), QStringLiteral("--status"),
+        QStringLiteral("--sha256"),
     };
     // --relaunch is the only optional option: absent means "do not relaunch".
     // Everything else must be supplied exactly once.
     static const QStringList kRequiredOptions = {
         QStringLiteral("--mode"),   QStringLiteral("--artifact"),
         QStringLiteral("--pid"),    QStringLiteral("--target"),
-        QStringLiteral("--status"),
+        QStringLiteral("--status"), QStringLiteral("--sha256"),
     };
 
     QHash<QString, QString> values;
@@ -162,8 +166,8 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         ++i;
 
         // A value that itself looks like an option is always a mistake here:
-        // every value in this contract is either an absolute path or a
-        // decimal integer, and neither can start with "--".
+        // every value in this contract is an absolute path, a decimal
+        // integer or a hex digest, and none of them can start with "--".
         if (value.startsWith(QLatin1String("--")))
             return fail(ArgsError::MissingValue,
                         QStringLiteral("option value looks like another option"),
@@ -245,6 +249,14 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
             return fail(ArgsError::PathDoesNotExist,
                         QStringLiteral("artifact does not exist"),
                         QStringLiteral("--artifact"));
+        // exists()/isFile() FOLLOW a link. The AppImage strategy chmods this
+        // path and the package strategies hand it to a root process, so a
+        // link here would aim either at whatever it resolves to at that
+        // moment. --status refused links from the start; every path does now.
+        if (info.isSymLink())
+            return fail(ArgsError::PathIsSymlink,
+                        QStringLiteral("artifact is a symbolic link"),
+                        QStringLiteral("--artifact"));
         if (!info.isFile())
             return fail(ArgsError::PathNotAFile,
                         QStringLiteral("artifact is not a regular file"),
@@ -271,6 +283,10 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
             return fail(ArgsError::PathDoesNotExist,
                         QStringLiteral("target does not exist"),
                         QStringLiteral("--target"));
+        if (info.isSymLink())
+            return fail(ArgsError::PathIsSymlink,
+                        QStringLiteral("target is a symbolic link"),
+                        QStringLiteral("--target"));
         if (args.mode == UpdaterMode::WindowsPortable && !info.isDir())
             return fail(ArgsError::PathNotADirectory,
                         QStringLiteral("portable target must be a directory"),
@@ -296,6 +312,10 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         if (!info.exists())
             return fail(ArgsError::PathDoesNotExist,
                         QStringLiteral("relaunch target does not exist"),
+                        QStringLiteral("--relaunch"));
+        if (info.isSymLink())
+            return fail(ArgsError::PathIsSymlink,
+                        QStringLiteral("relaunch target is a symbolic link"),
                         QStringLiteral("--relaunch"));
         if (!info.isFile())
             return fail(ArgsError::PathNotAFile,
@@ -329,6 +349,16 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         args.statusPath = QDir(parent.absoluteFilePath())
                               .absoluteFilePath(info.fileName());
     }
+
+    // --sha256: shape only. Exactly 64 lowercase hex characters, which is
+    // how UpdateManifest normalises the signed value. The comparison against
+    // the file happens in main.cpp, AFTER the application has exited, so it
+    // sits as close as possible to the read it protects.
+    args.expectedSha256 = values.value(QStringLiteral("--sha256"));
+    if (!isSha256Hex(args.expectedSha256))
+        return fail(ArgsError::InvalidDigest,
+                    QStringLiteral("sha256 must be exactly 64 lowercase hex characters"),
+                    QStringLiteral("--sha256"));
 
     ArgsParseResult result;
     result.args = args;

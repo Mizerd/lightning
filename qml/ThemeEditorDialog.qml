@@ -801,6 +801,8 @@ Popup {
                                                 }
 
                                                 Label {
+                                                    // Remote or externally chosen text: never markup.
+                                                    textFormat: Text.PlainText
                                                     Layout.fillWidth: true
                                                     text: roleRow.modelData.label
                                                     color: AppTheme.editorText

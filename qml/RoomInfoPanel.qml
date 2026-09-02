@@ -1062,6 +1062,8 @@ Rectangle {
                                 Layout.fillWidth: true
                                 spacing: AppTheme.spacing8
                                 Label {
+                                    // Remote or externally chosen text: never markup.
+                                    textFormat: Text.PlainText
                                     Layout.fillWidth: true
                                     text: modelData
                                     color: AppTheme.text
@@ -1322,6 +1324,8 @@ Rectangle {
                                 }
                             }
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 elide: Label.ElideRight
                                 maximumLineCount: 2
@@ -1800,6 +1804,8 @@ Rectangle {
                             Layout.fillWidth: true
                             spacing: 0
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: modelData.filename || qsTr("(unnamed)")
                                 color: AppTheme.textPrimary
@@ -1807,6 +1813,8 @@ Rectangle {
                                 elide: Label.ElideMiddle
                             }
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: qsTr("%1 · %2")
                                       .arg(modelData.sender)

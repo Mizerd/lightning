@@ -10,6 +10,7 @@
 #include <QStandardPaths>
 #include <QStringList>
 #include <QTemporaryDir>
+#include <QUuid>
 #include <QtTest>
 
 #ifdef Q_OS_UNIX
@@ -49,6 +50,8 @@ private Q_SLOTS:
     void everyScratchAndUpdatePathStaysInsideTheFolder();
     void prepareDataRootRefusesAnUnwritableFolderWithoutFallingBack();
     void relocationKeepsSettingsWithNoReferenceToTheOldRoot();
+    void staleScratchIsSweptOnAnOrdinaryInstallToo();
+    void aLiveScratchDirectoryIsNeverSwept();
 
 private:
     static bool copyTree(const QString &from, const QString &to);
@@ -463,7 +466,12 @@ void PortableModeTest::everyScratchAndUpdatePathStaysInsideTheFolder()
     keep.write("keep me");
     keep.close();
 
-    QCOMPARE(lightning::portable::cleanStaleTempDirs(), 2);
+    // Unmarked directories are swept only once they are at least an hour
+    // old (a creator may not have registered its lock yet), so the sweep is
+    // run "two hours later".
+    QCOMPARE(lightning::portable::cleanStaleTempDirs(
+                 QDateTime::currentDateTimeUtc().addSecs(2 * 60 * 60)),
+             2);
     QVERIFY(!QFileInfo::exists(temp + QStringLiteral("/lightning-voice-abc")));
     QVERIFY(!QFileInfo::exists(temp + QStringLiteral("/lightning-animated-xyz")));
     QVERIFY2(QFileInfo(temp + QStringLiteral("/somebody-elses-data")).isDir(),
@@ -624,6 +632,71 @@ QString PortableModeTest::grepForPath(const QString &dir, const QString &needle)
             return path;
     }
     return {};
+}
+
+
+void PortableModeTest::staleScratchIsSweptOnAnOrdinaryInstallToo()
+{
+    // The sweep used to read tempDir(), which is EMPTY unless portable, and
+    // to be called only inside main's portable block -- so on every ordinary
+    // install a crash left decrypted media under the OS temp directory for
+    // good. It now sweeps mediaScratchRoot(), which is where those payloads
+    // actually go.
+    QTemporaryDir exeDir;
+    QVERIFY(exeDir.isValid());
+    lightning::portable::setPortableOverrideForTest(false, exeDir.path());
+    QCOMPARE(lightning::portable::mediaScratchRoot(), QDir::tempPath());
+    // A PRIVATE root for the sweep itself: the real temp directory may hold a
+    // running Lightning's live scratch, and a test must not reach it.
+    QTemporaryDir scratch;
+    QVERIFY(scratch.isValid());
+    lightning::portable::setMediaScratchRootOverrideForTest(scratch.path());
+    const QString root = lightning::portable::mediaScratchRoot();
+    QCOMPARE(root, scratch.path());
+    const QString suffix = QUuid::createUuid().toString(QUuid::WithoutBraces).left(8);
+    const QString ours = root + QStringLiteral("/lightning-playable-test-") + suffix;
+    const QString theirs = root + QStringLiteral("/other-app-") + suffix;
+    QVERIFY(QDir().mkpath(ours));
+    QVERIFY(QDir().mkpath(theirs));
+    // Unmarked and just created: left alone by a sweep at "now" (it could be
+    // a creator that has not registered yet)...
+    QCOMPARE(lightning::portable::cleanStaleTempDirs(QDateTime::currentDateTimeUtc()) >= 0, true);
+    QVERIFY(QFileInfo(ours).isDir());
+    // ...and swept by one that runs two hours later.
+    QVERIFY(lightning::portable::cleanStaleTempDirs(
+                QDateTime::currentDateTimeUtc().addSecs(2 * 60 * 60)) >= 1);
+    QVERIFY(!QFileInfo::exists(ours));
+    QVERIFY2(QFileInfo(theirs).isDir(), "the sweep removed a directory it did not create");
+    QDir(theirs).removeRecursively();
+    lightning::portable::setMediaScratchRootOverrideForTest(QString());
+}
+
+
+void PortableModeTest::aLiveScratchDirectoryIsNeverSwept()
+{
+    // A second Lightning instance's startup sweep must not remove the first
+    // instance's scratch directory out from under a playing QMediaPlayer.
+    // The creator holds a lock inside the directory; the sweep probes it.
+    QTemporaryDir exeDir;
+    QVERIFY(exeDir.isValid());
+    lightning::portable::setPortableOverrideForTest(true, exeDir.path());
+    const QString temp = lightning::portable::tempDir();
+    const QString live = temp + QStringLiteral("/lightning-voice-live");
+    QVERIFY(QDir().mkpath(live));
+    lightning::portable::holdScratchDirLive(live);
+    QVERIFY(QFileInfo::exists(
+        live + QLatin1Char('/') + QLatin1String(lightning::portable::kScratchLiveLockName)));
+    // Even a sweep that believes a day has passed leaves a HELD directory.
+    QCOMPARE(lightning::portable::cleanStaleTempDirs(
+                 QDateTime::currentDateTimeUtc().addDays(1)),
+             0);
+    QVERIFY(QFileInfo(live).isDir());
+    // Released, it is an ordinary candidate again -- swept once old enough.
+    lightning::portable::releaseScratchDir(live);
+    QCOMPARE(lightning::portable::cleanStaleTempDirs(
+                 QDateTime::currentDateTimeUtc().addDays(1)),
+             1);
+    QVERIFY(!QFileInfo::exists(live));
 }
 
 QTEST_MAIN(PortableModeTest)

@@ -121,6 +121,8 @@ Dialog {
             }
         }
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             visible: root.encryption && root.encryption.encrypted === true
             wrapMode: Text.WrapAnywhere

@@ -219,6 +219,8 @@ ItemDelegate {
             anchors.rightMargin: 6
             anchors.verticalCenter: parent.verticalCenter
             sourceComponent: Label {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 text: root.channelName
                 elide: Text.ElideRight
                 maximumLineCount: 1

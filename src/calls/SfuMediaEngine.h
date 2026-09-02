@@ -570,11 +570,18 @@ private:
     static void onAnswerCreated(GstPromise *promise, void *userData);
 
 public Q_SLOTS:
-    void handleLocalDescription(quintptr token, bool offer,
+    /// `token` is the webrtcbin the callback came from and `generation` is
+    /// m_generation as it stood when the callback FIRED. A pointer alone is
+    /// not a session identity: leave a call with a callback in flight, join
+    /// again, and GLib may hand the new webrtcbin the old address -- the
+    /// stale offer or candidate (carrying host candidates) would then be
+    /// signalled to the new call's focus. Both must match.
+    void handleLocalDescription(quintptr token, quint64 generation, bool offer,
                                 const QString &sdp);
-    void handleLocalCandidate(quintptr token, int mlineIndex,
-                              const QString &candidate);
-    void handleFailure(quintptr token, const QString &category);
+    void handleLocalCandidate(quintptr token, quint64 generation,
+                              int mlineIndex, const QString &candidate);
+    void handleFailure(quintptr token, quint64 generation,
+                       const QString &category);
     /// A GStreamer bus ERROR was posted from inside the publishing bin named
     /// `cid`. Runs on the GUI thread; every discriminator lives here.
     ///
@@ -594,7 +601,8 @@ public Q_SLOTS:
     void handlePublishError(const QString &cid);
 
 private:
-    bool tokenIsLive(quintptr token, Target *target = nullptr) const;
+    bool tokenIsLive(quintptr token, quint64 generation,
+                     Target *target = nullptr) const;
     /// Install the ENCRYPT probe on one outgoing pad.
     void installEncryptProbe(GstPad *pad, bool video);
     /// Install the DECRYPT probe on one incoming pad, using the cryptor for

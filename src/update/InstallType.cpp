@@ -125,6 +125,20 @@ bool isPackageManaged(InstallType type)
     return type == InstallType::LinuxFlatpak || type == InstallType::LinuxSnap;
 }
 
+bool fileLooksLikeAppImage(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return false;
+    const QByteArray head = file.read(11);
+    if (head.size() < 11)
+        return false;
+    // ELF magic, then the AppImage signature at offset 8: 'A' 'I' <type>.
+    return head.startsWith(QByteArrayLiteral("\x7f" "ELF"))
+        && head.at(8) == 'A' && head.at(9) == 'I'
+        && (head.at(10) == 0x01 || head.at(10) == 0x02);
+}
+
 InstallEnvironment defaultInstallEnvironment()
 {
     InstallEnvironment environment;
@@ -134,6 +148,9 @@ InstallEnvironment defaultInstallEnvironment()
         return qEnvironmentVariable(name);
     };
     environment.pathExists = [](const QString &path) { return QFileInfo::exists(path); };
+    environment.looksLikeAppImage = [](const QString &path) {
+        return fileLooksLikeAppImage(path);
+    };
     environment.compileTimeId = QString::fromLatin1(LIGHTNING_INSTALL_TYPE);
     environment.readInstallMarker = []() -> QString {
         // Beside the running executable, never a search path: the marker
@@ -169,9 +186,17 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
     } else if (envIsSet(environment, "SNAP") && envIsSet(environment, "SNAP_NAME")) {
         runtimeType = InstallType::LinuxSnap;
     } else {
+        // The AppImage runtime sets $APPIMAGE to the image it mounted. The
+        // variable is also settable by anything that starts the process, and
+        // it becomes the updater's --target: the file that gets chmod +x and
+        // replaced. So the claim is accepted only for a file that at least
+        // IS an AppImage. Same-user only either way; this keeps a stray
+        // environment from turning an update into "replace that file".
         const QString appImage = envValue(environment, "APPIMAGE");
-        if (!appImage.isEmpty() && pathExists(appImage))
+        if (!appImage.isEmpty() && pathExists(appImage) && environment.looksLikeAppImage
+            && environment.looksLikeAppImage(appImage)) {
             runtimeType = InstallType::LinuxAppImage;
+        }
     }
 
     const std::optional<InstallType> compileTime =

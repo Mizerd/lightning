@@ -178,6 +178,7 @@ QJsonObject baseManifest()
     manifest.insert(QStringLiteral("channel"), QStringLiteral("stable"));
     manifest.insert(QStringLiteral("tag"), QStringLiteral("v0.8.0"));
     manifest.insert(QStringLiteral("released"), QStringLiteral("2026-08-16T12:00:00Z"));
+    manifest.insert(QStringLiteral("expires"), QStringLiteral("2026-12-14T12:00:00Z"));
     manifest.insert(QStringLiteral("min_updater_version"), 1);
     manifest.insert(QStringLiteral("release_notes"), QStringLiteral("markdown"));
 
@@ -272,6 +273,10 @@ private slots:
     void modelsEcosystemChannels();
     void validatesHashAndFilenameHelpers();
     void validatesUpdateUrls();
+    void rejectsAMissingExpiry();
+    void rejectsAMalformedExpiry_data();
+    void rejectsAMalformedExpiry();
+    void boundsAChannelNote();
 };
 
 void UpdateManifestTest::initTestCase()
@@ -1043,6 +1048,58 @@ void UpdateManifestTest::validatesUpdateUrls()
         QVERIFY(!url.hasQuery());
         QVERIFY(url.userInfo().isEmpty());
     }
+}
+
+
+void UpdateManifestTest::rejectsAMissingExpiry()
+{
+    // Required, unlike `released`: it is the one field that bounds how long a
+    // captured pair can be replayed. Absent is a failure, never "no expiry".
+    QJsonObject manifest = baseManifest();
+    manifest.remove(QStringLiteral("expires"));
+    QCOMPARE(verify(manifest).error, ManifestError::MissingExpiry);
+    manifest.insert(QStringLiteral("expires"), QString());
+    QCOMPARE(verify(manifest).error, ManifestError::MissingExpiry);
+    const UpdateManifest::Result ok = verify(baseManifest());
+    QVERIFY2(ok.ok, qPrintable(ok.message));
+    QCOMPARE(ok.manifest.expires(),
+             QDateTime::fromString(QStringLiteral("2026-12-14T12:00:00Z"), Qt::ISODate));
+}
+
+void UpdateManifestTest::rejectsAMalformedExpiry_data()
+{
+    QTest::addColumn<QJsonValue>("value");
+    QTest::newRow("not a date") << QJsonValue(QStringLiteral("soon"));
+    QTest::newRow("number") << QJsonValue(1700000000);
+    // No zone designator: a local time on whatever machine reads it.
+    QTest::newRow("local time") << QJsonValue(QStringLiteral("2026-12-14T12:00:00"));
+    QTest::newRow("date only") << QJsonValue(QStringLiteral("2026-12-14"));
+}
+
+void UpdateManifestTest::rejectsAMalformedExpiry()
+{
+    QFETCH(QJsonValue, value);
+    QJsonObject manifest = baseManifest();
+    manifest.insert(QStringLiteral("expires"), value);
+    const ManifestError error = verify(manifest).error;
+    QVERIFY2(error == ManifestError::MalformedExpiry || error == ManifestError::MissingExpiry,
+             qPrintable(manifestErrorText(error)));
+}
+
+void UpdateManifestTest::boundsAChannelNote()
+{
+    // A signed document is still an unbounded one, and this string reaches a
+    // status label.
+    QJsonObject channels;
+    channels.insert(QStringLiteral("linux-flatpak"),
+                    QJsonObject{ { QStringLiteral("available"), false },
+                                 { QStringLiteral("note"), QString(5000, QLatin1Char('n')) } });
+    QJsonObject manifest = baseManifest();
+    manifest.insert(QStringLiteral("channels"), channels);
+    const UpdateManifest::Result result = verify(manifest);
+    QVERIFY2(result.ok, qPrintable(result.message));
+    QCOMPARE(result.manifest.channelFor(QStringLiteral("linux-flatpak"))->note.size(),
+             UpdateManifest::kMaxChannelNoteChars);
 }
 
 QTEST_APPLESS_MAIN(UpdateManifestTest)

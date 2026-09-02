@@ -7,11 +7,16 @@
 // QStringList argument VECTOR in which a hostile or merely awkward path stays
 // one single element.
 
+#include "updater/ArtifactDigest.h"
 #include "updater/InstallStrategies.h"
 #include "updater/UpdaterArgs.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QProcess>
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
 
@@ -99,6 +104,17 @@ private slots:
     void planForModeRefusesEcosystemManagedTypes_data();
     void planForModeRefusesEcosystemManagedTypes();
 
+    // --- the digest contract ---
+    void digestMustBeSixtyFourLowercaseHex_data();
+    void digestMustBeSixtyFourLowercaseHex();
+    void artifactTargetAndRelaunchMustNotBeSymlinks();
+    void fileDigestMatchesQCryptographicHash();
+    // The REAL helper binary, end to end: a swapped artifact is refused
+    // before anything is touched, and the same call with the right digest
+    // installs.
+    void theHelperRefusesAnArtifactWhoseDigestChanged();
+    void theHelperInstallsWhenTheDigestMatches();
+
 private:
     QStringList baseArgs(const QString &mode, const QString &target) const;
     UpdaterArguments parseOrFail(const QStringList &args);
@@ -141,7 +157,9 @@ QStringList UpdaterHelperArgsTest::baseArgs(const QString &mode,
             QStringLiteral("--artifact"), m_artifact,
             QStringLiteral("--pid"),      QStringLiteral("4242"),
             QStringLiteral("--target"),   target,
+            QStringLiteral("--sha256"),   sha256HexOfFile(m_artifact),
             QStringLiteral("--relaunch"), m_relaunch,
+            // Last on purpose: missingValueRefused() drops the final token.
             QStringLiteral("--status"),   m_status};
 }
 
@@ -374,6 +392,7 @@ void UpdaterHelperArgsTest::everyOtherOptionStaysRequired_data()
     QTest::newRow("pid") << "--pid";
     QTest::newRow("target") << "--target";
     QTest::newRow("status") << "--status";
+    QTest::newRow("sha256") << "--sha256";
 }
 
 void UpdaterHelperArgsTest::everyOtherOptionStaysRequired()
@@ -911,6 +930,206 @@ void UpdaterHelperArgsTest::planForModeRefusesEcosystemManagedTypes()
     QCOMPARE(int(result.error), expected);
     QVERIFY(result.plan.program.isEmpty());
     QVERIFY(result.plan.arguments.isEmpty());
+}
+
+
+// ---------------------------------------------------------------------------
+// The digest contract. The helper is connected to the application's verified
+// download by nothing but a path that can sit armed for hours, so it takes
+// the signed manifest's SHA-256 on its argv and re-hashes the file itself
+// right before acting (ArtifactDigest.h).
+// ---------------------------------------------------------------------------
+
+void UpdaterHelperArgsTest::digestMustBeSixtyFourLowercaseHex_data()
+{
+    QTest::addColumn<QString>("value");
+    QTest::addColumn<bool>("accepted");
+    const QString good = QString(64, QLatin1Char('a'));
+    QTest::newRow("valid") << good << true;
+    QTest::newRow("too short") << good.left(63) << false;
+    QTest::newRow("too long") << good + QLatin1Char('a') << false;
+    QTest::newRow("upper case") << good.toUpper() << false;
+    QTest::newRow("not hex") << QString(64, QLatin1Char('g')) << false;
+    QTest::newRow("0x prefix") << QStringLiteral("0x") + good.left(62) << false;
+}
+
+void UpdaterHelperArgsTest::digestMustBeSixtyFourLowercaseHex()
+{
+    QFETCH(QString, value);
+    QFETCH(bool, accepted);
+    QStringList args = baseArgs(QStringLiteral("linux-deb"), m_targetDir);
+    args[args.indexOf(QStringLiteral("--sha256")) + 1] = value;
+    const ArgsParseResult parsed = parseUpdaterArgs(args);
+    QCOMPARE(parsed.ok(), accepted);
+    if (!accepted) {
+        QCOMPARE(parsed.error, ArgsError::InvalidDigest);
+        QCOMPARE(parsed.offendingOption, QStringLiteral("--sha256"));
+    } else {
+        QCOMPARE(parsed.args.expectedSha256, value);
+    }
+}
+
+void UpdaterHelperArgsTest::artifactTargetAndRelaunchMustNotBeSymlinks()
+{
+#ifdef Q_OS_WIN
+    QSKIP("symlink creation requires elevation on Windows");
+#else
+    const QDir root(m_dir.path());
+    // Every path option, one at a time: a link to a perfectly valid file
+    // is refused on its own merits, because exists()/isFile() follow it and
+    // the strategies would chmod, replace, or hand to root whatever it
+    // pointed at when they ran.
+    struct Case { const char *option; QString linkTo; QString mode; QString target; };
+    const QList<Case> cases = {
+        { "--artifact", m_artifact, QStringLiteral("linux-deb"), m_targetDir },
+        { "--target", m_targetFile, QStringLiteral("linux-appimage"), m_targetFile },
+        { "--relaunch", m_relaunch, QStringLiteral("linux-deb"), m_targetDir },
+    };
+    for (const Case &c : cases) {
+        const QString link = root.absoluteFilePath(
+            QStringLiteral("link-") + QString::fromLatin1(c.option).mid(2));
+        QFile::remove(link);
+        QVERIFY(QFile::link(c.linkTo, link));
+        QStringList args = baseArgs(c.mode, c.target);
+        args[args.indexOf(QString::fromLatin1(c.option)) + 1] = link;
+        const ArgsParseResult parsed = parseUpdaterArgs(args);
+        QVERIFY2(!parsed.ok(), c.option);
+        QCOMPARE(parsed.error, ArgsError::PathIsSymlink);
+        QCOMPARE(parsed.offendingOption, QString::fromLatin1(c.option));
+        QFile::remove(link);
+    }
+#endif
+}
+
+void UpdaterHelperArgsTest::fileDigestMatchesQCryptographicHash()
+{
+    // Larger than one read chunk, so the streaming path is what is measured.
+    QByteArray bytes(3 * 1024 * 1024 + 17, 'x');
+    for (int i = 0; i < bytes.size(); i += 4099)
+        bytes[i] = static_cast<char>(i & 0xff);
+    const QString path = writeFile(
+        QDir(m_dir.path()).absoluteFilePath(QStringLiteral("big.bin")), bytes);
+    QVERIFY(!path.isEmpty());
+    const QString expected = QString::fromLatin1(
+        QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+    QCOMPARE(sha256HexOfFile(path), expected);
+    QVERIFY(isSha256Hex(expected));
+    // Unreadable is EMPTY, never a digest of nothing.
+    QVERIFY(sha256HexOfFile(QDir(m_dir.path()).absoluteFilePath(
+                QStringLiteral("absent.bin"))).isEmpty());
+}
+
+namespace {
+
+#ifndef Q_OS_WIN
+// A pid that has certainly exited, so the helper's wait returns at once.
+qint64 exitedPid()
+{
+    // A child that blocks on stdin until we close it, so the pid can be read
+    // while it is certainly alive and then certainly exited.
+    QProcess probe;
+    probe.start(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), QStringLiteral("read x")});
+    if (!probe.waitForStarted(5000))
+        return 0;
+    const qint64 pid = probe.processId();
+    probe.closeWriteChannel();
+    if (!probe.waitForFinished(5000))
+        return 0;
+    return pid;
+}
+
+QJsonObject readStatus(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    return QJsonDocument::fromJson(file.readAll()).object();
+}
+#endif
+
+} // namespace
+
+void UpdaterHelperArgsTest::theHelperRefusesAnArtifactWhoseDigestChanged()
+{
+#ifdef Q_OS_WIN
+    QSKIP("the end-to-end helper run uses /bin/true for an exited pid");
+#else
+    const QString helper = QStringLiteral(LIGHTNING_UPDATER_HELPER_PATH);
+    QVERIFY2(QFileInfo(helper).isExecutable(), qPrintable(helper));
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QDir root(dir.path());
+    const QString artifact = writeFile(root.absoluteFilePath(QStringLiteral("new.AppImage")),
+                                       QByteArray("verified bytes"));
+    const QString target = writeFile(root.absoluteFilePath(QStringLiteral("Lightning.AppImage")),
+                                     QByteArray("installed bytes"));
+    const QString status = root.absoluteFilePath(QStringLiteral("status.json"));
+    const QString verifiedDigest = sha256HexOfFile(artifact);
+    const qint64 pid = exitedPid();
+    QVERIFY(pid > 1);
+
+    // The swap: between "verified" and "installed" somebody replaced the
+    // file. The digest on argv is the one the manifest signed.
+    QVERIFY(!writeFile(artifact, QByteArray("attacker bytes")).isEmpty());
+
+    QProcess run;
+    run.start(helper, {QStringLiteral("--mode"), QStringLiteral("linux-appimage"),
+                       QStringLiteral("--artifact"), artifact,
+                       QStringLiteral("--pid"), QString::number(pid),
+                       QStringLiteral("--target"), target,
+                       QStringLiteral("--status"), status,
+                       QStringLiteral("--sha256"), verifiedDigest});
+    QVERIFY(run.waitForStarted(5000));
+    QVERIFY(run.waitForFinished(30000));
+    QCOMPARE(run.exitCode(), 10); // ExitArtifactDigestMismatch
+
+    // Nothing was touched, and the refusal is on record for the next launch.
+    QFile installed(target);
+    QVERIFY(installed.open(QIODevice::ReadOnly));
+    QCOMPARE(installed.readAll(), QByteArray("installed bytes"));
+    const QJsonObject report = readStatus(status);
+    QCOMPARE(report.value(QStringLiteral("ok")).toBool(true), false);
+    QCOMPARE(report.value(QStringLiteral("error")).toString(),
+             QStringLiteral("artifact-digest-mismatch"));
+    QCOMPARE(report.value(QStringLiteral("mode")).toString(),
+             QStringLiteral("linux-appimage"));
+#endif
+}
+
+void UpdaterHelperArgsTest::theHelperInstallsWhenTheDigestMatches()
+{
+#ifdef Q_OS_WIN
+    QSKIP("the end-to-end helper run uses /bin/true for an exited pid");
+#else
+    const QString helper = QStringLiteral(LIGHTNING_UPDATER_HELPER_PATH);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QDir root(dir.path());
+    const QString artifact = writeFile(root.absoluteFilePath(QStringLiteral("new.AppImage")),
+                                       QByteArray("verified bytes"));
+    const QString target = writeFile(root.absoluteFilePath(QStringLiteral("Lightning.AppImage")),
+                                     QByteArray("installed bytes"));
+    const QString status = root.absoluteFilePath(QStringLiteral("status.json"));
+    const qint64 pid = exitedPid();
+    QVERIFY(pid > 1);
+
+    QProcess run;
+    run.start(helper, {QStringLiteral("--mode"), QStringLiteral("linux-appimage"),
+                       QStringLiteral("--artifact"), artifact,
+                       QStringLiteral("--pid"), QString::number(pid),
+                       QStringLiteral("--target"), target,
+                       QStringLiteral("--status"), status,
+                       QStringLiteral("--sha256"), sha256HexOfFile(artifact)});
+    QVERIFY(run.waitForStarted(5000));
+    QVERIFY(run.waitForFinished(30000));
+    QCOMPARE(run.exitCode(), 0);
+
+    QFile installed(target);
+    QVERIFY(installed.open(QIODevice::ReadOnly));
+    QCOMPARE(installed.readAll(), QByteArray("verified bytes"));
+    QVERIFY(QFileInfo(target).isExecutable());
+    QCOMPARE(readStatus(status).value(QStringLiteral("ok")).toBool(false), true);
+#endif
 }
 
 QTEST_GUILESS_MAIN(UpdaterHelperArgsTest)

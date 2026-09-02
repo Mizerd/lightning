@@ -14,6 +14,7 @@
 // starts is launched with a program path plus a QStringList argument vector —
 // never a command line, never a shell.
 
+#include "updater/ArtifactDigest.h"
 #include "updater/AtomicReplace.h"
 #include "updater/InstallStrategies.h"
 #include "updater/ProcessWaiter.h"
@@ -47,7 +48,15 @@ enum ExitCode {
     ExitReplaceFailed = 7,
     ExitInstallerFailed = 8,
     ExitInternalError = 9,
+    // The artifact on disk no longer hashes to what the signed manifest said
+    // it should. Nothing was installed.
+    ExitArtifactDigestMismatch = 10,
 };
+
+// The status token the application reads back for that refusal. Kept as one
+// literal here and in UpdateManager, which writes the same token itself when
+// ITS pre-launch re-hash fails on the install-on-quit path.
+const QString kDigestMismatchStatus = QStringLiteral("artifact-digest-mismatch");
 
 // The executable the portable Windows archive must contain. The build produces
 // lightning-matrix.exe, but packaging renames it on staging -- see
@@ -239,6 +248,20 @@ int main(int argc, char *argv[])
                     QString::fromLatin1(updater::waitResultName(waited)));
         writeStderr(QStringLiteral("lightning-updater: the application did not exit"));
         return ExitProcessWaitFailed;
+    }
+
+    // The application verified these bytes as it downloaded them, and it
+    // re-hashed them before starting us -- but between that and here the
+    // file has been sitting at a predictable path, and what follows is a
+    // chmod, an archive extraction, or `pkexec dpkg -i <path>` as root. This
+    // is the last moment before the bytes are consumed, so it is where the
+    // digest is taken again. A mismatch installs nothing and says so.
+    const QString digest = updater::sha256HexOfFile(args.artifactPath);
+    if (digest.isEmpty() || digest != args.expectedSha256) {
+        writeStatus(args.statusPath, false, mode, kDigestMismatchStatus);
+        writeStderr(QStringLiteral(
+            "lightning-updater: the update file no longer matches the signed release"));
+        return ExitArtifactDigestMismatch;
     }
 
     const updater::StrategyResult strategy = updater::planForMode(args);

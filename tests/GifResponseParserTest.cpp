@@ -65,6 +65,7 @@ private Q_SLOTS:
     void klipyPageAdvancesAndHasNext();
     void klipySkipsNonGifType();
     void resultsCarryProviderIdentity();
+    void tileUrlsMustBeOnProviderHosts();
 };
 
 void GifResponseParserTest::parsesTrendingResult()
@@ -343,6 +344,36 @@ void GifResponseParserTest::resultsCarryProviderIdentity()
     const auto k = gif::parseKlipy(klipyResponse(klipyItem("2")), Rating::R, 0);
     QCOMPARE(g.results.first().provider, QStringLiteral("giphy"));
     QCOMPARE(k.results.first().provider, QStringLiteral("klipy"));
+}
+
+
+void GifResponseParserTest::tileUrlsMustBeOnProviderHosts()
+{
+    // The picker's tiles load stillUrl / previewUrl straight through Qt's
+    // image loader, outside MediaBridge. The sendable rendition was always
+    // host-restricted; the DISPLAYED ones were a bare https check, so a
+    // hostile provider response could point every open picker at any host.
+    QByteArray item = gifItem("abc", "g");
+    item.replace("https://media.giphy.com/media/abc/200w_s.jpg",
+                 "https://tracker.evil.example/abc.jpg");
+    const auto out = gif::parseGiphy(giphyResponse(item), Rating::PG13, 0);
+    QVERIFY(out.ok);
+    QCOMPARE(out.results.size(), 1);
+    QVERIFY2(out.results.first().stillUrl.isEmpty(),
+             qPrintable(out.results.first().stillUrl));
+    // The animated preview goes through the sendable-gif policy already.
+    QCOMPARE(out.results.first().previewUrl,
+             QStringLiteral("https://media.giphy.com/media/abc/200w.gif"));
+
+    // The mp4 preview is a model role too, one field away from the same hazard.
+    QByteArray mp4Item = gifItem("abc", "g");
+    mp4Item.replace("https://media.giphy.com/media/abc/giphy.mp4",
+                    "https://tracker.evil.example/abc.mp4");
+    const auto mp4Out = gif::parseGiphy(giphyResponse(mp4Item), Rating::PG13, 0);
+    QVERIFY(mp4Out.ok);
+    QCOMPARE(mp4Out.results.size(), 1);
+    QVERIFY2(mp4Out.results.first().mp4Url.isEmpty(),
+             qPrintable(mp4Out.results.first().mp4Url));
 }
 
 QTEST_GUILESS_MAIN(GifResponseParserTest)

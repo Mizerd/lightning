@@ -907,6 +907,8 @@ Item {
                             font.pixelSize: AppTheme.textBody
                         }
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             objectName: "loginRepairBody"
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
@@ -1041,6 +1043,8 @@ Item {
                     contentItem: ColumnLayout {
                         spacing: AppTheme.spacing12
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             objectName: "loginRepairConfirmBody"
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap

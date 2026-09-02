@@ -46,6 +46,8 @@ ColumnLayout {
         spacing: 4
 
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             text: picker.label
             color: AppTheme.stormText
             font.pixelSize: AppTheme.textBody

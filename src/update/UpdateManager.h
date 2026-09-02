@@ -243,6 +243,12 @@ public:
     QStringList lastLaunchArgumentsForTest() const { return m_lastLaunchArguments; }
     QString lastLaunchProgramForTest() const { return m_lastLaunchProgram; }
     QString stagedArtifactPathForTest() const { return m_stagedPath; }
+    // The digest the staged bytes were verified against. In production it is
+    // the signed manifest's value; setStagedArtifactForTest() without a
+    // manifest records the file's own digest at staging time, which is the
+    // same promise ("these bytes were checked") for the purposes of the
+    // re-check that every launch performs.
+    QString stagedArtifactSha256ForTest() const { return m_stagedSha256; }
     QString stagingRootForTest() const { return stagingRoot(); }
 
 Q_SIGNALS:
@@ -318,6 +324,14 @@ private:
     // them as an unknown package NAME and the install fails after the user
     // has already answered a PolicyKit prompt.
     bool promoteStagedArtifact(QString *error);
+    // Re-hashes the staged file and compares it with m_stagedSha256. The
+    // download verified the bytes as they streamed in; this proves the file
+    // at the path is STILL those bytes at the moment they are handed over.
+    bool stagedArtifactStillVerifies() const;
+    // Writes the helper's status document ourselves, for the one failure the
+    // helper cannot report because it was never started: the pre-launch
+    // re-hash failing on the install-on-quit path, where the UI is gone.
+    void writeLocalStatusFailure(const QString &error);
     bool acquireLock();
     void releaseLock();
     void discardStagedArtifact();
@@ -360,6 +374,9 @@ private:
     bool m_metadataFromMirror = false;
     std::unique_ptr<QFile> m_stagedFile;
     QString m_stagedPath;
+    // Lowercase hex SHA-256 the staged file must still hash to. Set with the
+    // path, cleared with it.
+    QString m_stagedSha256;
     std::unique_ptr<QLockFile> m_lock;
 
     // Mirror-first download state. The mirror is attempted at most once and

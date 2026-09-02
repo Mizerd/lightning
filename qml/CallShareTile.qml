@@ -243,6 +243,8 @@ Item {
                     color: AppTheme.success
                 }
                 Text {
+                    // Remote or externally chosen text: never markup.
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: root._label
                     // A fixed light ink rather than a theme token: this plate

@@ -83,7 +83,8 @@ use prost::Message as _;
 use serde_json::json;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use crate::rooms::{classify_room_error, require_client};
+use crate::rooms::{classify_room_error, public_ip, require_client};
+use crate::rtc::{public_hostname, resolve_public_host};
 use crate::{enqueue, RustClient};
 
 /// Bound on the JWT-service response body. A `{url, jwt}` object is small.
@@ -142,6 +143,46 @@ pub(crate) struct SfuCredentials {
     pub jwt: String,
 }
 
+/// The SFU websocket URL as the JWT service returned it, normalised to the
+/// one shape the connect accepts -- or `None`.
+///
+/// `https` is ACCEPTED and normalised to `wss`: lk-jwt-service echoes its
+/// configured LIVEKIT_URL verbatim and `https://…` is a normal value there
+/// (livekit-client does the same in `toWebsocketUrl`); `ws`/`http` would
+/// carry the JWT in the clear and are refused. `has_host()` alone is TRUE
+/// for an empty host (`wss:///rtc`), which normalises cleanly and then
+/// cannot connect to anything, so the host must be non-empty -- and PUBLIC:
+/// this URL was chosen by the focus, the focus by another participant, and
+/// a TLS websocket to the loopback is still a websocket to the loopback.
+/// This is the production transform; the tests call it, not a copy.
+pub(crate) fn normalize_sfu_url(raw: &str) -> Option<String> {
+    let mut parsed = url::Url::parse(raw).ok()?;
+    match parsed.scheme() {
+        "wss" => {}
+        // set_scheme can only fail between incompatible special schemes;
+        // https -> wss is allowed.
+        "https" => parsed.set_scheme("wss").ok()?,
+        _ => return None,
+    }
+    if !parsed.host_str().is_some_and(|host| !host.is_empty())
+        || !public_ws_host(&parsed)
+    {
+        return None;
+    }
+    Some(parsed.to_string())
+}
+
+/// The literal-host half of the SFU websocket policy; the resolved half is
+/// `rtc::resolve_public_host`, applied at connect time.
+fn public_ws_host(url: &url::Url) -> bool {
+    match url.host() {
+        Some(url::Host::Ipv4(addr)) => public_ip(std::net::IpAddr::V4(addr)),
+        Some(url::Host::Ipv6(addr)) => public_ip(std::net::IpAddr::V6(addr)),
+        Some(url::Host::Domain(name)) => public_hostname(name),
+        None => false,
+    }
+}
+
 /// Obtain SFU credentials for one room.
 ///
 /// The OpenID token is minted by the homeserver for exactly this purpose:
@@ -187,10 +228,45 @@ async fn fetch_sfu_credentials(
         .pop_if_empty()
         .extend(["sfu", "get"]);
 
-    let response = client
-        .http_client()
-        .post(url.to_string())
+    // The focus host was chosen by whoever holds the oldest membership --
+    // another participant -- and this request carries the user's OpenID
+    // token, device id and room id. So it goes through a client built for
+    // exactly this call and nothing else:
+    //   * the name is resolved HERE, every address must be public, and the
+    //     first one is pinned, so a private A record or a rebinding between
+    //     lookup and connect cannot land the POST on the loopback;
+    //   * redirects are refused outright. The SDK's shared client follows
+    //     up to ten, cross-scheme and cross-host, re-sending a cloneable
+    //     body -- a validated public host answering `307` to
+    //     `http://169.254.169.254/...` would have replayed the token there.
+    //     A JWT service has no reason to redirect;
+    //   * the environment proxy is ignored, or the pin is advisory;
+    //   * https only, with the same timeouts as the SDK's client.
+    let host = url
+        .host_str()
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| "invalid_transport".to_owned())?;
+    let port = url.port_or_known_default().unwrap_or(443);
+    // Resolution is bounded like the request it precedes: an unanswering
+    // resolver must not hold the join open past the SFU timeout.
+    let pinned = tokio::time::timeout(SFU_TIMEOUT, resolve_public_host(&host, port))
+        .await
+        .ok()
+        .flatten()
+        .ok_or_else(|| "invalid_transport".to_owned())?;
+    let http = reqwest::Client::builder()
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .resolve(&host, pinned)
+        .connect_timeout(Duration::from_secs(5))
         .timeout(SFU_TIMEOUT)
+        .user_agent(format!("Lightning/{}", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|_| "invalid_request".to_owned())?;
+
+    let response = http
+        .post(url.to_string())
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body(body)
         .send()
@@ -200,6 +276,9 @@ async fn fetch_sfu_credentials(
     let status = response.status().as_u16();
     if !(200..300).contains(&status) {
         return Err(match status {
+            // A redirect is refused above, so a 3xx surfaces here: the
+            // service is misconfigured or hostile, and either way "invalid".
+            300..=399 => "invalid".to_owned(),
             401 | 403 => "forbidden".to_owned(),
             404 => "unsupported".to_owned(),
             429 => "rate_limited".to_owned(),
@@ -207,16 +286,29 @@ async fn fetch_sfu_credentials(
             _ => "unknown".to_owned(),
         });
     }
+    // Refuse an oversized answer BEFORE reading it, and stop reading at the
+    // cap when there is no Content-Length: `text()` buffers the whole body
+    // first, so a check afterwards enforces nothing against a chunked reply
+    // that streams for the full timeout.
     if response
         .content_length()
         .is_some_and(|len| len > MAX_SFU_RESPONSE as u64)
     {
         return Err("invalid".to_owned());
     }
-    let text = response.text().await.unwrap_or_default();
-    if text.len() > MAX_SFU_RESPONSE {
-        return Err("invalid".to_owned());
+    let mut bytes = Vec::with_capacity(1024);
+    let mut stream = response;
+    while let Some(chunk) = stream
+        .chunk()
+        .await
+        .map_err(|err| classify_room_error(&err.to_string()).to_owned())?
+    {
+        if bytes.len() + chunk.len() > MAX_SFU_RESPONSE {
+            return Err("invalid".to_owned());
+        }
+        bytes.extend_from_slice(&chunk);
     }
+    let text = String::from_utf8_lossy(&bytes);
     let parsed: serde_json::Value =
         serde_json::from_str(&text).map_err(|_| "invalid".to_owned())?;
 
@@ -231,23 +323,7 @@ async fn fetch_sfu_credentials(
     // configured deployment and failed the call instantly with "invalid".
     let raw_url = parsed.get("url").and_then(|v| v.as_str()).unwrap_or("");
     let url_ok = sane(raw_url, 1024)
-        .and_then(|value| url::Url::parse(value).ok())
-        .and_then(|mut parsed| {
-            match parsed.scheme() {
-                "wss" => {}
-                // set_scheme can only fail between incompatible special
-                // schemes; https -> wss is allowed.
-                "https" => parsed.set_scheme("wss").ok()?,
-                // ws / http would carry the JWT in the clear.
-                _ => return None,
-            }
-            // has_host() alone is TRUE for an empty host ("wss:///rtc"),
-            // which normalises cleanly and then cannot connect to anything.
-            parsed
-                .host_str()
-                .is_some_and(|host| !host.is_empty())
-                .then(|| parsed.to_string())
-        })
+        .and_then(normalize_sfu_url)
         .ok_or_else(|| "invalid".to_owned())?;
     let jwt = parsed
         .get("jwt")
@@ -451,7 +527,44 @@ async fn run_session(
         .append_pair("sdk", "cpp")
         .append_pair("version", env!("CARGO_PKG_VERSION"));
 
-    let connect = tokio_tungstenite::connect_async(url.as_str());
+    // Resolve, check every address, and connect the TCP stream OURSELVES
+    // so the address the policy approved is the address the socket goes
+    // to; the TLS handshake still verifies the URL's hostname. And the
+    // frame ceilings go into the websocket CONFIG: the post-receipt
+    // MAX_SIGNAL_FRAME check below could only ever see a frame tungstenite
+    // had already buffered, up to its 64 MiB default.
+    // Resolution is its OWN step with its OWN category: a focus whose name
+    // resolves to a private, loopback or link-local address is refused by
+    // policy (docs/matrixrtc.md), and a user pointed at a LAN-only SFU
+    // deserves a reason that is not "the network is down".
+    let host = url.host_str().unwrap_or_default().to_owned();
+    let port = url.port_or_known_default().unwrap_or(443);
+    let Some(address) = tokio::time::timeout(SFU_TIMEOUT, resolve_public_host(&host, port))
+        .await
+        .ok()
+        .flatten()
+    else {
+        emit(json!({
+            "type": "sfu_state", "generation": generation,
+            "state": "failed", "category": "focus_unroutable",
+        }));
+        return;
+    };
+    let connect = async {
+        let tcp = tokio::net::TcpStream::connect(address)
+            .await
+            .map_err(tokio_tungstenite::tungstenite::Error::Io)?;
+        let mut config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
+        config.max_message_size = Some(MAX_SIGNAL_FRAME);
+        config.max_frame_size = Some(MAX_SIGNAL_FRAME);
+        tokio_tungstenite::client_async_tls_with_config(
+            url.as_str(),
+            tcp,
+            Some(config),
+            None,
+        )
+        .await
+    };
     let stream = match tokio::time::timeout(SFU_TIMEOUT, connect).await {
         Ok(Ok((stream, _))) => stream,
         Ok(Err(_)) => {
@@ -1005,18 +1118,12 @@ mod tests {
         assert!(participant_json(&info).is_none());
     }
 
-    /// The two URL transforms the LiveKit signalling connect depends on,
-    /// extracted so they can be asserted without a live SFU.
+    /// The PRODUCTION normalisation (super::normalize_sfu_url) plus the
+    /// `/rtc` path join the connect performs, so the assertions below hold
+    /// against what fetch_sfu_credentials actually does.
     fn normalize_sfu_url(raw: &str) -> Option<String> {
-        let mut parsed = url::Url::parse(raw).ok()?;
-        match parsed.scheme() {
-            "wss" => {}
-            "https" => parsed.set_scheme("wss").ok()?,
-            _ => return None,
-        }
-        if !parsed.host_str().is_some_and(|host| !host.is_empty()) {
-            return None;
-        }
+        let normalized = super::normalize_sfu_url(raw)?;
+        let mut parsed = url::Url::parse(&normalized).ok()?;
         let existing = parsed.path().trim_end_matches('/').to_owned();
         parsed.set_path(&format!("{existing}/rtc"));
         Some(parsed.to_string())
@@ -1052,6 +1159,28 @@ mod tests {
         // that simply will not resolve. A genuinely hostless form is what
         // has to be refused.
         assert!(normalize_sfu_url("wss:").is_none());
+    }
+
+    /// The focus chooses this URL and another participant chooses the
+    /// focus. A TLS websocket to the loopback, a private range, an
+    /// IPv4-mapped loopback, or a local-only name is refused at the
+    /// literal, before any resolution.
+    #[test]
+    fn an_sfu_url_on_an_unroutable_host_is_refused() {
+        for bad in [
+            "wss://127.0.0.1:8443/",
+            "wss://[::1]/",
+            "wss://[::ffff:127.0.0.1]/",
+            "wss://10.0.0.5/",
+            "wss://169.254.169.254/",
+            "wss://100.64.1.1/",
+            "wss://localhost/",
+            "wss://livekit.local/",
+            "wss://sfu.internal/",
+        ] {
+            assert!(normalize_sfu_url(bad).is_none(), "{bad} must be refused");
+        }
+        assert!(normalize_sfu_url("wss://livekit.example.net").is_some());
         assert!(normalize_sfu_url("wss://").is_none());
     }
 

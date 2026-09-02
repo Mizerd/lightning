@@ -592,6 +592,8 @@ Dialog {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing2
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             Layout.fillWidth: true
                             text: root.selectedDisplayName.length > 0
                                   ? root.selectedDisplayName : root.selectedUserId
@@ -601,6 +603,8 @@ Dialog {
                             elide: Label.ElideRight
                         }
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             Layout.fillWidth: true
                             visible: root.selectedDisplayName.length > 0
                             text: root.selectedUserId
@@ -672,6 +676,8 @@ Dialog {
                             colorKey: root.selectedUserId
                         }
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             Layout.fillWidth: true
                             text: existingRow.dmName
                             color: AppTheme.stormText

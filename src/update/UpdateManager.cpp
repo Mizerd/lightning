@@ -4,6 +4,7 @@
 #include "update/UpdateDownloader.h"
 #include "update/UpdateEndpoints.h"
 #include "update/SignatureVerifier.h"
+#include "updater/ArtifactDigest.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -30,8 +31,20 @@ constexpr char kSettingAutomaticChecks[] = "update/automaticChecks";
 constexpr char kSettingLastCheck[] = "update/lastCheckTime";
 constexpr char kSettingDismissedVersion[] = "update/dismissedVersion";
 
-// The stable release channel. Prereleases are never offered on it.
-constexpr char kStableChannel[] = "stable";
+// Whether THIS BUILD installs pre-releases. It never does: an installation
+// has no channel of its own, so the decision cannot be left to the manifest.
+// The previous rule ("the stable channel never offers a prerelease") read the
+// manifest's self-declared `channel` and so was bypassed by any manifest that
+// simply called itself something else -- an operator mistake, not an attack,
+// since the document is signed either way, but a guard that the guarded
+// document can switch off is not a guard.
+constexpr bool kOffersPrereleases = false;
+
+// The status token both the helper (src/updater/main.cpp) and the
+// application write when the staged file no longer hashes to the signed
+// manifest's value. One spelling, so the next launch reads it the same way
+// whichever side refused.
+constexpr char kDigestMismatchStatus[] = "artifact-digest-mismatch";
 
 // The temp name a download streams into. The verified bytes are renamed to
 // the manifest's own filename before the helper ever sees them.
@@ -282,6 +295,12 @@ void UpdateManager::setStagedArtifactForTest(const QString &path)
             return;
         }
     }
+    // The seam DECLARES these bytes verified, so the digest recorded is the
+    // file's own as of this moment (a fixture manifest carries a placeholder
+    // hash). The re-check before every launch then guards the seam exactly
+    // as it guards a real download: change the bytes afterwards and the
+    // install refuses.
+    m_stagedSha256 = updater::sha256HexOfFile(m_stagedPath);
     setState(ReadyToInstall);
 }
 
@@ -452,10 +471,27 @@ void UpdateManager::applyCheckDocuments(const QByteArray &manifestBytes,
     m_manifest = result.manifest;
     const Version &remote = m_manifest.version();
 
-    // The stable channel never offers a prerelease.
-    if (remote.isPrerelease() && m_manifest.channel() == QLatin1String(kStableChannel)) {
-        setStatusDetail(QStringLiteral("A pre-release (%1) is published; stable installations "
-                                       "do not offer pre-releases.")
+    // FRESHNESS. The signature proves the release authority produced this
+    // document; it cannot prove it is the CURRENT one. Anyone who can answer
+    // for the `latest` slot with an old, still-valid pair -- an intercepting
+    // position, a caching proxy, a registry restore -- could otherwise pin
+    // every installation on a vulnerable version forever while the UI said
+    // "up to date". Every manifest carries a signed `expires`; past it, the
+    // honest answer is "cannot confirm", not "up to date".
+    if (!m_manifest.expires().isValid() || m_manifest.expires() <= now()) {
+        Q_EMIT updateInfoChanged();
+        failWith(QStringLiteral("The published update information expired on %1, so Lightning "
+                                "cannot confirm whether a newer release exists. Please check "
+                                "for updates manually.")
+                     .arg(m_manifest.expires().toString(Qt::ISODate)));
+        return;
+    }
+
+    // This build never installs a pre-release, whatever the manifest calls
+    // its channel (see kOffersPrereleases).
+    if (remote.isPrerelease() && !kOffersPrereleases) {
+        setStatusDetail(QStringLiteral("A pre-release (%1) is published; this installation "
+                                       "only installs releases.")
                             .arg(m_manifest.versionString()));
         Q_EMIT updateInfoChanged();
         setState(UpToDate);
@@ -692,6 +728,10 @@ bool UpdateManager::promoteStagedArtifact(QString *error)
     if (!m_artifact)
         return true; // nothing declares a name; leave the file where it is
 
+    // The digest the file must still carry at every later hand-over. It
+    // comes from the SIGNED manifest, never from the file.
+    m_stagedSha256 = m_artifact->sha256;
+
     const QString filename = m_artifact->filename;
     // Re-validate rather than trust the parse: this name is about to become a
     // filesystem path and an argv element handed to a package manager.
@@ -748,6 +788,12 @@ bool UpdateManager::acquireLock()
     QDir dir;
     if (!dir.mkpath(stagingRoot()))
         return false;
+    // Owner-only. Nothing in here is writable by another user either way
+    // (the artifact and the partial file are 0600), but the promoted name
+    // discloses which version is staged, and the directory is the one
+    // predictable path in the whole hand-over.
+    QFile::setPermissions(stagingRoot(),
+                          QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
     auto lock = std::make_unique<QLockFile>(
         QDir(stagingRoot()).absoluteFilePath(QLatin1String(kLockFileName)));
     lock->setStaleLockTime(60 * 60 * 1000);
@@ -775,6 +821,31 @@ void UpdateManager::discardStagedArtifact()
         QFile::remove(m_stagedPath);
     }
     m_stagedPath.clear();
+    m_stagedSha256.clear();
+}
+
+bool UpdateManager::stagedArtifactStillVerifies() const
+{
+    if (m_stagedPath.isEmpty() || m_stagedSha256.isEmpty())
+        return false;
+    const QString digest = updater::sha256HexOfFile(m_stagedPath);
+    return !digest.isEmpty() && digest == m_stagedSha256;
+}
+
+void UpdateManager::writeLocalStatusFailure(const QString &error)
+{
+    // The exact shape src/updater/main.cpp writeStatus() produces, so the
+    // next launch consumes it through the same reader.
+    QJsonObject object;
+    object.insert(QStringLiteral("ok"), false);
+    object.insert(QStringLiteral("mode"), installTypeString());
+    object.insert(QStringLiteral("error"), error);
+    object.insert(QStringLiteral("timestamp"), now().toUTC().toString(Qt::ISODate));
+    QFile file(statusFilePath());
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return;
+    file.write(QJsonDocument(object).toJson(QJsonDocument::Compact));
+    file.close();
 }
 
 void UpdateManager::downloadUpdate()
@@ -833,6 +904,11 @@ void UpdateManager::beginDownloadAttempt(ArtifactSource source)
 
     m_attemptSource = source;
     m_fallbackPending = false;
+    // An install armed for quit named the file this attempt is about to
+    // delete. Left armed, the quit would start the helper against a path
+    // that no longer exists and report a failure for an install the user had
+    // already superseded.
+    m_deferredInstallPending = false;
 
     // Nothing from a previous attempt survives into this one. The partial
     // file is removed BEFORE a byte of the next source is written, so a
@@ -1065,6 +1141,17 @@ void UpdateManager::startInstall(bool restartAfterwards)
         failWith(QStringLiteral("The verified update file is no longer available."));
         return;
     }
+    // The bytes were verified as they were downloaded; prove the file is
+    // STILL those bytes before its path is handed to anything that will act
+    // on it as root. See ArtifactDigest.h.
+    if (!stagedArtifactStillVerifies()) {
+        discardStagedArtifact();
+        releaseLock();
+        setArtifactSource({});
+        failWith(QStringLiteral("The downloaded update no longer matches the signed release "
+                                "and has been discarded. Please download it again."));
+        return;
+    }
 
     const QString program = helperProgramPath();
     const QFileInfo helper(program);
@@ -1073,19 +1160,27 @@ void UpdateManager::startInstall(bool restartAfterwards)
         return;
     }
 
+    // Paths are RESOLVED before they cross: the helper refuses a symbolic
+    // link on every path option, so a target or relaunch program reached
+    // through one is named by what it points at.
+    const auto resolved = [](const QString &path) {
+        const QString canonical = QFileInfo(path).canonicalFilePath();
+        return canonical.isEmpty() ? path : canonical;
+    };
     QStringList arguments{
         QStringLiteral("--mode"),     installTypeString(),
         QStringLiteral("--artifact"), QFileInfo(m_stagedPath).absoluteFilePath(),
         QStringLiteral("--pid"),      QString::number(QCoreApplication::applicationPid()),
-        QStringLiteral("--target"),   installTargetPath(),
+        QStringLiteral("--target"),   resolved(installTargetPath()),
         QStringLiteral("--status"),   statusFilePath(),
+        QStringLiteral("--sha256"),   m_stagedSha256,
     };
     // --relaunch is the helper's entire relaunch policy and it is passed ONLY
     // here. installUpdate() means "apply this when I quit"; starting the
     // application back up afterwards would be the opposite of what the user
     // asked for.
     if (restartAfterwards) {
-        arguments << QStringLiteral("--relaunch") << relaunchProgramPath();
+        arguments << QStringLiteral("--relaunch") << resolved(relaunchProgramPath());
     }
 
     setState(Installing);
@@ -1149,10 +1244,23 @@ void UpdateManager::launchDeferredInstall()
     m_deferredInstallPending = false;
     if (m_lastLaunchProgram.isEmpty() || !m_launcher)
         return;
-    // Nothing useful can be reported from here -- the UI is gone and the
-    // event loop is ending. A failure to start leaves the verified artifact
-    // in place and the status file absent, so the next launch simply shows no
-    // result rather than a false success.
+    // This is the long window: the file has sat at its predictable path for
+    // as long as the user kept the application open. Re-hash it now; on a
+    // mismatch the helper is never started, the file is removed, and the
+    // refusal is recorded in the status document the next launch reads --
+    // the UI is gone, so that file is the only way to say anything.
+    if (!stagedArtifactStillVerifies()) {
+        // "Gone" and "changed" are different faults with different next
+        // steps, and the status file is the only channel left.
+        writeLocalStatusFailure(QFileInfo::exists(m_stagedPath)
+                                    ? QString::fromLatin1(kDigestMismatchStatus)
+                                    : QStringLiteral("artifact-missing"));
+        discardStagedArtifact();
+        return;
+    }
+    // A failure to start leaves the verified artifact in place and the
+    // status file absent, so the next launch simply shows no result rather
+    // than a false success.
     m_launcher(m_lastLaunchProgram, m_lastLaunchArguments);
 }
 

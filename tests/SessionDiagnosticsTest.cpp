@@ -30,6 +30,7 @@ private Q_SLOTS:
     void reportNeverLeaksInjectedSecrets();
     void reportKeepsUsefulMetadata();
     void reportContainsNoRawUserId();
+    void redactsFilesystemPaths();
 };
 
 void SessionDiagnosticsTest::hashIsStableNonReversibleAndShort()
@@ -231,6 +232,42 @@ void SessionDiagnosticsTest::reportContainsNoRawUserId()
     QVERIFY(!out.contains(QLatin1String("@mizerd")));
     QVERIFY(!out.contains(QLatin1String("mizerd")));
     QVERIFY(out.contains(r.activeAccountHash));
+}
+
+
+void SessionDiagnosticsTest::redactsFilesystemPaths()
+{
+    // The header promises no paths, and a store path carries the Matrix
+    // localpart. Four free-text fields could carry one, and the long-opaque
+    // rule cannot see a path because its class excludes '.' and '/'.
+    const QString posix = redactSensitive(QStringLiteral(
+        "store unusable: /home/mizerd/.local/share/Lightning/mizerd_matrix.org/store"));
+    QVERIFY2(!posix.contains(QLatin1String("mizerd")), qPrintable(posix));
+    QVERIFY2(!posix.contains(QLatin1String("/home/")), qPrintable(posix));
+    QVERIFY(posix.contains(QLatin1String("store unusable:")));
+
+    const QString windows = redactSensitive(QStringLiteral(
+        "cannot open C:\\Users\\mizerd\\AppData\\Local\\Lightning\\store"));
+    QVERIFY2(!windows.contains(QLatin1String("mizerd")), qPrintable(windows));
+
+    // Reason codes and version strings are not paths.
+    const QString kept = redactSensitive(QStringLiteral("state=connected/synced v6.11.1"));
+    QCOMPARE(kept, QStringLiteral("state=connected/synced v6.11.1"));
+
+    // A URL keeps its HOST and loses its path (which can carry ids/tokens).
+    const QString url = redactSensitive(QStringLiteral(
+        "connect failed: https://matrix.example.org/_matrix/client/versions"));
+    QCOMPARE(url, QStringLiteral("connect failed: https://matrix.example.org/<path>"));
+    const QString ws = redactSensitive(QStringLiteral("focus wss://sfu.example.net/rtc refused"));
+    QCOMPARE(ws, QStringLiteral("focus wss://sfu.example.net/<path> refused"));
+    const QString bare = redactSensitive(QStringLiteral("server https://matrix.example.org down"));
+    QCOMPARE(bare, QStringLiteral("server https://matrix.example.org down"));
+    // An upper-case scheme is the same URL.
+    QCOMPARE(redactSensitive(QStringLiteral("HTTPS://matrix.example.org/_matrix/x")),
+             QStringLiteral("HTTPS://matrix.example.org/<path>"));
+    // ...but a file URL's path is a path.
+    const QString fileUrl = redactSensitive(QStringLiteral("opened file:///home/mizerd/store"));
+    QVERIFY2(!fileUrl.contains(QLatin1String("mizerd")), qPrintable(fileUrl));
 }
 
 QTEST_MAIN(SessionDiagnosticsTest)

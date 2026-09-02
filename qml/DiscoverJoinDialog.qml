@@ -365,6 +365,8 @@ Dialog {
                                 Layout.fillWidth: true
                                 spacing: AppTheme.spacing6
                                 Label {
+                                    // Remote or externally chosen text: never markup.
+                                    textFormat: Text.PlainText
                                     text: directoryRow.visibleName
                                     color: AppTheme.stormText
                                     font.family: AppTheme.menuFont
@@ -399,6 +401,8 @@ Dialog {
                                 }
                             }
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: {
                                     var bits = []
@@ -475,6 +479,8 @@ Dialog {
                         spacing: AppTheme.spacing8
                         visible: app.discovery.directory.state === "error"
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             Layout.alignment: Qt.AlignHCenter
                             text: app.discovery.directory.errorCategory
                                   === "invalid_server"
@@ -605,6 +611,8 @@ Dialog {
                                 Layout.fillWidth: true
                             }
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: {
                                     var bits = []

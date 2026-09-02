@@ -144,9 +144,43 @@ QString hashIdentifier(const QString &value, const QByteArray &salt)
     return QString::fromLatin1(hash.result().toHex().left(16));
 }
 
+// A filesystem path. The report header promises "no file paths" and a store
+// path contains the Matrix localpart, yet four free-text fields (connection
+// status, login stage, local session failure, crypto summary) are filled
+// from strings that COULD carry one, and the long-opaque-run rule cannot see
+// a path because its character class excludes '.' and '/'.
+const QRegularExpression &filesystemPath()
+{
+    static const QRegularExpression re(QStringLiteral(
+        // POSIX: two or more slash-separated components. Neither slash of a
+        // URL's "scheme://" may start a match (the first is preceded by ':',
+        // the second by ':/'), so "https://host/a/b" keeps its host -- the
+        // most useful thing in a connection-failure line -- while
+        // "file:///home/…" still loses its path.
+        "(?:(?<![A-Za-z0-9:])(?<!:/)/(?:[^\\s/\"']+/)+[^\\s/\"']*)"
+        // ... or a Windows drive path.
+        "|(?:\\b[A-Za-z]:\\\\[^\\s\"']+)"));
+    return re;
+}
+
+// A URL's PATH. Applied before everything else so the host -- the single most
+// useful thing in a connection-failure line -- survives, while the path
+// (which can carry a room id, an event id, or a token) is gone before the
+// long-opaque-run rule sees it; that rule used to eat the host's last label
+// together with a long path ("matrix.example.org/_matrix/client/versions").
+const QRegularExpression &urlPath()
+{
+    static const QRegularExpression re(
+        QStringLiteral("\\b([a-z][a-z0-9+.-]*://[^\\s/\"']+)/[^\\s\"']*"),
+        QRegularExpression::CaseInsensitiveOption);
+    return re;
+}
+
 QString redactSensitive(const QString &input)
 {
     QString out = input;
+    out.replace(urlPath(), QStringLiteral("\\1/<path>"));
+    out.replace(filesystemPath(), QStringLiteral("<path>"));
     // Order matters: keyed assignments first (they preserve the key name so a
     // reader can still see WHICH credential was present), then the specific
     // shapes, then the catch-all.

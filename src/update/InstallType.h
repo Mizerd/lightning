@@ -91,6 +91,14 @@ struct InstallEnvironment {
     // travel -- one copied into an AppImage's directory must never turn it
     // into a .deb install and raise a PolicyKit prompt for the wrong package.
     std::function<QString()> readInstallMarker;
+    // True when the file at `path` carries the AppImage magic (an ELF whose
+    // bytes 8..10 read "AI" followed by type 1 or 2). $APPIMAGE is an
+    // environment variable, and the AppImage strategy chmods and REPLACES
+    // whatever it names -- so a runtime claim is accepted only for a file
+    // that is at least an AppImage, never for an arbitrary existing path.
+    // defaultInstallEnvironment() reads the bytes; a hand-built environment
+    // that leaves this unset accepts none.
+    std::function<bool(const QString &)> looksLikeAppImage;
 
     // True when the running platform is Windows. Injectable so both the
     // marker-accepted and the marker-ignored branch are testable on one host.
@@ -98,6 +106,10 @@ struct InstallEnvironment {
     // environment defaults to false, i.e. "do not consult the marker".
     bool windowsPlatform = false;
 };
+
+// Reads the first bytes of `path` and reports whether they carry the AppImage
+// signature. Exposed so a test can hand it a real file.
+bool fileLooksLikeAppImage(const QString &path);
 
 // File name of that marker, written by the Windows installers into the
 // installation directory. One line, one canonical install-type id.

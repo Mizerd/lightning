@@ -152,7 +152,16 @@ public:
     bool microphoneMuted() const { return m_microphoneMuted; }
     bool deafened() const { return m_deafened; }
 
-    Q_INVOKABLE bool placeCall(const QString &roomId);
+    /// `invitee` is the ONE user this call is for (MSC2746 `invitee`): the
+    /// invite names them so only they ring, and every later signal on the
+    /// session -- answer, hangup, reject, select_answer -- must come FROM
+    /// them. Without it a legacy session was matched on (room, call_id)
+    /// alone, and call_id is a plaintext field of the invite that every
+    /// member of the room can read: any member could hang up, suppress, or
+    /// ANSWER a call that was not theirs. Empty means "unknown until the
+    /// first answer", which is then locked as the peer.
+    Q_INVOKABLE bool placeCall(const QString &roomId,
+                               const QString &invitee = QString());
     Q_INVOKABLE bool answer();
     /// Why the last placeCall()/answer() refused, as a closed-set token.
     ///
@@ -227,6 +236,10 @@ private:
         QString ourPartyId;
         QString remotePartyId;
         QString senderId;
+        // The Matrix user every remote signal on this session must come
+        // from. Inbound: the invite's sender. Outbound: the invitee when one
+        // was named, otherwise the sender of the first answer.
+        QString remoteUserId;
         QString inviteEventId;
         QString invitee;
         Direction direction = Direction::None;
@@ -283,6 +296,10 @@ private:
     void requestTurnServersIfStale();
 
     bool matchesSession(const CallSignal &signal) const;
+    // True when `signal.sender` is the session's bound remote user, or no
+    // user is bound yet. See placeCall() for why (room, call_id) is not
+    // enough.
+    bool fromExpectedPeer(const CallSignal &signal) const;
     bool recentlyEnded(const QString &callId) const;
     void rememberEnded(const QString &callId);
     void endSession(EndReason reason);

@@ -161,6 +161,8 @@ Dialog {
         // that as its own unthemed bar glued onto the storm surface
         // (2026-08-19 audit; the DiscoverJoinDialog convention).
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             text: root.roomDisplayName.length > 0
                   ? qsTr("Invite to %1").arg(root.roomDisplayName)
@@ -174,6 +176,8 @@ Dialog {
 
         // Mono room address under the title (SPEC 1t), only when real.
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             visible: root.roomAddress.length > 0
             Layout.fillWidth: true
             text: root.roomAddress
@@ -225,6 +229,8 @@ Dialog {
         }
 
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             id: alreadyLabel
             property string userId: ""
             property string membership: ""
@@ -301,6 +307,8 @@ Dialog {
                                     colorKey: chip.modelData.id
                                 }
                                 Label {
+                                    // Remote or externally chosen text: never markup.
+                                    textFormat: Text.PlainText
                                     text: chip.label
                                     color: AppTheme.stormText
                                     font.pixelSize: AppTheme.textBody
@@ -344,6 +352,8 @@ Dialog {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing8
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: modelData.userId
                                 // Identity ink: a column of MXIDs in one

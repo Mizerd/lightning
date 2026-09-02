@@ -1,5 +1,8 @@
 #include "app/SettingsManager.h"
 
+#include <QFile>
+#include <QFileInfo>
+
 #include "storage/SecretStore.h"
 #include "storage/AppDataPaths.h"
 
@@ -131,6 +134,17 @@ SettingsManager::SettingsManager(QObject *parent)
 {
     if (!m_store->contains(kHomeserver)) {
         m_store->setValue(kHomeserver, QStringLiteral("https://matrix.org"));
+    }
+    // Owner-only, and done ONCE here: Qt creates a fresh settings file
+    // world-readable, and this file carries user ids, device ids, per-room
+    // notification state and unencrypted-room drafts -- and, under the
+    // insecure fallback secret store, access tokens. QSaveFile preserves an
+    // existing file's mode on every later write, so restricting it once it
+    // exists is enough.
+    m_store->sync();
+    if (QFileInfo::exists(m_store->fileName())) {
+        QFile::setPermissions(m_store->fileName(),
+                              QFile::ReadOwner | QFile::WriteOwner);
     }
     migrateLegacySessionRecord();
     loadWindowGeometry();

@@ -28,6 +28,13 @@ QProcessEnvironment childEnvironment()
     // hook for Lightning's own GStreamer and PipeWire clients; a browser
     // inheriting them would look for plugins in a directory that disappears
     // when Lightning exits.
+    //
+    // The AppRun hook preserves the SESSION's own value of each one it
+    // overrides as APPIMAGE_ORIGINAL_<NAME>. Where that exists and is
+    // non-empty the child gets it back -- a host that set its own
+    // GST_PLUGIN_PATH_1_0 keeps its codecs -- and otherwise the variable is
+    // REMOVED, never set to "" (an empty path entry means the current
+    // directory to most of these loaders).
     for (const char *key : { "GST_PLUGIN_SYSTEM_PATH_1_0", "GST_PLUGIN_PATH_1_0",
                              "GST_PLUGIN_SCANNER", "GST_REGISTRY_1_0",
                              "SPA_PLUGIN_DIR", "PIPEWIRE_MODULE_DIR",
@@ -35,14 +42,38 @@ QProcessEnvironment childEnvironment()
                              "QML2_IMPORT_PATH", "QML_IMPORT_PATH",
                              "PYTHONHOME", "PERLLIB", "GSETTINGS_SCHEMA_DIR",
                              "XDG_DATA_DIRS_APPIMAGE" }) {
-        env.remove(QString::fromLatin1(key));
+        const QString name = QString::fromLatin1(key);
+        const QString saved =
+            env.value(QStringLiteral("APPIMAGE_ORIGINAL_") + name);
+        if (saved.isEmpty())
+            env.remove(name);
+        else
+            env.insert(name, saved);
+        env.remove(QStringLiteral("APPIMAGE_ORIGINAL_") + name);
     }
     return env;
 }
 
-bool openExternally(const QUrl &url)
+bool isOpenableExternally(const QUrl &url)
 {
     if (!url.isValid() || url.isEmpty())
+        return false;
+    // The only things this process ever hands to the desktop are web links
+    // and mail links. Everything else -- file:, javascript:, data:, and the
+    // Windows protocol handlers that have been RCE vectors (ms-msdt:,
+    // search-ms:) -- is refused HERE, at the one exit to ShellExecute /
+    // xdg-open, rather than at whichever caller remembered to check.
+    const QString scheme = url.scheme().toLower();
+    if (scheme == QLatin1String("http") || scheme == QLatin1String("https"))
+        return !url.host().isEmpty() && url.userInfo().isEmpty();
+    if (scheme == QLatin1String("mailto"))
+        return !url.path().isEmpty();
+    return false;
+}
+
+bool openExternally(const QUrl &url)
+{
+    if (!isOpenableExternally(url))
         return false;
 
     const QProcessEnvironment env = childEnvironment();

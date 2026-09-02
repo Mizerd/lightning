@@ -194,6 +194,8 @@ Rectangle {
                     font.weight: AppTheme.weightBold
                 }
                 Label {
+                    // Remote or externally chosen text: never markup.
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: panel.panelRoomName
                     color: AppTheme.textMuted
@@ -388,6 +390,8 @@ Rectangle {
                                 Layout.fillWidth: true
                                 spacing: AppTheme.spacing6
                                 Label {
+                                    // Remote or externally chosen text: never markup.
+                                    textFormat: Text.PlainText
                                     Layout.fillWidth: true
                                     text: threadRow.rowSender
                                     color: AppTheme.userColor(
@@ -414,6 +418,8 @@ Rectangle {
                                 }
                             }
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: modelData.rootPreview || ""
                                 color: threadRow.rowUnread
@@ -425,6 +431,8 @@ Rectangle {
                                 maximumLineCount: 1
                             }
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: qsTr("%n reply(s)", "",
                                            modelData.replyCount || 0)
@@ -506,6 +514,8 @@ Rectangle {
                         colorKey: panel.rootData.sender || ""
                     }
                     Label {
+                        // Remote or externally chosen text: never markup.
+                        textFormat: Text.PlainText
                         text: panel.rootData.senderDisplayName || ""
                         // Same per-user identity ink as the timeline rows.
                         color: AppTheme.userColor(panel.rootData.sender || "")
@@ -544,6 +554,8 @@ Rectangle {
                     }
                 }
                 Label {
+                    // Remote or externally chosen text: never markup.
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     visible: panel.rootData.loaded === true
                     text: panel.rootData.redacted === true
@@ -1235,6 +1247,8 @@ Rectangle {
                                 ColumnLayout {
                                     spacing: 0
                                     Label {
+                                        // Remote or externally chosen text: never markup.
+                                        textFormat: Text.PlainText
                                         text: model.fileName
                                         color: AppTheme.text
                                         font.pixelSize:
@@ -2482,8 +2496,13 @@ Rectangle {
         onToneOpened: replyList.claimTransientInteraction("tone")
         onToneClosed: replyList.releaseTransientInteraction("tone", "picker")
         onEmojiChosen: (emoji) => {
+            // Through the THREAD model, never app.composer: that is the room
+            // composer, whose live timeline is built with hide_threaded_events
+            // and cannot find a thread reply, so a reaction addressed there
+            // was a silent no-op. The model passes its own (composite) id and
+            // the client decomposes it into room + thread root before the FFI.
             if (targetEventId !== "")
-                app.composer.reactTo(targetEventId, emoji)
+                app.thread.model.toggleReaction(targetEventId, emoji)
         }
     }
     MemberProfilePopover {

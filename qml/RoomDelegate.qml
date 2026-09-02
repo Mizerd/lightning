@@ -316,6 +316,7 @@ Item {
                     sourceComponent: Label {
                         objectName: "roomNetworkTag"
                         text: networkTagLoader.label
+                        textFormat: Text.PlainText
                         color: networkTagLoader.tagSelected
                                ? AppTheme.selectedText : AppTheme.textMuted
                         font.pixelSize: AppTheme.fontCaption
@@ -484,6 +485,8 @@ Item {
                 visible: model.membership === "invited"
                 spacing: AppTheme.spacingS
                 Label {
+                    // Remote or externally chosen text: never markup.
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: model.inviter
                           ? (model.isSpace
@@ -517,6 +520,8 @@ Item {
                 }
             }
             Label {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 visible: model.inviteError && model.inviteError.length > 0
                 text: model.inviteError || ""
                 color: AppTheme.error

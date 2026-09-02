@@ -1165,6 +1165,8 @@ AnchoredPopup {
         spacing: AppTheme.spacing6
 
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             id: attributionLabel
             Layout.fillWidth: true
             color: AppTheme.stormTextMuted

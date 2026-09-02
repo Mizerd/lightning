@@ -594,6 +594,8 @@ AppDialog {
                         }
 
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             elide: Text.ElideRight
@@ -615,6 +617,8 @@ AppDialog {
                             Layout.fillWidth: true
                             active: root.secondaryLabel(tile.row).length > 0
                             sourceComponent: Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 horizontalAlignment: Text.AlignHCenter
                                 elide: Text.ElideRight
                                 maximumLineCount: 1

@@ -45,7 +45,9 @@ void MediaManager::openExternal(const QUrl &url)
     // Not QDesktopServices directly: inside an AppImage the spawned browser
     // would inherit the bundle's LD_LIBRARY_PATH and fail to start. See
     // lightning::urls::openExternally.
-    if (url.isValid())
+    // Web links only, like openWebUrl: this is reachable from QML with a
+    // model-supplied URL, and the launcher refuses anything else anyway.
+    if (matrix::link_preview::isSafeExternalUrl(url))
         lightning::urls::openExternally(url);
 }
 

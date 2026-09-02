@@ -581,6 +581,8 @@ Rectangle {
             contentItem: ColumnLayout {
                 spacing: AppTheme.spacing12
                 Label {
+                    // Remote or externally chosen text: never markup.
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: qsTr("You will stop receiving messages from \"%1\". "
                                + "Server history is not deleted, and you can "

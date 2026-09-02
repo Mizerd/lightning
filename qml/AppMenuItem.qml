@@ -74,6 +74,11 @@ MenuItem {
         Label {
             Layout.fillWidth: true
             text: root.text
+            // Menu rows carry room names, member names and file names --
+            // remote text -- and a MenuItem exposes no textFormat of its
+            // own, so the one label every AppMenuItem renders through pins
+            // plain text for all of them.
+            textFormat: Text.PlainText
             elide: Label.ElideRight
             // Exactly AppButton's label recipe. A menu row and a button can
             // sit in the same popover; they used to render the same face at

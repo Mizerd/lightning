@@ -9,7 +9,8 @@
 // is fixed and fully enumerated here:
 //
 //   lightning-updater --mode <install-type> --artifact <path> --pid <n>
-//                     --target <path> --status <path> [--relaunch <path>]
+//                     --target <path> --status <path> --sha256 <64 hex>
+//                     [--relaunch <path>]
 //
 // Every option may appear at most once, every value is validated, and any
 // unrecognised option, positional argument, duplicate, or malformed value is
@@ -25,6 +26,19 @@
 // closed. Omission is the safe default: forgetting the option can only ever
 // skip a relaunch, never cause an unwanted one. When present it is validated
 // exactly as strictly as every required path.
+//
+// `--sha256` is the digest the SIGNED MANIFEST gave for the artifact. The
+// helper is connected to the application's verified download by nothing but
+// a filesystem path, and that path can sit armed for hours before an
+// install-on-quit fires -- so the helper re-hashes the artifact itself,
+// right before it acts, and refuses on any mismatch (see ArtifactDigest.h).
+// The parser only validates the SHAPE of the value here; the comparison
+// happens in main.cpp after the application has exited, which is the last
+// moment before the bytes are consumed.
+//
+// Every path option refuses a symbolic link. Lightning hands the helper
+// fully resolved paths, and a link would redirect a chmod, a replace, or a
+// package-manager read at whatever it points to at the moment of use.
 //
 // This translation unit is deliberately free of global state so it can be
 // unit-tested by passing a QStringList directly.
@@ -139,6 +153,7 @@ enum class ArgsError {
     ArtifactEmpty,
     StatusParentMissing,
     InvalidPid,
+    InvalidDigest,    // --sha256 is not exactly 64 lowercase hex characters
 };
 
 struct UpdaterArguments {
@@ -151,6 +166,9 @@ struct UpdaterArguments {
     // When non-empty it is absolute, exists and is a regular file.
     QString relaunchPath;
     QString statusPath;    // absolute, parent directory exists, not a dir/symlink
+    // The manifest's SHA-256 for the artifact, 64 lowercase hex characters.
+    // Shape-validated here; compared against the file in main.cpp.
+    QString expectedSha256;
 
     // The helper relaunches ONLY when Lightning explicitly asked it to.
     bool relaunchRequested() const { return !relaunchPath.isEmpty(); }

@@ -241,6 +241,8 @@ Item {
         }
 
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             text: root.visibleName
             color: root.active ? AppTheme.stormText : AppTheme.stormTextSecondary
@@ -250,6 +252,8 @@ Item {
             elide: Label.ElideRight
         }
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             text: root.userId
             color: root.active ? AppTheme.stormTextMuted

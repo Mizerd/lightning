@@ -58,13 +58,40 @@ QString firstGifUrl(const QJsonObject &images, const QStringList &keys,
     return QString();
 }
 
+// Whether `url` is https on one of the provider's own hosts. The one policy
+// both the sendable rendition and the DISPLAYED renditions go through.
+bool isProviderHttpsUrl(const QString &url, const QStringList &allowedHostSuffixes)
+{
+    if (!url.startsWith(QLatin1String("https://")))
+        return false;
+    const QUrl u(url);
+    if (!u.isValid() || !u.userInfo().isEmpty())
+        return false;
+    const QString host = u.host().toLower();
+    for (const QString &suffix : allowedHostSuffixes) {
+        const QString bare = suffix.startsWith(QLatin1Char('.'))
+            ? suffix.mid(1) : suffix;
+        if (host == bare || host.endsWith(suffix))
+            return true;
+    }
+    return false;
+}
+
+// Pick the first rendition in `keys` whose `field` is an https URL on one of
+// `hosts`. These are the PREVIEW URLs the picker's tiles load directly
+// through Qt's image loader -- outside MediaBridge, with none of its host,
+// size or byte-magic policy -- so the host allowlist is the only thing that
+// stops a hostile or compromised provider response from pointing every open
+// picker at an arbitrary server. It used to be a bare scheme check while the
+// SENDABLE rendition beside it was host-restricted.
 QString firstHttpsUrl(const QJsonObject &images, const QStringList &keys,
-                      const QString &field, int &width, int &height)
+                      const QString &field, const QStringList &hosts,
+                      int &width, int &height)
 {
     for (const QString &key : keys) {
         const QJsonObject r = images.value(key).toObject();
         const QString url = stripTracking(r.value(field).toString());
-        if (url.startsWith(QLatin1String("https://"))) {
+        if (isProviderHttpsUrl(url, hosts)) {
             width = asInt(r.value(QStringLiteral("width")));
             height = asInt(r.value(QStringLiteral("height")));
             return url;
@@ -424,7 +451,7 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
             { QStringLiteral("fixed_width_still"),
               QStringLiteral("480w_still"),
               QStringLiteral("original_still") },
-            QStringLiteral("url"), sw, sh);
+            QStringLiteral("url"), giphyHosts, sw, sh);
 
         // Optional preview video (mp4) — never sent, picker preview only.
         for (const QString &key : { QStringLiteral("original"),
@@ -432,7 +459,7 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
             const QJsonObject rendition = images.value(key).toObject();
             const QString mp4 =
                 stripTracking(rendition.value(QStringLiteral("mp4")).toString());
-            if (mp4.startsWith(QLatin1String("https://"))) {
+            if (isProviderHttpsUrl(mp4, giphyHosts)) {
                 r.mp4Url = mp4;
                 break;
             }
@@ -556,14 +583,14 @@ ParseOutcome parseKlipy(const QByteArray &json, Rating requestRating,
         int sw = 0, sh = 0;
         r.stillUrl = firstHttpsUrl(jpgBySize,
             { QStringLiteral("sm"), QStringLiteral("md"), QStringLiteral("xs") },
-            QStringLiteral("url"), sw, sh);
+            QStringLiteral("url"), klipyHosts, sw, sh);
 
         // Optional preview mp4 — never sent as a gif.
         for (const QString &size : { QStringLiteral("sm"), QStringLiteral("md") }) {
             const QString mp4 = file.value(size).toObject()
                 .value(QStringLiteral("mp4")).toObject()
                 .value(QStringLiteral("url")).toString();
-            if (mp4.startsWith(QLatin1String("https://"))) {
+            if (isProviderHttpsUrl(mp4, klipyHosts)) {
                 r.mp4Url = mp4;
                 break;
             }

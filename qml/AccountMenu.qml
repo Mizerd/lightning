@@ -414,6 +414,8 @@ Popup {
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing12
             Label {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: qsTr("Remove %1 from this device? Its local Lightning "
                            + "data, encryption store, and sign-in are deleted "

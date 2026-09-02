@@ -94,6 +94,41 @@ client that dies leaves its state event behind, so **expired memberships are
 dropped** before anything is counted. Addition saturates: a hostile
 `expires` of `u64::MAX` must not wrap into the past.
 
+Both timestamps are **content** — the member's own claim — and both feed the
+oldest-membership focus rule, so both are clamped against the envelope's
+`origin_server_ts` (2026-09-02 audit). `expires` is capped at 24 hours, and
+`created_ts` may not sit more than five minutes in the future. Unclamped,
+`created_ts: 0` plus `expires: u64::MAX` was a membership that never aged out
+and always sorted oldest — and "oldest" is what chooses the SFU every later
+joiner sends its Matrix OpenID token, device id and room id to. With the cap,
+a membership claiming to have been created at the epoch has, by its own
+arithmetic, expired. What remains is inherent to the reference rule: a
+member can still backdate `created_ts` within the 24-hour window to sort
+first, exactly as they can in Element; the focus host is never shown to the
+user and there is no allowlist, which is a UX decision still open.
+
+**Focus addresses are checked, not just parsed (2026-09-02).** Both the
+`/sfu/get` request and the LiveKit websocket resolve the focus name and
+require **every** resolved address to be public — the same policy the
+link-preview fetch applies — and refuse `localhost`, `*.local`, `*.internal`
+and literal private ranges. The focus is chosen by whoever holds the oldest
+membership, i.e. another participant, and the request carries the user's
+Matrix OpenID token, device id and room id; a name with a private A record
+would otherwise land that POST on the loopback or a LAN host of the
+attacker's choosing. **Behaviour change, deliberate:** a self-hosted SFU
+reachable only on a LAN, or a public name that resolves to a private
+address (split-horizon DNS), is no longer supported; the engine reports
+`focus_unroutable` rather than a generic connection failure. Element does
+not apply this policy, so a room whose focus is LAN-only will work in Element
+and not here.
+
+The SFU identity (`rtc_identity`) is **derived** as `{user}:{device}` from
+the envelope's sender, never read from the content's `membershipID`. Reading
+the field let any member publish somebody else's identity as their own;
+first-match lookups then bound that participant's SFU sid to the impostor's
+key ring (every frame they published failed its tag), addressed our media key
+to the impostor's device, and drew their tile with the impostor's name.
+
 Dedup is per **`(user_id, device_id)`**, keeping the newest `created_ts`. The
 same person on a laptop and a phone is two real participants; collapsing by
 user would hide one. Facepiles dedup again, per *person*, because one human
@@ -479,8 +514,10 @@ UI says it is fine, and no media is usable.
   against each other, so resolving the sid first and dropping the key when it
   is not known yet loses that key permanently — nothing re-sends it. Store
   the ring under a name derived from the key itself (the Olm-decrypted sender
-  plus the claimed device id) and BIND the sid to that ring whenever the
-  participant list makes it possible, re-running the binding on every update.
+  plus the Olm-decrypted sending device — the content's `claimed_device_id`
+  is compared against it and a mismatch is refused) and BIND the sid to that
+  ring whenever the participant list makes it possible, re-running the
+  binding on every update.
   The binding makes the two names one shared ring rather than a redirection,
   because a redirection strands whichever ring was created first.
 
@@ -914,8 +951,16 @@ homeserver never sees one. Only devices that have declared themselves
 present in the call are sent the key; a device that cannot be resolved is
 skipped, never substituted. The SDK answers with the devices it could *not*
 reach, so a partial delivery is visible rather than silently successful.
-Inbound, what is trusted is the **Olm-decrypted sender** — the `member`
-block in the content is a claim and is used only to fill in an id.
+Inbound, what is trusted is the **Olm-decrypted sender and device**, and
+that is now *enforced* rather than assumed: the handler takes the SDK's
+`Option<EncryptionInfo>` and refuses the event when it is `None`, which is
+what a to-device event that arrived in the **clear** looks like. Before the
+2026-09-02 audit the handler took no such extractor, and matrix-sdk hands
+plaintext to-device events to the same handler — so any Matrix user on any
+server could `PUT` an unencrypted `io.element.call.encryption_keys` naming
+the victim's room, and a homeserver could forge the sender on it outright.
+The `member` block in the content is still a claim: its `claimed_device_id`
+must equal the Olm-vouched sending device or the key is dropped.
 
 This needs matrix-sdk's `experimental-send-custom-to-device` feature: it
 gates the only public API for sending a custom event type Olm-encrypted per

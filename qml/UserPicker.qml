@@ -220,6 +220,8 @@ ColumnLayout {
                         elide: Label.ElideRight
                     }
                     Label {
+                        // Remote or externally chosen text: never markup.
+                        textFormat: Text.PlainText
                         Layout.fillWidth: true
                         visible: model.displayName && model.displayName.length > 0
                         text: model.userId

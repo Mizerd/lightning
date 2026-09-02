@@ -7,6 +7,8 @@ import MatrixClient
 // optical size. Interface chrome must never use emoji as icons; real emoji
 // belong only in user content and reactions.
 Text {
+    // Remote or externally chosen text: never markup.
+    textFormat: Text.PlainText
     id: root
 
     // Material Symbols icon name, e.g. "home", "forum", "group".

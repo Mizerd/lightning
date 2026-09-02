@@ -3094,6 +3094,128 @@ private Q_SLOTS:
         QVERIFY(!SfuCallController::nativeScreenRect(nullptr).isValid());
     }
 
+    // -----------------------------------------------------------------------
+    // The peer is bound. (room, call_id) says which call a signal is about,
+    // and call_id is a plaintext field of the invite that every member of
+    // the room can read; it does not say who may speak for the other side.
+    // -----------------------------------------------------------------------
+
+    void aHangupFromAnotherRoomMemberDoesNotEndTheRing()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        client.emitSignal(freshInvite(QStringLiteral("call-1")));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+
+        QSignalSpy endedSpy(&calls, &CallController::incomingCallEnded);
+        CallSignal hangup;
+        hangup.kind = CallSignal::Kind::Hangup;
+        hangup.roomId = QStringLiteral("!r:x");
+        hangup.eventId = QStringLiteral("$hangup-stranger");
+        hangup.sender = QStringLiteral("@stranger:x"); // not the caller
+        hangup.callId = QStringLiteral("call-1");
+        hangup.partyId = QStringLiteral("stranger-party");
+        hangup.reason = QStringLiteral("user_hangup");
+        client.emitSignal(hangup);
+        // Still ringing, and no "missed call" was synthesised from someone
+        // who never called.
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QCOMPARE(endedSpy.count(), 0);
+
+        // A select_answer from the stranger cannot silence it either.
+        CallSignal selected = hangup;
+        selected.kind = CallSignal::Kind::SelectAnswer;
+        selected.eventId = QStringLiteral("$select-stranger");
+        selected.selectedPartyId = QStringLiteral("somebody-else");
+        client.emitSignal(selected);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+
+        // The caller's own hangup still ends it.
+        hangup.sender = QStringLiteral("@peer:x");
+        hangup.partyId = QStringLiteral("peer-party");
+        hangup.eventId = QStringLiteral("$hangup-peer");
+        client.emitSignal(hangup);
+        QCOMPARE(calls.state(), CallController::State::Ended);
+        QCOMPARE(calls.endReason(), CallController::EndReason::RemoteHangup);
+    }
+
+    void anAnswerFromSomeoneOtherThanTheInviteeIsIgnored()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        QVERIFY(calls.placeCallWithOffer(QStringLiteral("!r:x"),
+                                         QStringLiteral("v=0 sdp"), 60000,
+                                         QStringLiteral("@peer:x")));
+        const QString callId = calls.activeCallId();
+
+        // A third member of the "DM" answers first. Before this it won the
+        // media session: their SDP went to the engine and select_answer
+        // named them.
+        CallSignal intruder;
+        intruder.kind = CallSignal::Kind::Answer;
+        intruder.roomId = QStringLiteral("!r:x");
+        intruder.eventId = QStringLiteral("$answer-intruder");
+        intruder.sender = QStringLiteral("@intruder:x");
+        intruder.callId = callId;
+        intruder.partyId = QStringLiteral("intruder-party");
+        client.emitSignal(intruder);
+        QCOMPARE(calls.state(), CallController::State::Inviting);
+        for (const auto &event : client.sent)
+            QVERIFY(event.kind != QLatin1String("select_answer"));
+
+        CallSignal answer = intruder;
+        answer.eventId = QStringLiteral("$answer-peer");
+        answer.sender = QStringLiteral("@peer:x");
+        answer.partyId = QStringLiteral("peer-party");
+        client.emitSignal(answer);
+        QCOMPARE(calls.state(), CallController::State::Connecting);
+        int selectAnswers = 0;
+        for (const auto &event : client.sent) {
+            if (event.kind == QLatin1String("select_answer")) {
+                ++selectAnswers;
+                QCOMPARE(event.extra, QStringLiteral("peer-party"));
+            }
+        }
+        QCOMPARE(selectAnswers, 1);
+    }
+
+    void withNoInviteeTheFirstAnswerLocksThePeer()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        QVERIFY(calls.placeCallWithOffer(QStringLiteral("!r:x"),
+                                         QStringLiteral("v=0 sdp")));
+        const QString callId = calls.activeCallId();
+        CallSignal answer;
+        answer.kind = CallSignal::Kind::Answer;
+        answer.roomId = QStringLiteral("!r:x");
+        answer.eventId = QStringLiteral("$answer-1");
+        answer.sender = QStringLiteral("@peer:x");
+        answer.callId = callId;
+        answer.partyId = QStringLiteral("peer-party");
+        client.emitSignal(answer);
+        QCOMPARE(calls.state(), CallController::State::Connecting);
+
+        // Once locked, a hangup from anyone else is not this call's.
+        CallSignal hangup;
+        hangup.kind = CallSignal::Kind::Hangup;
+        hangup.roomId = QStringLiteral("!r:x");
+        hangup.eventId = QStringLiteral("$hangup-other");
+        hangup.sender = QStringLiteral("@other:x");
+        hangup.callId = callId;
+        hangup.partyId = QStringLiteral("other-party");
+        hangup.reason = QStringLiteral("user_hangup");
+        client.emitSignal(hangup);
+        QCOMPARE(calls.state(), CallController::State::Connecting);
+        hangup.sender = QStringLiteral("@peer:x");
+        hangup.partyId = QStringLiteral("peer-party");
+        client.emitSignal(hangup);
+        QCOMPARE(calls.state(), CallController::State::Ended);
+    }
+
 };
 
 

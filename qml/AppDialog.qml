@@ -62,6 +62,8 @@ Dialog {
                                           + AppTheme.spacing12
                                         : 0
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             id: headerLabel
             objectName: "dialogTitle"
             text: root.title

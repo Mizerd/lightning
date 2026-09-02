@@ -306,6 +306,8 @@ Item {
                                     Layout.fillWidth: true
                                 }
                                 Text {
+                                    // Remote or externally chosen text: never markup.
+                                    textFormat: Text.PlainText
                                     text: fakeRoomRow.modelData.preview
                                     color: fakeRoomRow.isSelected
                                            ? root.c("selectedText", "textPrimary")

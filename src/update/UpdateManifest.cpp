@@ -87,6 +87,10 @@ QString manifestErrorText(ManifestError error)
         return QStringLiteral("The update version is not a valid version number");
     case ManifestError::MissingChannel:
         return QStringLiteral("The update information has no release channel");
+    case ManifestError::MissingExpiry:
+        return QStringLiteral("The update information carries no expiry");
+    case ManifestError::MalformedExpiry:
+        return QStringLiteral("The update information has a malformed expiry");
     case ManifestError::ReleaseNotesUrlRejected:
         return QStringLiteral("The release notes link is not an accepted address");
     case ManifestError::ArtifactMalformed:
@@ -245,6 +249,20 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
         manifest.m_released = QDateTime::fromString(releasedValue.toString(), Qt::ISODate);
     }
 
+    // REQUIRED, unlike `released`: it is the one field that says whether a
+    // correctly signed document is still the current one. Absent or
+    // unparseable is a failure, never "no expiry".
+    const QJsonValue expiresValue = root.value(QLatin1String("expires"));
+    if (!expiresValue.isString() || expiresValue.toString().isEmpty())
+        return failure(ManifestError::MissingExpiry);
+    manifest.m_expires = QDateTime::fromString(expiresValue.toString(), Qt::ISODate);
+    if (!manifest.m_expires.isValid())
+        return failure(ManifestError::MalformedExpiry);
+    // A timestamp with no zone designator is a local time on whatever
+    // machine reads it; the generator always writes a "Z" instant.
+    if (manifest.m_expires.timeSpec() == Qt::LocalTime)
+        return failure(ManifestError::MalformedExpiry);
+
     const QJsonValue notesValue = root.value(QLatin1String("release_notes"));
     if (notesValue.isString())
         manifest.m_releaseNotes = notesValue.toString();
@@ -387,8 +405,10 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
                 return failure(ManifestError::ChannelMalformed, it.key());
             }
             const QJsonValue noteValue = entry.value(QLatin1String("note"));
+            // Bounded at the parse: this string reaches a status label, and
+            // a signed document is still an unbounded one.
             if (noteValue.isString())
-                channel.note = noteValue.toString();
+                channel.note = noteValue.toString().left(kMaxChannelNoteChars);
             manifest.m_channels.insert(channel.id, channel);
         }
     }

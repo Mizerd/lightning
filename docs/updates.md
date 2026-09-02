@@ -148,13 +148,32 @@ execute one. Every installation strategy below is compiled into Lightning and
 the updater helper. Remote metadata selects among fixed, trusted behaviours; it
 can never define one.
 
+### Freshness: the manifest expires
+
+A signature proves who produced the manifest; it cannot prove the manifest is
+the *current* one. Anyone able to answer for the `latest` slot with an old,
+still-valid pair (an intercepting position, a caching proxy, a registry
+restore) could otherwise hold every installation on a vulnerable version
+indefinitely while the UI said "up to date". So every manifest carries a
+signed `expires` instant, and Lightning 0.8.4 and later **refuse a manifest
+without one** and treat one past it as a failure ("update information
+expired; check manually"), never as "up to date". The pipeline sets it to
+`released` plus 120 days. **A longer release lull needs a deliberate
+refresh** of the `latest` slot (lightning-deploy `docs/update-manifest.md`,
+"Refreshing without a release"): nothing reminds anyone, and on day 121 every
+installation reports that its update information has expired. It is on the
+release checklist in `CLAUDE.md` §14.
+
 ### Version comparison
 
 Semantic, never lexicographic, so `0.10.0` is correctly newer than `0.9.0`.
-Prerelease versions sort below their release. On the stable channel a
-prerelease is ignored entirely. If the published version equals yours, or is
-older than yours, Lightning reports that you are up to date and does not
-downgrade. A version string that does not parse is an error, never an
+Prerelease versions sort below their release. **This build never installs a
+prerelease, whatever the manifest calls its channel.** The earlier rule ("the
+stable channel never offers a prerelease") read the manifest's own `channel`
+field, so a document that simply called itself something else walked past it;
+the decision now belongs to the build, not the document. If the published
+version equals yours, or is older than yours, Lightning reports that you are
+up to date and does not downgrade. A version string that does not parse is an error, never an
 assumption that an update exists.
 
 ## Installation type detection
@@ -222,6 +241,27 @@ It accepts no commands and no scripts. It links only Qt Core (and zlib for
 archive extraction): no network stack, and none of Lightning's Matrix, storage
 or account code. It cannot download anything, cannot read a token, and cannot
 open a Matrix store, because none of that code is in it.
+
+### The verified bytes are re-checked at every hand-over
+
+The download verifies the manifest's SHA-256 while the bytes stream in. After
+that, the application and the helper are connected by nothing but a
+filesystem path, and that path can sit armed for hours on the
+"install when I quit" path before `pkexec dpkg -i <path>` reads it as root.
+So the digest is taken again at each hand-over: the application re-hashes the
+staged file right before it launches the helper (and again at quit, for the
+deferred path, recording a refusal in the status file since the UI is gone by
+then), and the helper receives the manifest's digest on its argv as
+`--sha256 <64 hex>` and re-hashes the file itself immediately before acting.
+A mismatch installs nothing, deletes the staged file, and is reported on the
+next launch as `artifact-digest-mismatch` (a file that has simply vanished
+reports `artifact-missing`). The helper also refuses a symbolic link for every
+path option, and the application resolves the target and relaunch paths
+before handing them over, so a link cannot redirect a chmod, a replace, or a
+package-manager read. One consequence: if `~/Applications/Lightning.AppImage`
+is a symlink to a versioned file, the *pointed-to* file is now replaced
+rather than the link — better, but if it sits somewhere unwritable the
+update fails where it used to succeed by clobbering the link.
 
 ## Recovery, rollback and concurrency
 

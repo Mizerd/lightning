@@ -394,6 +394,8 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 2
             Label {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 text: root.fetchState === "failed"
                       ? qsTr("This audio cannot be played")
                       : root.isVoice ? qsTr("Voice message")

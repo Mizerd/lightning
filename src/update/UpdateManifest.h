@@ -44,6 +44,12 @@ enum class ManifestError {
     MissingVersion,
     MalformedVersion,
     MissingChannel,
+    // `expires` is REQUIRED and must be an ISO-8601 instant. A signature
+    // proves who produced the document, never that it is the current one;
+    // the expiry is what bounds how long a captured `latest` pair can be
+    // replayed to freeze installations on a vulnerable version.
+    MissingExpiry,
+    MalformedExpiry,
     ReleaseNotesUrlRejected,
     // Artifact stage.
     ArtifactMalformed,
@@ -88,6 +94,8 @@ struct ManifestChannel {
     QString id;
     bool available = false;
     std::optional<Version> version;
+    // Presentation text from the signed document, bounded at parse time
+    // (kMaxChannelNoteChars) and rendered as plain text only.
     QString note;
 };
 
@@ -109,6 +117,8 @@ public:
     // Client-side sanity ceiling on an artifact size. This is OUR limit,
     // not a server-advertised one, and it is described that way in the UI.
     static constexpr qint64 kMaxArtifactBytes = qint64(1024) * 1024 * 1024;
+    // A channel note is one or two sentences for a status line.
+    static constexpr int kMaxChannelNoteChars = 512;
 
     // Verify `sigBytes` over `manifestBytes`, then parse. Nothing from the
     // manifest is used before the signature verifies.
@@ -123,6 +133,10 @@ public:
     QString channel() const { return m_channel; }
     QString tag() const { return m_tag; }
     QDateTime released() const { return m_released; }
+    // The signed instant after which this document must not be believed.
+    // Always valid on a parsed manifest; UpdateManager compares it with the
+    // clock, because the parser has none.
+    QDateTime expires() const { return m_expires; }
     int minUpdaterVersion() const { return m_minUpdaterVersion; }
     QString releaseNotes() const { return m_releaseNotes; }
     QUrl releaseNotesUrl() const { return m_releaseNotesUrl; }
@@ -157,6 +171,7 @@ private:
     QString m_channel;
     QString m_tag;
     QDateTime m_released;
+    QDateTime m_expires;
     int m_minUpdaterVersion = 1;
     QString m_releaseNotes;
     QUrl m_releaseNotesUrl;

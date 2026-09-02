@@ -1372,6 +1372,8 @@ Rectangle {
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing8
             Label {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 Layout.maximumWidth: 380
                 wrapMode: Text.WordWrap

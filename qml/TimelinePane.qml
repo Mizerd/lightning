@@ -6,6 +6,20 @@ import MatrixClient
 
 Rectangle {
     id: root
+
+    // The attachment name is SENDER-CHOSEN and used to be concatenated
+    // straight into a file:// URL, so "../../.config/autostart/x.desktop"
+    // preselected that path in the Save dialog and one click wrote there.
+    // The bridge hardens it to a bare leaf (no separators, no leading dot,
+    // no reserved device name, bounded), and the leaf is percent-encoded
+    // so '#', '?' and '%' cannot be read as URL syntax either. An empty
+    // result lets the dialog pick its own name.
+    function suggestedSaveUrl(filename) {
+        var leaf = app.mediaBridge.suggestedSaveName(filename || "")
+        if (!leaf || leaf.length === 0)
+            leaf = "download"
+        return "file:///" + encodeURIComponent(leaf)
+    }
     color: AppTheme.background
 
     // v0.7.1: the Home surface routes create actions to the room list's
@@ -859,6 +873,8 @@ Rectangle {
                     RowLayout {
                         spacing: AppTheme.spacingS
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             text: {
                                 if (root.currentRoom.name)
                                     return root.currentRoom.name
@@ -1531,6 +1547,8 @@ Rectangle {
                         RowLayout {
                             Layout.fillWidth: true
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 text: historyRow.senderDisplayName.length > 0
                                       ? historyRow.senderDisplayName
                                       : historyRow.sender
@@ -1554,6 +1572,8 @@ Rectangle {
                             }
                         }
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             Layout.fillWidth: true
                             text: historyRow.body
                             color: AppTheme.textSecondary
@@ -2990,7 +3010,7 @@ Rectangle {
                 property var saveMedia: function(mediaKey, filename) {
                     if (!mediaKey || mediaKey.length === 0) return
                     saveMediaDialog.pendingMediaKey = mediaKey
-                    saveMediaDialog.currentFile = "file:///" + (filename || "download")
+                    saveMediaDialog.currentFile = root.suggestedSaveUrl(filename)
                     saveMediaDialog.open()
                 }
                 // Per-card save feedback: which media key is being written
@@ -5450,6 +5470,8 @@ Rectangle {
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
             }
             Label {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 id: typingLabel
                 anchors.left: parent.left
                 anchors.leftMargin: AppTheme.spacingM
@@ -5559,7 +5581,7 @@ Rectangle {
         saveMedia: function(mediaKey, filename) {
             if (!mediaKey || mediaKey.length === 0) return
             saveMediaDialog.pendingMediaKey = mediaKey
-            saveMediaDialog.currentFile = "file:///" + (filename || "download")
+            saveMediaDialog.currentFile = root.suggestedSaveUrl(filename)
             saveMediaDialog.open()
         }
     }
@@ -5639,7 +5661,7 @@ Rectangle {
             imageViewer.openFor(mediaKey, httpUrl)
         onSaveMediaRequested: (mediaKey, filename) => {
             saveMediaDialog.pendingMediaKey = mediaKey
-            saveMediaDialog.currentFile = "file:///" + filename
+            saveMediaDialog.currentFile = root.suggestedSaveUrl(filename)
             saveMediaDialog.open()
         }
         // v0.7.x pinned messages: a pin is very often outside the loaded

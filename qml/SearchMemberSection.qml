@@ -116,6 +116,8 @@ ColumnLayout {
                         elide: Label.ElideRight
                     }
                     Label {
+                        // Remote or externally chosen text: never markup.
+                        textFormat: Text.PlainText
                         visible: memberRow.modelData.displayName
                                  && memberRow.modelData.displayName.length > 0
                         Layout.fillWidth: true

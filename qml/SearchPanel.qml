@@ -339,6 +339,8 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label {
+                                    // Remote or externally chosen text: never markup.
+                                    textFormat: Text.PlainText
                                     text: resultDelegate.senderDisplayName
                                           || resultDelegate.sender
                                     // Identity ink, as in the timeline.
@@ -358,6 +360,8 @@ Rectangle {
                                 }
                             }
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: resultDelegate.body
                                 color: AppTheme.textSecondary

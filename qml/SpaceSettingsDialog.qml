@@ -217,6 +217,8 @@ AppDialog {
                 color: AppTheme.stormBorder
             }
             Label {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: root.sections[root.section].label
                 color: AppTheme.stormTextSecondary
@@ -283,6 +285,8 @@ AppDialog {
                                                       : AppTheme.stormTextMuted
                             }
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: navRow.modelData.label
                                 elide: Label.ElideRight
@@ -1156,6 +1160,8 @@ AppDialog {
                                             ColumnLayout {
                                                 spacing: 0
                                                 Label {
+                                                    // Remote or externally chosen text: never markup.
+                                                    textFormat: Text.PlainText
                                                     Layout.alignment: Qt.AlignRight
                                                     text: memberRow.localpart
                                                     color: AppTheme.stormTextSecondary
@@ -1163,6 +1169,8 @@ AppDialog {
                                                     font.pixelSize: AppTheme.textMicro
                                                 }
                                                 Label {
+                                                    // Remote or externally chosen text: never markup.
+                                                    textFormat: Text.PlainText
                                                     Layout.alignment: Qt.AlignRight
                                                     visible: memberRow.server.length > 0
                                                     text: memberRow.server
@@ -1335,6 +1343,8 @@ AppDialog {
                                         }
 
                                         Label {
+                                            // Remote or externally chosen text: never markup.
+                                            textFormat: Text.PlainText
                                             Layout.fillWidth: true
                                             elide: Label.ElideRight
                                             text: permRow.modelData.label

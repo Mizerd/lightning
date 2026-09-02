@@ -137,6 +137,14 @@ void installLogFile(const QString &path)
 {
     if (path.isEmpty())
         return;
+    // A symlink would redirect the append at whatever it points to at the
+    // moment of opening; the one file this flag exists to produce is one the
+    // user is going to hand to someone, so it is also created owner-only.
+    if (QFileInfo(path).isSymLink()) {
+        QTextStream(stderr)
+            << "refusing --log-file: the path is a symbolic link\n";
+        return;
+    }
     auto *file = new QFile(path);
     if (!file->open(QIODevice::WriteOnly | QIODevice::Append
                     | QIODevice::Text)) {
@@ -145,6 +153,14 @@ void installLogFile(const QString &path)
         delete file;
         return;
     }
+    file->setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+    // Say what is in it, because every category logs here at debug level
+    // and local logs deliberately carry account slugs and store paths.
+    QTextStream(file)
+        << "# Lightning debug log. Contains Matrix user ids and local file "
+           "paths; never message content, keys or tokens. Review before "
+           "sharing.\n";
+    file->flush();
     g_logFile = file;
     g_previousHandler = qInstallMessageHandler(logFileHandler);
 }
@@ -1210,14 +1226,18 @@ int main(int argc, char *argv[])
         QDir().mkpath(lightning::portable::cacheDir()
                       + QStringLiteral("/qmlcache"));
         qputenv("QT_DISABLE_SHADER_DISK_CACHE", "1");
+    }
 
-        // Scratch directories from a run that crashed before its
-        // QTemporaryDir destructor executed. Ours only, by name prefix, and
-        // never a symlink.
+    // Scratch directories from a run that crashed before its QTemporaryDir
+    // destructor executed. Ours only, by name prefix, our own uid, never a
+    // symlink -- and on EVERY install type: they hold decrypted
+    // encrypted-room media, and this used to run only for a portable copy,
+    // so every other install left them in /tmp for good after a crash.
+    {
         const int swept = lightning::portable::cleanStaleTempDirs();
         if (swept > 0) {
             QTextStream(stderr)
-                << "portable: removed " << swept
+                << "removed " << swept
                 << " stale media scratch director"
                 << (swept == 1 ? "y" : "ies") << "\n";
         }

@@ -1276,6 +1276,8 @@ Item {
                         ColumnLayout {
                             spacing: 0
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 text: model.fileName
                                 color: AppTheme.textPrimary
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)

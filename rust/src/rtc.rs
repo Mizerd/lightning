@@ -70,7 +70,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use matrix_sdk::deserialized_responses::RawAnySyncOrStrippedState;
+use matrix_sdk::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
 use matrix_sdk::event_handler::EventHandlerDropGuard;
 use matrix_sdk::ruma::events::macros::EventContent;
 use matrix_sdk::ruma::events::relation::Reference;
@@ -84,7 +84,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use crate::rooms::{classify_room_error, joined_room, require_client};
+use crate::rooms::{classify_room_error, joined_room, public_ip, require_client};
 use crate::{enqueue, RustClient};
 
 // ---------------------------------------------------------------------------
@@ -118,6 +118,33 @@ const SLOT_ID_ROOM: &str = "ROOM";
 /// Fallback membership validity when a membership carries no `expires`.
 /// Matches the reference implementation's `DEFAULT_EXPIRE_DURATION`.
 const DEFAULT_EXPIRE_MS: u64 = 4 * 60 * 60 * 1000;
+/// Ceiling on how far past the ENVELOPE's origin_server_ts any membership
+/// may claim to live.
+///
+/// `expires` and `created_ts` are CONTENT fields, written by the member
+/// itself. Unclamped, `created_ts: 0` plus `expires: u64::MAX` saturated to
+/// a membership that never aged out and always sorted oldest -- and "oldest"
+/// is what chooses the SFU every later joiner sends its Matrix OpenID token
+/// and device id to. The bound is measured from the EVENT, not from
+/// `created_ts`: the refresh path preserves the original join and writes
+/// `expires = (now - created) + period`, so a bound on `created_ts +
+/// expires` would pin a long call's deadline at `created + 24 h` and every
+/// refresh past that instant would be born expired (the "a constant cannot
+/// refresh it" shape from §16, from the parse side). Each refresh is a new
+/// event, so an event-relative bound keeps a 30-hour call alive and still
+/// leaves nothing immortal.
+const MAX_EXPIRE_MS: u64 = 24 * 60 * 60 * 1000;
+/// A `created_ts` may not sit more than this far AHEAD of the envelope's
+/// origin_server_ts. A future join time cannot be legitimate (a refresh
+/// preserves the ORIGINAL join, which is in the past); it would only make
+/// the membership sort last while its expiry saturates.
+const MAX_CREATED_TS_SKEW_MS: u64 = 5 * 60 * 1000;
+/// ...and not more than this far BEHIND it. A refresh legitimately carries a
+/// join time as old as the call; a claim older than a day is either a call
+/// older than a day (still ordered first, correctly) or the ordering attack,
+/// and clamping makes both sort as "a day old" -- which is what bounds how
+/// far backdating can reach.
+const MAX_BACKDATE_MS: u64 = 24 * 60 * 60 * 1000;
 
 /// Element caps notification lifetime at 90 s (`parseCallNotificationContent`).
 const MAX_NOTIFICATION_LIFETIME_MS: u64 = 90_000;
@@ -196,36 +223,61 @@ fn sane_https_url(value: &str) -> Option<String> {
     // influenced input that phase 2 will connect to. Refuse the obvious
     // SSRF shapes here; a full DNS-resolution check belongs at the point of
     // connection, where the resolved address is actually known.
+    // ONE address policy for the whole client: the same `public_ip` the
+    // link-preview fetch uses, which unmaps `::ffff:a.b.c.d` before judging
+    // and refuses CGNAT, multicast and the rest. This lane used to carry its
+    // own shorter copy, and the two had drifted: `https://[::ffff:127.0.0.1]/`
+    // passed here while rooms.rs refused it.
     match host {
         url::Host::Ipv4(addr) => {
-            if addr.is_loopback()
-                || addr.is_private()
-                || addr.is_link_local()
-                || addr.is_unspecified()
-                || addr.is_broadcast()
-                || addr.is_documentation()
-            {
+            if !public_ip(std::net::IpAddr::V4(addr)) {
                 return None;
             }
         }
         url::Host::Ipv6(addr) => {
-            if addr.is_loopback() || addr.is_unspecified() {
-                return None;
-            }
-            // Unique-local (fc00::/7) and link-local (fe80::/10).
-            let seg = addr.segments()[0];
-            if (seg & 0xfe00) == 0xfc00 || (seg & 0xffc0) == 0xfe80 {
+            if !public_ip(std::net::IpAddr::V6(addr)) {
                 return None;
             }
         }
         url::Host::Domain(name) => {
-            let lower = name.to_ascii_lowercase();
-            if lower == "localhost" || lower.ends_with(".localhost") {
+            if !public_hostname(name) {
                 return None;
             }
         }
     }
     Some(parsed.to_string())
+}
+
+/// Names that can only ever resolve to the local machine or the local link.
+/// `.local` is mDNS, `.localhost` is reserved, `.internal` is the
+/// conventional private zone, and a bare `localhost` is the obvious one.
+pub(crate) fn public_hostname(name: &str) -> bool {
+    let lower = name.trim_end_matches('.').to_ascii_lowercase();
+    !(lower == "localhost"
+        || lower.ends_with(".localhost")
+        || lower.ends_with(".local")
+        || lower.ends_with(".internal"))
+}
+
+/// Resolve `host` and require EVERY address to be public, returning the
+/// first so the caller can pin it. Resolution is the only way to see what a
+/// name actually points at: an attacker-chosen focus name with a private A
+/// record passes every literal check and still lands on the loopback.
+pub(crate) async fn resolve_public_host(
+    host: &str,
+    port: u16,
+) -> Option<std::net::SocketAddr> {
+    if !public_hostname(host) {
+        return None;
+    }
+    let addresses: Vec<std::net::SocketAddr> =
+        tokio::net::lookup_host((host, port)).await.ok()?.collect();
+    if addresses.is_empty()
+        || !addresses.iter().all(|address| public_ip(address.ip()))
+    {
+        return None;
+    }
+    addresses.into_iter().next()
 }
 
 // ---------------------------------------------------------------------------
@@ -449,24 +501,42 @@ pub(crate) fn parse_session_membership(
 
     let user_id = sane(sender, MAX_WIRE_LEN)?.to_owned();
 
+    // Both timestamps are CONTENT -- the member's own claim -- and both feed
+    // the oldest-membership focus rule and the liveness filter, so both are
+    // clamped against the envelope's origin_server_ts, in BOTH directions:
+    // created_ts to [event - MAX_BACKDATE_MS, event + MAX_CREATED_TS_SKEW_MS]
+    // and the deadline to event + MAX_EXPIRE_MS. A refresh legitimately
+    // carries a created_ts older than its own event (it preserves the
+    // original join), which the backdate window accommodates; an earlier
+    // version bounded the deadline against created_ts instead and would have
+    // expired every refresh of a call older than a day (see MAX_EXPIRE_MS).
     let created_ts = object
         .get("created_ts")
         .and_then(|value| value.as_u64())
-        .unwrap_or(event_ts);
+        .unwrap_or(event_ts)
+        .min(event_ts.saturating_add(MAX_CREATED_TS_SKEW_MS))
+        .max(event_ts.saturating_sub(MAX_BACKDATE_MS));
     let expires = object
         .get("expires")
         .and_then(|value| value.as_u64())
         .unwrap_or(DEFAULT_EXPIRE_MS);
-    // Saturating: a hostile `expires` of u64::MAX must not wrap into the past.
-    let expires_at_ms = created_ts.saturating_add(expires);
+    // Saturating: a hostile `expires` of u64::MAX must not wrap into the past
+    // -- and the deadline is then bounded against the EVENT, so it cannot be
+    // immortal either. See MAX_EXPIRE_MS for why not against created_ts.
+    let expires_at_ms = created_ts
+        .saturating_add(expires)
+        .min(event_ts.saturating_add(MAX_EXPIRE_MS));
 
-    // `membershipID` is optional; the documented default is exactly this.
-    let rtc_identity = object
-        .get("membershipID")
-        .and_then(|value| value.as_str())
-        .and_then(|value| sane(value, MAX_WIRE_LEN))
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| format!("{user_id}:{device_id}"));
+    // The SFU identity is DERIVED, never read. The JWT service assigns the
+    // LiveKit identity `{user}:{device}` from the OpenID-verified user and
+    // the device id in the request, and the reference treats an absent
+    // `membershipID` as exactly that. Reading the field instead let any
+    // member publish somebody else's `{user}:{device}` as their own
+    // identity: first-match lookups then bound that participant's SFU sid
+    // to the impostor's key ring (every frame they published failed its
+    // tag), addressed our media key to the impostor's device, and drew
+    // their tile with the impostor's name. The content field is ignored.
+    let rtc_identity = format!("{user_id}:{device_id}");
 
     Some(RtcMember {
         user_id,
@@ -2454,10 +2524,29 @@ pub(crate) fn register_rtc_handlers(
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
         let handle = client.add_event_handler(
-            move |ev: CallEncryptionKeysEvent| {
+            move |ev: CallEncryptionKeysEvent, encryption: Option<EncryptionInfo>| {
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
+                    // OLM OR NOTHING. The SDK hands a to-device event to this
+                    // handler whether or not it was encrypted, and `None`
+                    // here means it arrived in the CLEAR: any Matrix user on
+                    // any server can PUT such an event, and a homeserver can
+                    // write any `sender` on it. Only after Olm decryption is
+                    // the sender AND the sending device vouched for by the
+                    // session's identity key -- which is what the ring name
+                    // below is keyed on. The reference sends these keys
+                    // encrypted; a plaintext one is refused, not degraded.
+                    let Some(encryption) = encryption else {
+                        return;
+                    };
+                    let Some(sender_device) = encryption.sender_device.as_ref()
+                    else {
+                        return;
+                    };
+                    if encryption.sender != ev.sender {
+                        return;
+                    }
                     // Bound and validate every field: this arrives from
                     // another device and is used to key a cipher.
                     if ev.content.keys.index > MAX_KEY_INDEX {
@@ -2470,19 +2559,37 @@ pub(crate) fn register_rtc_handlers(
                     else {
                         return;
                     };
-                    let Some(device_id) =
+                    // The device the key is filed under is the one whose
+                    // Olm session decrypted it -- never the content's
+                    // `claimed_device_id`, which any sender can set to any
+                    // device of theirs (or, forged in the clear, of anyone).
+                    // The claim is still read, only to be bounded and
+                    // compared: a mismatch is a lie about which device is
+                    // speaking, and a lie is refused.
+                    let Some(claimed_device_id) =
                         sane(&ev.content.member.claimed_device_id,
                              MAX_WIRE_LEN)
                     else {
                         return;
                     };
+                    let Some(device_id) =
+                        sane(sender_device.as_str(), MAX_WIRE_LEN)
+                    else {
+                        return;
+                    };
+                    if claimed_device_id != device_id {
+                        return;
+                    }
                     enqueue(&events, json!({
                         "type": "rtc_key_received",
                         "lifecycle": timelines.lifecycle(),
                         "room_id": room_id,
-                        // The SENDER is what the SDK vouches for after Olm
-                        // decryption. `member.id` is a claim and is not used
-                        // to decide identity.
+                        // Both vouched for by Olm decryption (see above).
+                        // The C++ side keys the ring on this pair, so
+                        // `claimed_device_id` carries the VERIFIED device:
+                        // the field keeps its name so the consumer did not
+                        // have to change, and the value is no longer a
+                        // claim.
                         "sender": ev.sender.to_string(),
                         "claimed_device_id": device_id,
                         "key_index": ev.content.keys.index,
@@ -2576,9 +2683,82 @@ mod tests {
         content["expires"] = json!(u64::MAX);
         let member =
             parse_session_membership(&content, "@a:x", 5_000).expect("valid");
-        assert_eq!(member.expires_at_ms, u64::MAX);
-        // Still live, which is the point: saturation must not underflow.
-        assert_eq!(aggregate_session(vec![member], 10_000).len(), 1);
+        // Neither wrapped into the past NOR immortal: a claimed lifetime is
+        // capped at the ceiling, measured from the EVENT.
+        assert_eq!(member.expires_at_ms, 5_000 + MAX_EXPIRE_MS);
+        assert_eq!(aggregate_session(vec![member.clone()], 10_000).len(), 1);
+        assert_eq!(
+            aggregate_session(vec![member], 5_000 + MAX_EXPIRE_MS + 1).len(),
+            0
+        );
+    }
+
+    /// The focus-takeover shape: `created_ts: 0` to sort oldest forever and
+    /// `expires: u64::MAX` to never age out. Both claims are bounded against
+    /// the envelope: the join can be at most a day old (so it cannot sort
+    /// before anyone who joined more than a day earlier than it was sent),
+    /// and the deadline is at most a day past the event (so without a
+    /// refresh -- a NEW event -- it ages out like everyone else).
+    #[test]
+    fn a_backdated_immortal_membership_is_bounded_by_its_own_event() {
+        let mut content = session_content();
+        content["created_ts"] = json!(0u64);
+        content["expires"] = json!(u64::MAX);
+        let now = 1_700_000_000_000u64;
+        let member =
+            parse_session_membership(&content, "@mallory:x", now).expect("valid");
+        assert_eq!(member.created_ts, now - MAX_BACKDATE_MS);
+        assert_eq!(member.expires_at_ms, now + MAX_EXPIRE_MS);
+        assert_eq!(aggregate_session(vec![member.clone()], now).len(), 1);
+        assert!(aggregate_session(vec![member], now + MAX_EXPIRE_MS + 1).is_empty());
+    }
+
+    /// A refresh of a call older than a day: `created_ts` preserved from the
+    /// original join, `expires = (now - created) + period` as
+    /// expires_for_refresh() writes it. Bounding against created_ts would
+    /// have made this membership expired the moment it was sent.
+    #[test]
+    fn a_refresh_of_a_day_old_call_is_still_live() {
+        let created = 1_700_000_000_000u64;
+        let now = created + 25 * 60 * 60 * 1000; // call age 25 h
+        let mut content = session_content();
+        content["created_ts"] = json!(created);
+        content["expires"] = json!(expires_for_refresh(MEMBERSHIP_EXPIRY_MS, Some(created), now));
+        let member = parse_session_membership(&content, "@a:x", now).expect("valid");
+        assert!(member.expires_at_ms > now, "refresh must extend past now");
+        assert_eq!(aggregate_session(vec![member.clone()], now).len(), 1);
+        // Still ordered as the older member against someone joining now.
+        let younger = parse_session_membership(&session_content(), "@b:y", now).expect("valid");
+        let ordered = aggregate_session(vec![younger, member], now);
+        assert_eq!(ordered[0].user_id, "@a:x");
+    }
+
+    /// A join time in the future would sort last (harmless) while pushing
+    /// the expiry out of reach (a phantom that inflates the participant
+    /// count forever). It is pulled back to the envelope's timestamp.
+    #[test]
+    fn a_future_created_ts_is_clamped_to_the_envelope() {
+        let mut content = session_content();
+        content["created_ts"] = json!(u64::MAX);
+        let member =
+            parse_session_membership(&content, "@a:x", 5_000).expect("valid");
+        assert_eq!(member.created_ts, 5_000 + MAX_CREATED_TS_SKEW_MS);
+        assert_eq!(
+            member.expires_at_ms,
+            5_000 + MAX_CREATED_TS_SKEW_MS + 14_400_000
+        );
+    }
+
+    /// `membershipID` is content. Publishing somebody ELSE's `{user}:{device}`
+    /// used to make the impostor the first match for that participant's SFU
+    /// identity. The identity is now derived from the vouched-for sender.
+    #[test]
+    fn a_membership_cannot_claim_another_participants_identity() {
+        let mut content = session_content();
+        content["membershipID"] = json!("@alice:x:ALICEDEV");
+        let member = parse_session_membership(&content, "@mallory:x", 1_000)
+            .expect("valid");
+        assert_eq!(member.rtc_identity, "@mallory:x:DEVICE");
     }
 
     #[test]
@@ -2786,6 +2966,16 @@ mod tests {
             "https://[::1]/",
             "https://[fe80::1]/",
             "https://[fc00::1]/",
+            // IPv4-mapped IPv6: the loopback and the metadata address in a
+            // costume the plain V6 rules cannot see through.
+            "https://[::ffff:127.0.0.1]/",
+            "https://[::ffff:169.254.169.254]/",
+            // CGNAT, multicast, and the local-only name suffixes.
+            "https://100.64.0.1/",
+            "https://224.0.0.1/",
+            "https://sfu.local/",
+            "https://sfu.internal/",
+            "https://Sfu.LOCALHOST./",
         ] {
             assert!(
                 parse_transport(&json!({

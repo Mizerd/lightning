@@ -552,6 +552,8 @@ AnchoredPopup {
         spacing: AppTheme.spacing6
 
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             id: packSourceLabel
             Layout.fillWidth: true
             color: AppTheme.stormTextMuted

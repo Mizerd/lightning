@@ -51,6 +51,8 @@ Rectangle {
                 }
             }
             Text {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: {
                     // findRoom is a plain C++ call Qt cannot observe, so

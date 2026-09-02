@@ -374,6 +374,8 @@ Popup {
                 anchors.verticalCenter: parent.verticalCenter
             }
             Text {
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
                 visible: chipButton.label.length > 0
                 text: chipButton.label
                 font.family: AppTheme.uiFont
@@ -726,6 +728,8 @@ Popup {
                         spacing: AppTheme.spacing6
 
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             objectName: "profileDisplayName"
                             Layout.fillWidth: true
                             // NO minimum width here, deliberately.
@@ -820,6 +824,8 @@ Popup {
                     }
 
                     Label {
+                        // Remote or externally chosen text: never markup.
+                        textFormat: Text.PlainText
                         objectName: "profileUserId"
                         Layout.fillWidth: true
                         text: root.userId
@@ -1257,6 +1263,8 @@ Popup {
                         font.weight: AppTheme.weightBold
                     }
                     Label {
+                        // Remote or externally chosen text: never markup.
+                        textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: root.roleLabel
                         color: AppTheme.stormText
@@ -1291,6 +1299,7 @@ Popup {
                                     .arg(modelData.label)
                             contentItem: Label {
                                 text: roleButton.modelData.label
+                                textFormat: Text.PlainText
                                 horizontalAlignment: Text.AlignHCenter
                                 // A bare Label contentItem fills the button,
                                 // and Text defaults to top alignment — the
@@ -1385,6 +1394,8 @@ Popup {
                                 color: modButton.modInk
                             }
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 text: modButton.modelData.label
                                 color: modButton.modInk
                                 font.family: AppTheme.menuFont
@@ -1443,6 +1454,8 @@ Popup {
                 spacing: AppTheme.spacing6
 
                 Label {
+                    // Remote or externally chosen text: never markup.
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: root.modAction === "kick"
                           ? qsTr("Remove %1 from this room?").arg(root.visibleName)

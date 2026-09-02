@@ -13,6 +13,17 @@ import MatrixClient
 // this is a pure overlay.
 Popup {
     id: viewer
+
+    // Sender-chosen filename -> hardened leaf, percent-encoded. See
+    // TimelinePane.suggestedSaveUrl for why the raw concatenation was a
+    // one-click write to a sender-chosen directory.
+    function suggestedSaveUrl() {
+        var raw = viewer.current ? (viewer.current.filename || "") : ""
+        var leaf = app.mediaBridge.suggestedSaveName(raw)
+        if (!leaf || leaf.length === 0)
+            leaf = "image"
+        return "file:///" + encodeURIComponent(leaf)
+    }
     objectName: "imageViewerOverlay"
     parent: Overlay.overlay
     anchors.centerIn: parent
@@ -212,8 +223,7 @@ Popup {
                      && (viewer.current.mediaKey || "").length > 0
                      && app.mediaBridge.supported
             onTriggered: {
-                saveDialog.currentFile =
-                    "file:///" + (viewer.current.filename || "image")
+                saveDialog.currentFile = viewer.suggestedSaveUrl()
                 saveDialog.open()
             }
         }
@@ -531,6 +541,8 @@ Popup {
                 Layout.fillWidth: true
                 spacing: 0
                 Label {
+                    // Remote or externally chosen text: never markup.
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: viewer.current !== null ? viewer.current.filename : ""
                     color: AppTheme.scrimInk
@@ -539,6 +551,8 @@ Popup {
                     elide: Label.ElideMiddle
                 }
                 Label {
+                    // Remote or externally chosen text: never markup.
+                    textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: viewer.current !== null
                           ? qsTr("%1 · %2")
@@ -676,8 +690,7 @@ Popup {
                     Accessible.name: qsTr("Save image as…")
                     onClicked: {
                         if (viewer.current !== null) {
-                            saveDialog.currentFile =
-                                "file:///" + (viewer.current.filename || "image")
+                            saveDialog.currentFile = viewer.suggestedSaveUrl()
                             saveDialog.open()
                         }
                     }

@@ -707,6 +707,10 @@ set(APP_SOURCES
     src/update/UpdateDownloader.cpp
     src/update/UpdateManager.h
     src/update/UpdateManager.cpp
+    # Shared with the updater helper: the one integrity primitive both ends
+    # of the hand-over use to prove the staged file is still the verified one.
+    src/updater/ArtifactDigest.h
+    src/updater/ArtifactDigest.cpp
 )
 
 if(ENABLE_RUST_SDK_BACKEND)
@@ -4345,6 +4349,7 @@ if(BUILD_TESTING)
         ${_update_crypto_sources}
         src/update/UpdateDownloader.cpp
         src/update/UpdateManager.cpp
+        src/updater/ArtifactDigest.cpp
         # UpdateManager stages downloads under the Lightning-owned cache root,
         # which is portable-aware — a portable copy must stage inside its own
         # folder rather than %LOCALAPPDATA%.
@@ -4373,9 +4378,16 @@ if(BUILD_TESTING)
 
     qt_add_executable(updater-helper-args-test
         tests/UpdaterHelperArgsTest.cpp
-        src/updater/UpdaterArgs.cpp src/updater/InstallStrategies.cpp)
+        src/updater/UpdaterArgs.cpp src/updater/InstallStrategies.cpp
+        src/updater/ArtifactDigest.cpp)
     target_include_directories(updater-helper-args-test PRIVATE src)
     target_link_libraries(updater-helper-args-test PRIVATE Qt6::Core Qt6::Test)
+    # The suite also runs the REAL helper binary end to end (a digest mismatch
+    # must refuse before anything is touched; a match must install), so it
+    # needs the helper's path and the helper built first.
+    target_compile_definitions(updater-helper-args-test PRIVATE
+        LIGHTNING_UPDATER_HELPER_PATH="$<TARGET_FILE:lightning-updater>")
+    add_dependencies(updater-helper-args-test lightning-updater)
     add_test(NAME updater-helper-args COMMAND updater-helper-args-test)
 
     qt_add_executable(updater-zip-safety-test
@@ -4524,6 +4536,7 @@ endif()
 qt_add_executable(lightning-updater
     src/updater/main.cpp
     src/updater/UpdaterArgs.h        src/updater/UpdaterArgs.cpp
+    src/updater/ArtifactDigest.h     src/updater/ArtifactDigest.cpp
     src/updater/ProcessWaiter.h      src/updater/ProcessWaiter.cpp
     src/updater/SafeArchive.h        src/updater/SafeArchive.cpp
     src/updater/InstallStrategies.h  src/updater/InstallStrategies.cpp

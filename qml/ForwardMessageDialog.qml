@@ -79,6 +79,8 @@ Dialog {
         }
 
         Label {
+            // Remote or externally chosen text: never markup.
+            textFormat: Text.PlainText
             objectName: "forwardPreviewLabel"
             Layout.fillWidth: true
             text: app.forward.previewText
@@ -176,6 +178,8 @@ Dialog {
                         Layout.fillWidth: true
                         spacing: 2
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             text: targetRow.visibleName
                             color: AppTheme.stormText
                             font.family: AppTheme.menuFont

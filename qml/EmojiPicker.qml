@@ -744,6 +744,8 @@ AnchoredPopup {
                             anchors.verticalCenter: parent.verticalCenter
                         }
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             text: hint.modelData.label
                             color: AppTheme.stormTextMuted
                             font.family: AppTheme.uiFont

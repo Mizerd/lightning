@@ -22,6 +22,11 @@ namespace lightning::urls {
 //
 // Returns false only when the URL is unusable or the launch could not be
 // started; a browser that starts and then fails is not observable here.
+// True for the schemes openExternally() will hand to the desktop: http and
+// https with a host and no credentials, and mailto. Exposed so a caller can
+// decide what to SAY when a link is refused; the refusal itself does not
+// depend on the caller checking.
+bool isOpenableExternally(const QUrl &url);
 bool openExternally(const QUrl &url);
 
 // The environment a spawned child should get, exposed for testing: the current

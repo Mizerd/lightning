@@ -244,6 +244,11 @@ that have the engine.
   (`stun-server` / `add-turn-server`, credentials percent-encoded). The
   engine contacts ONLY servers the homeserver names — no third-party STUN
   that would leak the user's IP. No TURN answer = host candidates only.
+  **This is the legacy 1:1 lane.** The MatrixRTC lane takes its ICE servers
+  from the SFU's `JoinResponse` (`ice_servers`), not from `/voip/turnServer`:
+  the focus already relays every byte of media, so a TURN server it names is
+  no wider a trust than the connection itself. Recorded here because the
+  sentence above used to read as if it covered both lanes.
 - **UI**: the corner card is now the whole call surface — Calling…/
   Incoming/Connecting…/In-call forms with Accept (ONLY when the engine is
   registered), Decline, Hang up, Dismiss; states are compared

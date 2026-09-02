@@ -656,6 +656,18 @@ target (§16 — this is the configuration the Linux package jobs use, and 0.8.0
 lost `build-deb` to it twice in one job), and report unavailable live
 validation honestly.
 
+**2026-09-02 audit, release checklist** (lightning-deploy
+`docs/update-manifest.md`): the signed manifest EXPIRES at `released` + 120
+days and the client then reports a FAILURE — before day 120 of a lull refresh
+`latest` without a release (`RELEASE_ACTION=attach-existing`,
+`UPDATE_RELEASED_AT=<original>`, `UPDATE_EXPIRES_AT=<now+120d>`,
+`UPDATE_REFRESH_LATEST_ONLY=true`); `attach-existing` never moves `latest`
+backwards without `UPDATE_ALLOW_LATEST_ROLLBACK=true`; refresh image digests
+each round. **OPERATOR ACTION PENDING:** scope `UPDATE_SIGNING_KEY_B64` to
+environment `signing` and `GITHUB_MIRROR_TOKEN` to `mirror` in project 7,
+or the private key keeps reaching all six build jobs (key id and public key
+stay unscoped).
+
 There is a WEBSITE, and it is a THIRD repository: `lightning-website`
 (Cloudflare Workers, `https://www.lightning-matrix.org`). It is updated AFTER
 a release exists, never before, because the Windows and macOS asset filenames
@@ -772,6 +784,15 @@ Narrative and chronology have been cut; rules, refuted hypotheses,
 deliberate decisions and validation status have not.
 
 ### Standing warnings
+
+**2026-09-02 SECURITY AUDIT — READ `docs/security-audit-2026-09-02.md`
+before touching the updater, `src/calls/`, `rust/src/rtc.rs`, `rust/src/sfu.rs`,
+the QML plain-text rule, or the pipeline's secrets.** It holds the refuted
+hypotheses (a store passphrase; filtering the mock for §8; bounding RTC
+expiry against `created_ts`) and the lessons (a comment is not an
+`EncryptionInfo` extractor; content timestamps and `membershipID` are
+attacker input; a verified path is not verified bytes; `textFormat` on a
+`MenuItem` is a load-time error; one working tree, two sessions).
 
 **Timeline scrolling — read this whole block before touching it.** Five
 rounds, three reverted fixes, several measurement errors of my own.
@@ -2244,6 +2265,9 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   sync handlers, one bounded join-time sweep for hands raised before we
   arrived).
 - **Full screen opens on the primary monitor**, not the one the app is on.
+
+**NOT TESTED, 2026-09-02 audit:** six items in
+`docs/security-audit-2026-09-02.md`.
 
 STILL UNPROVEN, not reported broken:
 

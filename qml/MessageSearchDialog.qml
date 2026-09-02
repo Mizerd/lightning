@@ -160,6 +160,8 @@ Dialog {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing6
                             Label {
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
                                 text: resultRow.senderDisplayName.length > 0
                                       ? resultRow.senderDisplayName
                                       : resultRow.sender
@@ -200,6 +202,8 @@ Dialog {
                             }
                         }
                         Label {
+                            // Remote or externally chosen text: never markup.
+                            textFormat: Text.PlainText
                             Layout.fillWidth: true
                             text: resultRow.body
                             color: AppTheme.stormTextSecondary
