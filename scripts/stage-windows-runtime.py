@@ -107,6 +107,18 @@ GSTREAMER_PLUGINS = (
     # byte-identical with and without it, which is why comparing SDP text
     # refuted the theory before a control run brought it back.
     "libgstsctp.dll",              # sctpenc, sctpdec
+    # jpegdec, for the CAMERA. A UVC webcam offers both MJPG and raw modes,
+    # and `ksvideosrc` exposes the MJPG ones as `image/jpeg`. With no JPEG
+    # decoder in the build, `image/jpeg` can never negotiate, so the camera
+    # falls back to raw YUY2 — which at 1280x720 is 18.4 MB/s and hits a USB 2.0
+    # ceiling at TEN FRAMES PER SECOND. That is the reported Windows camera
+    # frame rate, and it is a packaging gap rather than a pipeline one.
+    #
+    # Note `libjpeg-8.dll` has been staged all along as a LIBRARY dependency
+    # of Qt and libgstopengl. A DLL of the right name is not the element: the
+    # same distinction that shipped Windows for months with libgstsctp-1.0-0
+    # present and `sctpenc` missing.
+    "libgstjpeg.dll",              # jpegdec (MJPG camera modes)
     "libgstsrtp.dll",              # srtpenc, srtpdec, used inside dtlssrtp*
     # glupload, glcolorconvert, glcolorscale, gldownload — the opt-in GPU
     # scale path for a screen share (LIGHTNING_SHARE_GPU=1).

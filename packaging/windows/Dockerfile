@@ -263,6 +263,7 @@ RUN set -eu; \
         libgstdirectsound.dll libgstdirectsoundsrc.dll libgstdtls.dll \
         libgstnice.dll libgstopus.dll libgstrtp.dll libgstrtpmanager.dll \
         libgstsctp.dll \
+        libgstjpeg.dll \
         libgstsrtp.dll libgstvideoconvertscale.dll libgstvideorate.dll \
         libgstvideotestsrc.dll libgstvolume.dll libgstvpx.dll \
         libgstopengl.dll \
@@ -377,6 +378,7 @@ RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
          webrtcdsp:libgstwebrtcdsp ksvideosrc:libgstwinks \
          gdiscreencapsrc:libgstwinscreencap \
          sctpenc:libgstsctp \
+         jpegdec:libgstjpeg \
          glupload:libgstopengl glcolorconvert:libgstopengl \
          glcolorscale:libgstopengl gldownload:libgstopengl; do \
          element="${pair%%:*}"; plugin="${pair##*:}"; \
