@@ -86,6 +86,21 @@ call_media_status=$?
 set -e
 assert_call_media_engine DEB "$ROOT/dist/deb-call-media-status.txt" "$call_media_status"
 
+# The image DECODERS, proving the Depends/Recommends this package declares
+# actually resolved. A Qt image format is a dlopen'd plugin, so dpkg-shlibdeps
+# can see none of it -- the same blind spot as the QML modules and the
+# GStreamer plugins. Debian's libqt6gui6 carries libqgif/libqico/libqjpeg only,
+# so before qt6-image-formats-plugins was declared this package installed
+# cleanly and could not draw a WebP its own byte sniffers accept.
+set +e
+(cd /tmp && timeout 60s env QT_QPA_PLATFORM=offscreen /usr/bin/lightning-matrix --image-format-status) \
+    >"$ROOT/dist/deb-image-format-status.txt" 2>&1
+image_format_status=$?
+set -e
+# jxl is expected here: apt installs Recommends by default, so an ordinary
+# `apt-get install ./lightning.deb` pulls kimageformat6-plugins.
+assert_image_formats DEB "$ROOT/dist/deb-image-format-status.txt" "$image_format_status" jxl
+
 # The generated build-only key header must never ship inside the package.
 if grep -q 'LightningGifBuildKeys.h' "$ROOT/dist/deb-contents.txt"; then
     die "DEB contains the generated GIF build-key header"

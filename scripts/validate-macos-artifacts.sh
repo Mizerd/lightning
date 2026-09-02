@@ -468,6 +468,24 @@ else
     sed 's/^/        /' "$REPORT_DIR/call-media-status.txt" >&2 || true
     failures=$((failures + 1))
 fi
+# THE IMAGE DECODERS, asked of the bundle the same way. macdeployqt copies
+# every plugin in its default categories, so this bundle gets Homebrew
+# qtimageformats' set (webp, tiff, icns, jp2, mng, tga, wbmp) plus qmacheif,
+# which is Qt's ImageIO-backed HEIF plugin and exists on macOS alone. It does
+# NOT get JPEG XL: Qt has never shipped a JXL plugin and Homebrew packages no
+# build of KDE's kimageformats, which is the only implementation. So `jxl` is
+# deliberately NOT required here — the check asserts the required set and
+# leaves JPEG XL reported as a platform limit, which is the honest answer.
+if "$CONTENTS/MacOS/$APP_NAME" --image-format-status \
+        >"$REPORT_DIR/image-format-status.txt" 2>&1; then
+    check "the bundled app can decode every image format Lightning accepts" \
+        grep -qx 'required image/webp: decodable' \
+            "$REPORT_DIR/image-format-status.txt"
+else
+    printf '  FAIL: the bundled app accepts image formats it cannot decode\n' >&2
+    sed 's/^/        /' "$REPORT_DIR/image-format-status.txt" >&2 || true
+    failures=$((failures + 1))
+fi
 if "$CONTENTS/MacOS/$APP_NAME" --build-info >"$REPORT_DIR/bundle-build-info.txt" 2>&1; then
     check "bundle reports the Rust backend" \
         grep -qx 'matrix_backend: rust' "$REPORT_DIR/bundle-build-info.txt"

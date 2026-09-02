@@ -96,10 +96,39 @@ QML_DEPENDS="qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtqu
 # gstreamer1-plugins-good, both already required. The split is Debian's.
 CALL_DEPENDS="gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-nice, gstreamer1.0-pipewire, gstreamer1.0-alsa"
 
+# Qt IMAGE-FORMAT plugins. Same discovery problem as the QML modules and the
+# GStreamer plugins above: a Qt image format is a dlopen'd plugin, so
+# dpkg-shlibdeps cannot see one. Debian's libqt6gui6 carries exactly libqgif,
+# libqico and libqjpeg, which is why every Linux package so far decoded only
+# GIF/ICO/JPEG plus qtbase's built-in PNG/BMP/PPM/XBM/XPM.
+#
+# WEBP IS A DEPENDS, not an extra. Lightning's own byte sniffers accept
+# image/webp (rooms::sniff_image_mime and its C++ twins), so without
+# qt6-image-formats-plugins the client accepts, forwards and re-uploads a
+# format it cannot draw. Windows has staged qwebp.dll all along.
+#
+# JPEG XL IS A RECOMMENDS, and it does not come from Qt at all: qtimageformats
+# has never contained a JXL plugin, so the only Qt decoder is KDE's
+# kimageformats. Recommends rather than Depends because that package pulls
+# libheif, x265, libraw and OpenEXR — a large chain for one format — and
+# because the client reports honestly which formats the running build can
+# decode (`lightning-matrix --image-format-status`), so an install made with
+# --no-install-recommends degrades visibly instead of silently.
+# apt installs Recommends by default, so an ordinary `apt install ./lightning.deb`
+# gets JPEG XL.
+IMAGE_DEPENDS="qt6-image-formats-plugins"
+IMAGE_RECOMMENDS="kimageformat6-plugins"
+
 {
     cat "$ROOT/packaging/deb/control"
     printf 'Version: %s\n' "$DEB_VERSION"
-    printf 'Depends: %s, %s, %s\n' "$SHLIBS" "$QML_DEPENDS" "$CALL_DEPENDS"
+    printf 'Depends: %s, %s, %s, %s\n' \
+        "$SHLIBS" "$QML_DEPENDS" "$CALL_DEPENDS" "$IMAGE_DEPENDS"
+    # libenchant-2-2 is the spell-check broker Lightning dlopens at runtime
+    # (never linked, so shlibs cannot see it); without it the composer says
+    # "spell checking unavailable" and nothing else changes. Dictionaries
+    # stay the user's own hunspell-* packages.
+    printf 'Recommends: %s, libenchant-2-2\n' "$IMAGE_RECOMMENDS"
 } >"$CONTROL/control"
 install -m0755 "$ROOT/packaging/deb/postinst" "$CONTROL/postinst"
 install -m0755 "$ROOT/packaging/deb/postrm" "$CONTROL/postrm"

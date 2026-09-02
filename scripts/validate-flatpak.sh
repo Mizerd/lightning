@@ -67,6 +67,19 @@ call_media_status=$?
 set -e
 assert_call_media_engine Flatpak dist/flatpak-call-media-status.txt "$call_media_status"
 
+# The image DECODERS, asked of the RUNTIME. The Flatpak is the one Linux
+# format that was never broken here: org.kde.Platform//6.9 ships libqwebp.so
+# and kimg_jxl.so (and 27 more), so this pins a property the runtime provides
+# rather than one this repository staged -- and it is exactly the check that
+# would catch a runtime bump quietly dropping either.
+set +e
+timeout 60s flatpak run --user --command=sh "$APP_ID" -c \
+    "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/lightning-matrix --image-format-status" \
+    > dist/flatpak-image-format-status.txt 2>&1
+image_format_status=$?
+set -e
+assert_image_formats Flatpak dist/flatpak-image-format-status.txt "$image_format_status" jxl
+
 # GIF provider state with every key variable unset (embedded keys only).
 gif_env_clear="env -u GIPHY_API_KEY -u KLIPY_API_KEY \
  -u LIGHTNING_GIPHY_API_KEY -u LIGHTNING_KLIPY_API_KEY \

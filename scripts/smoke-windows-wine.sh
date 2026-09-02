@@ -68,6 +68,33 @@ run_call_media_status() {
     }
 }
 
+# THE IMAGE DECODERS, asked of the shipped exe under Wine, for the same reason:
+# a Qt image format is a dlopen'd plugin, so what this package can DRAW is a
+# packaging property that no DLL listing and no symbol walk can report.
+#
+# JPEG XL is deliberately NOT required on Windows: Qt has never shipped a JXL
+# plugin (qtimageformats v6.11.1 is dds/icns/jp2/macheif/macjp2/mng/tga/tiff/
+# wbmp/webp) and Fedora carries no mingw64 build of KDE's kimageformats, which
+# is the only implementation. The required set is what must hold, and
+# `--image-format-status` exits 0 while reporting JPEG XL as unavailable.
+run_image_format_status() {
+    local exe="$1" log="$2"
+    if ! timeout 120s wine64 "$exe" --image-format-status >"$log" 2>&1; then
+        cat "$log" >&2
+        die "the packaged build accepts image formats it cannot decode: $exe"
+    fi
+    local clean; clean="$(tr -d '\r' <"$log")"
+    # Named individually rather than trusting the RESULT line, so a table that
+    # quietly demoted one of them cannot pass.
+    local fmt
+    for fmt in png jpeg gif bmp webp; do
+        grep -Fqx "required image/$fmt: decodable" <<<"$clean" || {
+            cat "$log" >&2
+            die "the packaged build cannot decode image/$fmt: $exe"
+        }
+    done
+}
+
 run_version() {
     local exe="$1" log="$2"
     timeout 60s wine64 "$exe" --version >"$log" 2>&1
@@ -129,6 +156,8 @@ new_prefix
 run_version "$STAGE/Lightning.exe" "$REPORTS/wine-portable-version.log"
 run_call_media_status "$STAGE/Lightning.exe" \
     "$REPORTS/wine-portable-call-media-status.log"
+run_image_format_status "$STAGE/Lightning.exe" \
+    "$REPORTS/wine-portable-image-format-status.log"
 run_build_info "$STAGE/Lightning.exe" "$REPORTS/wine-portable-build-info.log"
 if [[ "$gif_embedded" == "true" ]]; then
     run_gif_status "$STAGE/Lightning.exe" "$REPORTS/wine-portable-gif-status.log"

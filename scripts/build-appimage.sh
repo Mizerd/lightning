@@ -261,6 +261,72 @@ cp "$PW_CLIENT_CONF" "$APPDIR/usr/share/pipewire/client.conf"
 printf 'PipeWire client stack staged: %d SPA dirs, %d modules, client.conf from %s\n' \
     2 "${#PW_REQUIRED_MODULES[@]}" "$PW_CLIENT_CONF"
 
+# --- Qt image-format plugins --------------------------------------------------
+#
+# THE SAME CLASS OF DEFECT AS THE GSTREAMER BLOCK ABOVE, and it shipped for
+# just as long. A Qt image format is a dlopen'd plugin, so linuxdeploy-plugin-qt
+# only ever deployed what qtbase itself carries -- libqgif, libqico, libqjpeg --
+# and every released AppImage decoded exactly those three plus qtbase's built-in
+# PNG/BMP/PPM/XBM/XPM. Verified on the shipped artifact: 0.8.0's
+# usr/plugins/imageformats holds three files.
+#
+# WEBP IS THE ONE THAT MAKES IT A CORRECTNESS BUG rather than a missing extra.
+# Lightning's own byte sniffers ACCEPT image/webp -- rooms::sniff_image_mime in
+# the Rust bridge and its four C++ twins -- so the client accepted, forwarded
+# and re-uploaded a format it could not draw. Windows has staged qwebp.dll all
+# along and macdeployqt copies libqwebp.dylib, so Linux was the only platform
+# where accept and decode disagreed.
+#
+# JPEG XL is the reported symptom and it does NOT come from Qt.
+# qt/qtimageformats has never contained a JPEG XL plugin -- at v6.11.1 it is
+# dds, icns, jp2, macheif, macjp2, mng, tga, tiff, wbmp, webp. Every Qt JXL
+# decoder in existence is KDE's kimageformats (kimg_jxl.so). That is why this
+# staging takes ONE file from each of two different upstreams, and why Windows
+# and macOS get no JXL at all; the per-platform table is in the release notes
+# and in lib.sh's assert_image_formats.
+#
+# WHAT IS DELIBERATELY NOT SHIPPED, so nobody adds it back by reflex:
+#   avif  -- kimg_avif drags libaom, librav1e, libSvtAv1Enc, libgav1, libyuv
+#            and ~20 abseil libraries: 20+ MB, three AV1 ENCODERS, for a format
+#            no Matrix client has been observed to send.
+#   heif  -- kimg_heif needs libheif, and LIBHEIF DLOPENS ITS OWN CODEC PLUGINS
+#            from /usr/lib/x86_64-linux-gnu/libheif. Staging the plugin without
+#            them registers the format and then decodes nothing, which is worse
+#            than not offering it -- the sctp/SPA lesson in a third costume.
+#            HEVC licensing is a second reason.
+#   svg   -- CLAUDE.md §6: SVG must never reach a media path as active content.
+#            Its absence here is a security property, not an oversight.
+QT_IMAGE_PLUGIN_DEST="$APPDIR/usr/plugins/imageformats"
+# Two sources, because no single package provides both. The build job installs
+# qt6-image-formats-plugins (libqwebp) and unpacks kimageformat6-plugins into
+# /opt/kimageformats WITHOUT installing it, exactly as it does for pipewire-bin:
+# installing it would pull libheif, libraw, OpenEXR and x265 into the image and
+# put kimg_avif.so and kimg_heif.so in the same directory this stages from,
+# where a later glob would ship them by accident.
+QT_IMAGE_PLUGIN_SRC_QT="/usr/lib/x86_64-linux-gnu/qt6/plugins/imageformats"
+QT_IMAGE_PLUGIN_SRC_KF="/opt/kimageformats/usr/lib/x86_64-linux-gnu/qt6/plugins/imageformats"
+# name:source-directory. Named one by one; there is no glob anywhere here.
+QT_IMAGE_REQUIRED_PLUGINS=(
+    "libqwebp.so:$QT_IMAGE_PLUGIN_SRC_QT"
+    "kimg_jxl.so:$QT_IMAGE_PLUGIN_SRC_KF"
+)
+mkdir -p "$QT_IMAGE_PLUGIN_DEST"
+for entry in "${QT_IMAGE_REQUIRED_PLUGINS[@]}"; do
+    img_plugin="${entry%%:*}"
+    img_src="${entry#*:}/$img_plugin"
+    # Absence is fatal, for the reason the GStreamer block gives: a skipped
+    # block and a green pipeline is how this shipped in the first place.
+    [[ -f "$img_src" ]] || die "Qt image-format plugin $img_plugin not found at $img_src: the build job did not install/unpack the package that provides it, so the AppImage would ship a client that accepts image formats it cannot decode"
+    cp "$img_src" "$QT_IMAGE_PLUGIN_DEST/"
+    # THE SOURCE PATH, NOT THE STAGED COPY -- see the GStreamer note below.
+    # Handing linuxdeploy a file already inside the AppDir makes it skip the
+    # NEEDED walk, and libwebp/libjxl would never be bundled.
+    LINUXDEPLOY_PLUGIN_ARGS+=(--library "$img_src")
+done
+printf 'Qt image-format plugins staged: %d (%s)\n' \
+    "${#QT_IMAGE_REQUIRED_PLUGINS[@]}" \
+    "$(printf '%s ' "${QT_IMAGE_REQUIRED_PLUGINS[@]%%:*}")"
+
 # Declared to linuxdeploy so their own NEEDED libraries are bundled into
 # usr/lib, where the AppRun's LD_LIBRARY_PATH will find them.
 #
@@ -361,6 +427,66 @@ done
     die "staged GStreamer plugins cannot load from the bundle:$gst_unresolved"
 printf 'All %d staged GStreamer plugins resolve against the AppDir\n' \
     "${#GST_REQUIRED_PLUGINS[@]}"
+
+# The same two steps for the image-format plugins, and for the same reason: the
+# `--library` declaration above is believed to walk their NEEDED lists, but that
+# belief was TRUE of one pipeline and FALSE of two others (see the note above),
+# so the codec libraries are resolved with the loader and copied here as well.
+# libwebp/libjxl are private to these plugins -- nothing else in the bundle
+# links them -- so a missed copy is a plugin that registers and cannot decode.
+img_dep_copied=0
+img_dep_skipped=0
+while IFS= read -r dep; do
+    [[ -n "$dep" ]] || continue
+    dep_name="$(basename "$dep")"
+    [[ -e "$APPDIR/usr/lib/$dep_name" ]] && { img_dep_skipped=$((img_dep_skipped+1)); continue; }
+    case "$dep_name" in
+        ld-linux*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|\
+        libgcc_s.so.*|libstdc++.so.*|libresolv.so.*)
+            img_dep_skipped=$((img_dep_skipped+1)); continue ;;
+        libX*.so.*|libxcb*.so.*|libasound.so.*|libGL*.so.*|libEGL*.so.*|\
+        libdrm.so.*|libgbm.so.*|libdbus-1.so.*|libudev.so.*|libsystemd.so.*)
+            img_dep_skipped=$((img_dep_skipped+1)); continue ;;
+        # QT IS LINUXDEPLOY'S, and this is the ONE way this loop must differ
+        # from the GStreamer one above: a GStreamer plugin links no Qt, an
+        # image-format plugin links libQt6Core/Gui/DBus. Dropping an unpatched
+        # Debian copy into usr/lib before linuxdeploy runs would hand its Qt
+        # plugin a file it did not deploy, and `cp -n` means the correct one
+        # could never replace it afterwards. What this loop is FOR is the
+        # plugins' private codecs -- libwebp, libjxl, libhwy, liblcms2,
+        # libsharpyuv -- which linuxdeploy has no other reason to bundle.
+        libQt6*)
+            img_dep_skipped=$((img_dep_skipped+1)); continue ;;
+    esac
+    cp -Ln "$dep" "$APPDIR/usr/lib/$dep_name" 2>/dev/null \
+        && img_dep_copied=$((img_dep_copied+1))
+done < <(
+    for entry in "${QT_IMAGE_REQUIRED_PLUGINS[@]}"; do
+        ldd "${entry#*:}/${entry%%:*}" 2>/dev/null | awk '/=> \// { print $3 }'
+    done | sort -u
+)
+printf 'Qt image-format plugin dependencies: %d copied, %d already present or base system\n' \
+    "$img_dep_copied" "$img_dep_skipped"
+# libwebp and libjxl cannot both already be in the AppDir at this point: Qt
+# links neither. Zero copied means the resolution produced nothing, which is
+# precisely how the GStreamer set shipped broken twice.
+[[ "$img_dep_copied" -gt 0 ]] || \
+    die "resolved no Qt image-format plugin dependencies at all — the bundle would ship plugins that cannot decode"
+
+img_unresolved=""
+for staged_plugin in "$QT_IMAGE_PLUGIN_DEST"/*.so; do
+    [[ -e "$staged_plugin" ]] || continue
+    while IFS= read -r missing; do
+        img_unresolved+=" $(basename "$staged_plugin"):$missing"
+    done < <(
+        LD_LIBRARY_PATH="$APPDIR/usr/lib" ldd "$staged_plugin" 2>/dev/null \
+            | awk '/not found/ { print $1 }'
+    )
+done
+[[ -z "$img_unresolved" ]] || \
+    die "staged Qt image-format plugins cannot load from the bundle:$img_unresolved"
+printf 'All %d staged Qt image-format plugins resolve against the AppDir\n' \
+    "${#QT_IMAGE_REQUIRED_PLUGINS[@]}"
 
 # linuxdeploy's generated AppRun sources every apprun-hooks/*.sh. Without this
 # hook the plugins are bundled and never found: GStreamer scans its COMPILED-IN
@@ -514,6 +640,54 @@ if [[ -n "$packed_escaped" ]]; then
 fi
 printf 'Packed AppImage: %d GStreamer plugins, every non-base dependency satisfied from inside the bundle\n' \
     "$packed_plugins"
+
+# AND THE IMAGE-FORMAT PLUGINS, in the packed squashfs, for the reason this
+# repository keeps re-learning: verifying the AppDir is not verifying the
+# artifact. The AppDir is written by this script; the squashfs is written by
+# linuxdeploy's pack step, which re-runs "Deploying dependencies for existing
+# files" and has been observed to move and rewrite what it finds there.
+#
+# Run this block against any AppImage built before 2026-08-28 and it fails on
+# the first name: those artifacts carry libqgif/libqico/libqjpeg and nothing
+# else.
+packed_img=0
+for entry in "${QT_IMAGE_REQUIRED_PLUGINS[@]}"; do
+    img_plugin="${entry%%:*}"
+    [[ -e "$verify_root/usr/plugins/imageformats/$img_plugin" ]] \
+        && packed_img=$((packed_img+1)) \
+        || printf 'MISSING from packed AppImage: usr/plugins/imageformats/%s\n' "$img_plugin" >&2
+done
+[[ "$packed_img" -eq "${#QT_IMAGE_REQUIRED_PLUGINS[@]}" ]] || \
+    die "AppImage carries $packed_img of ${#QT_IMAGE_REQUIRED_PLUGINS[@]} Qt image-format plugins; it would accept image formats it cannot decode"
+
+# Present is not loadable. Resolve each the way the AppRun arranges it and
+# reject a dependency satisfied from outside the bundle -- this job has libwebp
+# and libjxl installed, so a bare `ldd` here would pass on a bundle that ships
+# neither.
+packed_img_escaped=""
+for staged_plugin in "$verify_root/usr/plugins/imageformats"/*.so; do
+    [[ -e "$staged_plugin" ]] || continue
+    while IFS= read -r line; do
+        dep_name="${line%% *}"
+        dep_path="${line#* }"
+        case "$dep_name" in
+            ld-linux*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|\
+            libgcc_s.so.*|libstdc++.so.*|libresolv.so.*|\
+            libX*.so.*|libxcb*.so.*|libasound.so.*|libGL*.so.*|libEGL*.so.*|\
+            libdrm.so.*|libgbm.so.*|libdbus-1.so.*|libudev.so.*|libsystemd.so.*)
+                continue ;;
+        esac
+        [[ "$dep_path" == "$verify_root"/* ]] && continue
+        packed_img_escaped+=" $(basename "$staged_plugin")->$dep_name"
+    done < <(
+        LD_LIBRARY_PATH="$verify_root/usr/lib" ldd "$staged_plugin" 2>/dev/null \
+            | awk '/ => \// { print $1, $3 } / not found/ { print $1, "MISSING" }'
+    )
+done
+[[ -z "$packed_img_escaped" ]] || \
+    die "packed image-format plugins resolve dependencies from outside the bundle (they would be missing on a user's machine):$packed_img_escaped"
+printf 'Packed AppImage: %d Qt image-format plugins (%s), every non-base dependency satisfied from inside the bundle\n' \
+    "$packed_img" "$(printf '%s ' "${QT_IMAGE_REQUIRED_PLUGINS[@]%%:*}")"
 
 # AND THE PIPEWIRE CLIENT STACK, in the packed artifact, for the same reason:
 # the plugin being present proved nothing about the library it loads for itself.

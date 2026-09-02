@@ -118,6 +118,19 @@ call_media_status=$?
 set -e
 assert_call_media_engine RPM "$ROOT/dist/rpm-call-media-status.txt" "$call_media_status"
 
+# The image DECODERS, proving the spec's image-format Requires/Recommends
+# resolved. rpm's automatic dependency generator cannot see a dlopen'd Qt
+# plugin any more than it can see a GStreamer one, and Fedora's qt6-qtbase-gui
+# carries libqgif/libqico/libqjpeg only.
+set +e
+(cd /tmp && timeout 60s env QT_QPA_PLATFORM=offscreen /usr/bin/lightning-matrix --image-format-status) \
+    >"$ROOT/dist/rpm-image-format-status.txt" 2>&1
+image_format_status=$?
+set -e
+# jxl is expected: dnf installs weak dependencies by default, so
+# kf6-kimageformats comes in with the package.
+assert_image_formats RPM "$ROOT/dist/rpm-image-format-status.txt" "$image_format_status" jxl
+
 # The generated build-only key header must never ship inside the package.
 if grep -q 'LightningGifBuildKeys.h' "$ROOT/dist/rpm-contents.txt"; then
     die "RPM contains the generated GIF build-key header"

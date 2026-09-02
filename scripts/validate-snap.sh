@@ -85,6 +85,18 @@ set +e
 call_media_status=$?
 set -e
 assert_call_media_engine snap dist/snap-call-media-status.txt "$call_media_status"
+
+# The image DECODERS, through the same launcher: it is what sets QT_PLUGIN_PATH
+# to the snap's own usr/plugins, so running the binary directly would test the
+# payload and silently skip the wiring. The snap takes usr/ from the AppImage's
+# AppDir, so it inherits libqwebp.so and kimg_jxl.so from that job.
+set +e
+( cd /tmp && timeout 60s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
+    "$audit/prime/bin/lightning-launch" --image-format-status ) \
+    > dist/snap-image-format-status.txt 2>&1
+image_format_status=$?
+set -e
+assert_image_formats snap dist/snap-image-format-status.txt "$image_format_status" jxl
 grep -q 'GST_PLUGIN_SYSTEM_PATH_1_0' "$audit/prime/bin/lightning-launch" \
     || die "the snap launcher does not point GStreamer at the bundled plugins"
 # libgstximagesrc is the X11 screen-share fallback: not in the engine's

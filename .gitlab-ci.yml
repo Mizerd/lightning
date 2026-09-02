@@ -384,6 +384,30 @@ build-appimage:
       ( cd /tmp && apt-get download pipewire-bin
       && dpkg-deb -x pipewire-bin_*.deb /opt/pipewire-conf )
     - test -f /opt/pipewire-conf/usr/share/pipewire/client.conf
+    # Qt IMAGE-FORMAT plugins, bundled for the same reason as the GStreamer
+    # ones: they are dlopen'd, so linuxdeploy-plugin-qt deployed only the three
+    # qtbase itself carries (gif, ico, jpeg) and every AppImage up to 0.8.0
+    # shipped a client that ACCEPTS image/webp in its own byte sniffers and
+    # cannot draw it.
+    #
+    #   qt6-image-formats-plugins : libqwebp.so (240 kB package)
+    #   libjxl0.11                : the JPEG XL runtime kimg_jxl.so links
+    #
+    # JPEG XL does NOT come from Qt. qt/qtimageformats has never contained a
+    # JXL plugin (v6.11.1 is dds/icns/jp2/macheif/macjp2/mng/tga/tiff/wbmp/webp);
+    # the only Qt JXL decoder is KDE's kimageformats. That package is UNPACKED
+    # rather than installed, exactly as pipewire-bin is above: installing it
+    # pulls libheif, libraw, OpenEXR, x265 and libavif into the image, and drops
+    # kimg_avif.so and kimg_heif.so into the very directory build-appimage.sh
+    # stages from — neither of which is shipped, deliberately (see the script).
+    - >-
+      apt-get install -y --no-install-recommends
+      qt6-image-formats-plugins libjxl0.11
+    - >-
+      ( cd /tmp && apt-get download kimageformat6-plugins
+      && dpkg-deb -x kimageformat6-plugins_*.deb /opt/kimageformats )
+    - >-
+      test -f /opt/kimageformats/usr/lib/x86_64-linux-gnu/qt6/plugins/imageformats/kimg_jxl.so
     - >-
       curl --fail --show-error --silent --location
       --proto '=https' --tlsv1.2 https://sh.rustup.rs

@@ -44,6 +44,27 @@ Requires:       pipewire-gstreamer
 # user's (hunspell-*).
 Recommends:     enchant2
 
+# Qt IMAGE-FORMAT plugins, invisible to rpm's automatic dependency generator
+# for exactly the same reason as the GStreamer plugins above: they are
+# dlopen'd, never linked. Fedora's qt6-qtbase-gui carries libqgif, libqico and
+# libqjpeg and nothing else, so without these the RPM decodes GIF/ICO/JPEG plus
+# qtbase's built-in PNG/BMP/PPM/XBM/XPM — and no more.
+#
+# qt6-qtimageformats is a hard Requires because it provides libqwebp.so, and
+# Lightning's own byte sniffers ACCEPT image/webp (rooms::sniff_image_mime and
+# its C++ twins). Without it the client accepts, forwards and re-uploads a
+# format it cannot draw.
+#
+# kf6-kimageformats is a Recommends — dnf installs weak dependencies by
+# default — and it provides kimg_jxl.so, the ONLY Qt JPEG XL decoder that
+# exists anywhere: upstream qtimageformats has never contained one. Weak
+# rather than hard because it pulls libheif, x265, LibRaw and OpenEXR for the
+# one format Lightning wants from it, and because the client can be asked
+# which formats the running build decodes (`lightning-matrix
+# --image-format-status`), so its absence is visible rather than silent.
+Requires:       qt6-qtimageformats
+Recommends:     kf6-kimageformats
+
 %description
 A native C++ and Qt Matrix desktop client with the Matrix Rust SDK backend.
 

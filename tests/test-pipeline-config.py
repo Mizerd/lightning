@@ -1050,6 +1050,125 @@ check("libgstwebrtc-1.0-0.dll" in win_validate_src,
 check("gst-element-probe.exe" in win_validate_src,
       "Windows validation runs the packaged tree's own element probe")
 
+# --- Qt image-format plugins ------------------------------------------------
+#
+# THE SAME DEFECT AS THE CALL PLUGINS, one layer up. A Qt image format is a
+# dlopen'd plugin, so ELF NEEDED entries name none of them: dpkg-shlibdeps,
+# rpm's generator and linuxdeploy-plugin-qt all deploy or declare only what
+# qtbase itself carries -- libqgif, libqico, libqjpeg. Every Linux package up
+# to and including 0.8.0 shipped exactly those three while the client's OWN
+# byte sniffers ACCEPTED image/webp, so it accepted, forwarded and re-uploaded
+# a format it could not draw. Verified on the shipped artifact: 0.8.0's
+# usr/plugins/imageformats holds three files.
+#
+# JPEG XL is the reported symptom and does NOT come from Qt: qtimageformats has
+# never contained a JXL plugin, so kimg_jxl.so from KDE's kimageformats is the
+# only implementation, and it exists for Linux alone.
+#
+# Comments are stripped before every source assertion below, because each one
+# of these scripts explains itself using the very strings asserted.
+
+# 1. the AppImage job installs/unpacks what the AppImage stages.
+_appimage_before = " ".join(resolve_extends("build-appimage").get("before_script", []))
+for package in ("qt6-image-formats-plugins", "libjxl0.11",
+                "kimageformat6-plugins"):
+    check(package in _appimage_before,
+          f"build-appimage obtains the image-format package {package}")
+
+# 2. build-appimage.sh stages both plugins, declares them to linuxdeploy, and
+#    asks the PACKED squashfs -- not the AppDir it wrote itself.
+_appimage_code = _strip_shell_comments(_read("scripts", "build-appimage.sh"))
+check("usr/plugins/imageformats" in _appimage_code,
+      "the AppImage stages Qt image-format plugins into the AppDir")
+for plugin in ("libqwebp.so", "kimg_jxl.so"):
+    check(plugin in _appimage_code,
+          f"the AppImage stages {plugin}")
+check("QT_IMAGE_REQUIRED_PLUGINS" in _appimage_code
+      and "--library" in _appimage_code,
+      "the staged image plugins are declared to linuxdeploy so their codec "
+      "libraries are bundled too")
+check(_appimage_code.count("verify_root/usr/plugins/imageformats") >= 2,
+      "the PACKED AppImage is asked for its image-format plugins and for "
+      "their dependency closure")
+
+# 3. the deliberate exclusions. avif drags three AV1 encoders and ~20 abseil
+#    libraries; heif needs libheif, which DLOPENS its own codec plugins, so a
+#    staged kimg_heif.so would register the format and decode nothing; SVG must
+#    never reach a media path as active content (Lightning CLAUDE.md §6).
+for excluded in ("kimg_avif", "kimg_heif", "libqsvg"):
+    check(excluded not in _appimage_code,
+          f"the AppImage deliberately does not stage {excluded}")
+
+# 4. deb and rpm DECLARE instead of bundling.
+_deb_image = re.search(r'IMAGE_DEPENDS="([^"]*)"', deb_src)
+check(_deb_image is not None, "build-deb declares IMAGE_DEPENDS")
+if _deb_image:
+    check("qt6-image-formats-plugins" in _deb_image.group(1),
+          "deb depends on the Qt image-format plugins (webp)")
+check("$IMAGE_DEPENDS" in deb_src,
+      "build-deb actually writes IMAGE_DEPENDS into the control file")
+_deb_recommends = re.search(r'IMAGE_RECOMMENDS="([^"]*)"', deb_src)
+check(_deb_recommends is not None
+      and "kimageformat6-plugins" in _deb_recommends.group(1),
+      "deb recommends kimageformat6-plugins, the only Qt JPEG XL decoder")
+check("Recommends: %s" in deb_src,
+      "build-deb writes a Recommends field into the control file")
+
+check("qt6-qtimageformats" in _rpm_requires,
+      "rpm requires the Qt image-format plugins (webp)")
+_rpm_recommends = "\n".join(
+    line for line in spec_src.splitlines() if line.startswith("Recommends:"))
+check("kf6-kimageformats" in _rpm_recommends,
+      "rpm recommends kf6-kimageformats, the only Qt JPEG XL decoder")
+
+# 5. the snap inherits the AppDir, so it asserts what it inherited.
+_snap_code = _strip_shell_comments(_read("scripts", "build-snap.sh"))
+for plugin in ("libqwebp.so", "kimg_jxl.so"):
+    check(plugin in _snap_code,
+          f"build-snap asserts the inherited AppDir carries {plugin}")
+
+# 6. EVERY validator asks the SHIPPED artifact, because a plugin present is not
+#    a plugin that registers -- the lesson libgstsctp.dll and the PipeWire SPA
+#    modules each taught this repository once.
+_IMAGE_VALIDATORS = {
+    "validate-appimage.sh": True,
+    "validate-deb.sh": True,
+    "validate-rpm.sh": True,
+    "validate-flatpak.sh": True,
+    "validate-snap.sh": True,
+    # Windows and macOS: no Qt JPEG XL plugin exists for either platform, so
+    # they assert the required set and leave JXL reported as a platform limit.
+    "smoke-windows-wine.sh": False,
+    "validate-macos-artifacts.sh": False,
+}
+for script, wants_jxl in _IMAGE_VALIDATORS.items():
+    src = _strip_shell_comments(_read("scripts", script))
+    # Join shell line continuations: these calls wrap, and a line-anchored
+    # search would report the argument absent on a correct tree.
+    src = src.replace("\\\n", " ")
+    check("--image-format-status" in src,
+          f"{script} asks the shipped artifact which image formats it decodes")
+    if wants_jxl:
+        check(re.search(r'assert_image_formats [^\n]*\bjxl\b', src) is not None,
+              f"{script} requires JPEG XL, which this platform can supply")
+    else:
+        check("jxl" not in src,
+              f"{script} does not require JPEG XL (no Qt plugin exists for "
+              f"this platform)")
+
+# 7. the shared judgement names every required format individually. A bare
+#    RESULT check would pass on a table that had quietly demoted one.
+_lib_code = _strip_shell_comments(_read("scripts", "lib.sh"))
+check("assert_image_formats()" in _lib_code,
+      "lib.sh carries one shared judgement of an --image-format-status run")
+check("for fmt in png jpeg gif bmp webp" in _lib_code,
+      "the shared judgement names each required format rather than trusting "
+      "the RESULT line")
+
+# 8. Windows stages the webp plugin in its hand-written plugin list.
+check('"qwebp.dll"' in win_stage_src,
+      "the Windows stage carries the WebP image-format plugin")
+
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)
     sys.exit(1)

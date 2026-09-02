@@ -37,6 +37,14 @@ gst_bundled=$(find "$SNAP_WORK/appdir/usr/lib/gstreamer-1.0" -maxdepth 1 -name '
     die "the AppDir carries only $gst_bundled GStreamer plugins; the snap would refuse every call"
 test -f "$SNAP_WORK/appdir/usr/lib/gstreamer-1.0/libgstwebrtc.so" || \
     die "the AppDir has no libgstwebrtc.so; the snap would have no call media engine"
+# The Qt image-format plugins ride in from the same AppDir, and their absence is
+# just as invisible: the snap installs, launches, and then cannot draw a WebP
+# that the client's OWN byte sniffers accepted. Named one by one rather than
+# counted, because a count is satisfied by the three qtbase carries anyway.
+for img_plugin in libqwebp.so kimg_jxl.so; do
+    test -f "$SNAP_WORK/appdir/usr/plugins/imageformats/$img_plugin" || \
+        die "the AppDir has no $img_plugin; the snap would accept image formats it cannot decode"
+done
 
 mkdir -p "$TREE"
 # Only usr/ is taken; linuxdeploy's AppImage entry artefacts (AppRun,

@@ -72,6 +72,20 @@ set -e
 assert_call_media_engine AppImage dist/appimage-call-media-status.txt \
     "$call_media_status"
 
+# THE IMAGE DECODERS, asked of the same shipped bundle on the same Qt-less
+# image, for the same reason: Qt image formats are dlopen'd plugins, so what a
+# package can draw is decided by packaging and no file listing can tell a
+# plugin that is present from one that registers. Every AppImage up to and
+# including 0.8.0 fails this — it bundles gif/ico/jpeg and nothing else, while
+# the client's own byte sniffers accept image/webp.
+set +e
+( cd /tmp && timeout 60s env QT_QPA_PLATFORM=offscreen "$ROOT/$app" --image-format-status ) \
+    > dist/appimage-image-format-status.txt 2>&1
+image_format_status=$?
+set -e
+assert_image_formats AppImage dist/appimage-image-format-status.txt \
+    "$image_format_status" jxl
+
 # Payload audit on the extracted squashfs.
 audit=$(mktemp -d)
 cleanup() { rm -rf "$audit"; }
@@ -115,6 +129,16 @@ for gst_plugin in libgstwebrtc libgstsctp libgstnice libgstvpx libgstopus \
                   libgstximagesrc libgstopengl; do
     test -f "$tree/usr/lib/gstreamer-1.0/$gst_plugin.so" \
         || die "$gst_plugin.so missing from the AppImage payload"
+done
+# The two image-format plugins, in the payload, by name. The runtime probe
+# above already proves they REGISTER; this makes a regression name itself
+# instead of arriving as a generic "cannot decode image/webp".
+#   libqwebp  — qtbase does not carry it, and Lightning ACCEPTS image/webp
+#   kimg_jxl  — the only Qt JPEG XL decoder that exists anywhere; it comes
+#               from KDE's kimageformats, never from Qt
+for img_plugin in libqwebp kimg_jxl; do
+    test -f "$tree/usr/plugins/imageformats/$img_plugin.so" \
+        || die "$img_plugin.so missing from the AppImage payload"
 done
 test -f "$tree/apprun-hooks/gstreamer.sh" \
     || die "the AppRun hook that points GStreamer at the bundled plugins is missing"

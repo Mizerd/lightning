@@ -70,6 +70,58 @@ assert_call_media_engine() {
         "$label: --call-media-status reported success but exited $status"
 }
 
+# --- image format decoders ---------------------------------------------------
+#
+# ONE judgement of an `--image-format-status` transcript, shared by every
+# format, for exactly the reason the call-engine helper above exists: a Qt
+# image format is a dlopen'd plugin, so what a package can DECODE is decided by
+# packaging and is invisible to every file listing and every ELF header.
+#
+# The defect it guards: every Linux package up to and including 0.8.0 shipped
+# the three plugins qtbase itself carries -- libqgif, libqico, libqjpeg -- and
+# nothing else, while the client's OWN byte sniffers accepted image/webp. It
+# accepted, forwarded and re-uploaded a format it could not draw, for a year,
+# and no check anywhere looked. Verified on the shipped artifact:
+# usr/plugins/imageformats holds three files.
+#
+# WHY A RUNTIME PROBE AND NOT A FILE LIST. A plugin present is not a plugin
+# that loads -- the same distinction that cost this project libgstsctp.dll on
+# Windows and the PipeWire SPA modules in the AppImage. The build scripts DO
+# assert the files (cheap, and it names the regression early); this asks the
+# shipped artifact whether the decoders actually register.
+#
+#   $1  format label for the error message
+#   $2  path to the captured combined output
+#   $3  the command's exit status
+#   $4  "jxl" when this platform is expected to decode JPEG XL as well.
+#       Linux formats pass it; Windows and macOS deliberately do not, because
+#       no Qt JPEG XL plugin exists for them at all: Qt has never shipped one
+#       (qtimageformats v6.11.1 is dds/icns/jp2/macheif/macjp2/mng/tga/tiff/
+#       wbmp/webp) and the only implementation, KDE's kimageformats, is
+#       packaged for neither Fedora's mingw64 repo nor Homebrew.
+assert_image_formats() {
+    local label="$1" log="$2" status="$3" want="${4:-}"
+    [[ -s "$log" ]] || die "$label: --image-format-status produced no output at all (an older source has no such flag; the app and the packaging must land together)"
+    cat "$log"
+    # The REQUIRED formats, named individually. A bare RESULT check would pass
+    # on a build whose table had quietly demoted one of them.
+    local fmt
+    for fmt in png jpeg gif bmp webp; do
+        grep -qx "required image/$fmt: decodable" "$log" || die \
+            "$label: this package cannot decode image/$fmt, which Lightning's own byte sniffers ACCEPT. It would take in, forward and re-upload a format it cannot draw. See the transcript above for the plugin path it searched."
+    done
+    grep -q '^RESULT: this build ACCEPTS image formats it cannot decode' "$log" \
+        && die "$label: the packaged binary reports an accept/decode mismatch (see above)"
+    # Belt and braces, as above: a status disagreeing with the text means one
+    # of the two is lying.
+    [[ "$status" == 0 ]] || die \
+        "$label: --image-format-status reported success but exited $status"
+    if [[ "$want" == "jxl" ]]; then
+        grep -qx 'optional image/jxl: decodable' "$log" || die \
+            "$label: JPEG XL is not decodable. On this platform it is supposed to be -- the AppImage and snap bundle kimg_jxl.so, and the deb/rpm pull kimageformat6-plugins / kf6-kimageformats. This is the reported defect, not a limitation."
+    fi
+}
+
 # --- Windows signing state ---------------------------------------------------
 #
 # ONE place decides whether a Windows release is signed, so artifact metadata,
