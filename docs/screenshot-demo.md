@@ -29,7 +29,7 @@ scripts/run-screenshot-demo.sh
 ```
 
 This configures a dedicated `build-demo/` tree with the demo compile option on,
-builds `matrix-client`, points `XDG_{DATA,CONFIG,CACHE}_HOME` at an isolated
+builds `lightning-matrix`, points `XDG_{DATA,CONFIG,CACHE}_HOME` at an isolated
 demo directory, and launches straight into the primary demo account.
 
 Reset the isolated demo profile (safe, validated deletion — only ever removes an

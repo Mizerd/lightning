@@ -7,7 +7,7 @@
     in
     {
       devShells.default = pkgs.mkShell {
-        name = "matrix-client-dev";
+        name = "lightning-dev";
 
         nativeBuildInputs = with pkgs; [
           cmake
@@ -130,11 +130,11 @@
           # the gst hook does not add on its own.
           export GST_PLUGIN_SYSTEM_PATH_1_0="${pkgs.libnice.out}/lib/gstreamer-1.0''${GST_PLUGIN_SYSTEM_PATH_1_0:+:$GST_PLUGIN_SYSTEM_PATH_1_0}"
 
-          echo "matrix-client dev shell — Qt ${qt.qtbase.version}"
+          echo "Lightning dev shell — Qt ${qt.qtbase.version}"
           echo "Configure (mock/http):  cmake -S . -B build -G Ninja"
           echo "Configure (+rust):      cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON"
           echo "Build:                  cmake --build build"
-          echo "Run:                    ./build/matrix-client [--backend={mock,http,rust}]"
+          echo "Run:                    ./build/lightning-matrix [--backend={mock,http,rust}]"
           echo "Faster local rebuilds (opt-in, add to any configure line):"
           echo "                        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_LINKER_TYPE=MOLD"
         '';

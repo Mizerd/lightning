@@ -87,7 +87,7 @@ To capture these live, run with:
 
 ```sh
 RUST_LOG=matrix_sdk_ui::timeline::controller::read_receipts=debug \
-  nix develop -c ./build-rust/matrix-client --backend=rust
+  nix develop -c ./build-rust/lightning-matrix --backend=rust
 ```
 
 and look for "inconsistent state: new event item for read receipt was not

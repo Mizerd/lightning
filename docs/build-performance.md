@@ -46,7 +46,7 @@ Per-target, the application itself was a rounding error next to its tests:
 
 ```
 CPU-min   objs  target
-   18.4    152  matrix-client          <- the actual product
+   18.4    152  matrix-client          <- the actual product (the target was renamed lightning-matrix on 2026-09-02)
    18.6    150  timeline-pane-qml-test
    17.9    150  trust-card-test
    17.9    150  invite-people-dialog-qml-test
@@ -78,7 +78,7 @@ previously got directly — same sources, same flags, same module URI.
 
 This lives entirely inside `if(BUILD_TESTING)`. Every packaging build configures
 with `-DBUILD_TESTING=OFF`, so no release artifact is affected in any way, and
-`matrix-client` itself is built exactly as before.
+`lightning-matrix` itself is built exactly as before.
 
 **2. Test executables skip the configure-time QML import scan.**
 `QT_QML_MODULE_NO_IMPORT_SCAN` is set on them. The scan exists to link *static*
@@ -132,7 +132,7 @@ nix develop -c cmake -S . -B build -G Ninja
 nix develop -c cmake --build build-rust -j18
 
 # build just the application
-nix develop -c cmake --build build-rust -j18 --target matrix-client
+nix develop -c cmake --build build-rust -j18 --target lightning-matrix
 
 # build and run one test
 nix develop -c cmake --build build-rust -j18 --target update-manifest-test
@@ -151,7 +151,7 @@ application now.
 
 ## What is still expensive, and why
 
-- **`matrix-client` itself: ~18 CPU-min** for ~150 translation units, roughly
+- **`lightning-matrix` itself: ~18 CPU-min** for ~150 translation units, roughly
   12 seconds each. That is genuine work — Qt headers are large and these are
   real, header-heavy C++20 translation units. Reducing it further means
   attacking include cost (precompiled headers, or trimming what the widest

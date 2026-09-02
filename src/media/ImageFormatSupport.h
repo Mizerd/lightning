@@ -25,7 +25,7 @@
 //   * HEIF is the mirror image: macOS gets `qmacheif` free from Qt (it wraps
 //     Apple ImageIO) and no other platform has it.
 // A single compiled-in list would therefore be wrong on at least one platform.
-// Ask the decoder instead. `matrix-client --image-format-status` prints the
+// Ask the decoder instead. `lightning-matrix --image-format-status` prints the
 // answer for a packaged artifact.
 //
 // SVG IS ABSENT ON PURPOSE (CLAUDE.md §6): it must never reach a media path as

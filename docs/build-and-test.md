@@ -242,18 +242,18 @@ no QML warnings and no crash = success. Non-zero non-124 exit = fail.
 
 ```bash
 # non-Rust build
-nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build/matrix-client --mock'
-nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build/matrix-client --backend=mock'
-nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build/matrix-client --backend=http'
-nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen ./build/matrix-client --backend=rust'   # exits 2 with a clean message
-nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen ./build/matrix-client --backend=bogus'  # exits 2 with a clean message
-nix develop -c bash -lc './build/matrix-client --http || true'
-nix develop -c bash -lc './build/matrix-client --rust || true'
+nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build/lightning-matrix --mock'
+nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build/lightning-matrix --backend=mock'
+nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build/lightning-matrix --backend=http'
+nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen ./build/lightning-matrix --backend=rust'   # exits 2 with a clean message
+nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen ./build/lightning-matrix --backend=bogus'  # exits 2 with a clean message
+nix develop -c bash -lc './build/lightning-matrix --http || true'
+nix develop -c bash -lc './build/lightning-matrix --rust || true'
 
 # Rust build
-nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build-rust/matrix-client --backend=rust'
-nix develop -c bash -lc './build-rust/matrix-client --reset-crypto-store || true'
-nix develop -c bash -lc './build-rust/matrix-client --version'
+nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build-rust/lightning-matrix --backend=rust'
+nix develop -c bash -lc './build-rust/lightning-matrix --reset-crypto-store || true'
+nix develop -c bash -lc './build-rust/lightning-matrix --version'
 ```
 
 ### Headless Rust SDK smoke test (v0.5.0-prep+4)
@@ -267,7 +267,7 @@ counts/statuses — never bodies, tokens, passwords, or crypto material.
 LIGHTNING_TEST_HOMESERVER=https://your-homeserver \
 LIGHTNING_TEST_USER='@your-user:your-homeserver' \
 LIGHTNING_TEST_PASSWORD='<paste-only-into-your-shell-history-scrubber>' \
-nix develop -c ./build-rust/matrix-client --backend=rust --rust-sdk-smoke-test
+nix develop -c ./build-rust/lightning-matrix --backend=rust --rust-sdk-smoke-test
 ```
 
 Optional environment:
@@ -471,7 +471,7 @@ LIGHTNING_TEST_HOMESERVER=https://matrix.smetonis.net \
 LIGHTNING_TEST_USER='@test:matrix.smetonis.net' \
 LIGHTNING_TEST_PASSWORD='<password-from-env-only>' \
 LIGHTNING_TEST_PERSISTENT_STORE=1 \
-nix develop -c ./build-rust/matrix-client --backend=rust --rust-sdk-smoke-test
+nix develop -c ./build-rust/lightning-matrix --backend=rust --rust-sdk-smoke-test
 
 # 2. In Element Classic, approve the new login if prompted, then send a
 #    harmless marker into the encrypted test room.
@@ -483,7 +483,7 @@ LIGHTNING_TEST_PASSWORD='<password-from-env-only>' \
 LIGHTNING_TEST_PERSISTENT_STORE=1 \
 LIGHTNING_TEST_EXPECT_TEXT='<marker-sent-from-element>' \
 LIGHTNING_TEST_REQUIRE_EXPECT=1 \
-nix develop -c ./build-rust/matrix-client --backend=rust --rust-sdk-smoke-test
+nix develop -c ./build-rust/lightning-matrix --backend=rust --rust-sdk-smoke-test
 ```
 
 Expected success is `expect_text=seen`, `decrypted_events>0`, and
@@ -501,9 +501,9 @@ exits **3** with a clear message instead of Qt's platform-plugin
 `qFatal` abort. Test:
 
 ```bash
-nix develop -c bash -lc 'env -u DISPLAY -u WAYLAND_DISPLAY ./build/matrix-client --backend=mock'
+nix develop -c bash -lc 'env -u DISPLAY -u WAYLAND_DISPLAY ./build/lightning-matrix --backend=mock'
 # → exit 3
-#   matrix-client: no graphical display available (DISPLAY / WAYLAND_DISPLAY unset).
+#   lightning-matrix: no graphical display available (DISPLAY / WAYLAND_DISPLAY unset).
 #   Run this app inside a graphical session, or export QT_QPA_PLATFORM=offscreen …
 ```
 
@@ -517,7 +517,7 @@ Qt Wayland/X11 can attach to. On NixOS with a Wayland compositor, just
 run inside the shell:
 
 ```bash
-nix develop -c ./build/matrix-client        # equivalent to --backend=http
+nix develop -c ./build/lightning-matrix        # equivalent to --backend=http
 ```
 
 1. **First-time login**: enter a homeserver URL (e.g.
@@ -589,7 +589,7 @@ Rooms expected in the room list after login as `@test`:
 ## Manual test with the mock backend
 
 ```bash
-nix develop -c ./build/matrix-client --mock
+nix develop -c ./build/lightning-matrix --mock
 ```
 
 Any credentials work. Mock rooms appear immediately. Verify:
@@ -612,7 +612,7 @@ Any credentials work. Mock rooms appear immediately. Verify:
 ## Manual test with the Rust backend
 
 ```bash
-nix develop -c ./build-rust/matrix-client --backend=rust
+nix develop -c ./build-rust/lightning-matrix --backend=rust
 ```
 
 - Settings shows the Rust backend with initial E2EE support enabled through
@@ -639,7 +639,7 @@ nix develop -c ./build-rust/matrix-client --backend=rust
 ### `--reset-crypto-store`
 
 ```bash
-./build/matrix-client --reset-crypto-store
+./build/lightning-matrix --reset-crypto-store
 ```
 
 Recognised in the pre-flight parser (works with or without the
@@ -651,7 +651,7 @@ so it inspects **both** the current
 "no-org-prefix" layout:
 
 ```
-matrix-client --reset-crypto-store
+lightning-matrix --reset-crypto-store
 
 Scanning: /home/…/.local/share/MatrixClient/matrix-client
 Scanning: /home/…/.local/share/matrix-client
@@ -732,14 +732,14 @@ setting flake-consistent values against `${qt.qtbase}`. Also adds
 **Verification**:
 
 ```bash
-nix develop -c bash -lc 'QT_QPA_PLATFORM=wayland timeout 2 ./build/matrix-client --mock'
+nix develop -c bash -lc 'QT_QPA_PLATFORM=wayland timeout 2 ./build/lightning-matrix --mock'
 # → exit 124 (timeout, event loop running)
 
-nix develop -c bash -lc 'QT_QPA_PLATFORM=xcb     timeout 2 ./build/matrix-client --mock'
+nix develop -c bash -lc 'QT_QPA_PLATFORM=xcb     timeout 2 ./build/lightning-matrix --mock'
 # → exit 124
 ```
 
-Both work now. `nix develop -c ./build/matrix-client --mock` (auto
+Both work now. `nix develop -c ./build/lightning-matrix --mock` (auto
 platform selection on a graphical session) also succeeds — the app
 opens.
 

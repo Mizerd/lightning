@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(matrix-client
+project(lightning
     VERSION 0.8.3
     DESCRIPTION "Lightning — native C++/Qt Matrix desktop client"
     LANGUAGES CXX
@@ -10,7 +10,7 @@ include(CTest)
 # Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
 set(APP_VERSION_LABEL "0.8.3")
 
-# Build metadata surfaced by `matrix-client --build-info` (booleans/strings
+# Build metadata surfaced by `lightning-matrix --build-info` (booleans/strings
 # only; never secrets). The source SHA is resolved from git at configure time
 # and can be overridden by packaging (project 7 checks out a pinned commit).
 set(LIGHTNING_SOURCE_SHA "" CACHE STRING "Source commit SHA for --build-info")
@@ -142,7 +142,7 @@ option(ENABLE_RUST_SDK_BACKEND
     "Build the Matrix Rust SDK backend (requires cargo in PATH)" OFF)
 
 # Release/packaging guard: exclude the HTTP and mock backends from the shipped
-# matrix-client binary entirely, so a production package can only ever run the
+# lightning-matrix binary entirely, so a production package can only ever run the
 # Rust SDK backend (no --backend=http / --mock, no silent fallback). OFF for
 # ordinary dev/test builds, which keep mock/http buildable and testable per the
 # architecture contract; project 7 packaging sets it ON. When ON it REQUIRES
@@ -150,7 +150,7 @@ option(ENABLE_RUST_SDK_BACKEND
 # the mock-based test executables compile their own MockMatrixClient and are
 # unaffected.
 option(LIGHTNING_RUST_ONLY
-    "Ship ONLY the Rust backend: drop HTTP/mock from the matrix-client binary" OFF)
+    "Ship ONLY the Rust backend: drop HTTP/mock from the lightning-matrix binary" OFF)
 if(LIGHTNING_RUST_ONLY AND NOT ENABLE_RUST_SDK_BACKEND)
     message(FATAL_ERROR
         "LIGHTNING_RUST_ONLY=ON requires ENABLE_RUST_SDK_BACKEND=ON "
@@ -165,7 +165,7 @@ endif()
 #   * default OFF;
 #   * a LIGHTNING_RUST_ONLY release FORCES it off (fatal error if combined) —
 #     the mock backend it needs is not even compiled into a release binary;
-#   * when OFF the matrix-client binary has no --screenshot-demo flag (preflight
+#   * when OFF the lightning-matrix binary has no --screenshot-demo flag (preflight
 #     never parses it) and --build-info reports screenshot_demo_compiled:false.
 # The guarded code lives behind #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO in
 # main.cpp / AppController, so a default/release build compiles it to nothing.
@@ -973,7 +973,7 @@ endif()
 
 # Everything (app sources + compiled QML module) that a Qt executable needs
 # to run the real UI, factored into a function so timeline-pane-qml-test can
-# build a second binary wired up identically to matrix-client — a plain
+# build a second binary wired up identically to lightning-matrix — a plain
 # static "backing" library here proved unable to get Qt's static QML plugin
 # auto-import to run reliably across target boundaries, so each Qt-executable
 # target instead calls qt_add_qml_module on itself directly (the arrangement
@@ -1266,23 +1266,28 @@ if(LIGHTNING_RUST_ONLY)
     )
 endif()
 
-qt_add_executable(matrix-client ${APP_MAIN_SOURCES})
-lightning_configure_qml_app(matrix-client)
+# The application target and binary: `lightning-matrix`. The product is
+# "Lightning"; packaging gives the installed artifact its platform name
+# (Lightning.exe, Lightning.app). The persistent application identity
+# (QSettings organization/application names, store paths) is a separate,
+# stable literal in src/main.cpp and does not follow this name.
+qt_add_executable(lightning-matrix ${APP_MAIN_SOURCES})
+lightning_configure_qml_app(lightning-matrix)
 # Per-target (never on the shared mock-based test targets): drive the C++
 # #ifdef guards in AppController and the --build-info self-report.
 if(LIGHTNING_RUST_ONLY)
-    target_compile_definitions(matrix-client PRIVATE LIGHTNING_RUST_ONLY=1)
+    target_compile_definitions(lightning-matrix PRIVATE LIGHTNING_RUST_ONLY=1)
 endif()
 # Development-only screenshot demo: drives the #ifdef guards in main.cpp /
 # AppController and the --build-info self-report. Only ever set on the shipped
 # target in a dedicated development build (never a release; the option guard
 # above rejects combining it with LIGHTNING_RUST_ONLY).
 if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
-    target_compile_definitions(matrix-client PRIVATE LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
+    target_compile_definitions(lightning-matrix PRIVATE LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
     # v0.6.7: also define it TREE-WIDE in this configuration. Demo sources are
     # gated by being added to the source list at all, but they are then
     # compiled into every Qt-executable target here (the qml-app targets each
-    # rebuild the app sources), while this define reached only matrix-client.
+    # rebuild the app sources), while this define reached only lightning-matrix.
     # Any demo-only API guarded by the macro therefore existed in one target
     # and not the others, and a caller in a shared source failed to compile —
     # which is exactly what the GIF demo catalogue hit.
@@ -1298,7 +1303,7 @@ endif()
 # attaches to it). Only the production executable gets this — test binaries stay
 # console-subsystem so CTest captures their output.
 if(WIN32)
-    set_target_properties(matrix-client PROPERTIES WIN32_EXECUTABLE ON)
+    set_target_properties(lightning-matrix PROPERTIES WIN32_EXECUTABLE ON)
 endif()
 
 if(BUILD_TESTING)
@@ -1312,7 +1317,7 @@ if(BUILD_TESTING)
     # and registered its own private copy of the MatrixClient QML module.
     # Measured from build-rust/.ninja_log: that was 601 of the 621 CPU-minutes
     # of compilation in a full build (32 targets x ~18.6 min each), against
-    # 19.6 CPU-minutes for matrix-client itself.
+    # 19.6 CPU-minutes for lightning-matrix itself.
     #
     # Building it once as a static QML module library and linking it keeps
     # every test's behaviour identical -- same sources, same defines, same
@@ -3862,7 +3867,7 @@ if(BUILD_TESTING)
     add_test(NAME backend-selection COMMAND backend-selection-test)
 
     # Production-exclusion contract for the development-only screenshot demo:
-    # runs the real matrix-client binary and asserts --build-info's
+    # runs the real lightning-matrix binary and asserts --build-info's
     # screenshot_demo_compiled line and (when the option is OFF, i.e. every
     # release/default build) that --screenshot-demo is rejected in preflight.
     qt_add_executable(screenshot-demo-exclusion-test
@@ -3870,12 +3875,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(screenshot-demo-exclusion-test PRIVATE Qt6::Core Qt6::Test)
     target_compile_definitions(screenshot-demo-exclusion-test PRIVATE
-        "SCREENSHOT_DEMO_BINARY=\"$<TARGET_FILE:matrix-client>\"")
+        "SCREENSHOT_DEMO_BINARY=\"$<TARGET_FILE:lightning-matrix>\"")
     if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
         target_compile_definitions(screenshot-demo-exclusion-test PRIVATE
             LIGHTNING_TEST_DEMO_COMPILED=1)
     endif()
-    add_dependencies(screenshot-demo-exclusion-test matrix-client)
+    add_dependencies(screenshot-demo-exclusion-test lightning-matrix)
     add_test(NAME screenshot-demo-exclusion COMMAND screenshot-demo-exclusion-test)
 
     # Development-only screenshot-demo DATASET contract: structure (Spaces,
@@ -4539,7 +4544,7 @@ else()
         -Wall -Wextra -Wpedantic -Wno-unused-parameter)
 endif()
 
-install(TARGETS matrix-client lightning-updater
+install(TARGETS lightning-matrix lightning-updater
     BUNDLE  DESTINATION .
     RUNTIME DESTINATION bin
 )
@@ -4605,7 +4610,7 @@ set(LIGHTNING_SPELL_SOURCES
     src/text/SpellChecker.h
     src/text/SpellChecker.cpp
 )
-target_sources(matrix-client PRIVATE ${LIGHTNING_SPELL_SOURCES})
+target_sources(lightning-matrix PRIVATE ${LIGHTNING_SPELL_SOURCES})
 if(TARGET lightning-app-testlib)
     target_sources(lightning-app-testlib PRIVATE ${LIGHTNING_SPELL_SOURCES})
 endif()

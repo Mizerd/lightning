@@ -1,6 +1,6 @@
 // Production-exclusion contract for the development-only screenshot/demo mode.
 //
-// Runs the REAL shipped matrix-client binary (path injected by CMake via
+// Runs the REAL shipped lightning-matrix binary (path injected by CMake via
 // SCREENSHOT_DEMO_BINARY) and asserts the compile-time boundary from the
 // outside — the only way to prove what a user's binary actually does:
 //

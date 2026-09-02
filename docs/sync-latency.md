@@ -15,7 +15,7 @@ confirm or refute it is described.
 
 ```sh
 LIGHTNING_SYNC_TRACE=1 QT_LOGGING_RULES='lightning.sync.trace=true' \
-  nix develop -c ./build-rust/matrix-client --backend=rust
+  nix develop -c ./build-rust/lightning-matrix --backend=rust
 ```
 
 `LIGHTNING_SYNC_TRACE=<ms>` (>= 100) overrides the 2000 ms slow threshold. One

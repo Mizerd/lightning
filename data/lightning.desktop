@@ -3,10 +3,10 @@ Type=Application
 Name=Lightning
 GenericName=Matrix Client
 Comment=Native Qt Matrix chat client
-Exec=matrix-client --backend=rust
+Exec=lightning-matrix --backend=rust
 Icon=lightning
 Terminal=false
 Categories=Network;Chat;InstantMessaging;
 Keywords=Matrix;Chat;Messaging;
 StartupNotify=true
-StartupWMClass=matrix-client
+StartupWMClass=lightning-matrix

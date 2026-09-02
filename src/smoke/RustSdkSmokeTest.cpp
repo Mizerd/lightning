@@ -213,7 +213,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
 
     if (homeserver.isEmpty() || user.isEmpty() || password.isEmpty()) {
         QTextStream(stderr) <<
-            "matrix-client --rust-sdk-smoke-test: missing environment.\n"
+            "lightning-matrix --rust-sdk-smoke-test: missing environment.\n"
             "Set LIGHTNING_TEST_HOMESERVER, LIGHTNING_TEST_USER, "
             "LIGHTNING_TEST_PASSWORD.\n"
             "Optional: LIGHTNING_TEST_SEND=1, LIGHTNING_TEST_ROOM_ID=<id>.\n"
@@ -229,7 +229,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     if (!matrix::app_data::resolveAccountIdentity(
             homeserver, user, &requestedIdentity)) {
         QTextStream(stderr) <<
-            "matrix-client --rust-sdk-smoke-test: invalid homeserver or user.\n";
+            "lightning-matrix --rust-sdk-smoke-test: invalid homeserver or user.\n";
         return 2;
     }
     const QString canonicalHomeserver = requestedIdentity.homeserver;
@@ -247,7 +247,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         sessionPath = matrix::app_data::rustSdkSmokeSessionPath(canonicalUserId);
         if (storePath.isEmpty() || sessionPath.isEmpty()) {
             QTextStream(stderr) <<
-                "matrix-client --rust-sdk-smoke-test: no app data root "
+                "lightning-matrix --rust-sdk-smoke-test: no app data root "
                 "available for persistent Rust SDK store "
                 "(neither $HOME nor $XDG_DATA_HOME is set).\n";
             return 2;
@@ -276,7 +276,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             + QStringLiteral("/lightning-rust-sdk-smoke-XXXXXX"));
         if (!tempStore->isValid()) {
             QTextStream(stderr) <<
-                "matrix-client --rust-sdk-smoke-test: failed to create "
+                "lightning-matrix --rust-sdk-smoke-test: failed to create "
                 "temporary Rust SDK store under "
                 << QDir::tempPath() << ".\n";
             return 2;

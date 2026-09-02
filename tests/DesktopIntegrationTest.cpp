@@ -37,11 +37,53 @@ private Q_SLOTS:
         // Icon name must match the installed hicolor icon basename.
         QVERIFY(desktop.contains(QStringLiteral("Icon=lightning")));
         QVERIFY(desktop.contains(
-            QStringLiteral("Exec=matrix-client --backend=rust")));
-        // X11 window association: Qt derives WM_CLASS from the application
-        // name ("matrix-client").
+            QStringLiteral("Exec=lightning-matrix --backend=rust")));
+        // X11 window association: Qt's xcb plugin takes the WM_CLASS
+        // instance from argv[0], i.e. the binary name ("lightning-matrix");
+        // the class comes from the persistent application name.
         QVERIFY(desktop.contains(
-            QStringLiteral("StartupWMClass=matrix-client")));
+            QStringLiteral("StartupWMClass=lightning-matrix")));
+    }
+
+    // The application binary and CMake target are `lightning-matrix`; the
+    // generic `matrix-client` build identity is retired. The PERSISTENT
+    // identity (QSettings organization/application names, store roots) is a
+    // separate literal that must NOT follow — renaming it would sign every
+    // existing install out. Both halves are pinned here so a future rename
+    // in either direction is a deliberate act.
+    void productionBinaryIsLightningMatrixAndTheStoredIdentityIsNot()
+    {
+        const QString cmake = readAll(QStringLiteral(SOURCE_DIR "/CMakeLists.txt"));
+        QVERIFY2(!cmake.isEmpty(), "CMakeLists.txt missing");
+        QVERIFY(cmake.contains(QStringLiteral("project(lightning\n")));
+        QVERIFY(cmake.contains(
+            QStringLiteral("qt_add_executable(lightning-matrix ${APP_MAIN_SOURCES})")));
+        QVERIFY(cmake.contains(
+            QStringLiteral("install(TARGETS lightning-matrix lightning-updater")));
+        QVERIFY(!cmake.contains(QStringLiteral("project(matrix-client")));
+        QVERIFY(!cmake.contains(QStringLiteral("qt_add_executable(matrix-client")));
+        QVERIFY(!cmake.contains(QStringLiteral("add_executable(matrix-client")));
+
+        const QString runDev = readAll(QStringLiteral(SOURCE_DIR "/scripts/run-dev.sh"));
+        QVERIFY(runDev.contains(QStringLiteral("./build-rust/lightning-matrix")));
+        QVERIFY(!runDev.contains(QStringLiteral("build-rust/matrix-client")));
+
+        // Packaged Windows keeps Lightning.exe; the updater must look for
+        // exactly that, whatever the source binary is called.
+        const QString updater = readAll(QStringLiteral(SOURCE_DIR "/src/updater/main.cpp"));
+        QVERIFY(updater.contains(QStringLiteral(
+            "kPortableExecutableName = QStringLiteral(\"Lightning.exe\")")));
+
+        // The stored identity: unchanged on purpose.
+        const QString main = readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
+        QVERIFY(main.contains(QStringLiteral(
+            "QCoreApplication::setOrganizationName(\"MatrixClient\");")));
+        QVERIFY(main.contains(QStringLiteral(
+            "QCoreApplication::setApplicationName(\"matrix-client\");")));
+        QVERIFY(!main.contains(QStringLiteral("setApplicationName(\"lightning-matrix\")")));
+        const QString paths = readAll(QStringLiteral(SOURCE_DIR "/src/storage/AppDataPaths.cpp"));
+        QVERIFY(paths.contains(QStringLiteral(
+            "constexpr QLatin1String kApplicationName{\"matrix-client\"};")));
     }
 
     void hicolorIconsExistAndMatchDeclaredSizes()

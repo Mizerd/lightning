@@ -25,7 +25,7 @@ using namespace updater;
 
 namespace {
 
-const QString kExe = QStringLiteral("matrix-client.exe");
+const QString kExe = QStringLiteral("Lightning.exe");
 
 bool writeFile(const QString &path, const QByteArray &contents)
 {

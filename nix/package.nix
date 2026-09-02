@@ -93,6 +93,6 @@ stdenv.mkDerivation {
       "x86_64-darwin"
       "aarch64-darwin"
     ];
-    mainProgram = "matrix-client";
+    mainProgram = "lightning-matrix";
   };
 }

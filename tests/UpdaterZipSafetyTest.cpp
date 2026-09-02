@@ -462,7 +462,7 @@ void UpdaterZipSafetyTest::hostileEntryNamesAreRejected()
 void UpdaterZipSafetyTest::benignEntryNamesAreAccepted_data()
 {
     QTest::addColumn<QString>("name");
-    QTest::newRow("plain") << QStringLiteral("matrix-client.exe");
+    QTest::newRow("plain") << QStringLiteral("Lightning.exe");
     QTest::newRow("nested") << QStringLiteral("plugins/platforms/qwindows.dll");
     QTest::newRow("directory") << QStringLiteral("plugins/");
     QTest::newRow("dotfile") << QStringLiteral(".keep");
@@ -550,7 +550,7 @@ void UpdaterZipSafetyTest::pathTraversingASymlinkIsDetected()
 void UpdaterZipSafetyTest::extractsAStoredArchive()
 {
     QVERIFY(writeZip(m_zip, {
-        regularFile("matrix-client.exe", QByteArray("MZ binary payload")),
+        regularFile("Lightning.exe", QByteArray("MZ binary payload")),
         regularFile("plugins/platforms/qwindows.dll", QByteArray("dll bytes")),
         regularFile("ištekliai/ąčę (1).txt", QString::fromUtf8("labas").toUtf8()),
     }));
@@ -560,7 +560,7 @@ void UpdaterZipSafetyTest::extractsAStoredArchive()
     QCOMPARE(result.entriesWritten, 3);
 
     const QDir root(m_staging);
-    QFile exe(root.absoluteFilePath(QStringLiteral("matrix-client.exe")));
+    QFile exe(root.absoluteFilePath(QStringLiteral("Lightning.exe")));
     QVERIFY(exe.open(QIODevice::ReadOnly));
     QCOMPARE(exe.readAll(), QByteArray("MZ binary payload"));
 
@@ -593,7 +593,7 @@ void UpdaterZipSafetyTest::preservesTheExecutableBit()
 void UpdaterZipSafetyTest::refusesATraversalEntry()
 {
     QVERIFY(writeZip(m_zip, {
-        regularFile("matrix-client.exe", QByteArray("ok")),
+        regularFile("Lightning.exe", QByteArray("ok")),
         regularFile("../pwned.txt", QByteArray("owned")),
     }));
 
@@ -628,7 +628,7 @@ void UpdaterZipSafetyTest::refusesASymlinkEntry()
     // its contents would be the link target. Following it would let an
     // archive point anywhere on the filesystem.
     QVERIFY(writeZip(m_zip, {
-        regularFile("matrix-client.exe", QByteArray("ok")),
+        regularFile("Lightning.exe", QByteArray("ok")),
         symlinkEntry("config", QByteArray("/etc/shadow")),
     }));
     const ArchiveResult result = extractZipSafely(m_zip, m_staging);
@@ -640,7 +640,7 @@ void UpdaterZipSafetyTest::refusesASymlinkEntry()
 
 void UpdaterZipSafetyTest::refusesACorruptCrc()
 {
-    ZipEntry entry = regularFile("matrix-client.exe", QByteArray("payload"));
+    ZipEntry entry = regularFile("Lightning.exe", QByteArray("payload"));
     entry.corruptCrc = true;
     QVERIFY(writeZip(m_zip, {entry}));
 
@@ -732,13 +732,13 @@ void UpdaterZipSafetyTest::enforcesThePerEntrySizeCap()
 void UpdaterZipSafetyTest::listingAppliesTheSameVerdicts()
 {
     QVERIFY(writeZip(m_zip, {
-        regularFile("matrix-client.exe", QByteArray("ok")),
+        regularFile("Lightning.exe", QByteArray("ok")),
         regularFile("data/x.txt", QByteArray("ok")),
     }));
     QStringList names;
     ArchiveResult listed = listZipEntries(m_zip, m_staging, &names);
     QVERIFY2(listed.ok(), archiveErrorName(listed.error));
-    QCOMPARE(names, QStringList({QStringLiteral("matrix-client.exe"),
+    QCOMPARE(names, QStringList({QStringLiteral("Lightning.exe"),
                                  QStringLiteral("data/x.txt")}));
     // Listing writes nothing.
     QVERIFY(QDir(m_staging).entryList(QDir::AllEntries | QDir::NoDotAndDotDot)
@@ -801,7 +801,7 @@ void UpdaterZipSafetyTest::extractsADeflatedArchive()
     QVERIFY(isOrdinarilyCompressible(text));
 
     QVERIFY(writeZip(m_zip, {
-        deflatedFile("matrix-client.exe", exe),
+        deflatedFile("Lightning.exe", exe),
         deflatedFile("plugins/platforms/qwindows.dll", dll),
         deflatedFile("share/ištekliai/readme.txt", text),
     }));
@@ -824,7 +824,7 @@ void UpdaterZipSafetyTest::extractsADeflatedArchive()
             return QByteArray();
         return file.readAll();
     };
-    QCOMPARE(readBack(QStringLiteral("matrix-client.exe")), exe);
+    QCOMPARE(readBack(QStringLiteral("Lightning.exe")), exe);
     QCOMPARE(readBack(QStringLiteral("plugins/platforms/qwindows.dll")), dll);
     QCOMPARE(readBack(QStringLiteral("share/ištekliai/readme.txt")), text);
 

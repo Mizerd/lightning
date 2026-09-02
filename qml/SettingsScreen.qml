@@ -6453,7 +6453,7 @@ Item {
                                         text: qsTr(
                                             "Reset deletes only Lightning's local Rust SDK store " +
                                             "for this account (also available from a terminal: " +
-                                            "matrix-client --reset-crypto-store). It does not touch " +
+                                            "lightning-matrix --reset-crypto-store). It does not touch " +
                                             "server messages or Element data. You will need to sign " +
                                             "in again afterwards.")
                                     }

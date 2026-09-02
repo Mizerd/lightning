@@ -21,10 +21,10 @@ request on the GitHub mirror is the simpler of the two.
 
 Open an issue on the [GitHub mirror](https://github.com/Mizerd/lightning/issues)
 or email the maintainer. Say which version you are on (Settings → About, or
-`matrix-client --version`), your platform, and what you expected against what
+`lightning-matrix --version`), your platform, and what you expected against what
 happened. For calling or media problems include the output of
-`matrix-client --call-media-status`, and for a crash or freeze a log captured with
-`matrix-client --console --log-file <path>`. Never paste tokens, recovery keys or
+`lightning-matrix --call-media-status`, and for a crash or freeze a log captured with
+`lightning-matrix --console --log-file <path>`. Never paste tokens, recovery keys or
 private message contents.
 
 ## Sending a change

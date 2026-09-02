@@ -151,7 +151,7 @@ public:
     //
     // It cannot exist in a shipped binary: the whole member and every caller
     // sit behind the same compile guard as ScreenshotDemoController, and
-    // matrix-client --build-info reports screenshot_demo_compiled: false for a
+    // lightning-matrix --build-info reports screenshot_demo_compiled: false for a
     // release build. Nothing here relaxes a validation rule — the rows never
     // reach the persisted collections (GifStoredModel still accepts https
     // only), and no request is ever issued.

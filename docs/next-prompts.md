@@ -130,7 +130,7 @@ Task:
    nix develop -c cmake --build build-rust
    ```
 2. Run all smoke tests from `docs/build-and-test.md`.
-3. Manually test `./build-rust/matrix-client --backend=rust` against
+3. Manually test `./build-rust/lightning-matrix --backend=rust` against
    the disposable homeserver account documented in
    `docs/build-and-test.md`:
    - password login succeeds or fails with a useful Matrix SDK error;
@@ -179,7 +179,7 @@ Task:
    LIGHTNING_TEST_USER='@test:matrix.smetonis.net' \
    LIGHTNING_TEST_PASSWORD='<password-from-env-only>' \
    LIGHTNING_TEST_PERSISTENT_STORE=1 \
-   nix develop -c ./build-rust/matrix-client --backend=rust --rust-sdk-smoke-test
+   nix develop -c ./build-rust/lightning-matrix --backend=rust --rust-sdk-smoke-test
    ```
    Expected: `store=persistent`, `restore=not_available` on a first
    run or `restore=ok` on an existing sidecar, `login=ok`,
@@ -198,7 +198,7 @@ Task:
    LIGHTNING_TEST_PERSISTENT_STORE=1 \
    LIGHTNING_TEST_EXPECT_TEXT='<marker>' \
    LIGHTNING_TEST_REQUIRE_EXPECT=1 \
-   nix develop -c ./build-rust/matrix-client --backend=rust --rust-sdk-smoke-test
+   nix develop -c ./build-rust/lightning-matrix --backend=rust --rust-sdk-smoke-test
    ```
 6. If the result is `expect_text=not_seen`, do not enable E2EE. Record
    counts and investigate key sharing, device verification, room key

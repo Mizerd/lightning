@@ -8,7 +8,7 @@
 // The category is OFF by default (a qCDebug/qCInfo category) so it never spams
 // normal operation; a live tester enables it with, e.g.:
 //
-//   QT_LOGGING_RULES="lightning.e2ee.debug=true" ./matrix-client --backend=rust
+//   QT_LOGGING_RULES="lightning.e2ee.debug=true" ./lightning-matrix --backend=rust
 //
 // Everything logged through it must be non-sensitive: use redactId() for room,
 // event, and session identifiers so the log correlates the recovery lifecycle

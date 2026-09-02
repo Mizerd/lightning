@@ -50,7 +50,7 @@ enum ExitCode {
 };
 
 // The executable the portable Windows archive must contain. The build produces
-// matrix-client.exe, but packaging renames it on staging -- see
+// lightning-matrix.exe, but packaging renames it on staging -- see
 // lightning-deploy scripts/stage-windows-runtime.py:79, which copies it to
 // Lightning.exe, and build-windows.sh:249, which zips the staged tree from a
 // single top-level "Lightning" directory (swapDirectory unwraps that).

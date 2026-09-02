@@ -479,7 +479,7 @@ scripts/run-dev.sh
 ```
 
 which sources the file (`set -a; . ./lightning-gif.env; set +a`) and launches
-`build-rust/matrix-client --backend=rust` inside `nix develop`. The file (and
+`build-rust/lightning-matrix --backend=rust` inside `nix develop`. The file (and
 `*.env` generally) is gitignored and must never be read aloud, printed,
 logged, or committed by tooling. It is an optional developer convenience, not
 a build or release requirement — official packages do not depend on it.
@@ -491,7 +491,7 @@ project 7 (lightning-deploy) protected+masked CI variables `GIPHY_API_KEY` and
 header (`<build>/generated/LightningGifBuildKeys.h`). That header is never
 tracked, installed, packaged, logged, or emitted on a compiler command line;
 enable `-DLIGHTNING_REQUIRE_GIF_KEYS=ON` to require both in official builds.
-Clean-package validation runs `matrix-client --gif-status` (booleans only) and
+Clean-package validation runs `lightning-matrix --gif-status` (booleans only) and
 `--gif-selftest` (bounded live request) with every key variable unset to prove
 the embedded keys work.
 
@@ -548,14 +548,14 @@ nix develop -c ctest \
 Version checks:
 
 ```sh
-./build-rust/matrix-client --version
-./build/matrix-client --version
+./build-rust/lightning-matrix --version
+./build/lightning-matrix --version
 ```
 
 Real Rust-backed run:
 
 ```sh
-nix develop -c ./build-rust/matrix-client --backend=rust
+nix develop -c ./build-rust/lightning-matrix --backend=rust
 ```
 
 Run binaries inside `nix develop` when the host Qt environment is incompatible.
@@ -1070,7 +1070,7 @@ nix develop -c cmake -S . -B /tmp/build-nowebrtc -G Ninja \
 nix develop -c cmake --build /tmp/build-nowebrtc -j18
 ```
 
-**Build EVERY target, not just `matrix-client`** — a passing app target is how
+**Build EVERY target, not just `lightning-matrix`** — a passing app target is how
 0.8.0's first attempt got through. Run it before a release and after touching
 `src/calls/`. Out-of-tree, `presence-manager` fails because it walks up to
 find the repository it scans; that is the harness, not the code.
@@ -1898,7 +1898,7 @@ unhandled. Suites: `call-controller` 35, `call-ring-policy` 10,
   instance, one of which (`onSizeChanged`) could not change the request at all,
   because `avatarSource` opens with `Q_UNUSED(size)`.
 - **Where the disk goes.** A debug `libmatrix_client_rust.a` is **2.1 GB** and
-  every one of the ~146 test binaries links it: `matrix-client` alone is 906 MB
+  every one of the ~146 test binaries links it: `lightning-matrix` alone is 906 MB
   in `build-rust` against 124 MB in `build`, and the test binaries total
   **35 GB** there versus 5.1 GB in the non-Rust tree. With the two
   `incremental` caches (25 GB and 13 GB) the repo was 157 GB; those are pure

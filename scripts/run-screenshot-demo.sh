@@ -165,7 +165,7 @@ export XDG_CACHE_HOME="$DEMO_DIR/cache"
 # --- Build the demo tree (development option ON; mock backend, no Rust) ---
 nix develop -c cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DLIGHTNING_ENABLE_SCREENSHOT_DEMO=ON >/dev/null
-nix develop -c cmake --build "$BUILD_DIR" --target matrix-client
+nix develop -c cmake --build "$BUILD_DIR" --target lightning-matrix
 
 # --- Assemble the development-only demo CLI args -------------------------
 APP_ARGS=(--screenshot-demo)
@@ -187,4 +187,4 @@ echo "  size:        ${SIZE:-scenario default}"
 echo "  controls:    $([ "$HIDE_CONTROLS" = 1 ] && echo hidden || echo visible) (Ctrl+Shift+D toggles)"
 echo "────────────────────────────────────────────────────────────"
 
-exec nix develop -c "./$BUILD_DIR/matrix-client" "${APP_ARGS[@]}" "${EXTRA_ARGS[@]}"
+exec nix develop -c "./$BUILD_DIR/lightning-matrix" "${APP_ARGS[@]}" "${EXTRA_ARGS[@]}"

@@ -1360,7 +1360,7 @@ list that quietly loses entries cannot be trusted either:
 ## Windows and macOS: the capture elements, and what differs
 
 **Landed 2026-08-26**, pipeline 121, both platforms green. Each artifact
-proves itself: `matrix-client --call-media-status` runs from inside the
+proves itself: `lightning-matrix --call-media-status` runs from inside the
 packaged build and reports
 
 ```

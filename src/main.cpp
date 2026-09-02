@@ -286,9 +286,9 @@ PreflightResult preflightParse(int argc, char *argv[])
         if (a == QLatin1String("-h") || a == QLatin1String("--help")) {
             r.action = PreflightResult::ExitSuccess;
             r.stdoutMsg = QStringLiteral(
-                "matrix-client — native Qt/QML Matrix desktop client.\n"
+                "Lightning — native Qt/QML Matrix desktop client (lightning-matrix).\n"
                 "\n"
-                "Usage: matrix-client [options]\n"
+                "Usage: lightning-matrix [options]\n"
                 "\n"
                 "Options:\n"
                 "  -h, --help           Show this help and exit.\n"
@@ -363,7 +363,9 @@ PreflightResult preflightParse(int argc, char *argv[])
         }
         if (a == QLatin1String("-v") || a == QLatin1String("--version")) {
             r.action = PreflightResult::ExitSuccess;
-            r.stdoutMsg = QStringLiteral("matrix-client %1\n").arg(QLatin1String(APP_VERSION));
+            // The product identifies itself; packaging validators pin this exact
+            // shape ("Lightning <version>") on every platform.
+            r.stdoutMsg = QStringLiteral("Lightning %1\n").arg(QLatin1String(APP_VERSION));
             return r;
         }
         if (a == QLatin1String("--build-info")) {
@@ -420,7 +422,7 @@ PreflightResult preflightParse(int argc, char *argv[])
             // testable headlessly.
             r.action = PreflightResult::ExitError;
             r.stderrMsg = QStringLiteral(
-                "matrix-client: --screenshot-demo is a development-only build "
+                "lightning-matrix: --screenshot-demo is a development-only build "
                 "option that is not compiled into this binary.\n"
                 "Rebuild with -DLIGHTNING_ENABLE_SCREENSHOT_DEMO=ON (never a "
                 "release build) to use it.\n");
@@ -436,7 +438,7 @@ PreflightResult preflightParse(int argc, char *argv[])
             if (!ScreenshotDemoController::isValidScenario(r.demoScenario)) {
                 r.action = PreflightResult::ExitError;
                 r.stderrMsg = QStringLiteral(
-                    "matrix-client: unknown --demo-scenario '%1'.\n"
+                    "lightning-matrix: unknown --demo-scenario '%1'.\n"
                     "Run scripts/run-screenshot-demo.sh --help for the list.\n")
                     .arg(r.demoScenario);
                 return r;
@@ -461,7 +463,7 @@ PreflightResult preflightParse(int argc, char *argv[])
             if (!ScreenshotDemoController::sizeForPreset(r.demoSize, &w, &h)) {
                 r.action = PreflightResult::ExitError;
                 r.stderrMsg = QStringLiteral(
-                    "matrix-client: invalid --demo-size '%1' (use WxH within "
+                    "lightning-matrix: invalid --demo-size '%1' (use WxH within "
                     "safe bounds, or a named preset).\n").arg(r.demoSize);
                 return r;
             }
@@ -518,7 +520,7 @@ PreflightResult preflightParse(int argc, char *argv[])
             const QStringList roots = matrix::app_data::allRoots();
 
             r.stdoutMsg = QStringLiteral(
-                "matrix-client --reset-crypto-store\n"
+                "lightning-matrix --reset-crypto-store\n"
                 "\n");
             if (roots.isEmpty()) {
                 r.stdoutMsg += QStringLiteral(
@@ -567,7 +569,7 @@ PreflightResult preflightParse(int argc, char *argv[])
             const QString value = a.mid(2); // strip leading "--"
             r.action = PreflightResult::ExitError;
             r.stderrMsg = QStringLiteral(
-                "matrix-client: '%1' is not a supported flag. "
+                "lightning-matrix: '%1' is not a supported flag. "
                 "Use '--backend=%2' instead.\n"
                 "Run with --help for the full list.\n").arg(a, value);
             return r;
@@ -579,7 +581,7 @@ PreflightResult preflightParse(int argc, char *argv[])
             if (!ok) {
                 r.action = PreflightResult::ExitError;
                 r.stderrMsg = QStringLiteral(
-                    "matrix-client: unknown --backend value '%1'; expected one of: mock, http, rust\n"
+                    "lightning-matrix: unknown --backend value '%1'; expected one of: mock, http, rust\n"
                     "Run with --help for details.\n").arg(value);
                 return r;
             }
@@ -591,7 +593,7 @@ PreflightResult preflightParse(int argc, char *argv[])
             if (i + 1 >= argc) {
                 r.action = PreflightResult::ExitError;
                 r.stderrMsg = QStringLiteral(
-                    "matrix-client: --backend requires a value; expected one of: mock, http, rust\n");
+                    "lightning-matrix: --backend requires a value; expected one of: mock, http, rust\n");
                 return r;
             }
             const QString value = QString::fromLocal8Bit(argv[++i]);
@@ -600,7 +602,7 @@ PreflightResult preflightParse(int argc, char *argv[])
             if (!ok) {
                 r.action = PreflightResult::ExitError;
                 r.stderrMsg = QStringLiteral(
-                    "matrix-client: unknown --backend value '%1'; expected one of: mock, http, rust\n").arg(value);
+                    "lightning-matrix: unknown --backend value '%1'; expected one of: mock, http, rust\n").arg(value);
                 return r;
             }
             r.backend = b;
@@ -614,7 +616,7 @@ PreflightResult preflightParse(int argc, char *argv[])
         if (r.backendExplicit && r.backend != AppController::MockBackend) {
             r.action = PreflightResult::ExitError;
             r.stderrMsg = QStringLiteral(
-                "matrix-client: --mock conflicts with --backend=%1\n"
+                "lightning-matrix: --mock conflicts with --backend=%1\n"
                 ).arg(backendNameFor(r.backend));
             return r;
         }
@@ -624,7 +626,7 @@ PreflightResult preflightParse(int argc, char *argv[])
     if (!AppController::isBackendCompiled(r.backend)) {
         r.action = PreflightResult::ExitError;
         QString msg = QStringLiteral(
-            "matrix-client: backend '%1' was not compiled into this build.\n"
+            "lightning-matrix: backend '%1' was not compiled into this build.\n"
             ).arg(backendNameFor(r.backend));
         if (r.backend == AppController::RustBackend) {
             msg += QStringLiteral(
@@ -639,7 +641,7 @@ PreflightResult preflightParse(int argc, char *argv[])
         if (r.backend != AppController::RustBackend || !r.backendExplicit) {
             r.action = PreflightResult::ExitError;
             r.stderrMsg = QStringLiteral(
-                "matrix-client: --rust-sdk-smoke-test requires "
+                "lightning-matrix: --rust-sdk-smoke-test requires "
                 "'--backend=rust'.\n"
                 "See docs/build-and-test.md for the environment variables "
                 "the harness reads.\n");
@@ -650,7 +652,7 @@ PreflightResult preflightParse(int argc, char *argv[])
 #else
         r.action = PreflightResult::ExitError;
         r.stderrMsg = QStringLiteral(
-            "matrix-client: --rust-sdk-smoke-test needs a Rust-enabled "
+            "lightning-matrix: --rust-sdk-smoke-test needs a Rust-enabled "
             "build (reconfigure with -DENABLE_RUST_SDK_BACKEND=ON).\n");
 #endif
         return r;
@@ -1095,7 +1097,7 @@ int main(int argc, char *argv[])
         if (lightning::startup::shouldRejectForNoDisplay(
                 kPlatformRequiresDisplayServer, hasDisplay, platformForced)) {
             QTextStream(stderr) <<
-                "matrix-client: no graphical display available "
+                "lightning-matrix: no graphical display available "
                 "(DISPLAY / WAYLAND_DISPLAY unset).\n"
                 "Run this app inside a graphical session, or export "
                 "QT_QPA_PLATFORM=offscreen for a headless smoke test.\n"
@@ -1104,6 +1106,12 @@ int main(int argc, char *argv[])
         }
     }
 
+    // The PERSISTENT application identity. These literals name the settings
+    // file, the QStandardPaths data/cache roots, the credential-store
+    // namespace and the Rust SDK store roots of every existing install; they
+    // deliberately did NOT follow the binary rename to `lightning-matrix`
+    // (renaming them would sign every user out of a session they still
+    // hold). The product name shown to people is "Lightning".
     QCoreApplication::setOrganizationName("MatrixClient");
     QCoreApplication::setOrganizationDomain("matrix-client.local");
     QCoreApplication::setApplicationName("matrix-client");
@@ -1258,7 +1266,8 @@ int main(int argc, char *argv[])
         qunsetenv("QT_SCALE_FACTOR");
     // Wayland compositors match the window to its launcher entry through
     // the desktop-file name (app_id "lightning" ↔ lightning.desktop); X11
-    // matches WM_CLASS ("matrix-client") through StartupWMClass.
+    // matches WM_CLASS (the binary name, "lightning-matrix") through
+    // StartupWMClass.
     QGuiApplication::setDesktopFileName(QStringLiteral("lightning"));
 
     // ONE LINE IN THE LOG when this build accepts an image format it cannot
@@ -1272,7 +1281,7 @@ int main(int argc, char *argv[])
         if (!missing.isEmpty())
             qWarning("image decoders missing from this build: %s — these "
                      "formats are accepted by Lightning and will not render. "
-                     "Run matrix-client --image-format-status for detail.",
+                     "Run lightning-matrix --image-format-status for detail.",
                      qUtf8Printable(missing.join(QStringLiteral(", "))));
     }
     QGuiApplication::setWindowIcon(QIcon::fromTheme(
@@ -1412,7 +1421,7 @@ int main(int argc, char *argv[])
                                           pf.demoAppearance, pf.demoSize,
                                           pf.demoHideControls);
         QTextStream(stdout)
-            << "matrix-client: screenshot demo mode active — mock backend, "
+            << "lightning-matrix: screenshot demo mode active — mock backend, "
                "isolated storage, no network.\n";
     }
 #endif

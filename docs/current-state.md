@@ -2084,7 +2084,7 @@ Fixes in this pass:
   "Recovery failed: <safe reason>").
 - **Local reset.** GUI reset button deliberately NOT implemented
   in this pass; the Settings panel points users at
-  `matrix-client --reset-crypto-store` on the CLI, which already
+  `lightning-matrix --reset-crypto-store` on the CLI, which already
   scans the correct roots (v0.5.0-prep+5). A dedicated GUI reset
   is a later step so we don't build a half-safe destroy path.
 - **Undecryptable hint.** Settings panel now includes an inline
@@ -2423,7 +2423,7 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
 ## What is *implemented* right now
 
 - **Product name**: **Lightning**. Window title / header / login-screen
-  heading all say "Lightning". The executable is still `matrix-client`
+  heading all say "Lightning". The executable is still `lightning-matrix`
   for build-system compatibility (Q_APPLICATION_NAME too — keeps the
   QSettings scope stable across the rename). The login-screen
   sub-heading is backend-aware (v0.4.5).
@@ -2877,12 +2877,12 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
 - Default: `nix develop -c cmake -S . -B build -G Ninja && nix develop -c cmake --build build`.
 - With Rust: `nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON && nix develop -c cmake --build build-rust`.
 - Rust-only offline: `cd rust && nix develop -c cargo build --release --offline`.
-- Smoke: `QT_QPA_PLATFORM=offscreen timeout 3 ./build/matrix-client --mock`
+- Smoke: `QT_QPA_PLATFORM=offscreen timeout 3 ./build/lightning-matrix --mock`
   should exit 124 with no QML warnings and no crashes.
-- Rejection: `QT_QPA_PLATFORM=offscreen ./build/matrix-client --backend=bogus`
-  and `./build/matrix-client --backend=rust` (in the non-Rust build)
+- Rejection: `QT_QPA_PLATFORM=offscreen ./build/lightning-matrix --backend=bogus`
+  and `./build/lightning-matrix --backend=rust` (in the non-Rust build)
   both exit 2 with a clear stderr message. In the Rust build,
-  `QT_QPA_PLATFORM=offscreen timeout 3 ./build-rust/matrix-client --backend=rust`
+  `QT_QPA_PLATFORM=offscreen timeout 3 ./build-rust/lightning-matrix --backend=rust`
   should start without crashing.
 
 ## Rules for continuation
