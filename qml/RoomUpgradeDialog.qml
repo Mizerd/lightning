@@ -4,11 +4,17 @@ import QtQuick.Layouts
 import MatrixClient
 
 // v0.9 room upgrade (phase 8): the confirmation flow. Opened from the room's
-// Access block and from Space settings; drives app.roomUpgrade, whose
-// room is the one currently inspected (app.roomInfo.roomId). The version
-// list is the homeserver's own (requestRoomVersions on open), the default
-// is the recommendation, and the explanation is deliberately blunt: an
-// upgrade is irreversible and tombstones the old room.
+// Access block and from Space settings. The version list is the homeserver's
+// own (requestRoomVersions on open), the default is the recommendation, and
+// the explanation is deliberately blunt: an upgrade is irreversible and
+// tombstones the old room.
+//
+// THE OPENER NAMES THE ROOM, and this dialog carries it to the controller.
+// It used to name none, and app.roomUpgrade upgraded whatever room was OPEN
+// behind it — so "Upgrade space…", reached from a modal that does not
+// navigate, tombstoned the room the user was reading while this dialog
+// displayed the space's name and version. Never reintroduce a default here:
+// openFor() without a room id is a programming error and is refused.
 Dialog {
     id: root
     objectName: "roomUpgradeDialog"
@@ -26,8 +32,13 @@ Dialog {
     property string kind: "room"
     readonly property bool isSpace: kind === "space"
     property string chosenVersion: ""
+    // The room this dialog will upgrade. Set by openFor(); never defaulted.
+    property string targetRoomId: ""
 
-    function openFor() {
+    function openFor(roomId) {
+        if (!roomId || roomId.length === 0)
+            return
+        targetRoomId = roomId
         chosenVersion = ""
         addToSpaces.checked = !root.isSpace
         app.roomUpgrade.requestRoomVersions()
@@ -185,7 +196,9 @@ Dialog {
                 enabled: app.roomUpgrade.versionsKnown
                          && !app.roomUpgrade.upgradeBusy
                          && root.chosenVersion.length > 0
-                onClicked: app.roomUpgrade.upgradeRoom(root.chosenVersion,
+                         && root.targetRoomId.length > 0
+                onClicked: app.roomUpgrade.upgradeRoom(root.targetRoomId,
+                                                       root.chosenVersion,
                                                        addToSpaces.checked)
             }
         }

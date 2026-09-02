@@ -187,10 +187,10 @@ void TimelineModel::setClient(MatrixClient *client)
         // thread timeline's id is the composite; the answer names the room).
         connect(m_client, &MatrixClient::editHistoryReceived, this,
                 [this](const QString &roomId, const QString &eventId, bool ok,
-                       const QVariantList &revisions) {
+                       bool partial, const QVariantList &revisions) {
             if (roomId != MatrixClient::threadTimelineRoomId(m_roomId))
                 return;
-            Q_EMIT editHistoryReceived(eventId, ok, revisions);
+            Q_EMIT editHistoryReceived(eventId, ok, partial, revisions);
         });
         connect(m_client, &MatrixClient::eventSourceReceived, this,
                 [this](const QString &roomId, const QString &eventId, bool ok,

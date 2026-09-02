@@ -1593,8 +1593,15 @@ Q_SIGNALS:
     // in chronological order. `encryption` is {encrypted, senderKey,
     // senderDevice, algorithm, verification}. Both carry decrypted message
     // text in an encrypted room: memory-only, never logged, never cached.
+    //
+    // `partial` is true when this is NOT the whole history: the server could
+    // not be reached and the event cache answered instead, or the server had
+    // more revisions than one page. It must reach the user — a partial
+    // history rendered as a complete one is a lie about what someone said,
+    // and the missing rows are the OLDEST ones, next to the original.
     void editHistoryReceived(const QString &roomId, const QString &eventId,
-                             bool ok, const QVariantList &revisions);
+                             bool ok, bool partial,
+                             const QVariantList &revisions);
     void eventSourceReceived(const QString &roomId, const QString &eventId,
                              bool ok, const QString &json,
                              const QVariantMap &encryption);

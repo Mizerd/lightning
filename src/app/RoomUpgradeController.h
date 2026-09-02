@@ -124,16 +124,34 @@ public:
     Q_INVOKABLE void goToPredecessor();
 
     // v0.9 send side. requestRoomVersions asks the server; upgradeRoom runs
-    // the standard /upgrade for the controller's room and, when
-    // `addToSameSpaces` is set, adds the replacement to every Space the old
-    // room is a child of (each an ordinary m.space.child write through the
-    // Space manager, reported through its own outcome signal). Aliases,
-    // power levels and the rest of the copied state are the SERVER's job on
-    // /upgrade (the endpoint's contract) — nothing here approximates them.
-    // On success the controller navigates to the replacement.
+    // the standard /upgrade and, when `addToSameSpaces` is set, adds the
+    // replacement to every Space the old room is a child of (each an ordinary
+    // m.space.child write through the Space manager). Aliases, power levels
+    // and the rest of the copied state are the SERVER's job on /upgrade (the
+    // endpoint's contract) — nothing here approximates them. On success the
+    // controller navigates to the replacement.
+    //
+    // KNOWN GAP, deliberately left for now: a re-parent that the server
+    // REFUSES (no m.space.child power in that Space) is not reported. Its
+    // outcome signal has one consumer, Space Home, and a successful upgrade
+    // navigates to a ROOM, so nothing is on screen to receive it. An earlier
+    // revision of this comment claimed each write was "reported through its
+    // own outcome signal"; it is not, and saying so was worse than the gap.
+    //
+    // THE TARGET IS AN EXPLICIT ARGUMENT, and that is the whole point of this
+    // signature. This class tracks the ACTIVE room, because the banner sits
+    // above the open timeline — but the upgrade is offered from two places
+    // that are NOT the active room: Room Information (which can be showing a
+    // Space home) and Space settings (opened as a MODAL over whatever room
+    // the user had open, without navigating). Taking `m_roomId` here meant
+    // "Upgrade space…" irreversibly tombstoned the room behind the dialog
+    // while the confirmation displayed the space's name and version. An
+    // upgrade cannot be undone, so the caller names its target and this class
+    // refuses to guess one.
     void setSpaces(class SpaceManager *spaces) { m_spaces = spaces; }
     Q_INVOKABLE void requestRoomVersions();
-    Q_INVOKABLE void upgradeRoom(const QString &newVersion, bool addToSameSpaces);
+    Q_INVOKABLE void upgradeRoom(const QString &roomId, const QString &newVersion,
+                                 bool addToSameSpaces);
     bool versionsKnown() const { return m_versionsKnown; }
     QString defaultVersion() const { return m_defaultVersion; }
     QVariantList availableVersions() const { return m_availableVersions; }

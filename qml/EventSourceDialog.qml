@@ -8,7 +8,15 @@ import MatrixClient
 // monospaced, scrollable, selectable viewer with Copy JSON / Copy event ID.
 // The encryption block beside it describes the envelope — algorithm,
 // sender key, sender device, verification — with public identifiers only:
-// no key material ever reaches this dialog (the FFI does not carry it).
+// no key material reaches THAT BLOCK (the FFI does not carry it).
+//
+// The JSON body is a different matter and the distinction was previously
+// stated too broadly here. It is the event verbatim, so for an attachment in
+// an encrypted room it includes `content.file.key`, the per-attachment AES
+// key — the user's own key, for their own room, exactly as Element's own
+// view-source shows it. Copy JSON therefore puts that on the shared
+// clipboard. That is the deliberate cost of a verbatim source view, but it
+// is not "no key material".
 //
 // Plaintext in an encrypted room: held in this dialog's property while it
 // is open and dropped on close; never logged.

@@ -8088,7 +8088,14 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 { QStringLiteral("preview"), o.value(QStringLiteral("body")).toString() },
                 { QStringLiteral("threadRootId"),
                   o.value(QStringLiteral("thread_root_id")).toString() },
-                { QStringLiteral("kind"), QStringLiteral("mention") },
+                // NOT "mention". The seed is GET /notifications with
+                // only=highlight, and a highlight is whatever the account's
+                // push rules highlight: an @room announcement, a keyword hit
+                // or a server-side rule, as well as a personal mention.
+                // Claiming "Mentioned you" for all of them made the first
+                // screenful of every fresh session assert something the
+                // server never said.
+                { QStringLiteral("kind"), QStringLiteral("highlight") },
             });
         }
         Q_EMIT activitySeedReceived(entries);
@@ -8143,7 +8150,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         Q_EMIT editHistoryReceived(
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("event_id")).toString(),
-            event.value(QStringLiteral("ok")).toBool(), revisions);
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("partial")).toBool(), revisions);
         return true;
     }
 

@@ -903,15 +903,22 @@ AppDialog {
                                 // the tombstone power. Opens a confirmation.
                                 AppButton {
                                     objectName: "spaceUpgradeButton"
+                                    // Deliberately NOT gated on
+                                    // app.roomUpgrade.upgraded: that property
+                                    // describes the ACTIVE room, and this
+                                    // dialog is a modal over it — reading it
+                                    // here hid this button when the room
+                                    // behind had been upgraded and showed it
+                                    // when the space already had been.
                                     visible: root.infoIsOurs
                                              && app.roomInfo.canUpgradeRoom
-                                             && !app.roomUpgrade.upgraded
                                     kind: "secondary"
                                     size: "sm"
                                     text: qsTr("Upgrade space…")
                                     onClicked: {
                                         spaceUpgradeDialog.kind = "space"
-                                        spaceUpgradeDialog.openFor()
+                                        spaceUpgradeDialog.openFor(
+                                            app.roomInfo.roomId)
                                     }
                                 }
                                 RoomUpgradeDialog { id: spaceUpgradeDialog }

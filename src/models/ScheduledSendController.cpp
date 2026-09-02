@@ -62,6 +62,18 @@ void ScheduledSendController::setClient(MatrixClient *client)
             } else if (category == QLatin1String("encrypted_unsupported")) {
                 // The server would hold the plaintext: fall back to the
                 // local queue and say so.
+                //
+                // THIS VERDICT IS ALSO AN ENCRYPTION ANSWER, and it overrides
+                // ours. `isVolatile` was decided at schedule() time from the
+                // C++ RoomInfo cache; the Rust side consults the SDK's own
+                // Room::encryption_state(), and this category is exactly the
+                // case where the two disagreed. Taking only the routing half
+                // of the answer and leaving the disk half meant §6's
+                // "encrypted-room plaintext remains memory-only" was decided
+                // by the weaker of two sources. persist() below rewrites the
+                // whole list and skips volatile rows, so flipping the flag
+                // here also REMOVES the row schedule() already wrote.
+                e.isVolatile = true;
                 becomeLocal(e);
                 e.error = tr("Kept in Lightning instead: the server cannot "
                              "hold an encrypted message.");
@@ -519,10 +531,22 @@ void ScheduledSendController::sendNow(const QString &id)
             Q_EMIT pendingChanged();
             return;
         }
+        // The server holds this message and we could not reach it. Falling
+        // through to the local queue here would call becomeLocal(), which
+        // CLEARS delayId — discarding the only handle to the server-held
+        // event while the homeserver still sends it at its deadline. That is
+        // the double delivery this class's own contract forbids, and it also
+        // makes the server copy uncancellable. Refuse, keep the delay id, and
+        // say so; the schedule is still live.
+        e->error = tr("Lightning could not reach the server to send this now. "
+                      "It is still scheduled.");
+        Q_EMIT pendingChanged();
+        return;
     }
     if (e->mode == QLatin1String("server"))
         becomeLocal(*e);
     e->status = QStringLiteral("pending");
+    e->error.clear();
     dispatchLocal(*e);
 }
 

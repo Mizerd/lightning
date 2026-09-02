@@ -32,19 +32,33 @@ void RichComposerBridge::sendDocument(QQuickTextDocument *document)
         return;
     const RichComposition::Composed composed = RichComposition::compose(*doc);
     const QString plain = composed.plainBody.trimmed();
-    if (plain.isEmpty() && composed.html.isEmpty())
+    if (plain.isEmpty() && composed.html.isEmpty()) {
+        // An empty box with queued attachments is a REAL send, and the Send
+        // button is enabled for it. Returning here dropped the whole thing
+        // silently: the click was accepted and nothing left the client. The
+        // markdown lane has always dispatched attachments before its own
+        // empty-body check; this is that path.
+        if (m_composer->hasAttachments())
+            m_composer->send();
         return;
+    }
+    // A COMMAND IS A COMMAND WHATEVER IT IS WEARING, and this test must come
+    // before the formatting one. It used to sit inside the unformatted
+    // branch, so bolding one word of "/spoiler the ending is X" published the
+    // sentence to the room as ordinary formatted text — the exact opposite of
+    // what the user asked for, and the same shape turned "/kick" into a
+    // public message and skipped the unknown-command refusal entirely.
+    // Formatting is dropped rather than honoured: a command's argument has no
+    // formatted form, and refusing to run it would be worse.
+    if (plain.startsWith(QLatin1Char('/')) && !plain.startsWith(QLatin1String("//"))) {
+        m_composer->setText(plain);
+        m_composer->send();
+        return;
+    }
     if (composed.html.isEmpty()) {
-        // No formatting. A "/command" goes through the ordinary send so
-        // slash commands and the unknown-command refusal behave identically
-        // in both modes; "//" is the escape, as in markdown mode. Anything
+        // No formatting. "//" is the escape, as in markdown mode. Anything
         // else travels the PLAIN lane verbatim — a WYSIWYG editor showing
         // "*not bold*" must send exactly that, never re-read as markdown.
-        if (plain.startsWith(QLatin1Char('/')) && !plain.startsWith(QLatin1String("//"))) {
-            m_composer->setText(plain);
-            m_composer->send();
-            return;
-        }
         const QString verbatim = plain.startsWith(QLatin1String("//")) ? plain.mid(1)
                                                                           : plain;
         m_composer->sendPrepared(verbatim, QString(), composed.mentionUserIds);
@@ -60,17 +74,22 @@ void RichComposerBridge::sendDocumentToThread(QQuickTextDocument *document)
         return;
     const RichComposition::Composed composed = RichComposition::compose(*doc);
     const QString plain = composed.plainBody.trimmed();
-    if (plain.isEmpty() && composed.html.isEmpty())
+    if (plain.isEmpty() && composed.html.isEmpty()) {
+        // Attachments with no text are a real thread send; see sendDocument.
+        if (m_thread->hasAttachments())
+            m_thread->sendText(QString());
         return;
+    }
+    // Before the formatting test, for the reason given in sendDocument: a
+    // formatted "/spoiler" must not be published as ordinary text.
+    if (plain.startsWith(QLatin1Char('/')) && !plain.startsWith(QLatin1String("//"))) {
+        m_thread->setText(plain);
+        m_thread->sendText(plain);
+        return;
+    }
     if (composed.html.isEmpty()) {
-        // Unformatted: a "/command" takes the thread composer's ordinary
-        // send (commands, refusal), "//" escapes, everything else travels
-        // the PLAIN lane verbatim.
-        if (plain.startsWith(QLatin1Char('/')) && !plain.startsWith(QLatin1String("//"))) {
-            m_thread->setText(plain);
-            m_thread->sendText(plain);
-            return;
-        }
+        // Unformatted: "//" escapes, everything else travels the PLAIN lane
+        // verbatim.
         const QString verbatim = plain.startsWith(QLatin1String("//")) ? plain.mid(1)
                                                                           : plain;
         m_thread->sendPrepared(verbatim, QString(), composed.mentionUserIds);

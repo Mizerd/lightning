@@ -8,6 +8,14 @@
 #include <algorithm>
 
 namespace {
+// Every kind a row may claim. "highlight" is the one the SERVER gives us
+// without saying which push rule matched, so it states only that much.
+const QStringList kKnownKinds{
+    QStringLiteral("mention"),      QStringLiteral("room_mention"),
+    QStringLiteral("reply"),        QStringLiteral("thread"),
+    QStringLiteral("reaction"),     QStringLiteral("invite"),
+    QStringLiteral("keyword"),      QStringLiteral("highlight"),
+};
 constexpr int kMaxOwnEventIds = 2048;
 
 QString collapse(const QString &text)
@@ -469,9 +477,14 @@ void ActivityModel::seed(const QVariantList &entries)
         if (e.id.isEmpty() || e.roomId.isEmpty() || m_ids.contains(e.id)
             || e.senderId == self)
             continue;
+        // Validated against the known set, like setFilter. An unknown kind
+        // would render with the fallback icon and NO label at all — a row
+        // naming a room and a body while saying nothing about what happened.
+        // "highlight" is the honest default here: the seed's rows are the
+        // server's highlights and it does not say which rule matched.
         e.kind = m.value(QStringLiteral("kind")).toString();
-        if (e.kind.isEmpty())
-            e.kind = QStringLiteral("mention");
+        if (!kKnownKinds.contains(e.kind))
+            e.kind = QStringLiteral("highlight");
         e.roomName = m.value(QStringLiteral("roomName")).toString();
         if (e.roomName.isEmpty() && m_client)
             e.roomName = m_client->roomInfo(e.roomId).name;

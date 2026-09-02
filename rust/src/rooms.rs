@@ -2671,7 +2671,17 @@ pub(crate) fn request_edit_history(
             IncludeRelations::RelationsOfType(RelationType::Replacement);
         options.limit = Some(UInt::from(200u32));
         let (relations, partial) = match room.relations(target.to_owned(), options).await {
-            Ok(answer) => (answer.chunk, false),
+            // A next_batch_token means the server had MORE than the page we
+            // asked for. RelationsOptions defaults to Direction::Backwards,
+            // so what we hold is the most RECENT 200 edits and the oldest
+            // revisions — the ones next to the original — are the ones
+            // missing. Reporting that as a complete history is the same
+            // dishonesty as the cache fallback below, so it sets the same
+            // flag.
+            Ok(answer) => {
+                let truncated = answer.next_batch_token.is_some();
+                (answer.chunk, truncated)
+            }
             Err(_) => match room
                 .load_or_fetch_event_with_relations(
                     &target,

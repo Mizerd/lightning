@@ -907,6 +907,14 @@ Rectangle {
                         // an explicit newline whatever the elide mode.
                         text: (root.currentRoom.topic || "")
                                   .replace(/\s+/g, " ").trim()
+                        // A topic is UNSANITIZED server text that anyone with
+                        // the power level can set, and Label defaults to
+                        // Text.AutoText — which hands a string containing a
+                        // known tag to the rich-text engine. `<img src=...>`
+                        // in a topic would then make every member's client
+                        // fetch an attacker-chosen URL on room open, around
+                        // the media bridge §6 requires.
+                        textFormat: Text.PlainText
                         color: AppTheme.textMuted
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
@@ -6374,6 +6382,8 @@ Rectangle {
                             Label {
                                 visible: (spaceHome.info.topic || "").length > 0
                                 text: spaceHome.info.topic || ""
+                                // Unsanitized server text; never AutoText (§6).
+                                textFormat: Text.PlainText
                                 color: AppTheme.textSecondary
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)

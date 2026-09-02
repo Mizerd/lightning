@@ -149,6 +149,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location line="+3"/>
+        <source>Highlighted for you</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+43"/>
         <source>Activity</source>
         <translation type="unfinished"></translation>
@@ -252,7 +257,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+58"/>
+        <location line="+70"/>
         <source>Encrypted message</source>
         <translation type="unfinished">Mensaje cifrado</translation>
     </message>
@@ -2427,12 +2432,12 @@ Tamaño: %3</translation>
     <message>
         <location line="+2"/>
         <location line="+295"/>
-        <location line="+258"/>
+        <location line="+261"/>
         <source>Ask to join</source>
         <translation>Solicitar acceso</translation>
     </message>
     <message>
-        <location line="-552"/>
+        <location line="-555"/>
         <source>Restricted</source>
         <translation>Restringida</translation>
     </message>
@@ -2487,24 +2492,24 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-191"/>
-        <location line="+253"/>
+        <location line="+256"/>
         <source>Request pending</source>
         <translation>Solicitud pendiente</translation>
     </message>
     <message>
-        <location line="-246"/>
-        <location line="+253"/>
+        <location line="-249"/>
+        <location line="+256"/>
         <source>Open</source>
         <translation>Abrir</translation>
     </message>
     <message>
-        <location line="-241"/>
-        <location line="+257"/>
+        <location line="-244"/>
+        <location line="+260"/>
         <source>Joining…</source>
         <translation>Uniéndose…</translation>
     </message>
     <message>
-        <location line="-255"/>
+        <location line="-258"/>
         <source>Join</source>
         <translation>Unirse</translation>
     </message>
@@ -2554,7 +2559,7 @@ Tamaño: %3</translation>
         <translation>Esa dirección o ese enlace de sala no son válidos.</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+89"/>
         <source>No preview is available for this room — the server does not allow previewing it. You can still try to join.</source>
         <translation>No hay vista previa de esta sala: el servidor no permite previsualizarla. Aun así puedes intentar unirte.</translation>
     </message>
@@ -2582,7 +2587,7 @@ Tamaño: %3</translation>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+75"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
         <source>Edit history</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2597,7 +2602,12 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+10"/>
+        <source>This may be incomplete. Older revisions could not be loaded, so the earliest versions of this message may be missing.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+31"/>
         <source>Original</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2688,7 +2698,7 @@ Tamaño: %3</translation>
 <context>
     <name>EventSourceDialog</name>
     <message>
-        <location filename="../qml/EventSourceDialog.qml" line="+92"/>
+        <location filename="../qml/EventSourceDialog.qml" line="+100"/>
         <source>Event source</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6954,7 +6964,7 @@ Tamaño: %3</translation>
         <translation>Sin cifrar</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+21"/>
         <source>%1 members (%2 invited)</source>
         <translation>%1 miembros (%2 invitados)</translation>
     </message>
@@ -6986,13 +6996,13 @@ Tamaño: %3</translation>
     <message>
         <location line="+5"/>
         <location line="+20"/>
-        <location line="+455"/>
+        <location line="+458"/>
         <location line="+805"/>
         <source>Save</source>
         <translation>Guardar</translation>
     </message>
     <message>
-        <location line="-1265"/>
+        <location line="-1268"/>
         <source>Topic</source>
         <translation>Tema</translation>
     </message>
@@ -7022,7 +7032,7 @@ Tamaño: %3</translation>
         <translation>Solicitar unirse (knock)</translation>
     </message>
     <message>
-        <location line="+314"/>
+        <location line="+317"/>
         <source>Published address</source>
         <translation>Dirección publicada</translation>
     </message>
@@ -7226,7 +7236,7 @@ Tamaño: %3</translation>
         <translation>Invitar personas a esta sala</translation>
     </message>
     <message>
-        <location line="-800"/>
+        <location line="-803"/>
         <source>Members of selected spaces can join</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7306,7 +7316,7 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+547"/>
+        <location line="+550"/>
         <source>Invite people</source>
         <translation>Invitar personas</translation>
     </message>
@@ -7535,7 +7545,12 @@ Tamaño: %3</translation>
         <translation>No se pudo entrar en la nueva sala ahora mismo. Inténtalo de nuevo.</translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+70"/>
+        <source>The room to upgrade is not known.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
         <source>Pick a room version the server supports.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7545,12 +7560,18 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+34"/>
         <source>The server refused the upgrade: you are not allowed to upgrade this room.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+16"/>
+        <source>The room was upgraded, but the server did not say which room replaced it. Look for the new room in your room list.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-25"/>
+        <location line="+13"/>
         <source>The upgrade did not complete. Nothing was changed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7558,7 +7579,7 @@ Tamaño: %3</translation>
 <context>
     <name>RoomUpgradeDialog</name>
     <message>
-        <location filename="../qml/RoomUpgradeDialog.qml" line="+66"/>
+        <location filename="../qml/RoomUpgradeDialog.qml" line="+77"/>
         <source>Upgrade this space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8023,7 +8044,7 @@ Tamaño: %3</translation>
 <context>
     <name>ScheduledSendController</name>
     <message>
-        <location filename="../src/models/ScheduledSendController.cpp" line="+66"/>
+        <location filename="../src/models/ScheduledSendController.cpp" line="+78"/>
         <source>Kept in Lightning instead: the server cannot hold an encrypted message.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8068,7 +8089,12 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+217"/>
+        <location line="+77"/>
+        <source>Lightning could not reach the server to send this now. It is still scheduled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+152"/>
         <source>Waiting for the connection.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11907,12 +11933,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+884"/>
+        <location line="+891"/>
         <source>Invite</source>
         <translation>Invitar</translation>
     </message>
     <message>
-        <location line="-883"/>
+        <location line="-890"/>
         <source>Kick</source>
         <translation>patada</translation>
     </message>
@@ -12121,12 +12147,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+793"/>
+        <location line="+800"/>
         <source>Published address</source>
         <translation>Dirección publicada</translation>
     </message>
     <message>
-        <location line="-784"/>
+        <location line="-791"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
         <translation>Una dirección publicada permite a las personas encontrar y unirse a este espacio por su nombre. Déjalo vacío para eliminarlo.</translation>
     </message>
@@ -12156,12 +12182,12 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+19"/>
         <source>Upgrade space…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+50"/>
         <source>%1 members</source>
         <translation>%1 miembros</translation>
     </message>
@@ -13652,24 +13678,24 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Guardar el archivo como…</translation>
     </message>
     <message>
-        <location line="+126"/>
-        <location line="+5480"/>
+        <location line="+134"/>
+        <location line="+5502"/>
         <source>Space</source>
         <translation>Espacio</translation>
     </message>
     <message>
-        <location line="-5479"/>
+        <location line="-5501"/>
         <source>Home</source>
         <translation>Inicio</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+17"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation>Sala cifrada</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+70"/>
         <location line="+1"/>
         <source>Start a voice call</source>
         <translation>Iniciar una llamada de voz</translation>
@@ -13963,7 +13989,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>El banner no se pudo guardar (%1).</translation>
     </message>
     <message numerus="yes">
-        <location line="+65"/>
+        <location line="+67"/>
         <source>%n room(s)</source>
         <comment>rooms inside a Space</comment>
         <translation>

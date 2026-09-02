@@ -48,13 +48,19 @@ public:
     // v0.9 send side.
     int versionRequests = 0;
     QString lastUpgradeVersion;
+    // The room /upgrade was actually asked to destroy. This double used to
+    // DISCARD it, which is why nothing here could see that the controller
+    // upgraded whatever room happened to be open rather than the one the
+    // dialog named. Keep it recorded.
+    QString lastUpgradeRoomId;
     quint64 lastUpgradeOp = 0;
     bool refuseUpgrades = false;
     void requestRoomVersions() override { ++versionRequests; }
-    quint64 upgradeRoom(const QString &, const QString &newVersion) override
+    quint64 upgradeRoom(const QString &roomId, const QString &newVersion) override
     {
         if (refuseUpgrades)
             return 0;
+        lastUpgradeRoomId = roomId;
         lastUpgradeVersion = newVersion;
         lastUpgradeOp = nextOp++;
         return lastUpgradeOp;
@@ -204,10 +210,78 @@ private Q_SLOTS:
             true, QStringLiteral("10"),
             { QVariantMap{ { QStringLiteral("version"), QStringLiteral("10") },
                            { QStringLiteral("stable"), true } } });
-        h.upgrade.upgradeRoom(QStringLiteral("99"), false);
+        h.upgrade.upgradeRoom(kOld, QStringLiteral("99"), false);
         QVERIFY(h.client.lastUpgradeVersion.isEmpty());
         QVERIFY(!h.upgrade.upgradeError().isEmpty());
         QVERIFY(!h.upgrade.upgradeBusy());
+    }
+
+    // THE DEFECT THIS PINS. This controller tracks the ACTIVE room, because
+    // the tombstone banner sits above the open timeline. The upgrade is
+    // offered from two surfaces that are NOT the active room: Room
+    // Information (which can show a Space home) and Space settings, a modal
+    // that opens over whatever room the user was reading WITHOUT navigating.
+    // upgradeRoom() used to take no target and used m_roomId, so "Upgrade
+    // space…" irreversibly tombstoned the room behind the dialog while the
+    // confirmation displayed the space's name and version. An upgrade cannot
+    // be undone, which makes this the most expensive wrong target in the
+    // client. On the unfixed controller this case fails: the fake receives
+    // kOld.
+    void anUpgradeDestroysTheRoomTheCallerNamedNotTheOpenOne()
+    {
+        const QString space = QStringLiteral("!space:example.org");
+        Harness h;
+        h.client.setRooms({ room(kOld), room(space) });
+        // The reader is in kOld; that is what this controller tracks.
+        h.upgrade.setRoomId(kOld);
+        Q_EMIT h.client.roomVersionsReceived(
+            true, QStringLiteral("10"),
+            { QVariantMap{ { QStringLiteral("version"), QStringLiteral("10") },
+                           { QStringLiteral("stable"), true } } });
+        // Space settings upgrades the SPACE while kOld stays open.
+        h.upgrade.upgradeRoom(space, QStringLiteral("10"), false);
+        QCOMPARE(h.client.lastUpgradeRoomId, space);
+        QVERIFY(h.client.lastUpgradeRoomId != kOld);
+    }
+
+    // A target the caller could not supply is reported, never guessed at and
+    // never silently dropped: the button was otherwise dead with no reason.
+    void anUpgradeWithNoNamedRoomRefusesAndSaysSo()
+    {
+        Harness h;
+        h.client.setRooms({ room(kOld) });
+        h.upgrade.setRoomId(kOld);
+        Q_EMIT h.client.roomVersionsReceived(
+            true, QStringLiteral("10"),
+            { QVariantMap{ { QStringLiteral("version"), QStringLiteral("10") },
+                           { QStringLiteral("stable"), true } } });
+        h.upgrade.upgradeRoom(QString(), QStringLiteral("10"), false);
+        QVERIFY(h.client.lastUpgradeRoomId.isEmpty());
+        QVERIFY(!h.upgrade.upgradeError().isEmpty());
+        QVERIFY(!h.upgrade.upgradeBusy());
+    }
+
+    // "The server did nothing" and "the server upgraded the room but did not
+    // name the replacement" are different outcomes. The old room is already
+    // tombstoned in the second, so reporting "Nothing was changed" is a lie
+    // (§6).
+    void anUpgradeWithNoReplacementIdDoesNotClaimNothingChanged()
+    {
+        Harness h;
+        h.client.setRooms({ room(kOld) });
+        h.upgrade.setRoomId(kOld);
+        Q_EMIT h.client.roomVersionsReceived(
+            true, QStringLiteral("10"),
+            { QVariantMap{ { QStringLiteral("version"), QStringLiteral("10") },
+                           { QStringLiteral("stable"), true } } });
+        h.upgrade.upgradeRoom(kOld, QStringLiteral("10"), false);
+        Q_EMIT h.client.roomUpgradeFinished(h.client.lastUpgradeOp, kOld, true,
+                                            QString(), QString());
+        QVERIFY(!h.upgrade.upgradeBusy());
+        QVERIFY(!h.upgrade.upgradeError().isEmpty());
+        QVERIFY(!h.upgrade.upgradeError().contains(
+            QStringLiteral("Nothing was changed")));
+        QVERIFY(h.navigations.isEmpty());
     }
 
     void aSuccessfulUpgradeNavigatesToTheReplacement()
@@ -219,7 +293,7 @@ private Q_SLOTS:
             true, QStringLiteral("10"),
             { QVariantMap{ { QStringLiteral("version"), QStringLiteral("10") },
                            { QStringLiteral("stable"), true } } });
-        h.upgrade.upgradeRoom(QStringLiteral("10"), false);
+        h.upgrade.upgradeRoom(kOld, QStringLiteral("10"), false);
         QCOMPARE(h.client.lastUpgradeVersion, QStringLiteral("10"));
         QVERIFY(h.upgrade.upgradeBusy());
         // A stale answer (another op id) changes nothing.
@@ -243,7 +317,7 @@ private Q_SLOTS:
             true, QStringLiteral("10"),
             { QVariantMap{ { QStringLiteral("version"), QStringLiteral("10") },
                            { QStringLiteral("stable"), true } } });
-        h.upgrade.upgradeRoom(QStringLiteral("10"), false);
+        h.upgrade.upgradeRoom(kOld, QStringLiteral("10"), false);
         Q_EMIT h.client.roomUpgradeFinished(h.client.lastUpgradeOp, kOld, false,
                                             QString(),
                                             QStringLiteral("forbidden"));

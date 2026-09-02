@@ -391,6 +391,62 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("textFormat: Text.PlainText")));
     }
 
+    // Every surface that shows UNSANITIZED server text must say so. A QML
+    // Label defaults to Text.AutoText, which runs Qt::mightBeRichText() and
+    // hands anything containing a known tag to the rich-text engine — so a
+    // room topic or room name of `<img src="http://attacker/x">` makes every
+    // viewer's client fetch that URL, straight past the media bridge §6
+    // requires everything to go through. Two independent pre-release audits
+    // found five such Labels in the 0.8.4 round. None of them was a new
+    // mistake in kind: RoomDelegate's preview label has been pinned this way
+    // for exactly this reason, and these were simply missed.
+    //
+    // ANCHORED ON THE TEXT EXPRESSION, never on a fixed window after an
+    // objectName — a comment added inside the block silently defeats that
+    // shape, which has cost this suite four cases already.
+    void unsanitizedServerTextIsAlwaysPlainText()
+    {
+        struct Sink { const char *file; const char *expression; };
+        // Each is a Label bound to text the SERVER controls: a room topic
+        // (any member with the power level), a public-directory topic (a
+        // stranger's homeserver), a room name reaching the Activity Center
+        // through an unsolicited invite, and an arbitrary reaction key.
+        const QList<Sink> sinks = {
+            { "TimelinePane.qml", "text: (root.currentRoom.topic || \"\")" },
+            { "TimelinePane.qml", "text: spaceHome.info.topic || \"\"" },
+            { "RoomInfoPanel.qml", "text: root.roomData.topic || \"\"" },
+            { "DiscoverJoinDialog.qml", "text: root.resolved.topic || \"\"" },
+            { "ActivityCenterPanel.qml", "text: row.roomName" },
+            { "ActivityCenterPanel.qml",
+              "text: root.kindLabel(row.kind, row.reactionKey)" },
+        };
+        int checked = 0;
+        for (const Sink &sink : sinks) {
+            const QString source = read(QString::fromLatin1(sink.file));
+            QVERIFY2(!source.isEmpty(), sink.file);
+            const QString expression = QString::fromLatin1(sink.expression);
+            const int at = source.indexOf(expression);
+            QVERIFY2(at >= 0,
+                     qPrintable(QStringLiteral("%1: no binding %2")
+                                    .arg(QString::fromLatin1(sink.file),
+                                         expression)));
+            // The declaration sits in the same Label as the binding. Stop at
+            // the next `Label {` so a neighbouring correct Label can never
+            // satisfy this for an unfixed one.
+            const int next = source.indexOf(QStringLiteral("Label {"),
+                                            at + expression.size());
+            const int end = next < 0 ? source.size() : next;
+            const QString block = source.mid(at, end - at);
+            QVERIFY2(block.contains(QStringLiteral("textFormat: Text.PlainText")),
+                     qPrintable(QStringLiteral("%1: %2 is not PlainText")
+                                    .arg(QString::fromLatin1(sink.file),
+                                         expression)));
+            ++checked;
+        }
+        // A sweep that matched nothing must fail rather than pass silently.
+        QCOMPARE(checked, sinks.size());
+    }
+
     void paginationVisibilityDoesNotDependOnGeometry()
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));

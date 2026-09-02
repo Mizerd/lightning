@@ -417,7 +417,9 @@ public:
 Q_SIGNALS:
     // v0.9 (phase 7). SENSITIVE in an encrypted room (plaintext bodies /
     // decrypted JSON): consumers display and drop, never log or store.
-    void editHistoryReceived(const QString &eventId, bool ok,
+    // `partial` = this is not the whole history (server unreachable, or more
+    // revisions than one page). See MatrixClient::editHistoryReceived.
+    void editHistoryReceived(const QString &eventId, bool ok, bool partial,
                              const QVariantList &revisions);
     void eventSourceReceived(const QString &eventId, bool ok,
                              const QString &json, const QVariantMap &encryption);

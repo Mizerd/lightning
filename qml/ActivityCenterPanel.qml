@@ -51,6 +51,9 @@ Dialog {
         case "reaction": return qsTr("Reacted %1 to your message").arg(reactionKey)
         case "invite": return qsTr("Invited you")
         case "keyword": return qsTr("Keyword")
+        // The server told us this was highlighted for this account and not
+        // which rule matched, so this says exactly that and no more.
+        case "highlight": return qsTr("Highlighted for you")
         }
         return ""
     }
@@ -259,6 +262,15 @@ Dialog {
                             spacing: AppTheme.spacing6
                             Label {
                                 text: row.roomName
+                                // A room name is attacker-chosen text, and an
+                                // UNSOLICITED INVITE puts a stranger's into
+                                // this list with no acceptance. Label defaults
+                                // to Text.AutoText, so a name containing a
+                                // known tag would be rendered as rich text and
+                                // `<img src=...>` would beacon on open. The
+                                // body Label below always set this; these two
+                                // were the omission.
+                                textFormat: Text.PlainText
                                 color: AppTheme.stormText
                                 font.pixelSize: AppTheme.textBody
                                 font.weight: row.seen ? AppTheme.weightBody
@@ -267,7 +279,10 @@ Dialog {
                                 Layout.maximumWidth: 240
                             }
                             Label {
+                                // Carries the reaction key, which is an
+                                // arbitrary sender-chosen string.
                                 text: root.kindLabel(row.kind, row.reactionKey)
+                                textFormat: Text.PlainText
                                 color: AppTheme.stormTextMuted
                                 font.pixelSize: AppTheme.textMeta
                                 elide: Text.ElideRight

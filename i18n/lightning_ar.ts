@@ -153,6 +153,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location line="+3"/>
+        <source>Highlighted for you</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+43"/>
         <source>Activity</source>
         <translation type="unfinished"></translation>
@@ -260,7 +265,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+58"/>
+        <location line="+70"/>
         <source>Encrypted message</source>
         <translation type="unfinished">رسالة معمّاة</translation>
     </message>
@@ -2443,12 +2448,12 @@ Size: %3</source>
     <message>
         <location line="+2"/>
         <location line="+295"/>
-        <location line="+258"/>
+        <location line="+261"/>
         <source>Ask to join</source>
         <translation>طلب الانضمام</translation>
     </message>
     <message>
-        <location line="-552"/>
+        <location line="-555"/>
         <source>Restricted</source>
         <translation>مقيّدة</translation>
     </message>
@@ -2507,24 +2512,24 @@ Size: %3</source>
     </message>
     <message>
         <location line="-191"/>
-        <location line="+253"/>
+        <location line="+256"/>
         <source>Request pending</source>
         <translation>الطلب قيد الانتظار</translation>
     </message>
     <message>
-        <location line="-246"/>
-        <location line="+253"/>
+        <location line="-249"/>
+        <location line="+256"/>
         <source>Open</source>
         <translation>فتح</translation>
     </message>
     <message>
-        <location line="-241"/>
-        <location line="+257"/>
+        <location line="-244"/>
+        <location line="+260"/>
         <source>Joining…</source>
         <translation>جارٍ الانضمام…</translation>
     </message>
     <message>
-        <location line="-255"/>
+        <location line="-258"/>
         <source>Join</source>
         <translation>انضمام</translation>
     </message>
@@ -2574,7 +2579,7 @@ Size: %3</source>
         <translation>هذا ليس عنوان غرفة أو رابطًا صالحًا.</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+89"/>
         <source>No preview is available for this room — the server does not allow previewing it. You can still try to join.</source>
         <translation>لا تتوفر معاينة لهذه الغرفة — الخادوم لا يسمح بمعاينتها. ما زال بإمكانك محاولة الانضمام.</translation>
     </message>
@@ -2602,7 +2607,7 @@ Size: %3</source>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+75"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
         <source>Edit history</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2617,7 +2622,12 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+10"/>
+        <source>This may be incomplete. Older revisions could not be loaded, so the earliest versions of this message may be missing.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+31"/>
         <source>Original</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2708,7 +2718,7 @@ Size: %3</source>
 <context>
     <name>EventSourceDialog</name>
     <message>
-        <location filename="../qml/EventSourceDialog.qml" line="+92"/>
+        <location filename="../qml/EventSourceDialog.qml" line="+100"/>
         <source>Event source</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6994,7 +7004,7 @@ Size: %3</source>
         <translation>غير معمّاة</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+21"/>
         <source>%1 members (%2 invited)</source>
         <translation>%1 عضوًا (%2 مدعوًا)</translation>
     </message>
@@ -7026,13 +7036,13 @@ Size: %3</source>
     <message>
         <location line="+5"/>
         <location line="+20"/>
-        <location line="+455"/>
+        <location line="+458"/>
         <location line="+805"/>
         <source>Save</source>
         <translation>حفظ</translation>
     </message>
     <message>
-        <location line="-1265"/>
+        <location line="-1268"/>
         <source>Topic</source>
         <translation>الموضوع</translation>
     </message>
@@ -7062,7 +7072,7 @@ Size: %3</source>
         <translation>طلب الانضمام (طَرْق)</translation>
     </message>
     <message>
-        <location line="+314"/>
+        <location line="+317"/>
         <source>Published address</source>
         <translation>العنوان المنشور</translation>
     </message>
@@ -7270,7 +7280,7 @@ Size: %3</source>
         <translation>دعوة أشخاص إلى هذه الغرفة</translation>
     </message>
     <message>
-        <location line="-800"/>
+        <location line="-803"/>
         <source>Members of selected spaces can join</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7350,7 +7360,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+547"/>
+        <location line="+550"/>
         <source>Invite people</source>
         <translation>دعوة أشخاص</translation>
     </message>
@@ -7579,7 +7589,12 @@ Size: %3</source>
         <translation>تعذّر الانضمام إلى الغرفة الجديدة الآن. أعد المحاولة.</translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+70"/>
+        <source>The room to upgrade is not known.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
         <source>Pick a room version the server supports.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7589,12 +7604,18 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+34"/>
         <source>The server refused the upgrade: you are not allowed to upgrade this room.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+16"/>
+        <source>The room was upgraded, but the server did not say which room replaced it. Look for the new room in your room list.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-25"/>
+        <location line="+13"/>
         <source>The upgrade did not complete. Nothing was changed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7602,7 +7623,7 @@ Size: %3</source>
 <context>
     <name>RoomUpgradeDialog</name>
     <message>
-        <location filename="../qml/RoomUpgradeDialog.qml" line="+66"/>
+        <location filename="../qml/RoomUpgradeDialog.qml" line="+77"/>
         <source>Upgrade this space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8071,7 +8092,7 @@ Size: %3</source>
 <context>
     <name>ScheduledSendController</name>
     <message>
-        <location filename="../src/models/ScheduledSendController.cpp" line="+66"/>
+        <location filename="../src/models/ScheduledSendController.cpp" line="+78"/>
         <source>Kept in Lightning instead: the server cannot hold an encrypted message.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8116,7 +8137,12 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+217"/>
+        <location line="+77"/>
+        <source>Lightning could not reach the server to send this now. It is still scheduled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+152"/>
         <source>Waiting for the connection.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11967,12 +11993,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+884"/>
+        <location line="+891"/>
         <source>Invite</source>
         <translation>دعوة</translation>
     </message>
     <message>
-        <location line="-883"/>
+        <location line="-890"/>
         <source>Kick</source>
         <translation>ركلة</translation>
     </message>
@@ -12181,12 +12207,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+793"/>
+        <location line="+800"/>
         <source>Published address</source>
         <translation>العنوان المنشور</translation>
     </message>
     <message>
-        <location line="-784"/>
+        <location line="-791"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
         <translation>يتيح العنوان المنشور للأشخاص العثور على هذه المساحة والانضمام إليها بالاسم. اتركه فارغًا لإزالته.</translation>
     </message>
@@ -12216,12 +12242,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+19"/>
         <source>Upgrade space…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+50"/>
         <source>%1 members</source>
         <translation>%1أعضاء</translation>
     </message>
@@ -13736,24 +13762,24 @@ Note: importing keys does not verify this session.</source>
         <translation>حفظ الملف باسم…</translation>
     </message>
     <message>
-        <location line="+126"/>
-        <location line="+5480"/>
+        <location line="+134"/>
+        <location line="+5502"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location line="-5479"/>
+        <location line="-5501"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+17"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation>الغرفة معمّاة</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+70"/>
         <location line="+1"/>
         <source>Start a voice call</source>
         <translation>ابدأ مكالمة صوتية</translation>
@@ -14047,7 +14073,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر حفظ البانر (%1).</translation>
     </message>
     <message numerus="yes">
-        <location line="+65"/>
+        <location line="+67"/>
         <source>%n room(s)</source>
         <comment>rooms inside a Space</comment>
         <translation>

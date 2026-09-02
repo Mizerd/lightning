@@ -627,6 +627,9 @@ Dialog {
                         visible: root.resolvedPreview
                                  && (root.resolved.topic || "").length > 0
                         text: root.resolved.topic || ""
+                        // A directory topic comes from a STRANGER's server;
+                        // never AutoText (§6).
+                        textFormat: Text.PlainText
                         color: AppTheme.stormTextSecondary
                         font.pixelSize: AppTheme.textBody
                         lineHeight: AppTheme.lineHeightBody

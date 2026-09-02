@@ -31,6 +31,11 @@ Dialog {
     property var revisions: []
     property bool loading: false
     property bool failed: false
+    // The server could not be reached (the cache answered) or had more
+    // revisions than one page. Shown, never swallowed: the rows that are
+    // missing are the OLDEST, so a truncated list looks like a shorter
+    // editing history rather than an incomplete one.
+    property bool partial: false
 
     function openFor(model, id) {
         timelineModel = model
@@ -48,11 +53,12 @@ Dialog {
     }
     Connections {
         target: root.timelineModel
-        function onEditHistoryReceived(id, ok, rows) {
+        function onEditHistoryReceived(id, ok, partial, rows) {
             if (id !== root.eventId)
                 return
             root.loading = false
             root.failed = !ok
+            root.partial = ok && partial
             root.revisions = ok ? rows : []
         }
     }
@@ -92,6 +98,17 @@ Dialog {
             font.pixelSize: AppTheme.textBody
             text: qsTr("The revisions could not be loaded. Only what this "
                        + "device has synced can be shown, and nothing was.")
+        }
+        Label {
+            objectName: "editHistoryPartialNotice"
+            visible: root.partial
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: AppTheme.stormTextMuted
+            font.pixelSize: AppTheme.textMeta
+            text: qsTr("This may be incomplete. Older revisions could not be "
+                       + "loaded, so the earliest versions of this message "
+                       + "may be missing.")
         }
         ListView {
             id: list

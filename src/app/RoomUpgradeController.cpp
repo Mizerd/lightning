@@ -359,11 +359,24 @@ void RoomUpgradeController::onRoomVersionsReceived(bool ok,
     Q_EMIT versionsChanged();
 }
 
-void RoomUpgradeController::upgradeRoom(const QString &newVersion,
+void RoomUpgradeController::upgradeRoom(const QString &roomId,
+                                        const QString &newVersion,
                                         bool addToSameSpaces)
 {
-    if (!m_client || m_roomId.isEmpty() || upgradeBusy())
+    if (!m_client || upgradeBusy())
         return;
+    // The caller names the room. Never fall back to m_roomId: the two callers
+    // that reach here are showing a room this class is not tracking, and an
+    // upgrade is irreversible, so guessing the target is the one mistake that
+    // cannot be taken back. An absent target is reported, not silently
+    // ignored — the button would otherwise be dead with no explanation.
+    const QString target = roomId.trimmed();
+    if (target.isEmpty()) {
+        m_upgradeError = QCoreApplication::translate(
+            "RoomUpgradeController", "The room to upgrade is not known.");
+        Q_EMIT upgradeStateChanged();
+        return;
+    }
     const QString version = newVersion.trimmed();
     // Only a version the server advertised, never free text: the server
     // would refuse anyway, but refusing here keeps the request honest and
@@ -382,7 +395,7 @@ void RoomUpgradeController::upgradeRoom(const QString &newVersion,
         Q_EMIT upgradeStateChanged();
         return;
     }
-    const quint64 opId = m_client->upgradeRoom(m_roomId, version);
+    const quint64 opId = m_client->upgradeRoom(target, version);
     if (opId == 0) {
         m_upgradeError = QCoreApplication::translate(
             "RoomUpgradeController", "The upgrade could not be requested.");
@@ -390,7 +403,7 @@ void RoomUpgradeController::upgradeRoom(const QString &newVersion,
         return;
     }
     m_upgradeOp = opId;
-    m_upgradeRoomId = m_roomId;
+    m_upgradeRoomId = target;
     m_upgradeAddToSpaces = addToSameSpaces;
     m_upgradeError.clear();
     Q_EMIT upgradeStateChanged();
@@ -405,7 +418,17 @@ void RoomUpgradeController::onRoomUpgradeFinished(quint64 opId,
     if (opId == 0 || opId != m_upgradeOp)
         return;
     m_upgradeOp = 0;
-    if (!ok || replacementRoomId.isEmpty()) {
+    // The answer must be about the room we asked about. The op id already
+    // pins it, but this is the one operation in the client that destroys
+    // something, so the target is checked rather than assumed.
+    if (!m_upgradeRoomId.isEmpty() && roomId != m_upgradeRoomId) {
+        m_upgradeError = QCoreApplication::translate(
+            "RoomUpgradeController",
+            "The upgrade did not complete. Nothing was changed.");
+        Q_EMIT upgradeStateChanged();
+        return;
+    }
+    if (!ok) {
         // Sanitized category only — never server text.
         m_upgradeError = category == QLatin1String("forbidden")
             ? QCoreApplication::translate(
@@ -415,6 +438,19 @@ void RoomUpgradeController::onRoomUpgradeFinished(quint64 opId,
             : QCoreApplication::translate(
                   "RoomUpgradeController",
                   "The upgrade did not complete. Nothing was changed.");
+        Q_EMIT upgradeStateChanged();
+        return;
+    }
+    if (replacementRoomId.isEmpty()) {
+        // NOT the same outcome as !ok, and saying "nothing was changed" here
+        // would be a lie: the server accepted the upgrade, so the old room is
+        // already tombstoned and only the replacement's id is unusable. §6
+        // forbids conflating "did nothing" with "did something we cannot
+        // describe".
+        m_upgradeError = QCoreApplication::translate(
+            "RoomUpgradeController",
+            "The room was upgraded, but the server did not say which room "
+            "replaced it. Look for the new room in your room list.");
         Q_EMIT upgradeStateChanged();
         return;
     }

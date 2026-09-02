@@ -467,6 +467,8 @@ Rectangle {
                         Layout.fillWidth: true
                         visible: (root.roomData.topic || "").length > 0
                         text: root.roomData.topic || ""
+                        // Unsanitized server text; never AutoText (§6).
+                        textFormat: Text.PlainText
                         color: AppTheme.textSecondary
                         lineHeight: AppTheme.lineHeightBody
                         lineHeightMode: Text.ProportionalHeight
@@ -963,7 +965,10 @@ Rectangle {
                             text: qsTr("Upgrade room…")
                             onClicked: {
                                 roomUpgradeDialog.kind = "room"
-                                roomUpgradeDialog.openFor()
+                                // The inspected room, which is not always the
+                                // open one — Room Information can be showing a
+                                // Space home.
+                                roomUpgradeDialog.openFor(app.roomInfo.roomId)
                             }
                         }
                     }
