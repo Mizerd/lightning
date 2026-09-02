@@ -3,6 +3,7 @@
 #include "app/RichComposerBridge.h"
 #include "crypto/BackupController.h"
 #include "models/ScheduledSendController.h"
+#include "models/ActivityModel.h"
 
 #include <algorithm>
 
@@ -266,12 +267,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_cryptoHealth = std::make_unique<CryptoHealthModel>(this);
     m_backup       = std::make_unique<BackupController>(this);
     m_scheduledSends = std::make_unique<ScheduledSendController>(this);
+    m_activity = std::make_unique<ActivityModel>(this);
     m_cryptoBootstrap = std::make_unique<CryptoBootstrapModel>(this);
     m_spaces       = std::make_unique<SpaceManager>(this);
     m_threads      = std::make_unique<ThreadManager>(this);
     m_presence     = std::make_unique<PresenceManager>(this);
     m_presence->setSettings(m_settings.get());
     m_scheduledSends->setSettings(m_settings.get());
+    // Only the seen marker and the keywords persist, account-scoped.
+    m_activity->setStore({ [this] { return m_settings->activityState(); },
+                           [this](const QVariantMap &state) {
+                               m_settings->setActivityState(state);
+                           } });
     // Voice calls (2026-08-18 rounds 1-3): the signaling state machine,
     // and — when the build carries the GStreamer webrtcbin engine AND its
     // element factories resolve at runtime — the real media backend that
@@ -498,6 +505,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         context.senderIsIgnored =
             m_moderation && m_moderation->isIgnored(event.sender);
         m_notifications->processEvent(event, context);
+        // v0.9 (phase 2): the same event feeds the Activity Center — its
+        // classifier is independent of the notification decision (a muted
+        // room's mention is still activity).
+        m_activity->ingest(event, context.roomName);
     });
     connect(m_notifications.get(), &NotificationManager::openRequested, this,
             [this](const QString &roomId, const QString &eventId,
@@ -612,6 +623,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     m_sessionDeviceRenameError.clear();
                     Q_EMIT sessionDevicesChanged();
                 }
+                m_activitySeeded = false;
             });
     // Room-open roster hydration marks a room BEFORE its fetch resolves;
     // a failed fetch must un-mark it or the room's mention chips and reply
@@ -632,6 +644,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             if (room.membership != RoomInfo::Invited)
                 continue;
             current.insert(room.id);
+            m_activity->noteInvite(room);
             if (NotificationManager::shouldNotifyInvite(
                     m_client->initialSyncDone(),
                     m_knownInvites.contains(room.id),
@@ -649,6 +662,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                               .value(QStringLiteral("avatarUrl")).toString());
             }
         }
+        for (const QString &gone : m_knownInvites)
+            if (!current.contains(gone))
+                m_activity->inviteResolved(gone);
         m_knownInvites = current;
     });
     // The tray badge follows the SAME TWO signals the room list does, so it
@@ -842,6 +858,46 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_roomUpgrade->setClient(m_client.get());
     m_backup->setClient(m_client.get());
     m_scheduledSends->setClient(m_client.get());
+    m_activity->setClient(m_client.get());
+    // An Activity row click is exactly a notification click: same window
+    // raise, same room, same thread, same exact-event landing.
+    connect(m_activity.get(), &ActivityModel::openRequested, this,
+            [this](const QString &roomId, const QString &eventId,
+                   const QString &threadRootId) {
+        Q_EMIT notificationOpenRequested(roomId, eventId, threadRootId);
+    });
+    connect(m_client.get(), &MatrixClient::reactionEventReceived, this,
+            [this](const QString &roomId, const QString &reactionEventId,
+                   const QString &targetEventId, const QString &senderId,
+                   const QString &key, qint64 timestampMs) {
+        const RoomInfo info = m_client->roomInfo(roomId);
+        m_activity->noteReaction(roomId, info.name.isEmpty() ? roomId : info.name,
+                                 reactionEventId, targetEventId, senderId,
+                                 m_client->displayNameFor(roomId, senderId), key,
+                                 timestampMs);
+    });
+    connect(m_client.get(), &MatrixClient::activitySeedReceived, this,
+            [this](const QVariantList &entries) {
+        QVariantList named;
+        for (const QVariant &v : entries) {
+            QVariantMap m = v.toMap();
+            const QString roomId = m.value(QStringLiteral("roomId")).toString();
+            const QString senderId = m.value(QStringLiteral("senderId")).toString();
+            m.insert(QStringLiteral("senderName"),
+                     m_client->displayNameFor(roomId, senderId));
+            m.insert(QStringLiteral("roomName"), m_client->roomInfo(roomId).name);
+            named.append(m);
+        }
+        m_activity->seed(named);
+    });
+    connect(m_client.get(), &MatrixClient::connectionStateChanged, this,
+            [this](MatrixClient::ConnectionState state) {
+        // One bounded seed per session, once the account is syncing.
+        if (state == MatrixClient::Syncing && !m_activitySeeded) {
+            m_activitySeeded = true;
+            m_client->requestActivitySeed(60);
+        }
+    });
     m_thread->setClient(m_client.get());
     m_thread->setDraftStore(m_draftStore.get());
     m_draftStore->setClient(m_client.get());
@@ -2101,6 +2157,7 @@ MessageComposer *AppController::composer() const { return m_composer.get(); }
 QObject *AppController::richComposer() const { return m_richComposer.get(); }
 QObject *AppController::backup() const { return m_backup.get(); }
 QObject *AppController::scheduledSends() const { return m_scheduledSends.get(); }
+QObject *AppController::activity() const { return m_activity.get(); }
 MediaManager *AppController::media() const { return m_media.get(); }
 CryptoManager *AppController::crypto() const { return m_crypto.get(); }
 SpaceManager *AppController::spaces() const { return m_spaces.get(); }

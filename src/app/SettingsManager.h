@@ -470,6 +470,11 @@ public:
     // Rows for encrypted rooms are never handed here by the controller.
     QVariantList scheduledSends() const;
     void setScheduledSends(const QVariantList &rows);
+    // v0.9 (phase 2): the Activity Center's account-scoped state — the
+    // "seen up to" marker and the keyword list. Never an entry, never a
+    // preview.
+    QVariantMap activityState() const;
+    void setActivityState(const QVariantMap &state);
 
     // v0.7.x composer drafts, UNENCRYPTED rooms only — DraftStore enforces
     // that policy and never routes encrypted-room plaintext here (QSettings

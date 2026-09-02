@@ -672,6 +672,8 @@ set(APP_SOURCES
     src/crypto/BackupController.cpp
     src/models/ScheduledSendController.h
     src/models/ScheduledSendController.cpp
+    src/models/ActivityModel.h
+    src/models/ActivityModel.cpp
     src/crypto/CryptoBootstrapModel.h
     src/crypto/CryptoBootstrapModel.cpp
     src/crypto/E2eeDiagnostics.h
@@ -836,6 +838,7 @@ set(APP_QML_FILES
     qml/EventSourceDialog.qml
     qml/StatusDialog.qml
     qml/SendLaterDialog.qml
+    qml/ActivityCenterPanel.qml
     qml/AnchoredPopup.qml
     qml/PopupResizeGrip.qml
     qml/EmojiPicker.qml
@@ -1511,6 +1514,22 @@ if(BUILD_TESTING)
     target_include_directories(scheduled-send-test PRIVATE src)
     target_link_libraries(scheduled-send-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME scheduled-send COMMAND scheduled-send-test)
+
+    # v0.9 (phase 2) Activity Center model: classification (mentions,
+    # replies to me, replies in my threads, reactions to my messages,
+    # invites, whole-word keywords), own/echo/state exclusion, the model's
+    # own seen state with only the marker persisted, bounded newest-first,
+    # account switch drops everything, server seed honours the read flag.
+    qt_add_executable(activity-model-test
+        tests/ActivityModelTest.cpp
+        src/models/ActivityModel.h
+        src/models/ActivityModel.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(activity-model-test PRIVATE src)
+    target_link_libraries(activity-model-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME activity-model COMMAND activity-model-test)
 
     qt_add_executable(account-registry-test
         tests/AccountRegistryTest.cpp

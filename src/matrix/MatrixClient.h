@@ -867,6 +867,12 @@ public:
     { Q_UNUSED(roomId); Q_UNUSED(body); Q_UNUSED(bodySpec);
       Q_UNUSED(mentionUserIds); Q_UNUSED(replyToEventId);
       Q_UNUSED(threadRootEventId); return 0; }
+    // v0.9 (phase 2): the Activity Center's fresh-session seed — the
+    // homeserver's own highlight notifications (GET /notifications with
+    // only=highlight), bounded to `limit`. Answers on activitySeedReceived
+    // with [{eventId, roomId, senderId, timestampMs, read, encrypted,
+    // preview, threadRootId}]; the backend never carries ciphertext.
+    virtual void requestActivitySeed(int limit) { Q_UNUSED(limit); }
     // An empty alias clears the canonical alias. Answers on
     // roomEditFinished with field "canonical_alias".
     virtual quint64 setRoomCanonicalAlias(const QString &roomId,
@@ -1601,6 +1607,13 @@ Q_SIGNALS:
                                  const QString &category);
     void roomSendFinished(quint64 opId, const QString &roomId, bool ok,
                           const QString &category);
+    // v0.9 (phase 2): a reaction seen over sync in ANY room. Only ids, the
+    // sender and the (bounded) key cross; the Activity Center decides
+    // whether the target is the user's own message.
+    void reactionEventReceived(const QString &roomId, const QString &reactionEventId,
+                               const QString &targetEventId, const QString &senderId,
+                               const QString &key, qint64 timestampMs);
+    void activitySeedReceived(const QVariantList &entries);
     void roomLeaveFinished(quint64 opId, const QString &roomId, bool ok,
                            const QString &category);
     // op is "kick" or "ban"; category is a sanitized error class on failure.

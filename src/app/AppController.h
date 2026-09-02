@@ -304,6 +304,8 @@ class AppController : public QObject
     Q_PROPERTY(QObject* backup READ backup CONSTANT)
     // v0.9 (phase 11): "Send later" (app.scheduledSends).
     Q_PROPERTY(QObject* scheduledSends READ scheduledSends CONSTANT)
+    // v0.9 (phase 2): the Activity Center model (app.activity).
+    Q_PROPERTY(QObject* activity READ activity CONSTANT)
     // v0.7: verified-session key-bootstrap status (app.cryptoBootstrap).
     Q_PROPERTY(CryptoBootstrapModel* cryptoBootstrap READ cryptoBootstrap CONSTANT)
     // v0.6.0 checkpoint 9: the account's devices/sessions (server metadata +
@@ -573,6 +575,7 @@ public:
     CryptoHealthModel *cryptoHealth() const { return m_cryptoHealth.get(); }
     QObject *backup() const;
     QObject *scheduledSends() const;
+    QObject *activity() const;
     CryptoBootstrapModel *cryptoBootstrap() const
     { return m_cryptoBootstrap.get(); }
     // Bounded UI refresh (Settings "Refresh" and post-operation updates).
@@ -1272,6 +1275,8 @@ private:
     std::unique_ptr<CryptoHealthModel> m_cryptoHealth;
     std::unique_ptr<class BackupController> m_backup;
     std::unique_ptr<class ScheduledSendController> m_scheduledSends;
+    std::unique_ptr<class ActivityModel> m_activity;
+    bool m_activitySeeded = false;
     std::unique_ptr<CryptoBootstrapModel> m_cryptoBootstrap;
     // The CryptoHealthModel generation captured at the moment a crypto-health
     // query is DISPATCHED. Comparing this (not the model's live generation)

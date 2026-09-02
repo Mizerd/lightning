@@ -1030,6 +1030,18 @@ char *mx_rust_send_room_message(void *client,
                                 const char *reply_to_event_id,
                                 const char *thread_root_event_id,
                                 unsigned long long op_id);
+/* v0.9 (phase 2): the Activity Center's seed — the homeserver's highlight
+   notifications (GET /notifications?only=highlight), at most `limit` (1-100).
+   Answers on `activity_seed {ok, entries:[{event_id, room_id, sender,
+   timestamp_ms, read, encrypted, body, thread_root_id}]}`; an encrypted
+   event carries no body. */
+char *mx_rust_request_activity_seed(void *client, unsigned int limit);
+char *mx_rust_request_edit_history(void *client,
+                                   const char *room_id,
+                                   const char *event_id);
+char *mx_rust_request_event_source(void *client,
+                                   const char *room_id,
+                                   const char *event_id);
 /* Canonical alias; an empty alias clears it. Publishes the directory
  * mapping first when the alias does not already resolve to this room.
  * Result: room_edit_result with field "canonical_alias". */

@@ -4593,3 +4593,79 @@ pub(crate) fn send_room_message(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// v0.9 (phase 2): the Activity Center's seed. A fresh session has seen no
+// sync yet, so its Activity list would start empty; the homeserver keeps its
+// own list of notifying events, and `only=highlight` narrows it to the ones
+// the push rules highlighted (mentions, keywords). Bounded, one call per
+// session. An encrypted event crosses with NO body (the server only holds
+// ciphertext for those anyway); the event id is enough to navigate.
+// ---------------------------------------------------------------------------
+
+pub(crate) fn request_activity_seed(bridge: &RustClient, limit: u32) -> Result<(), String> {
+    use matrix_sdk::ruma::api::client::push::get_notifications;
+    use matrix_sdk::ruma::UInt;
+
+    let client = require_client(bridge)?;
+    let own = client.user_id().map(|u| u.to_string()).unwrap_or_default();
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let mut request = get_notifications::v3::Request::new();
+        request.limit = Some(UInt::from(limit.clamp(1, 100)));
+        request.only = Some("highlight".to_owned());
+        let answer = client.send(request).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let Ok(response) = answer else {
+            enqueue(&events, json!({
+                "type": "activity_seed", "lifecycle": lifecycle, "ok": false, "entries": [],
+            }));
+            return;
+        };
+        let mut entries: Vec<serde_json::Value> = Vec::new();
+        for notification in response.notifications {
+            let value: serde_json::Value =
+                notification.event.deserialize_as().unwrap_or(serde_json::Value::Null);
+            let event_id = value["event_id"].as_str().unwrap_or_default().to_owned();
+            let sender = value["sender"].as_str().unwrap_or_default().to_owned();
+            if event_id.is_empty() || sender.is_empty() || sender == own {
+                continue;
+            }
+            let event_type = value["type"].as_str().unwrap_or_default();
+            let encrypted = event_type == "m.room.encrypted";
+            let body: String = if event_type == "m.room.message" {
+                value["content"]["body"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(200)
+                    .collect()
+            } else {
+                String::new()
+            };
+            let relates = &value["content"]["m.relates_to"];
+            let thread_root = if relates["rel_type"] == "m.thread" {
+                relates["event_id"].as_str().unwrap_or_default().to_owned()
+            } else {
+                String::new()
+            };
+            entries.push(json!({
+                "event_id": event_id,
+                "room_id": notification.room_id.to_string(),
+                "sender": sender,
+                "timestamp_ms": u64::from(notification.ts.get()),
+                "read": notification.read,
+                "encrypted": encrypted,
+                "body": body,
+                "thread_root_id": thread_root,
+            }));
+        }
+        enqueue(&events, json!({
+            "type": "activity_seed", "lifecycle": lifecycle, "ok": true, "entries": entries,
+        }));
+    });
+    Ok(())
+}

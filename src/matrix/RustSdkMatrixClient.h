@@ -436,6 +436,7 @@ public:
                             const QStringList &mentionUserIds,
                             const QString &replyToEventId,
                             const QString &threadRootEventId) override;
+    void requestActivitySeed(int limit) override;
     // v0.9 message edit history + event source (phase 7).
     void requestEditHistory(const QString &roomId, const QString &eventId) override;
     void requestEventSource(const QString &roomId, const QString &eventId) override;

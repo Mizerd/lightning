@@ -5916,6 +5916,16 @@ quint64 RustSdkMatrixClient::sendRoomMessage(const QString &roomId,
     return op;
 }
 
+void RustSdkMatrixClient::requestActivitySeed(int limit)
+{
+    if (!m_loggedIn || !m_rustHandle)
+        return;
+    const QString result = takeRustString(mx_rust_request_activity_seed(
+        m_rustHandle, static_cast<unsigned int>(qBound(1, limit, 100))));
+    if (!result.isEmpty())
+        qCDebug(lcRust) << "activity seed request refused";
+}
+
 void RustSdkMatrixClient::requestEditHistory(const QString &roomId,
                                              const QString &eventId)
 {
@@ -8052,6 +8062,38 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
 
+    if (type == QLatin1String("reaction_event")) {
+        Q_EMIT reactionEventReceived(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("event_id")).toString(),
+            event.value(QStringLiteral("target_event_id")).toString(),
+            event.value(QStringLiteral("sender")).toString(),
+            event.value(QStringLiteral("key")).toString(),
+            static_cast<qint64>(event.value(QStringLiteral("timestamp_ms")).toDouble()));
+        return true;
+    }
+    if (type == QLatin1String("activity_seed")) {
+        QVariantList entries;
+        const QJsonArray rows = event.value(QStringLiteral("entries")).toArray();
+        for (const QJsonValue &v : rows) {
+            const QJsonObject o = v.toObject();
+            entries.append(QVariantMap{
+                { QStringLiteral("eventId"), o.value(QStringLiteral("event_id")).toString() },
+                { QStringLiteral("roomId"), o.value(QStringLiteral("room_id")).toString() },
+                { QStringLiteral("senderId"), o.value(QStringLiteral("sender")).toString() },
+                { QStringLiteral("timestampMs"),
+                  static_cast<qint64>(o.value(QStringLiteral("timestamp_ms")).toDouble()) },
+                { QStringLiteral("read"), o.value(QStringLiteral("read")).toBool() },
+                { QStringLiteral("encrypted"), o.value(QStringLiteral("encrypted")).toBool() },
+                { QStringLiteral("preview"), o.value(QStringLiteral("body")).toString() },
+                { QStringLiteral("threadRootId"),
+                  o.value(QStringLiteral("thread_root_id")).toString() },
+                { QStringLiteral("kind"), QStringLiteral("mention") },
+            });
+        }
+        Q_EMIT activitySeedReceived(entries);
+        return true;
+    }
     if (type == QLatin1String("room_send_result")) {
         Q_EMIT roomSendFinished(
             opId(), event.value(QStringLiteral("room_id")).toString(),

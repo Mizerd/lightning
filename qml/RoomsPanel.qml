@@ -326,6 +326,49 @@ Rectangle {
                     ToolTip.delay: 500
                     onClicked: newConversationDialog.openDialog()
                 }
+                // v0.9 (phase 2): the Activity Center — one list of what was
+                // addressed to you, across every room. Both layouts share
+                // this header, so both get it.
+                IconButton {
+                    id: activityBtn
+                    objectName: "activityCenterButton"
+                    visible: app.loggedIn && !!app.activity
+                    implicitWidth: 30; implicitHeight: 30
+                    radius: AppTheme.radiusMd
+                    iconName: "notifications"
+                    iconSize: 18
+                    active: !!app.activity && app.activity.unseenCount > 0
+                    Accessible.name: (!!app.activity && app.activity.unseenCount > 0)
+                                     ? qsTr("Activity, %n unseen", "", app.activity.unseenCount)
+                                     : qsTr("Activity")
+                    ToolTip.text: qsTr("Activity")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: activityPanel.openPanel()
+                    Rectangle {
+                        objectName: "activityCenterBadge"
+                        visible: !!app.activity && app.activity.unseenCount > 0
+                        anchors.top: parent.top
+                        anchors.right: parent.right
+                        anchors.topMargin: -3
+                        anchors.rightMargin: -5
+                        height: 14
+                        width: Math.max(14, activityBadgeLabel.implicitWidth + 6)
+                        radius: 7
+                        color: AppTheme.bolt
+                        Label {
+                            id: activityBadgeLabel
+                            anchors.centerIn: parent
+                            text: !!app.activity
+                                  ? (app.activity.unseenCount > 99
+                                     ? "99+" : String(app.activity.unseenCount))
+                                  : ""
+                            color: AppTheme.stormDeep
+                            font.pixelSize: 9
+                            font.weight: AppTheme.weightBold
+                        }
+                    }
+                }
                 // v0.7.x Discover / Join: browse the public directory or
                 // join by address/link.
                 IconButton {
@@ -489,6 +532,7 @@ Rectangle {
             parent: Overlay.overlay
         }
 
+        ActivityCenterPanel { id: activityPanel }
         DiscoverJoinDialog {
             id: discoverJoinDialog
             parent: Overlay.overlay

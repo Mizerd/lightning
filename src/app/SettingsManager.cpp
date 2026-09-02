@@ -783,6 +783,29 @@ void SettingsManager::setScheduledSends(const QVariantList &rows)
         m_store->setValue(key, rows);
 }
 
+QVariantMap SettingsManager::activityState() const
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return {};
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/activity");
+    return m_store->value(key).toMap();
+}
+
+void SettingsManager::setActivityState(const QVariantMap &state)
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return;
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/activity");
+    if (state.isEmpty())
+        m_store->remove(key);
+    else
+        m_store->setValue(key, state);
+}
+
 int SettingsManager::callParticipantVolume(const QString &userId) const
 {
     const QString slug = slugForSavedAccount(activeAccountUserId());

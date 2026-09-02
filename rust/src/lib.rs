@@ -6644,6 +6644,19 @@ pub unsafe extern "C" fn mx_rust_send_room_message(
     })
 }
 
+/// v0.9 (phase 2): the Activity Center's seed for a fresh session. See
+/// rooms::request_activity_seed.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_request_activity_seed(
+    ptr: *mut c_void,
+    limit: u32,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        rooms::request_activity_seed(bridge, limit).map(|_| String::new())
+    })
+}
+
 /// v0.9 message edit history + event source (phase 7). Answers on
 /// `message_edit_history` / `event_source` poll events; see rooms.rs.
 #[no_mangle]
@@ -8511,6 +8524,32 @@ fn install_event_handlers(
                             // still read `decrypted` — remove after prep+6.
                             "decrypted": is_encrypted,
                         },
+                    }),
+                );
+            }
+        },
+    );
+
+    // v0.9 (phase 2): reactions from sync, ANY room, for the Activity Center
+    // — a reaction to the user's own message is activity, and the timeline
+    // diff stream only covers the open room. Ids, the sender and a bounded
+    // key cross; the C++ side decides whether the target is its own.
+    let reaction_events = Arc::clone(&events);
+    client.add_event_handler(
+        move |ev: matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent, room: Room| {
+            let events = Arc::clone(&reaction_events);
+            async move {
+                let key: String = ev.content.relates_to.key.chars().take(32).collect();
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "reaction_event",
+                        "room_id": room.room_id().to_string(),
+                        "event_id": ev.event_id.to_string(),
+                        "target_event_id": ev.content.relates_to.event_id.to_string(),
+                        "sender": ev.sender.to_string(),
+                        "key": key,
+                        "timestamp_ms": u64::from(ev.origin_server_ts.get()),
                     }),
                 );
             }
