@@ -40,8 +40,21 @@ class QmlBindingContractTest : public QObject
 
     static QList<TextElement> textElements(const QString &source)
     {
-        static const QRegularExpression opener(
-            QStringLiteral("\\b(Label|Text|AppLabel|ToolTip)\\s*\\{"));
+        // Every element that RENDERS `text:` AND CAN CARRY A FORMAT.
+        //
+        // MenuItem and AppMenuItem are deliberately NOT here, and adding them
+        // was a mistake that cost a broken build: an AbstractButton has a
+        // `text` property but no `textFormat`, so `textFormat:` on one is a
+        // LOAD-TIME error that makes the whole component unavailable and
+        // cascades into every parent — the same shape as assigning
+        // `font.families`, and just as invisible to qmlformat.
+        //
+        // A menu row still renders remote text, and that is handled where it
+        // can be: AppMenuItem's own contentItem Label declares PlainText once,
+        // so every menu row in the app inherits it and no call site needs to
+        // (or is able to) repeat it.
+        static const QRegularExpression opener(QStringLiteral(
+            "\\b(Label|Text|AppLabel|ToolTip)\\s*\\{"));
         QList<TextElement> found;
         QRegularExpressionMatchIterator it = opener.globalMatch(source);
         while (it.hasNext()) {
@@ -69,8 +82,27 @@ class QmlBindingContractTest : public QObject
                 const QChar c = source.at(i);
                 if (c == QLatin1Char('{')) {
                     ++depth;
-                    if (depth > 1)
+                    if (depth > 1) {
+                        // A BLOCK BINDING (`text: { ... }`) opens a brace on
+                        // the property's own line. The walker used to swallow
+                        // that line into the nested scope and record nothing,
+                        // so the element was skipped ENTIRELY and counted as
+                        // examined by nobody — 38 elements tree-wide were
+                        // invisible, four of which render remote text and
+                        // would have failed. Flush the pending line as a
+                        // property first, then keep collecting.
+                        if (depth == 2 && !current.trimmed().isEmpty()) {
+                            const QString opened = current.trimmed();
+                            static const QRegularExpression newProp(
+                                QStringLiteral("^[A-Za-z_][A-Za-z0-9_.]*\\s*:"));
+                            if (newProp.match(opened).hasMatch()) {
+                                element.properties << opened;
+                                current.clear();
+                                continue;
+                            }
+                        }
                         current.append(c);
+                    }
                     continue;
                 }
                 if (c == QLatin1Char('}')) {
@@ -85,7 +117,11 @@ class QmlBindingContractTest : public QObject
                         // A line that opens a new property starts a new entry;
                         // anything else continues the previous one.
                         static const QRegularExpression newProperty(
-                            QStringLiteral("^[A-Za-z_][A-Za-z0-9_.]*\\s*:"));
+                            QStringLiteral(
+                                "^([A-Za-z_][A-Za-z0-9_.]*\\s*:"
+                                "|readonly\\b|property\\b|function\\b"
+                                "|signal\\b|component\\b|required\\b"
+                                "|on[A-Z][A-Za-z0-9_]*\\s*:)"));
                         if (!element.properties.isEmpty()
                             && !newProperty.match(trimmed).hasMatch()
                             && !trimmed.startsWith(QLatin1String("//"))) {
@@ -482,41 +518,80 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("textFormat: Text.PlainText")));
     }
 
-    // Every surface that shows UNSANITIZED server text must say so. A QML
-    // Label defaults to Text.AutoText, which runs Qt::mightBeRichText() and
-    // hands anything containing a known tag to the rich-text engine — so a
-    // room topic or room name of `<img src="http://attacker/x">` makes every
-    // viewer's client fetch that URL, straight past the media bridge §6
-    // requires everything to go through. Two independent pre-release audits
-    // found five such Labels in the 0.8.4 round. None of them was a new
-    // mistake in kind: RoomDelegate's preview label has been pinned this way
-    // for exactly this reason, and these were simply missed.
+    // EVERY text binding that is not one of our own literals must declare its
+    // format. A QML Label defaults to Text.AutoText, which runs
+    // Qt::mightBeRichText() and hands anything containing a known tag to the
+    // rich-text engine — so a room name, topic or display name of
+    // `<img src="http://attacker/x">` makes every viewer's client fetch that
+    // URL on sight, past the media bridge §6 requires everything to go
+    // through, and an unsolicited invite is enough to put a stranger's room
+    // name in front of someone.
     //
-    // ANCHORED ON THE TEXT EXPRESSION, never on a fixed window after an
-    // objectName — a comment added inside the block silently defeats that
-    // shape, which has cost this suite four cases already.
+    // THE RULE IS INVERTED ON PURPOSE, and this is its third shape. It began
+    // as a list of the six sinks two audits happened to look at. A sweep the
+    // same day found twenty-eight more. A reviewer then found the allowlist
+    // still blind three ways: one property hop defeated it (`text: root._label`
+    // aliasing a display name), it was case-sensitive so `senderDisplayName`
+    // and `channelName` slipped through, and the parser silently SKIPPED every
+    // element using a block binding (`text: { ... }`) — 38 of them, four
+    // rendering remote text.
+    //
+    // Guessing which identifiers are attacker-controlled is the part that
+    // keeps failing, so it is no longer guessed. Anything that is not a bare
+    // `qsTr("literal")` (or a plain string literal, or a lookup on our own
+    // theme/settings singletons) must say what it is, and the exemptions are
+    // listed here where they can be argued with.
     void unsanitizedServerTextIsAlwaysPlainText()
     {
-        // A RULE OVER THE WHOLE TREE, not a list of the sinks two audits
-        // happened to look at. The first version of this case named six, and
-        // a sweep written the same day found twenty-eight more of exactly the
-        // same shape — room and space names in the room list, Home, search
-        // results, Room Information and Space settings, and the display name
-        // on the verification card. A list closes the instances; only a sweep
-        // closes the class.
+        // WHAT COUNTS AS TEXT WE DO NOT CONTROL.
         //
-        // Identifiers whose VALUE is chosen by a remote party: another user,
-        // a room's state, or a foreign homeserver. `qsTr("literal")` alone is
-        // ours and is skipped; `qsTr("in %1").arg(roomName)` is not.
-        static const QRegularExpression remotelyChosen(QStringLiteral(
-            "\\b(topic|roomName|spaceName|displayName|senderName|memberName"
-            "|authorName|reactionKey|statusText|statusMessage|aliasText"
-            "|canonicalAlias|packName|stickerName|deviceName|sessionName"
-            "|\\.name)\\b"));
-        static const QRegularExpression ourOwnLiteral(
-            QStringLiteral("^text\\s*:\\s*qsTr\\([^)]*\\)\\s*$"));
+        // Inverting the rule entirely (require a format on every non-literal
+        // binding) was tried and rejected: it flags 434 elements, almost all
+        // of them counts, timestamps and durations, and a numeric label
+        // rendering AutoText is harmless. The value of the rule is in what it
+        // catches, and burying six real sinks in 434 rows destroys that.
+        //
+        // So it stays identifier-based, with the three ways the first version
+        // was blind closed:
+        //   * CASE-INSENSITIVE. `senderDisplayName`, `ownerDisplayName`,
+        //     `panelRoomName` and `channelName` all escaped a \b-anchored
+        //     case-sensitive list that only knew `displayName` and `.name`.
+        //   * ONE PROPERTY HOP is followed. `text: root._label` says nothing
+        //     on its own, so when a binding is a bare property reference the
+        //     sweep looks that property up in the same file and judges what
+        //     IT is bound to. That is how the call tiles' `_label` and
+        //     `primaryLabel` aliases of a display name hid.
+        //   * BLOCK BINDINGS are now parsed at all (see textElements).
+        static const QRegularExpression remotelyChosen(
+            QStringLiteral(
+                "(topic|roomname|spacename|displayname|sendername|membername"
+                "|authorname|channelname|dmname|targetname|inviter|invitee"
+                "|reactionkey|statustext|statusmessage|alias|packname"
+                "|stickername|devicename|sessionname|filename|attribution"
+                "|\\bsender\\b|\\buserid\\b|\\bbody\\b|\\bpreview\\b"
+                "|\\bname\\b|\\blabel\\b|\\bsubtitle\\b)"),
+            QRegularExpression::CaseInsensitiveOption);
+        // Our own literals, which cannot carry anything remote.
+        static const QRegularExpression ourOwnText(QStringLiteral(
+            "^text\\s*:\\s*(qsTr\\(.*\\)|qsTrId\\(.*\\)"
+            "|\"[^\"]*\"|'[^']*')\\s*$"));
+        // A binding that is nothing but a property reference, e.g.
+        // `text: root._label` or `text: tile.primaryLabel`.
+        static const QRegularExpression bareAlias(QStringLiteral(
+            "^text\\s*:\\s*[A-Za-z_][A-Za-z0-9_]*\\.([A-Za-z_][A-Za-z0-9_]*)\\s*$"));
+
+        // What `name` is bound to elsewhere in this file, for the one hop.
+        const auto aliasTarget = [](const QString &source, const QString &name) {
+            const QRegularExpression decl(
+                QStringLiteral("\\b(?:readonly\\s+)?property\\s+\\w+\\s+")
+                + QRegularExpression::escape(name)
+                + QStringLiteral("\\s*:([^\\n]*)"));
+            const QRegularExpressionMatch m = decl.match(source);
+            return m.hasMatch() ? m.captured(1) : QString();
+        };
 
         int checked = 0;
+        int exempt = 0;
         QStringList offenders;
         const QDir dir(QStringLiteral(QML_DIR));
         const QStringList files =
@@ -531,31 +606,84 @@ private Q_SLOTS:
                 const QString binding = element.property(QStringLiteral("text"));
                 if (binding.isEmpty())
                     continue;
-                if (ourOwnLiteral.match(binding).hasMatch())
+                if (ourOwnText.match(binding).hasMatch()) {
+                    ++exempt;
                     continue;
-                if (!remotelyChosen.match(binding).hasMatch())
+                }
+                bool hostile = remotelyChosen.match(binding).hasMatch();
+                if (!hostile) {
+                    // One hop: resolve a bare alias to what it is bound to.
+                    const QRegularExpressionMatch alias = bareAlias.match(binding);
+                    if (alias.hasMatch()) {
+                        const QString target =
+                            aliasTarget(source, alias.captured(1));
+                        hostile = !target.isEmpty()
+                            && remotelyChosen.match(target).hasMatch();
+                    }
+                }
+                if (!hostile) {
+                    ++exempt;
                     continue;
+                }
                 ++checked;
                 // Its OWN declaration, at its own brace depth — a nested
-                // child's textFormat must never be credited to its parent.
-                if (element.property(QStringLiteral("textFormat")).isEmpty()) {
+                // child's textFormat must never be credited to its parent —
+                // and it must say PLAIN. Requiring only that the property
+                // EXISTS would let a future `textFormat: Text.RichText` on a
+                // remote-text label pass the very check written to stop it.
+                const QString declared =
+                    element.property(QStringLiteral("textFormat"));
+                // ARGUED EXEMPTION: a `highlighted*()` helper deliberately
+                // RETURNS markup — it wraps the matched substring in a
+                // <font> tag so a search hit is visible — and it escapes the
+                // untrusted name FIRST. Such a binding must be rich text, so
+                // demanding PlainText here would break the highlight it
+                // exists for. The exemption is conditional on the helper
+                // actually escaping: if someone writes a highlighter that
+                // does not, this stops exempting it.
+                static const QRegularExpression highlighter(
+                    QStringLiteral("\\b(highlighted[A-Za-z0-9_]*)\\s*\\("));
+                const QRegularExpressionMatch helper =
+                    highlighter.match(binding);
+                if (helper.hasMatch()) {
+                    const QRegularExpression definition(
+                        QStringLiteral("function\\s+")
+                        + QRegularExpression::escape(helper.captured(1))
+                        + QStringLiteral("\\s*\\([^)]*\\)\\s*\\{"));
+                    const QRegularExpressionMatch defined =
+                        definition.match(source);
+                    if (defined.hasMatch()
+                        && source.mid(defined.capturedEnd(), 400)
+                               .contains(QStringLiteral("escapeHtml("))) {
+                        ++exempt;
+                        continue;
+                    }
+                }
+                if (!declared.contains(QStringLiteral("PlainText"))) {
                     offenders << QStringLiteral("%1:%2  %3")
                                      .arg(name)
                                      .arg(element.line)
-                                     .arg(binding.left(70));
+                                     .arg(binding.left(72));
                 }
             }
         }
         // A sweep that matched nothing passes vacuously, which is worse than
-        // no sweep: it reads as coverage.
-        QVERIFY2(checked > 25,
+        // no sweep: it reads as coverage. Both halves are asserted, so a
+        // parser regression that stops FINDING elements fails too.
+        QVERIFY2(checked > 40,
                  qPrintable(QStringLiteral("the sweep only examined %1 bindings; "
-                                           "it is no longer finding them")
+                                           "it has stopped finding them")
                                 .arg(checked)));
+        QVERIFY2(exempt > 200,
+                 qPrintable(QStringLiteral("only %1 bindings were recognised as "
+                                           "our own literals; the exemption "
+                                           "pattern has stopped matching")
+                                .arg(exempt)));
         QVERIFY2(offenders.isEmpty(),
                  qPrintable(QStringLiteral(
-                     "%1 element(s) render remotely-chosen text without "
-                     "textFormat, so Text.AutoText will render HTML in them:\n  %2")
+                     "%1 element(s) render text we do not control without "
+                     "declaring a PLAIN text format, so markup in it will be "
+                     "rendered:\n  %2")
                                 .arg(offenders.size())
                                 .arg(offenders.join(QStringLiteral("\n  ")))));
     }

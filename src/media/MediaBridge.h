@@ -25,9 +25,22 @@ class VideoPosterExtractor;
 // URI); the bridge deduplicates requests, bounds concurrency, forwards to
 // MatrixClient::fetchMedia / fetchMxcThumbnail (the SDK decrypts encrypted
 // attachments internally), and keeps the resulting bytes in a bounded
-// in-memory LRU cache shared with MediaImageProvider. Nothing is ever
-// written to CacheStore or any other disk location except an explicit,
-// user-chosen Save As destination. The cache is cleared on sign-out.
+// in-memory LRU cache shared with MediaImageProvider. Nothing is written to
+// CacheStore. The cache is cleared on sign-out.
+//
+// WHAT DOES REACH DISK, stated precisely because an earlier version of this
+// comment claimed "nothing … except Save As" and that was not true:
+//   * an explicit, user-chosen Save As destination, and the user's own
+//     starred-GIF store — both deliberate, both a user gesture;
+//   * playable and animated payloads, written to a 0600 temp file in a 0700
+//     scratch directory so the in-process player can map them rather than
+//     hold a video in the RAM LRU. Removed by clear() and on destruction,
+//     but they survive a crash or SIGKILL;
+//   * the SDK's own sqlite media store, for UNENCRYPTED rooms only. An
+//     encrypted room's media is never admitted to it — `media_fetch` in
+//     rust/src/rooms.rs passes use_cache=false for every encrypted source,
+//     because that store has no cipher and the SDK would write the DECRYPTED
+//     bytes. See the reasoning there before changing it.
 class MediaBridge : public QObject
 {
     Q_OBJECT
@@ -226,6 +239,19 @@ public:
     // writes it atomically to the user-chosen destination. Never executes
     // or opens the file. Result arrives via saveFinished().
     Q_INVOKABLE void saveAs(const QString &mediaKey, const QUrl &destination);
+    /// A safe default file name for a save dialog, from a SENDER-CHOSEN
+    /// attachment name. Returns empty when it cannot produce a meaningful
+    /// one, so the caller can let the dialog decide. Never seed a dialog's
+    /// path with a raw attachment name.
+    Q_INVOKABLE QString suggestedSaveName(const QString &rawName) const;
+
+    /// True when the payload opens as markup (SVG and friends) or as gzip
+    /// (SVGZ). Image-class results are refused on this.
+    ///
+    /// PUBLIC because MediaImageProvider is the OTHER place bytes reach a
+    /// decoder, and it applies the same refusal to a payload whose raster
+    /// format this build does not recognise. One rule, both doors.
+    static bool looksLikeMarkupOrCompressed(const QByteArray &bytes);
 
     // v0.6.6: "star a chat GIF" fetch trigger. Fetches the full payload
     // (cache or network, decrypted by the SDK exactly like every other
@@ -374,9 +400,6 @@ private:
     // thumbnail results with the parent's mimetype anyway — so the bytes,
     // not the label, decide whether the payload may enter the image path.
     static bool looksLikeAvContainer(const QByteArray &bytes);
-    /// True when the payload opens as markup (SVG and friends) or as gzip
-    /// (SVGZ). Image-class results are refused on this: see the definition.
-    static bool looksLikeMarkupOrCompressed(const QByteArray &bytes);
     static QString sanitizedFileName(const QString &name);
     void writeSaveFile(const QUrl &destination, const QByteArray &bytes,
                        const QString &mediaKey);

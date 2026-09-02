@@ -529,8 +529,13 @@ char *mx_rust_timeline_edit(void *client,
                             const char *new_body,
                             const char *mention_user_ids,
                             const char *body_spec);
+/* `thread_root_id` selects the timeline that HOLDS the event: empty for the
+ * main timeline, the thread's root event id for a thread reply. The live room
+ * timeline hides threaded events, so reacting to a thread reply through it
+ * silently did nothing. */
 char *mx_rust_timeline_toggle_reaction(void *client,
                                        const char *room_id,
+                                       const char *thread_root_id,
                                        const char *target_event_id,
                                        const char *key);
 char *mx_rust_timeline_redact(void *client,

@@ -115,6 +115,11 @@ private:
     // memory. QPointer null-clears itself on destruction.
     QPointer<QTcpSocket> m_active;
     QString m_redirectUri;
+    // This attempt's secret callback path, `/callback/<128 bits>`.
+    // Regenerated per start(); a request on any other path is not the
+    // callback. See start() for why the legacy SSO flow needs it.
+    QString m_callbackPath;
+    QString m_callbackNonce;
     QTimer m_timer;
     std::chrono::milliseconds m_timeout{std::chrono::minutes(5)};
     Flow m_flow = Flow::OAuth;

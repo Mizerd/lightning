@@ -463,9 +463,45 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // their composite id) runs the pure decision; the manager delivers via
     // freedesktop DBus. Bodies are never logged or persisted.
     connect(m_client.get(), &MatrixClient::eventAppended, this,
-            [this](const QString &roomId, const TimelineEvent &event) {
-        if (MatrixClient::isThreadTimelineId(roomId))
-            return;   // the room copy of the same event already notifies
+            [this](const QString &composedRoomId, const TimelineEvent &event) {
+        // A THREAD COPY IS MAPPED, NOT DROPPED, and the comment that used to
+        // sit here — "the room copy of the same event already notifies" — was
+        // false on the Rust backend. The live room timeline is built with
+        // `hide_threaded_events: true`, so there IS no room copy of a thread
+        // reply; and the raw-sync mirror, the only other producer, early
+        // returns for the room that is currently OPEN. So for the open room a
+        // thread reply reached this handler from nowhere at all: someone
+        // @-mentioning you in a thread of the room on your screen produced no
+        // notification, no sound and no Activity Center row, while the same
+        // mention in a BACKGROUND room worked. Leaving a room open made you
+        // less likely to be told about a mention in it.
+        //
+        // The composite never leaves this scope (§8): everything downstream
+        // sees the real room id, and the payload's threadRootId still routes
+        // the click. Double notification is prevented by event id rather than
+        // by discarding the copy, which is what the old comment was reaching
+        // for.
+        const bool fromThread = MatrixClient::isThreadTimelineId(composedRoomId);
+        const QString roomId = fromThread
+            ? MatrixClient::threadTimelineRoomId(composedRoomId)
+            : composedRoomId;
+        if (roomId.isEmpty())
+            return;
+        // Dedup on BOTH branches. Checking only the thread copy made the
+        // claim half true: if a room copy of the same event ever arrives
+        // (a backend without hide_threaded_events, or the mock), it would
+        // still notify a second time. Any event carrying a thread root is a
+        // candidate for both producers, so both consult the same set.
+        if (fromThread || !event.threadRootId.isEmpty()) {
+            if (event.eventId.isEmpty()
+                || m_notifiedThreadEventIds.contains(event.eventId))
+                return;
+            m_notifiedThreadEventIds.insert(event.eventId);
+            // Bounded: this only has to outlive the moment two producers
+            // could both deliver one event, not the session.
+            if (m_notifiedThreadEventIds.size() > 512)
+                m_notifiedThreadEventIds.clear();
+        }
         // Receiving activity is a reason to refresh a visible sender's
         // presence promptly, but never evidence for fabricating "online".
         // PresenceManager applies only the homeserver's subsequent answer.
@@ -494,8 +530,20 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         context.previewMode = static_cast<NotificationManager::PreviewMode>(
             m_settings->notificationPreview());
         context.notificationsEnabled = m_settings->notificationsEnabled();
+        // "ON SCREEN" IS THREAD-AWARE. A reply in a thread whose panel is not
+        // open is not visible just because the room behind it is: the room
+        // timeline hides threaded events, so there is nothing on screen for
+        // the user to have read. Suppressing on the room's visibility alone
+        // is what kept an @-mention in a thread of the OPEN room silent, and
+        // remapping the event to its real room id (above) did not by itself
+        // change that — it only restored the Activity Center row and the
+        // scrolled-away case.
+        const bool threadPanelShowingThis =
+            fromThread && m_thread
+            && m_thread->rootEventId() == event.threadRootId;
         context.roomVisibleAtLatest =
-            roomId == m_currentRoomId && m_activeRoomAtLatest;
+            roomId == m_currentRoomId && m_activeRoomAtLatest
+            && (!fromThread || threadPanelShowingThis);
         // The open room's own backlog arrives as live appends the moment
         // sliding sync subscribes it, while its view is still hydrating and
         // therefore not yet "at latest".
@@ -792,17 +840,17 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 const bool privatePreview =
                     m_settings->notificationPreview() == 2;
                 const QVariantMap room = m_roomList->findRoom(roomId);
-                // Room names and (historical) localparts are member-chosen
-                // text: escaped, because freedesktop bodies may render
-                // markup on daemons that advertise it.
+                // NOT escaped here. NotificationManager escapes exactly once,
+                // at the D-Bus call, and only when the daemon advertises
+                // body-markup — it is the only layer that knows. Escaping
+                // here as well produced "Ben &amp; Jerry&#39;s" on GNOME and
+                // KDE.
                 const QString roomName = room.value(QStringLiteral("name"))
-                                             .toString()
-                                             .toHtmlEscaped();
+                                             .toString();
                 // Localpart only — same restraint as the timeline's
                 // unresolved-profile fallback; never the bare full MXID.
                 const QString caller = senderId.mid(1)
-                                           .section(QLatin1Char(':'), 0, 0)
-                                           .toHtmlEscaped();
+                                           .section(QLatin1Char(':'), 0, 0);
                 const QString body = privatePreview
                     ? tr("Incoming voice call")
                     : (roomName.isEmpty()
@@ -842,9 +890,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 const bool privatePreview =
                     m_settings->notificationPreview() == 2;
                 const QVariantMap room = m_roomList->findRoom(roomId);
+                // See above: escaping belongs to NotificationManager alone.
                 const QString roomName = room.value(QStringLiteral("name"))
-                                             .toString()
-                                             .toHtmlEscaped();
+                                             .toString();
                 m_notifications->showGeneric(
                     tr("Missed call"),
                     privatePreview || roomName.isEmpty()
@@ -1336,6 +1384,27 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             // Start a fresh crypto epoch for the new session, then capture it
             // at dispatch so a logout before the answer arrives rejects it.
             m_cryptoHealth->resetForNewGeneration();
+            m_cryptoQueryGeneration = m_cryptoHealth->generation();
+            rust->queryCryptoHealth();
+        });
+        // AND AGAIN ONCE SYNC HAS ACTUALLY RUN. `loginSucceeded` fires inside
+        // the login_ok handler, BEFORE sync starts and therefore before the
+        // first /keys/query — so on a first sign-in the crypto store has no
+        // own identity yet and `own_identity_available` comes back false.
+        // AppController latches that as "Cross-signing unavailable", which
+        // `sessionVerificationNeeded` deliberately does not prompt for, and
+        // nothing re-read it for the rest of the session: the only other
+        // callers are the verificationDone handler and a manual Refresh link.
+        //
+        // The result was that signing in to an account that DOES have
+        // cross-signing told the user there was nothing to verify against and
+        // never asked again — on exactly the session where verification
+        // matters most, since other devices withhold room keys from an
+        // unverified one.
+        connect(rust, &MatrixClient::initialSyncDoneChanged, this, [this, rust] {
+            if (!rust->initialSyncDone())
+                return;
+            rust->refreshOwnDeviceStatus();
             m_cryptoQueryGeneration = m_cryptoHealth->generation();
             rust->queryCryptoHealth();
         });
@@ -2183,12 +2252,30 @@ QString AppController::preferredCallLane(const QString &roomId) const
         return QStringLiteral("matrixrtc");
     // Legacy fallback, and only where it is protocol-safe: a legacy
     // m.call.invite rings EVERY member of a room, so it is 1:1 DMs only.
-    if (m_calls && m_calls->mediaBackendAvailable()) {
-        const QVariantMap room = m_roomList->findRoom(roomId);
-        if (room.value(QStringLiteral("isDirect")).toBool())
-            return QStringLiteral("legacy");
+    if (m_calls && m_calls->mediaBackendAvailable()
+        && !legacyCallPeer(roomId).isEmpty()) {
+        return QStringLiteral("legacy");
     }
     return QString();
+}
+
+QString AppController::legacyCallPeer(const QString &roomId) const
+{
+    // `isDirect` is not "1:1": it is "m.direct lists at least one target",
+    // and a DM a third person was invited into is still direct. The legacy
+    // lane must name exactly one peer -- the invite carries them as
+    // `invitee` so only they ring, and every later signal on the session is
+    // bound to them -- so the room must map to exactly one direct target.
+    if (!m_roomList)
+        return QString();
+    const QVariantMap room = m_roomList->findRoom(roomId);
+    if (!room.value(QStringLiteral("isDirect")).toBool())
+        return QString();
+    const QStringList targets =
+        room.value(QStringLiteral("directUserIds")).toStringList();
+    if (targets.size() != 1 || targets.first().isEmpty())
+        return QString();
+    return targets.first();
 }
 
 bool AppController::canStartCall(const QString &roomId) const
@@ -2221,7 +2308,7 @@ bool AppController::startCall(const QString &roomId, bool withVideo)
                    "available here yet."));
             return false;
         }
-        const bool ok = m_calls->placeCall(roomId);
+        const bool ok = m_calls->placeCall(roomId, legacyCallPeer(roomId));
         qCInfo(lcApp) << "legacy call dispatched ok=" << ok;
         return ok;
     }

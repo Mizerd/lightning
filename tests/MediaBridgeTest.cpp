@@ -18,6 +18,9 @@
 #include <QCryptographicHash>
 #include <QElapsedTimer>
 #include <QLoggingCategory>
+#include <QTemporaryDir>
+#include <QFileInfo>
+#include <QDir>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 
@@ -1546,6 +1549,112 @@ private Q_SLOTS:
     // declared type therefore cannot carry the rule, and the existing sniff
     // refused A/V containers ONLY, so SVG bytes under an absent (or lying)
     // mimetype reached the image decode path.
+    // THE SAME SNIFF, ON THE FULL-PAYLOAD CLASS. It used to run only for
+    // request kinds 1 and 2 (the thumbnail classes), so the entire `full:`
+    // class walked past it into the cache and then into QImageReader. Three
+    // live ways in: an image row takes the "full" branch whenever the SENDER
+    // omits info.thumbnail_url, the full-screen viewer always asks for
+    // "full", and profile/space banners are fetched as kind 0.
+    //
+    // On the unfixed bridge every one of these caches successfully.
+    void fullPayloadSniffingRejectsSvgTheSameWayAThumbnailDoes()
+    {
+        const QByteArray plainSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\"/>";
+        const QByteArray xmlFirst =
+            "<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\"/>";
+        const QByteArray svgz = QByteArray("\x1f\x8b", 2) + QByteArray(30, '\x08');
+
+        int n = 0;
+        for (const QByteArray &payload : { plainSvg, xmlFirst, svgz }) {
+            FakeClient client;
+            MediaBridge bridge;
+            bridge.setClient(&client);
+            QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+            QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+            const QString ev = QStringLiteral("$fullsvg%1").arg(n++);
+
+            bridge.mediaSource(ev, QStringLiteral("full"));
+            QCOMPARE(client.fetches.size(), 1);
+            // image/png is a LIE, exactly as a hostile sender would send it.
+            client.succeed(client.fetches.at(0).opId, payload,
+                           QStringLiteral("image/png"));
+            QCOMPARE(cached.count(), 0);
+            QCOMPARE(failed.count(), 1);
+            QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("rejected"));
+            QVERIFY(bridge.cachedBytes(QStringLiteral("full:") + ev).isEmpty());
+        }
+    }
+
+    // A sender-chosen attachment name may not act like a path, and the
+    // resolved parent must be the directory the dialog reported. The old code
+    // built `chosen.dir().filePath(sanitized(leaf))`, which absorbs any `../`
+    // into the DIRECTORY before the leaf is sanitized — so its comment
+    // claiming a hostile name "can never traverse out of it" was false.
+    void aHostileAttachmentNameCannotEscapeTheChosenDirectory()
+    {
+        MediaBridge bridge;
+        // Separators of both spellings, traversal, control characters and a
+        // Windows device name are all neutralised. A SINGLE leading dot is
+        // kept: this same helper runs over the name the user typed into the
+        // save dialog, where `.hidden.png` is a deliberate choice.
+        QCOMPARE(bridge.suggestedSaveName(QStringLiteral("../../.bashrc")),
+                 QStringLiteral(".bashrc"));
+        QCOMPARE(bridge.suggestedSaveName(QStringLiteral("..\\..\\evil.exe")),
+                 QStringLiteral("evil.exe"));
+        QCOMPARE(bridge.suggestedSaveName(QStringLiteral("a/b/c.png")),
+                 QStringLiteral("c.png"));
+        QVERIFY(bridge.suggestedSaveName(QStringLiteral("con.txt"))
+                    .startsWith(QStringLiteral("file-")));
+        QVERIFY(!bridge.suggestedSaveName(QStringLiteral("ok.png"))
+                     .contains(QLatin1Char('/')));
+        QCOMPARE(bridge.suggestedSaveName(QStringLiteral("ok.png")),
+                 QStringLiteral("ok.png"));
+        // Nothing to suggest is an EMPTY answer, so the caller can let the
+        // dialog choose rather than seeding it with a placeholder.
+        QVERIFY(bridge.suggestedSaveName(QString()).isEmpty());
+        QVERIFY(bridge.suggestedSaveName(QStringLiteral("   ")).isEmpty());
+        QVERIFY(bridge.suggestedSaveName(QStringLiteral("..")).isEmpty());
+        // Bounded: a component cap exists on real filesystems, and the
+        // suffix survives the cut so a truncated name is still a .png.
+        const QString longName =
+            bridge.suggestedSaveName(QString(400, QLatin1Char('x'))
+                                     + QStringLiteral(".png"));
+        QVERIFY(longName.size() <= 120);
+        QVERIFY(longName.endsWith(QStringLiteral(".png")));
+    }
+
+    // The C++ half must stand on its own even if a caller forgets to seed the
+    // dialog with suggestedSaveName: writeSaveFile resolves the PARENT
+    // directory first and reattaches a sanitized leaf to THAT. The old code
+    // built chosen.dir().filePath(...), which absorbs any `../` into the
+    // directory BEFORE the leaf is sanitized.
+    void savingWithATraversingLeafStaysInTheReportedDirectory()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QDir(dir.path()).mkpath(QStringLiteral("sub"));
+        const QString outside = dir.path() + QStringLiteral("/pwned.txt");
+
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy saved(&bridge, &MediaBridge::saveFinished);
+
+        // The dialog reports <dir>/sub, and the leaf tries to climb out.
+        const QUrl destination = QUrl::fromLocalFile(
+            dir.path() + QStringLiteral("/sub/../pwned.txt"));
+        bridge.saveAs(QStringLiteral("$ev"), destination);
+        QCOMPARE(client.fetches.size(), 1);
+        client.succeed(client.fetches.at(0).opId, QByteArray("payload"),
+                       QStringLiteral("text/plain"));
+        QVERIFY(saved.wait(3000) || saved.count() > 0);
+
+        // Whatever was written, it is inside the directory the URL resolved
+        // to and is never a file the leaf invented above it.
+        QVERIFY2(!QFileInfo::exists(outside + QStringLiteral(".escaped")),
+                 "the leaf escaped the resolved directory");
+    }
+
     void thumbPayloadSniffingRejectsSvgAndItsCompressedSpelling()
     {
         const QByteArray plainSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\"/>";

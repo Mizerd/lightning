@@ -49,12 +49,12 @@
     </message>
     <message>
         <location line="-26"/>
-        <location line="+183"/>
+        <location line="+185"/>
         <source>Sign out</source>
         <translation>تسجيل الخروج</translation>
     </message>
     <message>
-        <location line="-163"/>
+        <location line="-165"/>
         <source>Edit status…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -79,7 +79,7 @@
         <translation>إزالة الحساب؟</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+34"/>
         <source>Remove %1 from this device? Its local Lightning data, encryption store, and sign-in are deleted from this computer only. Messages stay on the server, and other accounts are not affected.</source>
         <translation>إزالة %1 من هذا الجهاز؟ ستُحذف بيانات Lightning المحلية ومخزن التعمية وتسجيل الدخول من هذا الحاسوب فقط. تبقى الرسائل على الخادوم، ولا تتأثر الحسابات الأخرى.</translation>
     </message>
@@ -286,7 +286,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+660"/>
+        <location filename="../src/app/AppController.cpp" line="+708"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -397,7 +397,7 @@
         <translation>غير متصل — إعادة المحاولة</translation>
     </message>
     <message>
-        <location line="+127"/>
+        <location line="+148"/>
         <source>The server refused to rename this session.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -433,29 +433,29 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1527"/>
+        <location line="+1545"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>تعذّر على Lightning قراءة الملف المحدد.</translation>
     </message>
     <message>
-        <location line="-1533"/>
+        <location line="-1551"/>
         <source>A room-key import is already in progress.</source>
         <translation>هناك استيراد لمفاتيح الغرف قيد التنفيذ بالفعل.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2077"/>
+        <location line="+2095"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-2075"/>
+        <location line="-2093"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
     <message>
-        <location line="+466"/>
+        <location line="+484"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>تحتاج مكالمات الفيديو إلى خدمة MatrixRTC، وهي غير متوفرة هنا بعد.</translation>
     </message>
@@ -827,7 +827,7 @@
         <translation>تشغيل %1</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+17"/>
         <source>This audio cannot be played</source>
         <translation>تعذّر تشغيل هذا الصوت</translation>
     </message>
@@ -952,7 +952,7 @@
 <context>
     <name>CallDeviceSettings</name>
     <message>
-        <location filename="../qml/CallDeviceSettings.qml" line="+63"/>
+        <location filename="../qml/CallDeviceSettings.qml" line="+65"/>
         <source>System default</source>
         <translation>الافتراضي للنظام</translation>
     </message>
@@ -1199,8 +1199,8 @@
         <translation>اتصال ضعيف</translation>
     </message>
     <message>
-        <location line="+458"/>
-        <location line="+120"/>
+        <location line="+462"/>
+        <location line="+122"/>
         <source>Volume for %1</source>
         <translation>مستوى صوت %1</translation>
     </message>
@@ -1297,17 +1297,17 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+285"/>
+        <location line="+287"/>
         <source>Screen share</source>
         <translation>مشاركة الشاشة</translation>
     </message>
     <message>
-        <location line="-175"/>
+        <location line="-177"/>
         <source>Waiting for the picture…</source>
         <translation>في انتظار الصورة…</translation>
     </message>
     <message>
-        <location line="+198"/>
+        <location line="+200"/>
         <source>Screen share volume</source>
         <translation>حجم مشاركة الشاشة</translation>
     </message>
@@ -1523,7 +1523,7 @@
         <translation>إغلاق منتقي الألوان</translation>
     </message>
     <message>
-        <location line="+187"/>
+        <location line="+189"/>
         <source>Colour, as a hex value</source>
         <translation>اللون بصيغة ست عشرية</translation>
     </message>
@@ -1953,7 +1953,7 @@
 <context>
     <name>CryptoHealthModel</name>
     <message>
-        <location filename="../src/crypto/CryptoHealthModel.cpp" line="+121"/>
+        <location filename="../src/crypto/CryptoHealthModel.cpp" line="+126"/>
         <source>This backend does not support end-to-end encryption.</source>
         <translation>هذه الخلفية لا تدعم التعمية طرفًا إلى طرف.</translation>
     </message>
@@ -2447,13 +2447,13 @@ Size: %3</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+295"/>
-        <location line="+261"/>
+        <location line="+299"/>
+        <location line="+266"/>
         <source>Ask to join</source>
         <translation>طلب الانضمام</translation>
     </message>
     <message>
-        <location line="-555"/>
+        <location line="-564"/>
         <source>Restricted</source>
         <translation>مقيّدة</translation>
     </message>
@@ -2493,13 +2493,13 @@ Size: %3</source>
         <translation>الخادوم (اختياري)</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+87"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message numerus="yes">
-        <location line="+21"/>
-        <location line="+205"/>
+        <location line="+23"/>
+        <location line="+210"/>
         <source>%n member(s)</source>
         <translation>
             <numerusform>لا أعضاء</numerusform>
@@ -2511,25 +2511,25 @@ Size: %3</source>
         </translation>
     </message>
     <message>
-        <location line="-191"/>
-        <location line="+256"/>
+        <location line="-196"/>
+        <location line="+261"/>
         <source>Request pending</source>
         <translation>الطلب قيد الانتظار</translation>
     </message>
     <message>
-        <location line="-249"/>
-        <location line="+256"/>
+        <location line="-254"/>
+        <location line="+261"/>
         <source>Open</source>
         <translation>فتح</translation>
     </message>
     <message>
-        <location line="-244"/>
-        <location line="+260"/>
+        <location line="-249"/>
+        <location line="+265"/>
         <source>Joining…</source>
         <translation>جارٍ الانضمام…</translation>
     </message>
     <message>
-        <location line="-258"/>
+        <location line="-263"/>
         <source>Join</source>
         <translation>انضمام</translation>
     </message>
@@ -2539,7 +2539,7 @@ Size: %3</source>
         <translation>لم يُعثر على غرف</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+14"/>
         <source>That is not a valid directory server name.</source>
         <translation>هذا ليس اسم خادوم دليل صالحًا.</translation>
     </message>
@@ -2579,7 +2579,7 @@ Size: %3</source>
         <translation>هذا ليس عنوان غرفة أو رابطًا صالحًا.</translation>
     </message>
     <message>
-        <location line="+89"/>
+        <location line="+92"/>
         <source>No preview is available for this room — the server does not allow previewing it. You can still try to join.</source>
         <translation>لا تتوفر معاينة لهذه الغرفة — الخادوم لا يسمح بمعاينتها. ما زال بإمكانك محاولة الانضمام.</translation>
     </message>
@@ -2733,7 +2733,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+13"/>
         <source>Encrypted · %1 · sender %2 · device %3 · %4</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2847,7 +2847,7 @@ Size: %3</source>
         <translation>إغلاق</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+18"/>
         <source>Forwarding: %1</source>
         <translation>إعادة التوجيه: %1</translation>
     </message>
@@ -2862,7 +2862,7 @@ Size: %3</source>
         <translation>البحث في الغرف</translation>
     </message>
     <message>
-        <location line="+81"/>
+        <location line="+83"/>
         <source>Encrypted</source>
         <translation>معمّاة</translation>
     </message>
@@ -3013,7 +3013,7 @@ Size: %3</source>
         <translation>لم يُعثر على صور GIF.</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+35"/>
         <source>Searches are sent to the selected GIF provider</source>
         <translation>تُرسل عمليات البحث إلى مزوّد GIF المحدد</translation>
     </message>
@@ -3119,7 +3119,7 @@ Size: %3</source>
         <translation>أهلًا بعودتك</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+21"/>
         <source>Pick up a conversation, or start something new.</source>
         <translation>تابع محادثة، أو ابدأ شيئًا جديدًا.</translation>
     </message>
@@ -3129,7 +3129,7 @@ Size: %3</source>
         <translation>يبدو أنك غير متصل. تجري إعادة الاتصال — تبقى غرفك متاحة.</translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+51"/>
         <source>Open security</source>
         <translation>فتح الأمان</translation>
     </message>
@@ -3174,7 +3174,7 @@ Size: %3</source>
         <translation>محادثة</translation>
     </message>
     <message>
-        <location line="+77"/>
+        <location line="+78"/>
         <source>Your spaces</source>
         <translation>فضاءاتك</translation>
     </message>
@@ -3189,7 +3189,7 @@ Size: %3</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+33"/>
         <source>Nothing here yet</source>
         <translation>لا شيء هنا بعد</translation>
     </message>
@@ -3242,7 +3242,7 @@ Size: %3</source>
         <translation>إزالة من هذا الجهاز</translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+76"/>
         <source>E2EE</source>
         <translation>تعمية طرفًا إلى طرف</translation>
     </message>
@@ -3308,19 +3308,19 @@ Size: %3</source>
 <context>
     <name>ImageViewerOverlay</name>
     <message>
-        <location filename="../qml/ImageViewerOverlay.qml" line="+201"/>
+        <location filename="../qml/ImageViewerOverlay.qml" line="+212"/>
         <source>Copy image</source>
         <translation>نسخ الصورة</translation>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+20"/>
-        <location line="+446"/>
+        <location line="+19"/>
+        <location line="+450"/>
         <source>Save image as…</source>
         <translation>حفظ الصورة باسم…</translation>
     </message>
     <message>
-        <location line="-453"/>
+        <location line="-457"/>
         <source>Close</source>
         <translation>إغلاق</translation>
     </message>
@@ -3345,7 +3345,7 @@ Size: %3</source>
         <translation>الصورة التالية</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+37"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
@@ -3385,7 +3385,7 @@ Size: %3</source>
         <translation>الحجم الفعلي (0)</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+72"/>
         <source>%1 of %2</source>
         <translation>%1 من %2</translation>
     </message>
@@ -3468,7 +3468,7 @@ Size: %3</source>
         <translation>مكالمة صوتية واردة</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+56"/>
         <source>%1 started a call.</source>
         <translation>بدأ %1مكالمة.</translation>
     </message>
@@ -3531,7 +3531,7 @@ Size: %3</source>
 <context>
     <name>InvitePeopleDialog</name>
     <message>
-        <location filename="../qml/InvitePeopleDialog.qml" line="+166"/>
+        <location filename="../qml/InvitePeopleDialog.qml" line="+168"/>
         <source>Invite to %1</source>
         <translation>دعوة إلى %1</translation>
     </message>
@@ -3541,7 +3541,7 @@ Size: %3</source>
         <translation>دعوة أشخاص</translation>
     </message>
     <message>
-        <location line="+67"/>
+        <location line="+71"/>
         <source>%1 is already in this room.</source>
         <translation>%1 موجود بالفعل في هذه الغرفة.</translation>
     </message>
@@ -3556,12 +3556,12 @@ Size: %3</source>
         <translation>تمت دعوة %1 بالفعل.</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+88"/>
         <source>Remove %1</source>
         <translation>إزالة %1</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+42"/>
         <source>Invited</source>
         <translation>مدعو</translation>
     </message>
@@ -3740,12 +3740,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+583"/>
+        <location line="+588"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-581"/>
+        <location line="-586"/>
         <source>Cancel browser sign-in</source>
         <translation>إلغاء تسجيل الدخول عبر المتصفح</translation>
     </message>
@@ -3901,7 +3901,7 @@ Size: %3</source>
         <translation>سيحاول Lightning مجددًا تنظيف الملفات المحلية لـ %1. لا يمس هذا رسائل الخادوم ولا الحسابات الأخرى.</translation>
     </message>
     <message>
-        <location line="+155"/>
+        <location line="+157"/>
         <source>Remove this account</source>
         <translation>إزالة هذا الحساب</translation>
     </message>
@@ -3911,12 +3911,12 @@ Size: %3</source>
         <translation>نسخ التشخيصات المنقّحة</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+33"/>
         <source>Remove account?</source>
         <translation>إزالة الحساب؟</translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="+49"/>
         <source>Remove %1 from this device? Its local Lightning data, encryption store, and sign-in are deleted from this computer only. Messages stay on the server, and other accounts are not affected.</source>
         <translation>إزالة %1 من هذا الجهاز؟ ستُحذف بيانات Lightning المحلية ومخزن التعمية وتسجيل الدخول من هذا الحاسوب فقط. تبقى الرسائل على الخادوم، ولا تتأثر الحسابات الأخرى.</translation>
     </message>
@@ -4106,23 +4106,24 @@ Size: %3</source>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1152"/>
-        <location line="+532"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1191"/>
+        <location line="+567"/>
         <source>The file could not be downloaded.</source>
         <translation>تعذّر تنزيل الملف.</translation>
     </message>
     <message>
-        <location line="-446"/>
+        <location line="-481"/>
         <source>The download timed out.</source>
         <translation>انتهت مهلة التنزيل.</translation>
     </message>
     <message>
-        <location line="+480"/>
+        <location line="+578"/>
         <source>No destination selected.</source>
         <translation>لم تُحدد وجهة.</translation>
     </message>
     <message>
-        <location line="+121"/>
+        <location line="+129"/>
+        <location line="+7"/>
         <source>The destination is not writable.</source>
         <translation>لا يمكن الكتابة في الوجهة.</translation>
     </message>
@@ -4177,18 +4178,18 @@ Size: %3</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+448"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+450"/>
         <source>Profile for %1</source>
         <translation>ملف %1 الشخصي</translation>
     </message>
     <message>
-        <location line="+620"/>
+        <location line="+624"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>الحضور غير متاح</translation>
     </message>
     <message>
-        <location line="-805"/>
+        <location line="-811"/>
         <source>Invited</source>
         <translation>مدعو</translation>
     </message>
@@ -4208,7 +4209,7 @@ Size: %3</source>
         <translation>تم نسخ رابط الملف الشخصي</translation>
     </message>
     <message>
-        <location line="+637"/>
+        <location line="+643"/>
         <source>Bio</source>
         <translation>السيرة الذاتية</translation>
     </message>
@@ -4293,30 +4294,30 @@ Size: %3</source>
         <translation>الدور</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+37"/>
         <source>Set %1 to %2</source>
         <translation>تعيين %1 كـ %2</translation>
     </message>
     <message>
-        <location line="+62"/>
-        <location line="+145"/>
+        <location line="+63"/>
+        <location line="+149"/>
         <source>Remove</source>
         <translation>إخراج</translation>
     </message>
     <message>
-        <location line="-142"/>
-        <location line="+143"/>
+        <location line="-146"/>
+        <location line="+147"/>
         <source>Ban</source>
         <translation>حظر</translation>
     </message>
     <message>
-        <location line="-140"/>
-        <location line="+141"/>
+        <location line="-144"/>
+        <location line="+145"/>
         <source>Unban</source>
         <translation>رفع الحظر</translation>
     </message>
     <message>
-        <location line="-123"/>
+        <location line="-127"/>
         <source>Remove %1 from the room</source>
         <translation>إخراج %1 من الغرفة</translation>
     </message>
@@ -4331,7 +4332,7 @@ Size: %3</source>
         <translation>رفع الحظر عن %1</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+74"/>
         <source>Remove %1 from this room?</source>
         <translation>إخراج %1 من هذه الغرفة؟</translation>
     </message>
@@ -4362,7 +4363,7 @@ Size: %3</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-1199"/>
+        <location line="-1212"/>
         <source>Matrix ID copied</source>
         <translation>نُسخ معرّف Matrix</translation>
     </message>
@@ -4385,7 +4386,7 @@ Size: %3</source>
         <translation>إشارة · مطابقة لـ «%1»</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+104"/>
         <source>Notify everyone in this room</source>
         <translation>أخبر الجميع في هذه الغرفة</translation>
     </message>
@@ -4522,7 +4523,7 @@ Size: %3</source>
         <translation>إنشاء استطلاع…</translation>
     </message>
     <message>
-        <location line="+256"/>
+        <location line="+258"/>
         <source>Failed</source>
         <translation>فشل</translation>
     </message>
@@ -4866,17 +4867,17 @@ Size: %3</source>
     </message>
     <message>
         <location line="+56"/>
-        <location line="+255"/>
+        <location line="+257"/>
         <source>Sent at %1</source>
         <translation>أُرسلت في %1</translation>
     </message>
     <message>
-        <location line="-43"/>
+        <location line="-44"/>
         <source>Sender: %1</source>
         <translation>المرسِل: %1</translation>
     </message>
     <message>
-        <location line="+128"/>
+        <location line="+129"/>
         <source>Go to message from %1</source>
         <translation>الانتقال إلى رسالة %1</translation>
     </message>
@@ -5165,12 +5166,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2094"/>
+        <location line="+2096"/>
         <source>Save as…</source>
         <translation>حفظ باسم…</translation>
     </message>
     <message>
-        <location line="-2064"/>
+        <location line="-2066"/>
         <source>Show image</source>
         <translation>إظهار الصورة</translation>
     </message>
@@ -5381,18 +5382,18 @@ Size: %3</source>
     </message>
     <message>
         <location line="+233"/>
-        <location line="+65"/>
+        <location line="+66"/>
         <source>Video</source>
         <translation>فيديو</translation>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+212"/>
+        <location line="+213"/>
         <source>Save %1 as…</source>
         <translation>حفظ %1 باسم…</translation>
     </message>
     <message>
-        <location line="-211"/>
+        <location line="-212"/>
         <source>video</source>
         <translation>فيديو</translation>
     </message>
@@ -5403,7 +5404,7 @@ Size: %3</source>
         <translation>ملف</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Saving…</source>
         <translation>جارٍ الحفظ…</translation>
     </message>
@@ -5502,12 +5503,12 @@ Size: %3</source>
         <translation>فتح النتيجة في %1</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+39"/>
         <source>in %1</source>
         <translation>في %1</translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+53"/>
         <source>No messages found</source>
         <translation>لم يُعثر على رسائل</translation>
     </message>
@@ -5702,7 +5703,7 @@ Size: %3</source>
         <translation>خاصة · غير معمّاة · بالدعوة فقط افتراضيًا</translation>
     </message>
     <message>
-        <location line="+77"/>
+        <location line="+81"/>
         <source>Choose a different user</source>
         <translation>اختر مستخدمًا آخر</translation>
     </message>
@@ -5717,7 +5718,7 @@ Size: %3</source>
         <translation>محادثة قائمة</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+27"/>
         <source>Open</source>
         <translation>فتح</translation>
     </message>
@@ -5942,8 +5943,8 @@ Size: %3</source>
 <context>
     <name>NotificationManager</name>
     <message>
-        <location filename="../src/notifications/NotificationManager.cpp" line="+514"/>
-        <location line="+141"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="+547"/>
+        <location line="+164"/>
         <source>Open</source>
         <translation>فتح</translation>
     </message>
@@ -5956,7 +5957,7 @@ Size: %3</source>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-399"/>
+        <location line="-455"/>
         <source>Matrix room</source>
         <translation>غرفة Matrix</translation>
     </message>
@@ -6014,14 +6015,14 @@ Size: %3</source>
 <context>
     <name>OAuthCallbackServer</name>
     <message>
-        <location filename="../src/auth/OAuthCallbackServer.cpp" line="+123"/>
-        <location line="+26"/>
+        <location filename="../src/auth/OAuthCallbackServer.cpp" line="+149"/>
+        <location line="+30"/>
         <source>Sign-in</source>
         <translation>تسجيل الدخول</translation>
     </message>
     <message>
-        <location line="-26"/>
-        <location line="+26"/>
+        <location line="-30"/>
+        <location line="+30"/>
         <source>This page is not part of the sign-in.</source>
         <translation>هذه الصفحة ليست جزءًا من تسجيل الدخول.</translation>
     </message>
@@ -6310,7 +6311,7 @@ Size: %3</source>
         <translation>الأشخاص</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+75"/>
         <source>No matching rooms</source>
         <translation>لا توجد غرف مطابقة</translation>
     </message>
@@ -6325,7 +6326,7 @@ Size: %3</source>
         <translation>لا توجد إجراءات مطابقة</translation>
     </message>
     <message>
-        <location line="+272"/>
+        <location line="+276"/>
         <source>navigate</source>
         <translation>تنقّل</translation>
     </message>
@@ -6661,7 +6662,7 @@ Size: %3</source>
         <translation>أمس</translation>
     </message>
     <message>
-        <location line="+343"/>
+        <location line="+347"/>
         <source>Space invitation from %1</source>
         <translation>دعوة إلى فضاء من %1</translation>
     </message>
@@ -6701,7 +6702,7 @@ Size: %3</source>
         <translation>رفض دعوة الغرفة</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+26"/>
         <source>Upgraded</source>
         <translation>مُحدّثة</translation>
     </message>
@@ -6994,7 +6995,7 @@ Size: %3</source>
         <translation>(غرفة بلا اسم)</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+18"/>
         <source>End-to-end encrypted</source>
         <translation>معمّاة طرفًا إلى طرف</translation>
     </message>
@@ -7036,13 +7037,13 @@ Size: %3</source>
     <message>
         <location line="+5"/>
         <location line="+20"/>
-        <location line="+458"/>
-        <location line="+805"/>
+        <location line="+459"/>
+        <location line="+815"/>
         <source>Save</source>
         <translation>حفظ</translation>
     </message>
     <message>
-        <location line="-1268"/>
+        <location line="-1279"/>
         <source>Topic</source>
         <translation>الموضوع</translation>
     </message>
@@ -7072,7 +7073,7 @@ Size: %3</source>
         <translation>طلب الانضمام (طَرْق)</translation>
     </message>
     <message>
-        <location line="+317"/>
+        <location line="+318"/>
         <source>Published address</source>
         <translation>العنوان المنشور</translation>
     </message>
@@ -7087,7 +7088,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+22"/>
         <source>Remove</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7108,12 +7109,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+760"/>
+        <location line="+768"/>
         <source>Leave room</source>
         <translation>مغادرة الغرفة</translation>
     </message>
     <message>
-        <location line="-722"/>
+        <location line="-730"/>
         <source>No pinned messages</source>
         <translation>لا توجد رسائل مثبّتة</translation>
     </message>
@@ -7140,7 +7141,7 @@ Size: %3</source>
         <translation>الرسالة غير متاحة</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+43"/>
         <source>It may have been deleted, or this account cannot see it.</source>
         <translation>ربما حُذفت، أو أن هذا الحساب لا يستطيع رؤيتها.</translation>
     </message>
@@ -7280,7 +7281,7 @@ Size: %3</source>
         <translation>دعوة أشخاص إلى هذه الغرفة</translation>
     </message>
     <message>
-        <location line="-803"/>
+        <location line="-809"/>
         <source>Members of selected spaces can join</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7290,7 +7291,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+54"/>
         <source>Join a space first; only spaces you are in can be chosen.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7360,7 +7361,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+550"/>
+        <location line="+555"/>
         <source>Invite people</source>
         <translation>دعوة أشخاص</translation>
     </message>
@@ -7375,7 +7376,7 @@ Size: %3</source>
         <translation>تُعرض أول %1 عضو من %2.</translation>
     </message>
     <message>
-        <location line="+173"/>
+        <location line="+174"/>
         <source>Invited</source>
         <translation>مدعو</translation>
     </message>
@@ -7395,12 +7396,12 @@ Size: %3</source>
         <translation>لا وسائط في السجل المحمّل.</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+30"/>
         <source>(unnamed)</source>
         <translation>(بلا اسم)</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+9"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
@@ -7555,7 +7556,7 @@ Size: %3</source>
         <translation>الغرف</translation>
     </message>
     <message>
-        <location line="+114"/>
+        <location line="+115"/>
         <source>Sign in to see rooms</source>
         <translation>سجّل الدخول لرؤية الغرف</translation>
     </message>
@@ -7792,7 +7793,7 @@ Size: %3</source>
         <translation>مغادرة الغرفة؟</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+25"/>
         <source>You will stop receiving messages from &quot;%1&quot;. Server history is not deleted, and you can be invited again later.</source>
         <translation>ستتوقف عن تلقّي رسائل «%1». لا يُحذف سجل الخادوم، ويمكن دعوتك مجددًا لاحقًا.</translation>
     </message>
@@ -7820,18 +7821,18 @@ Size: %3</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+304"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+328"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>تعذّر على Lightning إنشاء مجلد التخزين المحلي لهذا الحساب. تحقّق من أذونات نظام الملفات والمساحة الحرة.</translation>
     </message>
     <message>
-        <location line="+9"/>
-        <location line="+364"/>
+        <location line="+10"/>
+        <location line="+384"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>فشل إنشاء مقبض خلفية Rust SDK.</translation>
     </message>
     <message>
-        <location line="-281"/>
+        <location line="-293"/>
         <source>Homeserver, user, and password are required.</source>
         <translation>الخادوم المنزلي والمستخدم وكلمة المرور مطلوبة.</translation>
     </message>
@@ -7846,17 +7847,17 @@ Size: %3</source>
         <translation>تعذّر تنحية مخزن محلي غير صالح لهذا الحساب. تحقّق من أذونات نظام الملفات وأعد المحاولة.</translation>
     </message>
     <message>
-        <location line="+46"/>
-        <location line="+149"/>
+        <location line="+53"/>
+        <location line="+162"/>
         <location line="+106"/>
-        <location line="+359"/>
+        <location line="+383"/>
         <location line="+103"/>
         <location line="+81"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>تعذّرت تهيئة خلفية Rust SDK.</translation>
     </message>
     <message>
-        <location line="-658"/>
+        <location line="-682"/>
         <location line="+105"/>
         <source>A homeserver is required.</source>
         <translation>الخادوم المنزلي مطلوب.</translation>
@@ -7870,13 +7871,13 @@ Size: %3</source>
     <message>
         <location line="-89"/>
         <location line="+111"/>
-        <location line="+129"/>
-        <location line="+55"/>
+        <location line="+141"/>
+        <location line="+67"/>
         <source>The sign-in could not be completed.</source>
         <translation>تعذّر إتمام تسجيل الدخول.</translation>
     </message>
     <message>
-        <location line="-281"/>
+        <location line="-305"/>
         <location line="+39"/>
         <location line="+71"/>
         <location line="+42"/>
@@ -7900,7 +7901,7 @@ Size: %3</source>
         <translation>كانت استجابة تسجيل الدخول غير مكتملة. يرجى المحاولة مرة أخرى.</translation>
     </message>
     <message>
-        <location line="+260"/>
+        <location line="+284"/>
         <source>The server completed sign-in without returning a usable session.</source>
         <translation>أتم الخادوم تسجيل الدخول دون إرجاع جلسة صالحة.</translation>
     </message>
@@ -7913,12 +7914,12 @@ Size: %3</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+56"/>
-        <location line="+1852"/>
+        <location line="+1906"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>تعذّر على Lightning إعادة ضبط الجلسة المحلية لهذا الحساب بالكامل. تحقّق من سجلات التطبيق وأذونات نظام الملفات ثم أعد المحاولة.</translation>
     </message>
     <message>
-        <location line="-1868"/>
+        <location line="-1922"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>أُعيد بناء جلسة Lightning المحلية. نُحّي مخزن التعمية السابق جانبًا ولم يُحذف، وما زال في مجلد بيانات هذا الحساب. يمكنك تسجيل الدخول مجددًا.</translation>
     </message>
@@ -7928,10 +7929,10 @@ Size: %3</source>
         <translation>ليس لدى Lightning جلسة محفوظة أو بيانات محلية لذلك الحساب، لذا لم يكن هناك ما يُعاد ضبطه. تحقّق من معرّف مستخدم Matrix وحاول تسجيل الدخول.</translation>
     </message>
     <message>
-        <location line="+196"/>
+        <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3042"/>
+        <location line="+3131"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -7940,22 +7941,22 @@ Size: %3</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-3422"/>
+        <location line="-3511"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3224"/>
+        <location line="+3313"/>
         <source>Unknown room: %1</source>
         <translation>غرفة غير معروفة: %1</translation>
     </message>
     <message>
-        <location line="-3424"/>
+        <location line="-3513"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>لا يمكن الإرسال إلى الغرف المعمّاة بعد: الإرسال المعمّى عبر Rust SDK غير مُتحقق منه.</translation>
     </message>
     <message>
-        <location line="+466"/>
+        <location line="+481"/>
         <source>The sticker could not be sent.</source>
         <translation>لا يمكن إرسال الملصق.</translation>
     </message>
@@ -7965,7 +7966,7 @@ Size: %3</source>
         <translation>خلفية Rust SDK لا تطبّق %1 بعد.</translation>
     </message>
     <message>
-        <location line="+184"/>
+        <location line="+196"/>
         <source>Local Lightning session reset. You can sign in again.</source>
         <translation>أُعيد ضبط جلسة Lightning المحلية. يمكنك تسجيل الدخول مجددًا.</translation>
     </message>
@@ -7975,7 +7976,7 @@ Size: %3</source>
         <translation>لم تتضمن استجابة تسجيل الدخول من Rust SDK معرّف مستخدم.</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+46"/>
         <source>Rust SDK login failed.</source>
         <translation>فشل تسجيل الدخول عبر Rust SDK.</translation>
     </message>
@@ -7990,12 +7991,23 @@ Size: %3</source>
         <translation>فشل إجراء الدعوة. أعد المحاولة.</translation>
     </message>
     <message>
-        <location line="+190"/>
+        <location line="+196"/>
+        <location line="+16"/>
+        <source>The reaction could not be applied.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-15"/>
         <source>The thread reply could not be sent.</source>
         <translation>تعذّر إرسال رد الخيط.</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+19"/>
+        <source>The message could not be deleted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>تعذّر إرسال الرسالة. يمكنك إعادة المحاولة من إجراء «إعادة المحاولة» الخاص بالرسالة.</translation>
     </message>
@@ -8040,7 +8052,7 @@ Size: %3</source>
         <translation>[تعذّر فك التعمية بعد]</translation>
     </message>
     <message>
-        <location line="+454"/>
+        <location line="+476"/>
         <source>Rust SDK send failed.</source>
         <translation>فشل الإرسال عبر Rust SDK.</translation>
     </message>
@@ -8195,7 +8207,7 @@ Size: %3</source>
         <translation>شاشات</translation>
     </message>
     <message>
-        <location line="+225"/>
+        <location line="+229"/>
         <source>No screens were found.</source>
         <translation>لم يتم العثور على شاشات.</translation>
     </message>
@@ -8308,7 +8320,7 @@ Size: %3</source>
         <translation>%1، %2</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+48"/>
         <source>Select %1</source>
         <translation>اختيار %1</translation>
     </message>
@@ -8402,7 +8414,7 @@ Size: %3</source>
         <translation>فتح رسالة من %1</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+79"/>
         <source>Search could not be completed.</source>
         <translation>تعذّر إتمام البحث.</translation>
     </message>
@@ -8645,34 +8657,34 @@ Size: %3</source>
         <location line="+2"/>
         <location line="+530"/>
         <location line="+578"/>
-        <location line="+2840"/>
+        <location line="+2843"/>
         <source>Account</source>
         <translation>الحساب</translation>
     </message>
     <message>
-        <location line="-3951"/>
+        <location line="-3954"/>
         <source>account profile</source>
         <translation>الحساب الملف الشخصي</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4750"/>
+        <location line="+4756"/>
         <source>Homeserver</source>
         <translation>الخادوم المنزلي</translation>
     </message>
     <message>
-        <location line="-4750"/>
+        <location line="-4756"/>
         <source>homeserver server url</source>
         <translation>الخادوم المنزلي عنوان</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4784"/>
+        <location line="+4790"/>
         <source>Start minimized</source>
         <translation>البدء مصغّرًا</translation>
     </message>
     <message>
-        <location line="-4784"/>
+        <location line="-4790"/>
         <source>startup minimized</source>
         <translation>بدء التشغيل مصغّرًا</translation>
     </message>
@@ -8708,13 +8720,13 @@ Size: %3</source>
     <message>
         <location line="-1234"/>
         <location line="+945"/>
-        <location line="+774"/>
+        <location line="+777"/>
         <location line="+83"/>
         <source>Match system light/dark</source>
         <translation>مطابقة الوضع الفاتح/الداكن للنظام</translation>
     </message>
     <message>
-        <location line="-1801"/>
+        <location line="-1804"/>
         <source>match system auto theme</source>
         <translation>مطابقة النظام سمة تلقائية</translation>
     </message>
@@ -8725,57 +8737,57 @@ Size: %3</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+1873"/>
+        <location line="+1876"/>
         <source>Message layout</source>
         <translation>تخطيط الرسائل</translation>
     </message>
     <message>
-        <location line="-1872"/>
+        <location line="-1875"/>
         <source>message layout modern bubbles compact</source>
         <translation>تخطيط الرسائل حديث فقاعات مضغوط</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1894"/>
+        <location line="+1897"/>
         <source>Text size</source>
         <translation>حجم النص</translation>
     </message>
     <message>
-        <location line="-1894"/>
+        <location line="-1897"/>
         <source>text size font scale</source>
         <translation>حجم النص الخط المقياس</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1988"/>
+        <location line="+1991"/>
         <location line="+16"/>
         <source>Interface zoom</source>
         <translation>تكبير الواجهة</translation>
     </message>
     <message>
-        <location line="-2003"/>
+        <location line="-2006"/>
         <source>interface zoom scale bigger ui size</source>
         <translation>تكبير الواجهة المقياس حجم أكبر</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2072"/>
+        <location line="+2075"/>
         <source>Font</source>
         <translation>الخط</translation>
     </message>
     <message>
-        <location line="-2072"/>
+        <location line="-2075"/>
         <source>font family typeface</source>
         <translation>الخط العائلة</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2247"/>
+        <location line="+2250"/>
         <source>Code font</source>
         <translation>خط الكود</translation>
     </message>
     <message>
-        <location line="-2246"/>
+        <location line="-2249"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation>خط الكود أحادي المسافة، محرف عرض ثابت</translation>
     </message>
@@ -8787,35 +8799,35 @@ Size: %3</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+2313"/>
+        <location line="+2316"/>
         <source>Your own fonts</source>
         <translation>الخطوط الخاصة بك</translation>
     </message>
     <message>
-        <location line="-2312"/>
+        <location line="-2315"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation>استيراد ملف الخط ttf otf تثبيت محرف مخصص</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2725"/>
+        <location line="+2728"/>
         <source>Language</source>
         <translation>اللغة</translation>
     </message>
     <message>
-        <location line="-2725"/>
+        <location line="-2728"/>
         <source>language locale</source>
         <translation>اللغة المحليّة</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+932"/>
-        <location line="+1595"/>
+        <location line="+1598"/>
         <source>Show room activity</source>
         <translation>إظهار نشاط الغرفة</translation>
     </message>
     <message>
-        <location line="-2526"/>
+        <location line="-2529"/>
         <source>room activity membership joins leaves profile</source>
         <translation>نشاط الغرفة العضوية الانضمام المغادرة الملف الشخصي</translation>
     </message>
@@ -8829,48 +8841,48 @@ Size: %3</source>
     </message>
     <message>
         <location line="-9"/>
-        <location line="+2570"/>
+        <location line="+2573"/>
         <source>Mouse-wheel speed</source>
         <translation>سرعة عجلة الفأرة</translation>
     </message>
     <message>
-        <location line="-2569"/>
+        <location line="-2572"/>
         <source>wheel speed scroll timeline</source>
         <translation>سرعة العجلة التمرير المحادثة</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+960"/>
-        <location line="+1588"/>
+        <location line="+1591"/>
         <source>Joins, leaves and invites</source>
         <translation>ينضم ويغادر ويدعو</translation>
     </message>
     <message>
-        <location line="-2547"/>
+        <location line="-2550"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation>عضوية الانضمام إجازة دعوة ركلة الحظر إخفاء النشاط</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+965"/>
-        <location line="+1590"/>
+        <location line="+1593"/>
         <source>Display name and avatar changes</source>
         <translation>عرض الاسم والصورة الرمزية التغييرات</translation>
     </message>
     <message>
-        <location line="-2554"/>
+        <location line="-2557"/>
         <source>profile change display name avatar activity hide</source>
         <translation>تغيير ملف التعريف، اسم العرض، إخفاء نشاط الصورة الرمزية</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+969"/>
-        <location line="+1820"/>
+        <location line="+1823"/>
         <source>Reduce motion</source>
         <translation>تقليل الحركة</translation>
     </message>
     <message>
-        <location line="-2788"/>
+        <location line="-2791"/>
         <source>reduced motion animation accessibility vestibular</source>
         <translation>انخفاض إمكانية الوصول إلى الرسوم المتحركة الحركة الدهليزي</translation>
     </message>
@@ -8884,35 +8896,35 @@ Size: %3</source>
     <message>
         <location line="-8"/>
         <location line="+972"/>
-        <location line="+1827"/>
+        <location line="+1830"/>
         <source>Smooth scrolling</source>
         <translation>التمرير السلس</translation>
     </message>
     <message>
-        <location line="-2798"/>
+        <location line="-2801"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
         <translation>التمرير السلس عجلة التمرير الإنزلاق الرسوم المتحركة ثاب الماوس الفوري</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2819"/>
+        <location line="+2822"/>
         <source>Clock</source>
         <translation>الساعة</translation>
     </message>
     <message>
-        <location line="-2818"/>
+        <location line="-2821"/>
         <source>clock 24 hour time format am pm timestamp</source>
         <translation>تنسيق الوقت على مدار 24 ساعة صباحًا ومساءً الطابع الزمني</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+971"/>
-        <location line="+1903"/>
+        <location line="+1906"/>
         <source>Show Space banners</source>
         <translation>عرض لافتات الفضاء</translation>
     </message>
     <message>
-        <location line="-2873"/>
+        <location line="-2876"/>
         <source>space banner header image hide show</source>
         <translation>إخفاء إظهار صورة رأس بانر الفضاء</translation>
     </message>
@@ -8925,35 +8937,35 @@ Size: %3</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+2906"/>
+        <location line="+2909"/>
         <source>Conversation list width</source>
         <translation>عرض قائمة المحادثات</translation>
     </message>
     <message>
-        <location line="-2905"/>
+        <location line="-2908"/>
         <source>room list width panel size sidebar</source>
         <translation>الشريط الجانبي لحجم لوحة عرض قائمة الغرفة</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2920"/>
+        <location line="+2923"/>
         <source>Side panel width</source>
         <translation>عرض اللوحة الجانبية</translation>
     </message>
     <message>
-        <location line="-2919"/>
+        <location line="-2922"/>
         <source>side panel width members threads size</source>
         <translation>حجم خيوط أعضاء عرض اللوحة الجانبية</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+969"/>
-        <location line="+1966"/>
+        <location line="+1969"/>
         <source>Enter starts a new line</source>
         <translation>أدخل يبدأ سطرًا جديدًا</translation>
     </message>
     <message>
-        <location line="-2934"/>
+        <location line="-2937"/>
         <source>enter newline send composer message box return</source>
         <translation>أدخل السطر الجديد لإرسال مربع رسالة الملحن والعودة</translation>
     </message>
@@ -8968,35 +8980,35 @@ Size: %3</source>
     <message>
         <location line="-9"/>
         <location line="+973"/>
-        <location line="+2073"/>
+        <location line="+2076"/>
         <source>Send text with an attachment as its caption</source>
         <translation>إرسال نص مع مرفق كتسمية توضيحية له</translation>
     </message>
     <message>
-        <location line="-3045"/>
+        <location line="-3048"/>
         <source>caption attachment upload text description</source>
         <translation>وصف النص تحميل مرفق التسمية التوضيحية</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2955"/>
+        <location line="+2958"/>
         <source>Check spelling as you type</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2954"/>
+        <location line="-2957"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2962"/>
+        <location line="+2965"/>
         <location line="+13"/>
         <source>Spelling language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2974"/>
+        <location line="-2977"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9006,23 +9018,23 @@ Size: %3</source>
         <location line="+3"/>
         <location line="+444"/>
         <location line="+586"/>
-        <location line="+2036"/>
+        <location line="+2039"/>
         <source>Keyboard shortcuts</source>
         <translation>اختصارات لوحة المفاتيح</translation>
     </message>
     <message>
-        <location line="-3070"/>
+        <location line="-3073"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation>اختصارات لوحة المفاتيح، مفاتيح المفاتيح، ربط مفتاح التشغيل السريع</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3201"/>
+        <location line="+3204"/>
         <source>Reset all shortcuts</source>
         <translation>إعادة ضبط كافة الاختصارات</translation>
     </message>
     <message>
-        <location line="-3200"/>
+        <location line="-3203"/>
         <source>reset shortcuts default keys</source>
         <translation>إعادة تعيين المفاتيح الافتراضية للاختصارات</translation>
     </message>
@@ -9081,12 +9093,12 @@ Size: %3</source>
     <message>
         <location line="+4"/>
         <location line="+869"/>
-        <location line="+2825"/>
+        <location line="+2828"/>
         <source>Desktop notifications</source>
         <translation>إشعارات سطح المكتب</translation>
     </message>
     <message>
-        <location line="-3693"/>
+        <location line="-3696"/>
         <source>notifications desktop enable</source>
         <translation>الإشعارات سطح المكتب تفعيل</translation>
     </message>
@@ -9096,40 +9108,40 @@ Size: %3</source>
         <location line="+3"/>
         <location line="+415"/>
         <location line="+590"/>
-        <location line="+2669"/>
+        <location line="+2672"/>
         <source>Notifications</source>
         <translation>الإشعارات</translation>
     </message>
     <message>
-        <location line="-3679"/>
-        <location line="+3696"/>
+        <location line="-3682"/>
+        <location line="+3699"/>
         <source>Notification preview</source>
         <translation>معاينة الإشعار</translation>
     </message>
     <message>
-        <location line="-3695"/>
+        <location line="-3698"/>
         <source>notification preview privacy sender message</source>
         <translation>معاينة الإشعار الخصوصية المرسِل الرسالة</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3729"/>
+        <location line="+3732"/>
         <source>Notification sound</source>
         <translation>صوت الإشعار</translation>
     </message>
     <message>
-        <location line="-3728"/>
+        <location line="-3731"/>
         <source>notification sound mute</source>
         <translation>صوت الإشعار كتم</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3223"/>
+        <location line="+3226"/>
         <source>Share my online status</source>
         <translation>مشاركة حالتي على الإنترنت</translation>
     </message>
     <message>
-        <location line="-3222"/>
+        <location line="-3225"/>
         <source>presence online idle offline status share</source>
         <translation>الحضور متصل خامل غير متصل الحالة مشاركة</translation>
     </message>
@@ -9140,12 +9152,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3245"/>
+        <location line="+3248"/>
         <source>Ignored users</source>
         <translation>المستخدمون المتجاهَلون</translation>
     </message>
     <message>
-        <location line="-3244"/>
+        <location line="-3247"/>
         <source>ignore ignored block user mute person hide</source>
         <translation>تجاهل حظر مستخدم إخفاء شخص</translation>
     </message>
@@ -9172,20 +9184,20 @@ Size: %3</source>
         <location line="+3"/>
         <location line="+363"/>
         <location line="+598"/>
-        <location line="+4085"/>
-        <location line="+426"/>
+        <location line="+4099"/>
+        <location line="+445"/>
         <source>Sessions</source>
         <translation>الجلسات</translation>
     </message>
     <message>
-        <location line="-5511"/>
+        <location line="-5544"/>
         <location line="+836"/>
-        <location line="+2489"/>
+        <location line="+2492"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>تحميل المعاينات تلقائيًا في الغرف غير المعمّاة</translation>
     </message>
     <message>
-        <location line="-3324"/>
+        <location line="-3327"/>
         <source>link preview privacy</source>
         <translation>معاينة الرابط الخصوصية</translation>
     </message>
@@ -9197,24 +9209,24 @@ Size: %3</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3327"/>
+        <location line="+3330"/>
         <source>Load previews in encrypted rooms</source>
         <translation>تحميل المعاينات في الغرف المعمّاة</translation>
     </message>
     <message>
-        <location line="-3326"/>
+        <location line="-3329"/>
         <source>link preview encrypted</source>
         <translation>معاينة الرابط معمّاة</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3398"/>
+        <location line="+3401"/>
         <location line="+7"/>
         <source>Autoplay and prefetch media</source>
         <translation>التشغيل التلقائي والجلب المسبق للوسائط</translation>
     </message>
     <message>
-        <location line="-3404"/>
+        <location line="-3407"/>
         <source>gif autoplay prefetch video audio media</source>
         <translation>gif تشغيل تلقائي جلب مسبق فيديو صوت وسائط</translation>
     </message>
@@ -9225,12 +9237,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3441"/>
+        <location line="+3444"/>
         <source>GIF safe search</source>
         <translation>البحث الآمن لصور GIF</translation>
     </message>
     <message>
-        <location line="-3440"/>
+        <location line="-3443"/>
         <source>gif safe search rating</source>
         <translation>gif بحث آمن تصنيف</translation>
     </message>
@@ -9243,36 +9255,36 @@ Size: %3</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+3466"/>
+        <location line="+3469"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>مزوّد GIF المفضّل</translation>
     </message>
     <message>
-        <location line="-3472"/>
+        <location line="-3475"/>
         <source>gif provider giphy klipy</source>
         <translation>مزوّد gif giphy klipy</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3505"/>
+        <location line="+3508"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>تخزين صور GIF المستخدمة مؤخرًا</translation>
     </message>
     <message>
-        <location line="-3507"/>
+        <location line="-3510"/>
         <source>gif recents store</source>
         <translation>gif الأخيرة تخزين</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4709"/>
+        <location line="+4715"/>
         <source>Security status</source>
         <translation>حالة الأمان</translation>
     </message>
     <message>
-        <location line="-4708"/>
+        <location line="-4714"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee التعمية الحالة التوقيع المتقاطع النسخ الاحتياطي</translation>
     </message>
@@ -9280,19 +9292,19 @@ Size: %3</source>
         <location line="+1"/>
         <location line="+380"/>
         <location line="+594"/>
-        <location line="+2174"/>
+        <location line="+2177"/>
         <source>Privacy &amp; security</source>
         <translation>الخصوصية والأمان</translation>
     </message>
     <message>
-        <location line="-3147"/>
-        <location line="+6022"/>
+        <location line="-3150"/>
+        <location line="+6056"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation>مفتاح الاستعادة أو عبارة المرور</translation>
     </message>
     <message>
-        <location line="-6040"/>
+        <location line="-6074"/>
         <source>recovery key passphrase backup restore</source>
         <translation>مفتاح الاستعادة عبارة المرور النسخ الاحتياطي استعادة</translation>
     </message>
@@ -9305,23 +9317,23 @@ Size: %3</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+6105"/>
+        <location line="+6140"/>
         <source>Import room keys</source>
         <translation>استيراد مفاتيح الغرف</translation>
     </message>
     <message>
-        <location line="-6104"/>
+        <location line="-6139"/>
         <source>import room keys export</source>
         <translation>استيراد مفاتيح الغرف تصدير</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6326"/>
+        <location line="+6363"/>
         <source>Danger Zone</source>
         <translation>منطقة الخطر</translation>
     </message>
     <message>
-        <location line="-6325"/>
+        <location line="-6362"/>
         <source>reset danger local session</source>
         <translation>إعادة ضبط خطر جلسة محلية</translation>
     </message>
@@ -9332,23 +9344,23 @@ Size: %3</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5791"/>
+        <location line="+5825"/>
         <source>Current session</source>
         <translation>الجلسة الحالية</translation>
     </message>
     <message>
-        <location line="-5790"/>
+        <location line="-5824"/>
         <source>device id session status</source>
         <translation>معرّف الجهاز حالة الجلسة</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5849"/>
+        <location line="+5883"/>
         <source>Verify this session</source>
         <translation>التحقّق من هذه الجلسة</translation>
     </message>
     <message>
-        <location line="-5848"/>
+        <location line="-5882"/>
         <source>verify verification sas cross-signing</source>
         <translation>تحقّق sas التوقيع المتقاطع</translation>
     </message>
@@ -9369,12 +9381,12 @@ Size: %3</source>
         <location line="+3"/>
         <location line="+354"/>
         <location line="+605"/>
-        <location line="+5442"/>
+        <location line="+5479"/>
         <source>Labs</source>
         <translation>Labs</translation>
     </message>
     <message>
-        <location line="-6407"/>
+        <location line="-6444"/>
         <source>Sync mode</source>
         <translation>وضع المزامنة</translation>
     </message>
@@ -9395,12 +9407,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6449"/>
+        <location line="+6486"/>
         <source>Refresh current room</source>
         <translation>تحديث الغرفة الحالية</translation>
     </message>
     <message>
-        <location line="-6448"/>
+        <location line="-6485"/>
         <source>refresh reload timeline</source>
         <translation>تحديث إعادة تحميل المحادثة</translation>
     </message>
@@ -9409,12 +9421,12 @@ Size: %3</source>
         <location line="+1"/>
         <location line="+353"/>
         <location line="+652"/>
-        <location line="+5477"/>
+        <location line="+5514"/>
         <source>About</source>
         <translation>حول</translation>
     </message>
     <message>
-        <location line="-6483"/>
+        <location line="-6520"/>
         <source>about version license</source>
         <translation>حول الإصدار الرخصة</translation>
     </message>
@@ -9453,13 +9465,13 @@ Size: %3</source>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+3920"/>
-        <location line="+1218"/>
+        <location line="+3926"/>
+        <location line="+1245"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-4983"/>
+        <location line="-5016"/>
         <source>Needs attention</source>
         <translation>يحتاج انتباهًا</translation>
     </message>
@@ -9475,14 +9487,14 @@ Size: %3</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3608"/>
+        <location line="+3614"/>
         <location line="+215"/>
-        <location line="+1843"/>
+        <location line="+1873"/>
         <source>Clear</source>
         <translation>مسح</translation>
     </message>
     <message>
-        <location line="-5656"/>
+        <location line="-5692"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>إزالة كل صورة GIF من مزوّد حفظتها على هذا الجهاز؟ لا تتأثر صور GIF التي حفظتها من المحادثات. لا يمكن التراجع عن هذا.</translation>
     </message>
@@ -9554,24 +9566,24 @@ Size: %3</source>
     </message>
     <message>
         <location line="+68"/>
-        <location line="+954"/>
+        <location line="+957"/>
         <source>Modern</source>
         <translation>حديث</translation>
     </message>
     <message>
-        <location line="-953"/>
-        <location line="+954"/>
+        <location line="-956"/>
+        <location line="+957"/>
         <source>Bubbles</source>
         <translation>فقاعات</translation>
     </message>
     <message>
-        <location line="-953"/>
-        <location line="+954"/>
+        <location line="-956"/>
+        <location line="+957"/>
         <source>Compact</source>
         <translation>مضغوط</translation>
     </message>
     <message>
-        <location line="-825"/>
+        <location line="-828"/>
         <source>theme</source>
         <translation>السمة</translation>
     </message>
@@ -9611,12 +9623,22 @@ Size: %3</source>
         <translation>Storm</translation>
     </message>
     <message>
-        <location line="+5210"/>
+        <location line="+3729"/>
+        <source>Key backup: checking…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+317"/>
+        <source>Lightning could not check whether this account has a key backup. Nothing has been ruled out.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1201"/>
         <source>Reset deletes only Lightning&apos;s local Rust SDK store for this account (also available from a terminal: lightning-matrix --reset-crypto-store). It does not touch server messages or Element data. You will need to sign in again afterwards.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5212"/>
+        <location line="-5249"/>
         <source>Moss Light</source>
         <translation>Moss Light</translation>
     </message>
@@ -9631,12 +9653,12 @@ Size: %3</source>
         <translation>Deep Teal</translation>
     </message>
     <message>
-        <location line="+198"/>
+        <location line="+199"/>
         <source>More themes</source>
         <translation>سمات أخرى</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+93"/>
         <source>Custom theme</source>
         <translation>سمة مخصصة</translation>
     </message>
@@ -9651,7 +9673,7 @@ Size: %3</source>
         <translation>سمتك</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>Pick a colour for any part of the window and watch a sample room repaint.</source>
         <translation>اختر لونًا لأي جزء من النافذة وشاهد غرفة نموذجية تُعاد صياغتها.</translation>
     </message>
@@ -9964,12 +9986,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+1927"/>
+        <location line="+1930"/>
         <source>Choose image…</source>
         <translation>اختيار صورة…</translation>
     </message>
     <message>
-        <location line="-1920"/>
+        <location line="-1923"/>
         <source>Reset to Lightning default</source>
         <translation>إعادة الضبط إلى أيقونة Lightning الافتراضية</translation>
     </message>
@@ -10404,7 +10426,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation>(سُجّل الخروج)</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+52"/>
         <location line="+2"/>
         <source>Copy Matrix ID</source>
         <translation>انسخ معرف Matrix</translation>
@@ -10421,23 +10443,23 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
     </message>
     <message>
         <location line="+19"/>
-        <location line="+43"/>
+        <location line="+44"/>
         <source>Display name</source>
         <translation>الاسم الظاهر</translation>
     </message>
     <message>
-        <location line="-24"/>
+        <location line="-25"/>
         <source>Not set</source>
         <translation>غير محدد</translation>
     </message>
     <message>
-        <location line="-2501"/>
-        <location line="+2509"/>
+        <location line="-2502"/>
+        <location line="+2511"/>
         <source>Edit</source>
         <translation>تحرير</translation>
     </message>
     <message>
-        <location line="-2355"/>
+        <location line="-2357"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>عند تشغيله، يتبع Lightning نظام النظام: Moss Light في الوضع الفاتح، وIndigo Night في الوضع المظلم.</translation>
     </message>
@@ -10477,7 +10499,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation>يقوم خادمك المنزلي بتحميل المعاينة، بحيث يرى الموقع المرتبط الخادم الخاص بك بدلاً منك. إذا لم يتمكن خادمك من ذلك — حيث تم إيقاف تشغيل المعاينات لدى العديد من الأشخاص — يقوم Lightning بتحميله مباشرة بدلاً من ذلك، مما قد يكشف عن عنوان IP الخاص بك ويطلب توقيتًا لموقع اختاره المرسل. إن سؤال الخادم المنزلي الخاص بك يخبره أيضًا بالرابط الذي تمت معاينته، والذي لن يعرفه في غرفة مشفرة. لم يتم تنفيذ جافا سكريبت. يتم إيقاف تشغيل كلا المفتاحين بشكل افتراضي؛ اتركها جانبًا واستخدم الزر &quot;إظهار&quot; الموجود على بطاقة رابط كل رسالة لتحديد رسالة واحدة في كل مرة.</translation>
     </message>
     <message>
-        <location line="+682"/>
+        <location line="+684"/>
         <source>Edit display name</source>
         <translation>تحرير الاسم الظاهر</translation>
     </message>
@@ -10492,7 +10514,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation>%1 / %2 محرفًا</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+24"/>
         <location line="+229"/>
         <source>Saving…</source>
         <translation>جارٍ الحفظ…</translation>
@@ -10580,8 +10602,8 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation>لا يوجد بانر</translation>
     </message>
     <message>
-        <location line="-2247"/>
-        <location line="+1962"/>
+        <location line="-2250"/>
+        <location line="+1965"/>
         <location line="+304"/>
         <source>Remove</source>
         <translation>إزالة</translation>
@@ -10653,12 +10675,12 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
     </message>
     <message>
         <location line="+25"/>
-        <location line="+781"/>
+        <location line="+808"/>
         <source>Refresh</source>
         <translation>تحديث</translation>
     </message>
     <message>
-        <location line="-708"/>
+        <location line="-734"/>
         <source>Request keys again</source>
         <translation>طلب المفاتيح مجددًا</translation>
     </message>
@@ -10708,7 +10730,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation>التوقيع المتقاطع: غير مُعد</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+14"/>
         <source>Key backup: active on this session</source>
         <translation>نسخ المفاتيح الاحتياطي: مفعّل في هذه الجلسة</translation>
     </message>
@@ -10718,12 +10740,12 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation>نسخ المفاتيح الاحتياطي: موجود، لكن هذه الجلسة لا تستطيع استخدامه بعد</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>Key backup: none found</source>
         <translation>نسخ المفاتيح الاحتياطي: لم يُعثر على أي نسخة</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>Recovery: set up</source>
         <translation>الاستعادة: مُعدّة</translation>
     </message>
@@ -10908,7 +10930,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>Available</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10923,7 +10945,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+13"/>
         <source>No key backup exists for this account.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10973,7 +10995,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+27"/>
         <source>Setting up…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10983,7 +11005,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+12"/>
         <source>Create backup</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11053,13 +11075,13 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+90"/>
+        <location line="+91"/>
         <source>This session</source>
         <translation>هذه الجلسة</translation>
     </message>
     <message>
-        <location line="-91"/>
-        <location line="+97"/>
+        <location line="-92"/>
+        <location line="+98"/>
         <source>Verified</source>
         <translation>موثّقة</translation>
     </message>
@@ -11180,7 +11202,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
     </message>
     <message>
         <location line="+5"/>
-        <location line="+30"/>
+        <location line="+31"/>
         <source>Recovery started</source>
         <translation>بدأت الاستعادة</translation>
     </message>
@@ -11210,7 +11232,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation>(لم يُحدد ملف)</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Export passphrase</source>
         <translation>عبارة مرور التصدير</translation>
     </message>
@@ -11225,7 +11247,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation>استيراد</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+88"/>
         <source>Select encrypted Matrix room-key export</source>
         <translation>اختر تصديرًا معمّى لمفاتيح غرف Matrix</translation>
     </message>
@@ -11993,12 +12015,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+891"/>
+        <location line="+896"/>
         <source>Invite</source>
         <translation>دعوة</translation>
     </message>
     <message>
-        <location line="-890"/>
+        <location line="-895"/>
         <source>Kick</source>
         <translation>ركلة</translation>
     </message>
@@ -12024,18 +12046,18 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+300"/>
+        <location line="+305"/>
         <source>Space name</source>
         <translation>اسم الفضاء</translation>
     </message>
     <message>
-        <location line="-299"/>
-        <location line="+343"/>
+        <location line="-304"/>
+        <location line="+348"/>
         <source>Space topic</source>
         <translation>موضوع الفضاء</translation>
     </message>
     <message>
-        <location line="-339"/>
+        <location line="-344"/>
         <source>Settings</source>
         <translation>الإعدادات</translation>
     </message>
@@ -12075,12 +12097,12 @@ Note: importing keys does not verify this session.</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+28"/>
         <source>Close space settings</source>
         <translation>إغلاق إعدادات المساحة</translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+102"/>
         <source>Loading this space&apos;s members. What you can change depends on them, so the controls stay disabled until they arrive.</source>
         <translation>جارٍ تحميل أعضاء هذه المساحة. يعتمد ما يمكنك تغييره عليها، لذا تظل عناصر التحكم معطلة حتى وصولها.</translation>
     </message>
@@ -12207,12 +12229,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+800"/>
+        <location line="+808"/>
         <source>Published address</source>
         <translation>العنوان المنشور</translation>
     </message>
     <message>
-        <location line="-791"/>
+        <location line="-799"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
         <translation>يتيح العنوان المنشور للأشخاص العثور على هذه المساحة والانضمام إليها بالاسم. اتركه فارغًا لإزالته.</translation>
     </message>
@@ -12278,18 +12300,18 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+116"/>
+        <location line="+117"/>
         <source>Invited</source>
         <translation>مدعو</translation>
     </message>
     <message>
-        <location line="-115"/>
-        <location line="+114"/>
+        <location line="-116"/>
+        <location line="+115"/>
         <source>Banned</source>
         <translation>محظور</translation>
     </message>
     <message>
-        <location line="-112"/>
+        <location line="-113"/>
         <source>Filter by membership</source>
         <translation>تصفية حسب العضوية</translation>
     </message>
@@ -12314,7 +12336,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 · %2</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+123"/>
         <source>You can only require a level at or below your own, and only set a member&apos;s role below your own — never for someone at or above it. A space using a custom level shows that number rather than being relabelled.</source>
         <translation>لا يمكنك سوى طلب مستوى يساوي مستواك أو أقل منه، وتعيين دور العضو أقل من مستواك فقط - وليس أبدًا لشخص في هذا المستوى أو أعلى منه. تُظهر المساحة التي تستخدم مستوى مخصص هذا الرقم بدلاً من إعادة تسميته.</translation>
     </message>
@@ -12349,7 +12371,7 @@ Note: importing keys does not verify this session.</source>
         <translation>مخصص (%1)</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+19"/>
         <source>Not known</source>
         <translation>غير معروف</translation>
     </message>
@@ -12374,7 +12396,7 @@ Note: importing keys does not verify this session.</source>
         <translation>أدوار الأعضاء</translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="+48"/>
         <source>Admin</source>
         <translation>مدير</translation>
     </message>
@@ -12605,12 +12627,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+160"/>
+        <location line="+162"/>
         <source>Copy link</source>
         <translation>انسخ الرابط</translation>
     </message>
     <message>
-        <location line="-149"/>
+        <location line="-151"/>
         <source>Share link…</source>
         <translation>رابط المشاركة…</translation>
     </message>
@@ -12640,7 +12662,7 @@ Note: importing keys does not verify this session.</source>
         <translation>مشاركة المساحة</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+24"/>
         <source>Anyone with this link can find “%1”. Whether they can join still depends on the space&apos;s access setting.</source>
         <translation>يمكن لأي شخص لديه هذا الرابط العثور على &quot;%1&quot;. ما إذا كان بإمكانهم الانضمام لا يزال يعتمد على إعداد الوصول إلى المساحة.</translation>
     </message>
@@ -12874,7 +12896,7 @@ Note: importing keys does not verify this session.</source>
         <translation>يمكن أن تحتوي الحزمة على رموز تعبيرية مخصصة بدلاً من الملصقات. تلك تظهر في صندوق الرسائل، وليس هنا.</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+37"/>
         <source>Your pack</source>
         <translation>حزمتك</translation>
     </message>
@@ -12956,7 +12978,7 @@ Note: importing keys does not verify this session.</source>
         <translation>بلا عنوان</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+54"/>
         <source>Theme name</source>
         <translation>اسم السمة</translation>
     </message>
@@ -13011,7 +13033,7 @@ Note: importing keys does not verify this session.</source>
         <translation>البدء من</translation>
     </message>
     <message>
-        <location line="+208"/>
+        <location line="+212"/>
         <source>Reset %1 to the base theme</source>
         <translation>إعادة ضبط %1 إلى السمة الأساس</translation>
     </message>
@@ -13048,12 +13070,12 @@ Note: importing keys does not verify this session.</source>
         <location line="+1"/>
         <location line="+13"/>
         <location line="+97"/>
-        <location line="+194"/>
+        <location line="+198"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-304"/>
+        <location line="-308"/>
         <source>Storm looks good now</source>
         <translation>Storm يبدو جيدًا الآن</translation>
     </message>
@@ -13081,12 +13103,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+322"/>
+        <location line="+326"/>
         <source>Sam</source>
         <translation>Sam</translation>
     </message>
     <message>
-        <location line="-322"/>
+        <location line="-326"/>
         <source>Robin</source>
         <translation>Robin</translation>
     </message>
@@ -13122,7 +13144,7 @@ Note: importing keys does not verify this session.</source>
         <translation>الاستوديو الإبداعي</translation>
     </message>
     <message>
-        <location line="+337"/>
+        <location line="+341"/>
         <source>The new ladder reads much better.</source>
         <translation>السلّم الجديد أوضح في القراءة بكثير.</translation>
     </message>
@@ -13245,7 +13267,7 @@ Note: importing keys does not verify this session.</source>
         <translation>الخيوط</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+27"/>
         <source>Unfollow</source>
         <translation>إلغاء المتابعة</translation>
     </message>
@@ -13292,7 +13314,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message numerus="yes">
         <location line="+54"/>
-        <location line="+87"/>
+        <location line="+93"/>
         <source>%n reply(s)</source>
         <translation>
             <numerusform>لا ردود</numerusform>
@@ -13304,12 +13326,12 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-84"/>
+        <location line="-90"/>
         <source>Unread</source>
         <translation>غير مقروء</translation>
     </message>
     <message>
-        <location line="+110"/>
+        <location line="+116"/>
         <source>Loading…</source>
         <translation>جارٍ التحميل…</translation>
     </message>
@@ -13319,12 +13341,12 @@ Note: importing keys does not verify this session.</source>
         <translation>تحميل مزيد من الخيوط</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+88"/>
         <source>Open in room</source>
         <translation>فتح في الغرفة</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+11"/>
         <source>Message deleted</source>
         <translation>حُذفت الرسالة</translation>
     </message>
@@ -13398,7 +13420,7 @@ Note: importing keys does not verify this session.</source>
         <translation>إلغاء الرد</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+104"/>
         <source>Failed</source>
         <translation>فشل</translation>
     </message>
@@ -13735,7 +13757,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+492"/>
+        <location filename="../qml/TimelinePane.qml" line="+506"/>
         <source>Seen by 1 person</source>
         <translation>قرأها شخص واحد</translation>
     </message>
@@ -13745,7 +13767,7 @@ Note: importing keys does not verify this session.</source>
         <translation>قرأها %1 أشخاص</translation>
     </message>
     <message numerus="yes">
-        <location line="+86"/>
+        <location line="+87"/>
         <source>…and %n more (names not loaded)</source>
         <translation>
             <numerusform>…ولا مزيد (الأسماء غير محمّلة)</numerusform>
@@ -13762,13 +13784,13 @@ Note: importing keys does not verify this session.</source>
         <translation>حفظ الملف باسم…</translation>
     </message>
     <message>
-        <location line="+134"/>
-        <location line="+5502"/>
+        <location line="+136"/>
+        <location line="+5509"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location line="-5501"/>
+        <location line="-5508"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
@@ -13823,12 +13845,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4300"/>
+        <location line="+4305"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-4079"/>
+        <location line="-4084"/>
         <source>This room has been upgraded.</source>
         <translation>تمت ترقية هذه الغرفة.</translation>
     </message>
@@ -13923,7 +13945,7 @@ Note: importing keys does not verify this session.</source>
         <translation>الانتقال إلى رسالة من %1</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+58"/>
         <source>Searching…</source>
         <translation>جارٍ البحث…</translation>
     </message>
@@ -13973,7 +13995,7 @@ Note: importing keys does not verify this session.</source>
         <translation>لا رسائل بعد</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+15"/>
         <source>No messages here yet. Say hello.</source>
         <translation>لا رسائل هنا بعد. ألقِ التحية.</translation>
     </message>
@@ -14003,7 +14025,7 @@ Note: importing keys does not verify this session.</source>
         <translation>العودة إلى أحدث رسالة</translation>
     </message>
     <message>
-        <location line="+606"/>
+        <location line="+608"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>أُضيفت الغرفة — في انتظار تأكيد الخادوم.</translation>
     </message>
@@ -14073,7 +14095,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر حفظ البانر (%1).</translation>
     </message>
     <message numerus="yes">
-        <location line="+67"/>
+        <location line="+68"/>
         <source>%n room(s)</source>
         <comment>rooms inside a Space</comment>
         <translation>
@@ -14141,7 +14163,7 @@ Note: importing keys does not verify this session.</source>
         <translation>أعضاء الفضاء نفسه. ولكل غرفة من غرفه أعضاؤها.</translation>
     </message>
     <message>
-        <location line="+67"/>
+        <location line="+68"/>
         <source>Showing the first 60 of %1.</source>
         <translation>تُعرض أول 60 من %1.</translation>
     </message>
@@ -14212,12 +14234,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+615"/>
+        <location line="+617"/>
         <source>Leave Space</source>
         <translation>مغادرة الفضاء</translation>
     </message>
     <message>
-        <location line="-609"/>
+        <location line="-611"/>
         <source>Leaving does not remove the rooms inside it.</source>
         <translation>المغادرة لا تزيل الغرف التي بداخله.</translation>
     </message>
@@ -14240,12 +14262,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+498"/>
+        <location line="+499"/>
         <source>Remove</source>
         <translation>إزالة</translation>
     </message>
     <message>
-        <location line="-486"/>
+        <location line="-487"/>
         <source>Mark as not suggested</source>
         <translation>تعليمها كغير مقترحة</translation>
     </message>
@@ -14281,12 +14303,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+93"/>
-        <location line="+487"/>
+        <location line="+490"/>
         <source>Room</source>
         <translation>غرفة</translation>
     </message>
     <message>
-        <location line="-428"/>
+        <location line="-430"/>
         <source>Joined</source>
         <translation>منضم</translation>
     </message>
@@ -14370,18 +14392,18 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+14"/>
-        <location line="+57"/>
+        <location line="+58"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-18"/>
+        <location line="-19"/>
         <source>Leave %1?</source>
         <translation>مغادرة %1؟</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+68"/>
+        <location line="+69"/>
         <source>this Space</source>
         <translation>هذا الفضاء</translation>
     </message>
@@ -14396,7 +14418,7 @@ Note: importing keys does not verify this session.</source>
         <translation>إضافة غرفة إلى %1</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Search your rooms…</source>
         <translation>ابحث في غرفك…</translation>
     </message>
@@ -14411,7 +14433,7 @@ Note: importing keys does not verify this session.</source>
         <translation>لا توجد غرف لإضافتها.</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+46"/>
         <source>Already added</source>
         <translation>مضافة بالفعل</translation>
     </message>
@@ -14460,12 +14482,12 @@ Note: importing keys does not verify this session.</source>
         <translation>حالة الثقة لـ %1</translation>
     </message>
     <message>
-        <location line="+121"/>
+        <location line="+124"/>
         <source>TRUST CHAIN</source>
         <translation>سلسلة الثقة</translation>
     </message>
     <message>
-        <location line="+170"/>
+        <location line="+172"/>
         <location line="+16"/>
         <source>Verify</source>
         <translation>تحقّق</translation>
@@ -14741,14 +14763,14 @@ Note: importing keys does not verify this session.</source>
         <translation>الحالة</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+52"/>
         <location line="+359"/>
-        <location line="+45"/>
+        <location line="+48"/>
         <source>Dismiss</source>
         <translation>تجاهل</translation>
     </message>
     <message>
-        <location line="-391"/>
+        <location line="-394"/>
         <source>Updates haven&apos;t been checked yet.</source>
         <translation>لم يُتحقق من التحديثات بعد.</translation>
     </message>
@@ -14868,7 +14890,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ثُبّت التحديث الأخير بنجاح.</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+37"/>
         <source>Lightning never installs an update that fails verification. There is no way to bypass this check.</source>
         <translation>لا يثبّت Lightning أبدًا تحديثًا يفشل في التحقق. ولا توجد أي طريقة لتجاوز هذا الفحص.</translation>
     </message>
@@ -14916,7 +14938,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 (%2)</translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location line="+54"/>
         <source>From your server</source>
         <translation>من خادومك</translation>
     </message>
@@ -15185,7 +15207,7 @@ Note: importing keys does not verify this session.</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+32"/>
         <source>Unmute microphone</source>
         <translation>إلغاء كتم صوت الميكروفون</translation>
     </message>
@@ -15261,7 +15283,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر إنهاء التسجيل.</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+64"/>
         <source>Nothing was recorded.</source>
         <translation>لم يُسجَّل شيء.</translation>
     </message>
@@ -15289,7 +15311,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1320"/>
+        <location filename="../src/main.cpp" line="+1340"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>عميل Matrix أصلي بـ Qt/QML. الخلفية: --backend={mock,http,rust}. الافتراضي: rust (http في النسخ الخالية من Rust SDK).</translation>
     </message>

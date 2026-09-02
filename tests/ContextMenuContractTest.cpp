@@ -29,8 +29,15 @@ class ContextMenuContractTest : public QObject
     {
         const int start = delegate.indexOf(QStringLiteral("id: moreMenu"));
         if (start < 0) return {};
+        // The Delete item's action, which is the last row of this menu.
+        // It moved from app.composer.redact to the TIMELINE MODEL's own
+        // redactEvent: app.composer is the ROOM composer, so in the thread
+        // panel the deletion was addressed to the live room timeline, which
+        // hides threaded events and could not find the item — deleting your
+        // own thread reply reported a send failure and never sent.
         const int end = delegate.indexOf(
-            QStringLiteral("app.composer.redact(root.menuEventId)"), start);
+            QStringLiteral("root.timelineModel.redactEvent(root.menuEventId)"),
+            start);
         if (end < start) return {};
         return delegate.mid(start, end - start);
     }
@@ -77,8 +84,11 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral(
             "emojis: app.emojiCatalog.recentEmoji || []")));
         QVERIFY(block.contains(QStringLiteral("onPicked: (emoji) => {")));
+        // Through the MODEL, not the room composer: in the thread panel
+        // app.composer addresses the live room timeline, which hides threaded
+        // events, so a reaction there was a silent no-op.
         QVERIFY(block.contains(QStringLiteral(
-            "app.composer.reactTo(root.menuEventId, emoji)")));
+            "root.timelineModel.toggleReaction(root.menuEventId, emoji)")));
         QVERIFY(block.contains(QStringLiteral("onMorePressed: {")));
         QVERIFY(block.contains(QStringLiteral(
             "root.openReactionPickerFor(root.menuEventId, bubbleRow)")));

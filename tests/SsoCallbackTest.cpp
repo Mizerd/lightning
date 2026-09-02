@@ -106,11 +106,22 @@ bool deliver(quint16 port, const QString &target)
 
 quint16 portOf(const OAuthCallbackServer &server)
 {
-    // "http://127.0.0.1:PORT/callback"
+    // "http://127.0.0.1:PORT/callback/<nonce>"
     const QString uri = server.redirectUri();
     const int colon = uri.lastIndexOf(QLatin1Char(':'));
     const int slash = uri.indexOf(QLatin1Char('/'), colon);
     return uri.mid(colon + 1, slash - colon - 1).toUShort();
+}
+
+// The path this attempt actually advertised. It carries a per-attempt secret
+// now, so a test may not hard-code "/callback": that is precisely the request
+// the server must refuse.
+QString pathOf(const OAuthCallbackServer &server)
+{
+    const QString uri = server.redirectUri();
+    const int colon = uri.lastIndexOf(QLatin1Char(':'));
+    const int slash = uri.indexOf(QLatin1Char('/'), colon);
+    return slash < 0 ? QString() : uri.mid(slash);
 }
 
 } // namespace
@@ -121,6 +132,65 @@ class SsoCallbackTest : public QObject
 
 private Q_SLOTS:
     // ── The listener, in SSO mode ────────────────────────────────────────
+    // LOGIN CSRF. The legacy m.login.sso flow has no `state` of its own: the
+    // homeserver echoes back only `loginToken`, so nothing in the protocol
+    // binds the answer to the attempt that asked for it. This endpoint used
+    // to accept any token that landed on a FIXED `/callback` for the whole
+    // five-minute window, which meant any other local process — and,
+    // depending on the browser's private-network rules, a web page sweeping
+    // the ephemeral port range — could sign the user into the ATTACKER'S
+    // account. Everything typed afterwards would go to an identity someone
+    // else controls.
+    //
+    // The redirect URI now carries 128 bits of system entropy in its path.
+    // On the unfixed server this case fails: the bare path was the callback.
+    void aTokenDeliveredWithoutThisAttemptsSecretIsRefused()
+    {
+        OAuthCallbackServer server;
+        server.setFlow(OAuthCallbackServer::Flow::Sso);
+        QVERIFY(server.listen());
+        // The advertised path is not guessable and is not the bare one.
+        QVERIFY(pathOf(server).startsWith(QStringLiteral("/callback/")));
+        QVERIFY(pathOf(server).size() > QStringLiteral("/callback/").size() + 16);
+
+        QSignalSpy received(&server, &OAuthCallbackServer::callbackReceived);
+        QSignalSpy failed(&server, &OAuthCallbackServer::callbackFailed);
+        const quint16 port = portOf(server);
+
+        // The bare path, and a wrong secret, are both strangers.
+        QVERIFY(deliver(port, QStringLiteral("/callback?loginToken=attacker")));
+        QVERIFY(deliver(port,
+                        QStringLiteral("/callback/0000000000000000?loginToken=attacker")));
+        QTest::qWait(200);
+        QCOMPARE(received.count(), 0);
+        QCOMPARE(failed.count(), 0);
+
+        // And the single shot was NOT consumed: the real answer still works.
+        QVERIFY(deliver(port, pathOf(server) + QStringLiteral("?loginToken=real")));
+        QVERIFY(received.wait(3000));
+        QCOMPARE(received.count(), 1);
+        QCOMPARE(received.at(0).at(0).toString(), QStringLiteral("real"));
+    }
+
+    // Two attempts never share a secret, so a token meant for an abandoned
+    // sign-in cannot be replayed into the next one.
+    void twoAttemptsNeverAdvertiseTheSamePath()
+    {
+        OAuthCallbackServer first;
+        first.setFlow(OAuthCallbackServer::Flow::Sso);
+        QVERIFY(first.listen());
+        const QString firstPath = pathOf(first);
+        first.stop();
+        // Cleared with the attempt: a stale secret must not outlive it.
+        QVERIFY(pathOf(first).isEmpty());
+
+        OAuthCallbackServer second;
+        second.setFlow(OAuthCallbackServer::Flow::Sso);
+        QVERIFY(second.listen());
+        QVERIFY(!pathOf(second).isEmpty());
+        QVERIFY(pathOf(second) != firstPath);
+    }
+
     void aValidLoginTokenIsExtractedAndNothingElseIsForwarded()
     {
         OAuthCallbackServer server;
@@ -130,7 +200,7 @@ private Q_SLOTS:
 
         QSignalSpy received(&server, &OAuthCallbackServer::callbackReceived);
         QVERIFY(deliver(portOf(server),
-                        QStringLiteral("/callback?loginToken=syt_abc123")));
+                        pathOf(server) + QStringLiteral("?loginToken=syt_abc123")));
         QVERIFY(received.wait(3000));
         QCOMPARE(received.count(), 1);
         // The TOKEN alone — not the URL. login_token() takes the token, and
@@ -143,12 +213,16 @@ private Q_SLOTS:
 
     void aMissingOrEmptyTokenIsAFailureNotAnEmptySuccess()
     {
-        for (const QString &target : { QStringLiteral("/callback"),
-                                       QStringLiteral("/callback?loginToken="),
-                                       QStringLiteral("/callback?code=oauthish") }) {
+        // The SUFFIX is the fixture; the path itself must come from the
+        // server built inside the loop, because each attempt advertises its
+        // own secret path.
+        for (const QString &suffix : { QString(),
+                                       QStringLiteral("?loginToken="),
+                                       QStringLiteral("?code=oauthish") }) {
             OAuthCallbackServer server;
             server.setFlow(OAuthCallbackServer::Flow::Sso);
             QVERIFY(server.listen());
+            const QString target = pathOf(server) + suffix;
             QSignalSpy received(&server, &OAuthCallbackServer::callbackReceived);
             QSignalSpy failed(&server, &OAuthCallbackServer::callbackFailed);
             QVERIFY(deliver(portOf(server), target));
@@ -167,13 +241,13 @@ private Q_SLOTS:
         const quint16 port = portOf(server);
         QSignalSpy received(&server, &OAuthCallbackServer::callbackReceived);
 
-        QVERIFY(deliver(port, QStringLiteral("/callback?loginToken=first")));
+        QVERIFY(deliver(port, pathOf(server) + QStringLiteral("?loginToken=first")));
         QVERIFY(received.wait(3000));
         QCOMPARE(received.count(), 1);
 
         // The listener is gone, so a replay cannot even connect — and
         // crucially it does not deliver a second token.
-        deliver(port, QStringLiteral("/callback?loginToken=second"));
+        deliver(port, pathOf(server) + QStringLiteral("?loginToken=second"));
         QTest::qWait(200);
         QCOMPARE(received.count(), 1);
         QCOMPARE(received.at(0).at(0).toString(), QStringLiteral("first"));
@@ -197,7 +271,7 @@ private Q_SLOTS:
         QVERIFY(server.isListening());
 
         // ...and the real callback still works afterwards.
-        QVERIFY(deliver(port, QStringLiteral("/callback?loginToken=real")));
+        QVERIFY(deliver(port, pathOf(server) + QStringLiteral("?loginToken=real")));
         QVERIFY(received.wait(3000));
         QCOMPARE(received.at(0).at(0).toString(), QStringLiteral("real"));
     }
@@ -258,6 +332,7 @@ private Q_SLOTS:
 
         // And a callback arriving after cancellation reaches nobody.
         QSignalSpy received(&server, &OAuthCallbackServer::callbackReceived);
+        // The port is dead, so the path does not matter here.
         deliver(port, QStringLiteral("/callback?loginToken=late"));
         QTest::qWait(200);
         QCOMPARE(received.count(), 0);
@@ -281,11 +356,13 @@ private Q_SLOTS:
         QSignalSpy secondReceived(&second, &OAuthCallbackServer::callbackReceived);
 
         // The old port is dead, so the stale callback goes nowhere...
+        // Dead port; the path is irrelevant.
         deliver(firstPort, QStringLiteral("/callback?loginToken=stale"));
         QTest::qWait(200);
         QCOMPARE(secondReceived.count(), 0);
         // ...and the new attempt is still armed for its own.
-        QVERIFY(deliver(portOf(second), QStringLiteral("/callback?loginToken=fresh")));
+        QVERIFY(deliver(portOf(second),
+                        pathOf(second) + QStringLiteral("?loginToken=fresh")));
         QVERIFY(secondReceived.wait(3000));
         QCOMPARE(secondReceived.at(0).at(0).toString(), QStringLiteral("fresh"));
     }
@@ -298,7 +375,7 @@ private Q_SLOTS:
         QVERIFY(server.listen());
         QSignalSpy received(&server, &OAuthCallbackServer::callbackReceived);
         QVERIFY(deliver(portOf(server),
-                        QStringLiteral("/callback?code=abc&state=xyz")));
+                        pathOf(server) + QStringLiteral("?code=abc&state=xyz")));
         QVERIFY(received.wait(3000));
         // OAuth still forwards the WHOLE redirect URL: the SDK validates
         // `state` from it, so handing over the code alone would break it.
@@ -312,7 +389,8 @@ private Q_SLOTS:
         OAuthCallbackServer other;
         QVERIFY(other.listen());
         QSignalSpy failed(&other, &OAuthCallbackServer::callbackFailed);
-        QVERIFY(deliver(portOf(other), QStringLiteral("/callback?loginToken=x")));
+        QVERIFY(deliver(portOf(other),
+                        pathOf(other) + QStringLiteral("?loginToken=x")));
         QVERIFY(failed.wait(3000));
     }
 
@@ -322,8 +400,8 @@ private Q_SLOTS:
         QVERIFY(server.listen());
         QSignalSpy failed(&server, &OAuthCallbackServer::callbackFailed);
         QVERIFY(deliver(portOf(server),
-                        QStringLiteral("/callback?error=access_denied"
-                                       "&error_description=nope")));
+                        pathOf(server) + QStringLiteral("?error=access_denied"
+                                                        "&error_description=nope")));
         QVERIFY(failed.wait(3000));
         // The fixed protocol token is passed on; the server's free-text
         // description deliberately is not.

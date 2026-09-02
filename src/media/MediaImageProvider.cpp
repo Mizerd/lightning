@@ -2,6 +2,7 @@
 
 #include "app/GuiStallTracer.h"
 
+#include "media/ImageFormatSupport.h"
 #include "media/MediaBridge.h"
 
 #include <QBuffer>
@@ -13,6 +14,9 @@
 namespace {
 // Hard decode bound: no attachment may decode above this edge length.
 constexpr int kMaxDecodeEdge = 4096;
+// Qt's default allocation limit is 256 MiB. Nothing decoded here is a
+// legitimate quarter-gigabyte image, and the bytes are attacker-chosen.
+constexpr int kMaxDecodeAllocationMiB = 64;
 
 // Bake the avatar shape into the decoded bitmap: centre-crop to a square,
 // then cut rounded corners into the alpha channel. Masking here — once per
@@ -194,14 +198,57 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
     if (bytes.isEmpty())
         return {};
 
+    // THE FORMAT IS DECIDED BY THE BYTES, AND ONLY FROM THE KNOWN TABLE.
+    //
+    // MediaBridge refuses markup before anything reaches this cache, and that
+    // is the primary defence. This is the second one, at the site that
+    // actually hands bytes to a decoder: sniff the raster format ourselves,
+    // pin the reader to it, and turn autodetection OFF, so a payload whose
+    // shape we do not recognise is refused rather than handed to whichever
+    // image plugin claims it. `sniffRaster`'s table deliberately excludes
+    // SVG — it is not a raster format and it is active content — so an
+    // unrecognised payload cannot reach the SVG handler even on a build that
+    // ships qsvg. CustomAppIcon already does exactly this and says why.
+    // A FORMAT WE RECOGNISE IS PINNED; ONE WE DO NOT IS STILL REFUSED IF IT
+    // COULD BE ACTIVE CONTENT.
+    //
+    // sniffRaster's table is deliberately narrow — it is the ACCEPT list, and
+    // HEIF, AVIF and TIFF are intentionally absent from it while
+    // looksLikeAvContainer lets those brands through "if an image plugin ever
+    // appears". Refusing everything the table does not name would therefore
+    // have blanked a HEIC on macOS, where qmacheif exists and it used to
+    // render, with no diagnostic at all.
+    //
+    // So: a recognised format is pinned with autodetection OFF, which is what
+    // keeps an unrecognised payload away from the SVG handler. An
+    // unrecognised one falls back to autodetection ONLY after the markup and
+    // compressed check has refused it a second time, so SVG and SVGZ cannot
+    // reach a decoder either way.
+    const lightning::imagefmt::RasterFormat *sniffed =
+        lightning::imagefmt::sniffRaster(bytes);
+    if (!sniffed && MediaBridge::looksLikeMarkupOrCompressed(bytes))
+        return {};
+
     QBuffer buffer(&bytes);
     buffer.open(QIODevice::ReadOnly);
     QImageReader reader(&buffer);
+    if (sniffed) {
+        reader.setAutoDetectImageFormat(false);
+        reader.setFormat(QByteArray(sniffed->qtFormat));
+    }
     reader.setAutoTransform(true);
+    // A decoder is handed attacker-chosen bytes, so cap the allocation as
+    // well as the edge. Qt's default is 256 MiB; nothing on this path is a
+    // legitimate quarter-gigabyte image.
+    reader.setAllocationLimit(kMaxDecodeAllocationMiB);
 
     // Bound the decode: honor the requested size, and never decode beyond
     // the safety edge even when no size was requested.
     const QSize natural = reader.size();
+    // An unreadable header means setScaledSize below is never called and the
+    // edge cap never applies, so refuse rather than decode unbounded.
+    if (!natural.isValid())
+        return {};
     const bool bakesShape = maskCircle || maskRatio > 0.0 || roundRatio > 0.0;
     QSize target = effectiveDecodeSize(natural, requestedSize, bakesShape);
     if (target.isValid()

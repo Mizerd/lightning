@@ -21,6 +21,7 @@
 
 #include <QDesktopServices>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -296,6 +297,29 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
                                   ? QStringLiteral("persistent")
                                   : QStringLiteral("temporary"));
 
+    // The Rust side tightens the store directory itself, but only the LEAF:
+    // mkpath creates every missing parent with the umask's mode, so an
+    // account directory created here stays 0755 and lists the slug — which is
+    // the Matrix localpart. Tighten each level this call actually creates.
+    const auto restrictNewParents = [&storePath] {
+        QString walked;
+        const QStringList parts = storePath.split(QLatin1Char('/'));
+        for (const QString &part : parts) {
+            if (part.isEmpty()) {
+                walked += QLatin1Char('/');
+                continue;
+            }
+            if (!walked.isEmpty() && !walked.endsWith(QLatin1Char('/')))
+                walked += QLatin1Char('/');
+            walked += part;
+            // Only inside our own data root: never touch $HOME or above.
+            if (!walked.startsWith(matrix::app_data::primaryRoot()))
+                continue;
+            QFile::setPermissions(walked,
+                                  QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                                      | QFileDevice::ExeOwner);
+        }
+    };
     if (!QDir().mkpath(storePath)) {
         // The path is deliberately NOT in the message: it contains the
         // account slug (the Matrix localpart) and the home directory, and
@@ -306,6 +330,7 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
                                 "permissions and free space."));
         return false;
     }
+    restrictNewParents();
 
     const QByteArray path = QFileInfo(storePath).absoluteFilePath().toUtf8();
     m_rustHandle = mx_rust_create(path.constData());
@@ -320,8 +345,11 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
     // fresh handle, and a registered media backend must survive account
     // switches (review 2026-08-18 round 2 L4).
     if (m_callMediaCapable)
-        mx_rust_calls_set_media_capable(m_rustHandle,
-                                        static_cast<unsigned char>(1));
+        // takeRustString: this FFI returns an OWNED char*, and discarding it
+        // leaks the allocation. These were the only two unwrapped
+        // char*-returning call sites in the tree.
+        takeRustString(mx_rust_calls_set_media_capable(
+            m_rustHandle, static_cast<unsigned char>(1)));
 
     if (!m_sessionFilePath.isEmpty()) {
         const QByteArray sessionPath = m_sessionFilePath.toUtf8();
@@ -342,6 +370,11 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
     return true;
 }
 
+// NOTE: this deliberately does NOT clear m_freshLoginIdentity. login() arms
+// the marker and then reaches here through ensureRustHandleForIdentity, so
+// clearing it would disarm the fresh-store cleanup it exists for. The marker
+// is made safe by being COMPARED against the account the attempt is for (see
+// the login_failed handler) and by being cleared in detachSession().
 void RustSdkMatrixClient::releaseRustHandle()
 {
     m_pollTimer.stop();
@@ -595,6 +628,13 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     }
 
     if (!ensureRustHandleForIdentity(identity)) {
+        // This attempt never started, so nothing may still be marked as its
+        // fresh store. Without this the marker outlives the only return path
+        // that emits neither login_ok nor login_failed. The consumer's
+        // store-path comparison already makes such a marker inert, so this is
+        // the invariant made literal rather than a second guard: it is armed
+        // only while an attempt is actually in flight.
+        m_freshLoginIdentity = {};
         setState(Error);
         Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
         return;
@@ -651,6 +691,11 @@ bool RustSdkMatrixClient::detachSession()
     // deliberately untouched — restoreSession() reactivates it later.
     qCInfo(lcRust) << "detaching local session"
                    << "slug=" << matrix::app_data::safeUserSlug(m_userId);
+    // A detach ABANDONS whatever login attempt was running, and it
+    // invalidates the lifecycle so that attempt's login_ok/login_failed is
+    // dropped as stale — which is exactly how a fresh-store marker used to
+    // survive into the NEXT account. Drop it with the session it belonged to.
+    m_freshLoginIdentity = {};
     m_callSdpStore.clear();
     // Stale callbacks from this session become unobservable immediately;
     // releaseRustHandle() then cancels/joins every managed task before the
@@ -710,7 +755,15 @@ void RustSdkMatrixClient::discoverAuthMethods(const QString &homeserver)
     // mid-sign-in would therefore throw away the Client holding THIS
     // attempt's PKCE verifier and CSRF state, and the callback would arrive
     // to an empty slot. The running attempt wins; the user can cancel it.
-    if (m_oauthInFlight)
+    //
+    // THE SSO FLOW NEEDS THE SAME GUARD and did not have it. mx_rust_sso_begin
+    // parks its bootstrap Client in the same slot, so editing the homeserver
+    // field while the browser tab was open — the field has no guard of its
+    // own, and typing restarts a debounced re-probe — destroyed the handle
+    // the callback needed. The user completed a real sign-in in the browser
+    // and got "The sign-in could not be completed", with the login token
+    // already spent, because it is single-use.
+    if (m_oauthInFlight || m_ssoInFlight)
         return;
 
     const QString hs = homeserver.trimmed();
@@ -988,8 +1041,20 @@ void RustSdkMatrixClient::drainAuthEvents()
             // A failed launch is REPORTED, not fatal: the flow (timeout,
             // Cancel) stays alive, the UI just gets to say why nothing
             // appeared.
-            if (!lightning::urls::openExternally(QUrl(url)))
+            // HTTPS ONLY. This URL comes from homeserver DISCOVERY, so it
+            // is chosen by whatever server the user typed the name of, and
+            // openExternally hands it to the desktop's URL handler — any
+            // scheme, any registered application. A discovery response
+            // naming a non-https scheme is not a sign-in flow.
+            const QUrl launch(url);
+            if (launch.scheme() != QLatin1String("https")
+                || launch.host().isEmpty()) {
+                qCWarning(lcRust) << "refusing a non-https sign-in URL from "
+                                     "homeserver discovery";
                 Q_EMIT browserLaunchFailed();
+            } else if (!lightning::urls::openExternally(launch)) {
+                Q_EMIT browserLaunchFailed();
+            }
             Q_EMIT oauthBrowserUrlReady(url);
             continue;
         }
@@ -1045,8 +1110,20 @@ void RustSdkMatrixClient::drainAuthEvents()
             const QString url = event.value(QStringLiteral("url")).toString();
             if (url.isEmpty())
                 continue;
-            if (!lightning::urls::openExternally(QUrl(url)))
+            // HTTPS ONLY. This URL comes from homeserver DISCOVERY, so it
+            // is chosen by whatever server the user typed the name of, and
+            // openExternally hands it to the desktop's URL handler — any
+            // scheme, any registered application. A discovery response
+            // naming a non-https scheme is not a sign-in flow.
+            const QUrl launch(url);
+            if (launch.scheme() != QLatin1String("https")
+                || launch.host().isEmpty()) {
+                qCWarning(lcRust) << "refusing a non-https sign-in URL from "
+                                     "homeserver discovery";
                 Q_EMIT browserLaunchFailed();
+            } else if (!lightning::urls::openExternally(launch)) {
+                Q_EMIT browserLaunchFailed();
+            }
             Q_EMIT ssoBrowserUrlReady(url);
             continue;
         }
@@ -1715,7 +1792,34 @@ void RustSdkMatrixClient::logout()
     stopSync();
 
     if (m_rustHandle) {
-        mx_rust_logout(m_rustHandle);
+        // THE SESSION TYPE DECIDES THE SIGN-OUT, exactly as it already
+        // decides the RESTORE a few hundred lines above — and until now only
+        // restore branched. `mx_rust_logout` is `matrix_auth().logout()`,
+        // POST /_matrix/client/v3/logout. Against an OAuth/OIDC homeserver
+        // (MAS) that is not the revocation endpoint: the tokens are revoked
+        // through OAuth's own RFC 7009 endpoint, which is what
+        // `mx_rust_oauth_logout` calls. So signing out of an OAuth account
+        // tore down everything locally and left the access and refresh tokens
+        // LIVE on the server — and the failure was invisible, because the
+        // error is mapped to a result category and sign-out proceeds anyway.
+        //
+        // `mx_rust_oauth_logout` had no caller anywhere in the tree.
+        //
+        // The discriminator is read from QSettings, so it is still readable
+        // when the keyring is not — the same reason the restore path uses it.
+        const bool oauthSession = m_settings
+            && m_settings->isOAuthAccount(m_signOutIdentity.userId);
+        if (oauthSession) {
+            // The return value is the DISPATCH result, not the revocation's:
+            // the revocation is asynchronous and reports through the
+            // logged_out event's "result" field, exactly as the password
+            // lane does. Logging this as though it were the outcome said
+            // "ok" on every path, including a failed revocation.
+            takeRustString(mx_rust_oauth_logout(m_rustHandle));
+            qCInfo(lcRust) << "logout: oauth revocation dispatched";
+        } else {
+            mx_rust_logout(m_rustHandle);
+        }
         ensurePollTimer();
     } else {
         finishSignOut(QStringLiteral("no_active_session"), QString{});
@@ -2149,7 +2253,14 @@ void RustSdkMatrixClient::redactEvent(const QString &roomId,
         refuseSend("redactEvent");
         return;
     }
-    const QByteArray roomBytes = roomId.toUtf8();
+    // A composite thread-timeline id never crosses the FFI (§8). The
+    // redaction is addressed by event id through the ROOM, so the real room
+    // is all Rust needs — and that is also why deleting a thread reply works
+    // now: it used to go through the live room timeline, which hides threaded
+    // events, so the SDK could not find the item and nothing was sent.
+    const QString realRoom = isThreadTimelineId(roomId)
+        ? threadTimelineRoomId(roomId) : roomId;
+    const QByteArray roomBytes = realRoom.toUtf8();
     const QByteArray targetBytes = eventId.toUtf8();
     const QByteArray reasonBytes = reason.toUtf8();
     const QString result = takeRustString(mx_rust_timeline_redact(
@@ -2170,12 +2281,20 @@ void RustSdkMatrixClient::toggleReaction(const QString &roomId,
         refuseSend("toggleReaction");
         return;
     }
-    const QByteArray roomBytes = roomId.toUtf8();
+    // The composite is decomposed HERE and never crosses the FFI (§8). The
+    // thread root selects the timeline that actually holds the event: the
+    // live room timeline hides threaded events, so a reaction on a thread
+    // reply was looked up in a list it is not in and silently did nothing.
+    const bool inThread = isThreadTimelineId(roomId);
+    const QString realRoom = inThread ? threadTimelineRoomId(roomId) : roomId;
+    const QString threadRoot = inThread ? threadTimelineRootId(roomId) : QString();
+    const QByteArray roomBytes = realRoom.toUtf8();
+    const QByteArray rootBytes = threadRoot.toUtf8();
     const QByteArray targetBytes = targetEventId.toUtf8();
     const QByteArray keyBytes = key.toUtf8();
     const QString result = takeRustString(mx_rust_timeline_toggle_reaction(
-        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
-        keyBytes.constData()));
+        m_rustHandle, roomBytes.constData(), rootBytes.constData(),
+        targetBytes.constData(), keyBytes.constData()));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
@@ -3479,14 +3598,26 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
 
     releaseRustHandle();
     clearLocalState();
-    const bool sessionOk = identity.isValid() && clearPersistedAccount(identity);
+    // matchedRecord, NOT the discarding overload. resetLocalSession has
+    // required `matchedRecord || removedAnything()` since the wrong-casing
+    // incident; sign-out used the overload that throws the answer away, so a
+    // cleanup that matched no record and deleted no store still reported
+    // "Local Lightning session reset. You can sign in again." §6: "target
+    // absent" and "reset completed" are different outcomes, and conflating
+    // them hides a no-op behind a success message.
+    bool matchedRecord = false;
+    const bool sessionOk =
+        identity.isValid() && clearPersistedAccount(identity, &matchedRecord);
     const auto files = identity.isValid()
         ? matrix::app_data::removeAccountRustState(identity)
         : matrix::app_data::RemovalSummary{0, 0, 1};
-    const bool ok = sessionOk && files.ok();
+    const bool didSomething = matchedRecord || files.removedAnything();
+    const bool ok = sessionOk && files.ok() && didSomething;
 
     qCInfo(lcRust) << "rust local sign-out cleanup"
                    << "slug=" << identity.slug
+                   << "matched_record=" << matchedRecord
+                   << "did_something=" << didSomething
                    << "session=" << (sessionOk ? "ok" : "failed")
                    << "store_and_sidecars=" << (files.ok() ? "ok" : "failed")
                    << "deleted=" << files.deleted
@@ -3634,6 +3765,29 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // store directory behind — that is exactly what used to poison
         // every later attempt for this account. Release the handle first
         // so no SDK task still owns the store files.
+        // IT MUST NAME THE ACCOUNT THIS ATTEMPT ACTUALLY OPENED. The flag is
+        // armed in login() and cleared only by login_ok / login_failed — not
+        // by login()'s own early returns, nor by detachSession(), logout() or
+        // restoreSession(). So: arm it for a fresh-store login of B, switch
+        // accounts before B's terminal event drains (detachSession
+        // invalidates the generation, so login_ok/login_failed is dropped as
+        // stale and the flag survives), then let a later login_failed for A
+        // arrive — and this block deletes B's store directory. Comparing
+        // against the identity the CURRENT attempt is for makes a stale flag
+        // inert instead of destructive.
+        // The authority is the store the LIVE HANDLE actually opened, the
+        // same rule sign-out uses to decide which store to delete. A marker
+        // naming any other store belongs to an attempt that is over.
+        const bool freshMatchesThisAttempt =
+            m_freshLoginIdentity.isValid() && !m_storePath.isEmpty()
+            && QFileInfo(m_freshLoginIdentity.rustStorePath).absoluteFilePath()
+                   == QFileInfo(m_storePath).absoluteFilePath();
+        if (m_freshLoginIdentity.isValid() && !freshMatchesThisAttempt) {
+            qCWarning(lcRust)
+                << "discarding a fresh-store marker that names a different "
+                   "account than this attempt; no store was removed";
+            m_freshLoginIdentity = {};
+        }
         if (m_freshLoginIdentity.isValid()) {
             const auto identity = m_freshLoginIdentity;
             m_freshLoginIdentity = {};
@@ -4035,9 +4189,16 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
     if (type == QLatin1String("thread_send_failed")) {
-        qCWarning(lcRust) << "thread send state=failed category="
-                          << event.value(QStringLiteral("category")).toString();
-        Q_EMIT errorOccurred(tr("The thread reply could not be sent."));
+        const QString category =
+            event.value(QStringLiteral("category")).toString();
+        qCWarning(lcRust) << "thread send state=failed category=" << category;
+        // THE CATEGORY DECIDES THE WORDS. Telling someone a REACTION "could
+        // not be sent as a thread reply" is the same wrong-text defect the
+        // redaction path had, and it arrives on a surface with no retry.
+        Q_EMIT errorOccurred(
+            category == QLatin1String("reaction_rejected")
+                ? tr("The reaction could not be applied.")
+                : tr("The thread reply could not be sent."));
         return;
     }
     if (type == QLatin1String("timeline_retry_decryption")) {
@@ -4049,6 +4210,16 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             event.value(QStringLiteral("category")).toString(
                 QStringLiteral("rejected"));
         qCWarning(lcRust) << "timeline send state=failed category=" << category;
+        if (category == QLatin1String("reaction_rejected")) {
+            // No Retry affordance exists for a reaction, so the message must
+            // not point at one.
+            Q_EMIT errorOccurred(tr("The reaction could not be applied."));
+            return;
+        }
+        if (category == QLatin1String("redact_rejected")) {
+            Q_EMIT errorOccurred(tr("The message could not be deleted."));
+            return;
+        }
         Q_EMIT errorOccurred(tr("Message could not be sent. You can retry "
                                 "from the message's Retry action."));
         return;
@@ -4643,7 +4814,29 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
                                             : timelineEvent.errorKind);
     }
 
-    timeline.append(timelineEvent);
+    // A TRUE THREAD REPLY NEVER ENTERS THE ROOM'S MAIN-TIMELINE MIRROR (§8).
+    //
+    // This mirror is what TimelineModel::reload() reads, and it keeps filling
+    // while a room is CLOSED. openRoom then sets the room id — which reloads
+    // from here — BEFORE it opens the SDK timeline, so every room open
+    // replayed whatever thread replies had arrived in the background as
+    // standalone main-timeline rows, until the SDK snapshot replaced them.
+    // If the open failed, no snapshot ever came.
+    //
+    // Filtered HERE rather than in the model, and that distinction was
+    // learned the hard way: TimelineModel derives its thread-root flags and
+    // reply counts BY COUNTING the replies in its own event list, so removing
+    // them from that list erases the roots and their counts along with them.
+    // The mirror is the main timeline's content; keeping it correct at the
+    // source leaves every derived index intact.
+    //
+    // The SIGNAL is still emitted for a threaded event, because it is the
+    // notification and Activity Center feed, not the timeline: a mention in a
+    // thread of a background room must still reach the user.
+    const bool threadedReply = !timelineEvent.threadRootId.isEmpty()
+        && timelineEvent.threadRootId != timelineEvent.eventId;
+    if (!threadedReply)
+        timeline.append(timelineEvent);
     Q_EMIT eventAppended(roomId, timelineEvent);
 
     auto roomIt = m_rooms.find(roomId);
@@ -6501,9 +6694,9 @@ void RustSdkMatrixClient::setCallMediaCapable(bool capable)
     // while a media backend is still registered (review L4).
     m_callMediaCapable = capable;
     if (m_rustHandle)
-        mx_rust_calls_set_media_capable(
+        takeRustString(mx_rust_calls_set_media_capable(
             m_rustHandle, capable ? static_cast<unsigned char>(1)
-                                  : static_cast<unsigned char>(0));
+                                  : static_cast<unsigned char>(0)));
     if (!capable)
         m_callSdpStore.clear();
 }

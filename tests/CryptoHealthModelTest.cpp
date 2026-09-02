@@ -131,16 +131,37 @@ private Q_SLOTS:
         CryptoHealthModel model;
         model.setSupported(true);
 
+        // An explicit false is a real answer: No.
         model.applySnapshot(baseSnapshot(), model.generation());
-        QVERIFY(!model.keyBackupAvailable());
+        QCOMPARE(model.keyBackupAvailable(), CryptoHealthModel::No);
         QVERIFY(!model.keyBackupUsable());
+
+        // AN ABSENT FIELD IS "NOT KNOWN", AND IT USED TO READ AS "NO BACKUP".
+        // The Rust probe performs a real GET /room_keys/version, so a network
+        // blip, a 5xx or an unauthenticated moment all failed it — and
+        // unwrap_or(false) published that as a definite absence. It told the
+        // user their account had no key backup, which invites abandoning a
+        // real recovery key, and it armed the enable button, whose action can
+        // mint a NEW 4S key over the existing one with no confirmation.
+        QVariantMap unknown = baseSnapshot();
+        unknown.remove(QStringLiteral("backup_exists_on_server"));
+        model.applySnapshot(unknown, model.generation());
+        QCOMPARE(model.keyBackupAvailable(), CryptoHealthModel::Unknown);
+        QVERIFY(!model.keyBackupUsable());
+
+        // A null carries the same meaning as absent, which is what a JSON
+        // null from the Rust side becomes on the way through QVariant.
+        QVariantMap nulled = baseSnapshot();
+        nulled.insert(QStringLiteral("backup_exists_on_server"), QVariant());
+        model.applySnapshot(nulled, model.generation());
+        QCOMPARE(model.keyBackupAvailable(), CryptoHealthModel::Unknown);
 
         QVariantMap untrusted = baseSnapshot();
         untrusted.insert(QStringLiteral("backup_exists_on_server"), true);
         untrusted.insert(QStringLiteral("backup_state"),
                          QStringLiteral("unknown"));
         model.applySnapshot(untrusted, model.generation());
-        QVERIFY(model.keyBackupAvailable());
+        QCOMPARE(model.keyBackupAvailable(), CryptoHealthModel::Yes);
         QVERIFY(!model.keyBackupUsable());
 
         QVariantMap usable = baseSnapshot();
@@ -148,7 +169,7 @@ private Q_SLOTS:
         usable.insert(QStringLiteral("backup_state"),
                       QStringLiteral("enabled"));
         model.applySnapshot(usable, model.generation());
-        QVERIFY(model.keyBackupAvailable());
+        QCOMPARE(model.keyBackupAvailable(), CryptoHealthModel::Yes);
         QVERIFY(model.keyBackupUsable());
     }
 

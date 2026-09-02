@@ -1404,6 +1404,7 @@ Item {
                             id: nameLabel
                             objectName: "senderName"
                             text: model.senderDisplayName || model.sender
+                            textFormat: Text.PlainText
                             // Element-style identity colour: deterministic
                             // per-user ink hashed from the MXID, hue-matched
                             // to the same user's avatar disc.
@@ -1443,6 +1444,7 @@ Item {
                             Layout.maximumWidth: 180
                             sourceComponent: Label {
                                 text: model.sender
+                                textFormat: Text.PlainText
                                 color: AppTheme.textMuted
                                 // Message data, not chrome: it sits on the
                                 // identity line beside a scaled name and a
@@ -2887,17 +2889,17 @@ Item {
                     // never reached it and nothing ever drew focus.
                     activeFocusOnTab: true
                     Keys.onReturnPressed: (event) => {
-                        app.composer.reactTo(root.eventIdForActions(),
+                        root.timelineModel.toggleReaction(root.eventIdForActions(),
                                              modelData.key)
                         event.accepted = true
                     }
                     Keys.onEnterPressed: (event) => {
-                        app.composer.reactTo(root.eventIdForActions(),
+                        root.timelineModel.toggleReaction(root.eventIdForActions(),
                                              modelData.key)
                         event.accepted = true
                     }
                     Keys.onSpacePressed: (event) => {
-                        app.composer.reactTo(root.eventIdForActions(),
+                        root.timelineModel.toggleReaction(root.eventIdForActions(),
                                              modelData.key)
                         event.accepted = true
                     }
@@ -3127,7 +3129,7 @@ Item {
                         // reason the reply quote does not: a click here must
                         // not pull the caret out of the composer mid-
                         // sentence. Tab reaches the same control.
-                        onClicked: app.composer.reactTo(
+                        onClicked: root.timelineModel.toggleReaction(
                                        root.eventIdForActions(), modelData.key)
                     }
                     Accessible.role: Accessible.Button
@@ -3147,7 +3149,7 @@ Item {
                     // user invoking it (not clicking with a mouse) needs
                     // this mirror of the MouseArea's onClicked.
                     Accessible.onPressAction:
-                        app.composer.reactTo(root.eventIdForActions(), modelData.key)
+                        root.timelineModel.toggleReaction(root.eventIdForActions(), modelData.key)
                 }
             }
 
@@ -3621,7 +3623,7 @@ Item {
                         || root.timelineModel.messageDetails(
                             root.menuEventId).redacted)
                         return
-                    app.composer.reactTo(root.menuEventId, emoji)
+                    root.timelineModel.toggleReaction(root.menuEventId, emoji)
                     moreMenu.close()
                 }
                 onMorePressed: {
@@ -4068,7 +4070,7 @@ Item {
                 danger: true
                 enabled: root.timelineModel.canRedactEvent(root.menuEventId)
                 visible: enabled
-                onTriggered: app.composer.redact(root.menuEventId)
+                onTriggered: root.timelineModel.redactEvent(root.menuEventId)
             }
         }
     }
@@ -5637,6 +5639,7 @@ Item {
                     }
                     Label {
                         text: model.mediaFilename || model.body || qsTr("Video")
+                        textFormat: Text.PlainText
                         color: AppTheme.textMuted
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         elide: Label.ElideMiddle
@@ -5876,6 +5879,7 @@ Item {
                     spacing: 1
                     Label {
                         text: model.mediaFilename || model.body || qsTr("File")
+                        textFormat: Text.PlainText
                         color: AppTheme.text
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         font.weight: AppTheme.weightStrong

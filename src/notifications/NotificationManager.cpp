@@ -499,6 +499,39 @@ void NotificationManager::flushAvatarWaits(bool fallbackAll)
         m_avatarWaitTimer.start();
 }
 
+// THE ONE PLACE A NOTIFICATION BODY IS ESCAPED.
+//
+// A freedesktop `body` is markup on any server advertising `body-markup`
+// (GNOME Shell and KDE both do), and everything that reaches one here is
+// chosen by someone else: a sender's display name, a room name, a message
+// body. `<b>`, `<span foreground>` and a live `<a href>` all render, and an
+// unbalanced tag makes Pango reject the string outright.
+//
+// Escaping is conditional on the capability rather than unconditional,
+// because a daemon that does NOT render markup would then display a literal
+// `&amp;` in any message containing an ampersand. Queried once and cached:
+// the answer cannot change without the daemon restarting.
+//
+// AT EXACTLY ONE LAYER. AppController used to escape the call notifications
+// itself; with an escape here as well, "Ben & Jerry's" reached GNOME as
+// "Ben &amp; Jerry&#39;s". The callers now pass raw text and this decides.
+//
+// The SUMMARY is deliberately never escaped: it is plain text on every
+// server, so entities would show through.
+QString NotificationManager::bodyForServer(QDBusInterface &notifications,
+                                           const QString &body)
+{
+    if (!m_bodyMarkupKnown) {
+        const QDBusReply<QStringList> caps =
+            notifications.call(QStringLiteral("GetCapabilities"));
+        m_bodyMarkup = caps.isValid()
+            && caps.value().contains(QStringLiteral("body-markup"));
+        m_bodyMarkupKnown = true;
+        qCInfo(lcNotify) << "notification server body-markup =" << m_bodyMarkup;
+    }
+    return m_bodyMarkup ? body.toHtmlEscaped() : body;
+}
+
 void NotificationManager::deliverNow(const QString &title,
                                      const QString &body,
                                      const QVariantMap &payload, bool sound,
@@ -543,9 +576,32 @@ void NotificationManager::deliverNow(const QString &title,
                          QStringLiteral("message-new-instant"));
         }
     }
+    // THE BODY IS ESCAPED WHEN THE DAEMON RENDERS MARKUP, and it was not
+    // escaped at all before. A freedesktop `body` is markup on any server
+    // advertising `body-markup` — GNOME Shell and KDE both do — and every
+    // string that reaches it here is chosen by someone else: a sender's
+    // display name, a room name, a message body. `<b>`, `<span foreground>`
+    // and a live `<a href>` all render, so a sender could forge emphasis or a
+    // clickable link inside what reads as Lightning's own chrome, and an
+    // unbalanced tag makes Pango reject the string so the notification comes
+    // out empty or as raw markup.
+    //
+    // This project already knew: AppController escapes the room name for the
+    // incoming-call and missed-call notifications and says why. The highest
+    // volume path — every message — did not.
+    //
+    // Escaping is conditional on the capability rather than unconditional,
+    // because a daemon that does NOT render markup would then display a
+    // literal `&amp;` in any message containing an ampersand. Queried once
+    // and cached: the answer cannot change without the daemon restarting.
+    //
+    // `title` is deliberately NOT escaped. The freedesktop summary is plain
+    // text on every server, so escaping it would show the entities.
+    const QString safeBody = bodyForServer(notifications, body);
+
     QDBusReply<quint32> reply = notifications.call(
         QStringLiteral("Notify"), QStringLiteral("Lightning"), quint32(0),
-        identity.appIcon, title, body, actions, hints, int(-1));
+        identity.appIcon, title, safeBody, actions, hints, int(-1));
     if (reply.isValid())
         recordPayload(reply.value(), payload);
 #else
@@ -666,10 +722,14 @@ void NotificationManager::deliverCallNotification()
         hints.insert(QStringLiteral("sound-name"),
                      QStringLiteral("phone-incoming-call"));
     }
+    // The ring does not go through deliverNow, so it needs the same single
+    // escape. Its body carries a room name and a caller localpart, both
+    // member-chosen.
     const QDBusReply<quint32> reply = notifications.call(
         QStringLiteral("Notify"), QStringLiteral("Lightning"),
         m_activeCallNotificationId, identity.appIcon, m_activeCallTitle,
-        m_activeCallBody, actions, hints, int(-1));
+        bodyForServer(notifications, m_activeCallBody), actions, hints,
+        int(-1));
     if (reply.isValid()) {
         if (m_activeCallNotificationId != 0
             && reply.value() != m_activeCallNotificationId)

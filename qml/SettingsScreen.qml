@@ -4124,6 +4124,7 @@ Item {
                                                       : (app.accounts
                                                          ? (app.accounts.activeUserId || qsTr("(signed out)"))
                                                          : "")
+                                                textFormat: Text.PlainText
                                                 color: AppTheme.stormText
                                                 font.pixelSize: AppTheme.textTitle
                                                 font.weight: AppTheme.weightBold
@@ -4237,6 +4238,7 @@ Item {
                                             text: accountIdentityCard.accountDisplayName.length > 0
                                                   ? accountIdentityCard.accountDisplayName
                                                   : qsTr("Not set")
+                                            textFormat: Text.PlainText
                                             color: accountIdentityCard.accountDisplayName.length > 0
                                                    ? AppTheme.stormText
                                                    : AppTheme.stormTextMuted
@@ -4299,6 +4301,7 @@ Item {
                                             color: AppTheme.stormDanger
                                             font.pixelSize: AppTheme.textMeta
                                             text: app.ownDisplayNameError
+                                            textFormat: Text.PlainText
                                         }
                                         RowLayout {
                                             Layout.fillWidth: true
@@ -5068,11 +5071,18 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
+                                    // "Not yet known" is its own answer. A
+                                    // network failure while probing used to
+                                    // render as "none found", which is the
+                                    // one wrong answer that makes someone
+                                    // abandon a real recovery key.
                                     text: app.cryptoHealth.keyBackupUsable
                                           ? qsTr("Key backup: active on this session")
-                                          : app.cryptoHealth.keyBackupAvailable
+                                          : app.cryptoHealth.keyBackupAvailable === CryptoHealthModel.Yes
                                             ? qsTr("Key backup: exists, but this session cannot use it yet")
-                                            : qsTr("Key backup: none found")
+                                            : app.cryptoHealth.keyBackupAvailable === CryptoHealthModel.No
+                                              ? qsTr("Key backup: none found")
+                                              : qsTr("Key backup: checking…")
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -5340,6 +5350,7 @@ Item {
                                         Label {
                                             Layout.fillWidth: true
                                             text: modelData.label
+                                            textFormat: Text.PlainText
                                             color: AppTheme.stormText
                                             font.pixelSize: AppTheme.textBody
                                         }
@@ -5387,7 +5398,11 @@ Item {
                                     font.pixelSize: AppTheme.textBody
                                     text: {
                                         var h = app.cryptoHealth
-                                        if (!h.keyBackupAvailable)
+                                        if (h.keyBackupAvailable === CryptoHealthModel.Unknown)
+                                            return qsTr("Lightning could not check whether this "
+                                                        + "account has a key backup. Nothing has "
+                                                        + "been ruled out.")
+                                        if (h.keyBackupAvailable === CryptoHealthModel.No)
                                             return qsTr("No key backup exists for this account.")
                                         if (h.keyBackupUsable)
                                             return qsTr("Backup active — this session can use it (%1).")
@@ -5484,7 +5499,20 @@ Item {
                                     spacing: AppTheme.spacing8
                                     AppButton {
                                         objectName: "backupEnableButton"
-                                        visible: !app.cryptoHealth.keyBackupAvailable
+                                        // A DEFINITE No, never merely "not
+                                        // known". runAction("enable") reaches
+                                        // Recovery::enable(), which on a
+                                        // session whose store already holds a
+                                        // backup key falls through to
+                                        // create_secret_store() and mints a
+                                        // NEW 4S key — silently invalidating
+                                        // the recovery key the user already
+                                        // has, with none of the double
+                                        // confirmation the reset action has.
+                                        // Offering that off an unanswered
+                                        // probe is how someone loses a
+                                        // recovery key to a network blip.
+                                        visible: app.cryptoHealth.keyBackupAvailable === CryptoHealthModel.No
                                                  && !app.cryptoHealth.secretStorageAvailable
                                         storm: true
                                         kind: "primary"
@@ -5496,7 +5524,8 @@ Item {
                                     }
                                     AppButton {
                                         objectName: "backupCreateButton"
-                                        visible: !app.cryptoHealth.keyBackupAvailable
+                                        // Same rule as backupEnableButton.
+                                        visible: app.cryptoHealth.keyBackupAvailable === CryptoHealthModel.No
                                                  && app.cryptoHealth.secretStorageAvailable
                                         storm: true
                                         kind: "primary"
@@ -5524,7 +5553,7 @@ Item {
                                     }
                                     AppButton {
                                         objectName: "backupDeleteButton"
-                                        visible: app.cryptoHealth.keyBackupAvailable
+                                        visible: app.cryptoHealth.keyBackupAvailable === CryptoHealthModel.Yes
                                         storm: true
                                         kind: "danger"
                                         size: "sm"
@@ -6357,6 +6386,7 @@ Item {
                                         text: importPanel.selectedFileName === ""
                                             ? qsTr("(no file selected)")
                                             : importPanel.selectedFileName
+                                        textFormat: Text.PlainText
                                     }
                                 }
                                 RowLayout {

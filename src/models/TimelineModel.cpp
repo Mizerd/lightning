@@ -2121,6 +2121,23 @@ bool TimelineModel::canRedactEvent(const QString &eventId) const
         && !event->eventId.startsWith(QLatin1String("local:"));
 }
 
+void TimelineModel::redactEvent(const QString &eventId, const QString &reason)
+{
+    if (!m_client || m_roomId.isEmpty() || eventId.isEmpty())
+        return;
+    // m_roomId, NOT the real room: in a thread this is the composite, and the
+    // client decomposes it. Passing the real room here would put us back on
+    // the live room timeline, which is what could not find the event.
+    m_client->redactEvent(m_roomId, eventId, reason);
+}
+
+void TimelineModel::toggleReaction(const QString &eventId, const QString &key)
+{
+    if (!m_client || m_roomId.isEmpty() || eventId.isEmpty() || key.isEmpty())
+        return;
+    m_client->toggleReaction(m_roomId, eventId, key);
+}
+
 bool TimelineModel::canEditEvent(const QString &eventId) const
 {
     const auto *event = eventForId(eventId);

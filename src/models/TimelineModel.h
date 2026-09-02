@@ -362,6 +362,18 @@ public:
     Q_INVOKABLE QString sanitizeHtml(const QString &html) const;
     Q_INVOKABLE bool canEditEvent(const QString &eventId) const;
     Q_INVOKABLE bool canRedactEvent(const QString &eventId) const;
+    /// Delete and react THROUGH THE MODEL THAT SHOWS THE EVENT, because only
+    /// it knows which timeline that is. The shared MessageDelegate used to
+    /// send both to `app.composer`, the ROOM composer, so in the thread panel
+    /// a delete and a reaction were addressed to the live room timeline —
+    /// which is built with hide_threaded_events and cannot find a thread
+    /// reply. Deleting reported a send failure and never sent; reacting was a
+    /// silent no-op. This model's own id is the composite in a thread and the
+    /// real room id in main, which is exactly the distinction that was
+    /// missing.
+    Q_INVOKABLE void redactEvent(const QString &eventId,
+                                 const QString &reason = QString());
+    Q_INVOKABLE void toggleReaction(const QString &eventId, const QString &key);
 
     // v0.5.7: retry a failed outgoing message (row must be a failed local
     // echo with a transaction id). Routed to the backend send queue; the

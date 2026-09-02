@@ -1502,12 +1502,29 @@ impl TimelineRegistry {
     pub fn toggle_reaction(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
+        client: Client,
         room_id: String,
+        thread_root_id: String,
         target_event_id: String,
         key: String,
     ) -> Result<(), String> {
-        let Some((timeline, _room_gen, _lifecycle)) = self.timeline_for(&room_id) else {
+        // THE TIMELINE MUST BE THE ONE THAT HOLDS THE EVENT.
+        //
+        // `Timeline::toggle_reaction` resolves its target from that
+        // timeline's own item list, and the live room timeline is built with
+        // `hide_threaded_events: true` — so reacting to a thread reply looked
+        // the event up in a list it is not in, failed, and did nothing at
+        // all. Selecting the thread timeline when the caller names a root is
+        // the same rule `send_content_to_timeline` already follows.
+        let open_room_timeline = self.timeline_for(&room_id);
+        let in_thread = !thread_root_id.trim().is_empty();
+        if !in_thread && open_room_timeline.is_none() {
             return Err("No live timeline is open for that room.".to_owned());
+        }
+        let open_thread = if in_thread {
+            self.thread_timeline_for(&room_id, &thread_root_id)
+        } else {
+            None
         };
         let event_id = EventId::parse(&target_event_id)
             .map_err(|_| "Invalid reaction target event id.".to_owned())?;
@@ -1526,25 +1543,91 @@ impl TimelineRegistry {
             return Ok(());
         }
         let registry = Arc::clone(self);
+        let events = Arc::clone(&self.events);
+        let thread_gen = self.thread_gen.load(Ordering::SeqCst);
+        let room_gen_for_report =
+            open_room_timeline.as_ref().map(|(_, g, _)| *g).unwrap_or_else(
+                || self.room_gen.load(Ordering::SeqCst));
+        let room_timeline = open_room_timeline.map(|(t, _, _)| t);
+        let report_room_id = room_id.clone();
+        let report_thread_root = thread_root_id.clone();
         runtime.spawn(async move {
             let item_id = TimelineEventItemId::EventId(event_id);
-            // Failures surface as the reaction simply not appearing; the SDK
-            // logs details. Nothing sensitive to forward.
-            //
             // The await is bounded and the send is NOT cancelled by the
             // bound: a queued send that is waiting for the network can take
             // arbitrarily long, and a slot held for that whole time would
             // leave the reaction silently unclickable. The inner task keeps
             // running; only the guard is released.
             let send = tokio::spawn(async move {
-                let _ = timeline.toggle_reaction(&item_id, &key).await;
+                // A thread reply reacts on its thread timeline: the open one
+                // if the panel is up, otherwise a transient one built for the
+                // root, exactly as a thread SEND does.
+                let timeline = if in_thread {
+                    match open_thread {
+                        Some((timeline, _, _)) => Some(timeline),
+                        None => build_transient_thread_timeline(
+                            &client, &room_id, &thread_root_id,
+                        )
+                        .await,
+                    }
+                } else {
+                    room_timeline
+                };
+                match timeline {
+                    // NOT `let _ =`. Discarding this is why reacting to a
+                    // thread reply was a silent no-op with no diagnostic
+                    // anywhere: the picker closed and nothing ever happened.
+                    //
+                    // But NOT every failure is worth saying out loud.
+                    // `FailedToToggleReaction` is the SDK's "that item is not
+                    // in this timeline's loaded window" — which happens
+                    // legitimately after a jump-to-live trim, where the row
+                    // the user clicked has been released. Reporting that
+                    // would trade a silent no-op for a WRONG visible error.
+                    // Anything else (an HTTP refusal, a rejected send) is a
+                    // real failure and is reported.
+                    Some(timeline) => {
+                        match timeline.toggle_reaction(&item_id, &key).await {
+                            Ok(_) => true,
+                            Err(matrix_sdk_ui::timeline::Error::FailedToToggleReaction) => {
+                                true
+                            }
+                            Err(_) => false,
+                        }
+                    }
+                    None => false,
+                }
             });
-            let _ = tokio::time::timeout(
+            let outcome = tokio::time::timeout(
                 std::time::Duration::from_secs(REACTION_GUARD_TIMEOUT_SECS),
                 send,
             )
             .await;
             registry.end_reaction(&guard_key);
+            // A reaction that could not be applied is reported like any other
+            // failed send. A timeout is NOT a failure — the inner task is
+            // still running by design, and only the guard was released.
+            if let Ok(Ok(false)) = outcome {
+                let stale = if in_thread {
+                    !registry.thread_current(thread_gen, lifecycle)
+                } else {
+                    !registry.is_current(room_gen_for_report, lifecycle)
+                };
+                if !stale {
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": if in_thread { "thread_send_failed" }
+                                    else { "timeline_send_failed" },
+                            "room_id": report_room_id,
+                            "thread_root_id": report_thread_root,
+                            "room_generation": room_gen_for_report,
+                            "lifecycle": lifecycle,
+                            "category": "reaction_rejected",
+                        }),
+                    );
+                }
+            }
         });
         Ok(())
     }
@@ -1570,21 +1653,47 @@ impl TimelineRegistry {
     pub fn redact(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
+        client: Client,
         room_id: String,
         target_event_id: String,
         reason: String,
     ) -> Result<(), String> {
-        let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
-            return Err("No live timeline is open for that room.".to_owned());
+        // ROOM-LEVEL, NOT TIMELINE-LEVEL, and that is the whole fix.
+        //
+        // `Timeline::redact` resolves the target by looking it up in ITS OWN
+        // item list. The live room timeline is built with
+        // `TimelineFocus::Live { hide_threaded_events: true }`, so a threaded
+        // event is not in that list and the lookup returns
+        // `RedactError::ItemNotFound` — deleting your own thread reply was
+        // therefore never sent, and the user was told the message could not be
+        // SENT, pointing at a Retry action that does not exist for a deletion.
+        //
+        // A redaction does not need a timeline item: it is
+        // `PUT /rooms/{room}/redact/{event}`, addressed by event id. Going
+        // through the room removes the thread/main distinction entirely rather
+        // than teaching this call about threads, and the resulting
+        // `m.room.redaction` comes back through sync to whichever timeline
+        // holds the event.
+        let room = crate::rooms::joined_room(&client, &room_id)?;
+        // The generations still come from the room's open timeline, so a
+        // failure enqueued after a room change or a sign-out is still dropped
+        // as stale. A redaction dispatched with no timeline open is possible
+        // (nothing here requires one any more), and in that case the failure
+        // is simply not reportable to a surface that no longer exists.
+        let (room_gen, lifecycle) = match self.timeline_for(&room_id) {
+            Some((_, gen, lc)) => (gen, lc),
+            None => (
+                self.room_gen.load(Ordering::SeqCst),
+                self.lifecycle_gen.load(Ordering::SeqCst),
+            ),
         };
         let event_id = EventId::parse(&target_event_id)
             .map_err(|_| "Invalid redaction target event id.".to_owned())?;
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let item_id = TimelineEventItemId::EventId(event_id);
             let reason = if reason.is_empty() { None } else { Some(reason.as_str()) };
-            if timeline.redact(&item_id, reason).await.is_err()
+            if room.redact(&event_id, reason, None).await.is_err()
                 && registry.is_current(room_gen, lifecycle)
             {
                 enqueue(

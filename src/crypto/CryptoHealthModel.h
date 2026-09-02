@@ -34,7 +34,14 @@ class CryptoHealthModel : public QObject
     Q_PROPERTY(bool crossSigningAvailable READ crossSigningAvailable NOTIFY healthChanged)
     Q_PROPERTY(bool crossSigningReady READ crossSigningReady NOTIFY healthChanged)
     Q_PROPERTY(TriState ownIdentityVerified READ ownIdentityVerified NOTIFY healthChanged)
-    Q_PROPERTY(bool keyBackupAvailable READ keyBackupAvailable NOTIFY healthChanged)
+    // TRI-STATE. "Not yet known" is NOT "no backup exists": the Rust probe
+    // performs a real GET /room_keys/version, and a network failure used to
+    // be published as a definite false. Telling someone their account has no
+    // key backup when the answer never arrived invites them to treat a real
+    // recovery key as nonexistent, and it arms an action that can mint a new
+    // one over it. QML must compare against CryptoHealthModel.No, never
+    // truthiness.
+    Q_PROPERTY(int keyBackupAvailable READ keyBackupAvailable NOTIFY healthChanged)
     Q_PROPERTY(bool keyBackupUsable READ keyBackupUsable NOTIFY healthChanged)
     Q_PROPERTY(QString keyBackupState READ keyBackupState NOTIFY healthChanged)
     Q_PROPERTY(bool recoveryAvailable READ recoveryAvailable NOTIFY healthChanged)
@@ -85,7 +92,7 @@ public:
     bool hasSelfSigningKey() const { return m_hasSelfSigningKey; }
     bool hasUserSigningKey() const { return m_hasUserSigningKey; }
     TriState ownIdentityVerified() const { return m_ownIdentityVerified; }
-    bool keyBackupAvailable() const { return m_backupAvailable; }
+    TriState keyBackupAvailable() const { return m_backupAvailable; }
     bool keyBackupUsable() const { return m_backupUsable; }
     QString keyBackupState() const { return m_backupState; }
     bool recoveryAvailable() const { return m_recoveryState == QLatin1String("enabled"); }
@@ -113,7 +120,7 @@ private:
     bool m_hasSelfSigningKey = false;
     bool m_hasUserSigningKey = false;
     TriState m_ownIdentityVerified = Unknown;
-    bool m_backupAvailable = false;
+    TriState m_backupAvailable = Unknown;
     bool m_backupUsable = false;
     QString m_backupState = QStringLiteral("unknown");
     QString m_recoveryState = QStringLiteral("unknown");

@@ -319,16 +319,44 @@ const MAX_REDIRECTS: usize = 4;
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
 
-fn public_ip(ip: std::net::IpAddr) -> bool {
+pub(crate) fn public_ip(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v) => !(v.is_private() || v.is_loopback()
             || v.is_link_local() || v.is_multicast() || v.is_unspecified()
             || v.octets()[0] == 0 || v.octets()[0] >= 224
             || (v.octets()[0] == 100 && (64..=127).contains(&v.octets()[1]))
             || (v.octets()[0] == 169 && v.octets()[1] == 254)),
-        std::net::IpAddr::V6(v) => !(v.is_loopback() || v.is_unspecified()
-            || v.is_multicast() || (v.segments()[0] & 0xfe00) == 0xfc00
-            || (v.segments()[0] & 0xffc0) == 0xfe80),
+        std::net::IpAddr::V6(v) => {
+            // UNMAP FIRST, OR EVERY V4 RULE ABOVE IS BYPASSABLE. `::ffff:a.b.c.d`
+            // is an IPv4 address wearing a v6 coat: `is_loopback()` is false for
+            // `::ffff:127.0.0.1` (only `::1` counts), it is not multicast, and it
+            // matches neither the fc00::/7 nor the fe80::/10 mask — so it was
+            // judged PUBLIC and pinned into the client. Connecting an AF_INET6
+            // socket to one reaches the IPv4 host, so an attacker publishing only
+            // `AAAA ::ffff:127.0.0.1` for a domain they control aimed a link
+            // preview at the user's loopback, RFC1918 space, or 169.254.169.254.
+            // Every redirect hop re-validates through this same function, so the
+            // hole was equally open on all of them.
+            //
+            // Also refused: the deprecated `::a.b.c.d` compatible form, and
+            // NAT64's 64:ff9b::/96, both of which likewise carry an embedded
+            // IPv4 destination that the masks below cannot see.
+            if let Some(v4) = v.to_ipv4_mapped() {
+                return public_ip(std::net::IpAddr::V4(v4));
+            }
+            if v.segments()[0] == 0x0064 && v.segments()[1] == 0xff9b {
+                return false;
+            }
+            // `to_ipv4()` also matches the compatible form (::a.b.c.d); anything
+            // it resolves that is not already handled above is judged as the
+            // embedded IPv4 address rather than as an opaque v6 one.
+            if let Some(v4) = v.to_ipv4() {
+                return public_ip(std::net::IpAddr::V4(v4));
+            }
+            !(v.is_loopback() || v.is_unspecified()
+                || v.is_multicast() || (v.segments()[0] & 0xfe00) == 0xfc00
+                || (v.segments()[0] & 0xffc0) == 0xfe80)
+        }
     }
 }
 
@@ -356,7 +384,16 @@ async fn safe_get(url: &url::Url, limit: usize, accept: &str)
         return Err("blocked_destination");
     }
     // Pin the validated DNS answer so a second lookup cannot rebind the host.
+    // NO PROXY, and this is not a preference. Everything above — the DNS
+    // resolution, the public_ip() judgement, the pin of the resolved address
+    // via .resolve() — decides which HOST this request may reach. reqwest
+    // honours HTTPS_PROXY/ALL_PROXY from the environment by default, and a
+    // proxied request CONNECTs to the proxy and asks IT to reach the origin
+    // by name, so the pinned address is never used and every check above
+    // becomes advisory. On a machine with a proxy set, the SSRF guard was
+    // simply not enforced.
     let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
         .connect_timeout(CONNECT_TIMEOUT).timeout(REQUEST_TIMEOUT)
         .user_agent(crate::USER_AGENT).resolve(host, addresses[0]).build()
         .map_err(|_| "request_failure")?;
@@ -3838,8 +3875,32 @@ pub(crate) fn media_fetch(
     // store's single write connection for the guaranteed-miss read (reads
     // bump last_access first) and again after the download. Bypass the
     // cache round-trip entirely for those; everything else keeps the cache.
-    let use_cache =
-        kind != 0 || declared_size.map_or(true, |s| s <= MEDIA_STORE_MAX_FILE_BYTES);
+    // AN ENCRYPTED ROOM'S MEDIA IS NEVER WRITTEN TO THE SQLITE CACHE.
+    //
+    // §6: "Encrypted-room plaintext remains memory-only" and "Never persist
+    // decrypted private-message plaintext in application caches." The media
+    // store was quietly breaking both. `Media::get_media_content` decrypts a
+    // `MediaSource::Encrypted` through `AttachmentDecryptor` and then, when
+    // `use_cache` is set, writes the DECRYPTED buffer to the media store; the
+    // store is opened with no passphrase (`sqlite_store(path, None)`), so
+    // matrix-sdk-sqlite installs no StoreCipher and the blob is plaintext on
+    // disk, held under the default retention of 400 MiB for 60 days. Every
+    // image, sticker, GIF and thumbnail from an encrypted room was landing
+    // there. `MediaBridge.h` stated the opposite as a guarantee.
+    //
+    // WHY NOT A STORE PASSPHRASE INSTEAD, which would keep the cache: the
+    // same `None` opens the CRYPTO store, and handing an existing install a
+    // passphrase changes how that database is read. A wrong move there does
+    // not degrade performance, it orphans every existing user's Megolm keys —
+    // and matrix-sdk 0.18 offers no migration for it. Refusing the write is
+    // local, reversible, and cannot lose anything.
+    //
+    // The cost is a re-download per session for encrypted rooms only.
+    // Lightning's own bounded RAM cache in MediaBridge still serves every
+    // repeat within a session, which is where the repeats actually are.
+    let source_is_encrypted = matches!(&source, MediaSource::Encrypted(_));
+    let use_cache = !source_is_encrypted
+        && (kind != 0 || declared_size.map_or(true, |s| s <= MEDIA_STORE_MAX_FILE_BYTES));
     if kind == 2 && !has_embedded_thumbnail
         && matches!(&source, MediaSource::Encrypted(_))
     {
@@ -4270,6 +4331,25 @@ mod tests {
         assert!(!public_ip("fe80::1".parse().unwrap()));
         assert!(public_ip("93.184.216.34".parse().unwrap()));
         assert!(public_ip("2606:2800:220:1:248:1893:25c8:1946".parse().unwrap()));
+
+        // IPv4-MAPPED V6, which is how every V4 rule above was bypassed. None
+        // of these is loopback, multicast, fc00::/7 or fe80::/10 as a v6
+        // address, so before the unmap they were all judged public and pinned
+        // into the client — and connecting to one on Linux reaches the IPv4
+        // host. An attacker only had to publish an AAAA record.
+        assert!(!public_ip("::ffff:127.0.0.1".parse().unwrap()));
+        assert!(!public_ip("::ffff:10.0.0.1".parse().unwrap()));
+        assert!(!public_ip("::ffff:192.168.1.1".parse().unwrap()));
+        assert!(!public_ip("::ffff:169.254.169.254".parse().unwrap()));
+        assert!(!public_ip("::ffff:100.64.0.1".parse().unwrap()));
+        assert!(!public_ip("::ffff:0.0.0.0".parse().unwrap()));
+        // NAT64 and the deprecated v4-compatible form embed a destination the
+        // v6 masks cannot see either.
+        assert!(!public_ip("64:ff9b::7f00:1".parse().unwrap()));
+        assert!(!public_ip("::127.0.0.1".parse().unwrap()));
+        // A mapped PUBLIC address is still public: the unmap must judge the
+        // embedded address, not refuse the whole shape.
+        assert!(public_ip("::ffff:93.184.216.34".parse().unwrap()));
     }
 
     #[test]

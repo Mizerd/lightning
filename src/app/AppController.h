@@ -614,6 +614,9 @@ public:
     /// Whether `startCall` would do anything for this room — the gate the
     /// room-header button uses, so a dead button is never offered.
     Q_INVOKABLE bool canStartCall(const QString &roomId) const;
+    /// The single user a legacy 1:1 call in `roomId` would be placed to, or
+    /// empty when the room is not a genuine two-party DM (see the .cpp).
+    QString legacyCallPeer(const QString &roomId) const;
     /// Which lane `startCall` would use: "matrixrtc", "legacy" or "" for
     /// none. Diagnostics and tests; not shown in normal UI.
     Q_INVOKABLE QString preferredCallLane(const QString &roomId) const;
@@ -1182,6 +1185,11 @@ private:
     bool m_screenshotDemo = false;
     Screen m_currentScreen = LoginScreen;
     QString m_currentRoomId;
+    /// Event ids already notified through a THREAD timeline copy, so the
+    /// room copy of the same event (when one exists) cannot notify twice.
+    /// Bounded and cleared wholesale; it only has to outlive the moment two
+    /// producers could both deliver one event.
+    QSet<QString> m_notifiedThreadEventIds;
     // Rooms whose member roster was hydrated this session (one bounded
     // requestRoomMembers per room per account; cleared on logout/switch).
     QSet<QString> m_memberHydratedRooms;

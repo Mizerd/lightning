@@ -757,6 +757,31 @@ pub extern "C" fn mx_rust_version() -> *mut c_char {
     ffi_string(|| Ok(env!("CARGO_PKG_VERSION").to_owned()))
 }
 
+/// Tighten a store directory and everything in it: 0700 on the directory,
+/// 0600 on every regular file. Best effort and silent — a store on a
+/// filesystem with no Unix permissions must still open, and a failure here is
+/// not a reason to refuse a sign-in. Called before AND after the client
+/// opens, because matrix-sdk creates the sqlite files itself and gives no
+/// mode hook.
+#[cfg(unix)]
+fn restrict_store_permissions(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                let _ = std::fs::set_permissions(
+                    entry.path(),
+                    std::fs::Permissions::from_mode(0o600),
+                );
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_store_permissions(_path: &std::path::Path) {}
+
 #[no_mangle]
 pub extern "C" fn mx_rust_create(store_path: *const c_char) -> *mut c_void {
     match catch_unwind(AssertUnwindSafe(|| {
@@ -764,7 +789,19 @@ pub extern "C" fn mx_rust_create(store_path: *const c_char) -> *mut c_void {
         let path = PathBuf::from(store_path);
         std::fs::create_dir_all(&path)
             .map_err(|err| format!("failed to create Rust SDK store directory: {err}"))?;
-        let client = RustClient::new(path)?;
+        // 0700 ON THE DIRECTORY, 0600 ON THE DATABASES. This directory holds
+        // the Megolm and device keys; measured on a live install it was 0755
+        // with 0644 sqlite files, and the only thing keeping another local
+        // account out was $HOME happening to be 0700 — a distro default, not
+        // a guarantee, and not one on a shared or NFS home. The far less
+        // sensitive smoke-test session file has been 0600 all along.
+        //
+        // matrix-sdk offers no mode hook, so the databases are corrected
+        // after the client has opened them. Best effort: a filesystem with no
+        // Unix modes must not stop a sign-in.
+        restrict_store_permissions(&path);
+        let client = RustClient::new(path.clone())?;
+        restrict_store_permissions(&path);
         Ok::<*mut c_void, String>(Box::into_raw(Box::new(client)) as *mut c_void)
     })) {
         Ok(Ok(ptr)) => ptr,
@@ -4622,7 +4659,20 @@ pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c
                 BackupState::Downloading => "downloading",
                 BackupState::Disabling => "disabling",
             };
-            let backup_exists = backups.exists_on_server().await.unwrap_or(false);
+            // TRI-STATE, NOT unwrap_or(false). `exists_on_server()` performs a
+            // real GET /room_keys/version, so a network blip, a 5xx or an
+            // unauthenticated moment all return Err — and publishing that as
+            // `false` told the user, flatly, that their account has no key
+            // backup. That is the most dangerous wrong answer this surface
+            // can give: it invites them to treat an existing recovery key as
+            // nonexistent, and it arms a button whose action can mint a NEW
+            // 4S key over the one they already have.
+            //
+            // `probe_backup_exists` in this same file already gets this right
+            // and says why ("transient network failure — stay unknown"); the
+            // health snapshot simply never did. Null means unknown.
+            let backup_exists: Option<bool> =
+                backups.exists_on_server().await.ok();
 
             let recovery_state = match client.encryption().recovery().state() {
                 RecoveryState::Unknown => "unknown",
@@ -5584,17 +5634,22 @@ pub unsafe extern "C" fn mx_rust_timeline_edit(
 pub unsafe extern "C" fn mx_rust_timeline_toggle_reaction(
     ptr: *mut c_void,
     room_id: *const c_char,
+    thread_root_id: *const c_char,
     target_event_id: *const c_char,
     key: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
+        let thread_root_id = unsafe { cstr_arg(thread_root_id) }?;
         let target = unsafe { cstr_arg(target_event_id) }?;
         let key = unsafe { cstr_arg(key) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
         bridge
             .timelines
-            .toggle_reaction(&bridge.runtime, room_id, target, key)
+            .toggle_reaction(&bridge.runtime, client, room_id, thread_root_id,
+                             target, key)
             .map(|_| String::new())
     })
 }
@@ -5735,9 +5790,11 @@ pub unsafe extern "C" fn mx_rust_timeline_redact(
         let room_id = unsafe { cstr_arg(room_id) }?;
         let target = unsafe { cstr_arg(target_event_id) }?;
         let reason = unsafe { cstr_arg(reason) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
         bridge
             .timelines
-            .redact(&bridge.runtime, room_id, target, reason)
+            .redact(&bridge.runtime, client, room_id, target, reason)
             .map(|_| String::new())
     })
 }

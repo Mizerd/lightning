@@ -113,8 +113,14 @@ private Q_SLOTS:
             "root.openReactionPickerFor(root.eventIdForActions()"));
         QVERIFY(delegate.contains(
             "root.timelineView.openReactionPicker(eventId, p)"));
+        // The MAIN timeline's picker keeps the room composer: that pane
+        // is the room, so app.composer is the right target there.
         QCOMPARE(pane.count("app.composer.reactTo(targetEventId, emoji)"), 1);
-        QCOMPARE(thread.count("app.composer.reactTo(targetEventId, emoji)"), 1);
+        // The THREAD panel routes through its own model, because
+        // app.composer is the ROOM composer and the live room timeline
+        // hides threaded events — a reaction sent through it was looked
+        // up in a list the reply is not in and silently did nothing.
+        QCOMPARE(thread.count("app.thread.model.toggleReaction(targetEventId, emoji)"), 1);
         QVERIFY(pane.contains("sharedReactionPicker.targetEventId = eventId"));
         // v0.9 rich composer: the picker snapshots and inserts into whichever
         // editor owns the caret in the current mode (markdown TextArea or

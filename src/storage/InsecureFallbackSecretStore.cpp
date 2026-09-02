@@ -8,14 +8,22 @@ namespace {
 constexpr auto kGroup = "secrets";
 }
 
-InsecureFallbackSecretStore::InsecureFallbackSecretStore(QObject *parent)
+InsecureFallbackSecretStore::InsecureFallbackSecretStore(QObject *parent,
+                                                         bool substitutedForNative)
     : SecretStore(parent)
     , m_store(std::make_unique<QSettings>())
+    , m_substitutedForNative(substitutedForNative)
 {
     qCWarning(lcSecret)
         << "InsecureFallbackSecretStore active — access tokens will be "
            "written to QSettings in plaintext. This is documented in "
            "docs/threat-model.md and surfaced in the Settings screen.";
+    if (substitutedForNative) {
+        qCWarning(lcSecret)
+            << "standing in for a native secure store that could not be "
+               "opened: reads from it are reported as UNTRUSTED, so a missing "
+               "secret is never taken as evidence that an account is absent.";
+    }
 }
 
 QString InsecureFallbackSecretStore::backendName() const

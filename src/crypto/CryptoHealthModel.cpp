@@ -76,8 +76,13 @@ void CryptoHealthModel::applySnapshot(const QVariantMap &snapshot,
     m_backupState = snapshot.value(QStringLiteral("backup_state")).toString();
     if (m_backupState.isEmpty())
         m_backupState = QStringLiteral("unknown");
-    m_backupAvailable =
-        snapshot.value(QStringLiteral("backup_exists_on_server")).toBool();
+    // An ABSENT or null field means the server could not be asked. Only an
+    // explicit boolean is an answer.
+    const QVariant backupExists =
+        snapshot.value(QStringLiteral("backup_exists_on_server"));
+    m_backupAvailable = !backupExists.isValid() || backupExists.isNull()
+        ? Unknown
+        : (backupExists.toBool() ? Yes : No);
     // Usable = the SDK actively backs up / reads with this backup. An
     // existing-but-unconnected backup is "available", not "usable".
     m_backupUsable = m_backupState == QLatin1String("enabled");
@@ -105,7 +110,7 @@ void CryptoHealthModel::resetForNewGeneration()
     m_hasSelfSigningKey = false;
     m_hasUserSigningKey = false;
     m_ownIdentityVerified = Unknown;
-    m_backupAvailable = false;
+    m_backupAvailable = Unknown;
     m_backupUsable = false;
     m_backupState = QStringLiteral("unknown");
     m_recoveryState = QStringLiteral("unknown");

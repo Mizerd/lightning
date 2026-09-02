@@ -661,19 +661,26 @@ pub unsafe extern "C" fn mx_rust_oauth_logout(ptr: *mut c_void) -> *mut c_char {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_logout", async move {
                 let client = client_slot.lock().ok().and_then(|mut g| g.take());
+                // THE SAME SHAPE mx_rust_logout USES, because the C++ side
+                // reads "result" and nothing has ever read "warning". With
+                // only a warning field, the dispatcher's default of "ok"
+                // applied and a failed REVOCATION was indistinguishable from
+                // a successful one — on the branch whose entire purpose is
+                // revoking the token.
                 let event = match client.as_ref() {
                     Some(client) => match client.oauth().logout().await {
-                        Ok(()) => json!({ "type": "logged_out" }),
+                        Ok(()) => json!({ "type": "logged_out", "result": "ok" }),
                         // A revocation failure still ends the local session:
                         // the caller has already stopped sync and is about to
-                        // drop the client. Report it without the SDK detail,
+                        // drop the client. Reported WITHOUT the SDK detail,
                         // which can quote endpoint URLs.
                         Err(_) => json!({
                             "type": "logged_out",
-                            "warning": "The server could not be told to end this session.",
+                            "result": "failed",
+                            "category": "revocation_failed",
                         }),
                     },
-                    None => json!({ "type": "logged_out" }),
+                    None => json!({ "type": "logged_out", "result": "no_session" }),
                 };
                 drop(client);
                 enqueue(&events, event);

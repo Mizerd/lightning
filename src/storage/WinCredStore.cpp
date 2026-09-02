@@ -84,12 +84,22 @@ bool WinCredStore::storeSecret(const QString &userId,
 QString WinCredStore::readSecret(const QString &userId, const QString &key) const
 {
     m_lastError.clear();
+    // A COMPLETED LOOKUP, hit or miss, clears this. Anything else leaves it
+    // set, because §6 forbids treating "no readable access token" as "no
+    // account": a broken logon session or a Credential Manager fault must
+    // read as "cannot tell", never as "this account has no saved sign-in" —
+    // that conclusion is what arms the destructive local reset. libsecret has
+    // reported this since the store-binding round; WinCredStore never did,
+    // so Windows carried the same conflation with no fallback involved.
+    m_lastReadFailed = false;
     std::wstring target = targetName(userId, key);
     PCREDENTIALW cred = nullptr;
     if (!CredReadW(target.c_str(), CRED_TYPE_GENERIC, 0, &cred)) {
         const DWORD e = GetLastError();
-        if (e != ERROR_NOT_FOUND)
+        if (e != ERROR_NOT_FOUND) {
             setError(winErr(e));
+            m_lastReadFailed = true;
+        }
         return {};
     }
     QString out;

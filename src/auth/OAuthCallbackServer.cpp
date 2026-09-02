@@ -4,6 +4,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QUrl>
+#include <QRandomGenerator>
 #include <QUrlQuery>
 
 namespace {
@@ -48,9 +49,30 @@ bool OAuthCallbackServer::listen()
         return false;
     }
 
+    // A PER-ATTEMPT SECRET IN THE PATH, because the SSO flow has no state of
+    // its own to bind the answer to.
+    //
+    // The OAuth branch is fine: the whole redirect URL goes to the SDK, which
+    // validates the `state` it generated. The legacy m.login.sso branch has
+    // no equivalent — the homeserver echoes back only `loginToken`, and this
+    // endpoint used to accept whatever landed on a FIXED path for the whole
+    // five-minute window. Any other local process (and, depending on the
+    // browser's private-network rules, a web page sweeping the ephemeral port
+    // range) could drop an attacker's loginToken here and sign the user into
+    // the ATTACKER'S account — after which everything they typed would go to
+    // an identity someone else controls. Classic login CSRF.
+    //
+    // 128 bits from the system CSPRNG, in the path rather than a query
+    // parameter so it survives a homeserver that reflects only the redirect
+    // URI it was given.
+    m_callbackNonce = QString::fromLatin1(
+        QByteArray::number(QRandomGenerator::system()->generate64(), 16)
+        + QByteArray::number(QRandomGenerator::system()->generate64(), 16));
+    m_callbackPath = QLatin1String(kCallbackPath) + QLatin1Char('/')
+        + m_callbackNonce;
     m_redirectUri = QStringLiteral("http://127.0.0.1:%1%2")
                         .arg(m_server->serverPort())
-                        .arg(QLatin1String(kCallbackPath));
+                        .arg(m_callbackPath);
     connect(m_server, &QTcpServer::newConnection, this, &OAuthCallbackServer::onConnection);
     m_timer.start(m_timeout);
     // The port is not a secret, and it is useful when diagnosing a browser
@@ -79,6 +101,10 @@ void OAuthCallbackServer::stop()
         m_server = nullptr;
     }
     m_redirectUri.clear();
+    // The secret dies with the attempt: a stale one would let a late answer
+    // from an abandoned sign-in be accepted by the next.
+    m_callbackPath.clear();
+    m_callbackNonce.clear();
 }
 
 void OAuthCallbackServer::onConnection()
@@ -142,7 +168,11 @@ void OAuthCallbackServer::finishWithSocket(QTcpSocket *socket, const QString &re
     // report an error rather than a code? The code and state are NOT read
     // here — the whole URL goes to the SDK, which owns their validation.
     const QUrl target(requestTarget, QUrl::StrictMode);
-    if (!target.isValid() || target.path() != QLatin1String(kCallbackPath)) {
+    // The path must carry this attempt's secret. A request on the bare
+    // callback path is answered like any other stray request and does NOT
+    // consume the single shot.
+    if (!target.isValid() || m_callbackPath.isEmpty()
+        || target.path() != m_callbackPath) {
         // A favicon or stray request. Answer it and keep waiting for the real
         // callback; do NOT consume the single shot. Clearing m_active is what
         // makes "keep waiting" actually true — see onReadyRead.

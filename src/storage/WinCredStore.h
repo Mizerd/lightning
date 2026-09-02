@@ -36,6 +36,9 @@ public:
     bool deleteSecret(const QString &userId, const QString &key) override;
     bool clearAccountSecrets(const QString &userId) override;
 
+    // True when the last read could not be COMPLETED (as opposed to
+    // completing and finding nothing). See readSecret().
+    bool lastReadFailed() const override { return m_lastReadFailed; }
     QString lastError() const override { return m_lastError; }
 
 private:
@@ -43,4 +46,5 @@ private:
 
     bool m_available = false;
     mutable QString m_lastError;
+    mutable bool m_lastReadFailed = false;
 };

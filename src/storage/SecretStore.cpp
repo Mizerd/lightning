@@ -85,9 +85,26 @@ std::unique_ptr<SecretStore> SecretStore::createDefault(QObject *parent)
         << libsecret->lastError()
         << "-- falling back to insecure QSettings store";
 #endif
-#if !defined(HAVE_WINCRED) && !defined(HAVE_LIBSECRET)
+    // SUBSTITUTED ONLY WHEN A NATIVE BACKEND EXISTED AND FAILED, and this
+    // distinction is the whole point. The portable branch above already
+    // states the rule and follows it: a store that cannot answer is returned
+    // ANYWAY, reporting that it cannot, so no destructive decision is taken.
+    // The native branches did the opposite — they handed back a DIFFERENT
+    // store that reports isAvailable() true and lastReadFailed() false. The
+    // user's tokens were still in libsecret or Credential Manager, so every
+    // read came back empty and the app concluded the account had no saved
+    // sign-in, which arms `requireLocalReset`. §6: never treat "no readable
+    // access token" as "no account".
+    //
+    // The fallback still reads and writes, so a machine with no keyring at
+    // all keeps working; in substituted mode it only stops claiming its
+    // misses are authoritative.
+#if defined(HAVE_WINCRED) || defined(HAVE_LIBSECRET)
+    return std::make_unique<InsecureFallbackSecretStore>(
+        parent, /*substitutedForNative=*/true);
+#else
     qCInfo(lcSecretStore)
         << "no native secure store compiled in — using insecure QSettings fallback";
-#endif
     return std::make_unique<InsecureFallbackSecretStore>(parent);
+#endif
 }

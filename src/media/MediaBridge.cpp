@@ -1,5 +1,7 @@
 #include "media/MediaBridge.h"
 
+#include "media/ImageFormatSupport.h"
+
 #include "storage/PortableMode.h"
 
 
@@ -18,6 +20,7 @@
 #include <QImageReader>
 #include <QLoggingCategory>
 #include <QMutexLocker>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QUuid>
 
@@ -110,6 +113,11 @@ MediaBridge::MediaBridge(QObject *parent)
     m_animatedDir = std::make_unique<QTemporaryDir>(
         lightning::portable::mediaScratchRoot()
         + QStringLiteral("/lightning-animated-XXXXXX"));
+    // Marked LIVE, so a second Lightning instance's stale-scratch sweep
+    // cannot delete this one's decrypted payloads out from under a playing
+    // card. Without the mark these directories are protected only by the
+    // sweep's one-hour mtime floor, which a long session outlives.
+    lightning::portable::holdScratchDirLive(m_animatedDir->path());
     // The watchdog reclaims concurrency slots pinned by ops the backend never
     // completes; without it a handful of orphaned fetches permanently stalls
     // the pipeline. A 5s cadence bounds the extra latency to reclaim a stuck
@@ -1046,11 +1054,42 @@ QImage MediaBridge::cachedAvatarImage(const QString &mxcUri) const
     QBuffer buffer(&bytes);
     if (!buffer.open(QIODevice::ReadOnly))
         return {};
+    // Same discipline as MediaImageProvider: the format is decided by the
+    // bytes, from the known raster table, with autodetection OFF and a bounded
+    // allocation. This feeds notification icons, so the bytes are another
+    // user's avatar — and `sniffRaster`'s table has no SVG entry, so an
+    // unrecognised payload cannot reach the SVG handler here either.
+    // A FORMAT WE RECOGNISE IS PINNED; ONE WE DO NOT IS STILL REFUSED IF IT
+    // COULD BE ACTIVE CONTENT.
+    //
+    // sniffRaster's table is deliberately narrow — it is the ACCEPT list, and
+    // HEIF, AVIF and TIFF are intentionally absent from it while
+    // looksLikeAvContainer lets those brands through "if an image plugin ever
+    // appears". Refusing everything the table does not name would therefore
+    // have blanked a HEIC on macOS, where qmacheif exists and it used to
+    // render, with no diagnostic at all.
+    //
+    // So: a recognised format is pinned with autodetection OFF, which is what
+    // keeps an unrecognised payload away from the SVG handler. An
+    // unrecognised one falls back to autodetection ONLY after the markup and
+    // compressed check has refused it a second time, so SVG and SVGZ cannot
+    // reach a decoder either way.
+    const lightning::imagefmt::RasterFormat *sniffed =
+        lightning::imagefmt::sniffRaster(bytes);
+    if (!sniffed && looksLikeMarkupOrCompressed(bytes))
+        return {};
     QImageReader reader(&buffer);
+    if (sniffed) {
+        reader.setAutoDetectImageFormat(false);
+        reader.setFormat(QByteArray(sniffed->qtFormat));
+    }
     reader.setAutoTransform(true);
+    reader.setAllocationLimit(64);
     const QSize natural = reader.size();
-    if (natural.isValid()
-        && (natural.width() > 4096 || natural.height() > 4096))
+    // An unreadable header means the ceiling below never applies.
+    if (!natural.isValid())
+        return {};
+    if (natural.width() > 4096 || natural.height() > 4096)
         return {};
     return reader.read();
 }
@@ -1322,6 +1361,35 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
         Q_EMIT mediaBytesForStar(request.mediaKey, true, bytes, QString());
         return;
     }
+    // MARKUP IS REFUSED ON EVERY CLASS, and it used to be refused only on the
+    // thumbnail ones. §6 says untrusted SVG is never rendered as active
+    // content, and this sniff is the choke point that enforces it — but it
+    // sat behind `kind == 1 || kind == 2`, so the whole `full:` class walked
+    // past it into insertCache() and then into QImageReader. Three live ways
+    // in: an image row takes the "full" branch whenever the SENDER simply
+    // omits info.thumbnail_url, the full-screen viewer always asks for
+    // "full", and wideImageSource fetches profile and Space banners as
+    // kind 0. `stickers.rs` even cites this sniff as the reason it may allow
+    // an absent mimetype through; that argument only held for two thirds of
+    // the paths.
+    //
+    // Safe to apply everywhere: every raster format this client accepts opens
+    // with binary magic, and so does every A/V container, so nothing
+    // legitimate on these paths begins with `<` (after BOM and whitespace) or
+    // with gzip. Save As and the star export return ABOVE this point, so a
+    // user downloading an .svg or a .tar.gz attachment is unaffected — those
+    // never reach a decoder.
+    if (looksLikeMarkupOrCompressed(bytes)) {
+        ++m_statFailed;
+        qCWarning(lcMedia,
+                  "ready %s rejected: payload sniffs as markup or compressed "
+                  "(%lld bytes)",
+                  qUtf8Printable(keyTag(request.cacheKey)),
+                  static_cast<long long>(bytes.size()));
+        markFailed(request, QStringLiteral("rejected"));
+        Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("rejected"));
+        return;
+    }
     // Thumbnail-class results must be images. A homeserver that cannot
     // thumbnail may return the ORIGINAL payload (and the Rust bridge labels
     // thumbnail results with the parent's mimetype regardless — a video's
@@ -1330,8 +1398,7 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     // image-decode path. Permanent category — the server will keep
     // answering the same way.
     if ((request.kind == 1 || request.kind == 2)
-        && (looksLikeAvContainer(bytes)
-            || looksLikeMarkupOrCompressed(bytes))) {
+        && looksLikeAvContainer(bytes)) {
         ++m_statFailed;
         qCWarning(lcMedia,
                   "ready %s rejected: thumbnail payload sniffs as A/V "
@@ -1624,8 +1691,15 @@ QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
         + QStringLiteral(".gif");
     const QString path = m_animatedDir->filePath(name);
     QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly)
-        || file.write(bytes) != bytes.size() || !file.commit())
+    // 0600 BEFORE the bytes are written, like PlayableFileWriter and the
+    // starred-GIF store. These are DECRYPTED payloads from an encrypted room;
+    // the containing directory is 0700, but the file itself was inheriting
+    // the umask, so this was the one materialization path that relied on the
+    // directory alone.
+    if (!file.open(QIODevice::WriteOnly))
+        return {};
+    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    if (file.write(bytes) != bytes.size() || !file.commit())
         return {};
     m_animatedFiles.insert(cacheKey, path);
     m_animatedSizes.insert(cacheKey, bytes.size());
@@ -1705,11 +1779,74 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
 
 QString MediaBridge::sanitizedFileName(const QString &name)
 {
-    QString out = QFileInfo(name).fileName(); // strips any path components
-    out.replace(QLatin1Char('\0'), QLatin1Char('_'));
+    // A LEAF, and nothing that can act like a path. The name comes from the
+    // SENDER of an attachment, so it is chosen by someone else entirely.
+    // QFileInfo::fileName() alone was not enough: it strips a native path but
+    // leaves the foreign separator (a Windows-style `..\..\x` is one leaf on
+    // Unix), and it happily returns a name that begins with a dot or is a
+    // Windows reserved device.
+    // BOTH separators are separators, and the LAST component is the name.
+    // QFileInfo::fileName() only knows the native one, so on Unix a
+    // Windows-style `..\..\evil.exe` arrives as a single leaf. Splitting on
+    // both and taking the last non-empty part gives the name the sender
+    // actually meant, rather than a mangled `_.._evil.exe`, and it cannot
+    // traverse because only one component survives.
+    QString out = QFileInfo(name).fileName();
+    const QStringList parts = out.split(QRegularExpression(
+        QStringLiteral("[\\\\/]")), Qt::SkipEmptyParts);
+    if (!parts.isEmpty())
+        out = parts.last();
+    // Control characters, including the NUL that used to be handled alone.
+    for (QChar &c : out) {
+        if (c.unicode() < 0x20 || c.unicode() == 0x7f)
+            c = QLatin1Char('_');
+    }
+    // `..` traverses. A SINGLE leading dot does not, and this function also
+    // runs over the name the USER typed into the save dialog, where
+    // `.hidden.png` is a deliberate choice — stripping every leading dot
+    // rewrote their filename. Only the traversal spellings are refused.
+    while (out == QLatin1String("..") || out.startsWith(QLatin1String("../"))
+           || out.startsWith(QLatin1String("..\\")))
+        out.remove(0, 2);
+    out = out.trimmed();
+    // Windows reserved device names, which are refused whatever the suffix.
+    static const QStringList reserved = {
+        QStringLiteral("con"), QStringLiteral("prn"), QStringLiteral("aux"),
+        QStringLiteral("nul"), QStringLiteral("com1"), QStringLiteral("com2"),
+        QStringLiteral("com3"), QStringLiteral("com4"), QStringLiteral("com5"),
+        QStringLiteral("com6"), QStringLiteral("com7"), QStringLiteral("com8"),
+        QStringLiteral("com9"), QStringLiteral("lpt1"), QStringLiteral("lpt2"),
+        QStringLiteral("lpt3"), QStringLiteral("lpt4"), QStringLiteral("lpt5"),
+        QStringLiteral("lpt6"), QStringLiteral("lpt7"), QStringLiteral("lpt8"),
+        QStringLiteral("lpt9"), QStringLiteral("conin$"),
+        QStringLiteral("conout$"),
+    };
+    if (reserved.contains(out.section(QLatin1Char('.'), 0, 0).toLower()))
+        out.prepend(QStringLiteral("file-"));
+    // Bounded: some filesystems cap a component at 255 bytes. The SUFFIX is
+    // preserved, because this also truncates a user-typed name and cutting
+    // ".png" off the end changes what the file is.
+    if (out.size() > 120) {
+        const int dot = out.lastIndexOf(QLatin1Char('.'));
+        const QString suffix =
+            (dot > 0 && out.size() - dot <= 12) ? out.mid(dot) : QString();
+        out = out.left(120 - suffix.size()) + suffix;
+    }
     if (out.isEmpty() || out == QLatin1String(".") || out == QLatin1String(".."))
         out = QStringLiteral("download");
     return out;
+}
+
+QString MediaBridge::suggestedSaveName(const QString &rawName) const
+{
+    // For a save dialog's default. The QML used to seed
+    // `currentFile: "file:///" + <sender-chosen name>`, which puts an
+    // attacker-chosen string into the path the dialog opens on. Empty means
+    // "no suggestion" so the caller can let the dialog choose.
+    if (rawName.trimmed().isEmpty())
+        return {};
+    const QString leaf = sanitizedFileName(rawName);
+    return leaf == QLatin1String("download") ? QString() : leaf;
 }
 
 void MediaBridge::saveAs(const QString &mediaKey, const QUrl &destination)
@@ -1830,10 +1967,25 @@ void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes
                                 const QString &mediaKey)
 {
     const QFileInfo chosen(destination.toLocalFile());
-    // The user picked the directory; the file name is re-sanitized so a
-    // hostile attachment name can never traverse out of it.
-    const QString target =
-        chosen.dir().filePath(sanitizedFileName(chosen.fileName()));
+    // THE DIRECTORY IS RESOLVED FIRST, THEN THE LEAF IS REATTACHED.
+    //
+    // The old comment claimed "a hostile attachment name can never traverse
+    // out of it", and that did not hold: `chosen.dir()` is derived from the
+    // WHOLE destination, so any `../` in the name had already been absorbed
+    // into the directory before the leaf was sanitized. Sanitizing the leaf
+    // after the damage is done protects nothing.
+    //
+    // Now the parent is canonicalized on its own and must be an existing
+    // directory, and the sanitized leaf is joined to THAT. A name that tried
+    // to traverse lands in the directory the dialog reported, under a
+    // harmless leaf, instead of somewhere else entirely.
+    const QDir parent(QFileInfo(chosen.absolutePath()).canonicalFilePath());
+    if (!parent.exists()) {
+        Q_EMIT saveFinished(false, tr("The destination is not writable."),
+                            mediaKey);
+        return;
+    }
+    const QString target = parent.filePath(sanitizedFileName(chosen.fileName()));
     QSaveFile file(target);
     if (!file.open(QIODevice::WriteOnly)) {
         Q_EMIT saveFinished(false, tr("The destination is not writable."),
@@ -1921,10 +2073,17 @@ void MediaBridge::clear()
     if (m_playableWriter)
         m_playableWriter->cancelAll();
     m_playableNameSalt.clear(); // next session gets fresh unguessable names
+    // Release the live mark BEFORE the directory goes, or the held lock
+    // outlives the directory it names — this runs on every sign-out and
+    // account switch, so it is once per switch for the life of the process.
+    if (m_animatedDir)
+        lightning::portable::releaseScratchDir(m_animatedDir->path());
     m_animatedDir.reset(); // recursively removes decrypted temporary files
     m_animatedDir = std::make_unique<QTemporaryDir>(
         lightning::portable::mediaScratchRoot()
         + QStringLiteral("/lightning-animated-XXXXXX"));
+    // The replacement is a new directory and needs its own mark.
+    lightning::portable::holdScratchDirLive(m_animatedDir->path());
 }
 
 void MediaBridge::onLoggedOut()

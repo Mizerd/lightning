@@ -224,6 +224,18 @@ private:
     // Monotonic time (ms) of the last sound played; a short window coalesces
     // notification bursts into a single alert.
     qint64 m_lastSoundMs = 0;
+    // Escapes a body iff the daemon advertises body-markup. THE ONLY place
+    // a notification body is escaped; callers pass raw text. See the
+    // definition for why the summary is never escaped.
+    QString bodyForServer(class QDBusInterface &notifications,
+                          const QString &body);
+
+    // Whether this notification server renders markup in `body`.
+    // Queried once (GetCapabilities) and cached: a daemon cannot
+    // change it without restarting. Decides whether the body is
+    // HTML-escaped before it is sent. See deliverNow().
+    bool m_bodyMarkup = false;
+    bool m_bodyMarkupKnown = false;
 
     // Incoming-call ring state: the active call, its notification id (for
     // replaces_id and CloseNotification), the repeat timer and deadline.
