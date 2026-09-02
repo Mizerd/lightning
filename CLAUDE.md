@@ -2206,6 +2206,36 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   is 18.4 MB/s and hits a USB 2.0 ceiling at 10 fps. Staging the jpeg plugin
   and adding a decoder to the camera branch is the lead; it is a packaging
   change, so it must go through the shipped-artifact check (§16).
+  **PACKAGING HALF DONE 2026-09-02** (lightning-deploy): `libgstjpeg.dll` is
+  now staged in BOTH Windows lists — the builder sysroot in
+  `packaging/windows/Dockerfile` and the shipped zip in
+  `stage-windows-runtime.py` — and `jpegdec:libgstjpeg` joins the Wine element
+  probe. Note `libjpeg-8.dll` had been staged all along as a LIBRARY
+  dependency of Qt and libgstopengl: a DLL of the right name is not the
+  element, the same distinction that shipped Windows for months with
+  `libgstsctp-1.0-0` present and `sctpenc` missing.
+  **THE APP HALF IS STILL OPEN, and the exact blocking line is now known.**
+  It is not `videoconvert`: `captureEntryFilter(false)`
+  (`src/calls/SfuMediaEngine.cpp`) is
+  `capsfilter caps="video/x-raw,pixel-aspect-ratio=(fraction)1/1"` and it sits
+  DIRECTLY after `%1 name=capsrc`, so `image/jpeg` cannot satisfy the very
+  first element downstream of the source and no MJPG mode can ever negotiate.
+  **`decodebin` there is REFUTED, with evidence — do not re-propose it.**
+  Inserting `decodebin ! ` in front of that capsfilter builds, but the bin
+  logs `element="decodebin0" ... "Delayed linking failed."` and then
+  `element="capsrc" ... "Internal data stream error."`, and
+  `aBusErrorFromALiveOrUnknownBinIsNotAPublishFailure` fails because the
+  capture is retired. It is NOT a latency cost: measured one-buffer wall time
+  is 497 ms without the decoder, 478 ms through `decodebin`, 486 ms through
+  `jpegenc ! decodebin`. A bare `gst-launch` probe of the same three chains
+  PASSES, because it negotiates a different format than the engine does
+  (the engine's capture came up `A444_16LE`) — the recorded "a probe is
+  evidence only if it shares the property under test" trap, third occurrence.
+  What is left to try, in order: build the camera chain for `image/jpeg`
+  explicitly and FALL BACK to today's raw chain when it will not build, which
+  is the idiom the GPU share path already uses and logs; or resolve the
+  device's caps first and choose. Either needs a real webcam, so it is not
+  landing from this machine.
 - ~~**Raise hand is invisible to Element**~~ — **FIXED and LIVE-CONFIRMED
   2026-08-26** in both directions. The wire representation was established by
   READING element-call's own source rather than guessing: an `m.reaction`
