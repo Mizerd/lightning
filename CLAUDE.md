@@ -26,22 +26,22 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.8.0** (`v0.8.0` -> `6f203be`), cut by
-project 7 pipeline **138** on 2026-08-27; notes in
-`docs/releases/v0.8.0.md`. Pipeline **137** was the first attempt and lost
-`build-deb` to two symbols used outside their WebRTC guard — no tag was
-created, which is the package-first design working. The
-application version reads **0.8.0** in `CMakeLists.txt` (both `project()`
-and `APP_VERSION_LABEL`), `rust/Cargo.toml`, `rust/Cargo.lock`, and the
-Rust/HTTP user agent (derived from `CARGO_PKG_VERSION`). The next bump is a
-new release checkpoint and only on Rokas's explicit request (§14).
+Latest published release: **Lightning 0.8.3** (`v0.8.3` -> `24fbe9c`), tagged
+2026-08-30; notes in `docs/releases/v0.8.3.md`. **0.8.4 is IN FLIGHT** as of
+2026-09-02 at Rokas's explicit request: the version bump is prepared on `main`
+and reads **0.8.4** in `CMakeLists.txt` (both `project()` and
+`APP_VERSION_LABEL`), `rust/Cargo.toml`, `rust/Cargo.lock`, and the Rust/HTTP
+user agent (derived from `CARGO_PKG_VERSION`). Any bump after it is a new
+release checkpoint and only on Rokas's explicit request (§14).
 
-VERIFIED ANONYMOUSLY, not from job status: the annotated tag peels to
-`6f203be` on both GitLab and GitHub; all 10 package links return 200 under
-curl; the `latest` manifest reports 0.8.0 / `v0.8.0` with `mirror_url` on all
-six artifacts; its Ed25519 signature (`lightning-release-2026a`) VERIFIES and
-two separately tampered copies are REJECTED; the GitHub mirror carries 10
-assets and a deb fetched from it matches the GitLab-signed SHA-256 exactly.
+The anonymous verification bar (§14) has NOT yet been run for 0.8.4. It was
+run and passed for 0.8.0: the annotated tag peeled to `6f203be` on both
+GitLab and GitHub; all 10 package links returned 200 under curl; the `latest`
+manifest reported 0.8.0 / `v0.8.0` with `mirror_url` on all six artifacts; its
+Ed25519 signature (`lightning-release-2026a`) VERIFIED and two separately
+tampered copies were REJECTED; the GitHub mirror carried 10 assets and a deb
+fetched from it matched the GitLab-signed SHA-256 exactly. Run the same bar
+against every release, 0.8.4 included.
 
 `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to
 **0.18.0** in `rust/Cargo.lock`; UI and base are exact-pinned in
@@ -52,6 +52,10 @@ them incidentally.
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
+| 0.8.4 | IN FLIGHT 2026-09-02 | — | `docs/releases/v0.8.4.md` |
+| 0.8.3 | `24fbe9c` | not recorded here | `docs/releases/v0.8.3.md` |
+| 0.8.2 | `a8523b7` | not recorded here | `docs/releases/v0.8.2.md` |
+| 0.8.1 | `b3d36ec` | not recorded here | `docs/releases/v0.8.1.md` |
 | 0.8.0 | `6f203be` | 138, 20/20 green (137 lost `build-deb`) | `docs/releases/v0.8.0.md` |
 | 0.7.6 | `b13e346` | 111, **20/20 green first attempt**, 10 assets | `docs/releases/v0.7.6.md` |
 | 0.7.5 | `848a29e` | 110, 18/20 green — mirror wired wrong, mirrored by hand (see below) | `docs/releases/v0.7.5.md` |
@@ -643,11 +647,23 @@ Published tags and GitLab Releases are immutable. Never move, recreate, or
 replace them. Do not bump a version, tag, or create a release unless Rokas
 explicitly requests release work.
 
-Version 0.7.6 is released and the synchronized CMake, Rust, and user-agent
-version report 0.7.6. Any future version bump is a release checkpoint alone and
-updates those same synchronized locations. Before release, run complete Rust
-tests plus Rust and non-Rust builds/CTest, and report unavailable live
+The synchronized CMake, Rust, and user-agent version is authoritative over any
+number quoted in this file; read it from `CMakeLists.txt` rather than from
+here. Any version bump is a release checkpoint alone and updates those same
+synchronized locations. Before release, run complete Rust tests plus Rust and
+non-Rust builds/CTest, the `-DLIGHTNING_ENABLE_WEBRTC=OFF` build over EVERY
+target (§16 — this is the configuration the Linux package jobs use, and 0.8.0
+lost `build-deb` to it twice in one job), and report unavailable live
 validation honestly.
+
+There is a WEBSITE, and it is a THIRD repository: `lightning-website`
+(Cloudflare Workers, `https://www.lightning-matrix.org`). It is updated AFTER
+a release exists, never before, because the Windows and macOS asset filenames
+embed the release commit's short sha. Its whole procedure is to edit
+`public/releases.json`; the page also prefers the worker's `GET /api/latest`,
+which reports what GitHub has actually published, so a live page follows a new
+release within a five-minute cache on its own. `index.html` carries baked-in
+values for readers without JavaScript and those only change on a rebuild.
 
 Releases are **package-first**: the packaging pipeline (lightning-deploy,
 project 7) creates the tag and GitLab Release only after it has built,
@@ -702,11 +718,13 @@ For an existing release that is missing packages, use
 links to the existing release without altering its tag, notes, or source
 archives). This was used to backfill `v0.6.1`.
 
-The latest published release is `v0.7.6` (`b13e346`), cut from its release
-commit on `main` by project 7 pipeline **111, 20/20 green on the first
-attempt** in `RELEASE_ACTION=create` mode — the first fully clean release
-run since the macOS lane was added, and the proof that `86ec616` fixed the
-mirror. Its trigger used the same SIX variables 110 used
+The latest published release is in §2, which is the ONE place this file
+records it; do not add a second claim here. The trigger shape below is what
+matters and it has not changed. The reference run is pipeline **111** (0.7.6,
+`b13e346`), **20/20 green on the first attempt** in `RELEASE_ACTION=create`
+mode — the first fully clean release run since the macOS lane was added, and
+the proof that `86ec616` fixed the mirror. Its trigger used the same SIX
+variables 110 used
 (`RELEASE_ACTION=create`, `RELEASE_VERSION`, `SOURCE_REF`,
 `PUBLISH_PACKAGES=true`, `BUILD_FORMATS=all`, `BUILD_MACOS_PACKAGES=true`)
 — posted as a JSON body with an explicit
@@ -2169,7 +2187,17 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   `sink 3840 / src 1920`. What is still unmeasured is the other half, that it
   keeps the instant first frame, and that must go through the suite's own
   `framesFromASingleCaptureBuffer` harness before anything ships.
-- **The incoming-call prompt's Accept does nothing.**
+- ~~**The incoming-call prompt's Accept does nothing.**~~ — **FIXED and
+  SHIPPED in 0.8.3** (`87aafd9`, `6e9bd9a`). The card had ONE Accept button
+  serving two unrelated lanes: the legacy 1:1 `m.call.*` lane, answered by
+  `app.calls.answer()`, and a MatrixRTC ring, which announces a SESSION and is
+  answered by JOINING it (`app.groupCall.join()`, gated on
+  `app.rtc.joinBlockReason()`). A MatrixRTC ring therefore showed an Accept
+  that `CallController::answer()` refused at its own front door. The prompt now
+  offers each lane its own control, and `qml/IncomingCallPrompt.qml` carries
+  the whole reasoning at the top of the file. Live re-validation of an ANSWERED
+  call is still **NOT TESTED** — the button reaches the right code now, which
+  is not the same claim.
 - **Windows camera runs at 10 fps**, and the fix for the freeze did not touch
   it. `ksvideohelpers.c` exposes `image/jpeg` for MJPG media types, the
   publish bin links `capsrc ! queue ! videoconvert` with no decoder, and

@@ -7,7 +7,7 @@
 **A native desktop Matrix client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.8.3-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.8.4-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Platform: Linux | Windows | macOS](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-4c8fdc.svg)](#install)
 
 </div>
@@ -139,14 +139,14 @@ package is code-signed yet:
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-Replace `0.8.3` below with the version you downloaded.
+Replace `0.8.4` below with the version you downloaded.
 
 ### Linux
 
 ```sh
-sudo apt install ./lightning_0.8.3_amd64.deb            # Debian, Ubuntu, Mint, Pop!_OS
-sudo dnf install ./lightning-0.8.3-1.x86_64.rpm         # Fedora, RHEL
-sudo zypper install ./lightning-0.8.3-1.x86_64.rpm      # openSUSE
+sudo apt install ./lightning_0.8.4_amd64.deb            # Debian, Ubuntu, Mint, Pop!_OS
+sudo dnf install ./lightning-0.8.4-1.x86_64.rpm         # Fedora, RHEL
+sudo zypper install ./lightning-0.8.4-1.x86_64.rpm      # openSUSE
 
 # The VERSION stays in the pattern; only the suffix is globbed, because some
 # browsers and download managers lower-case .AppImage on the way in. Do not
@@ -154,14 +154,14 @@ sudo zypper install ./lightning-0.8.3-1.x86_64.rpm      # openSUSE
 # expands to both, and the OLDER one becomes the command while the newer
 # becomes its argument — so you would silently run the build you just
 # replaced.
-chmod +x Lightning-0.8.3-x86_64.*pp[Ii]mage && ./Lightning-0.8.3-x86_64.*pp[Ii]mage
+chmod +x Lightning-0.8.4-x86_64.*pp[Ii]mage && ./Lightning-0.8.4-x86_64.*pp[Ii]mage
 
 flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install --user flathub org.kde.Platform//6.9     # the runtime, once
-flatpak install --user ./lightning_0.8.3_amd64.flatpak
+flatpak install --user ./lightning_0.8.4_amd64.flatpak
 flatpak run org.lightning_matrix.Lightning
 
-sudo snap install --dangerous ./lightning_0.8.3_amd64.snap
+sudo snap install --dangerous ./lightning_0.8.4_amd64.snap
 ```
 
 The leading `./` matters for `apt` and `dnf`, or they look for a package by that
@@ -189,7 +189,7 @@ Add lightning-matrix-client as an input:
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     lightning-matrix-client = {
       url = "github:Mizerd/lightning";
-      #url = "github:Mizerd/lightning/v0.8.3"; # Use this if you want a specific version
+      #url = "github:Mizerd/lightning/v0.8.4"; # Use this if you want a specific version
     };
   };
   . . . # Your outputs config
@@ -232,7 +232,7 @@ deleting the folder removes it.
 
 Windows packages are **not code-signed**, so Windows shows an "unknown publisher"
 SmartScreen warning. Check the hash first
-(`Get-FileHash .\Lightning-0.8.3-<sha>-windows-x86_64.msi -Algorithm SHA256`),
+(`Get-FileHash .\Lightning-0.8.4-<sha>-windows-x86_64.msi -Algorithm SHA256`),
 then choose *More info → Run anyway*. Signing through
 [SignPath Foundation](https://signpath.org/) is planned but has not been applied
 for or granted — see the [code signing policy](docs/code-signing-policy.md).
