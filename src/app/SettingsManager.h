@@ -460,6 +460,12 @@ public:
     // explicit server rule lives in the account's push rules, never here.
     Q_INVOKABLE int roomNotificationMode(const QString &roomId) const;
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
+    // v0.9 (phase 10): the account's own status message, so a restart
+    // before the expiry can re-publish it and a restart after it can clear
+    // it. {emoji, text, expiresAtMs} — STRICTLY account-scoped, no global
+    // fallback; empty map = no status.
+    QVariantMap ownPresenceStatus() const;
+    void setOwnPresenceStatus(const QVariantMap &status);
 
     // v0.7.x composer drafts, UNENCRYPTED rooms only — DraftStore enforces
     // that policy and never routes encrypted-room plaintext here (QSettings

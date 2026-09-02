@@ -136,6 +136,14 @@ pub(crate) fn fetch_presence(
                                 ago.as_millis().min(u128::from(u32::MAX)) as u64
                             );
                         }
+                        // v0.9 (phase 10): the peer's status text, cleaned
+                        // at the boundary (bounded, no control characters).
+                        if let Some(msg) = response.status_msg.as_deref() {
+                            let cleaned = clean_status_msg(msg);
+                            if !cleaned.is_empty() {
+                                entry["status_msg"] = json!(cleaned);
+                            }
+                        }
                         entry
                     }
                     Err(err) => json!({
@@ -174,10 +182,33 @@ pub(crate) fn fetch_presence(
 /// success, and a failure only surfaces as a `presence_publish_failed`
 /// event (coarse category) for the retry/latch logic in C++. No status
 /// message is ever sent.
-pub(crate) fn publish_presence(bridge: &RustClient, state_code: u32) -> Result<(), String> {
+/// Bound and clean a status message before it leaves or enters the
+/// bridge. It is free-form REMOTE text on the way in (this module's stated
+/// invariant is that remote text is sanitized at the boundary): length is
+/// capped and control characters are dropped, nothing else is interpreted.
+pub(crate) fn clean_status_msg(raw: &str) -> String {
+    const MAX_CHARS: usize = 256;
+    raw.chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_CHARS)
+        .collect::<String>()
+        .trim()
+        .to_owned()
+}
+
+/// v0.9 (phase 10): `status_msg` is the spec's presence status text —
+/// the interoperable status every client reads. `None` leaves the field
+/// out (clears it); the emoji Lightning offers is simply the first
+/// character(s) of the text, so it federates like any other character.
+pub(crate) fn publish_presence(
+    bridge: &RustClient,
+    state_code: u32,
+    status_msg: Option<String>,
+) -> Result<(), String> {
     let client = require_client(bridge)?;
     let state =
         own_presence_state(state_code).ok_or_else(|| "invalid presence state".to_owned())?;
+    let status_msg = status_msg.map(|m| clean_status_msg(&m)).filter(|m| !m.is_empty());
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
@@ -188,8 +219,10 @@ pub(crate) fn publish_presence(bridge: &RustClient, state_code: u32) -> Result<(
         let config = RequestConfig::new()
             .disable_retry()
             .timeout(PRESENCE_REQUEST_TIMEOUT);
+        let mut request = set_presence::v3::Request::new(uid, state);
+        request.status_msg = status_msg;
         let result = client
-            .send(set_presence::v3::Request::new(uid, state))
+            .send(request)
             .with_request_config(config)
             .await;
         if !timelines.lifecycle_current(lifecycle) {

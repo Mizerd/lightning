@@ -6194,10 +6194,13 @@ pub unsafe extern "C" fn mx_rust_get_presence(
 pub unsafe extern "C" fn mx_rust_set_presence(
     ptr: *mut c_void,
     state: c_uint,
+    status_msg: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
-        presence::publish_presence(bridge, state).map(|_| String::new())
+        let status = unsafe { cstr_opt_arg(status_msg) }?;
+        let status = if status.trim().is_empty() { None } else { Some(status) };
+        presence::publish_presence(bridge, state, status).map(|_| String::new())
     })
 }
 

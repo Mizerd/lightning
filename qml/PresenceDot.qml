@@ -77,24 +77,29 @@ Rectangle {
         var info = presenceService.infoFor(userId)
         if (!info || info.state === undefined)
             return ""
+        // v0.9 (phase 10): the peer's own status text (the spec status_msg)
+        // rides after the state sentence. It is remote text — bounded and
+        // control-stripped at the Rust boundary, rendered as plain text.
+        var status = (info.statusMsg && info.statusMsg.length > 0)
+                     ? " \u00b7 " + info.statusMsg : ""
         if (info.state === "online")
-            return qsTr("Online")
+            return qsTr("Online") + status
         if (info.state === "unavailable")
-            return qsTr("Away")
+            return qsTr("Away") + status
         if (info.state !== "offline")
             return ""
         var ago = info.lastActiveAgoMs
         if (ago === undefined || ago < 0)
-            return qsTr("Offline")
+            return qsTr("Offline") + status
         var mins = Math.floor(ago / 60000)
         if (mins < 1)
-            return qsTr("Offline \u2014 active just now")
+            return qsTr("Offline \u2014 active just now") + status
         if (mins < 60)
-            return qsTr("Offline \u2014 active %1 min ago").arg(mins)
+            return qsTr("Offline \u2014 active %1 min ago").arg(mins) + status
         var hours = Math.floor(mins / 60)
         if (hours < 24)
-            return qsTr("Offline \u2014 active %1 h ago").arg(hours)
-        return qsTr("Offline \u2014 active %1 d ago").arg(Math.floor(hours / 24))
+            return qsTr("Offline \u2014 active %1 h ago").arg(hours) + status
+        return qsTr("Offline \u2014 active %1 d ago").arg(Math.floor(hours / 24)) + status
     }
 
     // Opt-in, because a HoverHandler on every dot in a long room list is a

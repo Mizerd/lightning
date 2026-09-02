@@ -737,6 +737,29 @@ void SettingsManager::setHiddenMediaKeys(const QStringList &keys)
         m_store->setValue(key, keys);
 }
 
+QVariantMap SettingsManager::ownPresenceStatus() const
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return {};
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/presenceStatus");
+    return m_store->value(key).toMap();
+}
+
+void SettingsManager::setOwnPresenceStatus(const QVariantMap &status)
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return;
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/presenceStatus");
+    if (status.isEmpty())
+        m_store->remove(key);
+    else
+        m_store->setValue(key, status);
+}
+
 int SettingsManager::callParticipantVolume(const QString &userId) const
 {
     const QString slug = slugForSavedAccount(activeAccountUserId());

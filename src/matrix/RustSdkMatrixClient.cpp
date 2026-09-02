@@ -2609,10 +2609,17 @@ void RustSdkMatrixClient::addStickerToUserPack(
 
 void RustSdkMatrixClient::publishPresence(int state)
 {
+    publishPresence(state, QString());
+}
+
+void RustSdkMatrixClient::publishPresence(int state, const QString &statusMsg)
+{
     if (!m_loggedIn || !m_rustHandle || state < 0 || state > 2)
         return;
+    const QByteArray status = statusMsg.toUtf8();
     const QString result = takeRustString(mx_rust_set_presence(
-        m_rustHandle, static_cast<unsigned int>(state)));
+        m_rustHandle, static_cast<unsigned int>(state),
+        statusMsg.isEmpty() ? nullptr : status.constData()));
     if (!result.isEmpty())
         qCWarning(lcRust) << "presence publish rejected";
 }
@@ -7731,6 +7738,10 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                     static_cast<qlonglong>(
                         obj.value(QStringLiteral("last_active_ago_ms"))
                             .toDouble(-1.0)));
+                // v0.9 (phase 10): the peer's status text (already bounded
+                // and control-stripped at the Rust boundary).
+                entry.insert(QStringLiteral("statusMsg"),
+                             obj.value(QStringLiteral("status_msg")).toString());
             } else {
                 entry.insert(QStringLiteral("category"),
                              obj.value(QStringLiteral("category")).toString());

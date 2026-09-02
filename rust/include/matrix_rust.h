@@ -655,7 +655,11 @@ char *mx_rust_get_presence(void *client,
  * (0 online, 1 unavailable, 2 offline). Fire-and-forget: success emits
  * nothing, failure emits {"type":"presence_publish_failed","category"}.
  */
-char *mx_rust_set_presence(void *client, unsigned int state);
+/* v0.9: `status_msg` (nullable) is the spec presence status text; NULL or
+ * empty clears it. Bounded and control-stripped in Rust. */
+char *mx_rust_set_presence(void *client,
+                           unsigned int state,
+                           const char *status_msg);
 /*
  * Profile banners (MSC4427 over MSC4133 extended profile fields).
  *

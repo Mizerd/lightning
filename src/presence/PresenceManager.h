@@ -70,6 +70,17 @@ class PresenceManager : public QObject
     // like a coincidence and would silently acquire a third meaning the
     // day either property gains a condition.
     Q_PROPERTY(bool unavailable READ unavailable NOTIFY unavailableChanged)
+    // v0.9 (phase 10): the account's own status. `ownStatusText` is what is
+    // published as the spec presence status_msg (emoji first, as ordinary
+    // characters, so every client sees it); `ownStatusExpiresAtMs` is 0 for
+    // no expiry, else a wall-clock ms timestamp after which the status is
+    // cleared — on the timer while running, on the next start otherwise.
+    // Expiry is a LIGHTNING convenience (it does not federate): the
+    // published text simply disappears when the deadline passes.
+    Q_PROPERTY(QString ownStatusText READ ownStatusText NOTIFY ownStatusChanged)
+    Q_PROPERTY(QString ownStatusEmoji READ ownStatusEmoji NOTIFY ownStatusChanged)
+    Q_PROPERTY(qint64 ownStatusExpiresAtMs READ ownStatusExpiresAtMs
+                   NOTIFY ownStatusChanged)
 
 public:
     explicit PresenceManager(QObject *parent = nullptr);
@@ -116,6 +127,14 @@ public:
     // lastActiveAgoMs is -1 when the server sent none. Empty map when
     // unknown.
     Q_INVOKABLE QVariantMap infoFor(const QString &userId) const;
+    // A peer's status text as the last poll reported it ("" = none/unknown).
+    Q_INVOKABLE QString statusMessageFor(const QString &userId) const;
+    QString ownStatusText() const;
+    QString ownStatusEmoji() const { return m_ownStatusEmoji; }
+    qint64 ownStatusExpiresAtMs() const { return m_ownStatusExpiresAtMs; }
+    Q_INVOKABLE void setOwnStatus(const QString &emoji, const QString &text,
+                                  qint64 expiresAtMs);
+    Q_INVOKABLE void clearOwnStatus();
 
     // Test/embedding seam; the ctor also tracks QGuiApplication state when
     // one exists.
@@ -134,6 +153,7 @@ Q_SIGNALS:
     void supportedChanged();
     void activeChanged();
     void unavailableChanged();
+    void ownStatusChanged();
     void revisionChanged();
     void sessionEpochChanged();
 
@@ -143,6 +163,7 @@ private:
         bool currentlyActive = false;
         qint64 lastActiveAgoMs = -1;
         qint64 receivedAtMs = 0;
+        QString statusMsg;
     };
 
     // One polling round every 30 s keeps a visible dot honest without
@@ -196,6 +217,16 @@ private:
     void clearSession();
     int desiredOwnState() const;
     bool publishEnabled() const;
+    // v0.9 own status.
+    void loadOwnStatusIfNeeded();
+    void persistOwnStatus();
+    void armStatusExpiry();
+    bool m_ownStatusLoaded = false;
+    bool m_statusTimerWired = false;
+    QString m_ownStatusEmoji;
+    QString m_ownStatusPlainText;
+    qint64 m_ownStatusExpiresAtMs = 0;
+    QTimer m_statusExpiryTimer;
     // "online" / "unavailable" / "offline" for the local user, or "" when
     // this client is not publishing and therefore does not know.
     QString ownPublishedState() const;

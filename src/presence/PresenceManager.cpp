@@ -4,9 +4,26 @@
 
 #include <QGuiApplication>
 #include <QLoggingCategory>
+#include <QRegularExpression>
 #include <QVariantList>
 
 #include "app/SettingsManager.h"
+
+namespace {
+// A status is shown in tooltips and labels whose default text format can
+// auto-detect HTML. Remote text that LOOKS like markup ("<b>", "<img …>")
+// gets its angle brackets swapped for single angle quotes, so it renders as
+// the text it is; "<3" and "a < b" are untouched.
+QString displaySafeStatus(QString text)
+{
+    static const QRegularExpression tagLike(QStringLiteral("<\\s*/?[A-Za-z!]"));
+    if (tagLike.match(text).hasMatch()) {
+        text.replace(QLatin1Char('<'), QChar(0x2039));
+        text.replace(QLatin1Char('>'), QChar(0x203A));
+    }
+    return text;
+}
+} // namespace
 
 Q_LOGGING_CATEGORY(lcPresence, "lightning.presence")
 
@@ -316,6 +333,7 @@ QVariantMap PresenceManager::infoFor(const QString &userId) const
                 // telling the server, and a fabricated age would be the one
                 // part of this answer we did not know.
                 { QStringLiteral("lastActiveAgoMs"), qint64(0) },
+                { QStringLiteral("statusMsg"), ownStatusText() },
             };
         }
     }
@@ -333,6 +351,7 @@ QVariantMap PresenceManager::infoFor(const QString &userId) const
         { QStringLiteral("state"), it->state },
         { QStringLiteral("currentlyActive"), it->currentlyActive },
         { QStringLiteral("lastActiveAgoMs"), age },
+        { QStringLiteral("statusMsg"), it->statusMsg },
     };
 }
 
@@ -538,6 +557,8 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
             cached.lastActiveAgoMs =
                 entry.value(QStringLiteral("lastActiveAgoMs"), -1)
                     .toLongLong();
+            cached.statusMsg =
+                displaySafeStatus(entry.value(QStringLiteral("statusMsg")).toString());
             cached.receivedAtMs = m_clock.elapsed();
             m_cache.insert(userId, cached);
             changed = true;
@@ -621,7 +642,8 @@ void PresenceManager::publishTick(bool force)
     if (!force && desired == m_lastPublished)
         return;
     const int previous = m_lastPublished;
-    m_client->publishPresence(desired);
+    loadOwnStatusIfNeeded();
+    m_client->publishPresence(desired, ownStatusText());
     m_lastPublished = desired;
     // stateFor()/infoFor() answer the local user from m_lastPublished, so
     // the dot and the profile line only move when the revision does.
@@ -656,6 +678,13 @@ void PresenceManager::handleConnectionState(MatrixClient::ConnectionState state)
 
 void PresenceManager::clearSession()
 {
+    // The own status is re-read for the next account from ITS settings.
+    m_ownStatusLoaded = false;
+    m_ownStatusEmoji.clear();
+    m_ownStatusPlainText.clear();
+    m_ownStatusExpiresAtMs = 0;
+    m_statusExpiryTimer.stop();
+    Q_EMIT ownStatusChanged();
     m_cache.clear();
     m_inFlight.clear();
     m_burstPending.clear();
@@ -699,4 +728,134 @@ int PresenceManager::desiredOwnState() const
 bool PresenceManager::publishEnabled() const
 {
     return m_settings && m_settings->sharePresence();
+}
+
+// ---------------------------------------------------------------------------
+// v0.9 (phase 10): the account's own status message
+// ---------------------------------------------------------------------------
+
+QString PresenceManager::ownStatusText() const
+{
+    if (m_ownStatusPlainText.isEmpty() && m_ownStatusEmoji.isEmpty())
+        return {};
+    // The emoji rides as ordinary text so every client shows it.
+    if (m_ownStatusEmoji.isEmpty())
+        return m_ownStatusPlainText;
+    if (m_ownStatusPlainText.isEmpty())
+        return m_ownStatusEmoji;
+    return m_ownStatusEmoji + QLatin1Char(' ') + m_ownStatusPlainText;
+}
+
+QString PresenceManager::statusMessageFor(const QString &userId) const
+{
+    if (isOwnUser(userId))
+        return ownStatusText();
+    const auto it = m_cache.constFind(userId);
+    return it == m_cache.constEnd() ? QString() : it->statusMsg;
+}
+
+void PresenceManager::loadOwnStatusIfNeeded()
+{
+    if (m_ownStatusLoaded)
+        return;
+    m_ownStatusLoaded = true;
+    if (!m_settings)
+        return;
+    const QVariantMap stored = m_settings->ownPresenceStatus();
+    if (stored.isEmpty())
+        return;
+    const qint64 expires = stored.value(QStringLiteral("expiresAtMs")).toLongLong();
+    if (expires > 0 && QDateTime::currentMSecsSinceEpoch() >= expires) {
+        // Expired while Lightning was closed: cleared now, so it is never
+        // re-published stale.
+        m_settings->setOwnPresenceStatus({});
+        return;
+    }
+    m_ownStatusEmoji = stored.value(QStringLiteral("emoji")).toString();
+    m_ownStatusPlainText = stored.value(QStringLiteral("text")).toString();
+    m_ownStatusExpiresAtMs = expires;
+    armStatusExpiry();
+    Q_EMIT ownStatusChanged();
+}
+
+void PresenceManager::persistOwnStatus()
+{
+    if (!m_settings)
+        return;
+    if (m_ownStatusEmoji.isEmpty() && m_ownStatusPlainText.isEmpty()) {
+        m_settings->setOwnPresenceStatus({});
+        return;
+    }
+    m_settings->setOwnPresenceStatus(QVariantMap{
+        { QStringLiteral("emoji"), m_ownStatusEmoji },
+        { QStringLiteral("text"), m_ownStatusPlainText },
+        { QStringLiteral("expiresAtMs"), m_ownStatusExpiresAtMs },
+    });
+}
+
+void PresenceManager::armStatusExpiry()
+{
+    m_statusExpiryTimer.stop();
+    if (m_ownStatusExpiresAtMs <= 0)
+        return;
+    const qint64 remaining =
+        m_ownStatusExpiresAtMs - QDateTime::currentMSecsSinceEpoch();
+    if (remaining <= 0) {
+        clearOwnStatus();
+        return;
+    }
+    // QTimer is 32-bit: a deadline further out than ~24 days is re-armed
+    // when it fires, never truncated.
+    m_statusExpiryTimer.setSingleShot(true);
+    m_statusExpiryTimer.setInterval(
+        static_cast<int>(qMin<qint64>(remaining, 24LL * 60 * 60 * 1000)));
+    if (!m_statusTimerWired) {
+        m_statusTimerWired = true;
+        connect(&m_statusExpiryTimer, &QTimer::timeout, this,
+                [this] { armStatusExpiry(); });
+    }
+    m_statusExpiryTimer.start();
+}
+
+void PresenceManager::setOwnStatus(const QString &emoji, const QString &text,
+                                   qint64 expiresAtMs)
+{
+    loadOwnStatusIfNeeded();
+    // Bounded here as well as in Rust: one status line, not a paragraph.
+    const QString cleanText = displaySafeStatus(text.simplified().left(200));
+    const QString cleanEmoji = emoji.trimmed().left(8);
+    if (cleanText.isEmpty() && cleanEmoji.isEmpty()) {
+        clearOwnStatus();
+        return;
+    }
+    m_ownStatusEmoji = cleanEmoji;
+    m_ownStatusPlainText = cleanText;
+    m_ownStatusExpiresAtMs = expiresAtMs > 0 ? expiresAtMs : 0;
+    persistOwnStatus();
+    armStatusExpiry();
+    Q_EMIT ownStatusChanged();
+    // Publish now: the status is part of the presence event, and the next
+    // scheduled tick could be minutes away.
+    if (m_client && m_client->supportsPresence() && m_syncing && publishEnabled()
+        && m_lastPublished >= 0)
+        m_client->publishPresence(m_lastPublished, ownStatusText());
+    ++m_revision;
+    Q_EMIT revisionChanged();
+}
+
+void PresenceManager::clearOwnStatus()
+{
+    m_ownStatusLoaded = true;
+    const bool had = !m_ownStatusEmoji.isEmpty() || !m_ownStatusPlainText.isEmpty();
+    m_ownStatusEmoji.clear();
+    m_ownStatusPlainText.clear();
+    m_ownStatusExpiresAtMs = 0;
+    m_statusExpiryTimer.stop();
+    persistOwnStatus();
+    Q_EMIT ownStatusChanged();
+    if (had && m_client && m_client->supportsPresence() && m_syncing
+        && publishEnabled() && m_lastPublished >= 0)
+        m_client->publishPresence(m_lastPublished, QString());
+    ++m_revision;
+    Q_EMIT revisionChanged();
 }

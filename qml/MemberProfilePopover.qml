@@ -686,6 +686,28 @@ Popup {
             Layout.bottomMargin: AppTheme.spacing16
             spacing: AppTheme.spacing8
 
+            // v0.9 (phase 10): the person's status text (the spec presence
+            // status_msg), when the last presence poll carried one. Remote
+            // text — bounded at the Rust boundary, rendered plain.
+            Label {
+                objectName: "profileStatusMessage"
+                Layout.fillWidth: true
+                readonly property string statusMsg: {
+                    if (!root.opened || root.userId === "" || !app.presence)
+                        return ""
+                    var rev = app.presence.revision
+                    return app.presence.statusMessageFor(root.userId)
+                }
+                visible: statusMsg.length > 0
+                text: statusMsg
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
+                color: AppTheme.stormTextSecondary
+                font: app.textFontWithEmoji(AppTheme.uiFont, AppTheme.scaled(13))
+            }
+
             // --- Identity row -------------------------------------------
             // Name (+ decorative badge) and MXID on the left, the primary
             // Message action on the right — the Sable reference's shape, and

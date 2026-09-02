@@ -330,6 +330,7 @@ public:
     void setRoomBanner(const QString &roomId, const QString &localPath,
                        quint64 opId) override;
     void publishPresence(int state) override;
+    void publishPresence(int state, const QString &statusMsg) override;
     void requestRoomNotificationMode(const QString &roomId) override;
     void acceptInvite(const QString &roomId) override;
     void rejectInvite(const QString &roomId) override;

@@ -27,6 +27,9 @@ Popup {
     // joined Spaces, never the pseudo Home/orphans rows).
     function activeMetaText() {
         var parts = [app.connectionStatus]
+        // v0.9 (phase 10): the own status text leads the meta line.
+        if (app.presence && app.presence.ownStatusText.length > 0)
+            parts.unshift(app.presence.ownStatusText)
         if (app.spaces && app.spaces.spaceCount > 0) {
             parts.push(qsTr("%n space(s)", "how many Spaces this account is in",
                             app.spaces.spaceCount))
@@ -338,9 +341,20 @@ Popup {
 
     // "Manage" deep links — exact existing aliases (SettingsScreen.qml
     // mapLegacySection remaps "general" -> appearance, "security" -> privacy).
+    // v0.9 (phase 10): the personal status editor, hosted here so every
+    // entry point (menu item, meta line) opens the same instance.
+    StatusDialog { id: statusDialog }
     AppMenu {
         id: manageMenu
         objectName: "accountManageMenu"
+        AppMenuItem {
+            objectName: "accountSetStatusItem"
+            text: app.presence && app.presence.ownStatusText.length > 0
+                  ? qsTr("Edit status…") : qsTr("Set a status…")
+            iconName: "mood"
+            enabled: app.presence && app.presence.supported
+            onTriggered: { root.close(); statusDialog.openForEdit() }
+        }
         AppMenuItem {
             text: qsTr("Settings")
             iconName: "settings"

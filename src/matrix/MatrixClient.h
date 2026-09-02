@@ -481,6 +481,10 @@ public:
     // Publish the local user's own presence (0 online, 1 unavailable,
     // 2 offline). Fire-and-forget: the UI claims nothing about publication.
     virtual void publishPresence(int state) { Q_UNUSED(state); }
+    // v0.9 (phase 10): publish with the spec status text (`m.presence`
+    // status_msg). Empty clears. Default forwards without it.
+    virtual void publishPresence(int state, const QString &statusMsg)
+    { Q_UNUSED(statusMsg); publishPresence(state); }
     // Profile banners (MSC4427 over MSC4133). False on a backend that cannot
     // read extended profile fields; the banner is then simply absent, exactly
     // like presence or the thread facepile on such a backend.
