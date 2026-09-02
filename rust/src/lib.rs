@@ -6351,6 +6351,52 @@ pub unsafe extern "C" fn mx_rust_upgrade_room(
     })
 }
 
+/// v0.9 message edit history + event source (phase 7). Answers on
+/// `message_edit_history` / `event_source` poll events; see rooms.rs.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_request_edit_history(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let event_id = unsafe { cstr_arg(event_id) }?;
+        rooms::request_edit_history(bridge, room_id, event_id).map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_request_event_source(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let event_id = unsafe { cstr_arg(event_id) }?;
+        rooms::request_event_source(bridge, room_id, event_id).map(|_| String::new())
+    })
+}
+
+/// Replace the room's alternative-alias list (newline-separated). Aliases
+/// not yet resolving to this room are published first, like the canonical
+/// alias path; the canonical alias itself is preserved.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_alt_aliases(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    aliases: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let aliases = unsafe { cstr_list_arg(aliases) }?;
+        rooms::set_room_alt_aliases(bridge, room_id, aliases, op_id)
+            .map(|_| String::new())
     })
 }
 

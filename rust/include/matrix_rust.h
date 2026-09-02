@@ -973,6 +973,12 @@ char *mx_rust_upgrade_room(void *client,
                            const char *room_id,
                            const char *new_version,
                            unsigned long long op_id);
+/* v0.9 message edit history + event source. History answers on
+ * message_edit_history {room_id, event_id, ok, revisions:[{event_id,
+ * sender, timestamp_ms, body, formatted_body, redacted, undecryptable,
+ * is_original, is_latest}]}; source answers on event_source {room_id,
+ * event_id, ok, json, encryption:{encrypted, sender_key, sender_device,
+ * algorithm, verification}}. Bodies are for display only — never cached. */
 /* Canonical alias; an empty alias clears it. Publishes the directory
  * mapping first when the alias does not already resolve to this room.
  * Result: room_edit_result with field "canonical_alias". */

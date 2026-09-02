@@ -2621,6 +2621,203 @@ pub(crate) fn upgrade_room(
 }
 
 // ---------------------------------------------------------------------------
+// v0.9 message edit history + event source (phase 7).
+//
+// Both read what the SDK holds or can fetch; nothing is fabricated. The
+// history is the original event plus its m.replace relations, which
+// `load_or_fetch_event_with_relations` serves from the event cache or the
+// server's /relations. In an encrypted room the SDK decrypts each event on
+// the way through; one it cannot decrypt is reported as such rather than
+// dropped. Bodies cross the FFI for DISPLAY only — the C++ side holds them
+// in memory for the open dialog and never caches them (CLAUDE.md §6).
+// ---------------------------------------------------------------------------
+
+pub(crate) fn request_edit_history(
+    bridge: &RustClient,
+    room_id: String,
+    event_id: String,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::events::relation::RelationType;
+    use matrix_sdk::ruma::events::AnySyncTimelineEvent;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let target = EventId::parse(&event_id).map_err(|_| "invalid event id".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        use matrix_sdk::room::{IncludeRelations, RelationsOptions};
+        use matrix_sdk::ruma::UInt;
+        // The ORIGINAL comes from the cache or the server; the REPLACEMENTS
+        // are asked of the server first (/relations), because the event
+        // cache holds only the edits that happened to arrive over sync — a
+        // cache-first read would silently show a partial history whenever it
+        // held at least one. The cache is the fallback when the server call
+        // fails, and the answer says which it was.
+        let loaded = room.load_or_fetch_event(&target, None).await;
+        let Ok(original) = loaded else {
+            if timelines.lifecycle_current(lifecycle) {
+                enqueue(&events, json!({
+                    "type": "message_edit_history", "lifecycle": lifecycle,
+                    "room_id": room_id, "event_id": event_id, "ok": false,
+                    "revisions": [],
+                }));
+            }
+            return;
+        };
+        let mut options = RelationsOptions::default();
+        options.include_relations =
+            IncludeRelations::RelationsOfType(RelationType::Replacement);
+        options.limit = Some(UInt::from(200u32));
+        let (relations, partial) = match room.relations(target.to_owned(), options).await {
+            Ok(answer) => (answer.chunk, false),
+            Err(_) => match room
+                .load_or_fetch_event_with_relations(
+                    &target,
+                    Some(vec![RelationType::Replacement]),
+                    None,
+                )
+                .await
+            {
+                Ok((_, cached)) => (cached, true),
+                Err(_) => (Vec::new(), true),
+            },
+        };
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+
+        // One revision row from a raw event. Replacements carry the new
+        // text in m.new_content; the original carries it at the top level.
+        let revision = |raw: &matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>,
+                        is_original: bool|
+         -> Option<serde_json::Value> {
+            let value: serde_json::Value = raw.deserialize_as().ok()?;
+            let event_id = value["event_id"].as_str()?.to_owned();
+            let sender = value["sender"].as_str().unwrap_or_default().to_owned();
+            let ts = value["origin_server_ts"].as_u64().unwrap_or(0);
+            let redacted = value["unsigned"]["redacted_because"].is_object()
+                || (value["content"].as_object().map(|c| c.is_empty()).unwrap_or(false)
+                    && value["type"] == "m.room.message");
+            let undecryptable = value["type"] == "m.room.encrypted";
+            let content = if is_original {
+                value["content"].clone()
+            } else {
+                value["content"]["m.new_content"].clone()
+            };
+            let body = content["body"].as_str().unwrap_or_default().to_owned();
+            let formatted = if content["format"] == "org.matrix.custom.html" {
+                content["formatted_body"].as_str().unwrap_or_default().to_owned()
+            } else {
+                String::new()
+            };
+            Some(json!({
+                "event_id": event_id, "sender": sender, "timestamp_ms": ts,
+                "body": body, "formatted_body": formatted,
+                "redacted": redacted, "undecryptable": undecryptable,
+                "is_original": is_original,
+            }))
+        };
+
+        let mut rows: Vec<serde_json::Value> = Vec::new();
+        if let Some(row) = revision(original.raw(), true) {
+            rows.push(row);
+        } else {
+            // An original that cannot be read is a failure, not an empty
+            // history.
+            enqueue(&events, json!({
+                "type": "message_edit_history", "lifecycle": lifecycle,
+                "room_id": room_id, "event_id": event_id, "ok": false,
+                "revisions": [],
+            }));
+            return;
+        }
+        let mut edits: Vec<serde_json::Value> = relations
+            .iter()
+            .filter_map(|related| {
+                // Only replacements FROM the original sender count, which is
+                // the same rule every client applies when aggregating edits.
+                let parsed: AnySyncTimelineEvent = related.raw().deserialize().ok()?;
+                let sender_ok = match (&parsed, rows.first()) {
+                    (AnySyncTimelineEvent::MessageLike(_), Some(first)) => {
+                        parsed.sender().as_str() == first["sender"].as_str().unwrap_or_default()
+                    }
+                    _ => false,
+                };
+                if !sender_ok {
+                    return None;
+                }
+                revision(related.raw(), false)
+            })
+            .collect();
+        edits.sort_by_key(|row| row["timestamp_ms"].as_u64().unwrap_or(0));
+        rows.extend(edits);
+        if let Some(last) = rows.last_mut() {
+            last["is_latest"] = json!(true);
+        }
+        enqueue(&events, json!({
+            "type": "message_edit_history", "lifecycle": lifecycle,
+            "room_id": room_id, "event_id": event_id, "ok": true,
+            "partial": partial,
+            "revisions": rows,
+        }));
+    });
+    Ok(())
+}
+
+pub(crate) fn request_event_source(
+    bridge: &RustClient,
+    room_id: String,
+    event_id: String,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let target = EventId::parse(&event_id).map_err(|_| "invalid event id".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let loaded = room.load_or_fetch_event(&target, None).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let Ok(event) = loaded else {
+            enqueue(&events, json!({
+                "type": "event_source", "lifecycle": lifecycle,
+                "room_id": room_id, "event_id": event_id, "ok": false,
+            }));
+            return;
+        };
+        // The JSON the SDK holds: for an encrypted event this is the
+        // DECRYPTED event (the SDK keeps the plaintext form once decrypted),
+        // with the ciphertext envelope described beside it rather than
+        // reproduced. No key material: session id and sender key are the
+        // public identifiers every client shows.
+        let json_value: serde_json::Value =
+            event.raw().deserialize_as().unwrap_or(serde_json::Value::Null);
+        let pretty = serde_json::to_string_pretty(&json_value).unwrap_or_default();
+        let encryption = match event.encryption_info() {
+            Some(info) => json!({
+                "encrypted": true,
+                "sender": info.sender.to_string(),
+                "sender_device": info.sender_device
+                    .as_ref().map(|d| d.to_string()).unwrap_or_default(),
+                "algorithm": format!("{:?}", info.algorithm_info),
+                "verification": format!("{:?}", info.verification_state),
+            }),
+            None => json!({ "encrypted": false }),
+        };
+        enqueue(&events, json!({
+            "type": "event_source", "lifecycle": lifecycle,
+            "room_id": room_id, "event_id": event_id, "ok": true,
+            "json": pretty, "encryption": encryption,
+        }));
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Room profile editing + leave
 // ---------------------------------------------------------------------------
 

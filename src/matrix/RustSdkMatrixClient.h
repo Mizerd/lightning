@@ -422,6 +422,9 @@ public:
                                 qlonglong level) override;
     quint64 setRoomPowerLevelKey(const QString &roomId, const QString &key,
                                  qlonglong level) override;
+    // v0.9 message edit history + event source (phase 7).
+    void requestEditHistory(const QString &roomId, const QString &eventId) override;
+    void requestEventSource(const QString &roomId, const QString &eventId) override;
     // v0.9 room upgrade (phase 8).
     void requestRoomVersions() override;
     quint64 upgradeRoom(const QString &roomId, const QString &newVersion) override;

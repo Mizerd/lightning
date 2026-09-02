@@ -1306,6 +1306,18 @@ Item {
                 TapHandler {
                     acceptedButtons: Qt.LeftButton
                     onTapped: (eventPoint) => {
+                        // Seventh occurrence: the "edited" marker opens the
+                        // edit history from its own TapHandler inside this
+                        // bubble — without the band, one click did both.
+                        if (model.edited === true && metaLabel.visible) {
+                            var mp = bubble.mapToItem(
+                                        metaLabel,
+                                        eventPoint.position.x,
+                                        eventPoint.position.y)
+                            if (mp.x >= 0 && mp.x <= metaLabel.width
+                                && mp.y >= 0 && mp.y <= metaLabel.height)
+                                return
+                        }
                         // The receipt facepile paints upward from a
                         // zero-height boundary and can overlap this
                         // bubble's bottom edge (flush in bubbleMode on
@@ -2384,7 +2396,23 @@ Item {
                                        ? AppTheme.onAccentMuted
                                        : AppTheme.textMuted
                                 font.pixelSize: AppTheme.scaled(10)
-                                Accessible.name: text
+                                // v0.9 (phase 7): the "edited" marker is the
+                                // door to the edit history. Underlined only
+                                // when it is one, so a "sending…" label does
+                                // not look clickable.
+                                font.underline: model.edited === true
+                                                && !(model.isOwn && model.status !== 1
+                                                     && model.status !== undefined
+                                                     && model.status === 2)
+                                Accessible.name: model.edited === true
+                                                 ? qsTr("edited — show edit history")
+                                                 : text
+                                Accessible.role: model.edited === true
+                                                 ? Accessible.Button : Accessible.StaticText
+                                TapHandler {
+                                    enabled: model.edited === true
+                                    onTapped: root.openEditHistory(model.eventId)
+                                }
                             }
                         }
                         // v0.5.7: retry action for failed local echoes. The
@@ -3903,6 +3931,26 @@ Item {
                     root.timelineModel.messageDetails(
                         root.menuEventId))
             }
+            // v0.9 (phase 7). Edit history for any edited message (the
+            // "edited" marker opens it too); View source for every real
+            // event — technical users only, hence its place at the bottom
+            // of this group rather than beside Reply.
+            AppMenuItem {
+                objectName: "editHistoryMenuItem"
+                iconName: "schedule"
+                text: qsTr("Edit history")
+                enabled: model.edited === true && root.menuEventId !== ""
+                visible: model.edited === true
+                onTriggered: root.openEditHistory(root.menuEventId)
+            }
+            AppMenuItem {
+                objectName: "viewSourceMenuItem"
+                iconName: "code"
+                text: qsTr("View source")
+                enabled: root.menuEventId !== ""
+                         && !!root.timelineModel.requestEventSource
+                onTriggered: root.openEventSource(root.menuEventId)
+            }
             AppMenuItem {
                 iconName: "edit_square"
                 text: qsTr("Edit")
@@ -4023,6 +4071,32 @@ Item {
                 onTriggered: app.composer.redact(root.menuEventId)
             }
         }
+    }
+    // v0.9 (phase 7): lazily created like the details dialog — Dialogs own
+    // their overlay lifetime, so the createObject(root) precedent holds.
+    property var editHistoryDialogItem: null
+    property var eventSourceDialogItem: null
+    Component {
+        id: editHistoryDialogComponent
+        EditHistoryDialog {}
+    }
+    Component {
+        id: eventSourceDialogComponent
+        EventSourceDialog {}
+    }
+    function openEditHistory(eventId) {
+        if (!eventId || !root.timelineModel)
+            return
+        if (!editHistoryDialogItem)
+            editHistoryDialogItem = editHistoryDialogComponent.createObject(root)
+        editHistoryDialogItem.openFor(root.timelineModel, eventId)
+    }
+    function openEventSource(eventId) {
+        if (!eventId || !root.timelineModel)
+            return
+        if (!eventSourceDialogItem)
+            eventSourceDialogItem = eventSourceDialogComponent.createObject(root)
+        eventSourceDialogItem.openFor(root.timelineModel, eventId)
     }
     property var detailsDialogItem: null
     Component {

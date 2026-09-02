@@ -814,6 +814,13 @@ public:
     virtual void requestRoomVersions() {}
     virtual quint64 upgradeRoom(const QString &roomId, const QString &newVersion)
     { Q_UNUSED(roomId); Q_UNUSED(newVersion); return 0; }
+    // v0.9 message edit history + event source (phase 7). Answer on
+    // editHistoryReceived / eventSourceReceived; the revisions and JSON are
+    // DISPLAY data held only while a dialog is open — never cached.
+    virtual void requestEditHistory(const QString &roomId, const QString &eventId)
+    { Q_UNUSED(roomId); Q_UNUSED(eventId); }
+    virtual void requestEventSource(const QString &roomId, const QString &eventId)
+    { Q_UNUSED(roomId); Q_UNUSED(eventId); }
     // An empty alias clears the canonical alias. Answers on
     // roomEditFinished with field "canonical_alias".
     virtual quint64 setRoomCanonicalAlias(const QString &roomId,
@@ -1520,6 +1527,16 @@ Q_SIGNALS:
     void roomUpgradeFinished(quint64 opId, const QString &roomId, bool ok,
                              const QString &replacementRoomId,
                              const QString &category);
+    // v0.9 phase 7. `revisions` is [{eventId, sender, timestamp(QDateTime),
+    // body, formattedBody, redacted, undecryptable, isOriginal, isLatest}]
+    // in chronological order. `encryption` is {encrypted, senderKey,
+    // senderDevice, algorithm, verification}. Both carry decrypted message
+    // text in an encrypted room: memory-only, never logged, never cached.
+    void editHistoryReceived(const QString &roomId, const QString &eventId,
+                             bool ok, const QVariantList &revisions);
+    void eventSourceReceived(const QString &roomId, const QString &eventId,
+                             bool ok, const QString &json,
+                             const QVariantMap &encryption);
     void roomLeaveFinished(quint64 opId, const QString &roomId, bool ok,
                            const QString &category);
     // op is "kick" or "ban"; category is a sanitized error class on failure.

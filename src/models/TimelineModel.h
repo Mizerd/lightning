@@ -351,6 +351,15 @@ public:
     Q_INVOKABLE int stateActivityRowCount() const;
     Q_INVOKABLE int stateGroupCount() const;
     Q_INVOKABLE QVariantMap messageDetails(const QString &eventId) const;
+    // v0.9 (phase 7): message edit history and event source, answered on
+    // the signals below for THIS timeline's room only. The revisions and
+    // the JSON are display data held by the open dialog — never cached.
+    Q_INVOKABLE void requestEditHistory(const QString &eventId);
+    Q_INVOKABLE void requestEventSource(const QString &eventId);
+    // Sanitize an arbitrary formatted body with this timeline's mention
+    // style and name resolver — the SAME MessageHtml::sanitize the rows use,
+    // for the edit-history dialog's revisions (untrusted HTML, never raw).
+    Q_INVOKABLE QString sanitizeHtml(const QString &html) const;
     Q_INVOKABLE bool canEditEvent(const QString &eventId) const;
     Q_INVOKABLE bool canRedactEvent(const QString &eventId) const;
 
@@ -406,6 +415,12 @@ public:
     Q_INVOKABLE QString markRoomMention(const QString &safeHtml) const;
 
 Q_SIGNALS:
+    // v0.9 (phase 7). SENSITIVE in an encrypted room (plaintext bodies /
+    // decrypted JSON): consumers display and drop, never log or store.
+    void editHistoryReceived(const QString &eventId, bool ok,
+                             const QVariantList &revisions);
+    void eventSourceReceived(const QString &eventId, bool ok,
+                             const QString &json, const QVariantMap &encryption);
     void roomIdChanged();
     void countChanged();
     void typingTextChanged();

@@ -828,6 +828,8 @@ set(APP_QML_FILES
     qml/MentionPopup.qml
     qml/SlashCommandPopup.qml
     qml/RoomUpgradeDialog.qml
+    qml/EditHistoryDialog.qml
+    qml/EventSourceDialog.qml
     qml/AnchoredPopup.qml
     qml/PopupResizeGrip.qml
     qml/EmojiPicker.qml

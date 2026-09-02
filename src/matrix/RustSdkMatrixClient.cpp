@@ -5838,6 +5838,28 @@ quint64 RustSdkMatrixClient::setRoomDirectoryVisibility(const QString &roomId,
     return result.isEmpty() ? opId : 0;
 }
 
+void RustSdkMatrixClient::requestEditHistory(const QString &roomId,
+                                             const QString &eventId)
+{
+    if (!m_rustHandle || roomId.isEmpty() || eventId.isEmpty())
+        return;
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray ev = eventId.toUtf8();
+    takeRustString(mx_rust_request_edit_history(m_rustHandle, room.constData(),
+                                                ev.constData()));
+}
+
+void RustSdkMatrixClient::requestEventSource(const QString &roomId,
+                                             const QString &eventId)
+{
+    if (!m_rustHandle || roomId.isEmpty() || eventId.isEmpty())
+        return;
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray ev = eventId.toUtf8();
+    takeRustString(mx_rust_request_event_source(m_rustHandle, room.constData(),
+                                                ev.constData()));
+}
+
 void RustSdkMatrixClient::requestRoomVersions()
 {
     if (!m_rustHandle)
@@ -7898,6 +7920,66 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                                 event.value(QStringLiteral("field")).toString(),
                                 event.value(QStringLiteral("ok")).toBool(),
                                 event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("message_edit_history")) {
+        // SENSITIVE in an encrypted room: revision bodies are plaintext.
+        // Forwarded to the open dialog only; never logged, never cached.
+        QVariantList revisions;
+        for (const QJsonValue &v :
+             event.value(QStringLiteral("revisions")).toArray()) {
+            const QJsonObject row = v.toObject();
+            revisions.append(QVariantMap{
+                { QStringLiteral("eventId"),
+                  row.value(QStringLiteral("event_id")).toString() },
+                { QStringLiteral("sender"),
+                  row.value(QStringLiteral("sender")).toString() },
+                { QStringLiteral("timestamp"),
+                  QDateTime::fromMSecsSinceEpoch(
+                      row.value(QStringLiteral("timestamp_ms"))
+                          .toVariant().toLongLong()) },
+                { QStringLiteral("body"),
+                  row.value(QStringLiteral("body")).toString() },
+                { QStringLiteral("formattedBody"),
+                  row.value(QStringLiteral("formatted_body")).toString() },
+                { QStringLiteral("redacted"),
+                  row.value(QStringLiteral("redacted")).toBool() },
+                { QStringLiteral("undecryptable"),
+                  row.value(QStringLiteral("undecryptable")).toBool() },
+                { QStringLiteral("isOriginal"),
+                  row.value(QStringLiteral("is_original")).toBool() },
+                { QStringLiteral("isLatest"),
+                  row.value(QStringLiteral("is_latest")).toBool() },
+            });
+        }
+        Q_EMIT editHistoryReceived(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("event_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(), revisions);
+        return true;
+    }
+
+    if (type == QLatin1String("event_source")) {
+        // SENSITIVE: `json` is the decrypted event. Never log it.
+        const QJsonObject enc = event.value(QStringLiteral("encryption")).toObject();
+        Q_EMIT eventSourceReceived(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("event_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("json")).toString(),
+            QVariantMap{
+                { QStringLiteral("encrypted"),
+                  enc.value(QStringLiteral("encrypted")).toBool() },
+                { QStringLiteral("sender"),
+                  enc.value(QStringLiteral("sender")).toString() },
+                { QStringLiteral("senderDevice"),
+                  enc.value(QStringLiteral("sender_device")).toString() },
+                { QStringLiteral("algorithm"),
+                  enc.value(QStringLiteral("algorithm")).toString() },
+                { QStringLiteral("verification"),
+                  enc.value(QStringLiteral("verification")).toString() },
+            });
         return true;
     }
 

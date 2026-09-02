@@ -183,6 +183,22 @@ void TimelineModel::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::eventAppended,
                 this, &TimelineModel::onEventAppended);
+        // v0.9 (phase 7): forwarded for this timeline's REAL room only (a
+        // thread timeline's id is the composite; the answer names the room).
+        connect(m_client, &MatrixClient::editHistoryReceived, this,
+                [this](const QString &roomId, const QString &eventId, bool ok,
+                       const QVariantList &revisions) {
+            if (roomId != MatrixClient::threadTimelineRoomId(m_roomId))
+                return;
+            Q_EMIT editHistoryReceived(eventId, ok, revisions);
+        });
+        connect(m_client, &MatrixClient::eventSourceReceived, this,
+                [this](const QString &roomId, const QString &eventId, bool ok,
+                       const QString &json, const QVariantMap &encryption) {
+            if (roomId != MatrixClient::threadTimelineRoomId(m_roomId))
+                return;
+            Q_EMIT eventSourceReceived(eventId, ok, json, encryption);
+        });
         connect(m_client, &MatrixClient::eventReplaced,
                 this, &TimelineModel::onEventReplaced);
         connect(m_client, &MatrixClient::eventStatusChanged,
@@ -2306,4 +2322,45 @@ void TimelineModel::rebuildSenderAvatarIndex()
     m_senderAvatarIndex.clear();
     for (const auto &event : std::as_const(m_events))
         noteSenderAvatar(event);
+}
+
+// ---------------------------------------------------------------------------
+// v0.9 (phase 7): edit history + event source
+// ---------------------------------------------------------------------------
+
+void TimelineModel::requestEditHistory(const QString &eventId)
+{
+    if (!m_client || eventId.isEmpty())
+        return;
+    const QString roomId = realRoomIdForEvent(eventId);
+    if (roomId.isEmpty())
+        return;
+    m_client->requestEditHistory(roomId, eventId);
+}
+
+void TimelineModel::requestEventSource(const QString &eventId)
+{
+    if (!m_client || eventId.isEmpty())
+        return;
+    const QString roomId = realRoomIdForEvent(eventId);
+    if (roomId.isEmpty())
+        return;
+    m_client->requestEventSource(roomId, eventId);
+}
+
+QString TimelineModel::sanitizeHtml(const QString &html) const
+{
+    if (html.isEmpty())
+        return {};
+    const QString roomId = MatrixClient::threadTimelineRoomId(m_roomId);
+    MatrixClient *client = m_client;
+    return MessageHtml::sanitize(
+        html,
+        [client, roomId](const QString &userId) {
+            return client ? client->displayNameFor(roomId, userId) : QString();
+        },
+        m_selfUserId,
+        MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionLinkColor,
+                                  m_codeBackgroundColor},
+        /*revealSpoilers=*/true);
 }
