@@ -87,6 +87,23 @@ upload_file() { # local_file url label
     printf 'Uploaded %s\n' "$label"
 }
 
+# --- Refresh mode --------------------------------------------------------------
+#
+# UPDATE_REFRESH_LATEST_ONLY=true re-promotes the `latest` pair for the
+# version ALREADY in that slot and touches nothing immutable. It exists for
+# one reason: every manifest carries a signed `expires`, and a release lull
+# longer than the window would otherwise leave every installation reporting
+# "update information expired" with no way to fix it short of cutting a
+# release -- the per-release copy cannot be re-published (different bytes,
+# immutable conflict), so the refreshed manifest goes to `latest` alone.
+# Generate with the ORIGINAL UPDATE_RELEASED_AT and an explicit
+# UPDATE_EXPIRES_AT, sign, then run this script in refresh mode.
+: "${UPDATE_REFRESH_LATEST_ONLY:=false}"
+case "$UPDATE_REFRESH_LATEST_ONLY" in
+    true|false) ;;
+    *) die "UPDATE_REFRESH_LATEST_ONLY must be true or false" ;;
+esac
+
 # --- Phase 1: the immutable per-release copy ---------------------------------
 #
 # Same contract as publish-packages.sh: an identical existing file is accepted
@@ -106,11 +123,15 @@ publish_immutable() { # local_file url label
     esac
 }
 
-publish_immutable "$manifest" "${version_base}/${UPDATE_MANIFEST_NAME}" "${PACKAGE_VERSION}/${UPDATE_MANIFEST_NAME}"
-publish_immutable "$sig" "${version_base}/${UPDATE_SIG_NAME}" "${PACKAGE_VERSION}/${UPDATE_SIG_NAME}"
+if [[ "$UPDATE_REFRESH_LATEST_ONLY" == true ]]; then
+    printf 'Refresh mode: the immutable %s copy is left untouched; only the latest slot is re-promoted\n' "$PACKAGE_VERSION"
+else
+    publish_immutable "$manifest" "${version_base}/${UPDATE_MANIFEST_NAME}" "${PACKAGE_VERSION}/${UPDATE_MANIFEST_NAME}"
+    publish_immutable "$sig" "${version_base}/${UPDATE_SIG_NAME}" "${PACKAGE_VERSION}/${UPDATE_SIG_NAME}"
 
-verify_published "$manifest" "${version_base}/${UPDATE_MANIFEST_NAME}" "${PACKAGE_VERSION}/${UPDATE_MANIFEST_NAME}"
-verify_published "$sig" "${version_base}/${UPDATE_SIG_NAME}" "${PACKAGE_VERSION}/${UPDATE_SIG_NAME}"
+    verify_published "$manifest" "${version_base}/${UPDATE_MANIFEST_NAME}" "${PACKAGE_VERSION}/${UPDATE_MANIFEST_NAME}"
+    verify_published "$sig" "${version_base}/${UPDATE_SIG_NAME}" "${PACKAGE_VERSION}/${UPDATE_SIG_NAME}"
+fi
 
 # --- Phase 2: the mutable `latest` pointer -----------------------------------
 #
@@ -153,6 +174,42 @@ publish_latest() { # local_file url label
         *) die "preflight returned HTTP $status for $label" ;;
     esac
 }
+
+# THE LATEST SLOT MUST NOT GO BACKWARDS BY ACCIDENT. `attach-existing` -- the
+# documented way to backfill packages onto an OLD release -- runs this script
+# exactly like a new release, and without this it re-pointed `latest` at that
+# old version. The client refuses the downgrade, so the effect is a FREEZE:
+# every installation on the current release is told it is up to date, for
+# good, until somebody notices. Yanking a bad release is the one legitimate
+# backwards move, and it is spelled out.
+# The `.version` read here comes back over the same channel the uploads use
+# and is NOT signature-verified: it is used only to REFUSE, never to decide
+# what gets published, so a forged value can block a promotion (visible,
+# fixable) and cannot cause one. Deliberately fail-closed on untrusted data.
+current_latest="$tmp_dir/current-latest.json"
+status="$(api_request --output "$current_latest" --write-out '%{http_code}' \
+    "$(api_request_url "${latest_base}/${UPDATE_MANIFEST_NAME}")")" || \
+    die "could not read the current latest manifest"
+if [[ "$UPDATE_REFRESH_LATEST_ONLY" == true ]]; then
+    [[ "$status" == 200 ]] || die "refresh mode needs an existing latest manifest (HTTP $status)"
+    current_version="$(jq -r '.version // empty' "$current_latest" 2>/dev/null || true)"
+    [[ "$current_version" == "$PACKAGE_VERSION" ]] || \
+        die "refresh mode re-promotes the version already in the latest slot (${current_version:-none}); this manifest is for ${PACKAGE_VERSION}"
+fi
+if [[ "$status" == 200 ]]; then
+    current_version="$(jq -r '.version // empty' "$current_latest" 2>/dev/null || true)"
+    if [[ -n "$current_version" && "$current_version" != "$PACKAGE_VERSION" ]]; then
+        newest="$(printf '%s\n%s\n' "$current_version" "$PACKAGE_VERSION" | sort -V | tail -n 1)"
+        if [[ "$newest" != "$PACKAGE_VERSION" ]]; then
+            if [[ "${UPDATE_ALLOW_LATEST_ROLLBACK:-false}" == true ]]; then
+                printf 'WARNING: rolling the latest slot back from %s to %s (UPDATE_ALLOW_LATEST_ROLLBACK=true)\n' \
+                    "$current_version" "$PACKAGE_VERSION"
+            else
+                die "refusing to move the latest slot backwards from ${current_version} to ${PACKAGE_VERSION}; set UPDATE_ALLOW_LATEST_ROLLBACK=true only to yank a bad release deliberately"
+            fi
+        fi
+    fi
+fi
 
 publish_latest "$sig" "${latest_base}/${UPDATE_SIG_NAME}" "${UPDATE_LATEST_SLOT}/${UPDATE_SIG_NAME}"
 publish_latest "$manifest" "${latest_base}/${UPDATE_MANIFEST_NAME}" "${UPDATE_LATEST_SLOT}/${UPDATE_MANIFEST_NAME}"

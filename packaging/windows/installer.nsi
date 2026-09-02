@@ -30,6 +30,11 @@ SetCompressor /SOLID lzma
 Name "Lightning ${PRODUCT_VERSION}"
 OutFile "${OUTPUT_FILE}"
 InstallDir "$LOCALAPPDATA\Programs\Lightning"
+; The remembered directory lets a silent upgrade land where the user put the
+; first install (including a /D= choice) -- the client updater relies on it
+; and passes no /D= of its own. But the value lives under HKCU, writable by
+; anything running as the user, and there is no directory page to confirm
+; it; so .onInit accepts it ONLY when it already holds a Lightning install.
 InstallDirRegKey HKCU "Software\Mizerd\Lightning" "InstallDir"
 Icon "${STAGE_DIR}/Lightning.ico"
 UninstallIcon "${STAGE_DIR}/Lightning.ico"
@@ -54,6 +59,19 @@ VIAddVersionKey /LANG=1033 "Comments" "Built from Lightning source ${SOURCE_SHOR
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
+
+Function .onInit
+  ; $INSTDIR is, in order: /D= on the command line, the HKCU InstallDir value,
+  ; or the default. Only the REGISTRY value is untrusted (a fresh /D= target
+  ; has no Lightning.exe yet and must not be reset), so compare against what
+  ; the registry says and validate only when that is what we got.
+  ReadRegStr $0 HKCU "Software\Mizerd\Lightning" "InstallDir"
+  StrCmp $0 "" onInitDone
+  StrCmp $0 $INSTDIR 0 onInitDone
+  IfFileExists "$INSTDIR\Lightning.exe" onInitDone
+    StrCpy $INSTDIR "$LOCALAPPDATA\Programs\Lightning"
+  onInitDone:
+FunctionEnd
 
 Section "Lightning application (required)" SEC_APP
   SectionIn RO

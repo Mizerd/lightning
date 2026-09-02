@@ -493,6 +493,18 @@ printf 'All %d staged Qt image-format plugins resolve against the AppDir\n' \
 # system path, which points at the build image.
 mkdir -p "$APPDIR/apprun-hooks"
 cat >"$APPDIR/apprun-hooks/gstreamer.sh" <<'HOOK'
+# EVERY variable this hook sets is preserved first under the AppImage
+# convention (APPIMAGE_ORIGINAL_<NAME>), so a process Lightning spawns -- the
+# browser for OAuth or a link, a media player -- can be given back the
+# session's own values instead of this bundle's. GST_PLUGIN_SYSTEM_PATH_1_0
+# in particular REPLACES the host's plugin path: a player inheriting it would
+# see only the 28 plugins bundled here and lose every system codec. The
+# client's UrlLauncher restores or removes each one from these.
+for _lightning_var in GST_PLUGIN_SYSTEM_PATH_1_0 GST_PLUGIN_PATH_1_0 GST_REGISTRY_1_0 \
+                      SPA_PLUGIN_DIR PIPEWIRE_MODULE_DIR PIPEWIRE_CONFIG_DIR; do
+    eval "export APPIMAGE_ORIGINAL_${_lightning_var}=\"\${${_lightning_var}:-}\""
+done
+unset _lightning_var
 # Point GStreamer at the plugins bundled beside the binary.
 export GST_PLUGIN_SYSTEM_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
 export GST_PLUGIN_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"

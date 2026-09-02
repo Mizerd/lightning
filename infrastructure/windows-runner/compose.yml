@@ -2,7 +2,7 @@ name: lightning-windows-cross-runner
 
 services:
   runner:
-    image: gitlab/gitlab-runner:v19.2.0
+    image: gitlab/gitlab-runner@sha256:e48b7d57d7f25afff11dfa727af08d4dc9d1fe06b054a1847a23e992d2b8455b # v19.2.0
     container_name: lightning-windows-cross-runner
     restart: unless-stopped
     cpus: 0.50

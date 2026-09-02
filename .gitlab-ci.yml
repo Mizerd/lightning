@@ -133,7 +133,7 @@ variables:
 config-tests:
   extends: .trusted-pipeline
   stage: test
-  image: debian:13.6-slim
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
   tags: [apt, deb, package]
   variables:
     DEBIAN_FRONTEND: "noninteractive"
@@ -163,8 +163,19 @@ config-tests:
 resolve-source:
   extends: .trusted-pipeline
   stage: resolve
-  image: debian:13.6-slim
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
   tags: [apt, deb, package]
+  # THE FIRST JOB HOLDS THE SIGNING KEY, AND ONLY THIS JOB AND THE SIGNING JOB
+  # DO. resolve-source executes no project-6 code -- it clones, resolves a
+  # ref, and reads a version out of a file -- so the private key is safe
+  # here, and here is where the key/package consistency check MUST run: the
+  # build jobs bake the public half into every artifact, and a mismatch found
+  # after them is found after the packages are immutable. With the variable
+  # environment-scoped to `signing` (see sign-update-manifest) the six build
+  # jobs, which run project-6 CMake and every build.rs, never see it.
+  environment:
+    name: signing
+    action: prepare
   needs:
     - job: config-tests
       artifacts: false
@@ -202,14 +213,17 @@ build-deb:
     - if: '$BUILD_FORMATS =~ /(^|,)deb(,|$)/'
     - when: never
   extends: .build-base
-  image: debian:13.6-slim
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
   tags: [apt, deb, package]
   resource_group: lightning-package-build-a
   variables:
     FORMAT: "deb"
-    BASE_IMAGE: "debian:13.6-slim"
+    BASE_IMAGE: "debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
     DEBIAN_FRONTEND: "noninteractive"
     RUST_TOOLCHAIN: "1.93.0"
+    RUSTUP_VERSION: "1.29.1"
+    # sha256 of static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+    RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
   before_script:
     - apt-get update
     - >-
@@ -230,11 +244,19 @@ build-deb:
       apt-get install -y --no-install-recommends
       libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       libgstreamer-plugins-bad1.0-dev
+    # The rustup INSTALLER is version-addressed and checksum-verified before it
+    # runs. `sh.rustup.rs` was the one unverified executable in this pipeline:
+    # TLS alone proved who served it, not what it was, and it builds the Rust
+    # Matrix SDK -- E2EE, key handling, token storage -- into every signed
+    # package. Every other download here is pinned; this one now is too.
     - >-
-      curl --fail --show-error --silent --location
-      --proto '=https' --tlsv1.2 https://sh.rustup.rs
-      --output /tmp/rustup-init.sh
-    - sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+      curl --fail --show-error --silent --location --max-redirs 3
+      --proto '=https' --tlsv1.2
+      "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
+      --output /tmp/rustup-init
+    - printf '%s  /tmp/rustup-init\n' "$RUSTUP_INIT_SHA256" | sha256sum -c -
+    - chmod +x /tmp/rustup-init
+    - /tmp/rustup-init -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
     - export PATH="/root/.cargo/bin:$PATH"
   script:
     - ./scripts/prepare-pinned-source.sh
@@ -250,13 +272,16 @@ build-rpm:
     - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
     - when: never
   extends: .build-base
-  image: fedora:44
+  image: fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 # fedora:44
   tags: [dnf, rpm, package]
   resource_group: lightning-package-build-b
   variables:
     FORMAT: "rpm"
-    BASE_IMAGE: "fedora:44"
+    BASE_IMAGE: "fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80"
     RUST_TOOLCHAIN: "1.93.0"
+    RUSTUP_VERSION: "1.29.1"
+    # sha256 of static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+    RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
   before_script:
     - >-
       dnf install -y
@@ -280,11 +305,19 @@ build-rpm:
     # Fedora's system rust (1.96.1) OOMs compiling matrix-sdk under the 6 GiB
     # runner cap; pin the same rustup toolchain the deb/appimage builds use so
     # every Linux format builds the locked SDK identically.
+    # The rustup INSTALLER is version-addressed and checksum-verified before it
+    # runs. `sh.rustup.rs` was the one unverified executable in this pipeline:
+    # TLS alone proved who served it, not what it was, and it builds the Rust
+    # Matrix SDK -- E2EE, key handling, token storage -- into every signed
+    # package. Every other download here is pinned; this one now is too.
     - >-
-      curl --fail --show-error --silent --location
-      --proto '=https' --tlsv1.2 https://sh.rustup.rs
-      --output /tmp/rustup-init.sh
-    - sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+      curl --fail --show-error --silent --location --max-redirs 3
+      --proto '=https' --tlsv1.2
+      "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
+      --output /tmp/rustup-init
+    - printf '%s  /tmp/rustup-init\n' "$RUSTUP_INIT_SHA256" | sha256sum -c -
+    - chmod +x /tmp/rustup-init
+    - /tmp/rustup-init -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
     - export PATH="/root/.cargo/bin:$PATH"
   script:
     - ./scripts/prepare-pinned-source.sh
@@ -300,12 +333,12 @@ build-flatpak:
     - if: '$BUILD_FORMATS =~ /(^|,)flatpak(,|$)/'
     - when: never
   extends: .build-base
-  image: debian:13.6-slim
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
   tags: [flatpak, package]
   resource_group: lightning-package-build-a
   variables:
     FORMAT: "flatpak"
-    BASE_IMAGE: "debian:13.6-slim"
+    BASE_IMAGE: "debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
     DEBIAN_FRONTEND: "noninteractive"
   before_script:
     - apt-get update
@@ -328,14 +361,17 @@ build-appimage:
     - if: '$BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
     - when: never
   extends: .build-base
-  image: debian:13.6-slim
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
   tags: [appimage, package]
   resource_group: lightning-package-build-b
   variables:
     FORMAT: "appimage"
-    BASE_IMAGE: "debian:13.6-slim"
+    BASE_IMAGE: "debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
     DEBIAN_FRONTEND: "noninteractive"
     RUST_TOOLCHAIN: "1.93.0"
+    RUSTUP_VERSION: "1.29.1"
+    # sha256 of static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+    RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
   before_script:
     - apt-get update
     - >-
@@ -408,11 +444,19 @@ build-appimage:
       && dpkg-deb -x kimageformat6-plugins_*.deb /opt/kimageformats )
     - >-
       test -f /opt/kimageformats/usr/lib/x86_64-linux-gnu/qt6/plugins/imageformats/kimg_jxl.so
+    # The rustup INSTALLER is version-addressed and checksum-verified before it
+    # runs. `sh.rustup.rs` was the one unverified executable in this pipeline:
+    # TLS alone proved who served it, not what it was, and it builds the Rust
+    # Matrix SDK -- E2EE, key handling, token storage -- into every signed
+    # package. Every other download here is pinned; this one now is too.
     - >-
-      curl --fail --show-error --silent --location
-      --proto '=https' --tlsv1.2 https://sh.rustup.rs
-      --output /tmp/rustup-init.sh
-    - sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+      curl --fail --show-error --silent --location --max-redirs 3
+      --proto '=https' --tlsv1.2
+      "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
+      --output /tmp/rustup-init
+    - printf '%s  /tmp/rustup-init\n' "$RUSTUP_INIT_SHA256" | sha256sum -c -
+    - chmod +x /tmp/rustup-init
+    - /tmp/rustup-init -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
     - export PATH="/root/.cargo/bin:$PATH"
   script:
     - ./scripts/prepare-pinned-source.sh
@@ -427,12 +471,12 @@ build-snap:
     - if: '$BUILD_FORMATS =~ /(^|,)snap(,|$)/ && $BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
     - when: never
   extends: .build-base
-  image: ubuntu:24.04
+  image: ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 # ubuntu:24.04
   tags: [snap, package]
   resource_group: lightning-package-build-a
   variables:
     FORMAT: "snap"
-    BASE_IMAGE: "ubuntu:24.04"
+    BASE_IMAGE: "ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517"
     DEBIAN_FRONTEND: "noninteractive"
   needs:
     - job: resolve-source
@@ -613,7 +657,7 @@ validate-deb:
     - when: never
   extends: .trusted-pipeline
   stage: validate
-  image: debian:13.6-slim
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
   tags: [apt, deb, package]
   needs:
     - job: resolve-source
@@ -651,7 +695,7 @@ validate-rpm:
     - when: never
   extends: .trusted-pipeline
   stage: validate
-  image: fedora:44
+  image: fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 # fedora:44
   tags: [dnf, rpm, package]
   needs:
     - job: resolve-source
@@ -685,7 +729,7 @@ validate-flatpak:
     - when: never
   extends: .trusted-pipeline
   stage: validate
-  image: debian:13.6-slim
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
   # Must run on the flatpak runner: installing/running the bundle needs the
   # same bwrap capability as building it.
   tags: [flatpak, package]
@@ -724,7 +768,7 @@ validate-appimage:
     - when: never
   extends: .trusted-pipeline
   stage: validate
-  image: debian:13.6-slim
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
   tags: [appimage, package]
   needs:
     - job: resolve-source
@@ -777,7 +821,7 @@ validate-snap:
     - when: never
   extends: .trusted-pipeline
   stage: validate
-  image: ubuntu:24.04
+  image: ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 # ubuntu:24.04
   tags: [snap, package]
   needs:
     - job: resolve-source
@@ -822,7 +866,7 @@ validate-snap:
 publish-packages:
   extends: .publish-rules
   stage: publish
-  image: alpine:3.22
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
   resource_group: lightning-project-6-publication
   needs:
     - job: resolve-source
@@ -862,7 +906,7 @@ publish-packages:
 verify-published-packages:
   extends: .publish-rules
   stage: verify
-  image: alpine:3.22
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
   resource_group: lightning-project-6-publication
   needs:
     - job: resolve-source
@@ -901,8 +945,27 @@ verify-published-packages:
 sign-update-manifest:
   extends: .publish-rules
   stage: sign
-  image: alpine:3.22
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
   resource_group: lightning-project-6-publication
+  # THE SIGNING KEY IS SCOPED TO THE `signing` ENVIRONMENT. A project-level
+  # CI variable with no environment scope is injected into EVERY job of the
+  # pipeline -- including the six build jobs, each of which runs project-6
+  # CMake and every build.rs in the ~500-crate matrix-sdk graph. One hostile
+  # build script there could read UPDATE_SIGNING_KEY_B64 and become the
+  # release authority for every installed Lightning; the downstream hash
+  # checks cannot contain that, because the attacker IS the signer.
+  #
+  # OPERATOR SETTING (project 7 → Settings → CI/CD → Variables): give
+  # UPDATE_SIGNING_KEY_B64 -- and ONLY that variable -- the environment scope
+  # `signing`. UPDATE_SIGNING_KEY_ID stays unscoped: it is not secret (it is
+  # written into every signature envelope) and the public-key variable name
+  # is derived from it, so every job needs it. UPDATE_SIGNING_PUBKEY_<id>
+  # stays unscoped too: the build jobs compile it in. Exactly two jobs
+  # declare this environment -- resolve-source (the fail-fast consistency
+  # check, before any build) and this one -- and both run no project-6 code.
+  environment:
+    name: signing
+    action: prepare
   needs:
     - job: resolve-source
       artifacts: true
@@ -923,7 +986,7 @@ sign-update-manifest:
 finalize-release:
   extends: .publish-rules
   stage: release
-  image: alpine:3.22
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
   resource_group: lightning-project-6-publication
   needs:
     - job: resolve-source
@@ -967,8 +1030,14 @@ finalize-release:
 mirror-release-to-github:
   extends: .publish-rules
   stage: mirror
-  image: alpine:3.22
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
   resource_group: lightning-project-6-publication
+  # GITHUB_MIRROR_TOKEN is scoped to the `mirror` environment for the same
+  # reason the signing key is scoped to `signing` (see sign-update-manifest):
+  # a write token for the public mirror has no business in a build job.
+  environment:
+    name: mirror
+    action: prepare
   needs:
     - job: resolve-source
       artifacts: true
@@ -1017,7 +1086,7 @@ mirror-release-to-github:
 publish-update-manifest:
   extends: .publish-rules
   stage: update
-  image: alpine:3.22
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
   resource_group: lightning-project-6-publication
   needs:
     - job: resolve-source

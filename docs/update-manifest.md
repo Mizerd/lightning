@@ -47,6 +47,42 @@ generic package name `lightning-update`:
 Both are written to **two** locations: an immutable per-release copy under
 `<version>/`, and the mutable `latest/` slot that installed clients poll.
 
+### Freshness: `expires`
+
+Every manifest carries a signed `expires` instant, `released` plus
+`UPDATE_MANIFEST_VALIDITY_DAYS` (default 120, range 1-366). Lightning 0.8.4
+and later **refuse** a manifest without it and treat one past it as "update
+information expired; check manually" — a failure, never "up to date". The
+signature proves who produced the document; the expiry is what bounds how long
+a captured `latest` pair can be replayed to freeze installations on a
+vulnerable version.
+
+**Refreshing without a release.** If a release lull outlasts the window, the
+`latest` slot is refreshed in place — the immutable per-release copy cannot
+be re-published (different bytes), so the refresh touches `latest` alone.
+Trigger the pipeline against the CURRENT release with
+`RELEASE_ACTION=attach-existing`, `SOURCE_REF=v<version>`,
+`PUBLISH_PACKAGES=true`, plus three variables: `UPDATE_RELEASED_AT=<the
+original released instant>`, `UPDATE_EXPIRES_AT=<a new instant, e.g. today
+plus 120 days>` and `UPDATE_REFRESH_LATEST_ONLY=true`. The packages
+converge (identical bytes are accepted), the manifest is regenerated with the
+new expiry and signed, and `publish-update-manifest.sh` re-promotes only the
+`latest` pair, refusing any version other than the one already there.
+**Put "refresh `latest` before day 120" on the calendar** — nothing reminds
+you, and on day 121 every installation reports that its update information
+has expired.
+
+### The `latest` slot never rolls back by accident
+
+`publish-update-manifest.sh` reads the manifest currently in `latest/` and
+refuses to promote a LOWER version. `RELEASE_ACTION=attach-existing` on an old
+release runs the same script, and before this guard it re-pointed `latest` at
+that old version: the client refuses the downgrade, so the effect was a
+**freeze** — every current installation told it is up to date, indefinitely.
+Yanking a bad release is the one legitimate backwards move; set
+`UPDATE_ALLOW_LATEST_ROLLBACK=true` on that pipeline and the rollback is
+performed and announced in the job log.
+
 This is a **separate** document from `dist/manifest.json`. That file is the
 *publication* manifest — the internal list of the nine files this pipeline is
 allowed to upload. The update manifest is a *client-facing* document derived
@@ -63,6 +99,7 @@ from it, and it deliberately describes fewer things.
   "channel": "stable",
   "tag": "v0.8.0",
   "released": "2026-08-16T12:00:00Z",
+  "expires": "2026-12-14T12:00:00Z",
   "min_updater_version": 1,
   "release_notes_url": "https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.8.0",
   "release_notes": "markdown, may be empty",
@@ -448,9 +485,19 @@ Create these on **project 7 (lightning-deploy)**, Settings → CI/CD → Variabl
 
 | Variable | Value | Flags |
 | --- | --- | --- |
-| `UPDATE_SIGNING_KEY_B64` | `base64 -w0 < <key>.private.pem` | **Protected**, **Masked**, not a File variable |
-| `UPDATE_SIGNING_KEY_ID` | e.g. `lightning-release-2026a` | **Protected** |
-| `UPDATE_SIGNING_PUBKEY_2026A` | the raw 32-byte public key, base64 (44 chars ending `=`) — the `public key` line `generate-update-signing-key.sh` prints | **Protected**, **not** masked (it is not secret) |
+| `UPDATE_SIGNING_KEY_B64` | `base64 -w0 < <key>.private.pem` | **Protected**, **Masked**, not a File variable, **environment scope `signing`** |
+| `UPDATE_SIGNING_KEY_ID` | e.g. `lightning-release-2026a` | **Protected**, scope `*` (not secret; every job derives the public-key variable name from it) |
+| `UPDATE_SIGNING_PUBKEY_2026A` | the raw 32-byte public key, base64 (44 chars ending `=`) — the `public key` line `generate-update-signing-key.sh` prints | **Protected**, **not** masked (it is not secret), scope `*` |
+
+**Environment scope matters.** A project variable with scope `*` is injected
+into every job of the pipeline, including the six build jobs that run
+project-6 CMake and every `build.rs` in the matrix-sdk dependency graph; one
+hostile build script there would read the private key and become the release
+authority, which no downstream hash check can contain. Only two jobs declare
+`environment: signing` — `resolve-source` (the fail-fast consistency check,
+before any build) and `sign-update-manifest` — and neither runs project-6
+code. Until the scope is set in project 7's settings the pipeline works
+exactly as before and the key is still everywhere.
 
 The key is base64-encoded because GitLab masking requires a single-line value
 with no newline; a raw PEM cannot be masked.
@@ -462,7 +509,7 @@ pipeline behaves exactly as it did before.
 | Variable | Value | Flags |
 | --- | --- | --- |
 | `GITHUB_MIRROR_REPO` | `Mizerd/lightning` — the mirror repository, `<owner>/<repo>` | **Protected**, not masked (it is not secret) |
-| `GITHUB_MIRROR_TOKEN` | A GitHub token that may create a release and upload assets on that repository, and nothing else | **Protected**, **Masked**, not a File variable |
+| `GITHUB_MIRROR_TOKEN` | A GitHub token that may create a release and upload assets on that repository, and nothing else | **Protected**, **Masked**, not a File variable, **environment scope `mirror`** (only `mirror-release-to-github` declares it) |
 
 Scope the token as narrowly as GitHub allows — a fine-grained personal access
 token limited to the mirror repository with *Contents: read and write* is enough

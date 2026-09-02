@@ -36,8 +36,20 @@ source "$SCRIPT_DIR/update-lib.sh"
 command -v openssl >/dev/null 2>&1 || \
     die "openssl is required to check the update-signing key consistency"
 
+# `--public-only`: check everything that does not need the PRIVATE key. The
+# private key is environment-scoped to the signing job (see .gitlab-ci.yml),
+# so the first job of a publishing pipeline -- which must still refuse a
+# release whose public key is unset or malformed BEFORE the builds bake it
+# in -- runs this mode; the signing job runs the full check.
+PUBLIC_ONLY=false
+case "${1:-}" in
+    "") ;;
+    --public-only) PUBLIC_ONLY=true ;;
+    *) die "unknown option: $1 (the only option is --public-only)" ;;
+esac
+
 require_var UPDATE_SIGNING_KEY_ID
-require_var UPDATE_SIGNING_KEY_B64
+[[ "$PUBLIC_ONLY" == true ]] || require_var UPDATE_SIGNING_KEY_B64
 key_id="$UPDATE_SIGNING_KEY_ID"
 update_valid_key_id "$key_id" || \
     die "UPDATE_SIGNING_KEY_ID must be 1-64 chars of [A-Za-z0-9._-] starting alphanumeric"
@@ -59,6 +71,11 @@ configured_pub="${!pubkey_var:-}"
     "$pubkey_var is empty. Every package embeds it as the update trust root, so a release cut without it can never accept an update — and that cannot be fixed after the fact. Set it on project 7 (protected; it is NOT secret) before publishing."
 update_valid_public_key_b64 "$configured_pub" || die \
     "$pubkey_var is not a base64 raw 32-byte Ed25519 public key (44 chars ending in '='). It is the value generate-update-signing-key.sh prints as 'public key', not a PEM."
+
+if [[ "$PUBLIC_ONLY" == true ]]; then
+    printf 'Update-signing public key for %s is configured and well-formed (private half checked in the signing job)\n' "$key_id"
+    exit 0
+fi
 
 work="$(mktemp -d)"
 key_file="$(mktemp)"

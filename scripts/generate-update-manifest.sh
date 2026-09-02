@@ -212,6 +212,30 @@ elif [[ ! "$released" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z
     released="$(date -u -d "$released" +%Y-%m-%dT%H:%M:%SZ)" || die "could not normalise the release timestamp"
 fi
 
+# EXPIRY. A signature proves who produced the manifest, never that it is the
+# CURRENT one: without an expiry a captured `latest` pair could be replayed to
+# hold every installation on a vulnerable version indefinitely while the UI
+# said "up to date". Every Lightning from 0.8.4 REFUSES a manifest with no
+# `expires` and reports one past it as "cannot confirm", not "up to date".
+# Measured from `released` so a retry stays byte-identical. If a release
+# lull outlasts the window, the `latest` slot is REFRESHED without a release:
+# publish-update-manifest.sh with UPDATE_REFRESH_LATEST_ONLY=true, the
+# original UPDATE_RELEASED_AT, and an explicit UPDATE_EXPIRES_AT (which takes
+# precedence over the window) -- see docs/update-manifest.md.
+: "${UPDATE_MANIFEST_VALIDITY_DAYS:=120}"
+[[ "$UPDATE_MANIFEST_VALIDITY_DAYS" =~ ^[1-9][0-9]{0,2}$ ]] && (( 10#$UPDATE_MANIFEST_VALIDITY_DAYS <= 366 )) || \
+    die "UPDATE_MANIFEST_VALIDITY_DAYS must be a decimal integer between 1 and 366"
+if [[ -n "${UPDATE_EXPIRES_AT:-}" ]]; then
+    [[ "$UPDATE_EXPIRES_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || \
+        die "UPDATE_EXPIRES_AT must be an ISO-8601 UTC instant (YYYY-MM-DDTHH:MM:SSZ)"
+    expires="$UPDATE_EXPIRES_AT"
+    [[ "$(date -u -d "$expires" +%s)" -gt "$(date -u -d "$released" +%s)" ]] || \
+        die "UPDATE_EXPIRES_AT must be after the release timestamp"
+else
+    expires="$(date -u -d "${released} + ${UPDATE_MANIFEST_VALIDITY_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)" || \
+        die "could not compute the manifest expiry (GNU date is required)"
+fi
+
 notes_file="$(mktemp)"
 tmp_cleanup() { rm -f "$notes_file"; }
 trap tmp_cleanup EXIT
@@ -236,6 +260,7 @@ jq -S -n \
     --arg channel "$UPDATE_CHANNEL" \
     --arg tag "$RELEASE_TAG" \
     --arg released "$released" \
+    --arg expires "$expires" \
     --arg release_notes_url "$release_notes_url" \
     --rawfile release_notes "$notes_file" \
     --argjson schema 1 \
@@ -243,7 +268,7 @@ jq -S -n \
     --argjson artifacts "$artifacts" \
     --argjson channels "$channels" \
     '{schema:$schema, version:$version, channel:$channel, tag:$tag,
-      released:$released, min_updater_version:$min_updater_version,
+      released:$released, expires:$expires, min_updater_version:$min_updater_version,
       release_notes_url:$release_notes_url, release_notes:$release_notes,
       artifacts:$artifacts, channels:$channels}' >"$out"
 

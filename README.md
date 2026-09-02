@@ -378,6 +378,28 @@ Flatpak/AppImage/snap files exceed. The durable URLs recorded in the manifest
 and in release links are always built from the canonical public
 `CI_API_V4_URL`; credentials are sent only in request headers on both paths.
 
+Every `image:` in `.gitlab-ci.yml` (and the runner manager in
+`infrastructure/windows-runner/compose.yml`) is pinned by digest, which
+freezes the base layer against upstream CVE rebuilds — every job still runs
+`apt-get update` / `apk add` at build time, so only the base layer is frozen.
+Refresh the digests each release round with
+`skopeo inspect --format '{{.Digest}}' docker://docker.io/<image:tag>` (or
+`docker buildx imagetools inspect <image:tag>`) and update the trailing
+`# <tag>` comment beside each one. The hand-built `lightning-windows-builder`
+image is the one exception: it is never pulled from a registry, and its own
+`FROM` is digest-pinned in `packaging/windows/Dockerfile`.
+
+Two consequences of the plaintext internal path are worth knowing. The API
+client (`scripts/gitlab-api.sh`) sends the token with `--max-redirs 0`: curl
+re-sends a custom `JOB-TOKEN:` header to a redirect target on another host,
+so a redirect is treated as the anomaly it is rather than followed. And the
+publish-then-verify round trip runs over the same cleartext channel, so it
+proves the registry holds the bytes that were sent, not that nothing on the
+segment could have altered them in transit; the anonymous **https** checks
+run by hand after every release (CLAUDE.md §14 in the application repository)
+are what cover that. Terminating TLS on the internal endpoint and putting
+`PUBLISH_API_BASE` back on `https://` is the follow-up that closes it.
+
 ## Modes
 
 ### Build-only (default, non-publishing)
@@ -444,11 +466,11 @@ exists with a matching version.
 | `TARGET_PROJECT_ID` / `LIGHTNING_PROJECT_ID` | Fixed to `6`; scripts reject any other value so publication cannot be redirected. |
 | `PACKAGE_NAME` | `lightning`. |
 | `LIGHTNING_REPOSITORY` | Canonical project 6 clone URL, verified in-script. |
-| `UPDATE_SIGNING_KEY_B64` | **Protected + masked.** Base64 PKCS#8 PEM of the Ed25519 update-signing **private** key. Used only by the signing job. Never logged, never in argv, never in an artifact. |
-| `UPDATE_SIGNING_KEY_ID` | **Protected.** Key id written into the signature envelope and matched against Lightning's compiled-in trust table. |
+| `UPDATE_SIGNING_KEY_B64` | **Protected + masked, environment scope `signing`.** Base64 PKCS#8 PEM of the Ed25519 update-signing **private** key. Present only in `resolve-source` (the fail-fast key check; runs no project-6 code) and `sign-update-manifest`. Never in a build job, never logged, never in argv, never in an artifact. The scope is a project-7 setting; until it is set the key is injected into every job. |
+| `UPDATE_SIGNING_KEY_ID` | **Protected, scope `*`.** Key id written into the signature envelope and matched against Lightning's compiled-in trust table. Not secret; every job derives the public-key variable name from it, so it must NOT be scoped. |
 | `UPDATE_SIGNING_PUBKEY_2026A` | **Protected, not masked** (it is not secret). Base64 raw 32-byte **public** key for key id `lightning-release-2026a`. Every build job compiles it into the package as `-DLIGHTNING_UPDATE_PUBKEY_2026A`; it is the update trust root of the shipped binary. The name is key-id specific — a new key id needs its own variable *and* a new trust-table row in the application source. |
 | `GITHUB_MIRROR_REPO` | **Optional. Protected**, not masked. `<owner>/<repo>` of the GitHub binary mirror, e.g. `Mizerd/lightning`. Unset ⇒ no mirroring and no `mirror_url` in the update manifest. This is the single on/off switch. |
-| `GITHUB_MIRROR_TOKEN` | **Optional. Protected + masked.** GitHub token that may create a release and upload assets on `GITHUB_MIRROR_REPO`, and nothing else. Required when `GITHUB_MIRROR_REPO` is set. Never logged, never in argv, never in an artifact. |
+| `GITHUB_MIRROR_TOKEN` | **Optional. Protected + masked, environment scope `mirror`.** GitHub token that may create a release and upload assets on `GITHUB_MIRROR_REPO`, and nothing else. Required when `GITHUB_MIRROR_REPO` is set. Only `mirror-release-to-github` declares that environment. Never logged, never in argv, never in an artifact. |
 
 `UPDATE_SIGNING_KEY_*` and `UPDATE_SIGNING_PUBKEY_<id>` are required for a
 publishing pipeline, and `scripts/check-update-signing-keys.sh` (run first, in

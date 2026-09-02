@@ -46,8 +46,16 @@ api_request_url() {
     printf '%s' "${url/#"$CANONICAL_API_ROOT"/$API_ROOT}"
 }
 
+# NO REDIRECTS, EVER, on a request that carries the token. curl strips only
+# `Authorization:` and `Cookie:` when a redirect changes host; a custom header
+# such as `JOB-TOKEN:` or `PRIVATE-TOKEN:` is re-sent verbatim to wherever the
+# `Location:` points. On the plaintext internal path anything that can answer
+# for the endpoint could reply `302 https://elsewhere/` and collect a token
+# with write access to project 6's registry and releases. None of these
+# endpoints redirect, so a redirect is itself the anomaly worth failing on --
+# the same argument mirror-release-to-github.sh makes for the GitHub token.
 api_request() {
-    "$CURL_BIN" --silent --show-error --location \
+    "$CURL_BIN" --silent --show-error --max-redirs 0 \
         --header "${AUTH_HEADER_NAME}: ${AUTH_HEADER_VALUE}" "$@"
 }
 

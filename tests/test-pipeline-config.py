@@ -244,8 +244,8 @@ check("verify-published-packages" in needs_names("publish-update-manifest"),
 for job in ["sign-update-manifest", "publish-update-manifest"]:
     before = " ".join(str(x) for x in resolve_extends(job).get("before_script", []))
     check("openssl" in before, f"{job} installs the openssl CLI")
-    check(resolve_extends(job).get("image") == "alpine:3.22",
-          f"{job} uses the pinned alpine image")
+    check(str(resolve_extends(job).get("image", "")).startswith("alpine@sha256:"),
+          f"{job} uses the digest-pinned alpine image")
     check(resolve_extends(job).get("resource_group")
           == "lightning-project-6-publication",
           f"{job} shares the project 6 publication resource group")
@@ -312,8 +312,8 @@ mirror_before = " ".join(
     str(x) for x in resolve_extends("mirror-release-to-github").get("before_script", []))
 check("curl" in mirror_before and "jq" in mirror_before,
       "mirror-release-to-github installs curl and jq")
-check(resolve_extends("mirror-release-to-github").get("image") == "alpine:3.22",
-      "mirror-release-to-github uses the pinned alpine image")
+check(str(resolve_extends("mirror-release-to-github").get("image", "")).startswith("alpine@sha256:"),
+      "mirror-release-to-github uses the digest-pinned alpine image")
 check(resolve_extends("mirror-release-to-github").get("resource_group")
       == "lightning-project-6-publication",
       "mirror-release-to-github shares the publication resource group")
@@ -1186,6 +1186,125 @@ check("for fmt in png jpeg gif bmp webp" in _lib_code,
 # 8. Windows stages the webp plugin in its hand-written plugin list.
 check('"qwebp.dll"' in win_stage_src,
       "the Windows stage carries the WebP image-format plugin")
+
+# --- supply-chain and secret-scope invariants (2026-09-02 security audit) ---
+
+# 9. Every container image is pinned by DIGEST. A mutable tag such as
+#    alpine:3.22 is re-published on every point release, and one of these
+#    jobs decodes the update-signing key.
+def _image_refs(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "image":
+                if isinstance(value, str):
+                    yield value
+                elif isinstance(value, dict) and isinstance(value.get("name"), str):
+                    yield value["name"]
+            else:
+                yield from _image_refs(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _image_refs(item)
+
+_images = list(_image_refs(doc))
+check(len(_images) >= 10, f"found container images to check ({len(_images)})")
+for ref in _images:
+    # The Windows builder is built BY HAND on the runner host from
+    # packaging/windows/Dockerfile (itself digest-pinned to its base) and
+    # never pulled from a registry, so a digest is not a thing it has.
+    if ref.startswith("lightning-windows-builder:"):
+        continue
+    check(re.search(r"@sha256:[0-9a-f]{64}$", ref) is not None,
+          f"image {ref} is pinned by digest, not by tag")
+
+_compose = _read("infrastructure", "windows-runner", "compose.yml")
+check(re.search(r"gitlab/gitlab-runner@sha256:[0-9a-f]{64}", _compose) is not None,
+      "the runner manager image is pinned by digest")
+
+# 10. The private signing key and the mirror token are ENVIRONMENT-SCOPED, so
+#     they are injected only into the job that declares the environment and
+#     never into a build job that runs project-6 CMake and every build.rs.
+_sign = resolve_extends_dict(doc["sign-update-manifest"])
+check(isinstance(_sign.get("environment"), dict)
+      and _sign["environment"].get("name") == "signing",
+      "sign-update-manifest declares the `signing` environment")
+# resolve-source runs the FULL key check before any build (the fail-fast
+# property), so it must hold the key too -- and it executes no project-6 code.
+_resolve = resolve_extends_dict(doc["resolve-source"])
+check(isinstance(_resolve.get("environment"), dict)
+      and _resolve["environment"].get("name") == "signing",
+      "resolve-source declares the `signing` environment (fail-fast full check)")
+_resolve_script = " ".join(str(x) for x in _resolve.get("script", []))
+check("cmake" not in _resolve_script and "cargo" not in _resolve_script,
+      "resolve-source runs no project-6 build tooling while holding the key")
+_mirror = resolve_extends_dict(doc["mirror-release-to-github"])
+check(isinstance(_mirror.get("environment"), dict)
+      and _mirror["environment"].get("name") == "mirror",
+      "mirror-release-to-github declares the `mirror` environment")
+for job in ("build-deb", "build-rpm", "build-appimage", "build-flatpak",
+            "build-snap", "build-windows"):
+    check("environment" not in resolve_extends_dict(doc[job]),
+          f"{job} declares no environment (and so receives no scoped secret)")
+_validate = _strip_shell_comments(_read("scripts", "validate-release-request.sh"))
+check("check-update-signing-keys.sh\" --public-only" in _validate
+      and 'UPDATE_SIGNING_KEY_B64' in _validate,
+      "resolve-source runs the public-only key check when the private key is scoped away")
+_sign_script = _strip_shell_comments(_read("scripts", "sign-update-manifest.sh"))
+check(re.search(r'check-update-signing-keys\.sh"?\s*$', _sign_script, re.M) is not None,
+      "the signing job still runs the FULL key-consistency check")
+
+# 11. The rustup installer is checksum-verified before it runs, everywhere it
+#     runs. It was the one unverified executable in the pipeline.
+_ci_text = _read(".gitlab-ci.yml")
+check("https://sh.rustup.rs" not in _ci_text,
+      "no job downloads the unverified sh.rustup.rs installer")
+_rustup_runs = 0
+for _name, _job in doc.items():
+    if not isinstance(_job, dict) or "before_script" not in resolve_extends_dict(_job):
+        continue
+    _steps = [str(x) for x in resolve_extends_dict(_job)["before_script"]]
+    _run = [i for i, st in enumerate(_steps) if "rustup-init -y" in st]
+    if not _run:
+        continue
+    _rustup_runs += 1
+    _chk = [i for i, st in enumerate(_steps) if "$RUSTUP_INIT_SHA256" in st and "sha256sum -c" in st]
+    check(bool(_chk) and _chk[0] < _run[0],
+          f"{_name}: the rustup-init sha256 check precedes the run, in the same before_script")
+    check(not any("sh.rustup.rs" in st or "rustup-init.sh" in st for st in _steps),
+          f"{_name}: no other rustup installer path is invoked")
+check(_rustup_runs >= 3, f"rustup-init runs found and checked ({_rustup_runs})")
+_flatpak = _read("packaging", "flatpak", "org.lightning_matrix.Lightning.yaml.in")
+check("https://sh.rustup.rs" not in _flatpak
+      and "sha256sum -c -" in _flatpak and "rustup/archive/" in _flatpak,
+      "the Flatpak manifest pins and verifies rustup-init too")
+
+# 12. The token-bearing GitLab API client never follows a redirect: curl
+#     re-sends a custom JOB-TOKEN/PRIVATE-TOKEN header to a new host.
+_api = _strip_shell_comments(_read("scripts", "gitlab-api.sh"))
+_api_fn = _api[_api.index("api_request()"):_api.index("api_json_get()")]
+check("--max-redirs 0" in _api_fn and "--location" not in _api_fn,
+      "api_request sends the token with --max-redirs 0 and never --location")
+
+# 13. The latest update slot cannot be rolled back without saying so.
+_publish_update = _strip_shell_comments(_read("scripts", "publish-update-manifest.sh"))
+check("UPDATE_ALLOW_LATEST_ROLLBACK" in _publish_update
+      and "refusing to move the latest slot backwards" in _publish_update,
+      "publish-update-manifest refuses a backwards latest promotion by default")
+
+# 14. The NSIS installer VALIDATES the HKCU install directory (user-writable,
+#     and there is no directory page) before trusting it.
+_nsi = _read("packaging", "windows", "installer.nsi")
+check(re.search(r"^\s*Function \.onInit", _nsi, re.M) is not None
+      and 'IfFileExists "$INSTDIR\\Lightning.exe"' in _nsi
+      and 'ReadRegStr $0 HKCU "Software\\Mizerd\\Lightning" "InstallDir"' in _nsi,
+      "installer.nsi validates the registry install directory in .onInit")
+
+# 15. Dockerfile digests are ENV, so --build-arg cannot disable a checksum.
+_dockerfile = _read("packaging", "windows", "Dockerfile")
+for name in ("QT_MULTIMEDIA_SHA256", "FFMPEG_SHA256", "GSTREAMER_SHA256"):
+    check(re.search(rf"^ENV {name}=[0-9a-f]{{64}}$", _dockerfile, re.M) is not None
+          and re.search(rf"^ARG {name}", _dockerfile, re.M) is None,
+          f"{name} is an ENV in the Windows builder Dockerfile")
 
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)

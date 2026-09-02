@@ -2,9 +2,13 @@ FROM fedora@sha256:6c75d5bf57cb0fa5aa4b92c6a83c86c791644496d9ac230de7711f5b8ec3b
 
 ARG RUST_TOOLCHAIN=1.95.0
 ARG QT_MULTIMEDIA_VERSION=6.11.1
-ARG QT_MULTIMEDIA_SHA256=390f8e52ddee3aca5c4de7eead900c84c4fa61ff6d1f0ebea9c7543365c09b0a
+# ENV, not ARG: a --build-arg could otherwise replace this digest and
+# silently disable the checksum gate on a download that is EXECUTED.
+ENV QT_MULTIMEDIA_SHA256=390f8e52ddee3aca5c4de7eead900c84c4fa61ff6d1f0ebea9c7543365c09b0a
 ARG FFMPEG_VERSION=7.1.1
-ARG FFMPEG_SHA256=733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
+# ENV, not ARG: a --build-arg could otherwise replace this digest and
+# silently disable the checksum gate on a download that is EXECUTED.
+ENV FFMPEG_SHA256=733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
 
 LABEL org.opencontainers.image.title="Lightning Windows cross-package builder" \
       org.opencontainers.image.description="Fedora 44 Linux/MinGW builder for unsigned Lightning Windows artifacts (Qt Multimedia FFmpeg backend)" \
@@ -191,7 +195,9 @@ RUN set -eu; \
 # nasm, python3, rustup) have already been superseded upstream, so the dnf step
 # resolves nothing (docs/windows-runner-operations.md).
 ARG GSTREAMER_VERSION=1.28.5
-ARG GSTREAMER_SHA256=43feae04c3ab6f7a14de580f79b97daa0c391623e6fbdfc940d61df07d749768
+# ENV, not ARG: a --build-arg could otherwise replace this digest and
+# silently disable the checksum gate on a download that is EXECUTED.
+ENV GSTREAMER_SHA256=43feae04c3ab6f7a14de580f79b97daa0c391623e6fbdfc940d61df07d749768
 
 COPY packaging/windows/gst-element-probe.c \
     /usr/local/share/lightning-windows/gst-element-probe.c

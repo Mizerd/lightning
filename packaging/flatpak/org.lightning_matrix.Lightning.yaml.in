@@ -85,9 +85,17 @@ modules:
     # ccache inside the sandbox for a key-embedding build.
     buildsystem: simple
     build-commands:
-      - curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs
-        -o rustup-init.sh
-      - sh rustup-init.sh -y --profile minimal --no-modify-path
+      # Version-addressed and checksum-verified, like the deb/rpm/appimage
+      # jobs (.gitlab-ci.yml RUSTUP_VERSION / RUSTUP_INIT_SHA256): the
+      # installer builds the Rust Matrix SDK into the published bundle.
+      - curl --proto '=https' --tlsv1.2 -fsSL --max-redirs 3
+        https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+        -o rustup-init
+      - printf '%s  rustup-init\n'
+        dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+        | sha256sum -c -
+      - chmod +x rustup-init
+      - ./rustup-init -y --profile minimal --no-modify-path
         --default-toolchain 1.93.0
       - cargo fetch --locked --manifest-path rust/Cargo.toml
       - cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release

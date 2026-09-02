@@ -97,10 +97,9 @@ resolve_notes() {
 POLICY_HEADING="Code signing policy"
 append_policy_footer() {
     local out="$1"
-    if grep -Fq "$POLICY_HEADING" "$out"; then
-        printf 'Release notes already carry the %s section\n' "$POLICY_HEADING"
-        return 0
-    fi
+    # Anchored to a Markdown HEADING line. A bare substring match let any
+    # release note that merely mentioned the phrase in prose suppress the
+    # "these Windows artifacts are not signed" disclosure entirely.
     local base="https://gitlab.smetonis.net/Mizerd/lightning/-/blob/${RELEASE_TAG}"
     local signing_sentence
     if windows_signed; then
@@ -110,6 +109,19 @@ download against the published `SHA256SUMS` asset.'
         signing_sentence='**The Windows artifacts in this release are not signed.** Windows will show an
 "unknown publisher" / SmartScreen warning. Verify your download against the
 published `SHA256SUMS` asset.'
+    fi
+    if grep -Eq "^#{1,6}[[:space:]]+${POLICY_HEADING}[[:space:]]*\$" "$out"; then
+        # A hand-written section keeps its wording, but the one sentence that
+        # is a security DISCLOSURE is never optional: if the section does not
+        # say whether the Windows artifacts are signed, that sentence is
+        # appended to it.
+        if grep -Eq 'Authenticode-signed|not signed' "$out"; then
+            printf 'Release notes already carry the %s section\n' "$POLICY_HEADING"
+            return 0
+        fi
+        printf '\n%s\n' "$signing_sentence" >>"$out"
+        printf 'Release notes carry the %s section; appended the signing disclosure it lacked\n' "$POLICY_HEADING"
+        return 0
     fi
     cat >>"$out" <<EOF
 

@@ -145,6 +145,23 @@ M="$TR/dist/manifest.json"
 [[ "$($JQ -r '.tag' "$UPD")" == "v$VER" ]] && note "tag" || bad "tag"
 [[ "$($JQ -r '.channel' "$UPD")" == stable ]] && note "stable channel" || bad "channel"
 [[ "$($JQ -r '.released' "$UPD")" == "$PINNED_TS" ]] && note "pinned release timestamp" || bad "released"
+# The expiry is what bounds a replayed `latest` pair; the client refuses a
+# manifest without one. Default window 120 days, measured from `released`.
+[[ "$($JQ -r '.expires' "$UPD")" == "$(date -u -d "$PINNED_TS + 120 days" +%Y-%m-%dT%H:%M:%SZ)" ]] \
+    && note "expires = released + 120 days" || bad "expires"
+(cd "$TR" && UPDATE_MANIFEST_VALIDITY_DAYS=0 "$ROOT/scripts/generate-update-manifest.sh" >/dev/null 2>&1) \
+    && bad "a zero-day validity was accepted" || note "validity must be at least one day"
+run env UPDATE_MANIFEST_VALIDITY_DAYS=30 "$ROOT/scripts/generate-update-manifest.sh" || bad "regenerate with 30-day validity"
+[[ "$($JQ -r '.expires' "$UPD")" == "$(date -u -d "$PINNED_TS + 30 days" +%Y-%m-%dT%H:%M:%SZ)" ]] \
+    && note "validity window is configurable" || bad "expires (30 days)"
+# An explicit expiry instant beats the window (that is what a refresh uses).
+run env UPDATE_EXPIRES_AT=2027-03-01T00:00:00Z "$ROOT/scripts/generate-update-manifest.sh" || bad "regenerate with UPDATE_EXPIRES_AT"
+[[ "$($JQ -r '.expires' "$UPD")" == 2027-03-01T00:00:00Z ]] && note "UPDATE_EXPIRES_AT takes precedence" || bad "expires (explicit)"
+(cd "$TR" && UPDATE_EXPIRES_AT=2020-01-01T00:00:00Z "$ROOT/scripts/generate-update-manifest.sh" >/dev/null 2>&1) \
+    && bad "an expiry before the release was accepted" || note "an expiry before the release is refused"
+(cd "$TR" && UPDATE_MANIFEST_VALIDITY_DAYS=0120 "$ROOT/scripts/generate-update-manifest.sh" >/dev/null 2>&1) \
+    && bad "a leading-zero validity was accepted" || note "a leading-zero validity is refused"
+run "$ROOT/scripts/generate-update-manifest.sh" || bad "regenerate with the default validity"
 [[ "$($JQ -r '.min_updater_version' "$UPD")" == 1 ]] && note "min_updater_version" || bad "min_updater_version"
 [[ "$($JQ -r '.release_notes_url' "$UPD")" == "https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v$VER" ]] \
     && note "release notes URL points at the release page" || bad "release_notes_url"
@@ -524,6 +541,79 @@ cmp -s "$PREV_LATEST" "$UREG/latest/$MANIFEST_NAME" && bad "latest still holds t
     && [[ "$($JQ -r '.urls.latest_manifest' "$TR/dist/update-publication.json")" == \
           "https://gitlab.example/api/v4/projects/6/packages/generic/lightning-update/latest/$MANIFEST_NAME" ]] \
     && note "publication record names the canonical latest URL" || bad "update-publication.json"
+
+# The latest slot must not go BACKWARDS by accident: attach-existing on an
+# old release runs this same script, and re-pointing `latest` at the old
+# version freezes every current installation on "up to date".
+printf '== the latest slot refuses to roll back unless told to ==\n'
+NEWER_LATEST="$WORK/newer-latest.json"
+NEWER_LATEST_SIG="$WORK/newer-latest.sig"
+cp "$UREG/latest/$MANIFEST_NAME" "$NEWER_LATEST"
+cp "$UREG/latest/$SIG_NAME" "$NEWER_LATEST_SIG"
+setup 0.6.1
+mkdir -p "$MSTATE/registry-lightning-update/latest"
+cp "$NEWER_LATEST" "$MSTATE/registry-lightning-update/latest/$MANIFEST_NAME"
+cp "$NEWER_LATEST_SIG" "$MSTATE/registry-lightning-update/latest/$SIG_NAME"
+publish_and_verify || bad "0.6.1 backfill publish/verify failed"
+run "$ROOT/scripts/generate-update-manifest.sh" && run "$ROOT/scripts/sign-update-manifest.sh" \
+    || bad "0.6.1 generate+sign failed"
+: >"$MLOG"
+UREG="$MSTATE/registry-lightning-update"
+if run "$ROOT/scripts/publish-update-manifest.sh"; then
+    bad "a backfill of 0.6.1 rolled the latest slot back from 0.6.2"
+else
+    grep -q 'refusing to move the latest slot backwards' "$TR/out.log" \
+        && note "the older manifest was refused by name" || bad "refusal reason missing"
+fi
+[[ "$($JQ -r '.version' "$UREG/latest/$MANIFEST_NAME")" == 0.6.2 ]] \
+    && note "the latest slot still advertises 0.6.2" || bad "latest slot was rolled back"
+# The per-release copy of the backfilled version IS published: only `latest`
+# is protected.
+[[ -f "$UREG/0.6.1/$MANIFEST_NAME" ]] && note "0.6.1 keeps its own immutable copy" || bad "0.6.1 per-release copy missing"
+# Yanking a bad release is the one legitimate backwards move, and it is spelled out.
+: >"$MLOG"
+run env UPDATE_ALLOW_LATEST_ROLLBACK=true "$ROOT/scripts/publish-update-manifest.sh" \
+    || bad "an explicit rollback was refused"
+[[ "$($JQ -r '.version' "$UREG/latest/$MANIFEST_NAME")" == 0.6.1 ]] \
+    && note "UPDATE_ALLOW_LATEST_ROLLBACK=true moves latest backwards deliberately" || bad "explicit rollback did not move latest"
+grep -q 'WARNING: rolling the latest slot back' "$TR/out.log" && note "the rollback is announced" || bad "rollback warning missing"
+unset UPDATE_ALLOW_LATEST_ROLLBACK
+# Restore the state the following cases expect: 0.6.2 in the latest slot.
+setup 0.6.2
+mkdir -p "$MSTATE/registry-lightning-update/latest"
+cp "$NEWER_LATEST" "$MSTATE/registry-lightning-update/latest/$MANIFEST_NAME"
+cp "$NEWER_LATEST_SIG" "$MSTATE/registry-lightning-update/latest/$SIG_NAME"
+publish_and_verify || bad "0.6.2 re-setup publish/verify failed"
+run "$ROOT/scripts/generate-update-manifest.sh" && run "$ROOT/scripts/sign-update-manifest.sh" \
+    || bad "0.6.2 re-setup generate+sign failed"
+run "$ROOT/scripts/publish-update-manifest.sh" || bad "0.6.2 re-setup publication failed"
+UREG="$MSTATE/registry-lightning-update"
+
+# A release lull past the window: the latest slot is refreshed IN PLACE with
+# a new expiry, the immutable copy is untouched, and no other version can
+# ride in on the refresh flag.
+printf '== the latest slot can be refreshed with a new expiry, without a release ==\n'
+: >"$MLOG"
+run env UPDATE_EXPIRES_AT=2027-06-01T00:00:00Z "$ROOT/scripts/generate-update-manifest.sh" \
+    && run "$ROOT/scripts/sign-update-manifest.sh" || bad "refresh generate+sign failed"
+ORIG_IMMUTABLE_SUM="$(sha256sum "$UREG/0.6.2/$MANIFEST_NAME" | cut -d' ' -f1)"
+run env UPDATE_REFRESH_LATEST_ONLY=true "$ROOT/scripts/publish-update-manifest.sh" || bad "refresh publication failed"
+[[ "$($JQ -r '.expires' "$UREG/latest/$MANIFEST_NAME")" == 2027-06-01T00:00:00Z ]] \
+    && note "the latest slot carries the refreshed expiry" || bad "latest expiry not refreshed"
+[[ "$(sha256sum "$UREG/0.6.2/$MANIFEST_NAME" | cut -d' ' -f1)" == "$ORIG_IMMUTABLE_SUM" ]] \
+    && note "the immutable per-release copy is untouched by a refresh" || bad "refresh touched the immutable copy"
+[[ "$(grep -c '^PUT .*/0.6.2/' "$MLOG")" == 0 ]] && note "refresh uploads nothing under the version slot" || bad "refresh wrote to the version slot"
+$JQ -S '.version = "0.6.3"' "$UPD" >"$WORK/refresh-other.json" && cp "$WORK/refresh-other.json" "$UPD"
+run "$ROOT/scripts/sign-update-manifest.sh" >/dev/null 2>&1 || true
+if run env UPDATE_REFRESH_LATEST_ONLY=true "$ROOT/scripts/publish-update-manifest.sh"; then
+    bad "refresh mode promoted a DIFFERENT version"
+else
+    note "refresh mode refuses any version but the one already in latest"
+fi
+# Restore a consistent 0.6.2 manifest for the cases that follow.
+run "$ROOT/scripts/generate-update-manifest.sh" && run "$ROOT/scripts/sign-update-manifest.sh" \
+    || bad "post-refresh regenerate failed"
+run env UPDATE_ALLOW_LATEST_ROLLBACK=true "$ROOT/scripts/publish-update-manifest.sh" || bad "post-refresh re-publication failed"
 
 printf '== a manifest from another release cannot be published ==\n'
 $JQ -S '.version = "9.9.9"' "$UPD" >"$WORK/wrong.json" && cp "$WORK/wrong.json" "$UPD"

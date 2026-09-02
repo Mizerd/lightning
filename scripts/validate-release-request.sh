@@ -22,6 +22,16 @@ case "$PUBLISH_PACKAGES" in
     *) die "PUBLISH_PACKAGES must be true or false" ;;
 esac
 
+# The ref's SHAPE is checked on EVERY pipeline, publishing or not. Git accepts
+# shell metacharacters in a ref name (`v1$(id)` and `a;b` both pass
+# check-ref-format), and the value is written into dist/version.env, which
+# every later script `source`s. resolve-version.sh also %q-quotes it; this is
+# the belt to that brace.
+if [[ -n "${SOURCE_REF:-}" ]]; then
+    [[ "$SOURCE_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$ ]] || \
+        die "SOURCE_REF must be 1-255 characters of [A-Za-z0-9._/-] and start alphanumeric"
+fi
+
 if [[ "$PUBLISH_PACKAGES" != true ]]; then
     printf 'Build-only pipeline: publication and release stages are disabled\n'
     exit 0
@@ -66,12 +76,20 @@ fi
 printf 'GIPHY_API_KEY is configured\n'
 printf 'KLIPY_API_KEY is configured\n'
 
-# Update-signing consistency. Deliberately here, in the first job, and not only
-# in the signing job: the public key is compiled into every package by the BUILD
-# jobs, so a mismatch discovered after the build is a mismatch discovered after
-# it has already been baked into artifacts that cannot be corrected. Prints no
-# key material.
-"$SCRIPT_DIR/check-update-signing-keys.sh"
+# Update-signing consistency. Deliberately here, in the first job: the public
+# key is compiled into every package by the BUILD jobs, so a mismatch found
+# after the build is baked into artifacts that cannot be corrected. In CI
+# resolve-source declares the `signing` environment precisely so the private
+# key IS present here and the full check runs before anything is built (see
+# .gitlab-ci.yml). The public-only branch exists for a run without the key
+# -- a build-only pipeline on a misconfigured project, a local invocation --
+# and never applies to a publishing pipeline in CI, where require_var in the
+# full check refuses. Prints no key material.
+if [[ -n "${UPDATE_SIGNING_KEY_B64:-}" ]]; then
+    "$SCRIPT_DIR/check-update-signing-keys.sh"
+else
+    "$SCRIPT_DIR/check-update-signing-keys.sh" --public-only
+fi
 
 printf 'Publishing pipeline accepted: action=%s version=%s ref=%s\n' \
     "$RELEASE_ACTION" "$RELEASE_VERSION" "$SOURCE_REF"

@@ -28,7 +28,7 @@ sign_windows_file() {
     printf '%s' "$WINDOWS_SIGNING_PFX_B64" | base64 -d >"$pfx"
     printf '%s' "${WINDOWS_SIGNING_PASSWORD:-}" >"$passfile"
     osslsigncode sign -pkcs12 "$pfx" -readpass "$passfile" \
-        -h sha256 -t "${WINDOWS_SIGNING_TIMESTAMP_URL:-http://timestamp.digicert.com}" \
+        -h sha256 -t "${WINDOWS_SIGNING_TIMESTAMP_URL:-https://timestamp.digicert.com}" \
         -in "$target" -out "$signed" >/dev/null
     mv "$signed" "$target"
     printf 'Authenticode-signed %s\n' "${target##*/}"

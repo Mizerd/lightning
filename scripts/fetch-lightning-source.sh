@@ -15,8 +15,8 @@ EXPECTED_REPOSITORY="https://gitlab.smetonis.net/Mizerd/lightning.git"
 
 [[ "$LIGHTNING_REPOSITORY" == "$EXPECTED_REPOSITORY" ]] || \
     die "LIGHTNING_REPOSITORY must be ${EXPECTED_REPOSITORY}"
-[[ "$SOURCE_REF" != -* && "$SOURCE_REF" != *$'\n'* && "$SOURCE_REF" != *$'\r'* ]] || \
-    die "SOURCE_REF contains unsafe characters"
+[[ "$SOURCE_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$ ]] || \
+    die "SOURCE_REF must be 1-255 characters of [A-Za-z0-9._/-] and start alphanumeric"
 
 mkdir -p "$ROOT/work" "$DIST_DIR"
 [[ ! -e "$SOURCE_DIR" ]] || die "source directory already exists: ${SOURCE_DIR}"
@@ -70,7 +70,22 @@ if [[ -n "${EXPECTED_SOURCE_SHA:-}" && "$RESOLVED_SHA" != "$EXPECTED_SOURCE_SHA"
 fi
 
 git -C "$SOURCE_DIR" checkout --detach "$RESOLVED_SHA"
-git -C "$SOURCE_DIR" submodule update --init --recursive
+# Submodules, if the source ever gains any, are fetched WITHOUT the askpass
+# helper: it answers any prompt with the job token, and a .gitmodules entry
+# naming a foreign https host would otherwise be handed that token. Every
+# submodule URL must live on the canonical host, and none needs a credential.
+if [[ -f "$SOURCE_DIR/.gitmodules" ]]; then
+    while IFS= read -r sub_url; do
+        [[ "$sub_url" == https://gitlab.smetonis.net/* ]] || \
+            die "refusing submodule outside the canonical host: ${sub_url}"
+    done < <(git -C "$SOURCE_DIR" config --file .gitmodules --get-regexp '^submodule\..*\.url$' | awk '{print $2}')
+fi
+# Not --recursive: the allowlist above reads the top-level .gitmodules only,
+# and nested submodules would pull from hosts nothing checked. The source has
+# no submodules today; if it ever gains nested ones, extend the check per
+# level before adding the flag back.
+env -u GIT_ASKPASS -u LIGHTNING_GIT_USERNAME -u LIGHTNING_GIT_PASSWORD \
+    git -C "$SOURCE_DIR" submodule update --init
 git -C "$SOURCE_DIR" remote set-url origin "$EXPECTED_REPOSITORY"
 
 unset LIGHTNING_GIT_PASSWORD CI_JOB_TOKEN LIGHTNING_DEPLOY_TOKEN

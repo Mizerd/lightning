@@ -75,10 +75,28 @@ def main() -> int:
     check(twice.count("## Code signing policy") == 1,
           "the section is not duplicated when notes already carry it")
 
-    print("notes that already mention the policy are left alone")
+    print("a prose mention of the policy does not suppress the disclosure")
+    # This used to be the OPPOSITE assertion: any note containing the bare
+    # phrase suppressed the whole footer, including "the Windows artifacts in
+    # this release are not signed". Whoever writes the release notes must not
+    # be able to switch off a security disclosure with a sentence.
     custom = "# Notes\n\nSee our Code signing policy elsewhere.\n"
-    check(append_footer(custom) == custom,
-          "hand-written policy wording is not overwritten")
+    prose_body = append_footer(custom)
+    check(prose_body != custom and "## Code signing policy" in prose_body,
+          "a prose mention still gets the policy section appended")
+    check("not signed" in prose_body,
+          "the unsigned disclosure survives a prose mention")
+
+    print("a hand-written policy HEADING is respected")
+    handwritten = ("# Notes\n\n## Code signing policy\n\nOur own wording. "
+                   "**The Windows artifacts in this release are not signed.**\n")
+    check(append_footer(handwritten) == handwritten,
+          "an explicit policy heading carrying the disclosure is left alone")
+    lacking = "# Notes\n\n## Code signing policy\n\nOur own wording.\n"
+    with_disclosure = append_footer(lacking)
+    check(with_disclosure.count("## Code signing policy") == 1
+          and "not signed" in with_disclosure,
+          "a hand-written heading without the disclosure gets the sentence, not a second section")
 
     print("a signed release stops claiming to be unsigned")
     signed_body = append_footer("# Lightning 9.9.9\n", tag="v9.9.9", signed=True)
