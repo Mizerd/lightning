@@ -807,8 +807,15 @@ Rectangle {
         // bare 34×34/radius-8 icon buttons; the open right panel's toggle
         // shows the accent-chip state.
         Rectangle {
+            objectName: "roomHeaderBand"
             Layout.fillWidth: true
             implicitHeight: 60
+            // Nothing in a 60px band may be drawn outside it. The band is
+            // followed in this column by the timeline, which paints AFTER
+            // it, so anything that escapes downward is both visible over the
+            // messages and unclickable behind them. That is what a room
+            // topic carrying newlines did (see the identity block below).
+            clip: true
             // `sidebar`, the PANE tone — not `surface`, the CARD tone.
             //
             // Under Storm both the room header and the composer card resolved
@@ -845,6 +852,7 @@ Rectangle {
                     circle: root.currentRoom.isDirect === true
                 }
                 ColumnLayout {
+                    objectName: "roomHeaderIdentity"
                     spacing: 2
                     Layout.fillWidth: true
                     RowLayout {
@@ -869,6 +877,7 @@ Rectangle {
                             font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
                             font.weight: AppTheme.weightBold
                             elide: Label.ElideRight
+                            maximumLineCount: 1
                             Layout.maximumWidth: header.width * 0.5
                         }
                         Icon {
@@ -886,13 +895,25 @@ Rectangle {
                         }
                     }
                     Label {
-                        text: root.currentRoom.topic || ""
+                        // ONE line, whatever the server sent. A room topic
+                        // is free text and routinely carries newlines: an
+                        // eight-line topic made this Label eight lines tall,
+                        // the identity column with it, and the header's
+                        // action icons were centred on that and landed in
+                        // the message list, unclickable under the timeline.
+                        // Reported 2026-09-02 with a screenshot; measured in
+                        // timeline-pane-qml at 109px of header inside a 60px
+                        // band. elide alone does not do this: Text breaks on
+                        // an explicit newline whatever the elide mode.
+                        text: (root.currentRoom.topic || "")
+                                  .replace(/\s+/g, " ").trim()
                         color: AppTheme.textMuted
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         visible: text.length > 0
                         Layout.fillWidth: true
                         elide: Label.ElideRight
+                        maximumLineCount: 1
                     }
                     // Clicking the header identity opens Room Information.
                     TapHandler {
@@ -902,6 +923,7 @@ Rectangle {
                 }
                 Item { Layout.fillWidth: true }
                 RowLayout {
+                    objectName: "roomHeaderActions"
                     spacing: AppTheme.spacing6
                     IconButton {
                         objectName: "startVoiceCallButton"

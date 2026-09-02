@@ -3942,6 +3942,118 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
+    // 2026-09-02, from a user report with a screenshot: the room header's
+    // action icons ended up drawn INSIDE the message area, "impossible to
+    // click on", and the reporter guessed display scaling. The header band
+    // is a fixed 60px while everything written in it is scaled text
+    // (AppTheme.scaled folds in the text-size slider AND the UI font's
+    // optical factor), and the band does not clip — so once the title and
+    // topic together exceed 60px the content spills out of the band and
+    // under the timeline, which is the next sibling and therefore painted
+    // on top. Measured here against the REAL pane at both scales.
+    void theRoomHeaderKeepsItsContentInsideItsOwnBandAtEveryTextScale()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        LogCapture capture;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window,
+                                          QStringLiteral("!general:example.org"),
+                                          {}, 0, 700, &timeline);
+        QVERIFY(root);
+        auto *band = root->findChild<QQuickItem *>(QStringLiteral("roomHeaderBand"));
+        auto *actions = root->findChild<QQuickItem *>(QStringLiteral("roomHeaderActions"));
+        QVERIFY(band);
+        QVERIFY(actions);
+
+        const auto actionsBottomInBand = [&] {
+            const QPointF topLeft = actions->mapToItem(band, QPointF(0, 0));
+            return topLeft.y() + actions->height();
+        };
+        const auto report = [&](double scale) {
+            return qPrintable(QStringLiteral(
+                "at textScale %1 the header band is %2px tall and its action "
+                "row runs to %3px: the icons are drawn outside the band, over "
+                "the timeline")
+                .arg(scale).arg(band->height()).arg(actionsBottomInBand()));
+        };
+
+        QVERIFY2(actionsBottomInBand() <= band->height() + 0.5, report(1.0));
+
+        // The text-size slider's top end, with no font optical factor.
+        for (const double scale : { 1.4, 1.8, 2.0 }) {
+            QQmlExpression set(qmlContext(root), root,
+                               QStringLiteral("AppTheme.textScale = %1").arg(scale));
+            set.evaluate();
+            QCoreApplication::processEvents();
+            QVERIFY2(actionsBottomInBand() <= band->height() + 0.5, report(scale));
+            // The band grows with what is written in it rather than clipping
+            // or spilling: the title and topic must both still fit.
+            QVERIFY2(band->height() >= 60.0, report(scale));
+        }
+        QQmlExpression reset(qmlContext(root), root,
+                             QStringLiteral("AppTheme.textScale = 1.0"));
+        reset.evaluate();
+        QCoreApplication::processEvents();
+
+        // And the reported shape itself: a room topic with NEWLINES in it.
+        // A topic is server text, `Label` breaks on explicit newlines
+        // whatever the elide mode, and the band is a fixed 60px that does
+        // not clip, so the header column grows down the pane and takes the
+        // action icons with it, into the message list and under it.
+        //
+        // The pane is loaded standalone here, so `currentRoom` is set the
+        // way MainScreen sets it in production. Measuring an unset one
+        // measures an EMPTY header and proves nothing.
+        const auto setRoom = [&](const QString &topic) {
+            QVariantMap room;
+            room.insert(QStringLiteral("name"), QStringLiteral("Minecraft"));
+            room.insert(QStringLiteral("topic"), topic);
+            root->setProperty("currentRoom", room);
+            // Layouts settle on the POLISH pass, which an offscreen window
+            // runs only when it actually updates: processEvents alone
+            // measures the previous frame's geometry.
+            QTest::qWait(60);
+            QCoreApplication::processEvents();
+        };
+        auto *identity = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderIdentity"));
+        QVERIFY(identity);
+
+        setRoom(QStringLiteral("Cutefunny minecraft server"));
+        QVERIFY2(actionsBottomInBand() <= band->height() + 0.5,
+                 "a one-line topic already overflows the header band");
+
+        setRoom(QStringLiteral("Instructions:\nhttps://polymc.org\ndrag and drop "
+                               "the zip into it\nit will already be listed\nfour"));
+        QVERIFY2(actionsBottomInBand() <= band->height() + 0.5,
+                 qPrintable(QStringLiteral(
+                     "a multi-line room topic pushed the header's action row "
+                     "to %1px inside a %2px band: the icons are drawn over the "
+                     "message list").arg(actionsBottomInBand()).arg(band->height())));
+
+        // The other half of the shape: a viewport that got SHORTER. The band
+        // carries no Layout.minimumHeight, so a column with less height than
+        // its children want squeezes it toward zero while the row anchored
+        // inside it keeps its own size and spills over the timeline.
+        for (const int h : { 520, 400, 300, 240, 180 }) {
+            root->setSize(QSizeF(700, h));
+            QCoreApplication::processEvents();
+            QVERIFY2(actionsBottomInBand() <= band->height() + 0.5,
+                     qPrintable(QStringLiteral(
+                         "at pane height %1 the action row runs to %2px inside "
+                         "a %3px band").arg(h).arg(actionsBottomInBand())
+                             .arg(band->height())));
+        }
+        root->setSize(QSizeF(700, 700));
+        QCoreApplication::processEvents();
+        // No warning assertion here on purpose: this case waits for real
+        // polish passes, which is long enough for the host's audio stack to
+        // log its own noise (PipeWire spa parse chatter, an FFmpeg version
+        // banner) into the same sink. Those say nothing about the header.
+    }
+
     // Read-receipt chips: empty list = zero footprint (the strip stays
     // invisible and adds no height), a populated list renders a bounded
     // stack of 4 avatar chips + a "+N" overflow chip, and the strip carries
