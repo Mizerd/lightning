@@ -38,6 +38,11 @@ Requires:       gstreamer1-plugins-good
 Requires:       gstreamer1-plugins-bad-free
 Requires:       libnice-gstreamer1
 Requires:       pipewire-gstreamer
+# Spell checking is enchant-2 resolved at RUNTIME (dlopen), never linked, so
+# rpm cannot see it. Recommends, not Requires: without it the composer reports
+# "spell checking unavailable" and everything else works. Dictionaries are the
+# user's (hunspell-*).
+Recommends:     enchant2
 
 %description
 A native C++ and Qt Matrix desktop client with the Matrix Rust SDK backend.
