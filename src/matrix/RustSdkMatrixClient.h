@@ -423,6 +423,19 @@ public:
                                 qlonglong level) override;
     quint64 setRoomPowerLevelKey(const QString &roomId, const QString &key,
                                  qlonglong level) override;
+    // v0.9 scheduled send (phase 11).
+    void probeDelayedEvents() override;
+    quint64 scheduleMessage(const QString &roomId, const QString &body,
+                            const QVariantMap &bodySpec,
+                            const QStringList &mentionUserIds,
+                            qint64 delayMs) override;
+    quint64 updateScheduledMessage(const QString &delayId,
+                                   const QString &action) override;
+    quint64 sendRoomMessage(const QString &roomId, const QString &body,
+                            const QVariantMap &bodySpec,
+                            const QStringList &mentionUserIds,
+                            const QString &replyToEventId,
+                            const QString &threadRootEventId) override;
     // v0.9 message edit history + event source (phase 7).
     void requestEditHistory(const QString &roomId, const QString &eventId) override;
     void requestEventSource(const QString &roomId, const QString &eventId) override;

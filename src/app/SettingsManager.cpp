@@ -760,6 +760,29 @@ void SettingsManager::setOwnPresenceStatus(const QVariantMap &status)
         m_store->setValue(key, status);
 }
 
+QVariantList SettingsManager::scheduledSends() const
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return {};
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/scheduledSends");
+    return m_store->value(key).toList();
+}
+
+void SettingsManager::setScheduledSends(const QVariantList &rows)
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return;
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/scheduledSends");
+    if (rows.isEmpty())
+        m_store->remove(key);
+    else
+        m_store->setValue(key, rows);
+}
+
 int SettingsManager::callParticipantVolume(const QString &userId) const
 {
     const QString slug = slugForSavedAccount(activeAccountUserId());

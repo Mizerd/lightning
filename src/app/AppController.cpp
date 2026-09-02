@@ -2,6 +2,7 @@
 
 #include "app/RichComposerBridge.h"
 #include "crypto/BackupController.h"
+#include "models/ScheduledSendController.h"
 
 #include <algorithm>
 
@@ -264,11 +265,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_crypto       = std::make_unique<CryptoManager>(this);
     m_cryptoHealth = std::make_unique<CryptoHealthModel>(this);
     m_backup       = std::make_unique<BackupController>(this);
+    m_scheduledSends = std::make_unique<ScheduledSendController>(this);
     m_cryptoBootstrap = std::make_unique<CryptoBootstrapModel>(this);
     m_spaces       = std::make_unique<SpaceManager>(this);
     m_threads      = std::make_unique<ThreadManager>(this);
     m_presence     = std::make_unique<PresenceManager>(this);
     m_presence->setSettings(m_settings.get());
+    m_scheduledSends->setSettings(m_settings.get());
     // Voice calls (2026-08-18 rounds 1-3): the signaling state machine,
     // and — when the build carries the GStreamer webrtcbin engine AND its
     // element factories resolve at runtime — the real media backend that
@@ -838,6 +841,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_pinned->setClient(m_client.get());
     m_roomUpgrade->setClient(m_client.get());
     m_backup->setClient(m_client.get());
+    m_scheduledSends->setClient(m_client.get());
     m_thread->setClient(m_client.get());
     m_thread->setDraftStore(m_draftStore.get());
     m_draftStore->setClient(m_client.get());
@@ -2096,6 +2100,7 @@ QAbstractItemModel *AppController::timelineView() const
 MessageComposer *AppController::composer() const { return m_composer.get(); }
 QObject *AppController::richComposer() const { return m_richComposer.get(); }
 QObject *AppController::backup() const { return m_backup.get(); }
+QObject *AppController::scheduledSends() const { return m_scheduledSends.get(); }
 MediaManager *AppController::media() const { return m_media.get(); }
 CryptoManager *AppController::crypto() const { return m_crypto.get(); }
 SpaceManager *AppController::spaces() const { return m_spaces.get(); }

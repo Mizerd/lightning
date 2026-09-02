@@ -1336,6 +1336,13 @@ const DELAYED_LEAVE_TIMEOUT_MS: u64 = 8_000;
 /// extra request, never a wrong membership.
 static DELAYED_EVENTS_REFUSED: AtomicBool = AtomicBool::new(false);
 
+/// v0.9 (phase 11): whether this process has seen the homeserver refuse a
+/// delayed event. Read by the scheduled-send probe so a server that
+/// advertises MSC4140 but refuses it in practice is still reported honestly.
+pub(crate) fn delayed_events_assumed_refused() -> bool {
+    DELAYED_EVENTS_REFUSED.load(Ordering::Relaxed)
+}
+
 /// Build the state key Element writes.
 ///
 /// `{user}_{device}_{application}{slotId}`, with a LEADING UNDERSCORE except

@@ -466,6 +466,10 @@ public:
     // fallback; empty map = no status.
     QVariantMap ownPresenceStatus() const;
     void setOwnPresenceStatus(const QVariantMap &status);
+    // v0.9 (phase 11): the local scheduled-send queue, account-scoped.
+    // Rows for encrypted rooms are never handed here by the controller.
+    QVariantList scheduledSends() const;
+    void setScheduledSends(const QVariantList &rows);
 
     // v0.7.x composer drafts, UNENCRYPTED rooms only — DraftStore enforces
     // that policy and never routes encrypted-room plaintext here (QSettings

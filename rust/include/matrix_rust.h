@@ -999,6 +999,37 @@ char *mx_rust_upgrade_room(void *client,
  * is_original, is_latest}]}; source answers on event_source {room_id,
  * event_id, ok, json, encryption:{encrypted, sender_key, sender_device,
  * algorithm, verification}}. Bodies are for display only — never cached. */
+/* v0.9 scheduled send (MSC4140 delayed message events). Probe answers on
+ * delayed_events_support {advertised, refused_before, supported}; schedule
+ * answers on scheduled_send_result {op_id, room_id, ok, delay_id, category}
+ * — category "encrypted_unsupported" for encrypted rooms (the server would
+ * store the plaintext; refused by design); update (cancel|send|restart)
+ * answers on scheduled_update_result {op_id, delay_id, action, ok,
+ * category}. */
+char *mx_rust_probe_delayed_events(void *client);
+char *mx_rust_schedule_message(void *client,
+                               const char *room_id,
+                               const char *body,
+                               const char *body_spec,
+                               const char *mention_user_ids,
+                               unsigned long long delay_ms,
+                               unsigned long long op_id);
+char *mx_rust_update_scheduled_message(void *client,
+                                       const char *delay_id,
+                                       const char *action,
+                                       unsigned long long op_id);
+/* v0.9 scheduled send: a ROOM-level message send for any joined room (the
+   timeline sends need the live timeline open). `body_spec`, `mention_user_ids`,
+   `reply_to_event_id` and `thread_root_event_id` are nullable. Answers on
+   `room_send_result {op_id, room_id, ok, category}`. */
+char *mx_rust_send_room_message(void *client,
+                                const char *room_id,
+                                const char *body,
+                                const char *mention_user_ids,
+                                const char *body_spec,
+                                const char *reply_to_event_id,
+                                const char *thread_root_event_id,
+                                unsigned long long op_id);
 /* Canonical alias; an empty alias clears it. Publishes the directory
  * mapping first when the alias does not already resolve to this room.
  * Result: room_edit_result with field "canonical_alias". */

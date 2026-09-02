@@ -2708,6 +2708,29 @@ Item {
                         onDiscardRequested: root.discardPendingVoice()
                     }
 
+                    // v0.9 (phase 11): "Send later". With text in the box it
+                    // schedules that text; with none it shows the room's
+                    // pending scheduled messages. The badge is the pending
+                    // count for this room.
+                    IconButton {
+                        id: sendLaterButton
+                        objectName: "composerSendLaterButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        visible: !root.compactInputRow && app.scheduledSends
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: AppTheme.radiusControl
+                        iconName: "schedule"
+                        iconSize: 18
+                        active: root.pendingScheduledCount > 0
+                        enabled: app.currentRoomId !== "" && !app.composer.isEditing
+                        Accessible.name: app.composer.canSend
+                                         ? qsTr("Send later") : qsTr("Scheduled messages")
+                        ToolTip.text: Accessible.name
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.openSendLater()
+                    }
+
                     // Accent-fill send (34px, radius 9 — a rounded square).
                     IconButton {
                         id: sendButton

@@ -670,6 +670,8 @@ set(APP_SOURCES
     src/crypto/CryptoHealthModel.cpp
     src/crypto/BackupController.h
     src/crypto/BackupController.cpp
+    src/models/ScheduledSendController.h
+    src/models/ScheduledSendController.cpp
     src/crypto/CryptoBootstrapModel.h
     src/crypto/CryptoBootstrapModel.cpp
     src/crypto/E2eeDiagnostics.h
@@ -833,6 +835,7 @@ set(APP_QML_FILES
     qml/EditHistoryDialog.qml
     qml/EventSourceDialog.qml
     qml/StatusDialog.qml
+    qml/SendLaterDialog.qml
     qml/AnchoredPopup.qml
     qml/PopupResizeGrip.qml
     qml/EmojiPicker.qml
@@ -1486,6 +1489,28 @@ if(BUILD_TESTING)
     target_compile_definitions(settings-session-test PRIVATE
         REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME settings-session COMMAND settings-session-test)
+
+    # v0.9 (phase 11) "Send later": server (MSC4140) vs local queue policy,
+    # encrypted-room plaintext never persisted, "sending" persisted BEFORE
+    # dispatch, nothing leaves while disconnected, a mid-send crash is
+    # reported and never re-fired, sign-out drops the memory queue.
+    qt_add_executable(scheduled-send-test
+        tests/ScheduledSendTest.cpp
+        src/models/ScheduledSendController.h
+        src/models/ScheduledSendController.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/media/MediaVisibilityStore.h
+        src/media/MediaVisibilityStore.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(scheduled-send-test PRIVATE src)
+    target_link_libraries(scheduled-send-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME scheduled-send COMMAND scheduled-send-test)
 
     qt_add_executable(account-registry-test
         tests/AccountRegistryTest.cpp

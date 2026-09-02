@@ -837,6 +837,36 @@ public:
     { Q_UNUSED(roomId); Q_UNUSED(eventId); }
     virtual void requestEventSource(const QString &roomId, const QString &eventId)
     { Q_UNUSED(roomId); Q_UNUSED(eventId); }
+    // v0.9 scheduled send (phase 11), the SERVER side (MSC4140 delayed
+    // message events). probeDelayedEvents answers on
+    // delayedEventsSupportReceived; scheduleMessage on scheduledSendFinished
+    // (delayId to remember; category "encrypted_unsupported" for an
+    // encrypted room — refused by design, see rooms.rs); updateScheduled
+    // ("cancel" | "send" | "restart") on scheduledUpdateFinished. 0 =
+    // unsupported on this backend.
+    virtual void probeDelayedEvents() {}
+    virtual quint64 scheduleMessage(const QString &roomId, const QString &body,
+                                    const QVariantMap &bodySpec,
+                                    const QStringList &mentionUserIds,
+                                    qint64 delayMs)
+    { Q_UNUSED(roomId); Q_UNUSED(body); Q_UNUSED(bodySpec);
+      Q_UNUSED(mentionUserIds); Q_UNUSED(delayMs); return 0; }
+    virtual quint64 updateScheduledMessage(const QString &delayId,
+                                           const QString &action)
+    { Q_UNUSED(delayId); Q_UNUSED(action); return 0; }
+    // v0.9 scheduled send: a ROOM-level send that works for any joined room
+    // (the timeline sends above need the room's live timeline open) and
+    // answers on roomSendFinished with the room's real acceptance. Empty
+    // reply/thread ids = a plain room message. 0 = unsupported on this
+    // backend (the scheduler then falls back to the timeline sends).
+    virtual quint64 sendRoomMessage(const QString &roomId, const QString &body,
+                                    const QVariantMap &bodySpec,
+                                    const QStringList &mentionUserIds,
+                                    const QString &replyToEventId,
+                                    const QString &threadRootEventId)
+    { Q_UNUSED(roomId); Q_UNUSED(body); Q_UNUSED(bodySpec);
+      Q_UNUSED(mentionUserIds); Q_UNUSED(replyToEventId);
+      Q_UNUSED(threadRootEventId); return 0; }
     // An empty alias clears the canonical alias. Answers on
     // roomEditFinished with field "canonical_alias".
     virtual quint64 setRoomCanonicalAlias(const QString &roomId,
@@ -1562,6 +1592,15 @@ Q_SIGNALS:
     void eventSourceReceived(const QString &roomId, const QString &eventId,
                              bool ok, const QString &json,
                              const QVariantMap &encryption);
+    // v0.9 scheduled send.
+    void delayedEventsSupportReceived(bool supported, bool advertised);
+    void scheduledSendFinished(quint64 opId, const QString &roomId, bool ok,
+                               const QString &delayId, const QString &category);
+    void scheduledUpdateFinished(quint64 opId, const QString &delayId,
+                                 const QString &action, bool ok,
+                                 const QString &category);
+    void roomSendFinished(quint64 opId, const QString &roomId, bool ok,
+                          const QString &category);
     void roomLeaveFinished(quint64 opId, const QString &roomId, bool ok,
                            const QString &category);
     // op is "kick" or "ban"; category is a sanitized error class on failure.

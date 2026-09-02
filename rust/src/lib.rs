@@ -6561,6 +6561,89 @@ pub unsafe extern "C" fn mx_rust_upgrade_room(
     })
 }
 
+/// v0.9 scheduled send (phase 11). See rooms.rs for the protocol limits.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_probe_delayed_events(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        rooms::probe_delayed_events(bridge).map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_schedule_message(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    body: *const c_char,
+    body_spec: *const c_char,
+    mention_user_ids: *const c_char,
+    delay_ms: u64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let body = unsafe { cstr_arg(body) }?;
+        let spec = unsafe { cstr_opt_arg(body_spec) }?;
+        let mentions = unsafe { cstr_list_arg(mention_user_ids) }?;
+        rooms::schedule_message(bridge, room_id, body, spec, mentions, delay_ms, op_id)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_update_scheduled_message(
+    ptr: *mut c_void,
+    delay_id: *const c_char,
+    action: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let delay_id = unsafe { cstr_arg(delay_id) }?;
+        let action = unsafe { cstr_arg(action) }?;
+        rooms::update_scheduled(bridge, delay_id, action, op_id).map(|_| String::new())
+    })
+}
+
+/// v0.9 scheduled send: a ROOM-level send (`Room::send`) for any joined room,
+/// carrying the same body spec / mentions as the timeline sends plus an
+/// optional reply or thread relation. The timeline sends refuse a room whose
+/// live timeline is not open, which a scheduled message for another room
+/// always is. Answers on `room_send_result {op_id, room_id, ok, category}`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_send_room_message(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    body: *const c_char,
+    mention_user_ids: *const c_char,
+    body_spec: *const c_char,
+    reply_to_event_id: *const c_char,
+    thread_root_event_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let body = unsafe { cstr_arg(body) }?;
+        let mentions = unsafe { cstr_list_arg(mention_user_ids) }?;
+        let spec = timeline::parse_body_spec(&unsafe { cstr_opt_arg(body_spec) }?)?;
+        let reply_to = unsafe { cstr_opt_arg(reply_to_event_id) }?;
+        let thread_root = unsafe { cstr_opt_arg(thread_root_event_id) }?;
+        rooms::send_room_message(
+            bridge,
+            room_id,
+            body,
+            spec,
+            mentions,
+            (!reply_to.is_empty()).then_some(reply_to),
+            (!thread_root.is_empty()).then_some(thread_root),
+            op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
 /// v0.9 message edit history + event source (phase 7). Answers on
 /// `message_edit_history` / `event_source` poll events; see rooms.rs.
 #[no_mangle]

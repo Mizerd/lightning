@@ -2818,6 +2818,169 @@ pub(crate) fn request_event_source(
 }
 
 // ---------------------------------------------------------------------------
+// v0.9 scheduled send (phase 11): MSC4140 delayed message events.
+//
+// Server-side scheduling is the standard delayed-event endpoint the RTC lane
+// already relies on (rtc.rs); the message content is built by the SAME
+// composed_content the ordinary send uses, so a scheduled message is
+// byte-for-byte what an immediate one would have been. Limits that come from
+// the protocol, not from this file: the delay is a TIMEOUT (relative, ms),
+// the server caps it, there is no endpoint to enumerate pending delayed
+// events (the client must remember delay ids), and — decisive for E2EE —
+// the server stores the content AS GIVEN, so in an encrypted room a delayed
+// event would have to be encrypted NOW with today's session, and matrix-sdk
+// 0.18 exposes no way to encrypt a content payload outside the send path.
+// Encrypted rooms are therefore REFUSED here (category
+// "encrypted_unsupported") and handled by the client-side queue instead,
+// which the UI labels honestly.
+// ---------------------------------------------------------------------------
+
+pub(crate) fn probe_delayed_events(bridge: &RustClient) -> Result<(), String> {
+    use matrix_sdk::ruma::api::FeatureFlag;
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let advertised = match client.supported_versions().await {
+            Ok(versions) => versions.features.contains(&FeatureFlag::Msc4140),
+            Err(_) => false,
+        };
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, json!({
+            "type": "delayed_events_support",
+            "lifecycle": lifecycle,
+            "advertised": advertised,
+            "refused_before": crate::rtc::delayed_events_assumed_refused(),
+            "supported": advertised && !crate::rtc::delayed_events_assumed_refused(),
+        }));
+    });
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn schedule_message(
+    bridge: &RustClient,
+    room_id: String,
+    body: String,
+    spec_json: String,
+    mention_user_ids: Vec<String>,
+    delay_ms: u64,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::api::client::delayed_events::{
+        delayed_message_event, DelayParameters,
+    };
+    use matrix_sdk::ruma::events::{AnyMessageLikeEventContent, MessageLikeEventType};
+    use matrix_sdk::ruma::TransactionId;
+    use std::time::Duration;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    if delay_ms == 0 {
+        return Err("a scheduled send needs a delay".to_owned());
+    }
+    let spec = crate::timeline::parse_body_spec(&spec_json)?;
+    let mut content = crate::timeline::composed_content(&body, &spec);
+    if let Some(mentions) = crate::timeline::mentions_from_ids(mention_user_ids) {
+        content = content.add_mentions(mentions);
+    }
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let refuse = |events: &crate::EventQueueRef, category: &str| {
+            enqueue(events, json!({
+                "type": "scheduled_send_result", "op_id": op_id,
+                "lifecycle": lifecycle, "room_id": room_id, "ok": false,
+                "category": category,
+            }));
+        };
+        // Encrypted, or not yet known to be unencrypted: refused (see the
+        // banner comment). Fail closed on unknown, like the draft store.
+        let state = room.encryption_state();
+        if state.is_unknown() || state.is_encrypted() {
+            refuse(&events, "encrypted_unsupported");
+            return;
+        }
+        let raw = match matrix_sdk::ruma::serde::Raw::new(
+            &AnyMessageLikeEventContent::RoomMessage(content),
+        ) {
+            Ok(raw) => raw.cast_unchecked(),
+            Err(_) => {
+                refuse(&events, "rejected");
+                return;
+            }
+        };
+        let request = delayed_message_event::unstable::Request::new_raw(
+            room.room_id().to_owned(),
+            TransactionId::new(),
+            MessageLikeEventType::RoomMessage,
+            DelayParameters::Timeout { timeout: Duration::from_millis(delay_ms) },
+            raw,
+        );
+        let answer = client.send(request).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        match answer {
+            Ok(response) => enqueue(&events, json!({
+                "type": "scheduled_send_result", "op_id": op_id,
+                "lifecycle": lifecycle, "room_id": room_id, "ok": true,
+                "delay_id": response.delay_id,
+            })),
+            Err(err) => refuse(&events, classify_room_error(&err.to_string())),
+        }
+    });
+    Ok(())
+}
+
+/// cancel | send | restart on a delay id this client remembered.
+pub(crate) fn update_scheduled(
+    bridge: &RustClient,
+    delay_id: String,
+    action: String,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::api::client::delayed_events::update_delayed_event;
+    let client = require_client(bridge)?;
+    let update = match action.as_str() {
+        "cancel" => update_delayed_event::unstable::UpdateAction::Cancel,
+        "send" => update_delayed_event::unstable::UpdateAction::Send,
+        "restart" => update_delayed_event::unstable::UpdateAction::Restart,
+        _ => return Err("unknown scheduled-send action".to_owned()),
+    };
+    if delay_id.trim().is_empty() {
+        return Err("missing delay id".to_owned());
+    }
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let request = update_delayed_event::unstable::Request::new(delay_id.clone(), update);
+        let answer = client.send(request).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, match answer {
+            Ok(_) => json!({
+                "type": "scheduled_update_result", "op_id": op_id,
+                "lifecycle": lifecycle, "delay_id": delay_id, "action": action,
+                "ok": true,
+            }),
+            Err(err) => json!({
+                "type": "scheduled_update_result", "op_id": op_id,
+                "lifecycle": lifecycle, "delay_id": delay_id, "action": action,
+                "ok": false, "category": classify_room_error(&err.to_string()),
+            }),
+        });
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Room profile editing + leave
 // ---------------------------------------------------------------------------
 
@@ -4358,3 +4521,75 @@ mod tests {
         assert!(build_create_room_request(&opts).is_err());
     }
 }
+
+// ---------------------------------------------------------------------------
+// v0.9 scheduled send: the ROOM-level send. The timeline sends in
+// timeline.rs go through the open room's live `Timeline` (local echo, send
+// queue), which is right for what the user types into the open room and
+// wrong for a message scheduled for a room that is not open — those were
+// refused. `Room::send` reaches any joined room, encrypts in an encrypted
+// room exactly like the timeline path (the SDK's room-level send is the same
+// machinery), and answers with the server's real acceptance.
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_room_message(
+    bridge: &RustClient,
+    room_id: String,
+    body: String,
+    spec: crate::timeline::SendBodySpec,
+    mention_user_ids: Vec<String>,
+    reply_to: Option<String>,
+    thread_root: Option<String>,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::events::relation::{InReplyTo, Reply, Thread};
+    use matrix_sdk::ruma::events::room::message::Relation;
+    use matrix_sdk::ruma::events::AnyMessageLikeEventContent;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let reply_id = reply_to
+        .map(|id| EventId::parse(id).map_err(|_| "invalid reply target".to_owned()))
+        .transpose()?;
+    let root_id = thread_root
+        .map(|id| EventId::parse(id).map_err(|_| "invalid thread root".to_owned()))
+        .transpose()?;
+    let mut content = crate::timeline::composed_content(&body, &spec);
+    if let Some(mentions) = crate::timeline::mentions_from_ids(mention_user_ids) {
+        content = content.add_mentions(mentions);
+    }
+    content.relates_to = match (root_id, reply_id) {
+        // In a thread: an explicit in-thread reply target when there is one,
+        // otherwise the spec fallback shape (in_reply_to = the root, marked
+        // falling-back so a thread-aware client does not render a quote).
+        (Some(root), Some(reply)) => Some(Relation::Thread(Thread::reply(root, reply))),
+        (Some(root), None) => Some(Relation::Thread(Thread::plain(root.clone(), root))),
+        (None, Some(reply)) => Some(Relation::Reply(Reply::new(InReplyTo::new(reply)))),
+        (None, None) => None,
+    };
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = room
+            .send(AnyMessageLikeEventContent::RoomMessage(content))
+            .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        match result {
+            Ok(_) => enqueue(&events, json!({
+                "type": "room_send_result", "lifecycle": lifecycle,
+                "op_id": op_id, "room_id": room_id, "ok": true,
+            })),
+            Err(err) => enqueue(&events, json!({
+                "type": "room_send_result", "lifecycle": lifecycle,
+                "op_id": op_id, "room_id": room_id, "ok": false,
+                "category": classify_room_error(&err.to_string()),
+            })),
+        }
+    });
+    Ok(())
+}
+

@@ -5845,6 +5845,77 @@ quint64 RustSdkMatrixClient::setRoomDirectoryVisibility(const QString &roomId,
     return result.isEmpty() ? opId : 0;
 }
 
+void RustSdkMatrixClient::probeDelayedEvents()
+{
+    if (!m_rustHandle)
+        return;
+    takeRustString(mx_rust_probe_delayed_events(m_rustHandle));
+}
+
+quint64 RustSdkMatrixClient::scheduleMessage(const QString &roomId,
+                                             const QString &body,
+                                             const QVariantMap &bodySpec,
+                                             const QStringList &mentionUserIds,
+                                             qint64 delayMs)
+{
+    if (!m_rustHandle || roomId.isEmpty() || body.isEmpty() || delayMs <= 0)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray bodyBytes = body.toUtf8();
+    const QByteArray specBytes = bodySpecJson(bodySpec);
+    const QByteArray mentionBytes = mentionUserIds.join(QLatin1Char('\n')).toUtf8();
+    const QString result = takeRustString(mx_rust_schedule_message(
+        m_rustHandle, room.constData(), bodyBytes.constData(),
+        specBytes.isEmpty() ? nullptr : specBytes.constData(),
+        mentionUserIds.isEmpty() ? nullptr : mentionBytes.constData(),
+        static_cast<unsigned long long>(delayMs), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::updateScheduledMessage(const QString &delayId,
+                                                    const QString &action)
+{
+    if (!m_rustHandle || delayId.isEmpty() || action.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray id = delayId.toUtf8();
+    const QByteArray act = action.toUtf8();
+    const QString result = takeRustString(mx_rust_update_scheduled_message(
+        m_rustHandle, id.constData(), act.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::sendRoomMessage(const QString &roomId,
+                                             const QString &body,
+                                             const QVariantMap &bodySpec,
+                                             const QStringList &mentionUserIds,
+                                             const QString &replyToEventId,
+                                             const QString &threadRootEventId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty() || body.isEmpty())
+        return 0;
+    const quint64 op = nextOpId();
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray bodyBytes = body.toUtf8();
+    const QByteArray mentionBytes = mentionUserIds.join(QLatin1Char('\n')).toUtf8();
+    const QByteArray specBytes = bodySpecJson(bodySpec);
+    const QByteArray replyBytes = replyToEventId.toUtf8();
+    const QByteArray rootBytes = threadRootEventId.toUtf8();
+    const QString result = takeRustString(mx_rust_send_room_message(
+        m_rustHandle, roomBytes.constData(), bodyBytes.constData(),
+        mentionUserIds.isEmpty() ? nullptr : mentionBytes.constData(),
+        specBytes.constData(),
+        replyToEventId.isEmpty() ? nullptr : replyBytes.constData(),
+        threadRootEventId.isEmpty() ? nullptr : rootBytes.constData(), op));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7) : result);
+        return 0;
+    }
+    return op;
+}
+
 void RustSdkMatrixClient::requestEditHistory(const QString &roomId,
                                              const QString &eventId)
 {
@@ -7962,6 +8033,38 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                                 event.value(QStringLiteral("field")).toString(),
                                 event.value(QStringLiteral("ok")).toBool(),
                                 event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("delayed_events_support")) {
+        Q_EMIT delayedEventsSupportReceived(
+            event.value(QStringLiteral("supported")).toBool(),
+            event.value(QStringLiteral("advertised")).toBool());
+        return true;
+    }
+
+    if (type == QLatin1String("scheduled_send_result")) {
+        Q_EMIT scheduledSendFinished(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("delay_id")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_send_result")) {
+        Q_EMIT roomSendFinished(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+    if (type == QLatin1String("scheduled_update_result")) {
+        Q_EMIT scheduledUpdateFinished(
+            opId(), event.value(QStringLiteral("delay_id")).toString(),
+            event.value(QStringLiteral("action")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
         return true;
     }
 
