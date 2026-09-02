@@ -66,6 +66,9 @@ void CryptoHealthModel::applySnapshot(const QVariantMap &snapshot,
         snapshot.value(QStringLiteral("own_identity_available")).toBool()
         || hasMaster || hasSelf || hasUser;
     m_crossSigningReady = hasMaster && hasSelf && hasUser;
+    m_hasMasterKey = hasMaster;
+    m_hasSelfSigningKey = hasSelf;
+    m_hasUserSigningKey = hasUser;
     m_ownIdentityVerified =
         snapshot.value(QStringLiteral("own_identity_available")).toBool()
             ? triState(QStringLiteral("own_identity_verified"))
@@ -98,6 +101,9 @@ void CryptoHealthModel::resetForNewGeneration()
     m_deviceVerified = Unknown;
     m_crossSigningAvailable = false;
     m_crossSigningReady = false;
+    m_hasMasterKey = false;
+    m_hasSelfSigningKey = false;
+    m_hasUserSigningKey = false;
     m_ownIdentityVerified = Unknown;
     m_backupAvailable = false;
     m_backupUsable = false;

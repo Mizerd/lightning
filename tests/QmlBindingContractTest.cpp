@@ -792,7 +792,15 @@ private Q_SLOTS:
         const QString settings = read(QStringLiteral("SettingsScreen.qml"));
         QVERIFY(settings.contains(QStringLiteral(
             "onClicked: app.refreshSessionDevices()")));
-        QVERIFY(settings.contains(QStringLiteral("model: app.sessionDevices")));
+        // v0.9 (phase 9): the list is FILTERED (all / this device / verified /
+        // not verified), but the Repeater's source is still the authoritative
+        // app.sessionDevices — never a copy the UI could drift from.
+        QVERIFY(settings.contains(QStringLiteral("var all = app.sessionDevices")));
+        QVERIFY(settings.contains(QStringLiteral("var f = sessionFilter.current")));
+        for (const char *branch : { "f === \"current\" && d.isCurrent === true",
+                                    "f === \"verified\" && d.crossSigned === true",
+                                    "f === \"unverified\"" })
+            QVERIFY2(settings.contains(QLatin1String(branch)), branch);
         QVERIFY(settings.contains(QStringLiteral("This session")));
         QVERIFY(settings.contains(QStringLiteral("Not verified")));
         QVERIFY(!settings.contains(QStringLiteral("is not supported yet")));

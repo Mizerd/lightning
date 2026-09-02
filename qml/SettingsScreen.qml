@@ -21,6 +21,9 @@ import MatrixClient
 // verification/import state survives switching categories.
 Item {
     id: root
+    // A minted recovery key is shown until the user leaves; it must not
+    // sit in memory behind a closed Settings screen.
+    onVisibleChanged: if (!visible && app.backup) app.backup.dismissRecoveryKey()
 
     // v0.7.2: whether the sanitized E2EE recovery diagnostics are expanded.
     property bool showRecoveryDiagnostics: false
@@ -5178,6 +5181,259 @@ Item {
                         // routes to the existing SAS flow; its visibility
                         // mirrors the start-row complement further below so
                         // the two controls never coexist.
+                        // v0.9 (phase 9): cross-signing detail. Three keys
+                        // individually, whether THIS session is verified,
+                        // and whether the secrets are recoverable — booleans
+                        // from the SDK's identity state, never key material.
+                        Rectangle {
+                            objectName: "crossSigningDetailCard"
+                            Layout.fillWidth: true
+                            visible: app.cryptoHealth
+                                     && app.cryptoHealth.cryptoSupported
+                            radius: AppTheme.radiusMd
+                            color: AppTheme.stormInset
+                            border.color: AppTheme.stormBorder
+                            border.width: 1
+                            implicitHeight: crossSigningCol.implicitHeight
+                                            + AppTheme.spacing16 * 2
+                            ColumnLayout {
+                                id: crossSigningCol
+                                anchors.fill: parent
+                                anchors.margins: AppTheme.spacing16
+                                spacing: AppTheme.spacing6
+                                MenuSectionLabel { text: qsTr("Cross-signing") }
+                                Repeater {
+                                    model: [
+                                        { label: qsTr("Master key"),
+                                          ok: app.cryptoHealth.hasMasterKey },
+                                        { label: qsTr("Self-signing key"),
+                                          ok: app.cryptoHealth.hasSelfSigningKey },
+                                        { label: qsTr("User-signing key"),
+                                          ok: app.cryptoHealth.hasUserSigningKey },
+                                        { label: qsTr("This session verified"),
+                                          ok: app.cryptoHealth.currentDeviceVerified
+                                              === CryptoHealthModel.Yes },
+                                        { label: qsTr("Secrets recoverable (secret storage)"),
+                                          ok: app.cryptoHealth.secretStorageAvailable }
+                                    ]
+                                    delegate: RowLayout {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing8
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: modelData.label
+                                            color: AppTheme.stormText
+                                            font.pixelSize: AppTheme.textBody
+                                        }
+                                        StatusChip {
+                                            storm: true
+                                            label: modelData.ok ? qsTr("Available")
+                                                                : qsTr("Missing")
+                                            tone: modelData.ok ? "success" : "neutral"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // v0.9 (phase 9): key-backup management. Health is
+                        // NOT inferred from "a backup version exists": the
+                        // usable/state line is the SDK's, and every action
+                        // is the SDK's own flow with an explicit warning
+                        // where it is destructive.
+                        Rectangle {
+                            id: backupCard
+                            objectName: "backupManagementCard"
+                            Layout.fillWidth: true
+                            visible: app.cryptoHealth
+                                     && app.cryptoHealth.cryptoSupported
+                                     && app.backup
+                            radius: AppTheme.radiusMd
+                            color: AppTheme.stormInset
+                            border.color: AppTheme.stormBorder
+                            border.width: 1
+                            implicitHeight: backupCol.implicitHeight
+                                            + AppTheme.spacing16 * 2
+                            property string pendingConfirm: ""
+                            Component.onCompleted: if (app.backup) app.backup.requestProgress()
+                            ColumnLayout {
+                                id: backupCol
+                                anchors.fill: parent
+                                anchors.margins: AppTheme.spacing16
+                                spacing: AppTheme.spacing8
+                                MenuSectionLabel { text: qsTr("Key backup") }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.textBody
+                                    text: {
+                                        var h = app.cryptoHealth
+                                        if (!h.keyBackupAvailable)
+                                            return qsTr("No key backup exists for this account.")
+                                        if (h.keyBackupUsable)
+                                            return qsTr("Backup active — this session can use it (%1).")
+                                                       .arg(h.keyBackupState)
+                                        return qsTr("A backup exists but this session cannot use it yet (%1). Restore with your recovery key first.")
+                                                   .arg(h.keyBackupState)
+                                    }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    visible: app.backup.uploadState.length > 0
+                                             && app.backup.uploadState !== "unknown"
+                                    color: AppTheme.stormTextMuted
+                                    font.family: AppTheme.monoFont
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: app.backup.uploadState === "uploading"
+                                          ? qsTr("Uploading room keys: %1 of %2")
+                                                .arg(app.backup.backedUp).arg(app.backup.total)
+                                          : qsTr("Upload: %1 · backup: %2")
+                                                .arg(app.backup.uploadState)
+                                                .arg(app.backup.backupState)
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    visible: app.backup.error.length > 0
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormDanger
+                                    font.pixelSize: AppTheme.textBody
+                                    text: app.backup.error
+                                }
+                                // One-time recovery key display. Cleared on
+                                // Done; never logged or persisted.
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: app.backup.recoveryKey.length > 0
+                                    radius: AppTheme.radiusTile
+                                    color: AppTheme.stormCanvas
+                                    border.color: AppTheme.stormBorderStrong
+                                    border.width: 1
+                                    implicitHeight: keyCol.implicitHeight + AppTheme.spacing12 * 2
+                                    ColumnLayout {
+                                        id: keyCol
+                                        anchors.fill: parent
+                                        anchors.margins: AppTheme.spacing12
+                                        spacing: AppTheme.spacing6
+                                        Label {
+                                            Layout.fillWidth: true
+                                            wrapMode: Text.WordWrap
+                                            color: AppTheme.stormText
+                                            font.pixelSize: AppTheme.textBody
+                                            font.weight: AppTheme.weightStrong
+                                            text: qsTr("Your new recovery key. Write it down now: Lightning does not keep it, and it will not be shown again once you leave this card.")
+                                        }
+                                        TextEdit {
+                                            objectName: "backupRecoveryKeyText"
+                                            Layout.fillWidth: true
+                                            readOnly: true
+                                            selectByMouse: true
+                                            wrapMode: TextEdit.Wrap
+                                            color: AppTheme.stormText
+                                            font.family: AppTheme.monoFont
+                                            font.pixelSize: AppTheme.textBody
+                                            text: app.backup.recoveryKey
+                                        }
+                                        RowLayout {
+                                            Item { Layout.fillWidth: true }
+                                            AppButton {
+                                                storm: true
+                                                kind: "primary"
+                                                size: "sm"
+                                                text: qsTr("I have saved it")
+                                                onClicked: app.backup.dismissRecoveryKey()
+                                            }
+                                        }
+                                    }
+                                }
+                                // Destructive actions ask twice: the first
+                                // click arms, the second confirms, and the
+                                // copy says what is lost.
+                                Label {
+                                    Layout.fillWidth: true
+                                    visible: backupCard.pendingConfirm.length > 0
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormDanger
+                                    font.pixelSize: AppTheme.textBody
+                                    text: backupCard.pendingConfirm === "reset_key"
+                                          ? qsTr("Resetting creates a NEW recovery key and the old one stops working. Press again to confirm.")
+                                          : backupCard.pendingConfirm === "disable_and_delete"
+                                            ? qsTr("Deleting the backup removes every room key stored on the server. Keys only in this session stay here; keys only in the backup are gone. Press again to confirm.")
+                                            : qsTr("Disabling recovery removes secret storage and the backup from the server. Press again to confirm.")
+                                }
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+                                    AppButton {
+                                        objectName: "backupEnableButton"
+                                        visible: !app.cryptoHealth.keyBackupAvailable
+                                                 && !app.cryptoHealth.secretStorageAvailable
+                                        storm: true
+                                        kind: "primary"
+                                        size: "sm"
+                                        enabled: !app.backup.busy
+                                        text: app.backup.busy && app.backup.lastAction === "enable"
+                                              ? qsTr("Setting up…") : qsTr("Set up recovery and backup")
+                                        onClicked: app.backup.runAction("enable")
+                                    }
+                                    AppButton {
+                                        objectName: "backupCreateButton"
+                                        visible: !app.cryptoHealth.keyBackupAvailable
+                                                 && app.cryptoHealth.secretStorageAvailable
+                                        storm: true
+                                        kind: "primary"
+                                        size: "sm"
+                                        enabled: !app.backup.busy
+                                        text: qsTr("Create backup")
+                                        onClicked: app.backup.runAction("create_backup")
+                                    }
+                                    AppButton {
+                                        objectName: "backupResetKeyButton"
+                                        visible: app.cryptoHealth.secretStorageAvailable
+                                        storm: true
+                                        kind: backupCard.pendingConfirm === "reset_key" ? "danger" : "secondary"
+                                        size: "sm"
+                                        enabled: !app.backup.busy
+                                        text: qsTr("New recovery key")
+                                        onClicked: {
+                                            if (backupCard.pendingConfirm === "reset_key") {
+                                                backupCard.pendingConfirm = ""
+                                                app.backup.runAction("reset_key")
+                                            } else {
+                                                backupCard.pendingConfirm = "reset_key"
+                                            }
+                                        }
+                                    }
+                                    AppButton {
+                                        objectName: "backupDeleteButton"
+                                        visible: app.cryptoHealth.keyBackupAvailable
+                                        storm: true
+                                        kind: "danger"
+                                        size: "sm"
+                                        enabled: !app.backup.busy
+                                        text: qsTr("Delete backup")
+                                        onClicked: {
+                                            if (backupCard.pendingConfirm === "disable_and_delete") {
+                                                backupCard.pendingConfirm = ""
+                                                app.backup.runAction("disable_and_delete")
+                                            } else {
+                                                backupCard.pendingConfirm = "disable_and_delete"
+                                            }
+                                        }
+                                    }
+                                    AppButton {
+                                        visible: backupCard.pendingConfirm.length > 0
+                                        storm: true
+                                        kind: "ghost"
+                                        size: "sm"
+                                        text: qsTr("Cancel")
+                                        onClicked: backupCard.pendingConfirm = ""
+                                    }
+                                }
+                            }
+                        }
+
                         TrustCard {
                             id: sessionsTrustCard
                             objectName: "sessionsTrustCard"
@@ -5374,8 +5630,54 @@ Item {
                                 // language of the trust surface, in theme
                                 // ink. Trust values still come straight from
                                 // SDK state; nothing here invents trust.
+                                // v0.9 (phase 9): filter the list. A
+                                // QML-side filter over the same snapshot —
+                                // nothing is refetched, and "Unverified"
+                                // means a session WITH a crypto identity
+                                // that is not cross-signed (a session with
+                                // no encryption at all is neither).
+                                SegmentedControl {
+                                    id: sessionFilter
+                                    objectName: "sessionFilter"
+                                    storm: true
+                                    dense: true
+                                    model: [
+                                        { value: "all", label: qsTr("All") },
+                                        { value: "current", label: qsTr("Current") },
+                                        { value: "verified", label: qsTr("Verified") },
+                                        { value: "unverified", label: qsTr("Unverified") }
+                                    ]
+                                    current: "all"
+                                    onActivated: (value) => current = value
+                                }
+                                Label {
+                                    visible: app.sessionDeviceRenameError.length > 0
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormDanger
+                                    font.pixelSize: AppTheme.textBody
+                                    text: app.sessionDeviceRenameError
+                                }
                                 Repeater {
-                                    model: app.sessionDevices
+                                    model: {
+                                        var all = app.sessionDevices
+                                        var f = sessionFilter.current
+                                        if (f === "all")
+                                            return all
+                                        var out = []
+                                        for (var i = 0; i < all.length; ++i) {
+                                            var d = all[i]
+                                            if (f === "current" && d.isCurrent === true)
+                                                out.push(d)
+                                            else if (f === "verified" && d.crossSigned === true)
+                                                out.push(d)
+                                            else if (f === "unverified"
+                                                     && d.hasCryptoIdentity === true
+                                                     && d.crossSigned !== true)
+                                                out.push(d)
+                                        }
+                                        return out
+                                    }
                                     delegate: Rectangle {
                                         Layout.fillWidth: true
                                         radius: AppTheme.radiusTile
@@ -5475,6 +5777,47 @@ Item {
                                             // current one — that is the
                                             // normal Sign out flow with its
                                             // store cleanup.
+                                            // v0.9 (phase 9): rename. A
+                                            // small inline field replaces
+                                            // the button while editing; the
+                                            // write goes through the standard
+                                            // device endpoint and the list
+                                            // refetches on success.
+                                            AppButton {
+                                                objectName: "sessionRenameButton_"
+                                                            + modelData.deviceId
+                                                visible: !renameField.visible
+                                                storm: true
+                                                kind: "ghost"
+                                                size: "sm"
+                                                enabled: !app.sessionDeviceRenaming
+                                                text: qsTr("Rename")
+                                                Accessible.name:
+                                                    qsTr("Rename session %1")
+                                                        .arg(modelData.deviceId)
+                                                onClicked: {
+                                                    renameField.text =
+                                                        modelData.displayName || ""
+                                                    renameField.visible = true
+                                                    renameField.forceActiveFocus()
+                                                }
+                                            }
+                                            AppTextField {
+                                                id: renameField
+                                                objectName: "sessionRenameField_"
+                                                            + modelData.deviceId
+                                                visible: false
+                                                storm: true
+                                                Layout.preferredWidth: 160
+                                                placeholderText: qsTr("Session name")
+                                                onAccepted: {
+                                                    if (text.trim().length > 0)
+                                                        app.renameSessionDevice(
+                                                            modelData.deviceId, text)
+                                                    visible = false
+                                                }
+                                                Keys.onEscapePressed: visible = false
+                                            }
                                             AppButton {
                                                 objectName: "sessionSignOutButton_"
                                                             + modelData.deviceId

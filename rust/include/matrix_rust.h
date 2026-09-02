@@ -486,6 +486,22 @@ char *mx_rust_thread_send_text(void *client,
  * merged with SDK crypto trust). Result: `device_list` poll event with
  * presentation-safe fields only — never device keys or tokens. */
 char *mx_rust_list_devices(void *client);
+/* v0.9 device + backup management (phase 9). Rename answers on
+ * device_renamed {op_id, ok, category}. Backup actions: enable |
+ * create_backup | reset_key | disable_and_delete | disable_recovery —
+ * every one the SDK's own recovery/backup flow; answers on
+ * backup_action_result {op_id, action, ok, recovery_key, category}, where
+ * recovery_key is set ONCE for enable/reset_key and must be shown, never
+ * logged or stored. Progress snapshot answers on backup_progress
+ * {backup_state, upload_state, backed_up, total}. */
+char *mx_rust_rename_device(void *client,
+                            const char *device_id,
+                            const char *display_name,
+                            unsigned long long op_id);
+char *mx_rust_backup_action(void *client,
+                            const char *action,
+                            unsigned long long op_id);
+char *mx_rust_request_backup_progress(void *client);
 
 /* v0.6.0 checkpoint 8: manual decryption retry for the open room's visible
  * unable-to-decrypt events (incl. the open thread panel). Never resets or

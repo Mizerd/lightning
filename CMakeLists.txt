@@ -668,6 +668,8 @@ set(APP_SOURCES
     src/crypto/CryptoManager.cpp
     src/crypto/CryptoHealthModel.h
     src/crypto/CryptoHealthModel.cpp
+    src/crypto/BackupController.h
+    src/crypto/BackupController.cpp
     src/crypto/CryptoBootstrapModel.h
     src/crypto/CryptoBootstrapModel.cpp
     src/crypto/E2eeDiagnostics.h

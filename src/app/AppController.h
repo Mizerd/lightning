@@ -300,6 +300,8 @@ class AppController : public QObject
     Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
     // v0.6.0 checkpoint 7: read-only E2EE health/readiness (app.cryptoHealth).
     Q_PROPERTY(CryptoHealthModel* cryptoHealth READ cryptoHealth CONSTANT)
+    // v0.9 (phase 9): key-backup / recovery management (app.backup).
+    Q_PROPERTY(QObject* backup READ backup CONSTANT)
     // v0.7: verified-session key-bootstrap status (app.cryptoBootstrap).
     Q_PROPERTY(CryptoBootstrapModel* cryptoBootstrap READ cryptoBootstrap CONSTANT)
     // v0.6.0 checkpoint 9: the account's devices/sessions (server metadata +
@@ -317,6 +319,10 @@ class AppController : public QObject
                    WRITE setActiveRoomHydrating
                    NOTIFY activeRoomHydratingChanged)
     Q_PROPERTY(bool sessionDevicesLoading READ sessionDevicesLoading NOTIFY sessionDevicesChanged)
+    Q_PROPERTY(QString sessionDeviceRenameError READ sessionDeviceRenameError
+                   NOTIFY sessionDevicesChanged)
+    Q_PROPERTY(bool sessionDeviceRenaming READ sessionDeviceRenaming
+                   NOTIFY sessionDevicesChanged)
     Q_PROPERTY(bool sessionDevicesFailed READ sessionDevicesFailed NOTIFY sessionDevicesChanged)
     Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
     Q_PROPERTY(ThreadManager* threads READ threads CONSTANT)
@@ -563,6 +569,7 @@ public:
     MediaManager *media() const;
     CryptoManager *crypto() const;
     CryptoHealthModel *cryptoHealth() const { return m_cryptoHealth.get(); }
+    QObject *backup() const;
     CryptoBootstrapModel *cryptoBootstrap() const
     { return m_cryptoBootstrap.get(); }
     // Bounded UI refresh (Settings "Refresh" and post-operation updates).
@@ -571,6 +578,14 @@ public:
     bool sessionDevicesLoading() const { return m_sessionDevicesLoading; }
     bool sessionDevicesFailed() const { return m_sessionDevicesFailed; }
     Q_INVOKABLE void refreshSessionDevices();
+    // v0.9 (phase 9): rename one of this account's sessions through the
+    // standard device endpoint; the list is refetched on success. The
+    // outcome lands on sessionDeviceRenameError ("" = fine) and
+    // sessionDeviceRenaming.
+    Q_INVOKABLE void renameSessionDevice(const QString &deviceId,
+                                         const QString &name);
+    QString sessionDeviceRenameError() const { return m_sessionDeviceRenameError; }
+    bool sessionDeviceRenaming() const { return m_sessionDeviceRenameOp != 0; }
     bool activeRoomAtLatest() const { return m_activeRoomAtLatest; }
     bool activeRoomHydrating() const { return m_activeRoomHydrating; }
     void setActiveRoomAtLatest(bool atLatest);
@@ -1252,6 +1267,7 @@ private:
     std::unique_ptr<MediaManager> m_media;
     std::unique_ptr<CryptoManager> m_crypto;
     std::unique_ptr<CryptoHealthModel> m_cryptoHealth;
+    std::unique_ptr<class BackupController> m_backup;
     std::unique_ptr<CryptoBootstrapModel> m_cryptoBootstrap;
     // The CryptoHealthModel generation captured at the moment a crypto-health
     // query is DISPATCHED. Comparing this (not the model's live generation)
@@ -1262,6 +1278,8 @@ private:
     quint64 m_cryptoQueryGeneration = 1;
     QVariantList m_sessionDevices;
     bool m_sessionDevicesLoading = false;
+    quint64 m_sessionDeviceRenameOp = 0;
+    QString m_sessionDeviceRenameError;
     bool m_sessionDevicesFailed = false;
     bool m_activeRoomAtLatest = false;
     bool m_activeRoomHydrating = false;

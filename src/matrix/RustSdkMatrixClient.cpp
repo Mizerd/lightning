@@ -5860,6 +5860,37 @@ void RustSdkMatrixClient::requestEventSource(const QString &roomId,
                                                 ev.constData()));
 }
 
+quint64 RustSdkMatrixClient::renameDevice(const QString &deviceId,
+                                          const QString &name)
+{
+    if (!m_rustHandle || deviceId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray id = deviceId.toUtf8();
+    const QByteArray value = name.toUtf8();
+    const QString result = takeRustString(mx_rust_rename_device(
+        m_rustHandle, id.constData(), value.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::backupAction(const QString &action)
+{
+    if (!m_rustHandle || action.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray value = action.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_backup_action(m_rustHandle, value.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+void RustSdkMatrixClient::requestBackupProgress()
+{
+    if (!m_rustHandle)
+        return;
+    takeRustString(mx_rust_request_backup_progress(m_rustHandle));
+}
+
 void RustSdkMatrixClient::requestRoomVersions()
 {
     if (!m_rustHandle)
@@ -7980,6 +8011,31 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 { QStringLiteral("verification"),
                   enc.value(QStringLiteral("verification")).toString() },
             });
+        return true;
+    }
+
+    if (type == QLatin1String("device_renamed")) {
+        Q_EMIT deviceRenamed(opId(), event.value(QStringLiteral("ok")).toBool(),
+                             event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("backup_action_result")) {
+        // SENSITIVE: `event` may carry a recovery key. Never log it.
+        Q_EMIT backupActionFinished(
+            opId(), event.value(QStringLiteral("action")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("recovery_key")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("backup_progress")) {
+        Q_EMIT backupProgress(
+            event.value(QStringLiteral("backup_state")).toString(),
+            event.value(QStringLiteral("upload_state")).toString(),
+            event.value(QStringLiteral("backed_up")).toVariant().toLongLong(),
+            event.value(QStringLiteral("total")).toVariant().toLongLong());
         return true;
     }
 

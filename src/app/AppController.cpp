@@ -1,6 +1,7 @@
 #include "app/AppController.h"
 
 #include "app/RichComposerBridge.h"
+#include "crypto/BackupController.h"
 
 #include <algorithm>
 
@@ -262,6 +263,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_media        = std::make_unique<MediaManager>(this);
     m_crypto       = std::make_unique<CryptoManager>(this);
     m_cryptoHealth = std::make_unique<CryptoHealthModel>(this);
+    m_backup       = std::make_unique<BackupController>(this);
     m_cryptoBootstrap = std::make_unique<CryptoBootstrapModel>(this);
     m_spaces       = std::make_unique<SpaceManager>(this);
     m_threads      = std::make_unique<ThreadManager>(this);
@@ -598,6 +600,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 // next account. No per-room signals: the pickers re-query
                 // when they (re)open.
                 m_notificationModeSyncFailures.clear();
+                // A session rename in flight at sign-out must not lock
+                // renaming for the next account (its answer, if it ever
+                // comes, belongs to nobody now).
+                if (m_sessionDeviceRenameOp != 0
+                    || !m_sessionDeviceRenameError.isEmpty()) {
+                    m_sessionDeviceRenameOp = 0;
+                    m_sessionDeviceRenameError.clear();
+                    Q_EMIT sessionDevicesChanged();
+                }
             });
     // Room-open roster hydration marks a room BEFORE its fetch resolves;
     // a failed fetch must un-mark it or the room's mention chips and reply
@@ -826,6 +837,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             });
     m_pinned->setClient(m_client.get());
     m_roomUpgrade->setClient(m_client.get());
+    m_backup->setClient(m_client.get());
     m_thread->setClient(m_client.get());
     m_thread->setDraftStore(m_draftStore.get());
     m_draftStore->setClient(m_client.get());
@@ -1316,6 +1328,20 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_sessionDevicesLoading = false;
             m_sessionDevicesFailed = !ok;
             Q_EMIT sessionDevicesChanged();
+        });
+        connect(rust, &MatrixClient::deviceRenamed, this,
+                [this](quint64 opId, bool ok, const QString &category) {
+            if (opId == 0 || opId != m_sessionDeviceRenameOp)
+                return;
+            m_sessionDeviceRenameOp = 0;
+            m_sessionDeviceRenameError = ok
+                ? QString()
+                : (category == QLatin1String("forbidden")
+                       ? tr("The server refused to rename this session.")
+                       : tr("The session could not be renamed."));
+            Q_EMIT sessionDevicesChanged();
+            if (ok)
+                refreshSessionDevices();
         });
         connect(this, &AppController::verificationStateChanged,
                 this, [this] {
@@ -2069,6 +2095,7 @@ QAbstractItemModel *AppController::timelineView() const
 { return m_timelineView.get(); }
 MessageComposer *AppController::composer() const { return m_composer.get(); }
 QObject *AppController::richComposer() const { return m_richComposer.get(); }
+QObject *AppController::backup() const { return m_backup.get(); }
 MediaManager *AppController::media() const { return m_media.get(); }
 CryptoManager *AppController::crypto() const { return m_crypto.get(); }
 SpaceManager *AppController::spaces() const { return m_spaces.get(); }
@@ -3112,6 +3139,21 @@ void AppController::setActiveRoomHydrating(bool hydrating)
         return;
     m_activeRoomHydrating = hydrating;
     Q_EMIT activeRoomHydratingChanged();
+}
+
+void AppController::renameSessionDevice(const QString &deviceId,
+                                        const QString &name)
+{
+    if (!m_client || deviceId.isEmpty() || m_sessionDeviceRenameOp != 0)
+        return;
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty())
+        return;
+    const quint64 opId = m_client->renameDevice(deviceId, trimmed);
+    m_sessionDeviceRenameError =
+        opId == 0 ? tr("Renaming sessions is not available here.") : QString();
+    m_sessionDeviceRenameOp = opId;
+    Q_EMIT sessionDevicesChanged();
 }
 
 void AppController::refreshSessionDevices()

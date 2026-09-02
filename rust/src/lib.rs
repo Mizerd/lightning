@@ -5101,6 +5101,213 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
 /// device ids, names, timestamps, last-seen IP as reported by the
 /// homeserver — never device keys, signatures, or tokens.
 #[no_mangle]
+/// v0.9 device management (phase 9): rename ONE of the account's devices
+/// through the standard PUT /devices/{id}. No UIA is involved (the endpoint
+/// needs none). Answers on `device_renamed {op_id, ok, category}`; the C++
+/// side refetches the list on success.
+pub unsafe extern "C" fn mx_rust_rename_device(
+    ptr: *mut c_void,
+    device_id: *const c_char,
+    display_name: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let device_id = unsafe { cstr_arg(device_id) }?;
+        let display_name = unsafe { cstr_arg(display_name) }?;
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        let events = Arc::clone(&bridge.events);
+        let lifecycle = bridge.timelines.lifecycle();
+        let timelines = Arc::clone(&bridge.timelines);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, "rename_device", async move {
+                use matrix_sdk::ruma::api::client::device::update_device;
+                use matrix_sdk::ruma::OwnedDeviceId;
+                let id: OwnedDeviceId = device_id.clone().into();
+                let mut request = update_device::v3::Request::new(id);
+                request.display_name = Some(display_name);
+                let result = client.send(request).await;
+                if !timelines.lifecycle_current(lifecycle) {
+                    return;
+                }
+                enqueue(
+                    &events,
+                    match result {
+                        Ok(_) => json!({
+                            "type": "device_renamed", "op_id": op_id,
+                            "lifecycle": lifecycle, "ok": true,
+                        }),
+                        Err(err) => json!({
+                            "type": "device_renamed", "op_id": op_id,
+                            "lifecycle": lifecycle, "ok": false,
+                            "category": rooms::classify_room_error(&err.to_string()),
+                        }),
+                    },
+                );
+            });
+        });
+        Ok(String::new())
+    })
+}
+
+/// v0.9 key-backup management (phase 9). Every action is the SDK's own
+/// recovery/backup flow — nothing here touches the crypto store directly:
+///   * "enable": Recovery::enable() — creates secret storage AND the key
+///     backup, uploads existing room keys, and returns the NEW RECOVERY KEY;
+///   * "create_backup": Recovery::enable_backup() — creates/enables the
+///     backup on an account that already has secret storage;
+///   * "reset_key": Recovery::reset_key() — a NEW recovery key replaces the
+///     old one (the old key stops working); returns the new key;
+///   * "disable_and_delete": Backups::disable_and_delete() — deletes the
+///     server-side backup version (room keys in it are gone; the local
+///     store is untouched);
+///   * "disable_recovery": Recovery::disable() — removes secret storage AND
+///     the backup.
+/// The recovery key crosses the FFI ONCE, in `backup_action_result`, for
+/// display; it is never logged and never persisted by this side. Progress
+/// of the room-key upload after enable/create rides `backup_progress`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_backup_action(
+    ptr: *mut c_void,
+    action: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let action = unsafe { cstr_arg(action) }?;
+        match action.as_str() {
+            "enable" | "create_backup" | "reset_key" | "disable_and_delete"
+            | "disable_recovery" => {}
+            _ => return Err("unknown backup action".to_owned()),
+        }
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        let events = Arc::clone(&bridge.events);
+        let lifecycle = bridge.timelines.lifecycle();
+        let timelines = Arc::clone(&bridge.timelines);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, "backup_action", async move {
+                let encryption = client.encryption();
+                let recovery = encryption.recovery();
+                let backups = encryption.backups();
+                // Ok(Some(key)) when a fresh recovery key was minted.
+                let result: Result<Option<String>, String> = match action.as_str() {
+                    "enable" => recovery
+                        .enable()
+                        .wait_for_backups_to_upload()
+                        .await
+                        .map(Some)
+                        .map_err(|e| e.to_string()),
+                    "create_backup" => recovery
+                        .enable_backup()
+                        .await
+                        .map(|_| None)
+                        .map_err(|e| e.to_string()),
+                    "reset_key" => recovery
+                        .reset_key()
+                        .await
+                        .map(Some)
+                        .map_err(|e| e.to_string()),
+                    "disable_and_delete" => backups
+                        .disable_and_delete()
+                        .await
+                        .map(|_| None)
+                        .map_err(|e| e.to_string()),
+                    "disable_recovery" => recovery
+                        .disable()
+                        .await
+                        .map(|_| None)
+                        .map_err(|e| e.to_string()),
+                    _ => Err("unknown backup action".to_owned()),
+                };
+                if !timelines.lifecycle_current(lifecycle) {
+                    return;
+                }
+                match result {
+                    Ok(key) => enqueue(
+                        &events,
+                        json!({
+                            "type": "backup_action_result", "op_id": op_id,
+                            "lifecycle": lifecycle, "action": action, "ok": true,
+                            "recovery_key": key.unwrap_or_default(),
+                        }),
+                    ),
+                    Err(message) => enqueue(
+                        &events,
+                        json!({
+                            "type": "backup_action_result", "op_id": op_id,
+                            "lifecycle": lifecycle, "action": action, "ok": false,
+                            // Category only — an SDK/server message could carry
+                            // account detail.
+                            "category": rooms::classify_room_error(&message),
+                        }),
+                    ),
+                }
+            });
+        });
+        Ok(String::new())
+    })
+}
+
+/// v0.9: one sanitized snapshot of the room-key upload state, for the
+/// backup card's progress line. Counts only.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_request_backup_progress(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        let events = Arc::clone(&bridge.events);
+        let lifecycle = bridge.timelines.lifecycle();
+        let timelines = Arc::clone(&bridge.timelines);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, "backup_progress", async move {
+                use matrix_sdk::encryption::backups::UploadState;
+                let backups = client.encryption().backups();
+                let state = format!("{:?}", backups.state()).to_lowercase();
+                let steady = backups.wait_for_steady_state();
+                let mut progress = steady.subscribe_to_progress();
+                // One bounded observation: the current upload state, if any
+                // is reported promptly; otherwise the backup state alone.
+                let (backed_up, total, upload) = match tokio::time::timeout(
+                    std::time::Duration::from_millis(500),
+                    futures_util::StreamExt::next(&mut progress),
+                )
+                .await
+                {
+                    Ok(Some(Ok(UploadState::Uploading(counts)))) => {
+                        (counts.backed_up as u64, counts.total as u64, "uploading")
+                    }
+                    Ok(Some(Ok(UploadState::Done))) => (0, 0, "done"),
+                    Ok(Some(Ok(UploadState::Error))) => (0, 0, "error"),
+                    Ok(Some(Ok(UploadState::Idle))) => (0, 0, "idle"),
+                    _ => (0, 0, "unknown"),
+                };
+                if !timelines.lifecycle_current(lifecycle) {
+                    return;
+                }
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "backup_progress", "lifecycle": lifecycle,
+                        "backup_state": state, "upload_state": upload,
+                        "backed_up": backed_up, "total": total,
+                    }),
+                );
+            });
+        });
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn mx_rust_list_devices(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };

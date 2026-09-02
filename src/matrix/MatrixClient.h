@@ -814,6 +814,18 @@ public:
     virtual void requestRoomVersions() {}
     virtual quint64 upgradeRoom(const QString &roomId, const QString &newVersion)
     { Q_UNUSED(roomId); Q_UNUSED(newVersion); return 0; }
+    // v0.9 device + backup management (phase 9). renameDevice answers on
+    // deviceRenamed; backupAction ("enable" | "create_backup" | "reset_key"
+    // | "disable_and_delete" | "disable_recovery") answers on
+    // backupActionFinished, whose recoveryKey is set ONCE for enable /
+    // reset_key and must be shown to the user and then dropped — never
+    // logged, never persisted. requestBackupProgress answers on
+    // backupProgress. 0 = unsupported on this backend.
+    virtual quint64 renameDevice(const QString &deviceId, const QString &name)
+    { Q_UNUSED(deviceId); Q_UNUSED(name); return 0; }
+    virtual quint64 backupAction(const QString &action)
+    { Q_UNUSED(action); return 0; }
+    virtual void requestBackupProgress() {}
     // v0.9 message edit history + event source (phase 7). Answer on
     // editHistoryReceived / eventSourceReceived; the revisions and JSON are
     // DISPLAY data held only while a dialog is open — never cached.
@@ -1527,6 +1539,15 @@ Q_SIGNALS:
     void roomUpgradeFinished(quint64 opId, const QString &roomId, bool ok,
                              const QString &replacementRoomId,
                              const QString &category);
+    // v0.9 device + backup management.
+    void deviceRenamed(quint64 opId, bool ok, const QString &category);
+    // SENSITIVE: recoveryKey is real secret material when non-empty.
+    // Consumers display it once and clear it; nothing may log it.
+    void backupActionFinished(quint64 opId, const QString &action, bool ok,
+                              const QString &recoveryKey,
+                              const QString &category);
+    void backupProgress(const QString &backupState, const QString &uploadState,
+                        qint64 backedUp, qint64 total);
     // v0.9 phase 7. `revisions` is [{eventId, sender, timestamp(QDateTime),
     // body, formattedBody, redacted, undecryptable, isOriginal, isLatest}]
     // in chronological order. `encryption` is {encrypted, senderKey,

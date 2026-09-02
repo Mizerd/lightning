@@ -44,6 +44,13 @@ class CryptoHealthModel : public QObject
     Q_PROPERTY(int pendingVerificationCount READ pendingVerificationCount NOTIFY healthChanged)
     Q_PROPERTY(QDateTime lastRefreshed READ lastRefreshed NOTIFY healthChanged)
     Q_PROPERTY(QString statusSummary READ statusSummary NOTIFY healthChanged)
+    // v0.9 (phase 9): the three cross-signing keys individually, for the
+    // detail view. Booleans from the SDK's own identity state — whether
+    // each key is KNOWN locally (present in the store), never the private
+    // material itself.
+    Q_PROPERTY(bool hasMasterKey READ hasMasterKey NOTIFY healthChanged)
+    Q_PROPERTY(bool hasSelfSigningKey READ hasSelfSigningKey NOTIFY healthChanged)
+    Q_PROPERTY(bool hasUserSigningKey READ hasUserSigningKey NOTIFY healthChanged)
 
 public:
     enum TriState { Unknown = 0, No = 1, Yes = 2 };
@@ -74,6 +81,9 @@ public:
     TriState currentDeviceVerified() const { return m_deviceVerified; }
     bool crossSigningAvailable() const { return m_crossSigningAvailable; }
     bool crossSigningReady() const { return m_crossSigningReady; }
+    bool hasMasterKey() const { return m_hasMasterKey; }
+    bool hasSelfSigningKey() const { return m_hasSelfSigningKey; }
+    bool hasUserSigningKey() const { return m_hasUserSigningKey; }
     TriState ownIdentityVerified() const { return m_ownIdentityVerified; }
     bool keyBackupAvailable() const { return m_backupAvailable; }
     bool keyBackupUsable() const { return m_backupUsable; }
@@ -99,6 +109,9 @@ private:
     TriState m_deviceVerified = Unknown;
     bool m_crossSigningAvailable = false;
     bool m_crossSigningReady = false;
+    bool m_hasMasterKey = false;
+    bool m_hasSelfSigningKey = false;
+    bool m_hasUserSigningKey = false;
     TriState m_ownIdentityVerified = Unknown;
     bool m_backupAvailable = false;
     bool m_backupUsable = false;
