@@ -171,6 +171,91 @@ private slots:
         delete m_controller;
     }
 
+    // 2026-09-02, reported twice with a screenshot: the rich-only toolbar
+    // chips sat in 72px-wide boxes (AppButton's minimum, meant for a button
+    // with a word on it), which reads as two holes in a row of 28px icon
+    // buttons. Measured against the REAL bar rather than its source text.
+    void theRichToolbarChipsAreNoWiderThanTheIconButtonsBesideThem()
+    {
+        auto *bar = item(QStringLiteral("composerBar"));
+        QVERIFY(bar);
+        m_controller->settings()->setComposerMode(QStringLiteral("rich"));
+        bar->setProperty("toolbarExpanded", true);
+        // Layouts settle on the polish pass, which an offscreen window runs
+        // only when it updates: processEvents alone reads the old frame.
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+
+        auto *bold = item(QStringLiteral("composerFormat_bold"));
+        auto *underline = item(QStringLiteral("composerFormat_underline"));
+        auto *ordered = item(QStringLiteral("composerFormat_orderedlist"));
+        QVERIFY(bold);
+        QVERIFY(underline);
+        QVERIFY(ordered);
+        QVERIFY2(underline->isVisible() && ordered->isVisible(),
+                 "the rich-only chips are not shown in rich mode");
+        // The chips carry two characters; the icon buttons beside them are
+        // 28px. A chip wider than one and a half of those is the 72px
+        // button box coming back.
+        const qreal ceiling = bold->width() * 1.5;
+        QVERIFY2(underline->width() <= ceiling,
+                 qPrintable(QStringLiteral("underline chip is %1px beside a %2px "
+                                           "icon button").arg(underline->width())
+                                .arg(bold->width())));
+        QVERIFY2(ordered->width() <= ceiling,
+                 qPrintable(QStringLiteral("numbered-list chip is %1px beside a "
+                                           "%2px icon button").arg(ordered->width())
+                                .arg(bold->width())));
+        m_controller->settings()->setComposerMode(QStringLiteral("markdown"));
+        bar->setProperty("toolbarExpanded", false);
+        QTest::qWait(60);
+    }
+
+    // ...and the other half of that report: pressing the numbered-list chip
+    // put "1." in the rich editor while the placeholder stayed drawn
+    // underneath it, because an empty list item has no characters and the
+    // field's own emptiness test counts characters.
+    void aListMarkerInTheRichEditorClearsThePlaceholder()
+    {
+        auto *bar = item(QStringLiteral("composerBar"));
+        QVERIFY(bar);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:example.org"));
+        m_controller->settings()->setComposerMode(QStringLiteral("rich"));
+        bar->setProperty("toolbarExpanded", true);
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+
+        auto *rich = item(QStringLiteral("composerRichInput"));
+        QVERIFY(rich);
+        const QString placeholderWhenEmpty =
+            rich->property("placeholderText").toString();
+        QVERIFY2(!placeholderWhenEmpty.isEmpty(),
+                 "an empty rich editor should still offer its placeholder");
+
+        QMetaObject::invokeMethod(bar, "applyRichFormat",
+                                  Q_ARG(QVariant, QStringLiteral("orderedlist")),
+                                  Q_ARG(QVariant, QString()));
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+        QCOMPARE(rich->property("length").toInt(), 0); // no characters typed
+        QVERIFY2(rich->property("placeholderText").toString().isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "the list marker is drawn but the placeholder \"%1\" is "
+                     "still shown under it")
+                     .arg(rich->property("placeholderText").toString())));
+
+        // Removing the list gives the placeholder back.
+        QMetaObject::invokeMethod(bar, "applyRichFormat",
+                                  Q_ARG(QVariant, QStringLiteral("orderedlist")),
+                                  Q_ARG(QVariant, QString()));
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+        QCOMPARE(rich->property("placeholderText").toString(), placeholderWhenEmpty);
+        m_controller->settings()->setComposerMode(QStringLiteral("markdown"));
+        bar->setProperty("toolbarExpanded", false);
+        QTest::qWait(60);
+    }
+
     void theComposerLoadsWithNoQmlWarnings()
     {
         QCOMPARE(m_warnings, QStringList{});
