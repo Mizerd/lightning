@@ -480,7 +480,10 @@ private Q_SLOTS:
             QStringLiteral("QSettings"), QStringLiteral("KWallet"),
             QStringLiteral("libsecret"), QStringLiteral("gnome-keyring"),
             QStringLiteral("xdg-desktop-portal"),
-            QStringLiteral("matrix-client"),
+            // The application binary, renamed from the generic
+            // "matrix-client" in 486b4c9. The persistent identity kept the
+            // old spelling, but no user-visible string carries it.
+            QStringLiteral("lightning-matrix"),
             QStringLiteral("WebP"), QStringLiteral("PNG"),
             QStringLiteral("JPEG"), QStringLiteral("GIF"),
             QStringLiteral("BMP"), QStringLiteral("SDK"),

@@ -126,6 +126,24 @@ half-translated string falls back to English rather than shipping a draft.
 `tests/LocalizationTest.cpp` fails if any of the first three are missed or if
 the catalogs no longer match the strings currently extracted from the source.
 
+**Every round that adds a `qsTr()` owes a catalog refresh.** That gate
+(`catalogsMatchTheCurrentSource`) runs `lupdate` over `src` and `qml` at test
+time and compares the result against all eleven catalogs in both directions,
+so a new user-visible string breaks CTest until the catalogs carry it:
+
+```sh
+for c in en zh_CN hi es ar fr bn pt ru id lt; do
+  nix develop -c lupdate -silent -locations relative -no-obsolete \
+      src qml -ts i18n/lightning_$c.ts
+done
+```
+
+The new entries land untranslated and fall back to English, which is the
+honest state until somebody translates them. Check the plural forms after any
+refresh (`grep -c '<numerusform>' i18n/lightning_ar.ts` and friends): an
+earlier round lost them to a careless run, and the arity per language is
+6 for `ar`, 3 for `ru`/`lt`, 2 for most, 1 for `zh_CN`/`id`.
+
 ## Rules for writing translatable strings
 
 **Never build a sentence with `+`.** `qsTr("User ") + name + qsTr(" joined")`

@@ -1795,11 +1795,17 @@ unhandled. Suites: `call-controller` 35, `call-ring-policy` 10,
   "m.login.password", "m.login.sso"]`, SSO is primary only when there is no
   password flow, and the homeserver host on the browser button derives from
   what the USER typed, because a server must not choose the words on
-  Lightning's own button. **The i18n catalogs are deliberately NOT
-  regenerated** — already ~27 strings behind, and `lupdate` rewrote all 10
-  files (53k lines) warning "Removed plural forms as the target language has
-  less forms", a real plural-damage risk, so those labels render in English on
-  non-English UIs until a dedicated localization refresh.
+  Lightning's own button. **RETIRED 2026-09-02: the i18n catalogs are now
+  REFRESHED EVERY ROUND.** They used to be deliberately left alone (~27
+  strings behind, and `lupdate` rewrote all 10 files warning "Removed plural
+  forms as the target language has less forms"). PR #7 added an eleventh
+  language, refreshed catalogs and a CTest gate
+  (`catalogsMatchTheCurrentSource`) that extracts the live source with
+  `lupdate` and diffs it against every catalog, so a round that adds a
+  `qsTr()` and skips the refresh now FAILS `localization`. The refresh loop is
+  in `docs/localization.md`. The plural-damage risk is real and unchanged:
+  count `<numerusform>` after every refresh — 6 forms for `ar`, 3 for
+  `ru`/`lt`, 2 for most, 1 for `zh_CN`/`id`.
 - **MediaBridge request priorities** (0 explicit playback/save, 1
   avatars/thumbnails, 2 full static, 3 speculative GIF prefetch), two slots
   reserved for interactive classes, a 15 s starvation bound, temp-file pinning
