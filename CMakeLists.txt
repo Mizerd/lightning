@@ -577,6 +577,7 @@ set(APP_SOURCES
     src/models/PaginationController.h
     src/models/PaginationController.cpp
     src/models/RoomExport.cpp
+    src/models/WidgetController.cpp
     src/models/ReadReceiptCoordinator.h
     src/models/ReadReceiptCoordinator.cpp
     src/models/LinkPreview.h
@@ -872,6 +873,7 @@ set(APP_QML_FILES
     qml/ColorPickerPanel.qml
     qml/GifPicker.qml
     qml/ExportRoomDialog.qml
+    qml/WidgetOpenSheet.qml
     qml/JumpToDateDialog.qml
     qml/StickerPicker.qml
     qml/QuickSwitcher.qml
@@ -2665,6 +2667,32 @@ if(BUILD_TESTING)
     target_include_directories(room-export-test PRIVATE src)
     target_link_libraries(room-export-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-export COMMAND room-export-test)
+
+    # Widgets. Lightning lists them and opens them in the user's browser
+    # rather than embedding them, so almost all the weight is on one property:
+    # no QML path may hand the desktop a URL that did not come from the
+    # model's own validated list. The URL rules themselves live in Rust with
+    # their own tests; this covers the boundary.
+    qt_add_executable(widget-controller-test
+        tests/WidgetControllerTest.cpp
+        src/models/WidgetController.h
+        src/models/WidgetController.cpp
+        src/app/UrlLauncher.h
+        src/app/UrlLauncher.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(widget-controller-test PRIVATE src)
+    target_link_libraries(widget-controller-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME widget-controller COMMAND widget-controller-test)
 
     # v0.7.x message forwarding: ForwardController policy — refusal of
     # redacted/local-echo/undecryptable sources, plain-body text forwarding

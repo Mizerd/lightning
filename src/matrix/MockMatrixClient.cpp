@@ -2784,6 +2784,22 @@ quint64 MockMatrixClient::searchMessages(const QString &term, const QString &,
 // Matches the real index's observable contract; see the header for why this
 // exists at all rather than answering "unsupported".
 
+quint64 MockMatrixClient::roomWidgets(const QString &roomId,
+                                     const QString &theme,
+                                     const QString &language)
+{
+    if (roomId.isEmpty())
+        return 0;
+    lastWidgetTheme = theme;
+    lastWidgetLanguage = language;
+    const quint64 op = ++m_opCounter;
+    const QVariantList rows = mockWidgets;
+    QTimer::singleShot(0, this, [this, op, roomId, rows] {
+        Q_EMIT roomWidgetsReceived(op, roomId, true, rows);
+    });
+    return op;
+}
+
 quint64 MockMatrixClient::localSearch(const QString &query,
                                       const QString &roomId,
                                       int limit, int offset)

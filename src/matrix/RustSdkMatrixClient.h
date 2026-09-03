@@ -450,6 +450,9 @@ public:
     void forgetIndexedRoom(const QString &roomId) override;
     void clearSearchIndex() override;
     bool supportsLocalSearch() const override { return m_rustHandle != nullptr; }
+    quint64 roomWidgets(const QString &roomId, const QString &theme,
+                        const QString &language) override;
+    bool supportsWidgets() const override { return m_rustHandle != nullptr; }
     // v0.9 device + backup management (phase 9).
     quint64 renameDevice(const QString &deviceId, const QString &name) override;
     quint64 backupAction(const QString &action) override;

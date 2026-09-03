@@ -274,6 +274,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_cryptoHealth = std::make_unique<CryptoHealthModel>(this);
     m_backup       = std::make_unique<BackupController>(this);
     m_scheduledSends = std::make_unique<ScheduledSendController>(this);
+    m_widgets = std::make_unique<WidgetController>(this);
     m_activity = std::make_unique<ActivityModel>(this);
     m_cryptoBootstrap = std::make_unique<CryptoBootstrapModel>(this);
     m_spaces       = std::make_unique<SpaceManager>(this);
@@ -913,6 +914,34 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_roomUpgrade->setClient(m_client.get());
     m_backup->setClient(m_client.get());
     m_scheduledSends->setClient(m_client.get());
+    m_widgets->setClient(m_client.get());
+    // Theme and language are template variables a widget URL may carry, so a
+    // widget can match the client's look. Pushed in from the one place that
+    // owns both, exactly like the composer's caption setting.
+    if (m_settings && m_localization) {
+        const auto pushPresentation = [this] {
+            // The Qt enum key IS the stable name a widget would key on
+            // ("StormTheme"), and it never needs translating. Lower-cased and
+            // stripped of the suffix so a widget sees "storm", which is the
+            // shape Element's client_theme carries.
+            QString name = QString::fromLatin1(
+                QMetaEnum::fromType<SettingsManager::Theme>()
+                    .valueToKey(m_settings->theme()));
+            if (name.endsWith(QLatin1String("Theme")))
+                name.chop(5);
+            m_widgets->setPresentation(
+                name.toLower(),
+                m_localization ? m_localization->effectiveLanguage() : QString());
+        };
+        pushPresentation();
+        connect(m_settings.get(), &SettingsManager::themeChanged, this,
+                pushPresentation);
+    }
+    // A widget list belongs to ONE room; re-reading on every room change is
+    // what keeps a stale list from being shown under a new room's name.
+    connect(this, &AppController::currentRoomIdChanged, this, [this] {
+        m_widgets->setRoomId(m_currentRoomId);
+    });
     m_activity->setClient(m_client.get());
     // An Activity row click is exactly a notification click: same window
     // raise, same room, same thread, same exact-event landing.

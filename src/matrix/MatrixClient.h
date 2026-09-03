@@ -873,6 +873,20 @@ public:
     /// Whether this backend can search locally at all. Lets a surface be
     /// ABSENT rather than present and dead.
     virtual bool supportsLocalSearch() const { return false; }
+
+    // ── Widgets ──────────────────────────────────────────────────────────
+    //
+    // Lightning LISTS widgets and opens them in the user's browser; it does
+    // not embed them. docs/widgets.md carries the evidence — Windows cannot
+    // build Qt WebEngine at all, Flatpak could only ship Chromium unsandboxed
+    // beside Megolm keys, and QtWebEngineQuick::initialize() would force the
+    // whole application's scenegraph to OpenGL.
+    //
+    // `theme` and `language` are template variables the widget URL may carry.
+    virtual quint64 roomWidgets(const QString &roomId, const QString &theme,
+                                const QString &language)
+    { Q_UNUSED(roomId); Q_UNUSED(theme); Q_UNUSED(language); return 0; }
+    virtual bool supportsWidgets() const { return false; }
     // v0.9 scheduled send (phase 11), the SERVER side (MSC4140 delayed
     // message events). probeDelayedEvents answers on
     // delayedEventsSupportReceived; scheduleMessage on scheduledSendFinished
@@ -1657,6 +1671,11 @@ Q_SIGNALS:
     /// are never persisted by it, never logged, and never leave the process.
     void localSearchFinished(quint64 opId, bool ok, const QString &category,
                              int minChars, const QVariantList &results);
+    /// A room's widgets. Each entry: id, creator, kind, name, url, refusal,
+    /// discloses. `url` is the RESOLVED and VALIDATED address; when it is
+    /// empty, `refusal` says why the widget cannot be opened.
+    void roomWidgetsReceived(quint64 opId, const QString &roomId, bool ok,
+                             const QVariantList &widgets);
     void searchIndexStatsReceived(quint64 opId, qint64 messages, qint64 rooms);
     void searchIndexSwept(quint64 opId, int rooms, int written,
                           qint64 messages, qint64 indexedRooms);

@@ -75,6 +75,7 @@ mod discover;
 mod gifs;
 mod ignore;
 mod localsearch;
+mod widgets;
 mod oauth;
 mod pinned;
 mod search;
@@ -6828,6 +6829,72 @@ pub unsafe extern "C" fn mx_rust_request_edit_history(
 /// MSC3030 "jump to date": the event closest to `timestamp_ms`, searching
 /// FORWARD, so a chosen day lands on its first message. rooms::
 /// event_at_timestamp.
+/// A room's widgets, resolved and validated. See rust/src/widgets.rs for why
+/// Lightning lists and opens rather than embeds. Answers on
+/// `room_widgets {op_id, room_id, ok, widgets:[...]}`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_room_widgets(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    theme: *const c_char,
+    language: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let theme = unsafe { cstr_arg(theme) }?;
+        let language = unsafe { cstr_arg(language) }?;
+        let client = require_client_for_search(bridge)?;
+        let parsed = RoomId::parse(&room_id).map_err(|_| "invalid room id".to_owned())?;
+        let room = client.get_room(&parsed).ok_or_else(|| "unknown room".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        let homeserver = client.homeserver().to_string();
+        let user_id = client.user_id().map(|u| u.to_string()).unwrap_or_default();
+        let device_id = client.device_id().map(|d| d.to_string()).unwrap_or_default();
+        bridge.spawn_room_action(async move {
+            let found = widgets::read_room_widgets(&client, &room).await;
+            // The user's own profile, read from the store — these are values a
+            // widget URL may template, and resolving them per widget would be
+            // one request per row.
+            let display_name = match client.user_id() {
+                Some(uid) => room
+                    .get_member_no_sync(uid)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|m| m.display_name().map(|d| d.to_owned()))
+                    .unwrap_or_default(),
+                None => String::new(),
+            };
+            let avatar = match client.user_id() {
+                Some(uid) => room
+                    .get_member_no_sync(uid)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|m| m.avatar_url().map(|u| u.to_string()))
+                    .unwrap_or_default(),
+                None => String::new(),
+            };
+            let payloads: Vec<serde_json::Value> = found
+                .iter()
+                .map(|w| {
+                    let values = widgets::template_values(
+                        &user_id, room.room_id().as_str(), &w.id, &display_name,
+                        &avatar, &device_id, &homeserver, &theme, &language);
+                    widgets::widget_payload(w, &values)
+                })
+                .collect();
+            enqueue(&events, json!({
+                "type": "room_widgets", "op_id": op_id, "room_id": room_id,
+                "ok": true, "widgets": payloads,
+            }));
+        });
+        Ok(String::new())
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Local message search (SQLite FTS5). See rust/src/localsearch.rs.
 // ---------------------------------------------------------------------------
@@ -12219,6 +12286,73 @@ mod live_e2ee_interop_tests {
             });
             assert_eq!(tooshort["ok"], false);
             assert_eq!(tooshort["category"], "too_short");
+
+            // ── WIDGETS, against the same live account ──────────────
+            //
+            // Parsing and every refusal rule have unit tests. What only a real
+            // room can show is that the state read WORKS: that
+            // get_state_events finds widgets a homeserver actually holds, that
+            // a tombstone does not come back as a widget, and that the hostile
+            // shapes are refused with the right reason rather than opened.
+            if let Some(widget_room) = env_nonempty("LIGHTNING_TEST_WIDGET_ROOM") {
+                let rid = CString::new(widget_room.clone()).unwrap();
+                let theme = CString::new("storm").unwrap();
+                let lang = CString::new("en").unwrap();
+                let err = take(super::mx_rust_room_widgets(
+                    handle, rid.as_ptr(), theme.as_ptr(), lang.as_ptr(), 9400));
+                assert!(err.is_empty(), "widgets dispatch: {err}");
+                let answer = wait_for(handle, "widgets",
+                                      Duration::from_secs(60), |ev| {
+                    ev["type"] == "room_widgets" && ev["op_id"] == 9400
+                });
+                let list = answer["widgets"].as_array().cloned().unwrap_or_default();
+                eprintln!("[live] widgets found: {}", list.len());
+                for w in &list {
+                    eprintln!("[live]   {} kind={} openable={} refusal={}",
+                              w["id"], w["kind"],
+                              !w["url"].as_str().unwrap_or("").is_empty(),
+                              w["refusal"]);
+                }
+                let by_id = |id: &str| -> Option<&serde_json::Value> {
+                    list.iter().find(|w| w["id"] == id)
+                };
+                // The tombstone is NOT a widget. Reading `{}` as one would
+                // resurrect every widget anybody ever deleted.
+                assert!(by_id("dead").is_none(), "a tombstone came back as a widget");
+
+                let jitsi = by_id("jitsi").expect("the real widget was not found");
+                let url = jitsi["url"].as_str().unwrap_or("");
+                assert!(url.starts_with("https://meet.example.org/"), "{url}");
+                assert!(!url.contains('$'), "a variable was left in: {url}");
+                // The room id and the user id are percent-encoded into the
+                // URL, so nothing in them can restructure it. `!` stays
+                // literal on purpose: encode() matches encodeURIComponent,
+                // which is what matrix-widget-api and matrix-sdk both do, and
+                // `!` is a sub-delim that is valid in a path segment and
+                // cannot change the URL's shape. What MUST be encoded is
+                // anything structural.
+                assert!(url.contains("%3A"), "the colon was not encoded: {url}");
+                assert!(url.contains("%40"), "the @ was not encoded: {url}");
+                let after_authority = url.split_once("meet.example.org").unwrap().1;
+                assert!(!after_authority.contains("://"), "{url}");
+                assert!(!after_authority.contains('#'), "{url}");
+                assert!(url.contains("storm"), "the theme was not substituted: {url}");
+                let told = jitsi["discloses"].as_array().cloned().unwrap_or_default();
+                assert!(told.iter().any(|d| d == "user_id"));
+                assert!(told.iter().any(|d| d == "room_id"));
+                assert!(told.iter().any(|d| d == "connection"));
+
+                for (id, reason) in [
+                    ("evil-scheme", "not_https"),
+                    ("evil-authority", "templated_authority"),
+                    ("evil-userinfo", "has_userinfo"),
+                ] {
+                    let w = by_id(id).unwrap_or_else(|| panic!("{id} missing"));
+                    assert_eq!(w["url"].as_str(), Some(""),
+                               "{id} was resolved to an openable URL");
+                    assert_eq!(w["refusal"].as_str(), Some(reason), "{id}");
+                }
+            }
 
             let _ = take(super::mx_rust_shutdown_tasks(handle));
             super::mx_rust_destroy(handle);

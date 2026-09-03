@@ -1047,6 +1047,20 @@ char *mx_rust_request_edit_history(void *client,
 char *mx_rust_request_event_source(void *client,
                                    const char *room_id,
                                    const char *event_id);
+/* A room's widgets (MSC1236 / MSC2764), resolved and validated. Lightning
+   LISTS and OPENS widgets in the user's browser rather than embedding them —
+   see rust/src/widgets.rs and docs/widgets.md for the evidence behind that.
+   Answers on `room_widgets {op_id, room_id, ok, widgets:[{id, creator, kind,
+   name, url, refusal, discloses}]}`. A widget whose URL cannot be opened comes
+   back with an empty `url` and a `refusal` reason rather than being dropped:
+   a widget missing from the list is indistinguishable from a room having
+   none. */
+char *mx_rust_room_widgets(void *client,
+                           const char *room_id,
+                           const char *theme,
+                           const char *language,
+                           unsigned long long op_id);
+
 /* ---------------------------------------------------------------------------
    LOCAL MESSAGE SEARCH (SQLite FTS5). See rust/src/localsearch.rs.
 

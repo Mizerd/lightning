@@ -62,6 +62,14 @@ Rectangle {
     // opened.
     function openForRoom(roomId) {
         app.roomInfo.roomId = roomId
+        // Widgets are read ON DEMAND, not on every room change: the read is a
+        // /state fallback for a type sliding sync does not carry, and doing it
+        // for every room the user passes through would be one request per
+        // room for a panel most of them never open.
+        if (app.widgets.supported) {
+            app.widgets.roomId = roomId
+            app.widgets.refresh()
+        }
         section = "overview"
         memberFilter = ""
         memberSearch.text = ""
@@ -488,6 +496,88 @@ Rectangle {
                         color: AppTheme.textMuted
                         font.pixelSize: AppTheme.textBody
                     }
+
+                    // ── Widgets ──────────────────────────────────────
+                    //
+                    // Lightning LISTS widgets and opens them in the user's
+                    // browser; it does not embed them. docs/widgets.md carries
+                    // the measurements — Windows cannot build Qt WebEngine at
+                    // all, Flatpak could only ship Chromium unsandboxed beside
+                    // Megolm keys, and initialising it would force the whole
+                    // application's scenegraph to OpenGL.
+                    //
+                    // The section is ABSENT rather than empty when the backend
+                    // cannot read widgets, so it never looks like a room has
+                    // none when the truth is that nobody asked.
+                    Label {
+                        Layout.topMargin: AppTheme.spacing16
+                        visible: app.widgets.supported
+                                 && app.widgets.count > 0
+                        text: qsTr("Widgets")
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.textBody
+                        font.weight: AppTheme.weightStrong
+                    }
+                    Repeater {
+                        model: app.widgets.supported ? app.widgets : null
+                        RowLayout {
+                            id: widgetRow
+                            required property int index
+                            required property string name
+                            required property string kind
+                            required property string refusal
+                            required property bool openable
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing8
+                            Icon {
+                                name: "explore"
+                                size: 18
+                                color: widgetRow.openable ? AppTheme.icon
+                                                          : AppTheme.textDisabled
+                                Layout.alignment: Qt.AlignTop
+                                Layout.topMargin: 2
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+                                Label {
+                                    Layout.fillWidth: true
+                                    // A widget name is chosen by whoever added
+                                    // it — remote text in a Label that would
+                                    // otherwise auto-detect rich text.
+                                    textFormat: Text.PlainText
+                                    text: widgetRow.name
+                                    color: AppTheme.text
+                                    elide: Label.ElideRight
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    textFormat: Text.PlainText
+                                    // A REFUSED widget still shows, with the
+                                    // reason. Dropping it would make a widget
+                                    // Lightning will not open indistinguishable
+                                    // from a widget the room never had.
+                                    text: widgetRow.openable
+                                          ? widgetRow.kind
+                                          : app.widgets.refusalText(widgetRow.refusal)
+                                    color: widgetRow.openable
+                                           ? AppTheme.textMuted
+                                           : AppTheme.danger
+                                    font.pixelSize: AppTheme.textMeta
+                                }
+                            }
+                            AppButton {
+                                objectName: "roomInfoOpenWidget"
+                                text: qsTr("Open")
+                                enabled: widgetRow.openable
+                                onClicked: widgetSheet.openFor(
+                                    widgetRow.index,
+                                    app.widgets.rowAt(widgetRow.index))
+                            }
+                        }
+                    }
+                    WidgetOpenSheet { id: widgetSheet }
 
                     // An export is a fact ABOUT the room, so it sits with
                     // the room's own details rather than in the timeline

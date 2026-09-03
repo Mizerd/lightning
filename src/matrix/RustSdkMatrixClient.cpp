@@ -6188,6 +6188,22 @@ quint64 RustSdkMatrixClient::localSearch(const QString &query,
     return opId;
 }
 
+quint64 RustSdkMatrixClient::roomWidgets(const QString &roomId,
+                                        const QString &theme,
+                                        const QString &language)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray th = theme.toUtf8();
+    const QByteArray lang = language.toUtf8();
+    takeRustString(mx_rust_room_widgets(
+        m_rustHandle, room.constData(), th.constData(), lang.constData(),
+        static_cast<unsigned long long>(opId)));
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::searchIndexStats()
 {
     if (!m_rustHandle)
@@ -8367,6 +8383,33 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("sender")).toString(),
             event.value(QStringLiteral("key")).toString(),
             static_cast<qint64>(event.value(QStringLiteral("timestamp_ms")).toDouble()));
+        return true;
+    }
+    if (type == QLatin1String("room_widgets")) {
+        QVariantList widgets;
+        for (const QJsonValue &v :
+             event.value(QStringLiteral("widgets")).toArray()) {
+            const QJsonObject row = v.toObject();
+            QStringList discloses;
+            for (const QJsonValue &d :
+                 row.value(QStringLiteral("discloses")).toArray()) {
+                discloses.append(d.toString());
+            }
+            widgets.append(QVariantMap{
+                { QStringLiteral("id"), row.value(QStringLiteral("id")).toString() },
+                { QStringLiteral("creator"),
+                  row.value(QStringLiteral("creator")).toString() },
+                { QStringLiteral("kind"), row.value(QStringLiteral("kind")).toString() },
+                { QStringLiteral("name"), row.value(QStringLiteral("name")).toString() },
+                { QStringLiteral("url"), row.value(QStringLiteral("url")).toString() },
+                { QStringLiteral("refusal"),
+                  row.value(QStringLiteral("refusal")).toString() },
+                { QStringLiteral("discloses"), discloses },
+            });
+        }
+        Q_EMIT roomWidgetsReceived(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(), widgets);
         return true;
     }
     if (type == QLatin1String("local_search_result")) {

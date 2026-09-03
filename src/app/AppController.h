@@ -8,6 +8,7 @@
 #include "app/UiaController.h"
 #include "models/MessageSearchController.h"
 #include "models/RoomExport.h"
+#include "models/WidgetController.h"
 #include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
 #include "app/CustomThemeStore.h"
@@ -262,6 +263,9 @@ class AppController : public QObject
     /// questions — see SpaceChannelModel's header for why a filtered
     /// roomList cannot do this.
     Q_PROPERTY(SpaceChannelModel* spaceChannels READ spaceChannels CONSTANT)
+    /// The widgets the open room advertises. Lightning lists and OPENS them
+    /// in the user's browser rather than embedding them — docs/widgets.md.
+    Q_PROPERTY(WidgetController* widgets READ widgets CONSTANT)
     Q_PROPERTY(QuickSwitcherModel* quickSwitcher READ quickSwitcher CONSTANT)
     Q_PROPERTY(TimelineModel* timeline READ timeline CONSTANT)
     Q_PROPERTY(QAbstractItemModel* timelineView READ timelineView CONSTANT)
@@ -563,6 +567,7 @@ public:
     AccountManager *accounts() const;
     RoomListModel *roomList() const;
     SpaceChannelModel *spaceChannels() const;
+    WidgetController *widgets() const { return m_widgets.get(); }
     QuickSwitcherModel *quickSwitcher() const;
     TimelineModel *timeline() const;
     QAbstractItemModel *timelineView() const;
@@ -1320,6 +1325,7 @@ private:
     std::unique_ptr<AuthManager> m_auth;
     std::unique_ptr<RoomListModel> m_roomList;
     std::unique_ptr<SpaceChannelModel> m_spaceChannels;
+    std::unique_ptr<WidgetController> m_widgets;
     std::unique_ptr<QuickSwitcherModel> m_quickSwitcher;
     std::unique_ptr<TimelineModel> m_timeline;
     std::unique_ptr<ReverseListProxyModel> m_timelineView;

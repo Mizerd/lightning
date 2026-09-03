@@ -382,6 +382,23 @@ public:
     // GIF picker's blank Saved tab ship (§16): the surface was only ever
     // exercised where its model could not answer.
     bool supportsLocalSearch() const override { return true; }
+
+    // Widgets. The mock serves whatever `mockWidgets` holds, so the list, the
+    // consent sheet and the REFUSAL rows are all reachable without a
+    // homeserver — a refused widget is the case most worth being able to see,
+    // and it is the one a real room is least likely to contain.
+    bool supportsWidgets() const override { return true; }
+    quint64 roomWidgets(const QString &roomId, const QString &theme,
+                        const QString &language) override;
+    /// READY PAYLOADS, not raw state: {id, creator, kind, name, url, refusal,
+    /// discloses}. The mock serves what the backend would have ANSWERED rather
+    /// than re-deriving it, because the derivation — templating, the https
+    /// rule, the userinfo rule, the templated-authority rule — is security
+    /// logic that exists once, in Rust, with its own tests. A second copy here
+    /// could pass while the real one failed.
+    QVariantList mockWidgets;
+    QString lastWidgetTheme;
+    QString lastWidgetLanguage;
     quint64 localSearch(const QString &query, const QString &roomId,
                         int limit, int offset) override;
     quint64 searchIndexStats() override;
