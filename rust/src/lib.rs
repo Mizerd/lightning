@@ -361,21 +361,11 @@ impl RustClient {
             .ok()
             .and_then(|mut guard| guard.take());
         if let Some(mut task) = bootstrap {
-            if let Some(cancel) = task.cancel.take() {
-                let _ = cancel.send(());
-            }
-            if let Some(thread) = task.thread.take() {
-                let _ = thread.join();
-            }
+            join_task_within_budget(&mut task, "crypto-bootstrap");
         }
         let task = self.sync_task.lock().ok().and_then(|mut guard| guard.take());
         if let Some(mut task) = task {
-            if let Some(cancel) = task.cancel.take() {
-                let _ = cancel.send(());
-            }
-            if let Some(thread) = task.thread.take() {
-                let _ = thread.join();
-            }
+            join_task_within_budget(&mut task, "sync");
             true
         } else {
             false
@@ -658,10 +648,80 @@ impl RustClient {
     }
 }
 
+/// Wait for a cancelled task's thread, but never longer than the budget.
+///
+/// Returns true when the thread finished and was joined, false when the
+/// budget ran out and the thread was DETACHED. See
+/// SYNC_TASK_JOIN_BUDGET_MS for why detaching is the right answer: the task
+/// is cancelled, its session is going away, and the bridge's generation
+/// guards already reject anything a straggler could emit — so the only thing
+/// a longer wait buys is a longer freeze.
+fn join_task_within_budget(task: &mut SyncTask, label: &str) -> bool {
+    if let Some(cancel) = task.cancel.take() {
+        let _ = cancel.send(());
+    }
+    let Some(thread) = task.thread.take() else {
+        return true;
+    };
+    let finished = match task.done.take() {
+        // Disconnected = the thread dropped its sender = it has exited.
+        // A timeout is the only outcome that means "still running".
+        Some(done) => !matches!(
+            done.recv_timeout(std::time::Duration::from_millis(
+                SYNC_TASK_JOIN_BUDGET_MS
+            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ),
+        // No signal to wait on (a task built before this existed): fall back
+        // to the old behaviour rather than detaching something that may be
+        // about to finish.
+        None => true,
+    };
+    if finished {
+        let _ = thread.join();
+        return true;
+    }
+    // Deliberately NOT joined: dropping the handle detaches it.
+    eprintln!(
+        "lightning: {label} thread did not stop within {SYNC_TASK_JOIN_BUDGET_MS}ms; \
+detaching it rather than blocking the UI"
+    );
+    false
+}
+
 struct SyncTask {
     cancel: Option<tokio::sync::oneshot::Sender<()>>,
     thread: Option<std::thread::JoinHandle<()>>,
+    /// Signals that `thread` has ACTUALLY finished, so the shutdown can wait
+    /// with a budget instead of blocking forever on `join()`.
+    ///
+    /// Nothing is ever sent on it. The thread owns the Sender, so when the
+    /// thread ends — for any reason — the Sender drops and `recv_timeout`
+    /// returns `Disconnected`. That is the completion signal, and it costs
+    /// the running thread nothing.
+    done: Option<std::sync::mpsc::Receiver<()>>,
 }
+
+/// How long a session teardown will wait for a sync or bootstrap thread to
+/// notice its cancellation before giving up on it.
+///
+/// THIS EXISTS BECAUSE AN UNBOUNDED JOIN FROZE THE UI FOR 45 SECONDS.
+/// Captured on a real desktop with LIGHTNING_GUI_STALL_TRACE: one account
+/// switch reported `GUI stall 45618 ms`, and two more at startup (4943 ms and
+/// 15492 ms). Each of these threads drives a `current_thread` runtime, and
+/// dropping that runtime waits for any `spawn_blocking` already started —
+/// which for matrix-sdk includes DNS resolution. A slow or black-holed
+/// `getaddrinfo` therefore parked the GUI thread for as long as the resolver
+/// took, and the same session log shows the network misbehaving
+/// (`own-presence publish failed: "network"`, then `"rate_limited"`).
+///
+/// On timeout the thread is DETACHED rather than joined. It is cancelled, it
+/// belongs to a session that is going away, and every generation guard in the
+/// bridge already rejects anything it might still emit — so letting it finish
+/// on its own is strictly better than making the user wait for it. This is
+/// the same budgeted shape `shutdown_managed_tasks` uses for its tokio tasks;
+/// these two were the only waits in the teardown with no budget at all.
+const SYNC_TASK_JOIN_BUDGET_MS: u64 = 1500;
 
 /// The authoritative sync path selection. This is deliberately distinct from
 /// transient connectivity: a temporary network loss keeps the selected mode
@@ -1269,8 +1329,12 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         bridge.enqueue(json!({ "type": "status", "state": "syncing" }));
 
         let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        // Held by the thread and never sent on: its DROP is what tells the
+        // teardown this thread is really gone. See SYNC_TASK_JOIN_BUDGET_MS.
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let sync_client = client.clone();
         let thread = std::thread::spawn(move || {
+            let _done = done_tx;
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "sync", async move {
                 run_authoritative_sync(
@@ -1283,6 +1347,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         *task_slot = Some(SyncTask {
             cancel: Some(cancel),
             thread: Some(thread),
+            done: Some(done_rx),
         });
         drop(task_slot);
 
@@ -1300,7 +1365,9 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                 let lifecycle = bridge.timelines.lifecycle();
                 let nudges = Arc::clone(&bridge.recovery_nudges);
                 let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+                let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
                 let thread = std::thread::spawn(move || {
+                    let _done = done_tx;
                     let runtime_events = Arc::clone(&observer_events);
                     run_async(runtime_events, "crypto_bootstrap", async move {
                         run_crypto_bootstrap_observer(
@@ -1313,6 +1380,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                 *slot = Some(SyncTask {
                     cancel: Some(cancel),
                     thread: Some(thread),
+                    done: Some(done_rx),
                 });
             }
         }
@@ -9945,6 +10013,69 @@ fn classify_import_error(message: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+
+    // A CANCELLED THREAD THAT WILL NOT STOP MUST NOT HOLD THE UI.
+    //
+    // This is the account-switch freeze, captured on a real desktop with
+    // LIGHTNING_GUI_STALL_TRACE=1: `GUI stall 45618 ms` on one switch, plus
+    // 4943 ms and 15492 ms at startup. stop_sync_and_wait joined both of
+    // these threads with no budget, and each drives a current_thread runtime
+    // whose drop waits for any spawn_blocking already started — DNS
+    // resolution included. A slow resolver parked the GUI thread for as long
+    // as it took.
+    //
+    // On the unfixed code this test hangs forever, which is the point.
+    #[test]
+    fn a_task_that_will_not_stop_is_detached_rather_than_waited_for() {
+        use super::{join_task_within_budget, SyncTask, SYNC_TASK_JOIN_BUDGET_MS};
+        let (park_tx, park_rx) = std::sync::mpsc::channel::<()>();
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            let _done = done_tx;
+            // Never returns until the test lets it, standing in for a runtime
+            // drop blocked on getaddrinfo.
+            let _ = park_rx.recv();
+        });
+        let (cancel, _cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        let mut task = SyncTask {
+            cancel: Some(cancel),
+            thread: Some(thread),
+            done: Some(done_rx),
+        };
+
+        let started = std::time::Instant::now();
+        let joined = join_task_within_budget(&mut task, "test");
+        let waited = started.elapsed();
+
+        assert!(!joined, "a parked thread must report as detached, not joined");
+        // Bounded by the budget, with generous slack for a loaded CI box.
+        assert!(
+            waited < std::time::Duration::from_millis(SYNC_TASK_JOIN_BUDGET_MS + 2000),
+            "waited {waited:?}, which is past the budget"
+        );
+        // Let the parked thread go so the test process can exit cleanly.
+        let _ = park_tx.send(());
+    }
+
+    // The ordinary case still joins, and does so promptly: a task that has
+    // already finished must not spend any of the budget.
+    #[test]
+    fn a_task_that_has_already_stopped_is_joined_immediately() {
+        use super::{join_task_within_budget, SyncTask};
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            let _done = done_tx;
+        });
+        let (cancel, _cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        let mut task = SyncTask {
+            cancel: Some(cancel),
+            thread: Some(thread),
+            done: Some(done_rx),
+        };
+        let started = std::time::Instant::now();
+        assert!(join_task_within_budget(&mut task, "test"));
+        assert!(started.elapsed() < std::time::Duration::from_millis(1000));
+    }
     use super::classify_import_error;
 
     // ── The account-switch SIGABRT (2026-08-25) ──────────────────────────

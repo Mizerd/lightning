@@ -16,6 +16,43 @@
 | v0.5.x | UI polish + advanced features | Timeline/composer redesign; login redesign; multi-account; SSO/OIDC; authenticated media |
 | v1.0 | Polished release | Rust SDK; hardware-backed secure storage, packaging, i18n complete |
 
+## Next: identified gaps (2026-09-03)
+
+Four features a mainstream Matrix client has and Lightning does not, found by
+grepping the tree rather than by reading this file. Ordered by how often a
+user would feel the absence.
+
+- **Jump to first unread.** The pieces exist and are not connected: the
+  timeline already carries a `ReadMarker` row (`TimelineEvent::ReadMarker`,
+  handled in `TimelineModel`), the room list already shows unread badges, and
+  `RoomListModel::markRoomRead` already exists. What is missing is any
+  affordance that scrolls to the marker — a grep for `jump.*unread` across
+  `qml/` returns nothing. In a busy room this is daily friction, and it is the
+  cheapest of the four.
+- **Mark all rooms read.** `markRoomRead(roomId)` exists per room; there is no
+  sweep. It pairs with the Activity Center's bell, which now clears per room
+  from a read receipt, so "mark everything" would clear both in one action.
+- **Jump to date (MSC3030 `timestamp_to_event`).** Absent entirely. Useful
+  once a room has real history; Element has it.
+- **Export a room.** Absent entirely. Element has it. Least felt of the four,
+  and the one with the most design surface (format, range, media, and whether
+  an encrypted room's plaintext may be written to disk at all — §6 says
+  encrypted-room plaintext stays memory-only, so an export is an explicit,
+  user-chosen exception that has to be argued rather than assumed).
+
+Deliberately NOT proposed, with reasons, so they are not re-derived:
+
+- **Widgets.** `docs/widgets-feasibility.md` names the blocker: a Qt WebEngine
+  dependency, which is a large commitment for a surface few desktop users
+  open.
+- **Location sharing (`m.location`).** Genuinely absent, and the least used
+  feature in most clients. Cheap to add if ever asked for.
+- **Custom emoji and sticker packs.** NOT a gap — MSC2545 `im.ponies.room_emotes`
+  is implemented, including upload to a user pack (`rust/src/stickers.rs`,
+  `src/stickers/StickerPackManager.cpp`, `qml/StickerPicker.qml`). An older
+  note in `docs/matrix-feature-status.md` still says otherwise; that table is
+  stale in several rows and should be read against the source.
+
 ## Feature classification
 
 ### Easy in C++

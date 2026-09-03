@@ -677,6 +677,13 @@ void RustSdkMatrixClient::login(const QString &homeserver,
 
 bool RustSdkMatrixClient::detachSession()
 {
+    // NAMED, because it used to report as "unattributed". The switch freeze
+    // was captured as `GUI stall 45618 ms category= unattributed`, and an
+    // unattributed stall tells you only that the thread was blocked — the
+    // whole point of the tracer is to say WHERE. Everything this function
+    // reaches, including the Rust teardown's now-budgeted waits, is
+    // synchronous on the GUI thread, so it belongs in one scope.
+    stalltrace::Scope stallScope("account-detach");
     // A real sign-out is in flight: its completion event is the ONLY path
     // that deletes this account's persisted token, record, and store.
     // Invalidating the lifecycle now would discard that completion and
@@ -1335,6 +1342,9 @@ void RustSdkMatrixClient::adoptBrowserSession(
 
 bool RustSdkMatrixClient::restoreSession()
 {
+    // The other half of a switch, and the half the 45-second capture ended
+    // in. Named for the same reason as detachSession().
+    stalltrace::Scope stallScope("session-restore");
     if (!m_settings || !m_settings->hasSession())
         return false;
 
