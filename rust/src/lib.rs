@@ -6798,6 +6798,24 @@ pub unsafe extern "C" fn mx_rust_request_edit_history(
     })
 }
 
+/// MSC3030 "jump to date": the event closest to `timestamp_ms`, searching
+/// FORWARD, so a chosen day lands on its first message. rooms::
+/// event_at_timestamp.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_event_at_timestamp(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    timestamp_ms: i64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        rooms::event_at_timestamp(bridge, room_id, timestamp_ms, op_id)
+            .map(|_| String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_request_event_source(
     ptr: *mut c_void,

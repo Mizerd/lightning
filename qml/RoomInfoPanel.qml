@@ -49,6 +49,10 @@ Rectangle {
     // and permalinks, so out-of-window pins hydrate through the ONE
     // existing path rather than a second one built here.
     signal jumpToEventRequested(string eventId)
+    /// Export this room's loaded messages. The host owns the dialog, exactly
+    /// like every other action here: this panel is signal-only, so a refused
+    /// write cannot leave the panel and the account disagreeing.
+    signal exportRoomRequested()
 
     // Looks up avatar/name/topic itself (rather than taking a caller-passed
     // snapshot) so it stays live: an avatar that arrives asynchronously
@@ -485,6 +489,19 @@ Rectangle {
                         font.pixelSize: AppTheme.textBody
                     }
 
+                    // An export is a fact ABOUT the room, so it sits with
+                    // the room's own details rather than in the timeline
+                    // header — which already carries five icon buttons and is
+                    // the first row to crowd at 125% scaling.
+                    AppButton {
+                        objectName: "roomInfoExportButton"
+                        text: qsTr("Export room…")
+                        onClicked: root.exportRoomRequested()
+                        ToolTip.text: qsTr("Save this room's loaded messages "
+                                           + "to a file")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                    }
                     AppButton {
                         text: qsTr("Copy room ID")
                         onClicked: {

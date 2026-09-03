@@ -570,6 +570,71 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
 - Keyboard quick switch/search/navigation, accessible labels/roles/actions,
   focus handling, and keyboard-operable message/thread actions
 
+### Navigating a room's history
+
+- **Jump to first unread.** The SDK places a read-marker virtual row from
+  `m.fully_read` (which Lightning writes with every read receipt) and
+  MessageDelegate draws it as the "New messages" divider; the pill at the TOP
+  of the timeline scrolls to it. THE MARKER HAS NO EVENT ID, so this is a ROW
+  (`TimelineModel::firstUnreadRow`, NOTIFY countChanged — a virtual row can
+  only move by being inserted or removed) handed to
+  `beginNavigationLanding()`, which holds a target by stable id across
+  paginations landing while it waits. Offered only when the marker is loaded;
+  a reader further back than the window pages toward it, bounded at 8 pages
+  and one per 240 ms, and the reader taking hold of the view cancels the hunt.
+- **Jump to date** (MSC3030 `timestamp_to_event`, stable since Matrix 1.6),
+  from the find bar. FORWARD from local midnight of the chosen day, so a date
+  lands on its FIRST message; a day with no messages lands on the next message
+  after it rather than refusing to move. There is deliberately NO client-side
+  fallback — paginating backwards until the dates look right is an unbounded
+  walk through a room's whole history to answer a question one request
+  answers, and it would be slowest in exactly the rooms the feature is for. A
+  homeserver without the endpoint arrives as `not_found` and the dialog says
+  so; it STAYS OPEN until the answer arrives, because a dialog that closes on
+  click and then does nothing is the failure this surface exists to avoid.
+  An answer whose room is no longer the open one is dropped as `stale`.
+- **Mark all rooms read**, on the rail's Home menu beside the Space tile's own
+  scoped version. `RoomListModel::markAllRoomsRead()` — that model owns "mark
+  a room read", so it owns marking them all. Only rooms that are actually
+  unread; invites are skipped (a decision, not unread mail), `markedUnread` is
+  skipped (the user's own "leave this for later"), and Spaces are skipped (a
+  room with no timeline). It clears the bell too, because the receipt it sends
+  per room is what `ActivityModel::markRoomReadUpTo` listens for.
+- **"Other rooms" is a CLASSIC tile.** It narrows a Home that shows
+  everything, which is Classic's Home; Channels' Home already lists exactly
+  the rooms in no Space, so the two opened the same page and the tile is not
+  offered there (`RailEntryModel::orphansEntryVisible`, the mirror of
+  `peopleEntryVisible`, selection rescue included).
+
+### Export a room
+
+Writes the room's LOADED timeline to a file the user picks, as plain text or
+JSON. It does not paginate: walking a room's whole history to build a file is
+an unbounded job whose only honest progress report is "still going", and a
+partial export presented as a complete one is a lie about a conversation. The
+count is on screen before the user picks a file and repeated inside the file,
+because the person who reads it later may not be the person who made it.
+
+NO MEDIA. An attachment exports as its filename and type with a sentence
+saying the bytes are absent, and never as an `mxc:` — a reader of the file
+cannot resolve one without the account's token, so printing it offers a
+live-looking dead link.
+
+**This is the one place in Lightning that writes encrypted-room plaintext to
+disk, and it is an explicit user-chosen exception to §6, not a hole.** The
+checkbox is off by default and worded as a consequence rather than an option
+("Write the message text into this file in the clear"); declining still
+produces a usable export with every body replaced by a withheld marker, so the
+shape of the conversation survives and none of its text does. An UNKNOWN
+encryption state counts as encrypted, the same way the draft store fails
+closed. Nothing else is relaxed: `CacheStore` still refuses encrypted rows and
+this path never writes to a cache.
+
+The renderers are pure (events in, string out), so the whole shape of the file
+is unit-tested without a filesystem and the one place that touches disk is
+four lines. The suggested filename is a LEAF — a room name is chosen by
+somebody else and this string is handed to a file dialog.
+
 ### The message box (composer) controls
 
 Left to right: attach, formatting, the text field, emoji, GIFs and stickers,

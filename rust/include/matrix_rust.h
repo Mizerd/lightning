@@ -1047,6 +1047,18 @@ char *mx_rust_request_edit_history(void *client,
 char *mx_rust_request_event_source(void *client,
                                    const char *room_id,
                                    const char *event_id);
+/* MSC3030 "jump to date" (stable since Matrix 1.6): the event closest to
+   `timestamp_ms`, searching FORWARD, so a chosen day lands on its FIRST
+   message rather than the last one before it. Answers on
+   `timestamp_event {op_id, room_id, ok, event_id, timestamp_ms, category}`.
+   There is no client-side fallback: a homeserver without the endpoint
+   answers not_found and the client says so, because guessing by paginating
+   backwards until the dates look right is an unbounded walk through a
+   room's whole history to answer a question one request can answer. */
+char *mx_rust_event_at_timestamp(void *client,
+                                 const char *room_id,
+                                 long long timestamp_ms,
+                                 unsigned long long op_id);
 /* Canonical alias; an empty alias clears it. Publishes the directory
  * mapping first when the alias does not already resolve to this room.
  * Result: room_edit_result with field "canonical_alias". */

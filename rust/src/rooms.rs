@@ -2813,6 +2813,76 @@ pub(crate) fn request_edit_history(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Jump to date (MSC3030 `timestamp_to_event`, stable since Matrix 1.6).
+//
+// The server answers with the event closest to a timestamp in one direction;
+// nothing here scans a timeline, and there is no client-side fallback. A
+// homeserver that does not implement it answers 404/unrecognised and the
+// client says so — guessing by paginating backwards until the dates look
+// right would be an unbounded walk through a room's whole history to answer a
+// question the server can answer in one request.
+//
+// FORWARD from the start of the chosen day, which is what "jump to date"
+// means: the FIRST message of that day, not the last one before it. A day
+// with no messages therefore lands on the next message after it, which is the
+// honest answer to "take me to here" — the alternative is refusing to move.
+// ---------------------------------------------------------------------------
+
+pub(crate) fn event_at_timestamp(
+    bridge: &RustClient,
+    room_id: String,
+    timestamp_ms: i64,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::api::client::room::get_event_by_timestamp;
+    use matrix_sdk::ruma::api::Direction;
+    use matrix_sdk::ruma::MilliSecondsSinceUnixEpoch;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let parsed_room = room.room_id().to_owned();
+    // Negative or absurd stamps are caller error, not something to send.
+    // MilliSecondsSinceUnixEpoch wraps ruma's UInt, whose range is JavaScript's
+    // safe-integer range rather than u64's — a stamp past it cannot be
+    // serialized and would fail at the wire rather than here.
+    let ts = MilliSecondsSinceUnixEpoch::from_system_time(
+        std::time::SystemTime::UNIX_EPOCH
+            + std::time::Duration::from_millis(
+                u64::try_from(timestamp_ms)
+                    .map_err(|_| "invalid timestamp".to_owned())?),
+    )
+    .ok_or_else(|| "invalid timestamp".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let request = get_event_by_timestamp::v1::Request::new(
+            parsed_room, ts, Direction::Forward);
+        let answer = client.send(request).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        match answer {
+            Ok(response) => enqueue(&events, json!({
+                "type": "timestamp_event", "lifecycle": lifecycle,
+                "op_id": op_id, "room_id": room_id, "ok": true,
+                "event_id": response.event_id.to_string(),
+                "timestamp_ms": u64::from(response.origin_server_ts.0),
+            })),
+            // The category is the sanitized shape every other failure here
+            // uses: never the server's prose, which can carry anything.
+            Err(error) => enqueue(&events, json!({
+                "type": "timestamp_event", "lifecycle": lifecycle,
+                "op_id": op_id, "room_id": room_id, "ok": false,
+                "event_id": "",
+                "category": classify_room_error(&error.to_string()),
+            })),
+        }
+    });
+    Ok(())
+}
+
 pub(crate) fn request_event_source(
     bridge: &RustClient,
     room_id: String,

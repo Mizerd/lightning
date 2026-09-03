@@ -931,6 +931,30 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                                  m_client->displayNameFor(roomId, senderId), key,
                                  timestampMs);
     });
+    connect(m_client.get(), &MatrixClient::eventAtTimestampReceived, this,
+            [this](quint64 opId, const QString &roomId, bool ok,
+                   const QString &eventId, qint64 timestampMs,
+                   const QString &category) {
+        Q_UNUSED(timestampMs);
+        const QString expected = m_pendingDateJumps.take(opId);
+        if (expected.isEmpty())
+            return;   // not ours, or already answered
+        // The room moved under the answer. Jumping now would drag whatever
+        // room is open to an event it does not contain.
+        if (expected != roomId || roomId != m_currentRoomId) {
+            Q_EMIT jumpToDateFinished(opId, false, QStringLiteral("stale"));
+            return;
+        }
+        if (!ok || eventId.isEmpty()) {
+            Q_EMIT jumpToDateFinished(opId, false, category);
+            return;
+        }
+        // The same landing a reply jump uses: it paginates toward a target
+        // that is not loaded and holds it by stable id while it waits.
+        if (m_pagination)
+            m_pagination->jumpToEvent(eventId);
+        Q_EMIT jumpToDateFinished(opId, true, QString());
+    });
     connect(m_client.get(), &MatrixClient::activitySeedReceived, this,
             [this](const QVariantList &entries) {
         QVariantList named;
@@ -2939,6 +2963,104 @@ void AppController::markSpaceRead(const QString &spaceId)
     for (const QString &roomId : rooms)
         m_roomList->markRoomRead(roomId);
     qCInfo(lcApp) << "space marked read rooms=" << rooms.size();
+}
+
+quint64 AppController::jumpToDate(qint64 timestampMs)
+{
+    if (!m_client || m_currentRoomId.isEmpty() || timestampMs <= 0)
+        return 0;
+    // Captured, so an answer that arrives after the user has moved on cannot
+    // yank a DIFFERENT room's timeline to a date they asked about in this
+    // one. The op id alone would not catch it: it is unique per request, not
+    // per room.
+    const QString roomId = m_currentRoomId;
+    const quint64 opId = m_client->eventAtTimestamp(roomId, timestampMs);
+    if (opId == 0)
+        return 0;
+    m_pendingDateJumps.insert(opId, roomId);
+    return opId;
+}
+
+int AppController::exportableMessageCount() const
+{
+    if (!m_timeline)
+        return 0;
+    return roomexport::exportableCount(m_timeline->events());
+}
+
+namespace {
+roomexport::Format exportFormatFor(const QString &format)
+{
+    return format.compare(QLatin1String("json"), Qt::CaseInsensitive) == 0
+        ? roomexport::Format::Json
+        : roomexport::Format::PlainText;
+}
+} // namespace
+
+roomexport::Options AppController::exportOptions() const
+{
+    roomexport::Options options;
+    options.roomId = m_currentRoomId;
+    const RoomInfo info = m_client ? m_client->roomInfo(m_currentRoomId)
+                                   : RoomInfo{};
+    options.roomName = info.name;
+    options.exportedBy = m_client ? m_client->currentUserId() : QString();
+    // An UNKNOWN encryption state fails CLOSED, exactly as the draft store
+    // does: treated as encrypted, so its text is withheld unless the user
+    // explicitly asked for it. Guessing "not encrypted" from a state the
+    // client has not learned yet would write plaintext on a hunch.
+    options.encrypted = !info.encryptionKnown || info.encrypted;
+    options.use24HourClock =
+        m_settings && m_settings->clockFormat() == 2;
+    return options;
+}
+
+QString AppController::suggestedExportFileName(const QString &format) const
+{
+    return roomexport::suggestedFileName(exportOptions(),
+                                         exportFormatFor(format));
+}
+
+QString AppController::exportCurrentRoom(const QUrl &fileUrl,
+                                         const QString &format,
+                                         bool includeEncryptedText)
+{
+    if (m_currentRoomId.isEmpty() || !m_timeline)
+        return tr("No room is open.");
+    if (!fileUrl.isValid() || !fileUrl.isLocalFile())
+        return tr("Choose a file on this computer.");
+
+    roomexport::Options options = exportOptions();
+    options.allowEncryptedPlaintext = includeEncryptedText;
+
+    const QString text = roomexport::render(
+        m_timeline->events(), options, exportFormatFor(format));
+
+    QFile file(fileUrl.toLocalFile());
+    // NewOnly is deliberately NOT used: the save dialog already asked about
+    // overwriting, and refusing here would contradict the answer the user
+    // just gave. Truncate is what "save as this file" means.
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return tr("Could not write that file.");
+    const QByteArray bytes = text.toUtf8();
+    const qint64 written = file.write(bytes);
+    // Close BEFORE judging: a buffered write can still fail at flush, and a
+    // file reported as saved that is short is worse than an honest failure.
+    file.close();
+    if (written != bytes.size() || file.error() != QFileDevice::NoError)
+        return tr("Could not finish writing that file.");
+
+    // Counts and flags only. Never the path (it can carry a real name), never
+    // the room name, never a body.
+    qCInfo(lcApp) << "room exported messages="
+                  << roomexport::exportableCount(m_timeline->events())
+                  << "format="
+                  << (exportFormatFor(format) == roomexport::Format::Json
+                          ? "json" : "text")
+                  << "encrypted=" << options.encrypted
+                  << "text_included="
+                  << (!options.encrypted || includeEncryptedText);
+    return QString();
 }
 
 void AppController::openLobby()

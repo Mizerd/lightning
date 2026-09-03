@@ -649,6 +649,26 @@ Rectangle {
         parent: Overlay.overlay
     }
 
+    // MSC3030 "jump to date". Opened from the find bar; it asks the server
+    // and stays open until the answer arrives, because a homeserver without
+    // the endpoint is a real outcome the user has to be told about.
+    JumpToDateDialog {
+        id: jumpToDateDialog
+        parent: Overlay.overlay
+    }
+
+    // Export this room's loaded messages. Opened from Room Information,
+    // because an export is a fact ABOUT the room rather than a way to move
+    // around inside it.
+    ExportRoomDialog {
+        id: exportRoomDialog
+        objectName: "exportRoomDialogHost"
+        parent: Overlay.overlay
+    }
+    function openExportRoom() {
+        exportRoomDialog.openDialog()
+    }
+
     // Every floating surface that is anchored to, or snapshotted from, a
     // timeline row. ONE helper so the callers cannot drift: a room/account
     // switch closes them, and so does anything else that discards timeline
@@ -1411,6 +1431,25 @@ Rectangle {
                         }
                         findField.forceActiveFocus()
                     }
+                }
+                // "Jump to date" lives with Find rather than in the header
+                // band: both answer "where is that message", and the header
+                // already carries five icon buttons in a row that is the
+                // first thing to crowd at 125% scaling (§16's fixed-band
+                // lesson). Opening Find is also already the gesture for
+                // "I am looking for something".
+                IconButton {
+                    objectName: "jumpToDateButton"
+                    implicitWidth: 28; implicitHeight: 28
+                    radius: 6
+                    iconName: "schedule"
+                    iconSize: 18
+                    enabled: app.currentRoomId !== ""
+                    Accessible.name: qsTr("Jump to date")
+                    ToolTip.text: qsTr("Jump to a date in this room")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: jumpToDateDialog.openDialog()
                 }
                 AppTextField {
                     id: findField
@@ -5831,6 +5870,7 @@ Rectangle {
             if (eventId !== "")
                 app.pagination.jumpToEvent(eventId)
         }
+        onExportRoomRequested: root.openExportRoom()
     }
 
     // ── Room message search side panel ──────────────────────────────────

@@ -837,6 +837,13 @@ public:
     { Q_UNUSED(roomId); Q_UNUSED(eventId); }
     virtual void requestEventSource(const QString &roomId, const QString &eventId)
     { Q_UNUSED(roomId); Q_UNUSED(eventId); }
+    // "Jump to date" (MSC3030 timestamp_to_event, stable since Matrix 1.6).
+    // Searches FORWARD from the stamp, so a chosen day lands on its FIRST
+    // message. Answers on eventAtTimestampReceived; 0 = unsupported on this
+    // backend, which is not the same as the SERVER not supporting it — that
+    // arrives as ok=false with category "not_found".
+    virtual quint64 eventAtTimestamp(const QString &roomId, qint64 timestampMs)
+    { Q_UNUSED(roomId); Q_UNUSED(timestampMs); return 0; }
     // v0.9 scheduled send (phase 11), the SERVER side (MSC4140 delayed
     // message events). probeDelayedEvents answers on
     // delayedEventsSupportReceived; scheduleMessage on scheduledSendFinished
@@ -1605,6 +1612,12 @@ Q_SIGNALS:
     void eventSourceReceived(const QString &roomId, const QString &eventId,
                              bool ok, const QString &json,
                              const QVariantMap &encryption);
+    /// "Jump to date". `eventId` is empty when `ok` is false; `category` is a
+    /// sanitized shape ("not_found" for a homeserver without the endpoint),
+    /// never the server's own prose.
+    void eventAtTimestampReceived(quint64 opId, const QString &roomId, bool ok,
+                                  const QString &eventId, qint64 timestampMs,
+                                  const QString &category);
     // v0.9 scheduled send.
     void delayedEventsSupportReceived(bool supported, bool advertised);
     void scheduledSendFinished(quint64 opId, const QString &roomId, bool ok,

@@ -576,6 +576,7 @@ set(APP_SOURCES
     src/models/UserLookup.cpp
     src/models/PaginationController.h
     src/models/PaginationController.cpp
+    src/models/RoomExport.cpp
     src/models/ReadReceiptCoordinator.h
     src/models/ReadReceiptCoordinator.cpp
     src/models/LinkPreview.h
@@ -870,6 +871,8 @@ set(APP_QML_FILES
     qml/ThemeEditorDialog.qml
     qml/ColorPickerPanel.qml
     qml/GifPicker.qml
+    qml/ExportRoomDialog.qml
+    qml/JumpToDateDialog.qml
     qml/StickerPicker.qml
     qml/QuickSwitcher.qml
     qml/ImageViewerOverlay.qml
@@ -2642,6 +2645,22 @@ if(BUILD_TESTING)
     target_include_directories(mark-room-read-test PRIVATE src)
     target_link_libraries(mark-room-read-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME mark-room-read COMMAND mark-room-read-test)
+
+    # Export a room. The renderers are pure (events in, string out), so this
+    # suite needs no filesystem and can assert on the exact shape of the file.
+    # Its load-bearing case is the ENCRYPTED one: CLAUDE.md §6 keeps
+    # encrypted-room plaintext memory-only and an export is the single
+    # deliberate exception, so it must be impossible to get a decrypted body
+    # into a file without the caller having passed the flag a UI only sets
+    # after asking in plain words.
+    qt_add_executable(room-export-test
+        tests/RoomExportTest.cpp
+        src/models/RoomExport.h
+        src/models/RoomExport.cpp
+    )
+    target_include_directories(room-export-test PRIVATE src)
+    target_link_libraries(room-export-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-export COMMAND room-export-test)
 
     # v0.7.x message forwarding: ForwardController policy — refusal of
     # redacted/local-echo/undecryptable sources, plain-body text forwarding

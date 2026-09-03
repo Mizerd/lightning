@@ -7,6 +7,7 @@
 #include "app/ModerationController.h"
 #include "app/UiaController.h"
 #include "models/MessageSearchController.h"
+#include "models/RoomExport.h"
 #include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
 #include "app/CustomThemeStore.h"
@@ -780,6 +781,51 @@ public Q_SLOTS:
     // transitively: marking a Space read has to cover the rooms a subspace
     // brought into it, or it is a half-read.
     Q_INVOKABLE void markSpaceRead(const QString &spaceId);
+    /// "Jump to date" (MSC3030). Asks the server for the first event at or
+    /// after `timestampMs` in the OPEN room and, when it answers, jumps the
+    /// timeline to it through the same landing path a reply jump uses.
+    ///
+    /// Returns the op id, or 0 when this backend cannot ask at all — which is
+    /// a different answer from the SERVER being unable to, and the caller has
+    /// to be able to tell them apart. A homeserver without the endpoint
+    /// arrives later as jumpToDateFinished(ok=false, "not_found").
+    ///
+    /// There is deliberately NO client-side fallback. Paginating backwards
+    /// until the dates look right is an unbounded walk through a room's whole
+    /// history to answer a question one request answers.
+    Q_INVOKABLE quint64 jumpToDate(qint64 timestampMs);
+
+    // ── Export a room ────────────────────────────────────────────────────
+    //
+    // Writes the OPEN room's LOADED timeline to a file the user picked. See
+    // src/models/RoomExport.h for what the file contains and, more
+    // importantly, what it deliberately does not.
+    //
+    // CLAUDE.md §6 keeps encrypted-room plaintext memory-only, and this is
+    // the ONE place that writes it to disk. That is a deliberate, explicitly
+    // authorized exception, not a hole: `includeEncryptedText` must be passed
+    // by a surface that asked the user in those words, and with it false an
+    // encrypted room still exports — with every body replaced by a withheld
+    // marker, so the shape of the conversation survives and none of its text
+    // does. Nothing else is relaxed: the cache still refuses encrypted rows.
+
+    /// How many messages an export of the open room would contain. The number
+    /// the dialog shows, computed by the same rule the renderer counts by.
+    Q_INVOKABLE int exportableMessageCount() const;
+    /// A safe leaf filename to suggest. `format` is "text" or "json".
+    Q_INVOKABLE QString suggestedExportFileName(const QString &format) const;
+    /// Write the export. `fileUrl` is a local file URL from a save dialog.
+    /// Returns "" on success, or a short human-readable reason. Never logs
+    /// the path's contents and never logs a message body.
+    Q_INVOKABLE QString exportCurrentRoom(const QUrl &fileUrl,
+                                          const QString &format,
+                                          bool includeEncryptedText);
+private:
+    /// Everything the renderer needs about the open room, in one place so the
+    /// count, the suggested name and the file itself cannot disagree about
+    /// which room they describe.
+    roomexport::Options exportOptions() const;
+public:
     // Poll-on-open refresh: re-query the server rule when a notification
     // picker opens so changes made in another client land in the cache.
     // No-op on backends without server support.
@@ -1135,6 +1181,11 @@ Q_SIGNALS:
     // window, selects the room, opens the thread, and locates the event.
     // Identity only, never tokens.
     void copyImageFinished(bool ok, const QString &message);
+    /// "Jump to date" answered. On success the jump has ALREADY been
+    /// dispatched — this is for the surface that asked, so it can close or
+    /// say why nothing happened. `category` is sanitized ("not_found",
+    /// "forbidden", "rate_limited", "network"), never server prose.
+    void jumpToDateFinished(quint64 opId, bool ok, const QString &category);
     void notificationOpenRequested(const QString &roomId,
                                    const QString &eventId,
                                    const QString &threadRootId);
@@ -1285,6 +1336,11 @@ private:
     std::unique_ptr<class ScheduledSendController> m_scheduledSends;
     std::unique_ptr<class ActivityModel> m_activity;
     bool m_activitySeeded = false;
+    /// In-flight "jump to date" requests, op id -> the room that asked. Small
+    /// and self-draining: an entry is taken on the answer, and the only way
+    /// one lingers is a request the backend never answers, which is the same
+    /// bound every other op-id map here lives with.
+    QHash<quint64, QString> m_pendingDateJumps;
     std::unique_ptr<CryptoBootstrapModel> m_cryptoBootstrap;
     // The CryptoHealthModel generation captured at the moment a crypto-health
     // query is DISPATCHED. Comparing this (not the model's live generation)

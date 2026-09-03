@@ -6151,6 +6151,20 @@ void RustSdkMatrixClient::requestEventSource(const QString &roomId,
                                                 ev.constData()));
 }
 
+quint64 RustSdkMatrixClient::eventAtTimestamp(const QString &roomId,
+                                             qint64 timestampMs)
+{
+    if (!m_rustHandle || roomId.isEmpty() || timestampMs <= 0)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    takeRustString(mx_rust_event_at_timestamp(
+        m_rustHandle, room.constData(),
+        static_cast<long long>(timestampMs),
+        static_cast<unsigned long long>(opId)));
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::renameDevice(const QString &deviceId,
                                           const QString &name)
 {
@@ -8273,6 +8287,16 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("sender")).toString(),
             event.value(QStringLiteral("key")).toString(),
             static_cast<qint64>(event.value(QStringLiteral("timestamp_ms")).toDouble()));
+        return true;
+    }
+    if (type == QLatin1String("timestamp_event")) {
+        Q_EMIT eventAtTimestampReceived(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("event_id")).toString(),
+            static_cast<qint64>(
+                event.value(QStringLiteral("timestamp_ms")).toDouble()),
+            event.value(QStringLiteral("category")).toString());
         return true;
     }
     if (type == QLatin1String("activity_seed")) {

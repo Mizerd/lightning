@@ -238,6 +238,11 @@ public:
     // mirror size" any more — this IS both the view count and the backend
     // growth count.
     int eventCount() const { return static_cast<int>(m_events.size()); }
+    /// The loaded rows, virtual ones included. Read-only and by reference:
+    /// the export renderer walks them and copying a busy room's timeline to
+    /// count it would be pointless work. Callers must not hold it across a
+    /// model change.
+    const QList<TimelineEvent> &events() const { return m_events; }
 
     QString typingText() const { return m_typingText; }
     bool canPaginate() const;

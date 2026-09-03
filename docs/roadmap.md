@@ -16,7 +16,15 @@
 | v0.5.x | UI polish + advanced features | Timeline/composer redesign; login redesign; multi-account; SSO/OIDC; authenticated media |
 | v1.0 | Polished release | Rust SDK; hardware-backed secure storage, packaging, i18n complete |
 
-## Next: identified gaps (2026-09-03)
+## Next: identified gaps (2026-09-03) — ALL FOUR BUILT the same day
+
+All four of the gaps below were implemented on 2026-09-03 at Rokas's
+direction. They are kept here with their original reasoning because the
+reasoning is what a later reader needs, and the contracts now live in
+`docs/feature-contracts.md` under "Navigating a room's history" and "Export a
+room". None of them is live-validated.
+
+
 
 Four features a mainstream Matrix client has and Lightning does not, found by
 grepping the tree rather than by reading this file. Ordered by how often a
