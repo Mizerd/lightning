@@ -570,6 +570,62 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
 - Keyboard quick switch/search/navigation, accessible labels/roles/actions,
   focus handling, and keyboard-operable message/thread actions
 
+### Local message search
+
+Server search (`POST /_matrix/client/v3/search`) can only search what the
+SERVER can read, so it returns nothing for an encrypted room — which for most
+people is most of their conversations. The local index is the other half: a
+SQLite FTS5 database of the plaintext this client already holds, so an
+encrypted room searches exactly like a public one.
+
+It does not introduce decrypted text to disk. The SDK's own event cache already
+persists it (`encode_event` serializes the whole `TimelineEvent` including its
+`Decrypted` variant, `encode_value` is a no-op with no cypher configured, and
+Lightning opens `sqlite_store(path, None)`), so the index is a second copy of
+something already present, in a form that is faster to query. **Encrypting the
+store at rest is a separate, open decision** — `sqlite_store` builds ONE config
+for the state, event-cache, media and crypto stores, and matrix-sdk-sqlite
+mints a new cipher when it finds none, so a passphrase would leave every
+existing install unable to decode its own account pickle.
+
+* **The index lives in the account's own store directory**, so it is deleted
+  with the account and inherits the same 0700 protection as the SDK store.
+* **Tokenizer: trigram**, because `unicode61` cannot segment CJK — a Chinese
+  sentence becomes one token and nothing inside it is findable, a silent total
+  failure for a language Lightning ships. trigram's cost is a hard
+  three-character minimum, reported as its own state so the user can act on it
+  rather than reading "no results". `remove_diacritics 2` folds case and
+  accents on both the stored text and the query.
+* **The query is text, not a language.** FTS5 has operators; a user typing
+  `AND` or a quotation mark means the characters. The whole query becomes one
+  quoted phrase.
+* **Edits overwrite, redactions delete.** An `m.replace` is filed on the event
+  it REPLACES using `m.new_content`, never under its own id with the
+  "* fallback" body. A redacted message is removed outright — leaving it
+  findable by its own text would be the worst thing this index could do.
+* **Fed from the event cache**, never the live timeline (which exists only for
+  the open room). A sweep runs on sync and every five minutes; "Index this
+  room" pages history in, bounded at 50 pages, indexing after EVERY page
+  because `events()` returns the in-memory chunk and the history trim shrinks
+  it back.
+* **Bounded at 250,000 rows**, evicting oldest first.
+* The find bar prefers local and offers server as an explicit CHOICE where the
+  server can read the room — they answer different questions, and switching
+  silently would make "no results" mean two things on consecutive keystrokes.
+  The coverage line says how many messages are being searched.
+
+Live-validated against a real homeserver, including a Megolm-encrypted message
+this client sent and then found.
+
+### Widgets
+
+See `docs/widgets.md` for the whole contract and the evidence behind it.
+Lightning LISTS a room's widgets, validates their addresses, discloses what
+each will learn about the user, and opens it in the user's BROWSER. It does not
+embed them: Windows cannot build Qt WebEngine, Flatpak could only ship Chromium
+unsandboxed beside Megolm keys, and initialising it would force the whole
+application's scenegraph to OpenGL.
+
 ### Navigating a room's history
 
 - **Jump to first unread.** The SDK places a read-marker virtual row from

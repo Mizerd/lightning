@@ -342,6 +342,44 @@ unhandled. Suites: `call-controller` 35, `call-ring-policy` 10,
   cases FAILED on the reverted tree.
 
 #### Models, backends and derived data
+- **A STORE-ONLY READ ANSWERS "NOTHING" FOREVER, and every unit test passes.**
+  Widgets shipped `Room::get_state_events`, which reads the state store and
+  never the network. Widget state reaches that store only if sliding sync asked
+  for it in `required_state`, and matrix-sdk-ui 0.18's
+  `RoomListService::subscribe_to_rooms` takes room ids ONLY — there is no API
+  to extend the list. So the answer was empty for every room, always. Eleven
+  unit tests were green; the first live run against a real homeserver reported
+  `widgets found: 0` in a room that had four. Same shape as
+  `m.room.pinned_events`, same answer as `banner.rs`: store first, one raw
+  `/state` request second, on demand. GENERALISE: for any state type sliding
+  sync does not carry, "the store said nothing" and "the room has none" are the
+  same observable, and only a homeserver can tell them apart.
+- **`RoomEventCache::events()` is the IN-MEMORY chunk, not the store.** The
+  local search index's first backfill paginated N times and then read the
+  events — collecting one page's worth however far back it went, because
+  Lightning's own jump-to-live trim shrinks that chunk back to roughly one
+  page. Reading after EVERY page is what makes the coverage real, and holding
+  ONE cache handle across the loop is what stops the chunk shrinking under the
+  walk. Measured in production conditions: the sweep wrote 0 rows and the
+  interleaved deep index wrote 33 in the same run.
+- **FTS5 is a COMPILE-TIME option of SQLite and is not on by default.**
+  sqlite.org: disabled by default for the canonical source tree, enabled for
+  the amalgamation's configure script. A distro that forgets `--enable-fts5`
+  ships without it silently — the same "graceful absence and silent success are
+  identical" shape as the AppImage's missing `libgstopengl`. matrix-sdk's
+  `bundled-sqlite` makes it a build-time constant on all six platforms
+  (libsqlite3-sys sets `-DSQLITE_ENABLE_FTS5` explicitly) and raises the
+  feature floor to 3.50.2; on the system path the floor is Debian's and
+  flatpak's 3.46.1. It also means the C++ side must NOT link `SQLite::SQLite3`
+  as well, or two SQLite implementations end up in one process and which one
+  answers is whichever the linker resolved first, silently, per symbol.
+- **`unicode61` cannot segment CJK, so a Chinese search matches NOTHING.**
+  Chinese has no spaces between words, so a sentence becomes one token. The
+  trigram tokenizer matches substrings in every script at the cost of a hard
+  three-character minimum — a visible limit beats an invisible one, and
+  `remove_diacritics 2` on a trigram table folds case and accents on both the
+  stored text AND the query, so no second folded column is needed. Measured on
+  3.50.2, and the alternative is pinned by a test so the choice stays defended.
 
 - **TWO ANSWERS FROM THE SAME SERVER, and the client picked the one nobody
   can see.** The Activity bell counted 25 highlights while no room showed
