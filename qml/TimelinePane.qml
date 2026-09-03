@@ -2643,6 +2643,17 @@ Rectangle {
                     repeat: false
                     onTriggered: timeline.tryLandNavigationTarget()
                 }
+                // One backward page per tick while hunting the read marker.
+                // 240 ms rather than a frame: each tick costs a real network
+                // pagination, and re-asking faster than the answers arrive
+                // would spend the whole budget before the first page landed.
+                // See goToFirstUnread().
+                Timer {
+                    id: firstUnreadRetryTimer
+                    interval: 240
+                    repeat: false
+                    onTriggered: timeline.landOnFirstUnread()
+                }
                 // The reader taking hold of the view abandons a jump that has
                 // not landed yet. A pending landing writes contentY and
                 // cancels wheel motion when it finally resolves, so leaving
@@ -2685,6 +2696,12 @@ Rectangle {
                     if (app.pagination)
                         app.pagination.cancelNavigation()
                     abandonNavigationLanding()
+                    // The unread hunt is a landing too, and it pages the
+                    // timeline while it runs — leaving it armed across a
+                    // deliberate gesture is the same teleport the landing
+                    // machinery above refuses.
+                    firstUnreadPagesLeft = 0
+                    firstUnreadRetryTimer.stop()
                 }
                 function beginNavigationLanding(row, pixelOffset, highlight) {
                     // Hold the target by STABLE ID, never by row number. This
@@ -4092,6 +4109,56 @@ Rectangle {
                     updateStickAndPaginate()
                     scrollSettleTimer.restart()
                 }
+                // ── Jump to the first unread message ─────────────────
+                //
+                // The pieces were all here and nothing connected them: the
+                // SDK places a read-marker virtual row from `m.fully_read`
+                // (which Lightning writes with every read receipt),
+                // MessageDelegate draws it as the "New messages" divider, and
+                // no affordance scrolled to it. In a busy room that is daily
+                // friction — the divider tells you where you stopped and the
+                // only way back to it was to scroll until you saw it.
+                //
+                // THE MARKER HAS NO EVENT ID, so this cannot go through
+                // app.pagination.jumpToEvent(). It is a ROW, and
+                // beginNavigationLanding() takes a source row and holds it by
+                // stable id across the paginations that may land while the
+                // landing waits — which is exactly the machinery this needs.
+                //
+                // When the marker is not loaded (more unread than the loaded
+                // window holds — the busy-room case) the row is -1 and there
+                // is nothing to hold, so this pages backwards and re-asks.
+                // Bounded the same way the reply jump is: an unbounded search
+                // through a room's whole history is a hang wearing a spinner.
+                property int firstUnreadPagesLeft: 0
+                readonly property int maxFirstUnreadPages: 8
+                function goToFirstUnread() {
+                    root.stopAutoscroll()
+                    cancelWheelMotion()
+                    firstUnreadPagesLeft = maxFirstUnreadPages
+                    landOnFirstUnread()
+                }
+                function landOnFirstUnread() {
+                    const row = app.timeline ? app.timeline.firstUnreadRow : -1
+                    if (row >= 0) {
+                        firstUnreadPagesLeft = 0
+                        stickToBottom = false
+                        // A small offset above the divider, so the first
+                        // unread message and the marker are both on screen
+                        // rather than the marker sitting on the very edge.
+                        beginNavigationLanding(row, height * 0.25, false)
+                        return
+                    }
+                    if (firstUnreadPagesLeft <= 0
+                            || !app.pagination
+                            || app.pagination.reachedStart) {
+                        firstUnreadPagesLeft = 0
+                        return
+                    }
+                    --firstUnreadPagesLeft
+                    app.pagination.requestNearTop(true)
+                    firstUnreadRetryTimer.restart()
+                }
                 function goToLatest() {
                     root.stopAutoscroll()
                     cancelWheelMotion()
@@ -5367,6 +5434,80 @@ Rectangle {
                             onClicked: root.toggleRoomInfo()
                         }
                     }
+                }
+            }
+
+            // ── Jump to first unread ─────────────────────────────────────
+            //
+            // At the TOP, where the unread history is, and reading upward —
+            // the mirror of the jump-to-latest pill at the bottom. Element
+            // puts the same affordance in the same place.
+            //
+            // Offered only when the marker is LOADED. The row is what makes
+            // the jump exact, and an always-on bar that sometimes has nothing
+            // to jump to is a button that sometimes does nothing. A reader
+            // with more unread than the window holds reaches it from the room
+            // list, and goToFirstUnread() pages backwards from there.
+            AbstractButton {
+                id: jumpToFirstUnreadButton
+                objectName: "jumpToFirstUnreadButton"
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
+                anchors.topMargin: AppTheme.spacingM
+                visible: app.currentRoomId !== "" && app.timeline
+                         && app.timeline.firstUnreadRow >= 0
+                z: 20
+                focusPolicy: Qt.StrongFocus
+                hoverEnabled: true
+                implicitHeight: 30
+                implicitWidth: firstUnreadPillRow.implicitWidth + 24
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Jump to first unread message")
+                ToolTip.text: qsTr("Go to where you stopped reading")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                onClicked: timeline.goToFirstUnread()
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: height / 2
+                    // The unread semantic, not the accent: this is the same
+                    // "unread" the divider it lands on and every numeric
+                    // badge in the app use. The accent belongs to
+                    // jump-to-latest, which is a different action.
+                    color: jumpToFirstUnreadButton.down
+                           ? Qt.darker(AppTheme.unreadBadge, 1.2)
+                           : jumpToFirstUnreadButton.hovered
+                             ? Qt.lighter(AppTheme.unreadBadge, 1.1)
+                             : AppTheme.unreadBadge
+                }
+                Row {
+                    id: firstUnreadPillRow
+                    anchors.centerIn: parent
+                    spacing: AppTheme.spacingXS
+                    Icon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "expand_less"
+                        size: 18
+                        color: AppTheme.accentText
+                    }
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("First unread")
+                        color: AppTheme.accentText
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        font.weight: AppTheme.weightBold
+                    }
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -3
+                    radius: (parent.height + 6) / 2
+                    color: "transparent"
+                    border.color: AppTheme.focusRing
+                    border.width: 2
+                    visible: jumpToFirstUnreadButton.visualFocus
                 }
             }
 

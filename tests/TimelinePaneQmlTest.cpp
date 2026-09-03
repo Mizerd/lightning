@@ -7960,6 +7960,97 @@ private Q_SLOTS:
         QCOMPARE(moved[1] > 0 ? 1 : -1, moved[0] > 0 ? 1 : -1);
     }
 
+    // JUMP TO THE FIRST UNREAD MESSAGE.
+    //
+    // The pieces were all here and nothing connected them: the SDK places a
+    // read-marker virtual row, MessageDelegate draws it as the "New messages"
+    // divider, and no affordance scrolled to it. In a busy room the divider
+    // told you where you stopped and the only way back was to scroll until
+    // you saw it.
+    //
+    // Driven end to end through the real pill: the marker is in the fixture,
+    // the pill's visibility is a binding on the model, and the click goes
+    // through the same landing machinery a reply jump uses. Asserting that
+    // goToFirstUnread() moves contentY would prove far less — the affordance
+    // is half the feature, and a policy test that calls the function directly
+    // proves nothing about whether production reaches it (CLAUDE.md §16).
+    void thePillLandsTheReaderOnTheFirstUnreadMessage()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+
+        // 60 messages with the marker a third of the way from the newest end,
+        // so the target is far enough from the live edge that landing on it
+        // is a real move rather than a no-op at the bottom.
+        QList<TimelineEvent> events =
+            textFixture(roomId, 60, QStringLiteral("u"), QStringLiteral("body"));
+        TimelineEvent marker;
+        marker.roomId = roomId;
+        marker.type = TimelineEvent::ReadMarker;
+        events.insert(40, marker);
+
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                          events, /*paginationPages=*/0,
+                                          /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+
+        // The model found it, and the pill is offered because of that.
+        QCOMPARE(controller.timeline()->readMarkerRow(), 40);
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToFirstUnreadButton"));
+        QVERIFY2(pill != nullptr, "the pill does not exist");
+        QVERIFY2(pill->isVisible(),
+                 "the marker is loaded and the pill is still hidden");
+
+        // Start at the live edge, where a reader catching up actually is.
+        QVERIFY(timeline->setProperty("stickToBottom", true));
+        QMetaObject::invokeMethod(timeline, "goToLatest");
+        QTest::qWait(120);
+        const double before = timeline->property("contentY").toDouble();
+
+        QMetaObject::invokeMethod(pill, "click");
+        // The landing may wait for the Column to lay the row out.
+        QVERIFY2(QTest::qWaitFor([&] {
+                     return timeline->property("navigationPendingRow").toInt() < 0
+                         && timeline->property("contentY").toDouble() > before + 1.0;
+                 }, 4000),
+                 "the pill did not move the reader toward the marker");
+
+        // Upward on this rotated view is INCREASING contentY, and the marker
+        // is above the live edge — so the reader travelled into history and
+        // stopped following the bottom.
+        QVERIFY(!timeline->property("stickToBottom").toBool());
+        QCOMPARE(timeline->property("diagNavigationUnresolved").toInt(), 0);
+    }
+
+    // No marker, no pill. An always-on bar that sometimes has nothing to jump
+    // to is a button that sometimes does nothing.
+    void noReadMarkerMeansNoPill()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 20, QStringLiteral("q"), QStringLiteral("body")),
+            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QCOMPARE(controller.timeline()->readMarkerRow(), -1);
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToFirstUnreadButton"));
+        QVERIFY(pill != nullptr);
+        QVERIFY2(!pill->isVisible(),
+                 "the pill is offered with nothing to jump to");
+    }
+
     // ── C9 case C: a fresh short room must become scrollable on its own ──
     //
     // maybeFillViewport() is level-triggered and armed ONLY by geometry

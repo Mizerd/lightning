@@ -593,6 +593,18 @@ int TimelineModel::deletedGroupLengthFrom(int leaderRow) const
     return count;
 }
 
+int TimelineModel::readMarkerRow() const
+{
+    // Newest-first would be the wrong direction here: the SDK inserts exactly
+    // one of these, so the first match either way is the same row, and a
+    // forward scan reads the way the list is stored.
+    for (int row = 0; row < m_events.size(); ++row) {
+        if (m_events.at(row).type == TimelineEvent::ReadMarker)
+            return row;
+    }
+    return -1;
+}
+
 int TimelineModel::stateActivityRowCount() const
 {
     int count = 0;

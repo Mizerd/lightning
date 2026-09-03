@@ -18,6 +18,9 @@ class TimelineModel : public QAbstractListModel
 
     Q_PROPERTY(QString roomId READ roomId WRITE setRoomId NOTIFY roomIdChanged)
     Q_PROPERTY(int count READ eventCount NOTIFY countChanged)
+    /// Source row of the SDK's read-marker ("New messages") virtual row, or -1
+    /// when the loaded timeline does not carry one. See readMarkerRow().
+    Q_PROPERTY(int firstUnreadRow READ readMarkerRow NOTIFY countChanged)
     Q_PROPERTY(QString typingText READ typingText NOTIFY typingTextChanged)
     Q_PROPERTY(bool canPaginate READ canPaginate NOTIFY paginationChanged)
     Q_PROPERTY(bool paginating READ paginating NOTIFY paginationChanged)
@@ -348,6 +351,20 @@ public:
     // guessed at: "rows=1200 stateRows=1100 stateGroups=3" and
     // "rows=1200 stateRows=4" are different defects, and the difference is
     // not visible from row count alone.
+    /// Source row of the SDK's read-marker ("New messages") virtual row, or
+    /// -1 when the loaded timeline does not carry one.
+    ///
+    /// NOTIFY countChanged is exact rather than lazy: the marker is a VIRTUAL
+    /// ROW, so it can only move by being inserted or removed, and every one of
+    /// this model's mutation points ends in countChanged().
+    ///
+    /// THE ROW IS THE MARKER; there is no event id to jump to. The SDK places
+    /// this row from `m.fully_read`, which Lightning writes with every read
+    /// receipt, so its presence IS "there is unread history below here" — and
+    /// its absence is either "nothing unread" or "the marker is further back
+    /// than the loaded window", which the caller has to tell apart by
+    /// paginating rather than by asking again.
+    Q_INVOKABLE int readMarkerRow() const;
     Q_INVOKABLE int stateActivityRowCount() const;
     Q_INVOKABLE int stateGroupCount() const;
     Q_INVOKABLE QVariantMap messageDetails(const QString &eventId) const;
