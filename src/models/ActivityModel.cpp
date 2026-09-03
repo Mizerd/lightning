@@ -222,9 +222,15 @@ void ActivityModel::markRoomReadUpTo(const QString &roomId, qint64 timestampMs)
     //
     // NOT persisted, and it does not need to be. saveStore() writes only
     // seenUpToMs and the keywords, and neither moved. Across a restart the
-    // durability comes from the other end: seed() sets seenMark from the
-    // server's own `read` flag, and a read receipt is exactly what sets that
-    // flag — so the row the user read does not come back.
+    // durability comes from the other end, in seed().
+    //
+    // It used to say that durability was the server's own `read` flag, since
+    // a read receipt is what sets it. THAT WAS NOT ENOUGH, and a live report
+    // on 0.8.4 proved it: rows the room list considered read came back with
+    // `read: false` days later. reconcileSeedAgainstRoomCounts() is what
+    // makes this stick now — a room the user read reports no unread
+    // highlights, and its rows are marked seen whatever the per-row flag
+    // claims.
     rebuildVisible();
     Q_EMIT unseenCountChanged();
 }
@@ -498,6 +504,7 @@ void ActivityModel::seed(const QVariantList &entries)
         return;
     const QString self = m_client->currentUserId();
     bool any = false;
+    QStringList seeded;
     for (const QVariant &v : entries) {
         const QVariantMap m = v.toMap();
         Entry e;
@@ -530,9 +537,11 @@ void ActivityModel::seed(const QVariantList &entries)
         e.threadRootId = m.value(QStringLiteral("threadRootId")).toString();
         // The server's own read flag counts as seen: it is what Element
         // shows, and re-surfacing a mention the user already dealt with
-        // elsewhere would be noise.
+        // elsewhere would be noise. It is NOT trusted alone — see
+        // reconcileSeedAgainstRoomCounts() below.
         e.seenMark = m.value(QStringLiteral("read")).toBool();
         m_ids.insert(e.id);
+        seeded.append(e.id);
         m_entries.append(std::move(e));
         any = true;
     }
@@ -544,8 +553,74 @@ void ActivityModel::seed(const QVariantList &entries)
         m_ids.remove(m_entries.last().id);
         m_entries.removeLast();
     }
+    reconcileSeedAgainstRoomCounts(seeded);
     rebuildVisible();
     Q_EMIT unseenCountChanged();
+}
+
+// THE BELL AND THE ROOM LIST MUST NOT DISAGREE ABOUT THE SAME ACCOUNT.
+//
+// Reported live 2026-09-03 with a screenshot: no room showed unread and the
+// bell said 25, every row a "Highlighted for you" from the seed and some of
+// them six days old. Opening the room emptied it — which is
+// markRoomReadUpTo() working, and also the proof that a receipt had not been
+// recorded past those events before.
+//
+// The seed is `GET /notifications?only=highlight`, and each notification
+// carries its own `read` flag. The room list uses a DIFFERENT answer from the
+// same server: `highlight_count`, which the Rust bridge reports as
+// `max(num_unread_mentions, sync highlight_count)`. When those two disagree
+// the room list's is the one to keep — it is what the user is looking at, it
+// is what every other client shows, and a badge that contradicts the list
+// beside it is worse than a badge that is slightly conservative.
+//
+// So: per room, the server says exactly N of its highlights are unread. Order
+// that room's seeded rows newest-first and let the newest N stay unseen; the
+// rest are read. Exact when the seed holds the room's whole backlog, and
+// conservative in the right direction when it does not (a room with more
+// unread highlights than seeded rows marks none of them).
+//
+// Only rooms the client actually KNOWS take part. `roomInfo()` answers a
+// default-constructed RoomInfo for an unknown room, whose count would be a
+// zero that means "never heard of it" rather than "nothing unread" — and
+// reading that as "all seen" would swallow a real mention. The name and the
+// count arrive in the SAME room payload, so a room whose name resolved has a
+// count that is exactly as fresh.
+//
+// A row the server already called read is never un-marked here.
+void ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &seededIds)
+{
+    if (!m_client || seededIds.isEmpty())
+        return;
+    const QSet<QString> seeded(seededIds.begin(), seededIds.end());
+
+    // Rooms in this batch, each with its own unread-highlight budget.
+    QHash<QString, int> budget;
+    for (const Entry &e : m_entries) {
+        if (!seeded.contains(e.id) || budget.contains(e.roomId))
+            continue;
+        const RoomInfo info = m_client->roomInfo(e.roomId);
+        if (info.id != e.roomId)
+            continue;   // unknown room: leave its rows to the server's flag
+        budget.insert(e.roomId, std::max(0, info.highlightCount));
+    }
+    if (budget.isEmpty())
+        return;
+
+    // m_entries is already newest-first, so spending each room's budget in
+    // order hands it to that room's newest rows.
+    for (Entry &e : m_entries) {
+        if (e.seenMark || !seeded.contains(e.id))
+            continue;
+        auto it = budget.find(e.roomId);
+        if (it == budget.end())
+            continue;
+        if (*it > 0) {
+            --*it;      // this one really is unread
+            continue;
+        }
+        e.seenMark = true;
+    }
 }
 
 bool ActivityModel::addEntry(Entry entry)

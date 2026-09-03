@@ -168,6 +168,10 @@ private:
     bool passesFilter(const Entry &e) const;
     void rebuildVisible();
     bool addEntry(Entry entry); // false = already listed
+    // The seed's per-notification `read` flag and the room list's
+    // highlight_count are two answers from the same server, and they were
+    // observed disagreeing on a live account. This keeps the room list's.
+    void reconcileSeedAgainstRoomCounts(const QStringList &seededIds);
     void rememberOwn(const TimelineEvent &event);
     void loadStore();
     void saveStore();

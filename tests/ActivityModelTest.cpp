@@ -533,6 +533,121 @@ private Q_SLOTS:
         QVERIFY(!h.model.ingest(dup, QStringLiteral("Lounge")));
         QCOMPARE(h.model.count(), 2);
     }
+
+    // THE BELL AND THE ROOM LIST MUST NOT DISAGREE ABOUT THE SAME ACCOUNT.
+    //
+    // Reported live on 0.8.4 with a screenshot: no room showed unread and the
+    // bell said 25, every row a seeded "Highlighted for you" and some of them
+    // six days old. Opening the room emptied it, which is markRoomReadUpTo()
+    // working — and also the proof that the seed's own `read` flag had said
+    // false for rows the room list already considered read.
+    //
+    // The seed is GET /notifications?only=highlight and the room list is
+    // highlight_count. Two answers from the same server; when they disagree
+    // the room list's is kept, because it is the one the user is looking at.
+    //
+    // On the unfixed model this room's four rows all count, and unseenCount()
+    // is 4 against a room list showing nothing.
+    void aRoomWithNoUnreadHighlightsContributesNothingToTheBell()
+    {
+        Harness h;
+        RoomInfo quiet;
+        quiet.id = kRoom;
+        quiet.name = QStringLiteral("Lightning Support");
+        quiet.highlightCount = 0;
+        h.client.roomSet = { quiet };
+
+        QVariantList rows;
+        for (int i = 1; i <= 4; ++i) {
+            rows.append(QVariantMap{
+                { QStringLiteral("eventId"), QStringLiteral("$old%1").arg(i) },
+                { QStringLiteral("roomId"), kRoom },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("timestampMs"), 100 * i },
+                // Exactly what the live account sent: the server's per-row
+                // flag says unread for every one of them.
+                { QStringLiteral("read"), false },
+            });
+        }
+        h.model.seed(rows);
+        QCOMPARE(h.model.count(), 4);
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
+    // ...and the budget is spent on the NEWEST rows, not on all of them.
+    //
+    // A room the server says has ONE unread highlight must contribute exactly
+    // one, and it must be the newest — marking the oldest unread instead would
+    // send the user to a message they read days ago.
+    void theRoomsUnreadBudgetGoesToItsNewestRows()
+    {
+        Harness h;
+        RoomInfo busy;
+        busy.id = kRoom;
+        busy.name = QStringLiteral("Lightning Support");
+        busy.highlightCount = 1;
+        RoomInfo other;
+        other.id = QStringLiteral("!other:mock.local");
+        other.name = QStringLiteral("Sales");
+        other.highlightCount = 0;
+        h.client.roomSet = { busy, other };
+
+        QVariantList rows;
+        for (int i = 1; i <= 3; ++i) {
+            rows.append(QVariantMap{
+                { QStringLiteral("eventId"), QStringLiteral("$b%1").arg(i) },
+                { QStringLiteral("roomId"), kRoom },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("timestampMs"), 100 * i },
+                { QStringLiteral("read"), false },
+            });
+        }
+        // A second room whose count is zero must not borrow the first's
+        // budget: the budget is per room, not per batch.
+        rows.append(QVariantMap{
+            { QStringLiteral("eventId"), QStringLiteral("$o1") },
+            { QStringLiteral("roomId"), other.id },
+            { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+            { QStringLiteral("timestampMs"), 400 },
+            { QStringLiteral("read"), false },
+        });
+        h.model.seed(rows);
+        QCOMPARE(h.model.count(), 4);
+        QCOMPARE(h.model.unseenCount(), 1);
+        // Newest first, so row 0 is the other room's 400 — seen — and the one
+        // unseen row is $b3 at 300.
+        int unseenRow = -1;
+        for (int i = 0; i < h.model.count(); ++i) {
+            if (!h.row(i).value(QStringLiteral("seen")).toBool())
+                unseenRow = i;
+        }
+        QVERIFY(unseenRow >= 0);
+        QCOMPARE(h.row(unseenRow).value(QStringLiteral("entryId")).toString(),
+                 QStringLiteral("$b3"));
+    }
+
+    // A room the client has never heard of keeps the server's flag.
+    //
+    // roomInfo() answers a default-constructed RoomInfo for an unknown room,
+    // whose highlightCount is a zero meaning "never heard of it" rather than
+    // "nothing unread". Reading that as "all seen" would swallow a real
+    // mention — an invite to a room not in the list, or a seed that lands
+    // before its room does.
+    void anUnknownRoomsSeededRowsKeepTheServersFlag()
+    {
+        Harness h;
+        h.client.roomSet = {};   // nothing known
+        h.model.seed({
+            QVariantMap{
+                { QStringLiteral("eventId"), QStringLiteral("$u1") },
+                { QStringLiteral("roomId"), kRoom },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("timestampMs"), 100 },
+                { QStringLiteral("read"), false } },
+        });
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.model.unseenCount(), 1);
+    }
 };
 
 QTEST_GUILESS_MAIN(ActivityModelTest)
