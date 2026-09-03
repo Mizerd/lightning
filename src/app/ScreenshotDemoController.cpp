@@ -162,6 +162,37 @@ ScreenshotDemoController::catalogue()
         // Classic, stated EXPLICITLY rather than inherited, so a release
         // pair can be shot without depending on whatever the demo profile
         // was last left in.
+        // ── 0.8.5: the two surfaces this round added ────────────────────
+        //
+        // Both go through the SAME popup mechanism every other overlay
+        // scenario uses, so they exercise the production entry points
+        // (`openFind()`, `toggleRoomInfo()`) rather than a demo-only
+        // shortcut that could photograph a state the app cannot reach.
+        //
+        // The find bar is seeded with a query because the surface this
+        // round changed is the RESULT area — the source toggle, the local
+        // coverage line and the index button only render once a search
+        // session is live, so an empty find bar shows none of it.
+        { .id = QStringLiteral("find-in-room"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .theme = kStormTheme, .size = QStringLiteral("1600x1000"),
+          .title = QStringLiteral("Find in room — local search"),
+          .popup = QStringLiteral("find-in-room"),
+          .query = QStringLiteral("theme") },
+        { .id = QStringLiteral("find-in-room-history"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .theme = kStormTheme, .size = QStringLiteral("1600x1000"),
+          .title = QStringLiteral("Find in room — searching history"),
+          .popup = QStringLiteral("find-in-room-history"),
+          .query = QStringLiteral("theme") },
+        { .id = QStringLiteral("room-widgets"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .theme = kStormTheme, .size = QStringLiteral("1600x1000"),
+          .title = QStringLiteral("Room Information — widgets"),
+          // No section: the widget list lives in the panel's own default
+          // "overview", which is where openForRoom() already leaves it.
+          .popup = QStringLiteral("room-info") },
+
         { .id = QStringLiteral("classic-home"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = kStormTheme, .typing = true,
@@ -784,6 +815,10 @@ void ScreenshotDemoController::dispatchScenarioPopup(const QString &scenarioId,
             Q_EMIT demoOpenInvitePeople();
         else if (popup == QLatin1String("create-poll"))
             Q_EMIT demoOpenCreatePoll();
+        else if (popup == QLatin1String("room-info"))
+            Q_EMIT demoOpenRoomInfo(query);
+        else if (popup == QLatin1String("find-in-room-history"))
+            Q_EMIT demoOpenFindBarHistory(query);
     });
 }
 

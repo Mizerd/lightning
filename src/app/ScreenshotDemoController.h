@@ -150,6 +150,15 @@ Q_SIGNALS:
     void demoFocusSettingsSearch(const QString &query);
     void demoOpenInvitePeople();
     void demoOpenCreatePoll();
+    /// 0.8.5: open Room Information at one named section, so a surface that
+    /// lives inside it (the widget list) can be photographed. The section
+    /// string is RoomInfoPanel's own vocabulary — "" leaves it on whichever
+    /// section the panel opens with.
+    void demoOpenRoomInfo(const QString &section);
+    /// 0.8.5: open Find already switched to History, which is the only state
+    /// that renders the local-index coverage row and its "Index this room"
+    /// button — an empty or loaded-mode find bar shows neither.
+    void demoOpenFindBarHistory(const QString &query);
 
 private:
     struct Scenario;

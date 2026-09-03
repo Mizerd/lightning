@@ -779,6 +779,31 @@ Rectangle {
             root.openFind()
             findField.text = query
         }
+        // 0.8.5: Room Information, through the SAME toggleRoomInfo() a user
+        // reaches — so a shot cannot show a panel state the app has no path
+        // to. An empty section leaves the panel on whichever one
+        // openForRoom() selects, which is where the widget list lives.
+        // Find, already switched to History — the state that renders the
+        // local-index coverage row and its "Index this room" button. Driven
+        // through the toggle's own activation path rather than by setting
+        // findHistoryMode directly, so the shot cannot show a combination
+        // the real control would never produce.
+        function onDemoOpenFindBarHistory(query) {
+            root.openFind()
+            findField.text = query
+            root.findHistoryMode = true
+            app.messageSearch.source =
+                app.messageSearch.localAvailable ? "local" : "server"
+            app.timeline.endSearch()
+            app.messageSearch.roomId = app.currentRoomId
+            app.messageSearch.filters = ({})
+            app.messageSearch.query = query
+        }
+        function onDemoOpenRoomInfo(section) {
+            root.toggleRoomInfo()
+            if (section !== "" && root.infoOpen)
+                infoPanel.section = section
+        }
     }
     FileDialog {
         id: saveMediaDialog
@@ -1423,6 +1448,15 @@ Rectangle {
                     objectName: "findModeToggle"
                     visible: root.findHistoryAvailable
                     dense: true
+                    // EXPLICIT false. SegmentedControl is a RowLayout, and
+                    // QtQuickLayouts defaults Layout.fillWidth to TRUE for a
+                    // nested layout — so without this it takes half the
+                    // surplus of the row, and its own trailing filler turns
+                    // that into dead space between "History" and the field.
+                    // Measured: a ~350 px gap at 1600 px wide, ~130 px at
+                    // 1100 px. Invisible in hosts where nothing follows the
+                    // control; this row has two things after it.
+                    Layout.fillWidth: false
                     model: [
                         { label: qsTr("Loaded"), value: "loaded" },
                         { label: qsTr("History"), value: "history" }
