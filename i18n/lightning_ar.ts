@@ -3723,8 +3723,13 @@ Size: %3</source>
 <context>
     <name>JumpToDateDialog</name>
     <message>
-        <location filename="../qml/JumpToDateDialog.qml" line="+97"/>
-        <source>Your homeserver could not find a message on or after that date. It may also not support jumping to a date.</source>
+        <location filename="../qml/JumpToDateDialog.qml" line="+99"/>
+        <source>Your homeserver could not find a message on or after that date.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Your homeserver does not support jumping to a date. That needs a newer homeserver; searching this room still works.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -14054,18 +14059,18 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="+179"/>
+        <location line="+204"/>
         <source>Save file as…</source>
         <translation>حفظ الملف باسم…</translation>
     </message>
     <message>
         <location line="+136"/>
-        <location line="+5776"/>
+        <location line="+5785"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location line="-5775"/>
+        <location line="-5784"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
@@ -14120,12 +14125,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4497"/>
+        <location line="+4506"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-4276"/>
+        <location line="-4285"/>
         <source>This room has been upgraded.</source>
         <translation>تمت ترقية هذه الغرفة.</translation>
     </message>
@@ -14160,7 +14165,7 @@ Note: importing keys does not verify this session.</source>
         <translation>فتح الغرفة السابقة</translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location line="+61"/>
         <source>Loaded</source>
         <translation>المحمّلة</translation>
     </message>

@@ -91,12 +91,20 @@ Dialog {
     function failureText(category) {
         switch (category) {
         case "not_found":
-            // The commonest real outcome, and it covers two different things
-            // the client cannot tell apart: no message at or after that date,
-            // and a homeserver that does not implement the endpoint at all.
+            // The commonest real outcome, and now it says ONLY that. A server
+            // with no MSC3030 answers 404 M_UNRECOGNIZED and classifies as
+            // "unrecognized" below, so this no longer has to hedge — a hedge
+            // carried on the common case is read as noise and stops carrying
+            // anything on the rare one.
             return qsTr("Your homeserver could not find a message on or "
-                        + "after that date. It may also not support jumping "
-                        + "to a date.")
+                        + "after that date.")
+        case "unrecognized":
+            // A homeserver too old for MSC3030 (stable since Matrix 1.6).
+            // Nothing the user can do in the app, so the message says whose
+            // limitation it is rather than offering a retry.
+            return qsTr("Your homeserver does not support jumping to a date. "
+                        + "That needs a newer homeserver; searching this "
+                        + "room still works.")
         case "forbidden":
             return qsTr("Your homeserver refused the request for this room.")
         case "rate_limited":

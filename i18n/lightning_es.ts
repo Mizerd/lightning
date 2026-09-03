@@ -3699,8 +3699,13 @@ Tamaño: %3</translation>
 <context>
     <name>JumpToDateDialog</name>
     <message>
-        <location filename="../qml/JumpToDateDialog.qml" line="+97"/>
-        <source>Your homeserver could not find a message on or after that date. It may also not support jumping to a date.</source>
+        <location filename="../qml/JumpToDateDialog.qml" line="+99"/>
+        <source>Your homeserver could not find a message on or after that date.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Your homeserver does not support jumping to a date. That needs a newer homeserver; searching this room still works.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -13970,18 +13975,18 @@ Nota: importar claves no verifica esta sesión.</translation>
         </translation>
     </message>
     <message>
-        <location line="+179"/>
+        <location line="+204"/>
         <source>Save file as…</source>
         <translation>Guardar el archivo como…</translation>
     </message>
     <message>
         <location line="+136"/>
-        <location line="+5776"/>
+        <location line="+5785"/>
         <source>Space</source>
         <translation>Espacio</translation>
     </message>
     <message>
-        <location line="-5775"/>
+        <location line="-5784"/>
         <source>Home</source>
         <translation>Inicio</translation>
     </message>
@@ -14036,12 +14041,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4497"/>
+        <location line="+4506"/>
         <source>Room information</source>
         <translation>Información de la sala</translation>
     </message>
     <message>
-        <location line="-4276"/>
+        <location line="-4285"/>
         <source>This room has been upgraded.</source>
         <translation>Esta sala se ha actualizado.</translation>
     </message>
@@ -14076,7 +14081,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Abrir la sala anterior</translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location line="+61"/>
         <source>Loaded</source>
         <translation>Cargados</translation>
     </message>

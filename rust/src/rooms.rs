@@ -90,6 +90,15 @@ pub(crate) fn classify_room_error(message: &str) -> &'static str {
         "alias_taken"
     } else if lc.contains("m_invalid") || lc.contains("invalid") {
         "invalid"
+    // BEFORE the 404 branch, and that ordering is the whole point: a server
+    // that does not implement an endpoint answers 404 WITH M_UNRECOGNIZED, so
+    // the generic branch would swallow it and "your server cannot do this at
+    // all" would read as "there is nothing there" — the absence-looks-like-
+    // success shape this project keeps rediscovering. Jump-to-date is the
+    // caller that needs it (MSC3030 is only stable since Matrix 1.6), but any
+    // endpoint an older homeserver lacks benefits.
+    } else if lc.contains("m_unrecognized") || lc.contains("unrecognized") {
+        "unrecognized"
     } else if lc.contains("m_not_found") || lc.contains("not found") || lc.contains("404") {
         "not_found"
     } else {
@@ -4551,6 +4560,13 @@ mod tests {
         assert_eq!(classify_room_error("M_ROOM_IN_USE: alias taken"), "alias_taken");
         assert_eq!(classify_room_error("M_INVALID_PARAM: bad alias"), "invalid");
         assert_eq!(classify_room_error("M_NOT_FOUND"), "not_found");
+        // An endpoint the homeserver does not implement. Synapse answers
+        // 404 M_UNRECOGNIZED, so this MUST outrank the 404 branch or the two
+        // become the same observable — asserted with the 404 present, which
+        // is the only form that proves the ordering.
+        assert_eq!(
+            classify_room_error("the server returned an error: [404 / M_UNRECOGNIZED] Unrecognized request"),
+            "unrecognized");
         assert_eq!(classify_room_error("connection reset by peer"), "network");
     }
 
