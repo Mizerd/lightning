@@ -323,16 +323,29 @@ Rectangle {
     // segment — an honest server /search of this room — in unencrypted
     // rooms only; the two modes never mix results.
     property bool findOpen: false
-    // v0.7.x: the find bar's second mode — server-side history search of
-    // THIS room. Unavailable in encrypted rooms (the server cannot search
-    // ciphertext; the loaded-messages find remains the only search there).
+    // ── The find bar's second mode: search this room's HISTORY ───────────
+    //
+    // It used to be server search alone, and so it was unavailable in
+    // encrypted rooms — the server holds ciphertext and cannot search it. That
+    // left the one search people most need working in the rooms they least
+    // often use it in.
+    //
+    // It is now Lightning's own local index by default, which searches
+    // DECRYPTED text this client already holds and so works identically in an
+    // encrypted room. Server search stays available where the server can read
+    // the room, because it covers history this client has never seen — the two
+    // are genuinely different answers, not a fallback, which is why the source
+    // is a visible choice rather than something the bar picks silently.
     property bool findHistoryMode: false
-    // Review H1: the offer needs an AFFIRMATIVE unencrypted state — a room
-    // whose encryption state has not synced yet gets no History segment.
-    readonly property bool findHistoryAvailable:
+    // Local search needs only an index. Server search additionally needs an
+    // AFFIRMATIVE unencrypted state (review H1): a room whose encryption state
+    // has not synced yet is not offered server search.
+    readonly property bool serverSearchAvailable:
         app.messageSearch.supported
         && root.currentRoom.encryptionKnown === true
         && root.currentRoom.encrypted !== true
+    readonly property bool findHistoryAvailable:
+        app.messageSearch.localAvailable || root.serverSearchAvailable
 
     function openFind() {
         if (app.currentRoomId === "") return
@@ -1421,6 +1434,13 @@ Rectangle {
                             return
                         root.findHistoryMode = wantHistory
                         if (wantHistory) {
+                            // Prefer the LOCAL index: it is the only one that
+                            // works in an encrypted room, and it answers
+                            // without a round trip. Server search is chosen
+                            // explicitly by the strip below.
+                            app.messageSearch.source =
+                                app.messageSearch.localAvailable
+                                ? "local" : "server"
                             app.timeline.endSearch()
                             app.messageSearch.roomId = app.currentRoomId
                             app.messageSearch.filters = ({})
@@ -1533,6 +1553,88 @@ Rectangle {
             }
 
             // v0.7.x: history-mode results (server /search, this room).
+            // ── What this search actually covers, and how to widen it ────
+            //
+            // A local index answers from what it HOLDS, and a result list that
+            // did not say so would let "no results" read as "this was never
+            // said" when it means "this room is not indexed that far back".
+            // The count is the honest form of that, and the button beside it
+            // is the thing to do about it — an explanation with no remedy is
+            // just an excuse.
+            RowLayout {
+                objectName: "findLocalCoverageRow"
+                Layout.fillWidth: true
+                visible: root.findHistoryMode
+                         && app.messageSearch.source === "local"
+                spacing: AppTheme.spacingS
+                Label {
+                    objectName: "findLocalCoverage"
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    textFormat: Text.PlainText
+                    color: AppTheme.textMuted
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    text: {
+                        if (app.messageSearch.indexing)
+                            return qsTr("Indexing this room's history…")
+                        if (app.messageSearch.state === "too_short")
+                            return qsTr("Type at least %1 characters.")
+                                .arg(app.messageSearch.minLocalChars)
+                        var n = app.messageSearch.indexedMessages
+                        if (n <= 0)
+                            return qsTr("Nothing is indexed yet.")
+                        return qsTr("Searching %1 messages Lightning has "
+                                    + "indexed, including encrypted ones.")
+                                   .arg(n)
+                    }
+                }
+                AppBusyIndicator {
+                    visible: app.messageSearch.indexing
+                    implicitWidth: 16
+                    implicitHeight: 16
+                }
+                AppButton {
+                    objectName: "findIndexRoomButton"
+                    text: qsTr("Index this room")
+                    kind: "ghost"
+                    // One at a time: each run is a bounded series of real
+                    // requests, and two at once would race for the same rows.
+                    enabled: !app.messageSearch.indexing
+                             && app.currentRoomId !== ""
+                    ToolTip.text: qsTr("Fetch this room's older messages so "
+                                       + "they can be searched")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: app.messageSearch.indexRoomHistory(
+                                   app.currentRoomId)
+                }
+            }
+            // Server search stays reachable where the server can read the
+            // room, because it covers history this client has never seen.
+            // Offered as a CHOICE rather than a fallback: the two answer
+            // different questions, and a bar that switched silently would make
+            // "no results" mean two things on consecutive keystrokes.
+            SegmentedControl {
+                objectName: "findSourceToggle"
+                dense: true
+                Layout.fillWidth: false
+                visible: root.findHistoryMode
+                         && app.messageSearch.localAvailable
+                         && root.serverSearchAvailable
+                model: [
+                    { label: qsTr("Indexed"), value: "local",
+                      tip: qsTr("Lightning's own index. Works in encrypted "
+                                + "rooms.") },
+                    { label: qsTr("Server"), value: "server",
+                      tip: qsTr("Your homeserver's search. Covers history "
+                                + "this device has never seen, and cannot "
+                                + "read encrypted rooms.") }
+                ]
+                current: app.messageSearch.source
+                onActivated: (value) => app.messageSearch.source = value
+            }
+
             ListView {
                 id: historyResultsList
                 objectName: "historySearchResultsList"

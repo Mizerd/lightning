@@ -976,6 +976,38 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_activitySeeded = true;
             m_client->requestActivitySeed(60);
         }
+        // THE INDEX HAS TO FILL ITSELF. A search feature whose index only
+        // grows when the user goes and asks for it is a search feature that
+        // returns nothing the first time anybody tries it — and nobody tries
+        // twice. The sweep is cheap by construction (one query per room to
+        // find what is already indexed, then writes only for what is not), so
+        // running it on a timer costs almost nothing on a quiet account.
+        if (state == MatrixClient::Syncing) {
+            m_client->sweepSearchIndex();
+            m_client->searchIndexStats();
+            if (!m_searchIndexTimer.isActive())
+                m_searchIndexTimer.start();
+        } else {
+            m_searchIndexTimer.stop();
+        }
+    });
+    // Five minutes: new messages become searchable within one interval, and
+    // the interval is long enough that a sweep is never competing with the
+    // user's own typing for the runtime.
+    m_searchIndexTimer.setInterval(5 * 60 * 1000);
+    m_searchIndexTimer.setSingleShot(false);
+    connect(&m_searchIndexTimer, &QTimer::timeout, this, [this] {
+        if (m_client)
+            m_client->sweepSearchIndex();
+    });
+    // A redaction must reach the index, or a message somebody asked to be
+    // unsayable stays findable by its own text — the single worst thing a
+    // local index can do.
+    connect(m_client.get(), &MatrixClient::eventRedacted, this,
+            [this](const QString &roomId, const QString &eventId) {
+        Q_UNUSED(roomId);
+        if (m_client && !eventId.isEmpty())
+            m_client->forgetIndexedEvent(eventId);
     });
     m_thread->setClient(m_client.get());
     m_thread->setDraftStore(m_draftStore.get());

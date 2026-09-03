@@ -1341,6 +1341,11 @@ private:
     /// one lingers is a request the backend never answers, which is the same
     /// bound every other op-id map here lives with.
     QHash<quint64, QString> m_pendingDateJumps;
+    /// Keeps the local search index current. See the connection in the
+    /// constructor for why a timer rather than an event hook: the sweep is
+    /// idempotent and cheap, and hooking every ingest path would put index
+    /// bookkeeping in a dozen places instead of one.
+    QTimer m_searchIndexTimer;
     std::unique_ptr<CryptoBootstrapModel> m_cryptoBootstrap;
     // The CryptoHealthModel generation captured at the moment a crypto-health
     // query is DISPATCHED. Comparing this (not the model's live generation)

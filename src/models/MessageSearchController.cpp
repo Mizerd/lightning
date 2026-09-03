@@ -43,6 +43,41 @@ void MessageSearchController::setClient(MatrixClient *client)
     }
     connect(m_client, &MatrixClient::messageSearchFinished, this,
             &MessageSearchController::onSearchFinished);
+    connect(m_client, &MatrixClient::localSearchFinished, this,
+            &MessageSearchController::onLocalSearchFinished);
+    connect(m_client, &MatrixClient::searchIndexStatsReceived, this,
+            [this](quint64, qint64 messages, qint64 rooms) {
+        if (m_indexedMessages == messages && m_indexedRooms == rooms)
+            return;
+        m_indexedMessages = messages;
+        m_indexedRooms = rooms;
+        Q_EMIT indexStatsChanged();
+    });
+    connect(m_client, &MatrixClient::searchIndexSwept, this,
+            [this](quint64, int, int, qint64 messages, qint64 rooms) {
+        m_indexedMessages = messages;
+        m_indexedRooms = rooms;
+        Q_EMIT indexStatsChanged();
+    });
+    connect(m_client, &MatrixClient::searchIndexDeepened, this,
+            [this](quint64 opId, bool ok, const QString &roomId, int,
+                   bool reachedStart, int written, qint64 messages,
+                   const QString &) {
+        if (opId != m_deepOp)
+            return;   // a deep index from a previous room or account
+        m_deepOp = 0;
+        m_indexedMessages = messages;
+        Q_EMIT indexingChanged();
+        Q_EMIT indexStatsChanged();
+        Q_EMIT roomHistoryIndexed(roomId, ok, reachedStart, written);
+        // Re-run the query against what just arrived. Indexing a room while
+        // its results are on screen and NOT refreshing them would leave the
+        // user looking at the answer from before they asked for more.
+        if (ok && written > 0 && !m_query.trimmed().isEmpty()
+            && m_source == QLatin1String("local")) {
+            dispatch(false);
+        }
+    });
     // One account's search results must never surface under another's.
     connect(m_client, &MatrixClient::loggedOut, this,
             &MessageSearchController::clear);
@@ -51,7 +86,123 @@ void MessageSearchController::setClient(MatrixClient *client)
 
 bool MessageSearchController::supported() const
 {
-    return m_client && m_client->supportsMessageSearch();
+    if (!m_client)
+        return false;
+    // Local search is supported wherever the index is, INCLUDING encrypted
+    // rooms — which is the whole reason it exists. Server search is supported
+    // only where the server can read the room.
+    if (m_source == QLatin1String("local"))
+        return m_client->supportsLocalSearch();
+    return m_client->supportsMessageSearch();
+}
+
+bool MessageSearchController::localAvailable() const
+{
+    return m_client && m_client->supportsLocalSearch();
+}
+
+void MessageSearchController::setSource(const QString &source)
+{
+    // Validated against the known set, like setFilter elsewhere: an unknown
+    // value would leave dispatch() choosing neither branch and the search box
+    // silently dead.
+    const QString next = source == QLatin1String("server")
+        ? QStringLiteral("server") : QStringLiteral("local");
+    if (next == m_source)
+        return;
+    m_source = next;
+    invalidatePending();
+    clear();
+    Q_EMIT sourceChanged();
+    Q_EMIT stateChanged();
+    if (!m_query.trimmed().isEmpty())
+        dispatch(false);
+}
+
+void MessageSearchController::refreshIndexStats()
+{
+    if (m_client)
+        m_client->searchIndexStats();
+}
+
+void MessageSearchController::sweepIndex()
+{
+    if (m_client)
+        m_client->sweepSearchIndex();
+}
+
+void MessageSearchController::indexRoomHistory(const QString &roomId)
+{
+    if (!m_client || roomId.isEmpty() || m_deepOp != 0)
+        return;   // one at a time: each is a bounded run of real requests
+    m_deepOp = m_client->deepenSearchIndex(roomId);
+    if (m_deepOp != 0)
+        Q_EMIT indexingChanged();
+}
+
+void MessageSearchController::clearIndex()
+{
+    if (!m_client)
+        return;
+    m_client->clearSearchIndex();
+    m_indexedMessages = 0;
+    m_indexedRooms = 0;
+    Q_EMIT indexStatsChanged();
+    if (m_source == QLatin1String("local"))
+        clear();
+}
+
+void MessageSearchController::onLocalSearchFinished(
+    quint64 opId, bool ok, const QString &category, int minChars,
+    const QVariantList &results)
+{
+    if (opId != m_pendingOp)
+        return;   // stale: the query moved on while this was in flight
+    m_pendingOp = 0;
+    if (minChars > 0 && minChars != m_minLocalChars)
+        m_minLocalChars = minChars;
+
+    if (!ok) {
+        // "too_short" is NOT an error and NOT "no results": the query cannot
+        // match the tokenizer at all, and the user can act on that by typing
+        // one more character. Reporting it as either of the others would tell
+        // them nothing they can use.
+        beginResetModel();
+        m_rows.clear();
+        endResetModel();
+        m_totalCount = 0;
+        m_nextBatch.clear();
+        setState(category == QLatin1String("too_short")
+                     ? QStringLiteral("too_short") : QStringLiteral("error"));
+        return;
+    }
+
+    QList<QVariantMap> rows;
+    rows.reserve(results.size());
+    for (const QVariant &value : results) {
+        QVariantMap row = value.toMap();
+        // The same client-side filters the server path applies, so switching
+        // source does not silently change which rows a filter removes.
+        if (!matchesFilters(row))
+            continue;
+        if (m_client) {
+            const QString roomId = row.value(QStringLiteral("roomId")).toString();
+            row.insert(QStringLiteral("roomName"),
+                       m_client->roomInfo(roomId).name);
+        }
+        rows.append(row);
+    }
+
+    beginResetModel();
+    m_rows = std::move(rows);
+    endResetModel();
+    m_totalCount = static_cast<quint64>(m_rows.size());
+    // A local page has no server cursor. "More" exists when the page came
+    // back full, which is the only evidence available that there is more.
+    m_nextBatch = results.size() >= kLocalPage
+        ? QStringLiteral("local") : QString();
+    setState(m_rows.isEmpty() ? QStringLiteral("no_results")
+                              : QStringLiteral("results"));
 }
 
 void MessageSearchController::setQuery(const QString &query)
@@ -179,6 +330,24 @@ void MessageSearchController::dispatch(bool nextPage)
 
 void MessageSearchController::requestPage(bool append)
 {
+    if (m_source == QLatin1String("local")) {
+        // No cursor: ask for a bigger page and replace. Paging by OFFSET
+        // against a live index would drop or repeat rows whenever indexing
+        // wrote a newer message between two pages, and this index is written
+        // to while a search is on screen.
+        const int limit = append ? m_rows.size() + kLocalPage : kLocalPage;
+        const quint64 opId = m_client->localSearch(m_query.trimmed(), m_roomId,
+                                                   limit, 0);
+        if (opId == 0) {
+            setState(QStringLiteral("error"));
+            return;
+        }
+        m_pendingOp = opId;
+        m_pendingIsNextPage = append;
+        setState(append ? QStringLiteral("loading_more")
+                        : QStringLiteral("loading"));
+        return;
+    }
     const QString since = append ? m_nextBatch : QString();
     const quint64 opId = m_client->searchMessages(m_query.trimmed(), m_roomId,
                                                   since, kPageSize,

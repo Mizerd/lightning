@@ -40,6 +40,32 @@ class MessageSearchController : public QAbstractListModel
     // this only on Apply, so Cancel cannot mutate live results.
     Q_PROPERTY(QVariantMap filters READ filters WRITE setFilters
                    NOTIFY filtersChanged)
+    // ── Where the results come from ──────────────────────────────────────
+    //
+    // "local"  — Lightning's own FTS5 index over the plaintext it holds.
+    //            Works in ENCRYPTED rooms, which server search cannot, and
+    //            answers without a round trip. Covers what has been indexed.
+    // "server" — POST /_matrix/client/v3/search. Covers the server's whole
+    //            history, and only for rooms the server can READ.
+    //
+    // Two genuinely different answers, so this is a visible mode rather than
+    // a fallback: a search that silently changed which of them it ran would
+    // make "no results" mean two different things on consecutive keystrokes.
+    Q_PROPERTY(QString source READ source WRITE setSource NOTIFY sourceChanged)
+    /// Whether a local index exists at all on this backend. Lets a surface
+    /// offer the choice only where there is one.
+    Q_PROPERTY(bool localAvailable READ localAvailable NOTIFY sourceChanged)
+    /// What the local index holds, so a surface can say what local search
+    /// covers instead of implying it covers everything.
+    Q_PROPERTY(qint64 indexedMessages READ indexedMessages
+                   NOTIFY indexStatsChanged)
+    Q_PROPERTY(qint64 indexedRooms READ indexedRooms NOTIFY indexStatsChanged)
+    /// True while a deep index is paging a room's history in.
+    Q_PROPERTY(bool indexing READ indexing NOTIFY indexingChanged)
+    /// Shortest query the local tokenizer can match, 0 until the backend has
+    /// said. Surfaces show it rather than reporting "no results" for a query
+    /// that could never have matched.
+    Q_PROPERTY(int minLocalChars READ minLocalChars NOTIFY stateChanged)
 
 public:
     enum Roles {
@@ -73,6 +99,23 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
+    QString source() const { return m_source; }
+    void setSource(const QString &source);
+    bool localAvailable() const;
+    qint64 indexedMessages() const { return m_indexedMessages; }
+    qint64 indexedRooms() const { return m_indexedRooms; }
+    bool indexing() const { return m_deepOp != 0; }
+    int minLocalChars() const { return m_minLocalChars; }
+
+    /// Ask the backend what the index holds. Cheap; safe to call on open.
+    Q_INVOKABLE void refreshIndexStats();
+    /// Walk cached events into the index across every joined room.
+    Q_INVOKABLE void sweepIndex();
+    /// Page ONE room's history in and index it — the action that turns
+    /// "search what you have read" into "search this room".
+    Q_INVOKABLE void indexRoomHistory(const QString &roomId);
+    Q_INVOKABLE void clearIndex();
+
     Q_INVOKABLE void search();   // dispatch immediately (Enter key)
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void clear();
@@ -86,12 +129,23 @@ Q_SIGNALS:
     void roomIdChanged();
     void stateChanged();
     void filtersChanged();
+    void sourceChanged();
+    void indexStatsChanged();
+    void indexingChanged();
+    /// A deep index finished. `reachedStart` says whether the room's whole
+    /// history is now indexed or the page budget ran out first — a surface
+    /// that reported "done" for both would be claiming completeness it does
+    /// not have.
+    void roomHistoryIndexed(const QString &roomId, bool ok, bool reachedStart,
+                            int written);
 
 private Q_SLOTS:
     void dispatch(bool nextPage);
     void onSearchFinished(quint64 opId, bool ok, const QVariantList &results,
                           const QString &nextBatch, quint64 count,
                           const QString &category);
+    void onLocalSearchFinished(quint64 opId, bool ok, const QString &category,
+                               int minChars, const QVariantList &results);
 
 private:
     void setState(const QString &state);
@@ -120,4 +174,12 @@ private:
     QString m_pinnedMode;
     int m_scanPages = 0;
     int m_scanTarget = 0;
+    QString m_source = QStringLiteral("local");
+    qint64 m_indexedMessages = 0;
+    qint64 m_indexedRooms = 0;
+    quint64 m_deepOp = 0;
+    int m_minLocalChars = 0;
+    /// Rows a local page returns. Local search has no server cursor, so
+    /// "load more" is a larger LIMIT rather than a next-batch token.
+    static constexpr int kLocalPage = 50;
 };

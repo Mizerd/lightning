@@ -11985,6 +11985,247 @@ mod live_e2ee_interop_tests {
         runtime.shutdown_timeout(Duration::from_secs(5));
     }
 
+    // ── LOCAL SEARCH, against a real homeserver ─────────────────────────
+    //
+    // The claim this feature exists to make is "search works in an ENCRYPTED
+    // room, where server search returns nothing". Unit tests prove the index;
+    // only a live run proves the path into it — login, sync, the SDK's event
+    // cache holding DECRYPTED events, the sweep, and an FTS5 query coming back
+    // with the right rows.
+    //
+    // Gated like every other live test here, and it creates nothing: it reads
+    // rooms the fixture account is already in.
+    #[test]
+    #[ignore = "live homeserver local search; set LIGHTNING_LIVE_SEARCH=1 and credentials env"]
+    fn live_local_search_finds_messages_including_in_encrypted_rooms() {
+        if env_nonempty("LIGHTNING_LIVE_SEARCH").as_deref() != Some("1") {
+            eprintln!("[live] gate off; skipping");
+            return;
+        }
+        let homeserver = env_nonempty("LIGHTNING_TEST_HOMESERVER")
+            .expect("LIGHTNING_TEST_HOMESERVER");
+        let user = env_nonempty("LIGHTNING_TEST_USER").expect("LIGHTNING_TEST_USER");
+        let password =
+            env_nonempty("LIGHTNING_TEST_PASSWORD").expect("LIGHTNING_TEST_PASSWORD");
+        let needle = env_nonempty("LIGHTNING_TEST_NEEDLE")
+            .unwrap_or_else(|| "quarterly deployment".to_owned());
+
+        let dir = tempfile_dir("lightning-live-search");
+        let store = CString::new(dir.to_string_lossy().as_ref()).unwrap();
+        let handle = unsafe { super::mx_rust_create(store.as_ptr()) };
+        assert!(!handle.is_null(), "bridge");
+
+        unsafe {
+            let hs = CString::new(homeserver.clone()).unwrap();
+            let u = CString::new(user.clone()).unwrap();
+            let p = CString::new(password).unwrap();
+            let err = take(super::mx_rust_login(
+                handle, hs.as_ptr(), u.as_ptr(), p.as_ptr()));
+            assert!(err.is_empty(), "login dispatch: {err}");
+            wait_for(handle, "login", Duration::from_secs(60), |ev| {
+                ev["type"] == "login_ok"
+            });
+            super::mx_rust_start_sync(handle);
+            // Room ids are collected from the sync's own room events; there is
+            // no FFI that enumerates them, and inventing one for a test would
+            // be adding production surface to make a test convenient.
+            let mut room_ids: Vec<String> = Vec::new();
+            let mut seen: std::collections::BTreeSet<String> =
+                std::collections::BTreeSet::new();
+            let deadline = Instant::now() + Duration::from_secs(120);
+            let mut running = false;
+            loop {
+                for ev in poll_all(handle) {
+                    if let Some(t) = ev["type"].as_str() {
+                        seen.insert(t.to_owned());
+                    }
+                    if ev["type"] == "room_list_sync_state" && ev["state"] == "running" {
+                        running = true;
+                    }
+                    // Sliding sync delivers the room list as DIFFS, so the
+                    // ids arrive across several event kinds and not only in
+                    // the reset. Collecting from one of them found nothing and
+                    // looked like "the account has no rooms".
+                    let mut note = |id: Option<&str>| {
+                        if let Some(id) = id {
+                            if !id.is_empty() && !room_ids.iter().any(|k| k == id) {
+                                room_ids.push(id.to_owned());
+                            }
+                        }
+                    };
+                    if let Some(list) = ev["rooms"].as_array() {
+                        for room in list {
+                            note(room["id"].as_str());
+                        }
+                    }
+                    note(ev["room"]["id"].as_str());
+                }
+                if running && !room_ids.is_empty() {
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    eprintln!("[live] saw types: {:?} running={} rooms={}",
+                              seen, running, room_ids.len());
+                    panic!("sync did not produce rooms");
+                }
+                std::thread::sleep(Duration::from_millis(400));
+            }
+            eprintln!("[live] sync running, {} room(s) known", room_ids.len());
+
+            // Let the event cache actually receive some timeline before
+            // sweeping: a sweep of an empty cache proves nothing and would
+            // pass on a broken indexer.
+            std::thread::sleep(Duration::from_secs(12));
+
+            // Sweep, then deepen every joined room so history the sync did not
+            // carry is paged in and indexed.
+            let err = take(super::mx_rust_search_index_sweep(handle, 9001));
+            assert!(err.is_empty(), "sweep dispatch: {err}");
+            let swept = wait_for(handle, "sweep", Duration::from_secs(120), |ev| {
+                ev["type"] == "search_index_swept"
+            });
+            eprintln!(
+                "[live] swept rooms={} written={} total={}",
+                swept["rooms"], swept["written"], swept["messages"]
+            );
+
+            let mut deepened = 0u64;
+            for id in room_ids.iter().take(8) {
+                let rid = CString::new(id.as_str()).unwrap();
+                let op = 9100 + deepened;
+                let err = take(super::mx_rust_search_index_deep(
+                    handle, rid.as_ptr(), op));
+                if !err.is_empty() {
+                    continue;
+                }
+                let done = wait_for(
+                    handle, "deep index", Duration::from_secs(180), |ev| {
+                        ev["type"] == "search_index_deepened" && ev["op_id"] == op
+                    });
+                eprintln!(
+                    "[live] deepened pages={} start={} written={}",
+                    done["pages"], done["reached_start"], done["written"]
+                );
+                deepened += 1;
+            }
+            assert!(deepened > 0, "no rooms were deep-indexed");
+
+            let stats_err = take(super::mx_rust_search_index_stats(handle, 9200));
+            assert!(stats_err.is_empty(), "stats: {stats_err}");
+            let stats = wait_for(handle, "stats", Duration::from_secs(30), |ev| {
+                ev["type"] == "search_index_stats"
+            });
+            let indexed = stats["messages"].as_i64().unwrap_or(0);
+            eprintln!(
+                "[live] index holds {indexed} messages across {} rooms",
+                stats["rooms"]
+            );
+            assert!(indexed > 0, "the index is empty after a sweep and a deep index");
+
+            // THE ACTUAL CLAIM.
+            let q = CString::new(needle.clone()).unwrap();
+            let empty = CString::new("").unwrap();
+            let err = take(super::mx_rust_local_search(
+                handle, q.as_ptr(), empty.as_ptr(), 50, 0, 9300));
+            assert!(err.is_empty(), "search dispatch: {err}");
+            let result = wait_for(handle, "search", Duration::from_secs(30), |ev| {
+                ev["type"] == "local_search_result" && ev["op_id"] == 9300
+            });
+            assert_eq!(result["ok"], true, "search reported failure");
+            let hits = result["results"].as_array().cloned().unwrap_or_default();
+            eprintln!("[live] '{needle}' -> {} hit(s)", hits.len());
+            assert!(!hits.is_empty(), "the needle was not found");
+
+            // ── THE HEADLINE CLAIM ──────────────────────────────────
+            //
+            // "Search works in an ENCRYPTED room, where server search returns
+            // nothing." Asserted SEPARATELY rather than inferred from the
+            // total above: a needle found only in a public room would pass
+            // that check while the feature's whole reason for existing was
+            // broken.
+            //
+            // The message is SENT here rather than seeded by the fixture
+            // script, because an encrypted message can only be produced by a
+            // client that holds the keys — which is the property under test.
+            if let Some(encrypted_room) = env_nonempty("LIGHTNING_TEST_ENCRYPTED_ROOM") {
+                let secret = format!(
+                    "zephyrine-{}", std::process::id());
+                let rid = CString::new(encrypted_room.clone()).unwrap();
+                let body = CString::new(secret.clone()).unwrap();
+                let txn = CString::new(format!("live-{}", std::process::id())).unwrap();
+                let err = take(super::mx_rust_send_text(
+                    handle, rid.as_ptr(), body.as_ptr(), txn.as_ptr()));
+                assert!(err.is_empty(), "encrypted send dispatch: {err}");
+                // Give the send and the sync round trip time to land the event
+                // in the cache, DECRYPTED.
+                std::thread::sleep(Duration::from_secs(15));
+
+                let op = 9310u64;
+                let err = take(super::mx_rust_search_index_deep(
+                    handle, rid.as_ptr(), op));
+                assert!(err.is_empty(), "encrypted deep dispatch: {err}");
+                let done = wait_for(handle, "encrypted deep",
+                                    Duration::from_secs(180), |ev| {
+                    ev["type"] == "search_index_deepened" && ev["op_id"] == op
+                });
+                eprintln!("[live] encrypted room indexed written={}",
+                          done["written"]);
+
+                let q3 = CString::new(secret.clone()).unwrap();
+                let err = take(super::mx_rust_local_search(
+                    handle, q3.as_ptr(), empty.as_ptr(), 20, 0, 9311));
+                assert!(err.is_empty(), "encrypted search dispatch: {err}");
+                let r3 = wait_for(handle, "encrypted search",
+                                  Duration::from_secs(30), |ev| {
+                    ev["type"] == "local_search_result" && ev["op_id"] == 9311
+                });
+                let hits3 = r3["results"].as_array().cloned().unwrap_or_default();
+                eprintln!("[live] ENCRYPTED needle -> {} hit(s)", hits3.len());
+                assert!(
+                    !hits3.is_empty(),
+                    "a message this client sent into an ENCRYPTED room was not \
+                     searchable — the one thing this feature exists to do"
+                );
+                assert_eq!(hits3[0]["room_id"].as_str(), Some(encrypted_room.as_str()));
+            }
+
+            let encrypted_needle = env_nonempty("LIGHTNING_TEST_ENCRYPTED_NEEDLE");
+            if let Some(secret) = encrypted_needle {
+                let q2 = CString::new(secret.clone()).unwrap();
+                let err = take(super::mx_rust_local_search(
+                    handle, q2.as_ptr(), empty.as_ptr(), 50, 0, 9301));
+                assert!(err.is_empty(), "encrypted search dispatch: {err}");
+                let r2 = wait_for(handle, "encrypted search",
+                                  Duration::from_secs(30), |ev| {
+                    ev["type"] == "local_search_result" && ev["op_id"] == 9301
+                });
+                let hits2 = r2["results"].as_array().cloned().unwrap_or_default();
+                eprintln!("[live] encrypted '{secret}' -> {} hit(s)", hits2.len());
+                assert!(
+                    !hits2.is_empty(),
+                    "a message in an ENCRYPTED room was not searchable — the \
+                     one thing this feature exists to do"
+                );
+            }
+
+            // A query below the tokenizer's minimum is REPORTED, not silently
+            // empty: the user can act on "type one more character".
+            let short = CString::new("ab").unwrap();
+            let _ = take(super::mx_rust_local_search(
+                handle, short.as_ptr(), empty.as_ptr(), 10, 0, 9302));
+            let tooshort = wait_for(handle, "too short",
+                                    Duration::from_secs(30), |ev| {
+                ev["type"] == "local_search_result" && ev["op_id"] == 9302
+            });
+            assert_eq!(tooshort["ok"], false);
+            assert_eq!(tooshort["category"], "too_short");
+
+            let _ = take(super::mx_rust_shutdown_tasks(handle));
+            super::mx_rust_destroy(handle);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     fn tempfile_dir(prefix: &str) -> std::path::PathBuf {
         let base = std::env::temp_dir().join(format!(
             "{prefix}-{}",
