@@ -140,6 +140,27 @@ The prerequisites, in order:
    `ApplicationWorld`, because a main-world one is fully reachable by the page
    via `qt.webChannelTransport`.
 
+## What opening externally does not do
+
+Worth stating plainly rather than discovering:
+
+* **`data` keys are not templated.** Element treats every key of the widget's
+  `data` object as an extra `$variable`, which is how its Jitsi wrapper gets
+  `$conferenceId` and `$domain`. matrix-sdk does not, and neither does
+  Lightning — the substitution is a bare global replace with no word boundary,
+  so a `data` key sharing a prefix with a longer name silently eats it. A
+  widget relying on `data` templating will open with those variables
+  unsubstituted.
+* **An Element-authored Jitsi widget may not work.** Element replaces the
+  widget URL at render time with its own local `jitsi.html#` wrapper and puts
+  the conference details in the fragment. The URL actually stored in room
+  state varies by Element version, and where it points at a wrapper Lightning
+  cannot serve, opening it in a browser will not produce a call. A widget whose
+  stored URL is a real meeting address works.
+* **No postMessage API**, so no widget can read the timeline, send on the
+  user's behalf, stay on screen, request capabilities, or use OpenID. That is
+  the trade named at the top of this document.
+
 ## Not implemented, deliberately
 
 Account-level widgets (`m.widgets` account data), modal widgets (MSC2790),
