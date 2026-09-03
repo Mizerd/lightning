@@ -193,4 +193,18 @@ extend the list. So the store answer is empty for every room, always. The fix
 is banner.rs's shape: store first, one raw `/state` request second, on demand.
 
 Still NOT TESTED: the QML surface. The list, the consent sheet and the refusal
-rows have not been seen on screen.
+rows have not been seen on screen, and **on the mock backend they cannot be** —
+`RoomInfoController::supported()` reads `supportsRoomManagement()`, which only
+the Rust backend implements, so Room Information never opens in the screenshot
+demo and the widget list has no host there. A `room-widgets` demo scenario
+exists and stops at that gate. Enabling the capability on the mock was
+considered and rejected: `ConversationController` and `UserSearchModel` read
+the same flag and would then claim support they do not have.
+
+What HAS been checked, by inspection rather than by eye: every key the Rust
+bridge emits (`id`, `creator`, `kind`, `name`, `url`, `refusal`, `discloses`)
+is one `WidgetController` reads, and every `required property` in the list
+delegate (`name`, `kind`, `refusal`, `openable`) is a declared role. That is
+the defect class a screenshot of the SEARCH surface did catch this round — a
+producer and a consumer disagreeing on a key — so it was worth ruling out
+here directly.

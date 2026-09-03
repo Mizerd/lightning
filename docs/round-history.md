@@ -148,6 +148,28 @@ unhandled. Suites: `call-controller` 35, `call-ring-policy` 10,
 
 #### QML, layout and bindings
 
+- **`Layout.fillWidth` DEFAULTS TO TRUE for a nested layout**, so a composite
+  control whose root is a `RowLayout` takes a share of its host row's surplus
+  unless the host says otherwise. `SegmentedControl` is exactly that, and its
+  own trailing filler — which exists to keep the segments packed — turns the
+  stolen width into DEAD SPACE. In the find bar that put ~350 px between
+  "History" and the search field at 1600 px wide, and ~130 px at 1100 px:
+  **it scales with the window, which is what identifies it.** Invisible in
+  every host where nothing follows the control, which is why most hosts never
+  noticed and why the fix belongs on the host that has two things after it,
+  not on the shared control's default. Found by a screenshot; no test saw it.
+- **Two producers, one consumer, two spellings of the same key.**
+  `MessageSearchController` is fed by SERVER search (`senderDisplayName`) and
+  by the LOCAL index (`senderName`), and reads only the first — so every
+  local result reached the find bar with an empty sender, in the list and in
+  the row's Accessible name alike. The delegate still BUILT, because the role
+  exists on the model; it is the payload key underneath that missed, which is
+  the half a `required property` cannot defend (contrast the Qt 6.8
+  `roleNames` entry, where the role itself is absent and the delegate count
+  goes to zero). GENERALISE: when a controller has more than one producer,
+  the key names are a contract between them — assert a VALUE from each
+  producer, not that the role exists.
+
 - **A `Popup` with `CloseOnPressOutside` closes on the PRESS, and the button
   that opens it is outside it.** So the icon that opens a picker could never
   close it: the press dismissed the panel and the button's own `onClicked` —
